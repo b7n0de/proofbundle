@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Examples for draft-gruszka-evaluation-receipt-mappings-01.
+"""Examples for draft-gruszka-evaluation-receipt-mappings-02.
 
 Input: the positive vector P1 of draft-gruszka-signed-evaluation-receipts-01 (its exact receipt bytes,
 read from that draft's vectors.json). Output, all bytes deterministic:
@@ -19,8 +19,10 @@ read from that draft's vectors.json). Output, all bytes deterministic:
   * X1 to X6, certificate-profile vectors: X1 a statement in the certificate profile (alg -7, x5chain of a P-256
     test leaf and an RSA-3072 test root, iss a did:x509 identifier that names the root), each other vector X1 with
     one change; the chain and the ES256 signatures are deterministic test material of test_chain.py;
-  * R1 to R6, typed digest references under the declaration of the mappings draft, Section 5.1, each with a
-    candidate receipt, its state in the terms of CPB Section 8.1 and the result of the matching rule;
+  * R1 to R13, inputs to the typed digest reference processing of the mappings draft, Section 5.1, each with a
+    candidate receipt, its state in the terms of CPB Sections 3 and 8.1 (R7 to R13 Malformed but R12) and the result
+    of the matching rule with the JSON extraction rule of Section 5.1; R7 to R13 are JSON texts written as such,
+    with repeated or escaped member names where the vector asks for them;
   * T1 to T5, Transparent Statements: T2 is the recorded statement that a local Transparency Service returned for
     X1 (registered_x1.json, X1 with one COSE Receipt under unprotected label 394), the others are made from it.
 
@@ -108,6 +110,18 @@ REFS = [
     ("R4", "P1", {"digest": "UPPER"}, "Failed", "R1 with the digest in uppercase hexadecimal digits"),
     ("R5", "P1", {"digest": "P2"}, "Failed", "a reference that names B of P2, presented with P1"),
     ("R6", "N13", {}, "Unresolved", "R1 presented with N13, from which B is not obtained"),
+    ("R7", "P1", "x", "Malformed", "R1 with a member that the declaration does not name"),
+    ("R8", "P1", "second digest P2", "Malformed", "R1 with a second digest member that names B of P2; neither "
+     "value is chosen"),
+    ("R9", "P1", "no digest_alg", "Malformed", "R1 without digest_alg"),
+    ("R10", "P1", "array", "Malformed", "R1 inside a JSON array, which is not a JSON object"),
+    ("R11", "P1", "purpose null", "Malformed", "R1 with purpose set to null, not a JSON string. Unlike R2, this is "
+     "a form error before context selection"),
+    ("R12", "P1", "escaped name", "Verified", "R1 with the sole digest member name written as \"\\u0064igest\" in "
+     "the JSON text; the decoded name is unchanged"),
+    ("R13", "P1", "escaped second name", "Malformed", "R1 with an additional member named \"\\u0064igest\" whose "
+     "value equals the original digest. The decoded names are equal; equal values do not make a repeated name "
+     "acceptable"),
 ]
 
 #: (vector, candidate receipt, expected status, first failing step or None, what it shows)
@@ -121,6 +135,30 @@ STATUS = [
     ("S7", "P1", "digest_mismatch", 6, "a statement on B of P2, with sub its model commitment, presented with P1"),
     ("S8", "P1", "subject_mismatch", 7, "M2 with sub the dataset commitment of P1, signed again"),
 ]
+
+
+class _Obj(list):
+    """The member pairs of one JSON object, in order, repeated names kept."""
+
+
+def _no_constant(name):
+    raise ValueError("%s is not JSON" % name)
+
+
+def extract(text: str):
+    """The JSON extraction rule of Section 5.1: (digest_alg, digest) when the text is JSON, an object, with exactly one
+    digest_alg and exactly one digest, both strings; else None. Names are compared after unescaping."""
+    try:
+        top = json.loads(text, object_pairs_hook=_Obj, parse_constant=_no_constant)
+    except ValueError:
+        return None
+    if not isinstance(top, _Obj):
+        return None
+    algs = [v for k, v in top if k == "digest_alg"]
+    digs = [v for k, v in top if k == "digest"]
+    if len(algs) != 1 or len(digs) != 1 or not isinstance(algs[0], str) or not isinstance(digs[0], str):
+        return None
+    return algs[0], digs[0]
 
 
 def jcs(obj) -> bytes:
@@ -165,7 +203,7 @@ def main():
     statement = cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [protected_bstr, {}, digest, cose_sig]))
 
     doc = {
-        "draft": "draft-gruszka-evaluation-receipt-mappings-01",
+        "draft": "draft-gruszka-evaluation-receipt-mappings-02",
         "source": {"draft": rv["draft"], "vector": "P1", "receipt_sha256_of_bytes": p1["receipt_sha256"]},
         "issuer_public_key_b64": base64.b64encode(pub).decode("ascii"),
         "receipt_hex": receipt_bytes.hex(),
@@ -296,24 +334,39 @@ def main():
 
     # Typed digest references under the declaration of Section 5.1 (CPB Section 8), as JSON text.
     ref1 = {"type": TYPE, "digest_alg": "SHA-256", "digest": digest.hex()}
+    h1, h2 = digest.hex(), hashlib.sha256(p2_b).hexdigest()
+    r1t = jcs(ref1).decode("utf-8")
+    texts = {   # R7 to R13: JSON texts written as such (a repeated or escaped member name has no dict form)
+        "x": jcs(dict(ref1, x=1)).decode("utf-8"),
+        "second digest P2": r1t.replace('"digest":"%s"' % h1, '"digest":"%s","digest":"%s"' % (h1, h2)),
+        "no digest_alg": jcs({k: v for k, v in ref1.items() if k != "digest_alg"}).decode("utf-8"),
+        "array": "[" + r1t + "]",
+        "purpose null": jcs(dict(ref1, purpose=None)).decode("utf-8"),
+        "escaped name": r1t.replace('"digest":', '"\\u0064igest":', 1),
+        "escaped second name": r1t.replace('"digest":"%s"' % h1, '"digest":"%s","\\u0064igest":"%s"' % (h1, h1)),
+    }
     refs = []
     for rid, vid, change, state, shows in REFS:
-        ref = dict(ref1)
-        for k, v in change.items():
-            ref[k] = {"UPPER": digest.hex().upper(), "P2": hashlib.sha256(p2_b).hexdigest()}.get(v, v)
+        if isinstance(change, str):
+            text = texts[change]
+        else:
+            ref = dict(ref1)
+            for k, v in change.items():
+                ref[k] = {"UPPER": digest.hex().upper(), "P2": h2}.get(v, v)
+            text = jcs(ref).decode("utf-8")
         cand = bytes.fromhex(by_id[vid]["receipt_hex"])
         verdict, step, _ = check_receipts.verify(cand, base64.b64decode(by_id[vid]["verification_key_b64"]))
         first = int(str(step).split()[0]) if verdict == "FAIL" else None
-        if ref["digest_alg"] != "SHA-256" or not _re.fullmatch(r"[0-9a-f]{64}", ref["digest"]):
+        pair = extract(text)
+        if pair is None or pair[0] != "SHA-256" or not _re.fullmatch(r"[0-9a-f]{64}", pair[1]):
             match = "INDETERMINATE"
         elif first is not None and first <= 3:
             match = "INDETERMINATE"
         else:
             cb = base64.b64decode(json.loads(cand)["payload_b64"])
-            match = "MATCH" if hashlib.sha256(cb).hexdigest() == ref["digest"] else "NO_MATCH"
-        text = jcs(ref)
+            match = "MATCH" if hashlib.sha256(cb).hexdigest() == pair[1] else "NO_MATCH"
         refs.append({"id": rid, "candidate": vid, "candidate_receipt_sha256": by_id[vid]["receipt_sha256"],
-                     "reference_json": text.decode("utf-8"), "expected_state": state, "expected_match": match,
+                     "reference_json": text, "expected_state": state, "expected_match": match,
                      "shows": shows})
     doc["reference_vectors"] = refs
 

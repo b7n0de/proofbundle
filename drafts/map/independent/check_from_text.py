@@ -1,7 +1,17 @@
 #!/usr/bin/python3
-"""Independent check of the examples of draft-gruszka-evaluation-receipt-mappings-01
+"""Independent check of the examples of draft-gruszka-evaluation-receipt-mappings-02
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
+
+Round 31 (owner choice A of 2026-10-12, the text round of the -02): Draft 2 is now revision -02. A typed digest
+reference is read as JSON text under RFC 8259 by Parser8259, which keeps a repeated member name and does not apply the
+I-JSON rules of Draft 1; ref_state_json gives Malformed (5.1, CPB Section 3) before every other state, and the matching
+rule by the extraction rule of 5.1 (exactly one digest_alg and one digest, both strings), whatever the state. Table 6
+now has R1 to R13; each row is built as JSON text from its own words, the escaped name of R12 and R13 taken from the
+table cell. match_rule_in takes each carrier's value in its own form (3.3 step 1 of the -02: text in a digest set, a
+typed reference and the examples, 32 bytes in the COSE payload). ref_state gives Malformed for a value that is not an
+object (round 28 asked; the -02 names it). R20-51, R28-FORM and the table rows R20-R1 to R20-R13 read the -02 text;
+R31-FORM holds the reverse cases of the review, R31-CARRIER the value forms, R31-TEXT the new sentences.
 
 Round 30 (owner word of 2026-10-12, no change to the text): a digest counts only as a text value and an algorithm name
 only as a text or an integer. ref_state checks the form of 5.1 with typed_digest_form, which no longer reads the
@@ -229,7 +239,7 @@ INPUT_LIMIT = 1 << 20
 DEPTH_LIMIT = 64
 #: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1.
 JSON_DEPTH_LIMIT = 64
-D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-01.txt")
+D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-02.txt")
 D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-01.txt")
 
 RESULTS = []  # (category, id, ok, title)
@@ -495,6 +505,8 @@ def bad_cp(cp):
 
 
 class Parser:
+    IJSON = True   # round 31: Parser8259 reads the JSON of RFC 8259 alone
+
     def __init__(self, s):
         self.s, self.i = s, 0
 
@@ -537,7 +549,7 @@ class Parser:
             if self.peek() != '"':
                 raise JErr("member name expected")
             k = self.string()
-            if k in seen:
+            if self.IJSON and k in seen:
                 raise JErr("duplicate member name %r" % k)
             seen.add(k)
             self.ws()
@@ -613,10 +625,36 @@ class Parser:
             else:
                 out.append(c)
         s = "".join(out)
-        for ch in s:
+        for ch in s if self.IJSON else ():
             if bad_cp(ord(ch)):
                 raise JErr("surrogate or noncharacter U+%04X in string" % ord(ch))
         return s
+
+
+class Parser8259(Parser):
+    """Round 31, Draft 2 Section 5.1: the JSON grammar of RFC 8259 for a typed digest reference. A repeated member name
+    stays in JObj.pairs, so that it is found before any conversion; strings are not held to the I-JSON rules."""
+    IJSON = False
+
+
+def read_8259(b):
+    """Round 31: one JSON text under RFC 8259 in UTF-8, without a byte order mark (JErr otherwise); the limits of
+    rounds 29 and 27 come first (JLimit)."""
+    if len(b) > INPUT_LIMIT:
+        raise JLimit("%d bytes, more than %d" % (len(b), INPUT_LIMIT))
+    try:
+        s = b.decode("utf-8", "strict")
+    except UnicodeDecodeError as e:
+        raise JErr("not UTF-8: %s" % e)
+    if not json_depth_ok(s):
+        raise JLimit("arrays and objects nested deeper than %d" % JSON_DEPTH_LIMIT)
+    p = Parser8259(s)
+    p.ws()
+    v = p.value()
+    p.ws()
+    if p.i != len(s):
+        raise JErr("data after the end of the JSON text")
+    return v
 
 
 def parse_ijson(b):
@@ -872,11 +910,16 @@ def match_rule(alg, value, rb):
 CARRIER_NAME = {"digest set": "sha256", "cose": -16, "examples": "sha-256", "typed reference": "SHA-256"}
 
 
+#: Round 31, 3.3 step 1 of the -02: the form of the value in each carrier, text (64 lowercase hexadecimal digits) or
+#: bytes (32 bytes, the payload of a statement whose parameter 258 is -16).
+CARRIER_FORM = {"digest set": str, "cose": bytes, "examples": str, "typed reference": str}
+
+
 def match_rule_in(carrier, alg, value, rb):
     if isinstance(alg, bool) or alg != CARRIER_NAME[carrier]:
         return "INDETERMINATE", "rule step 1 (not the name of SHA-256 in this carrier)"
-    if carrier == "typed reference" and not isinstance(value, str):   # round 30: 5.1, digest is a text value
-        return "INDETERMINATE", "rule step 1 (the digest of a typed reference is a text value)"
+    if not isinstance(value, CARRIER_FORM[carrier]):   # round 30 for the typed reference, round 31 for each carrier
+        return "INDETERMINATE", "rule step 1 (not the value form of this carrier)"
     return match_rule(alg, value, rb)
 
 
@@ -884,7 +927,7 @@ def match_digest_set(ds, rb):
     """Draft 2 3.3 step 1: a digest set with several entries is matched on its sha256 entry alone."""
     if "sha256" not in ds:
         return "INDETERMINATE", "rule step 1 (no sha256 entry)"
-    return match_rule("sha256", ds["sha256"], rb)
+    return match_rule_in("digest set", "sha256", ds["sha256"], rb)
 
 
 # ---------------------------------------------------------------------------
@@ -1259,7 +1302,7 @@ def parse_verif(s):
 # ===========================================================================
 # Checks
 # ===========================================================================
-print("Independent check of draft-gruszka-evaluation-receipt-mappings-01 from its text")
+print("Independent check of draft-gruszka-evaluation-receipt-mappings-02 from its text")
 print("Python %s, cbor2 %s, cryptography %s" % (sys.version.split()[0], version("cbor2"), version("cryptography")))
 print("Draft 1 vectors extracted: %d" % len(VEC))
 print()
@@ -2749,8 +2792,8 @@ def typed_digest_form(ref):
 
 def ref_state(ref, rb):
     """Section 5.1 with CPB Section 8.1 as Section 5.1 cites it: (state, matching rule)."""
-    if not isinstance(ref, Mapping):   # round 28: no type, so the declaration does not apply; no algorithm, no digest
-        return "Unresolved", "INDETERMINATE"
+    if not isinstance(ref, Mapping):   # round 28 asked, round 31: the -02 names it Malformed (5.1, CPB Section 3)
+        return "Malformed", "INDETERMINATE"
     mr = match_rule_in("typed reference", ref.get("digest_alg"), ref.get("digest"), rb)[0]
     try:
         B_, fail_, _ = steps_1_to_3(rb)
@@ -2765,27 +2808,103 @@ def ref_state(ref, rb):
     return ("Verified" if sha256(B_).hex() == ref["digest"] else "Failed"), mr
 
 
-s51 = ["the context has no purpose label, so a reference that carries purpose is Unresolved ([CPB] Section 8.1);",
-       "a digest_alg other than SHA-256, a digest that is not a text value of 64 lowercase hexadecimal digits, and a "
-       "digest that differs from SHA-256 over B are Failed ([CPB] Section 8.1); the matching rule of Section 3.3 gives "
-       "INDETERMINATE for the first two and NO_MATCH for the third, because it also reads citations outside a typed "
-       "digest reference."]
+REF_REQUIRED, REF_MEMBERS = ("type", "digest_alg", "digest"), ("type", "purpose", "digest_alg", "digest")
+
+
+def ref_state_json(b, rb):
+    """Round 31, Section 5.1 of the -02: a typed digest reference in its JSON representation, as bytes: (state,
+    matching rule). Malformed (CPB Section 3) comes before every other state: not JSON, not an object, a repeated
+    member name (after unescaping), a required member missing, a named member that is not a string, another member.
+    The matching rule takes exactly one digest_alg and exactly one digest, both strings, whatever the state; no
+    occurrence is chosen and no value converted. JLimit (rounds 27 and 29) passes through: no state."""
+    try:
+        top = read_8259(b)
+    except JErr:
+        top = None
+    pairs = top.pairs if isinstance(top, JObj) else []
+    algs = [v for k, v in pairs if k == "digest_alg"]
+    digs = [v for k, v in pairs if k == "digest"]
+    if len(algs) == 1 and len(digs) == 1 and isinstance(algs[0], str) and isinstance(digs[0], str):
+        mr = match_rule_in("typed reference", algs[0], digs[0], rb)[0]
+    else:
+        mr = "INDETERMINATE"
+    names = [k for k, _ in pairs]
+    if (not isinstance(top, JObj) or len(set(names)) != len(names) or not set(REF_REQUIRED) <= set(names)
+            or not set(names) <= set(REF_MEMBERS) or not all(isinstance(v, str) for _, v in pairs)):
+        return "Malformed", mr
+    state, mr_ = ref_state(dict(pairs), rb)
+    assert mr_ == mr
+    return state, mr
+
+
+s51 = ["the context has no purpose label, so a well-formed reference that carries purpose is Unresolved ([CPB] "
+       "Section 8.1);",
+       "Input that violates the JSON grammar, is not an object, has a repeated member name, lacks a required member, "
+       "has a non-string value for one of the named members, or has another member is Malformed ([CPB] Section 3).",
+       "No occurrence is chosen from repeated digest_alg or digest members, even if their values agree, and "
+       "non-string values are not converted to strings.",
+       "Once this digest context has been selected, a digest_alg other than SHA-256 or a digest outside the declared "
+       "text representation of 64 lowercase hexadecimal digits makes the reference Failed. Section 3.3 gives "
+       "INDETERMINATE for either case.",
+       "equality gives Verified and MATCH, and inequality gives Failed and NO_MATCH. Vectors R1 to R13 (Appendix A.7) "
+       "illustrate these states and Malformed."]
 check("SELF", "R20-CARRIER", match_rule("sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "MATCH"
       and match_rule_in("typed reference", "sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "INDETERMINATE"
       and match_rule_in("typed reference", "SHA-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "MATCH"
       and "each name counts only in its own carrier" in d2flat20,
       "3.3 step 1 per carrier: sha-256 matches in the examples' carrier and gives INDETERMINATE in a typed digest "
       "reference, where only SHA-256 names the algorithm; the union of the names (match_rule) is too wide there")
-check("D2", "R20-51", all(x in d2flat20 for x in s51) and set(TAB7) == {"R%d" % i for i in range(1, 7)},
-      "5.1 holds the two sentences of the CPB comparison (P1 and P2), and A.7 lists R1 to R6",
-      "found %d of %d; rows %s" % (sum(x in d2flat20 for x in s51), len(s51), sorted(TAB7)))
-for rid in sorted(TAB7):
+check("D2", "R20-51", all(x in d2flat20 for x in s51) and set(TAB7) == {"R%d" % i for i in range(1, 14)},
+      "round 31: 5.1 of the -02 holds the purpose bullet for a well-formed reference, the Malformed sentence, the "
+      "extraction rule without a chosen occurrence, the Failed sentence and the order of B, and A.7 lists R1 to R13",
+      "found %d of %d; rows %s" % (sum(x in d2flat20 for x in s51), len(s51), sorted(TAB7, key=lambda r: int(r[1:]))))
+
+
+def _jtext(pairs):
+    """Round 31: a JSON object written from (name as written, value as JSON text) pairs, in that order."""
+    return "{" + ",".join('"%s":%s' % (n, v) for n, v in pairs) + "}"
+
+
+#: Round 31: R1 as A.7 describes it, three members (type, digest_alg, digest), each value a JSON string.
+R1P = [("type", '"%s"' % D2_TYPE), ("digest_alg", '"SHA-256"'), ("digest", '"%s"' % D2_DIGEST.hex())]
+
+
+def _set(pairs, name, value):
+    return [(n, value if n == name else v) for n, v in pairs]
+
+
+def build7(change):
+    """Round 31: the JSON text of a vector of Table 6 from the words of its change; the written form of an escaped
+    name is taken from the cell."""
+    esc = re.search(r'"(\\u[0-9A-Fa-f]{4}[^"]*)"', change)
+    known = {
+        "(none)": lambda: _jtext(R1P),
+        "purpose evaluation added": lambda: _jtext(R1P + [("purpose", '"evaluation"')]),
+        "digest_alg sha-256": lambda: _jtext(_set(R1P, "digest_alg", '"sha-256"')),
+        "digest in uppercase": lambda: _jtext(_set(R1P, "digest", '"%s"' % D2_DIGEST.hex().upper())),
+        "digest names B of P2": lambda: _jtext(_set(R1P, "digest", '"%s"' % sha256(_p2b).hex())),
+        "member x added, value 1": lambda: _jtext(R1P + [("x", "1")]),
+        "second digest member, names B of P2": lambda: _jtext(R1P + [("digest", '"%s"' % sha256(_p2b).hex())]),
+        "digest_alg removed": lambda: _jtext([(n, v) for n, v in R1P if n != "digest_alg"]),
+        "R1 as the only element of a JSON array": lambda: "[" + _jtext(R1P) + "]",
+        "purpose added, value null": lambda: _jtext(R1P + [("purpose", "null")]),
+    }
+    if change in known:
+        return known[change]()
+    if esc and change == 'sole digest name written as "%s"' % esc.group(1):
+        return _jtext([(esc.group(1) if n == "digest" else n, v) for n, v in R1P])
+    if esc and change == 'second name "%s", same value' % esc.group(1):
+        return _jtext(R1P + [(esc.group(1), dict(R1P)["digest"])])
+    raise KeyError(change)
+
+
+for rid in sorted(TAB7, key=lambda r: int(r[1:])):
     _v, change, cand_, state_exp, match_exp = TAB7[rid]
-    ref = {**REF1, **CHANGES7[change.replace("`", "")]}
-    got = ref_state(ref, VEC[cand_]["R"])
+    text7 = build7(change.replace("`", ""))
+    got = ref_state_json(text7.encode("utf-8"), VEC[cand_]["R"])
     check("D2", "R20-" + rid, got == (state_exp, match_exp),
           "%s (%s) with %s: state and matching rule computed from the text %s, table says %s"
-          % (rid, change, cand_, got, (state_exp, match_exp)))
+          % (rid, change, cand_, got, (state_exp, match_exp)), "JSON text: " + text7[:100])
 print()
 
 
@@ -3221,11 +3340,12 @@ print()
 
 # ---------------------------------------------------------------------------
 print("=== D2 round 28: a typed digest reference that is not an object (5.1, A.7) ===")
-_got28 = [(d_, ref_state(r_, VEC["P1"]["R"])) for d_, r_ in (("an array", []), ("a text", D2_TYPE), ("a number", 1),
-                                                              ("null", None), ("an object without members", {}))]
-check("DEMO", "R28-FORM", all(g_ == ("Unresolved", "INDETERMINATE") for _, g_ in _got28),
-      "a reference that is not an object carries no type, so the declaration of 5.1 does not apply, as for an object "
-      "without members: Unresolved, and the matching rule gives INDETERMINATE; 5.1 and A.7 name no state for it",
+_got28 = [(d_, ref_state_json(r_, VEC["P1"]["R"])) for d_, r_ in (
+    ("an array", b"[]"), ("a text", b'"%s"' % D2_TYPE.encode()), ("a number", b"1"), ("null", b"null"),
+    ("an object without members", b"{}"))] + [("the Python value []", ref_state([], VEC["P1"]["R"]))]
+check("DEMO", "R28-FORM", all(g_ == ("Malformed", "INDETERMINATE") for _, g_ in _got28),
+      "round 31: the -02 names the state that round 28 asked for: a reference that is not an object, and an object "
+      "without the required members, is Malformed (5.1, CPB Section 3), and the matching rule gives INDETERMINATE",
       *["reference that is %s, with P1: %s" % (d_, g_) for d_, g_ in _got28])
 print()
 
@@ -3297,6 +3417,83 @@ check("DEMO", "R30-ALG", [g_ for _, g_ in _got30a] == ["MATCH"] + ["INDETERMINAT
       "3.3 step 1: names are compared exactly, so -16.0 and true are not -16, and an algorithm that is a list or a "
       "map is no name; each gives INDETERMINATE",
       *["%s, P1: %s" % (d_, g_) for d_, g_ in _got30a])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 31: the -02, the JSON form of a typed digest reference (3.3, 5.1, A.7) and the value forms ===")
+_p1r31 = VEC["P1"]["R"]
+_r1t = _jtext(R1P)
+_cases31 = [
+    ("cut short (not JSON)", _r1t[:-1], ("Malformed", "INDETERMINATE")),
+    ("a byte order mark", "\ufeff" + _r1t, ("Malformed", "INDETERMINATE")),
+    ("a member NaN (not JSON)", _jtext(R1P + [("x", "NaN")]), ("Malformed", "INDETERMINATE")),
+    ("no type", _jtext(R1P[1:]), ("Malformed", "MATCH")),
+    ("type 1", _jtext(_set(R1P, "type", "1")), ("Malformed", "MATCH")),
+    ("no digest", _jtext(R1P[:2]), ("Malformed", "INDETERMINATE")),
+    ("digest_alg a list", _jtext(_set(R1P, "digest_alg", '["SHA-256"]')), ("Malformed", "INDETERMINATE")),
+    ("digest true", _jtext(_set(R1P, "digest", "true")), ("Malformed", "INDETERMINATE")),
+    ("digest 1 and 63 zeros", _jtext(_set(R1P, "digest", "1" + "0" * 63)), ("Malformed", "INDETERMINATE")),
+    ("digest_alg twice, the same value", _jtext(R1P + [("digest_alg", '"SHA-256"')]), ("Malformed", "INDETERMINATE")),
+    ("type twice", _jtext(R1P + [R1P[0]]), ("Malformed", "MATCH")),
+    ("purpose twice", _jtext(R1P + [("purpose", '"evaluation"')] * 2), ("Malformed", "MATCH")),
+    ("purpose evaluation", _jtext(R1P + [("purpose", '"evaluation"')]), ("Unresolved", "MATCH")),
+    ("purpose a lone surrogate escape", _jtext(R1P + [("purpose", '"\\ud800"')]), ("Unresolved", "MATCH")),
+    ("type written as \\u0074ype", _jtext([("\\u0074ype", R1P[0][1])] + R1P[1:]), ("Verified", "MATCH")),
+    ("a member of arrays, %d deep in all" % JSON_DEPTH_LIMIT,
+     _jtext(R1P + [("x", "[" * (JSON_DEPTH_LIMIT - 1) + "]" * (JSON_DEPTH_LIMIT - 1))]), ("Malformed", "MATCH")),
+    ("a member of arrays, %d deep in all" % (JSON_DEPTH_LIMIT + 1),
+     _jtext(R1P + [("x", "[" * JSON_DEPTH_LIMIT + "]" * JSON_DEPTH_LIMIT)]), "resource-limit error")]
+def _ref31(t_):
+    try:
+        return ref_state_json(t_.encode("utf-8"), _p1r31)
+    except JLimit:
+        return "resource-limit error"
+
+
+_got31 = [(d_, _ref31(t_), w_) for d_, t_, w_ in _cases31]
+check("DEMO", "R31-FORM", all(g_ == w_ for _, g_, w_ in _got31),
+      "5.1 of the -02 on JSON text: not JSON, not an object, a required member missing or not a string, a repeated "
+      "name and another member are Malformed; the matching rule gives MATCH when exactly one digest_alg and one "
+      "digest, both strings, name B, else INDETERMINATE; names compare after unescaping; the depth limit stays a "
+      "resource-limit error, no state",
+      *["R1 with %s, P1: %s (expected %s)" % (d_, g_, w_) for d_, g_, w_ in _got31])
+_got31c = [(d_, match_rule_in(c_, n_, v_, _p1r31)[0]) for d_, c_, n_, v_ in (
+    ("digest set, text", "digest set", "sha256", D2_DIGEST.hex()),
+    ("digest set, 32 bytes", "digest set", "sha256", D2_DIGEST),
+    ("COSE payload, 32 bytes", "cose", -16, D2_DIGEST),
+    ("COSE payload, text", "cose", -16, D2_DIGEST.hex()),
+    ("examples, text", "examples", "sha-256", D2_DIGEST.hex()),
+    ("examples, 32 bytes", "examples", "sha-256", D2_DIGEST),
+    ("typed reference, text", "typed reference", "SHA-256", D2_DIGEST.hex()),
+    ("typed reference, 32 bytes", "typed reference", "SHA-256", D2_DIGEST))]
+s31c = ("The value is 64 lowercase hexadecimal digits in text form in a digest set (Section 4.3), in a typed digest "
+        "reference (Section 5.1) and in the examples (Appendix A.2), and 32 bytes as the payload of a statement whose "
+        "parameter 258 is -16 (Section 5.2).")
+check("D2", "R31-CARRIER", [g_ for _, g_ in _got31c] == ["MATCH", "INDETERMINATE"] * 4 and s31c in d2flat20,
+      "3.3 step 1 of the -02 names the value form of each carrier; the other form gives INDETERMINATE",
+      *["%s, P1: %s" % (d_, g_) for d_, g_ in _got31c])
+s31t = ["For the JSON representation in Section 5.1, first apply that section's extraction rule; it either gives "
+        "INDETERMINATE or supplies the algorithm and value for the steps below. The matching result is independent of "
+        "the typed reference's processing state.",
+        "For State, assume a consuming profile that accepts the declaration in Section 5.1 by normative reference.",
+        "Thus R2 gives MATCH while Unresolved, and R7 and R11 give MATCH while Malformed. Neither result makes the "
+        "reference Verified.",
+        "A MATCH alone does not establish that the reference is well formed or that its digest context has been "
+        "resolved.",
+        "Reference parsing. For the JSON representation in Section 5.1, duplicate detection precedes any conversion "
+        "that could discard member names.",
+        "and the state and the matching result of each of R1 to R13, with its own implementation of the form rules of "
+        "Section 5.1.",
+        '[RFC8259] Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format", STD 90, RFC 8259, '
+        "December 2017,",
+        "draft-gruszka-evaluation-receipt-mappings-02"]
+_refs31 = [re.search(r"Internet-Draft, draft-gruszka-%s- ?%s, October 2026" % (a_, b_), d2flat20) is not None
+           for a_, b_ in (("signed-evaluation", "receipts-01"), ("scitt-statement", "identification-01"))]
+check("D2", "R31-TEXT", all(x in d2flat20 for x in s31t) and all(_refs31),
+      "the -02 holds blocks A, E, H, I, J and L of the review, Section 12 names R1 to R13 and the form rules, its name "
+      "is -02, and [RECEIPTS] and [STATEMENT-ID] stay -01",
+      "missing: " + (", ".join(x[:40] for x in s31t if x not in d2flat20) or "none"),
+      "[RECEIPTS] -01: %s, [STATEMENT-ID] -01: %s" % tuple(_refs31))
 print()
 
 # ---------------------------------------------------------------------------

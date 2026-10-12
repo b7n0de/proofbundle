@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble draft-gruszka-evaluation-receipt-mappings-01 from the body, mappings.json and the receipts draft.
+"""Assemble draft-gruszka-evaluation-receipt-mappings-02 from the body, mappings.json and the receipts draft.
 
 Substitutes @@CASES_TABLE@@, @@NON_CLAIMS@@ and @@APPENDIX@@ in draft_body.md:
 
@@ -18,7 +18,7 @@ HERE = __file__.rsplit("/", 1)[0] or "."
 BODY = HERE + "/draft_body.md"
 MAP = HERE + "/../examples/mappings.json"
 RECEIPTS_BODY = HERE + "/../../ser/draft/draft_body.md"
-OUT = HERE + "/draft-gruszka-evaluation-receipt-mappings-01.md"
+OUT = HERE + "/draft-gruszka-evaluation-receipt-mappings-02.md"
 
 LABELS = {1: "1 (alg)", 4: "4 (kid)", 15: "15 (CWT Claims)", 33: "33 (x5chain)", 258: "258 (payload hash algorithm)",
           259: "259 (preimage content type)"}
@@ -110,11 +110,15 @@ def status_section(d):
 
 REF_CHANGE = {"R1": "(none)", "R2": "`purpose` `evaluation` added",
               "R3": "`digest_alg` `sha-256`", "R4": "`digest` in uppercase",
-              "R5": "`digest` names B of P2", "R6": "(none)"}
+              "R5": "`digest` names B of P2", "R6": "(none)",
+              "R7": "member `x` added, value `1`", "R8": "second `digest` member, names B of P2",
+              "R9": "`digest_alg` removed", "R10": "R1 as the only element of a JSON array",
+              "R11": "`purpose` added, value `null`", "R12": "sole `digest` name written as `\"\\u0064igest\"`",
+              "R13": "second name `\"\\u0064igest\"`, same value"}
 
 
 def reference_section(d):
-    """Typed digest references under the declaration of Section 5.1, one per state."""
+    """Typed digest references under the declaration of Section 5.1, one per state, and Malformed inputs."""
     ref1 = json.loads(d["reference_vectors"][0]["reference_json"])
     if ref1 != {"type": d["M1_dsse"]["payloadType"], "digest_alg": "SHA-256", "digest": d["receipt_digest"]["hex"]}:
         raise SystemExit("R1 is not the reference the text describes")
@@ -125,17 +129,20 @@ def reference_section(d):
                     f"| {r['expected_match']} |")
     rows.append('{: #reference-table title="Typed digest references"}')
     out = ["## Typed Digest References {#reference-vectors}", "",
-           "Each vector is a typed digest reference under the declaration of {{typed-reference}}, written as a "
-           "JSON object. R1 has exactly three members: `type`, the type; `digest_alg`, `SHA-256`; and `digest`, "
-           "the receipt digest of {{p1-digests}} as 64 lowercase hexadecimal digits. Each other vector is R1 "
-           "with the change in {{reference-table}}; \"names B of P2\" means SHA-256 over B of vector P2 of "
+           "Each vector supplies an input to the typed digest reference processing of {{typed-reference}}. "
+           "R1 is a JSON object with exactly three members: `type`, the type; `digest_alg`, `SHA-256`; and "
+           "`digest`, the receipt digest of {{p1-digests}} as 64 lowercase hexadecimal digits. Each other vector "
+           "is R1 with the change in {{reference-table}}; \"names B of P2\" means SHA-256 over B of vector P2 of "
            "{{RECEIPTS}}, as 64 lowercase hexadecimal digits. The candidate is the vector of {{RECEIPTS}} named "
-           "in the table. State is the state of the reference in the terms of {{CPB}} Section 8.1, and Matching "
-           "rule is the result of {{matching}} for the reference's `digest_alg` and `digest`.", ""] + rows + [
+           "in the table. For State, assume a consuming profile that accepts the declaration in "
+           "{{typed-reference}} by normative reference. State is the reference processing state in the terms of "
+           "{{CPB}} Sections 3 and 8.1. Matching rule is the independent result of {{matching}}, including the "
+           "JSON extraction rule in {{typed-reference}}.", ""] + rows + [
            "", "What each vector shows:", ""]
     out += [f"* {r['id']}: {r['shows']}." for r in d["reference_vectors"]]
-    out += ["", "The matching rule reads only the algorithm and the digest, so for R2 it gives MATCH while the "
-            "reference is Unresolved.", ""]
+    out += ["", "The matching rule compares an unambiguously extracted algorithm and digest independently of the "
+            "reference state. Thus R2 gives MATCH while Unresolved, and R7 and R11 give MATCH while Malformed. "
+            "Neither result makes the reference Verified.", ""]
     return out
 
 

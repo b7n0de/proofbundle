@@ -17,7 +17,7 @@ PY=${PYTHON:-python3}
 export ID_DATE=$DOC_DATE   # the name fixdate.rb reads
 case $W in
   ser) N=draft-gruszka-signed-evaluation-receipts-01 ;;
-  map) N=draft-gruszka-evaluation-receipt-mappings-01 ;;
+  map) N=draft-gruszka-evaluation-receipt-mappings-02 ;;
   id)  N=draft-gruszka-scitt-statement-identification-01 ;;
   *) echo "unknown draft $W"; exit 2 ;;
 esac
