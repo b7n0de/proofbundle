@@ -108,6 +108,13 @@ _ALLOWLIST_BEGRUENDUNG = {
     "go_note_differential/treiber.py":
         "Python-Treiber, baut cases.json und ruft `go run .` (main.go) auf — reicht Bytes durch, "
         "parst selbst keine C2SP-Note.",
+    # 2026-09-28, the first file that falls in through the STRUCTURE alone, which the meta test below
+    # says is decided here, with a reason, and not by softening the rule.
+    "capability_matrix/measure.py":
+        "renders the capability matrix as a Markdown table: the em dash is the table's filler for an "
+        "empty cell and its separator between a status and a label, the double newline splices the "
+        "rendered block into README.md between two markers. It reads no signed note and no "
+        "checkpoint; its inputs are the release artifacts' file lists and the repository tree.",
 }
 ALLOWLIST = frozenset((TOOLS / rel).resolve().relative_to(TOOLS.resolve()).as_posix()
                       for rel in _ALLOWLIST_BEGRUENDUNG)
@@ -237,7 +244,10 @@ class MetaSicherungFaengtEinenGepflanztenNoteParser(unittest.TestCase):
         keine Justierschraube — die Allowlist wird dann mit Begruendung erweitert, nicht die Regel
         aufgeweicht."""
         hits = scan_for_note_parser_markers(TOOLS)
-        nur_bauform = sorted(k for k, v in hits.items() if v == [_STRUKTUR_MARKE])
+        # A structure-only hit that the allowlist carries WITH A REASON is decided, as this docstring
+        # says; one that it does not carry is the finding. Before 2026-09-28 no such entry existed, so
+        # the two readings could not differ.
+        nur_bauform = sorted(k for k, v in hits.items() if v == [_STRUKTUR_MARKE] and k not in ALLOWLIST)
         self.assertEqual(nur_bauform, [],
                          f"neue Datei(en), die NUR ueber die Bauform auffallen: {nur_bauform} — pruefen, "
                          "ob dort eine zweite Notenrahmung entsteht")
