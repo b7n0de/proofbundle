@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks for the examples of draft-gruszka-evaluation-receipt-mappings-02. It does not import the
+"""Checks for the examples of draft-gruszka-evaluation-receipt-mappings-03. It does not import the
 generator; it re-derives every claim from the bytes in mappings.json:
 
   D1  the receipt digest is SHA-256 over B, and B is the payload of the receipt bytes;

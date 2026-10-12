@@ -1,5 +1,5 @@
 {
-  "draft": "draft-gruszka-evaluation-receipt-mappings-02",
+  "draft": "draft-gruszka-evaluation-receipt-mappings-03",
   "source": {
     "draft": "draft-gruszka-signed-evaluation-receipts-01",
     "vector": "P1",
@@ -287,7 +287,7 @@
       "statement_sha256": "2322eb9197b41fddbcbc9e68223b3be016111654f4017e77fd046d2e89271721",
       "expected_status": "outside_profile",
       "step": 2,
-      "shows": "X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf"
+      "shows": "X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf; the Transparency Service of Section 12 refuses it at registration"
     },
     {
       "id": "X3",

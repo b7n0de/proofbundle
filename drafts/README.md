@@ -1,9 +1,9 @@
-# Sources of the three Internet-Drafts, revision -01 (the mappings draft -02)
+# Sources of the three Internet-Drafts, revision -01 (the mappings draft -03)
 
 | Folder | Draft |
 |---|---|
 | `ser/` | draft-gruszka-signed-evaluation-receipts-01 |
-| `map/` | draft-gruszka-evaluation-receipt-mappings-02 |
+| `map/` | draft-gruszka-evaluation-receipt-mappings-03 |
 | `id/` | draft-gruszka-scitt-statement-identification-01 |
 
 Each folder holds:

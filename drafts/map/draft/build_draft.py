@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble draft-gruszka-evaluation-receipt-mappings-02 from the body, mappings.json and the receipts draft.
+"""Assemble draft-gruszka-evaluation-receipt-mappings-03 from the body, mappings.json and the receipts draft.
 
 Substitutes @@CASES_TABLE@@, @@NON_CLAIMS@@ and @@APPENDIX@@ in draft_body.md:
 
@@ -18,7 +18,7 @@ HERE = __file__.rsplit("/", 1)[0] or "."
 BODY = HERE + "/draft_body.md"
 MAP = HERE + "/../examples/mappings.json"
 RECEIPTS_BODY = HERE + "/../../ser/draft/draft_body.md"
-OUT = HERE + "/draft-gruszka-evaluation-receipt-mappings-02.md"
+OUT = HERE + "/draft-gruszka-evaluation-receipt-mappings-03.md"
 
 LABELS = {1: "1 (alg)", 4: "4 (kid)", 15: "15 (CWT Claims)", 33: "33 (x5chain)", 258: "258 (payload hash algorithm)",
           259: "259 (preimage content type)"}
@@ -220,7 +220,7 @@ def certificate_section(d):
         sig = cbor2.loads(bytes.fromhex(s["statement_hex"])).value[3]
         out += [f"{s['id']}: {CERT_CHANGE[s['id']]}. Signature (hex):", ""] + artwork(wrap_hex(sig.hex()))
     out += rows + ["", "What each vector shows:", ""]
-    out += [f"* {s['id']}: {s['shows']}." for s in xv]
+    out += [f"* {s['id']}: " + s["shows"].replace("of Section 12", "of {{impl}}") + "." for s in xv]
     out += ["", "Vector and SHA-256 over its bytes:", ""] + artwork(
         *[f"{s['id']} {s['statement_sha256']}" for s in xv])
     return out

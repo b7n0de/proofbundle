@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Examples for draft-gruszka-evaluation-receipt-mappings-02.
+"""Examples for draft-gruszka-evaluation-receipt-mappings-03.
 
 Input: the positive vector P1 of draft-gruszka-signed-evaluation-receipts-01 (its exact receipt bytes,
 read from that draft's vectors.json). Output, all bytes deterministic:
@@ -78,7 +78,8 @@ LEAF_CN = "eval-receipt mappings test statement signer (PURE TEST MATERIAL)"
 CERT = [
     ("X1", "P1", "accepted", None, "the certificate profile: alg -7, x5chain of the test leaf and the test root, "
      "iss a did:x509 identifier that names the test root"),
-    ("X2", "P1", "outside_profile", 2, "X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf"),
+    ("X2", "P1", "outside_profile", 2, "X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf; "
+     "the Transparency Service of Section 12 refuses it at registration"),
     ("X3", "P1", "outside_profile", 2, "X1 without x5chain, signed again under the test leaf: its labels are those "
      "of the key profile, and -7 is not an alg value of that profile"),
     ("X4", "P1", "untrusted_key", 3, "X1 with an iss whose fingerprint names the test leaf certificate and not the "
@@ -203,7 +204,7 @@ def main():
     statement = cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [protected_bstr, {}, digest, cose_sig]))
 
     doc = {
-        "draft": "draft-gruszka-evaluation-receipt-mappings-02",
+        "draft": "draft-gruszka-evaluation-receipt-mappings-03",
         "source": {"draft": rv["draft"], "vector": "P1", "receipt_sha256_of_bytes": p1["receipt_sha256"]},
         "issuer_public_key_b64": base64.b64encode(pub).decode("ascii"),
         "receipt_hex": receipt_bytes.hex(),

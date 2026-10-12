@@ -1,7 +1,14 @@
 #!/usr/bin/python3
-"""Independent check of the examples of draft-gruszka-evaluation-receipt-mappings-02
+"""Independent check of the examples of draft-gruszka-evaluation-receipt-mappings-03
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
+
+Round 32 (owner choice A of 2026-10-12, the text round of the -03, owner choice E3): Draft 2 is now revision -03. The
+certificate profile does not admit -9 and says why (5.2.4, Section 12, the description of X2 in A.8); the Open Items
+are gone, and a scope sentence in 5.2 takes the place of the item on intermediate certificates and other roots; an
+unnumbered appendix "Changes (to be removed before publication)" follows the examples and is now where they end
+(APPX_END). R17-OI reads the in-toto pin in the references, R22-OI the scope sentence and the measurement of Section 12,
+R31-TEXT the name -03; R32-E3 and R32-CHANGES hold the new sentences. No vector changes its result.
 
 Round 31 (owner choice A of 2026-10-12, the text round of the -02): Draft 2 is now revision -02. A typed digest
 reference is read as JSON text under RFC 8259 by Parser8259, which keeps a repeated member name and does not apply the
@@ -239,7 +246,7 @@ INPUT_LIMIT = 1 << 20
 DEPTH_LIMIT = 64
 #: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1.
 JSON_DEPTH_LIMIT = 64
-D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-02.txt")
+D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-03.txt")
 D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-01.txt")
 
 RESULTS = []  # (category, id, ok, title)
@@ -1228,7 +1235,9 @@ a2 = find_line(d2, r"^A\.2\.\s+Digests of Vector P1")
 a3 = find_line(d2, r"^A\.3\.\s+Citation Cases")
 a4 = find_line(d2, r"^A\.4\.\s+M1")
 a5 = find_line(d2, r"^A\.5\.\s+M2")
-aend = find_line(d2, r"^Open Items")
+#: Round 32: the -03 has no Open Items; the appendix of examples ends at the unnumbered appendix of changes.
+APPX_END = r"^Changes \(to be removed before publication\)"
+aend = find_line(d2, APPX_END)
 D2_TYPE, _ = next_text(d2, find_line(d2, r"^\s+Type:", a1))
 kpl = find_line(d2, r"Issuer test key, public key \(base64 and hex\)", a1)
 D2_PK_B64, q = next_text(d2, kpl)
@@ -1302,7 +1311,7 @@ def parse_verif(s):
 # ===========================================================================
 # Checks
 # ===========================================================================
-print("Independent check of draft-gruszka-evaluation-receipt-mappings-02 from its text")
+print("Independent check of draft-gruszka-evaluation-receipt-mappings-03 from its text")
 print("Python %s, cbor2 %s, cryptography %s" % (sys.version.split()[0], version("cbor2"), version("cryptography")))
 print("Draft 1 vectors extracted: %d" % len(VEC))
 print()
@@ -2206,15 +2215,17 @@ check("D2", "R17-VSA", "<https://slsa.dev/spec/v1.2/verification_summary>" in d2
 check("D2", "R17-ABAK", "This document addresses parts of these requirements for the conversions it describes; the "
       "correspondences below are not a conformance claim." in d2flat16 and "This document meets some of them" not in d2flat16,
       "the ABAK paragraph says the correspondences are not a conformance claim")
-check("D2", "R17-OI", "References. The in-toto references are pinned to release v1.2.0 of the in-toto Attestation "
-      "Framework." in d2flat16 and "The SLSA reference is to be re-checked" not in d2flat16,
-      "Open Items: the in-toto sentence stays, the SLSA re-check sentence is gone")
+check("D2", "R17-OI", d2flat16.count("(release v1.2.0)") == 5 and "References. The in-toto references are pinned"
+      not in d2flat16 and "The SLSA reference is to be re-checked" not in d2flat16,
+      "round 32: the five in-toto references carry the pin (release v1.2.0) in their entries, the open item that "
+      "repeated it is gone, and the SLSA re-check sentence stays gone",
+      "(release v1.2.0) found %d times" % d2flat16.count("(release v1.2.0)"))
 print()
 
 # ---------------------------------------------------------------------------
 print("=== D2 round 19: Appendix A.6 status vectors, one statement per status of 5.2.2 ===")
 a6 = find_line(d2, r"^A\.6\.\s+Status Vectors")
-a6_end = find_line(d2, r"^Open Items", a6)
+a6_end = find_line(d2, APPX_END, a6)
 d2flat19 = norm_ws(" ".join(d2))
 t19s = find_line(d2, r"^\s+\| Vector \| Candidate", a6)
 t19e = find_line(d2, r"Table \d+: Status vectors", a6)
@@ -2642,7 +2653,7 @@ check("SELF", "R20-OID", der_oid(bytes.fromhex("2a864886f70d01010b")) == "1.2.84
 
 # Appendix A.8 read from the text
 a8 = find_line(d2, r"^A\.8\.\s+Certificate-Profile Vectors")
-a8_end = find_line(d2, r"^Open Items", a8)
+a8_end = find_line(d2, APPX_END, a8)
 lf = find_line(d2, r"^\s+F [A-Za-z0-9_-]{43}$", a8, a8_end)
 F20 = d2[lf].split()[1]
 O20 = d2[lf + 1].split()[1]
@@ -2912,7 +2923,7 @@ print()
 print("=== D2 round 21: Transparent Statements (5.2.2 step 2, A.9) and the lab-chain sentences ===")
 d2flat21 = norm_ws(" ".join(d2))
 a9 = find_line(d2, r"^A\.9\.\s+Transparent Statements")
-a9_end = find_line(d2, r"^Open Items", a9)
+a9_end = find_line(d2, APPX_END, a9)
 R21 = hex_block(d2, find_line(d2, r"^\s+R, \d+ bytes \(hex\):", a9, a9_end))
 # Revision -01, build of 2026-10-11: the array is written [ R ] with spaces, so that idnits does not read [R] as a
 # citation; the CBOR diagnostic notation allows the spaces.
@@ -2983,23 +2994,20 @@ check("D2", "R21-TEXT", all(x in d2flat21 for x in s21_txt),
 print()
 
 print("=== D2 round 22: Open Items, the question on intermediate certificates and other roots ===")
-oi22_i = find_line(d2, r"^Open Items")
-oi22 = norm_ws(" ".join(d2[oi22_i:find_line(d2, r"^Author's Address", oi22_i)]))
+# Round 32: the Open Items are gone; the scope of the certificate profile stands in 5.2 and refers to Section 12.
+oi22_gone = not any(re.match(r"^Open Items", ln) for ln in d2)
+scope32 = ("This profile names one trust anchor and no intermediate certificate. The profile is limited to this form, two "
+           "certificates with an RSA trust anchor, because it is the form measured to work (Section 12).")
 s12_i = find_line(d2, r"^12\.  Implementation Status")
 s12_22 = norm_ws(" ".join(d2[s12_i:find_line(d2, r"^13\.  ", s12_i)]))
-oi22_txt = ("Whether the certificate profile admits an intermediate certificate or an anchor key other than RSA. It "
-            "requires exactly two certificates and an RSA root because that is the form measured to work: the offline "
-            "verifier named in Section 12 did not anchor a chain whose leaf certificate was signed with ECDSA, and "
-            "verified the chain with an RSA root.")
-oi22_alg = "Whether the certificate profile also admits alg -9 (ESP256) of [RFC9864] (Section 5.2.4)."
 s12_22_txt = ("did not anchor a chain whose leaf certificate was signed with ECDSA (exit status 3) and verified the "
               "chain with an RSA root.")
-check("D2", "R22-OI", oi22_txt in oi22 and oi22_alg in oi22 and s12_22_txt in s12_22
+check("D2", "R22-OI", oi22_gone and scope32 in d2flat20 and s12_22_txt in s12_22
       and "verified the Transparent Statement it returned offline" in s12_22,
-      "Open Items keep the question on alg -9 and ask about intermediate certificates and other roots with the "
-      "measured reason; Section 12, which that item cites, holds the measurement and names the offline verifier",
-      "item found: %s; alg -9 item: %s; Section 12 sentence: %s" % (oi22_txt in oi22, oi22_alg in oi22,
-                                                                   s12_22_txt in s12_22))
+      "round 32: the Open Items are gone; 5.2 limits the certificate profile to two certificates with an RSA trust "
+      "anchor and refers to Section 12, which holds the measurement and names the offline verifier",
+      "Open Items gone: %s; scope sentence: %s; Section 12 sentence: %s" % (oi22_gone, scope32 in d2flat20,
+                                                                            s12_22_txt in s12_22))
 print()
 
 # Round 23 (card DRAFTS-01-INHALT-03): the reviewer's blocks A to F, each the whole paragraph or step it replaces
@@ -3008,7 +3016,10 @@ d2flat23 = norm_ws(" ".join(d2))
 r23 = {
     "A": "[STATEMENT-ID] proposes requirements A1 to A5 for references to signed statements. This section checks the "
          "receipt digest against them. It is the author's analysis, not a conformance claim.",
-    "B1": "This profile names one trust anchor and no intermediate certificate. An x5chain array with more or fewer "
+    # round 32: with the scope sentence of owner choice 3a after its first sentence
+    "B1": "This profile names one trust anchor and no intermediate certificate. The profile is limited to this form, "
+          "two certificates with an RSA trust anchor, because it is the form measured to work (Section 12). An x5chain "
+          "array with more or fewer "
           "than two elements, an x5chain that is a single byte string, and an iss with a predicate other than one eku "
           "give outside_profile in step 2 of Section 5.2.2. Certificate contents, key restrictions and their bindings "
           "are checked in step 3, which gives untrusted_key when one of those checks fails. An ECDSA signature depends "
@@ -3060,7 +3071,7 @@ r23 = {
          "Section 12 records the registration of a statement whose payload was not that digest. The Receiver "
          "recomputes the receipt digest in step 6 of Section 5.2.2.",
 }
-_where23 = {"A": "3.4, introduction", "B1": "5.2, the paragraph that begins This profile names",
+_where23 = {"A": "3.4, introduction", "B1": "5.2, the paragraph that begins This profile names (with the scope sentence)",
             "B2": "5.2.2, step 2", "C1": "5.2.2, step 3, certificate profile", "C2": "9, Configured trust",
             "D": "5.2.2, closing paragraph", "F": "9, Digest not checked by registration alone"}
 for k23, v23 in r23.items():
@@ -3486,14 +3497,49 @@ s31t = ["For the JSON representation in Section 5.1, first apply that section's 
         "Section 5.1.",
         '[RFC8259] Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format", STD 90, RFC 8259, '
         "December 2017,",
-        "draft-gruszka-evaluation-receipt-mappings-02"]
+        "draft-gruszka-evaluation-receipt-mappings-03"]
 _refs31 = [re.search(r"Internet-Draft, draft-gruszka-%s- ?%s, October 2026" % (a_, b_), d2flat20) is not None
            for a_, b_ in (("signed-evaluation", "receipts-01"), ("scitt-statement", "identification-01"))]
 check("D2", "R31-TEXT", all(x in d2flat20 for x in s31t) and all(_refs31),
       "the -02 holds blocks A, E, H, I, J and L of the review, Section 12 names R1 to R13 and the form rules, its name "
-      "is -02, and [RECEIPTS] and [STATEMENT-ID] stay -01",
+      "is -03 (round 32), and [RECEIPTS] and [STATEMENT-ID] stay -01",
       "missing: " + (", ".join(x[:40] for x in s31t if x not in d2flat20) or "none"),
       "[RECEIPTS] -01: %s, [STATEMENT-ID] -01: %s" % tuple(_refs31))
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 32: the -03, owner choice E3 on alg -9, Open Items resolved, the appendix of changes ===")
+d2flat32 = norm_ws(" ".join(d2))
+s32_e3 = ["The certificate profile does not admit -9: the Transparency Service measured in Section 12 refuses a "
+          "statement with -9 at registration, also when its configuration names ESP256, and neither the offline "
+          "verifier nor the two general COSE libraries named there implement -9. A statement with -9 is outside the "
+          "certificate profile (vector X2).",
+          "On 2026-10-12 the same service, built again at that commit and configured for the test root, registered X1 "
+          "again and refused X2, which is X1 with alg -9 signed again under the test leaf, with \"COSE algorithm -9 is "
+          "not supported\", also when ESP256 was named among its accepted algorithms; its source at that commit and at "
+          "the head of its main branch maps no -9. pycose 1.1.0 and go-cose v1.3.0 refused -9 as an unknown algorithm "
+          "before verifying, and the source of microsoft/scitt-verifier 0.4.0 maps no -9 for the statement signature.",
+          "X2: X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf; the Transparency Service of "
+          "Section 12 refuses it at registration."]
+check("D2", "R32-E3", all(x in d2flat32 for x in s32_e3) and "describes the form that was registered and verified"
+      not in d2flat32 and "also admits alg -9" not in d2flat32,
+      "E3: 5.2.4 says why the certificate profile does not admit -9, Section 12 holds the measurement of "
+      "2026-10-12, A.8 says that the service refuses X2, and no open item asks about -9 any more",
+      "missing: " + (", ".join(x[:40] for x in s32_e3 if x not in d2flat32) or "none"))
+ch32_i = find_line(d2, APPX_END)
+ch32 = norm_ws(" ".join(d2[ch32_i:find_line(d2, r"^Author's Address", ch32_i)]))
+s32_ch = ["Since draft-gruszka-evaluation-receipt-mappings-02",
+          "The certificate profile does not admit alg -9 (ESP256). Section 5.2.4 gives the measured reason, Section 12 "
+          "the measurement, and vector X2 (Appendix A.8) is the statement that was refused.",
+          "The open items are resolved and removed.", "This appendix is added.",
+          "Since draft-gruszka-evaluation-receipt-mappings-01",
+          "Section 5.1 defines the JSON representation of a typed digest reference.",
+          "Vectors R7 to R13 (Appendix A.7) give Malformed inputs and an escaped member name.",
+          "Step 1 of Section 3.3 names the form of the value in each carrier.",
+          "Section 8 and Section 9 say that a MATCH is not a Verified reference, and [RFC8259] is a normative reference."]
+check("D2", "R32-CHANGES", all(x in ch32 for x in s32_ch) and ch32_i > aend - 1,
+      "the unnumbered appendix of changes follows the examples, with the changes since -02 and since -01",
+      "missing: " + (", ".join(x[:40] for x in s32_ch if x not in ch32) or "none"))
 print()
 
 # ---------------------------------------------------------------------------
