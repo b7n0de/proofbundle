@@ -6,6 +6,13 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 28 (owner choice of 2026-10-12, confirmation review of the -02, blocks 1 and 2): Section 11 gives the refusal of
+a key before any receipt is read to the show-eval command with --expect-issuer, with exit status 2, and says that the
+receipt verification function reads the receipt first and refuses a key of mixed order, as in N61, at step 11; the
+earlier wording ("already when the Receiver fixes it", "the verdict stays FAIL") is gone, and the five vectors named
+there expect FAIL at step 11 in Appendix A. The point on Section 11 since -01 says that this description is limited
+to the command-line interface. Rounds 25 and 27 read it so.
+
 Round 27 (owner choices A of 2026-10-12, card SER-ID-02-SEIT-00-01): Section 11 names the implementation at
 a339424e, which reaches the expected verdict and first failing step on all 66 vectors; the appendix of changes has the
 points since -01 (with the review blocks A to C) and since -00. Round 25 now holds every point of both subsections, in
@@ -1890,11 +1897,24 @@ def main():
            "written by the author of the generator on the verdict and the first failing step of each of the 66 "
            "vectors, on 23000 targeted inputs across all eleven "
            "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
-           "on 2026-10-11)."]
-    chk("Section 11 (rounds 25 and 27): the conformance run of the implementation and the further verifier stand, "
-        "and the number of vectors they give is that of Appendix A (%d)" % len(app),
-        all(x in flat25 for x in s25) and len(app) == 66,
-        "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none"))
+           "on 2026-10-11).",
+           # Round 28: the refusal of a key before any receipt is read is that of the command-line interface
+           "The show-eval command of that implementation with --expect-issuer refuses a verification key that rule 1 "
+           "of Section 4.4 rejects or that is a point of small order, as in vectors N12, N18, N53 and N54, before "
+           "reading any receipt, with exit status 2.",
+           "The receipt verification function reads the receipt first.",
+           "It refuses a key of mixed order, as in N61, at step 11."]
+    gone28 = ["already when the Receiver fixes it", "the verdict stays FAIL"]
+    named28 = {v: app.get(v) for v in ("N12", "N18", "N53", "N54", "N61")}
+    keys28 = all(r is not None and r["expected"] == "FAIL" and r["step"].split()[0] == "11"
+                 and (("mixed-order" in (r["vk_desc"] or "")) == (v == "N61")) for v, r in named28.items())
+    chk("Section 11 (rounds 25, 27 and 28): the conformance run of the implementation and the further verifier stand, "
+        "the number of vectors they give is that of Appendix A (%d), and the refusal of a key before any receipt is "
+        "read is that of the show-eval command; the vectors it names expect FAIL at step 11" % len(app),
+        all(x in flat25 for x in s25) and len(app) == 66 and not any(x in flat25 for x in gone28) and keys28,
+        "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none")
+        + "; still standing: " + (", ".join(x for x in gone28 if x in flat25) or "none")
+        + "; named vectors at step 11 with their keys: " + ("yes" if keys28 else "no"))
     lines25 = [ln.rstrip() for ln in kept]
     i_ch25 = next((i for i, ln in enumerate(lines25) if ln == "Changes (to be removed before publication)"), None)
     i_last25 = max((i for i, ln in enumerate(lines25) if re.match(r"^A\.2\.\d+\.  ", ln)), default=None)
@@ -1907,7 +1927,8 @@ def main():
                    "outside the procedure.",
                    "The security considerations of Section 10.1 also refer to [RFC8259] Section 12.",
                    "Section 11 adds the conformance run of the implementation named there, at commit a339424e, on the "
-                   "vectors of Appendix A, and the result of a further verifier written from the text.",
+                   "vectors of Appendix A, and the result of a further verifier written from the text. It also limits "
+                   "the description of key rejection before reading a receipt to the command-line interface.",
                    "The Open Items section is removed. The references were checked against the published documents on "
                    "2026-10-12, and Section 11 now gives the conformance result it asked for.",
                    "This appendix is added."],
