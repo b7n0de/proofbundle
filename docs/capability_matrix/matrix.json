@@ -1,0 +1,1179 @@
+{
+ "format": "capability-matrix/1",
+ "measured_at": "2026-10-08T20:50:38Z",
+ "tag": "v6.1.0",
+ "tag_commit": "dcac5aeec92e850443cf34d9c07ab5cd277fabe1",
+ "main_ref": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a",
+ "main_commit": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a",
+ "statuses": [
+  "published",
+  "experimental",
+  "main only",
+  "planned",
+  "from elsewhere",
+  "absent"
+ ],
+ "release": {
+  "version": "6.1.0",
+  "pypi_json": "https://pypi.org/pypi/proofbundle/6.1.0/json",
+  "files": {
+   "bdist_wheel": {
+    "filename": "proofbundle-6.1.0-py3-none-any.whl",
+    "size": 582351,
+    "sha256": "f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b",
+    "sha256_pypi": "f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b",
+    "upload_time": "2026-09-22T00:21:10.876366Z",
+    "url": "https://files.pythonhosted.org/packages/b2/03/31de892fee7f11cd0ee5b1c73e19818f58e02a3395db773b5d2a02997de1/proofbundle-6.1.0-py3-none-any.whl",
+    "digest_matches_pypi": true
+   },
+   "sdist": {
+    "filename": "proofbundle-6.1.0.tar.gz",
+    "size": 2681622,
+    "sha256": "d63554915940ce42420bf4e3922ea60bb18296a50fff312986fb38a13b30893a",
+    "sha256_pypi": "d63554915940ce42420bf4e3922ea60bb18296a50fff312986fb38a13b30893a",
+    "upload_time": "2026-09-22T00:21:12.780818Z",
+    "url": "https://files.pythonhosted.org/packages/49/84/fd545bb030a268e1b0d289f22856f0b270fb064ea016c979c8d6e45a2513/proofbundle-6.1.0.tar.gz",
+    "digest_matches_pypi": true
+   }
+  },
+  "wheel_files": {
+   "proofbundle-6.1.0.dist-info/METADATA": "8ec96e86433ef34934a91ae0a768163ebc4547461d947324dc8b344e95b7d92a",
+   "proofbundle-6.1.0.dist-info/RECORD": "c40a6b3503f82b500e3e0e9ab749233e17633f89f888868a2d9d20482e2cccb4",
+   "proofbundle-6.1.0.dist-info/WHEEL": "61532836a2b3111b7ec23519c09df7c41180c27165fb872a6d8913b566b88ad1",
+   "proofbundle-6.1.0.dist-info/entry_points.txt": "7659aa64f487d514ce7212f086726ea92bb3d8295fcea7d5c5e9de0f224bb96a",
+   "proofbundle-6.1.0.dist-info/licenses/LICENSE": "e498a26fa5825cc7e7bd2544f97090059bd3743db5ae070c2685a86a0e555cb1",
+   "proofbundle-6.1.0.dist-info/top_level.txt": "948d74885e4b033d428362e23b3b5ac00e8a41ed2c813bd2d0980ad379de8c92",
+   "proofbundle/__init__.py": "887e490175bbcd2a324f658154d58ceacb27962d864182e6d3be7ca568d933d0",
+   "proofbundle/_inspect_registry.py": "3e128ca10078c7fea83aa33558f2abbddc3ee1231f32b5bdc488e8eaed78ded0",
+   "proofbundle/_integration.py": "e35f4f8e0206c7a1803948f8590a0379b00cbb984ef2fcf5d14da4e0be214b7e",
+   "proofbundle/_membership.py": "5b1526da12c53648300cfc04e14f22a98fc33b3253a354c00910ae166e0d6fbe",
+   "proofbundle/_statement_payload.py": "d55f368bd5e5f8e694b923cacb0ce07c499f13e09355dcf94422bf83a8848a4d",
+   "proofbundle/_strict_json.py": "69651bd91dfa518de9c69d38c8dcee4498d974f1606838a10edeac8de58a9107",
+   "proofbundle/_wire_b64.py": "556899b96764badf6769bd7e3ab6d109813f791f0509afc469d83502ea944882",
+   "proofbundle/adapters/__init__.py": "b1d6a5839791d7b3370f3fa627f9e654d18ba31cac378b8b7155a5bc16965f27",
+   "proofbundle/adapters/_provenance.py": "252db8f007d32b12ebbe6055d4a0d23d3358821008009545487cab41b64abb2c",
+   "proofbundle/adapters/eee.py": "ba9df7fd0d0fa05c700c54f3ea9524e70004d80a8004ab3c4075c030de04b80a",
+   "proofbundle/adapters/inspect_ai.py": "01a60300caeb42a64f54b6c3de76272a84309d27d6ecef43f73ba3cbdc135226",
+   "proofbundle/adapters/lm_eval.py": "2d15490c0bccc4b4936e574fbd4b0570c4cd26fa9278546d92b26c187a8eb81a",
+   "proofbundle/adapters/promptfoo.py": "2d493c785a2a28330dfed50257e5a254981019a5cef72d2fc1c98882c8c33f7c",
+   "proofbundle/adapters/samples.py": "17eda3077ca61ee08e66853419da79bb19b75937395b92d47d7fdacc46aff117",
+   "proofbundle/agent_review.py": "7556cfee1f2118e92f0ad754bf92b3fb4df28a0b0b70b458582dab7e9456a1ca",
+   "proofbundle/anchors.py": "9bf41973dbff5d57f59232052789a8ca0f44646d0bd3f114cd62e94a85b7ed8b",
+   "proofbundle/anchors_chia.py": "88ab086718369c62755fe9fee380751c4c51915e7fe951bea64ec3b743f768de",
+   "proofbundle/anchors_chia_add.py": "500857be523d4ca955ef4a8ace553fcb52ffd6bef0e81db8fe86a8b2c21dee2f",
+   "proofbundle/anchors_markovian.py": "b79516afc825167041db43c6e4a0f341f6ae40efc8fcfbfe74fe41e9cc85627a",
+   "proofbundle/anchors_ots.py": "730c031fbef5eb005d360a72ba62ab3eb1ebaeb0233f6e4186508671d51092e4",
+   "proofbundle/anchors_rfc3161.py": "c4b08d8ea53217ac82ef2d185a20bbb615e96118fcfc5ef5b93637e91ffc484a",
+   "proofbundle/anchors_rootcommit.py": "fbe3dbcf2f6e26d8a346cad6ebdeeaef92a2403f9c43296cb5dc1723fb9922ce",
+   "proofbundle/assurance.py": "e563cd27076da1fbf391bba8ea373a9a5adc502d94fffa6d8531763b70286dc9",
+   "proofbundle/automation_verdict.py": "7a8e7a1a183cc9fd2135bb7f81ce9ba2f37a435daf36ca9937503b5afdd1f0a3",
+   "proofbundle/beacon.py": "cc0b940c39178a07058bdc923c4563720a2b5f7931b634a9b936fa0729b22ac9",
+   "proofbundle/budget.py": "a08f4f292b47b2b2004dc9238729cd96150e14c942862531328c09de66546f80",
+   "proofbundle/bundle.py": "51e05b625c07ca7bbcae5f06a29e24b2f846005ce076a47664f2ccf8618bc584",
+   "proofbundle/canonical.py": "296a60eed4f5654325158e1bd2163c181a2426fba821b12b1d9304951a1f981d",
+   "proofbundle/cap1.py": "79efc061f492a311180323d36956e269d8bddb2fe2fac0022b21c553914a9f24",
+   "proofbundle/checkpoint.py": "5146bd330fe9b77c35a0342a05b54b6214a75081c9b4066293bd1f8dcd27b024",
+   "proofbundle/cli.py": "22d691214ca06b6b08433ce397ca6c9991ae3ab4457fde6a411c544f2d76a7c8",
+   "proofbundle/decision.py": "0f6aa92b57e4caca555f732e2be98587e1c242cc9ca601dad14e21ff775560ed",
+   "proofbundle/demo.py": "ca8355fa20ae259b2c2809b2abf78f9076dda4484befab09de9729c2511b7089",
+   "proofbundle/dsse.py": "58fc1fe9fb4ff09ceb60fc8786dcc975bac6b64270393f1a8f1b5275b21efb51",
+   "proofbundle/eee_eval_schema.json": "71c3eb4b75edb731520c4710ca9b47a8f70ca4f34d9105714affa5c385348739",
+   "proofbundle/emit.py": "1c63e9eeef0c5af66dfc1e38fd78c8dd945bbf76bc04635345081185f597932a",
+   "proofbundle/errors.py": "cc3c270564dfb8b599745a1e923e9bbbf29977aebc6e3fa3fc380a32ff619845",
+   "proofbundle/evalcard.py": "ddd46e549c2830e82b32e9f5e00fe43d4a02825a07a5425de98839310f3a0706",
+   "proofbundle/evalclaim.py": "152fad0ce852fb5b7f72c9373c6b21904d5bacf4d32e30abdd7d294f55d7f40a",
+   "proofbundle/evidence_pack.py": "0a3155b8b5cbb4b2bcc1a644282fa0f46c9c2f75b58ec8330b80ab5b311caafe",
+   "proofbundle/experimental/__init__.py": "9a70edf56c67a45891f154f57fbb038d081f7bce386770a557aaa1012039d2c3",
+   "proofbundle/experimental/attested_inference.py": "35a4f5ad66605eb894c31bdfc4377a597c5269432cb278d39e49f87ddcbd24d1",
+   "proofbundle/experimental/enclave.py": "37bd5de4e077edee04051bfc05cd1b6e485c1abe779d65428d460be6f5f1afcc",
+   "proofbundle/hashalg.py": "4fbdf87f049d78eeea4b35a08a19cb0b7c73d392a46e4fbf8bdd46c0cfdadc0c",
+   "proofbundle/hf_evals.py": "33596f9b6a2668694107990dc9710e14d71c820edebc8cee30fb9c34450ac8a1",
+   "proofbundle/inspect_hook.py": "dd717c897847d1e97df8f4570737e55471c6563617255c6c6862facaa71de177",
+   "proofbundle/intoto.py": "a72d2a6b3593832939d862193e8095fb1857243553a80a4725bbea6a6fcd2507",
+   "proofbundle/kbjwt.py": "ed0ef2a8f94c9e8bf88672c72536d7bcf5492b02fe4340d571b4f88740cdb2ed",
+   "proofbundle/merkle.py": "8893e4c5fa70c6467048c19f9cfdca82a782cfcb5718ae9d473d8277dd13246f",
+   "proofbundle/outcome.py": "89b8c62f902084bb9f77c9bf6c70259c73e30e4fe7d899341fdd9ccf5532b852",
+   "proofbundle/persample.py": "b78b6fba4e5552cb361bc78aa22488007c4bd7fc0eddde54549934fb94971eb2",
+   "proofbundle/policies/agent-review-default-v1.json": "248daae3a72020112479b3027d1ed269606e8cecb30ecad7c4226d28826b5280",
+   "proofbundle/policies/decision-receipt-template-v1.json": "692df9d8548d301edfc0b00bb38631ed326b90578f802bd8d15ad89df49670a9",
+   "proofbundle/policies/research-preview-v1.json": "ed3c2f123a1bf2b8a92281734615925742ede2181bfc86ea7a34b5d7f2284e83",
+   "proofbundle/policies/strict-eval-authenticated-root-template-v1.json": "aef0f7b1ddcabd126d62da0ed47d756ffdeca5b9baacaf49519a62be864a8bb7",
+   "proofbundle/policies/strict-eval-template-v1.json": "941902051315abe8c40e39094e83dc974672be4d4b13a84935211dac89071a7b",
+   "proofbundle/policies/strict-prereg-template-v1.json": "a013122468565ee487c30476663440543187f1970baf215be8b9eb13b5d1547d",
+   "proofbundle/policy.py": "bdd29b129833e070e00d4d6be56eabf533e971cc2fc039688354d77e349fe9c7",
+   "proofbundle/policy_profiles.py": "48010ab07bb32d509eae3b6d57a395bece39821fe36a33d9acf66f5920dc8e86",
+   "proofbundle/pqsig.py": "3787dca038e903c50db1536cd1c79020816f4781e4fbf832db600148ee0c40cc",
+   "proofbundle/prereg.py": "8407c5c72409a64150475cc7d22ab36074702e3d765335fc9eb9d156dd824ef8",
+   "proofbundle/public_transparency.py": "c3b7797666825fe6971b73fcecd0dc363a0ab68dc83e3e670651bcc71f3241a8",
+   "proofbundle/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "proofbundle/pytest_plugin.py": "1ff346842179108efe7f2f7473d77494ae6cd6d2278d61668745de69a750a387",
+   "proofbundle/relation.py": "ec34be9743a52bde1948b7e482da29e9f546fecf43763cfd3dfe320f584dd0e9",
+   "proofbundle/relation_statement.py": "95f0277518b69af6fd15359b10b38d190c07a1553c034991898258b2f044011b",
+   "proofbundle/renewal.py": "b8753f34f9c581417fc7249fb59f66408cf540a449bf7ab0f52704c4e4b2180a",
+   "proofbundle/run_ledger.py": "efa9f7d0c54d44e249ee91f33bdb1214743be41775f3a51203b535dab6b04d53",
+   "proofbundle/sdjwt.py": "57acf1489bbeab5e4d44c7a9fcf71e670bfd7b99621afa8aedcf73e3c585beb2",
+   "proofbundle/sdjwt_issue.py": "0c78ea4d0615f318f388dbbc70d83a4b0bb2d60d85167f0fef046fb1652f4fdd",
+   "proofbundle/sdjwt_vc.py": "1ba98d84a614ff26fcd36556a4fec7eda052b9da9bfa3f38739e70146a86912a",
+   "proofbundle/signature.py": "822ec9af793d787361cef178e59b1081f2846c9513fc86280254dcd3b6848ed4",
+   "proofbundle/statuslist.py": "d94bb02112c2d25d961fd6f59957a0ff9be7428d8a24073255ca9b8fc3c47cda",
+   "proofbundle/subject_binding.py": "7d924cccf8c95a66a62d77c74ab72bacf8f08843f4a99e845db3234a7504f14e",
+   "proofbundle/tlogproof.py": "f0c396ceca6e6cfe10907b3833b107ffa48ac0788b79bbb0c2142169596c021f",
+   "proofbundle/trust_pack.py": "9744714140e7774aa23837ab0649ebb8c25efe738a79b1e7f641063ff11b9e8c",
+   "proofbundle/verification_summary.py": "afe192607d1c11a75b72e7be3b091f38ca90deb41325400cdfd8ccdc5660681b",
+   "proofbundle/verifier_block.py": "2803a4d82cb0c8c8d1ad599da41ca1915200f8e7cca358ab297eaba24e5ce486"
+  },
+  "wheel_entry_points": [
+   "console_scripts:proofbundle",
+   "inspect_ai:proofbundle",
+   "pytest11:proofbundle"
+  ],
+  "wheel_against_tag": {
+   "identical": 78,
+   "different": [],
+   "absent_at_tag": []
+  },
+  "wheel_subcommands": [
+   "anchor",
+   "audit-challenge",
+   "decision",
+   "demo",
+   "emit",
+   "emit-eval",
+   "evalcard",
+   "hf-token",
+   "intoto",
+   "outcome",
+   "policy",
+   "prereg",
+   "relation-statement",
+   "show-eval",
+   "svr",
+   "verify",
+   "verify-enclave",
+   "verify-opening",
+   "verify-proof"
+  ],
+  "sdist_file_count": 1150,
+  "sdist_file_list_sha256": "56d802719681e412544c2230b9fabb483dec6f3543537a9d68db1581a03a5206"
+ },
+ "rows": [
+  {
+   "id": "decision",
+   "name": "Decision receipt (decision-receipt/v0.1)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/decision.py"
+    ],
+    "subcommands": [
+     "decision"
+    ],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "docs/predicates/README.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "shipped (2.1.0)",
+    "label_source": "docs/predicates/README.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/decision.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/decision.py": true
+     },
+     "subcommands_in_wheel": {
+      "decision": true
+     },
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {
+      "decision": true
+     }
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "shipped (2.1.0)",
+    "label_source": "docs/predicates/README.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/decision.py": true
+     },
+     "subcommands_at_main": {
+      "decision": true
+     },
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "1 file changed, 8 insertions(+), 4 deletions(-)",
+    "branch": null
+   }
+  },
+  {
+   "id": "outcome",
+   "name": "Action outcome (action-outcome/v0.1)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/outcome.py"
+    ],
+    "subcommands": [
+     "outcome"
+    ],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "docs/predicates/README.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "experimental",
+    "label": "EXPERIMENTAL (3.2.0)",
+    "label_source": "docs/predicates/README.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/outcome.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/outcome.py": true
+     },
+     "subcommands_in_wheel": {
+      "outcome": true
+     },
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {
+      "outcome": true
+     }
+    }
+   },
+   "main": {
+    "status": "experimental",
+    "label": "EXPERIMENTAL (3.2.0)",
+    "label_source": "docs/predicates/README.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/outcome.py": true
+     },
+     "subcommands_at_main": {
+      "outcome": true
+     },
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "1 file changed, 7 insertions(+), 3 deletions(-)",
+    "branch": null
+   }
+  },
+  {
+   "id": "hf-export",
+   "name": "Hugging Face Community Evals export (verifyToken, .eval_results entry)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/hf_evals.py"
+    ],
+    "subcommands": [
+     "hf-token"
+    ],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## Hugging Face Community Evals (.eval_results/*.yaml, v1.4)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/hf_evals.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/hf_evals.py": true
+     },
+     "subcommands_in_wheel": {
+      "hf-token": true
+     },
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {
+      "hf-token": true
+     }
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## Hugging Face Community Evals (.eval_results/*.yaml, v1.4)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/hf_evals.py": true
+     },
+     "subcommands_at_main": {
+      "hf-token": true
+     },
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "1 file changed, 69 insertions(+), 18 deletions(-)",
+    "branch": null
+   }
+  },
+  {
+   "id": "eat-bridge",
+   "name": "EAT bridge (TEE Attestation Result, verify-enclave)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/experimental/enclave.py"
+    ],
+    "subcommands": [
+     "verify-enclave"
+    ],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "COMPATIBILITY.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "experimental",
+    "label": "the [experimental] extra — the TEE-attestation bridge, see docs/EXPERIMENTAL_ENCLAVE.md",
+    "label_source": "COMPATIBILITY.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/experimental/enclave.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/experimental/enclave.py": true
+     },
+     "subcommands_in_wheel": {
+      "verify-enclave": true
+     },
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {
+      "verify-enclave": true
+     }
+    }
+   },
+   "main": {
+    "status": "experimental",
+    "label": "the [experimental] extra — the TEE-attestation bridge, see docs/EXPERIMENTAL_ENCLAVE.md",
+    "label_source": "COMPATIBILITY.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/experimental/enclave.py": true
+     },
+     "subcommands_at_main": {
+      "verify-enclave": true
+     },
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "1 file changed, 2 insertions(+), 2 deletions(-)",
+    "branch": null
+   }
+  },
+  {
+   "id": "rust-verifier",
+   "name": "Rust second verifier (pb_verify_rs)",
+   "channel": "repository only (built from source)",
+   "evidence": {
+    "modules": [],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [
+     "tools/pb_verify_rs/src/main.rs",
+     "tools/pb_verify_rs/Cargo.toml"
+    ],
+    "label_sources": [
+     "README.md",
+     "README.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "experimental",
+    "label": "Experimental in 6.0.0 and advisory only: agreement on recorded vectors, no conformance promise; own milestone 6.1",
+    "label_source": "README.md",
+    "measured": {
+     "modules_in_wheel": {},
+     "modules_in_sdist": {},
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {
+      "tools/pb_verify_rs/src/main.rs": false,
+      "tools/pb_verify_rs/Cargo.toml": false
+     },
+     "repo_paths_at_tag": {
+      "tools/pb_verify_rs/src/main.rs": true,
+      "tools/pb_verify_rs/Cargo.toml": true
+     },
+     "subcommands_at_tag": {},
+     "parity_registry_at_tag": {
+      "entries": 68,
+      "COVERED": 5,
+      "PARTIAL": 2,
+      "PENDING": 61
+     }
+    }
+   },
+   "main": {
+    "status": "experimental",
+    "label": "The Rust cross verifier is experimental and advisory.",
+    "label_source": "README.md",
+    "measured": {
+     "modules_at_main": {},
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {
+      "tools/pb_verify_rs/src/main.rs": true,
+      "tools/pb_verify_rs/Cargo.toml": true
+     },
+     "parity_registry_at_main": {
+      "entries": 71,
+      "COVERED": 5,
+      "PARTIAL": 3,
+      "PENDING": 63
+     }
+    },
+    "changed_since_release": "1 file changed, 1463 insertions(+), 173 deletions(-)",
+    "branch": null
+   }
+  },
+  {
+   "id": "inspect-hook",
+   "name": "Inspect lifecycle hook (inspect_ai entry point)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/inspect_hook.py",
+     "proofbundle/_inspect_registry.py"
+    ],
+    "subcommands": [],
+    "entry_points": [
+     "inspect_ai:proofbundle"
+    ],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## inspect_ai (end-of-task hook)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/inspect_hook.py": true,
+      "proofbundle/_inspect_registry.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/inspect_hook.py": true,
+      "proofbundle/_inspect_registry.py": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {
+      "inspect_ai:proofbundle": true
+     },
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## inspect_ai (end-of-task hook)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/inspect_hook.py": true,
+      "proofbundle/_inspect_registry.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {
+      "inspect_ai:proofbundle": true
+     },
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "pytest-plugin",
+   "name": "pytest plugin (pytest11 entry point)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/pytest_plugin.py"
+    ],
+    "subcommands": [],
+    "entry_points": [
+     "pytest11:proofbundle"
+    ],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## pytest (pytest11 plugin)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/pytest_plugin.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/pytest_plugin.py": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {
+      "pytest11:proofbundle": true
+     },
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## pytest (pytest11 plugin)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/pytest_plugin.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {
+      "pytest11:proofbundle": true
+     },
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "github-action",
+   "name": "GitHub Action (action/action.yml)",
+   "channel": "git tag v1.0.0",
+   "evidence": {
+    "modules": [],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [
+     "action/action.yml"
+    ],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "A composite action is prepared under action/action.yml (SHA-pinned). Usage:",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {},
+     "modules_in_sdist": {},
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {
+      "action/action.yml": false
+     },
+     "repo_paths_at_tag": {
+      "action/action.yml": true
+     },
+     "subcommands_at_tag": {},
+     "documented_tag": "v1.0.0",
+     "changed_between_documented_tag_and_release": "1 file changed, 42 insertions(+), 2 deletions(-)"
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "A composite action is prepared under action/action.yml (SHA-pinned). Usage:",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {},
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {
+      "action/action.yml": true
+     },
+     "documented_tag_at_main": "v1.0.0"
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "slsa-provenance",
+   "name": "SLSA build provenance over a receipt",
+   "channel": "another project",
+   "evidence": {
+    "modules": [],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": "actions/attest-build-provenance (GitHub), referenced in INTEGRATIONS.md; no code here"
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "from elsewhere",
+    "label": "Optional, complementary — a GitHub-anchored SLSA provenance over the receipt (the receipt attests the run, attest-build-provenance attests the build). Add to the caller job:",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {},
+     "modules_in_sdist": {},
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {},
+     "provider_named_in_docs": true
+    }
+   },
+   "main": {
+    "status": "from elsewhere",
+    "label": "Optional, complementary — a GitHub-anchored SLSA provenance over the receipt (the receipt attests the run, attest-build-provenance attests the build). Add to the caller job:",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {},
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {},
+     "provider_named_in_docs": true
+    },
+    "changed_since_release": null,
+    "branch": null
+   }
+  },
+  {
+   "id": "promptfoo",
+   "name": "promptfoo adapter (results.json)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/adapters/promptfoo.py"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## promptfoo (results.json adapter, v1.4)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/adapters/promptfoo.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/adapters/promptfoo.py": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## promptfoo (results.json adapter, v1.4)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/adapters/promptfoo.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "lm-eval",
+   "name": "lm-evaluation-harness adapter (results_*.json)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/adapters/lm_eval.py"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## lm-evaluation-harness (results_*.json adapter, v0.6; sample-count provenance since v3.7.0)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/adapters/lm_eval.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/adapters/lm_eval.py": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## lm-evaluation-harness (results_*.json adapter, v0.6; sample-count provenance since v3.7.0)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/adapters/lm_eval.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "inspect-log",
+   "name": "Inspect log adapter (read_eval_log)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/adapters/inspect_ai.py"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "INTEGRATIONS.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "## inspect_ai (end-of-task hook)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/adapters/inspect_ai.py": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/adapters/inspect_ai.py": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "## inspect_ai (end-of-task hook)",
+    "label_source": "INTEGRATIONS.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/adapters/inspect_ai.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "eee",
+   "name": "Every Eval Ever converter (from_eee_dataset)",
+   "channel": "PyPI wheel",
+   "evidence": {
+    "modules": [
+     "proofbundle/adapters/eee.py",
+     "proofbundle/eee_eval_schema.json"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "CHANGELOG.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "published",
+    "label": "Every Eval Ever converter (proofbundle.adapters.from_eee_dataset): reads an EEE v0.2.2 aggregate JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of every_eval_ever (it needs Python 3.12; proofbundle stays 3.9+). The EEE evaluation_id (which embeds the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment.",
+    "label_source": "CHANGELOG.md",
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/adapters/eee.py": true,
+      "proofbundle/eee_eval_schema.json": true
+     },
+     "modules_in_sdist": {
+      "proofbundle/adapters/eee.py": true,
+      "proofbundle/eee_eval_schema.json": true
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "published",
+    "label": "Every Eval Ever converter (proofbundle.adapters.from_eee_dataset): reads an EEE v0.2.2 aggregate JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of every_eval_ever (it needs Python 3.12; proofbundle stays 3.9+). The EEE evaluation_id (which embeds the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment.",
+    "label_source": "CHANGELOG.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/adapters/eee.py": true,
+      "proofbundle/eee_eval_schema.json": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": "no change",
+    "branch": null
+   }
+  },
+  {
+   "id": "agt-receipt",
+   "name": "AGT MCP tool-call receipt verifier (adapters.agt_receipt)",
+   "channel": "main tree only, not in v6.1.0",
+   "evidence": {
+    "modules": [
+     "proofbundle/adapters/agt_receipt.py"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "CHANGELOG.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "absent",
+    "label": null,
+    "label_source": null,
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/adapters/agt_receipt.py": false
+     },
+     "modules_in_sdist": {
+      "proofbundle/adapters/agt_receipt.py": false
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "main only",
+    "label": "(src/proofbundle/adapters/agt_receipt.py). Verifies an AGT MCP tool-call receipt without AGT installed and without network access: Ed25519 over the canonical payload, the optional external-authorizer signature, the parent_receipt_hash chain link, and the house exit-code contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party requirement unmet). No AGT code is copied; the wire format was read from the published tree at commit a917ad4ac04aff11a5e9e21f6a26b91642b750cd and re-derived. AGT is MIT, Copyright (c) Microsoft Corporation.",
+    "label_source": "CHANGELOG.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/adapters/agt_receipt.py": true
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": null,
+    "branch": null
+   }
+  },
+  {
+   "id": "scitt",
+   "name": "SCITT receipts (scitt-ccf/v1 reader)",
+   "channel": "branch feat/640-scitt-anker, not in v6.1.0 or on main",
+   "evidence": {
+    "modules": [
+     "proofbundle/scitt_ccf.py"
+    ],
+    "subcommands": [],
+    "entry_points": [],
+    "repo_paths": [],
+    "label_sources": [
+     "CHANGELOG.md",
+     "docs/adr/0009-scitt-anchor-cose-profile.md"
+    ],
+    "elsewhere": null
+   },
+   "release": {
+    "version": "6.1.0",
+    "tag": "v6.1.0",
+    "status": "absent",
+    "label": null,
+    "label_source": null,
+    "measured": {
+     "modules_in_wheel": {
+      "proofbundle/scitt_ccf.py": false
+     },
+     "modules_in_sdist": {
+      "proofbundle/scitt_ccf.py": false
+     },
+     "subcommands_in_wheel": {},
+     "entry_points_in_wheel": {},
+     "repo_paths_in_sdist": {},
+     "repo_paths_at_tag": {},
+     "subcommands_at_tag": {}
+    }
+   },
+   "main": {
+    "status": "planned",
+    "label": "Status: proposed. Fixes the profile, the four values, the trust interface, the error states and the test classes for the 6.4.0 anchor type scitt-ccf/v1. The owner answered Q1 to Q8 and N1 to N7, S1 and S2 on 2026-09-25 and 2026-09-26 (section \"Owner answers\"); the reader, the statement signature and the receipt verification are built under src/ as proofbundle.scitt_ccf behind the [scitt] extra (work packages AP2 to AP4). It is not registered as an anchor type and no verify path reaches it; that is AP5, after 6.3.0. No question is left open.",
+    "label_source": "docs/adr/0009-scitt-anchor-cose-profile.md",
+    "measured": {
+     "modules_at_main": {
+      "proofbundle/scitt_ccf.py": false
+     },
+     "subcommands_at_main": {},
+     "entry_points_at_main": {},
+     "repo_paths_at_main": {}
+    },
+    "changed_since_release": null,
+    "branch": {
+     "name": "feat/640-scitt-anker",
+     "head": "531e256423b317839f8927dae8b4fb9ab45f9e48"
+    }
+   }
+  }
+ ],
+ "fresh_venv": {
+  "release_wheel": {
+   "wheel": "proofbundle-6.1.0-py3-none-any.whl",
+   "wheel_sha256": "f43164161952d78afa19bdbdc324a74f104103f417f8f7c7e8734cad72235b3b",
+   "python": "3.11.15",
+   "extra": "eval",
+   "pip_install_exit": 0,
+   "installed": [
+    "cffi==2.1.1",
+    "cryptography==50.0.2",
+    "pip==24.0",
+    "proofbundle==6.1.0",
+    "pycparser==3.1",
+    "rfc8785==0.1.4",
+    "setuptools==79.0.1"
+   ],
+   "steps": [
+    {
+     "command": "--version",
+     "exit": 0,
+     "output_head": [
+      "proofbundle 6.1.0",
+      "spec-revision: proofbundle/v0.1 (rev 2026-07-13)",
+      "schema: proofbundle_v0_1"
+     ],
+     "output_tail": [
+      "features: eval, sdjwt, pq, experimental",
+      "predicates: eval-result/v0.1 decision-receipt/v0.1"
+     ]
+    },
+    {
+     "command": "emit --payload-file payload.txt --out receipt.json --new-key signer.key",
+     "exit": 0,
+     "output_head": [
+      "wrote receipt.json",
+      "wrote new signing key to signer.key (keep this secret)"
+     ],
+     "output_tail": []
+    },
+    {
+     "command": "verify receipt.json",
+     "exit": 0,
+     "output_head": [
+      "[PASS] ed25519-signature: payload signed by stated key",
+      "[PASS] merkle-inclusion: anchored at index 0 of 1 (Merkle-consistent under the STATED root)",
+      "CRYPTO: OK"
+     ],
+     "output_tail": [
+      "ASSURANCE: n/a (not an eval receipt)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present"
+     ]
+    },
+    {
+     "command": "verify tampered.json",
+     "exit": 1,
+     "output_head": [
+      "[FAIL] ed25519-signature: invalid signature",
+      "[FAIL] merkle-inclusion: inclusion proof failed",
+      "CRYPTO: FAILED"
+     ],
+     "output_tail": [
+      "ASSURANCE: n/a (crypto verification failed)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present"
+     ],
+     "tampered_field": "payload_b64",
+     "tamper": "first character 'Y' -> 'B'"
+    },
+    {
+     "command": "demo",
+     "exit": 0,
+     "output_head": [
+      "proofbundle offline demo — in memory, no files, no network",
+      "",
+      "[PASS] honest receipt verifies  => OK"
+     ],
+     "output_tail": [
+      "",
+      "=> OK — every guarantee held"
+     ]
+    }
+   ]
+  },
+  "main_wheel": {
+   "wheel": "proofbundle-6.1.0-py3-none-any.whl",
+   "wheel_sha256": "646cebea69c5b751f3702112b840d5547a9290b6eb2892e708ccc8c3b3e7fba4",
+   "python": "3.11.15",
+   "extra": "eval",
+   "pip_install_exit": 0,
+   "installed": [
+    "cffi==2.1.1",
+    "cryptography==50.0.2",
+    "pip==24.0",
+    "proofbundle==6.1.0",
+    "pycparser==3.1",
+    "rfc8785==0.1.4",
+    "setuptools==79.0.1"
+   ],
+   "steps": [
+    {
+     "command": "--version",
+     "exit": 0,
+     "output_head": [
+      "proofbundle 6.1.0",
+      "spec-revision: proofbundle/v0.1 (rev 2026-07-13)",
+      "schema: proofbundle_v0_1"
+     ],
+     "output_tail": [
+      "features: eval, sdjwt, pq, experimental",
+      "predicates: eval-result/v0.1 decision-receipt/v0.1"
+     ]
+    },
+    {
+     "command": "emit --payload-file payload.txt --out receipt.json --new-key signer.key",
+     "exit": 0,
+     "output_head": [
+      "wrote receipt.json",
+      "wrote new signing key to signer.key (keep this secret)"
+     ],
+     "output_tail": []
+    },
+    {
+     "command": "verify receipt.json",
+     "exit": 0,
+     "output_head": [
+      "[PASS] ed25519-signature: payload signed by stated key",
+      "[PASS] merkle-inclusion: anchored at index 0 of 1 (Merkle-consistent under the STATED root)",
+      "CRYPTO: OK"
+     ],
+     "output_tail": [
+      "ASSURANCE: n/a (not an eval receipt)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present"
+     ]
+    },
+    {
+     "command": "verify tampered.json",
+     "exit": 1,
+     "output_head": [
+      "[FAIL] ed25519-signature: invalid signature",
+      "[FAIL] merkle-inclusion: inclusion proof failed",
+      "CRYPTO: FAILED"
+     ],
+     "output_tail": [
+      "ASSURANCE: n/a (crypto verification failed)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present"
+     ],
+     "tampered_field": "payload_b64",
+     "tamper": "first character 'Y' -> 'B'"
+    },
+    {
+     "command": "demo",
+     "exit": 0,
+     "output_head": [
+      "proofbundle offline demo — in memory, no files, no network",
+      "",
+      "[PASS] honest receipt verifies  => OK"
+     ],
+     "output_tail": [
+      "",
+      "=> OK — every guarantee held"
+     ]
+    }
+   ],
+   "built_from": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a",
+   "main_only_modules_inside": [
+    "proofbundle/adapters/agt_receipt.py"
+   ]
+  }
+ }
+}

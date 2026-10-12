@@ -21,7 +21,10 @@ Unknown fields are ignored at every level, as the in-toto parsing rules require,
 
 G2, the old contract: `https://b7n0de.com/attestation/eval-result/v0.1` was emitted and signed by
 released versions. Its statements keep verifying under the v0.1 contract, the default verify call keeps
-expecting v0.1, and the v0.1 emitter keeps writing the same bytes. A valid signature alone does not show
+expecting v0.1, and the v0.1 emitter keeps writing the same statement and signature bytes; since the DSSE
+keyid default the envelope also carries an unsigned `keyid`, the signer's fingerprint, which the released
+envelopes do not have, and `_without_the_default_keyid` checks that field and removes it before the
+comparison. A valid signature alone does not show
 that, so `tests/fixtures/eval_result_v0_1/corpus.json` carries v0.1 envelopes with a named origin each
 (fixtures from the published 6.1.0 wheel, own reconstructions from the source at the release tags
 v2.0.0 to v6.0.0) and the verdicts the released 6.1.0 verifier gives on them and on negative variants;
@@ -79,6 +82,22 @@ CLAIM = {
 
 def _pub(signer=_SIGNER) -> bytes:
     return signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+
+def _without_the_default_keyid(env: dict) -> dict:
+    """The envelope without the keyid `dsse.sign_envelope` writes by default since pull request 287.
+
+    The keyid is not signed, so G2 pins what it can pin: the statement and the signature stay the bytes the
+    released version wrote. Each signature entry must carry the keyid, and it must be the fingerprint of the
+    signing key; a missing or a different keyid fails here instead of being removed in silence."""
+    entries = []
+    for entry in env["signatures"]:
+        entry = dict(entry)
+        keyid = entry.pop("keyid", None)
+        if keyid != dsse.openssh_sha256_keyid(_pub()):
+            raise AssertionError(f"the default keyid is {keyid!r}, not the signing key's fingerprint")
+        entries.append(entry)
+    return dict(env, signatures=entries)
 
 
 def _base_statement() -> dict:
@@ -354,7 +373,8 @@ class TheV01ContractStands(unittest.TestCase):
         for alg, path in ((I.CONTENT_ROOT_ALG, _G2_JCS), (I.LEGACY_CONTENT_ROOT_ALG, _G2_LEGACY)):
             env = I.export_eval_result_dsse(claim, _SIGNER, root_b64=ROOT, content_root_alg=alg,
                                             harness={"name": "inspect_ai", "version": "0.3.244"})
-            self.assertEqual(json.dumps(env, indent=2) + "\n", path.read_text(encoding="utf-8"), alg)
+            self.assertEqual(json.dumps(_without_the_default_keyid(env), indent=2) + "\n",
+                             path.read_text(encoding="utf-8"), alg)
 
     def test_a_v01_statement_is_not_read_under_the_v02_contract(self):
         for env in self._released():
@@ -678,7 +698,8 @@ class TheReleasedV01Statements(unittest.TestCase):
         self.assertEqual(set(released), set(calls))
         for variant, (c, kw) in calls.items():
             with self.subTest(variant=variant):
-                self.assertEqual(I.export_eval_result_dsse(c, _SIGNER, **kw), released[variant])
+                self.assertEqual(_without_the_default_keyid(I.export_eval_result_dsse(c, _SIGNER, **kw)),
+                                 released[variant])
 
     def test_dispatch_the_same_predicate_under_v02_gets_the_revised_rules(self):
         for entry in self.corpus["entries"]:

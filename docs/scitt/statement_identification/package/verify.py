@@ -221,7 +221,15 @@ def main() -> int:
         check(form is not None, f"reference {n}: location {ref.get('location')!r} is 'protected header, label {REF}, "
                                 "entry <index>'")
         if form is not None:
-            by_slot[(ref["from"], int(form.group(1)))] = (n, ref)
+            slot = (ref["from"], int(form.group(1)))
+            # One row per slot. A second row replaced the first in this index before any check read it, so an invalid
+            # first row went unchecked and the run could end ALL OK (Codex thread 4244048854 on pull request 337).
+            # The first row stays and is checked below; the second is the FAIL.
+            if slot in by_slot:
+                check(False, f"reference {n}: {slot[0]}, entry {slot[1]} is already the slot of reference "
+                             f"{by_slot[slot][0]}; references.json lists one row per slot")
+                continue
+            by_slot[slot] = (n, ref)
     for name, i in sorted(set(carried) - set(by_slot)):
         check(False, f"{name} carries a reference under label {REF}, entry {i}, that references.json does not "
                      "list: not listed")
