@@ -3,6 +3,7 @@
  "payloadType": "application/vnd.in-toto+json",
  "signatures": [
   {
+   "keyid": "SHA256:OODVCyUefqHqKDmybXg6ofpQa6J2mjA+K80G4Ed9uAA",
    "sig": "oJikMB4bxPDLURYHZT4OuPyUB0o7EJTbJPdGQkldWbbONFJzhp1U1AT6XQ0sgw3Ld8i41VkSt4rKIodEmUrYAQ=="
   }
  ]

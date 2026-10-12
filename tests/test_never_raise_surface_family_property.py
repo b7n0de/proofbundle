@@ -365,6 +365,12 @@ _OUT_OF_SCOPE = frozenset({
     # code. The OTS cap's own test pins both sides. Listed here, not in the name pattern, for the
     # reason `binding_present` gives above.
     "ots_binding_held",
+    # 2026-09-27, Z239 F3, `proofbundle.dsse.openssh_sha256_keyid`: a producer's helper. It takes the
+    #       signer's OWN public key, inside `sign_envelope`, and names it by the keyid foreign tools look
+    #       up. It refuses a key that is not 32 bytes with a ValueError instead of writing a keyid for
+    #       a key that is none. No verifier calls it: the keyid is unsigned, the single-key verifiers
+    #       select no key by it, and the trust pack reads the keyid it finds in the envelope, not this helper.
+    "openssh_sha256_keyid",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",

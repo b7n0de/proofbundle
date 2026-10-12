@@ -5,6 +5,7 @@
       "payloadType": "application/vnd.in-toto+json",
       "signatures": [
         {
+          "keyid": "SHA256:lbmsoA0yIEcEiVDRnMWuzm+nV+3ZEEpVIURqFoeSspg",
           "sig": "4w+gfp/rXpjfvlnExl4yQLdNDrMYn40fBTgHseYCzW+Gtd/v/JsZGJYWzMiMETPPlqSgqngfYGgA7p+BA9HfBQ=="
         }
       ]
