@@ -820,8 +820,12 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         # 38 SINCE PR 296 (2026-09-27): MANIFEST.in decided scripts/cargo_audit_gate.py in, and the
         # measurement was redone the same way on that tree: 38 files under scripts/ in the sdist, the
         # directive reader reads 38, symmetric difference zero.
-        self.assertEqual(len(alt), 38,
-                         "38 shipped scripts were measured against a real build; a different number "
+        # 41 SINCE THE CORE LAYER GATE (S1, 2026-10-11): MANIFEST.in decided scripts/core_layer_gate.py
+        # and its two data files in, and the measurement was redone the same way on that tree: an sdist
+        # built through setuptools 69.5.1's `build_meta.build_sdist` carries 41 files under scripts/, the
+        # directive reader reads 41, symmetric difference zero.
+        self.assertEqual(len(alt), 41,
+                         "41 shipped scripts were measured against a real build; a different number "
                          "here means the file moved and that measurement needs redoing")
 
     def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):
