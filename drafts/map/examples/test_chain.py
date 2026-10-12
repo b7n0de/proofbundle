@@ -1,4 +1,4 @@
-"""Deterministic test material for the certificate profile of draft-gruszka-evaluation-receipt-mappings-02.
+"""Deterministic test material for the certificate profile of draft-gruszka-evaluation-receipt-mappings-03.
 
 PURE TEST MATERIAL. Nothing made here may be used for anything real.
 

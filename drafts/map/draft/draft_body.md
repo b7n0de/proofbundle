@@ -1,7 +1,7 @@
 ---
 title: Citing Signed Evaluation Receipts from Existing Envelopes
 abbrev: Evaluation Receipt Mappings
-docname: draft-gruszka-evaluation-receipt-mappings-02
+docname: draft-gruszka-evaluation-receipt-mappings-03
 v: 3
 category: info
 submissiontype: IETF
@@ -776,8 +776,9 @@ Certificate profile. The protected header holds exactly the six parameters 1,
   certificate, whose RSA public key signed the leaf certificate with
   sha256WithRSAEncryption (RSASSA-PKCS1-v1_5 with SHA-256, {{RFC8017}}).
 
-This profile names one trust anchor and no intermediate certificate. An
-x5chain array with more or fewer than two elements, an x5chain that is a single
+This profile names one trust anchor and no intermediate certificate. The
+profile is limited to this form, two certificates with an RSA trust anchor,
+because it is the form measured to work ({{impl}}). An x5chain array with more or fewer than two elements, an x5chain that is a single
 byte string, and an iss with a predicate other than one eku give outside_profile
 in step 2 of {{check-statement}}. Certificate contents, key restrictions and
 their bindings are checked in step 3, which gives untrusted_key when one of
@@ -958,10 +959,12 @@ under the same key; it is accepted.
 
 The certificate profile fixes -7. {{RFC9864}} also sets -7 to Deprecated and
 registers -9 (ESP256) for ECDSA with SHA-256 on P-256. The certificate profile
-describes the form that was registered and verified in the measurements of
-{{impl}}, and that form carries -7; a statement with -9 is outside the
-certificate profile (vector X2). -7 does not name a curve; step 3 counts only a
-P-256 leaf key, so -7 selects one signature algorithm here.
+does not admit -9: the Transparency Service measured in {{impl}} refuses a
+statement with -9 at registration, also when its configuration names ESP256,
+and neither the offline verifier nor the two general COSE libraries named there
+implement -9. A statement with -9 is outside the certificate profile (vector
+X2). -7 does not name a curve; step 3 counts only a P-256 leaf key, so -7
+selects one signature algorithm here.
 
 The payload follows the pattern of the hash-only mode of {{PRML-PROFILE}}: the
 32 raw octets of a SHA-256, carried as a byte string and not as hexadecimal
@@ -1197,7 +1200,14 @@ statement in the form of the certificate profile, with an RSA-3072 test root, a
 P-256 test leaf and alg -7, was registered, and microsoft/scitt-verifier 0.4.0
 verified the Transparent Statement it returned offline, with the network
 unavailable, under a policy that fixed the receipt issuer, the statement issuer
-and the statement subject and compared the payload with SHA-256 over B. The
+and the statement subject and compared the payload with SHA-256 over B. On
+2026-10-12 the same service, built again at that commit and configured for the
+test root, registered X1 again and refused X2, which is X1 with alg -9 signed
+again under the test leaf, with "COSE algorithm -9 is not supported", also when
+ESP256 was named among its accepted algorithms; its source at that commit and
+at the head of its main branch maps no -9. pycose 1.1.0 and go-cose v1.3.0
+refused -9 as an unknown algorithm before verifying, and the source of
+microsoft/scitt-verifier 0.4.0 maps no -9 for the statement signature. The
 steps of {{check-statement}}, applied on 2026-10-11 to the registered statement
 under the certificate pair of its test root, give accepted, and so they do for
 the Transparent Statement that the service returned for it.
@@ -1226,19 +1236,32 @@ general Ed25519 implementation (its checks M2-17 and M2-18).
 
 @@APPENDIX@@
 
-# Open Items (to be removed before publication)
+# Changes (to be removed before publication)
 {:numbered="false"}
 
-* References. The in-toto references are pinned to release v1.2.0 of the
-  in-toto Attestation Framework.
-* The draft names of {{RECEIPTS}} and {{STATEMENT-ID}} are to be updated once
-  those documents are published.
-* The artifact-type declaration of {{typed-reference}} is named by no
-  consuming profile yet.
-* Whether the certificate profile also admits alg -9 (ESP256) of {{RFC9864}}
-  ({{alg-choice}}).
-* Whether the certificate profile admits an intermediate certificate or an
-  anchor key other than RSA. It requires exactly two certificates and an RSA
-  root because that is the form measured to work: the offline verifier named in
-  {{impl}} did not anchor a chain whose leaf certificate was signed with ECDSA,
-  and verified the chain with an RSA root.
+## Since draft-gruszka-evaluation-receipt-mappings-02
+{:numbered="false"}
+
+* The certificate profile does not admit alg -9 (ESP256). {{alg-choice}} gives
+  the measured reason, {{impl}} the measurement, and vector X2
+  ({{certificate-vectors}}) is the statement that was refused.
+* The open items are resolved and removed. The in-toto references stay pinned
+  to release v1.2.0, the draft names of {{RECEIPTS}} and {{STATEMENT-ID}} stay
+  as cited, {{typed-reference}} already says that no profile names its
+  declaration, and {{signed-statement}} now limits the certificate profile to
+  the form measured to work.
+* This appendix is added.
+
+## Since draft-gruszka-evaluation-receipt-mappings-01
+{:numbered="false"}
+
+* {{typed-reference}} defines the JSON representation of a typed digest
+  reference. Input outside it is Malformed before the other states, member
+  names are compared after unescaping, and repeated names are found before any
+  conversion. The matching rule takes exactly one `digest_alg` and one `digest`,
+  both strings, whatever the state.
+* Vectors R7 to R13 ({{reference-vectors}}) give Malformed inputs and an
+  escaped member name.
+* Step 1 of {{matching}} names the form of the value in each carrier.
+* {{non-claims}} and {{security}} say that a MATCH is not a Verified
+  reference, and {{RFC8259}} is a normative reference.
