@@ -528,7 +528,9 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     model, a wrapper and a `gh` call are not exempted; the deny of a hook-disabling form stays;
   - b. nothing stands at `.proofbundle/evidence.json`, or in place of the `.proofbundle/` folder, at HEAD, in the
     actual working tree and at every commit the push may send: an empty, broken or done-only declaration, a folder or
-    a link at the path, or a file or a link where the folder belongs is no absence;
+    a link at the path, or a file or a link where the folder belongs is no absence; a tree that names one entry twice
+    is not read whole, neither its first nor its last entry counts (review round 11 of 2026-10-12, R11-4: two
+    `.proofbundle` entries in a sent commit had been read as the empty one), at HEAD and at a local record alike;
   - c. those commits are the whole history of every source, with no tracking ref subtracted, since without a bound
     target state the commits a push newly sends are unknown; a shallow repository, a history git does not list or
     give whole, and one longer than 20000 commits are asked. The review's case, measured with git 2.43.0 and 2.51.1:

@@ -3840,12 +3840,17 @@ def _objects(repo: str, oids: list[str], deadline: float) -> dict[str, tuple[byt
 
 
 def _tree_entries(raw: bytes, oid_length: int) -> dict[bytes, tuple[bytes, str]] | None:
-    """The entries of a raw tree object, name to (mode, object id), or None where the bytes are no tree."""
+    """The entries of a raw tree object, name to (mode, object id), or None where the bytes are no tree or name one
+    entry twice: neither the first nor the last of two entries of one name is a whole reading, and git itself reads
+    such a tree as the first, its fsck as duplicateEntries (review round 11 of 2026-10-12, R11-4: a root tree with
+    two `.proofbundle` entries, the declared folder first, had been read as the empty one and called an absence)."""
     entries, i = {}, 0
     while i < len(raw):
         space = raw.find(b" ", i)
         nul = raw.find(b"\0", space + 1) if space >= 0 else -1
         if space < 0 or nul < 0 or nul + 1 + oid_length > len(raw):
+            return None
+        if raw[space + 1:nul] in entries:
             return None
         entries[raw[space + 1:nul]] = (raw[i:space], raw[nul + 1:nul + 1 + oid_length].hex())
         i = nul + 1 + oid_length
