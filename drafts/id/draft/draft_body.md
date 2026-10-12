@@ -739,10 +739,28 @@ identifies the sources of the reported measurement.
 
 * In requirement A2, "may" is no longer written in capitals; recomputing a
   target digest is not a permission in the sense of BCP 14.
+* Requirement A5 says that the illustrative cases in Section 6 do not
+  test leaf hashing or Receipts.
 * Section 11 adds the measurement of the package on the main branch of
   proofbundle against the cases of Section 6, and the result of a further
   checker written from the text.
+* Section 11 adds a local check of inclusion receipts from three
+  instances of the ledger and cites pull request 31 of the CCF Receipt
+  profile {{CCF-DATA-HASH}}.
 * The Open Items section is removed. The references were checked against
   the published documents on 2026-10-12; Open Question 2 stays in
   Section 10.
 * This appendix is added.
+
+## Since draft-gruszka-scitt-statement-identification-00
+{:numbered="false"}
+
+* Case C12 (requirement A4) is added: statement 01 with the head of
+  its array written with a one-byte length argument, so that the
+  ToBeSigned reference matches and the signature verifies while
+  the whole-object digest changes. Its bytes are in Appendix A.
+* Section 11 adds a second local measurement, on 2026-10-11, with
+  two implementations, the ledger and an archived emulator.
+  Section 4.4 refers to it and to cases C5 and C12, and states that
+  the emulator's receipts are not COSE Receipts, so the measurement
+  is not a test of two Transparency Services.

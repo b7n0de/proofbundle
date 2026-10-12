@@ -877,12 +877,10 @@ reads any receipt; the verdict stays FAIL. A key of mixed order, as in N61, it
 refuses at step 11.
 
 On 2026-10-12, the implementation named above, at commit
-de2a21086e42991dc3726c70c81779d6d41a953c of its work branch, was run on the 66
+a339424e07fd58fa261d8ca3f41af5de4dcbf751 of its work branch, was run on the 66
 vectors of {{vectors}} with the bytes given there, and for each vector its
-verdict and first failing step were compared with the expected ones: it follows
-revision -00 of this document, whose receipt has a fourth member, inclusion, and
-it stopped at step 1 on every vector, so it reached the expected verdict on the
-56 vectors that expect FAIL and the expected first failing step on 9 of them. A
+verdict and first failing step were compared with the expected ones: it reached
+the expected verdict and the expected first failing step on all 66 vectors. A
 further verifier, written from the published text of this document alone,
 agreed with the verifier written by the author of the generator on the verdict
 and the first failing step of each of the 66 vectors, on 23000
@@ -915,10 +913,35 @@ and gaps in the numbering carry no meaning.
 ## Since draft-gruszka-signed-evaluation-receipts-01
 {:numbered="false"}
 
-* {{impl}} adds the conformance run of the implementation named there on
-  the vectors of {{vectors}}, and the result of a further verifier written
-  from the text.
+* {{introduction}} ends with the scope of this document and its
+  interoperability target.
+* {{non-claims}} opens with what PASS does not mean and says that
+  establishing who controls the key is outside the procedure.
+* The security considerations of {{iana-media-type}} also refer to
+  {{RFC8259}} Section 12.
+* {{impl}} adds the conformance run of the implementation named there, at
+  commit a339424e, on the vectors of {{vectors}}, and the result of a
+  further verifier written from the text.
 * The Open Items section is removed. The references were checked against
   the published documents on 2026-10-12, and {{impl}} now gives the
   conformance result it asked for.
 * This appendix is added.
+
+## Since draft-gruszka-signed-evaluation-receipts-00
+{:numbered="false"}
+
+* {{introduction}} names the two parties the format serves, an Issuer and
+  a Receiver that share no infrastructure, and says why the receipt
+  object stands next to the DSSE-compatible signature.
+* {{payload}} states that the vectors of this version are
+  maintained in {{vectors}} and that a later version of the format
+  uses a different identifier with its own vectors.
+* {{non-claims}} adds that a receipt does not show where B came from.
+* {{security}} adds that `criteria_digest` binds bytes, not a time, and
+  carries weight only against criteria bytes the Receiver obtained
+  independently.
+* {{iana-media-type}} writes out the security considerations of the
+  registration template and names contact, author and change
+  controller.
+* {{impl}} adds a local measurement on 2026-10-10 of a receipt
+  made from the result of a test run.

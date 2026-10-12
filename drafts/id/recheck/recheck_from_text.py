@@ -8,7 +8,9 @@ cases are those of the -01, byte for byte. A2 writes "may" in lowercase, Section
 package on proofbundle main and the result of a further checker written from the text, the Open Items are gone,
 Open Question 2 stays in Section 10, and an unnumbered appendix of changes follows the Provenance. The round
 "revision -02" at the end holds it. After the review of the -01 (blocks D to F), Section 11 gives the package nine
-cases directly and C10 mirrored, never twelve; the round reads that sentence.
+cases directly and C10 mirrored, never twelve; the round reads that sentence. Since card SER-ID-02-SEIT-00-01 the
+round holds every point of the appendix of changes, since -01 (with blocks D, E and F) and since -00, in order, and
+counts them.
 
 Round 2 of the review (2026-10-07): sig_valid follows the four rules that Section 6 now states
 (canonical A and R per RFC 8032 Section 5.1.3, both of order L, S below L, the cofactorless
@@ -835,23 +837,38 @@ i_pv02 = next((i for i, ln in enumerate(lines) if ln.rstrip() == "Provenance"), 
 i_aa02 = next((i for i, ln in enumerate(lines) if ln.rstrip() == "Author's Address"), None)
 ch02 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines[i_ch02:i_aa02])))
         if None not in (i_ch02, i_aa02) else "")
-s02c = ["Since draft-gruszka-scitt-statement-identification-01",
-        'In requirement A2, "may" is no longer written in capitals; recomputing a target digest is not a permission in '
-        "the sense of BCP 14.",
-        "Section 11 adds the measurement of the package on the main branch of proofbundle against the cases of "
-        "Section 6, and the result of a further checker written from the text.",
-        "The Open Items section is removed. The references were checked against the published documents on "
-        "2026-10-12; Open Question 2 stays in Section 10.",
-        "This appendix is added."]
+s02c = {"01": ['In requirement A2, "may" is no longer written in capitals; recomputing a target digest is not a '
+               "permission in the sense of BCP 14.",
+               "Requirement A5 says that the illustrative cases in Section 6 do not test leaf hashing or Receipts.",
+               "Section 11 adds the measurement of the package on the main branch of proofbundle against the cases of "
+               "Section 6, and the result of a further checker written from the text.",
+               "Section 11 adds a local check of inclusion receipts from three instances of the ledger and cites pull "
+               "request 31 of the CCF Receipt profile [CCF-DATA-HASH].",
+               "The Open Items section is removed. The references were checked against the published documents on "
+               "2026-10-12; Open Question 2 stays in Section 10.",
+               "This appendix is added."],
+        "00": ["Case C12 (requirement A4) is added: statement 01 with the head of its array written with a one-byte "
+               "length argument, so that the ToBeSigned reference matches and the signature verifies while the "
+               "whole-object digest changes. Its bytes are in Appendix A.",
+               "Section 11 adds a second local measurement, on 2026-10-11, with two implementations, the ledger and an "
+               "archived emulator. Section 4.4 refers to it and to cases C5 and C12, and states that the emulator's "
+               "receipts are not COSE Receipts, so the measurement is not a test of two Transparency Services."]}
+h01 = ch02.find("Since draft-gruszka-scitt-statement-identification-01")
+h00 = ch02.find("Since draft-gruszka-scitt-statement-identification-00")
+got02 = {"01": [b.strip() for b in ch02[h01:h00 if h00 > h01 else None].split(" * ")[1:]] if h01 > -1 else [],
+         "00": [b.strip() for b in ch02[h00:].split(" * ")[1:]] if -1 < h01 < h00 else []}
 ok02 = (any(ln.strip() == "draft-gruszka-scitt-statement-identification-02" for ln in lines)
         and all(x in flat02 for x in s02) and "MAY still require" not in flat02 and len(cidx) == 12
         and not any(ln.strip().startswith("Open Items") for ln in lines)
         and None not in (i_ch02, i_pv02, i_aa02) and i_pv02 < i_ch02 < i_aa02
-        and all(x in ch02 for x in s02c))
+        and got02 == s02c)
 print("revision -02: name -02, A2 'may' in lowercase, Section 11 and Open Question 2, no Open Items, the appendix of "
-      "changes after the Provenance: %s; cases %d; missing: %s" % (
-          "OK" if ok02 else "DIFF", len(cidx),
-          ", ".join(x[:40] for x in s02 + s02c if x not in flat02 + " " + ch02) or "none"))
+      "changes after the Provenance with %d points since -01 and %d since -00: %s; cases %d; missing: %s; differing "
+      "points: %s" % (
+          len(got02["01"]), len(got02["00"]), "OK" if ok02 else "DIFF", len(cidx),
+          ", ".join(x[:40] for x in s02 if x not in flat02) or "none",
+          ", ".join("%s %d" % (k, i + 1) for k in s02c for i in range(max(len(s02c[k]), len(got02[k])))
+                    if s02c[k][i:i + 1] != got02[k][i:i + 1]) or "none"))
 fails += not ok02
 print("deviations after the revision -02 round:", fails)
 sys.exit(1 if fails else 0)
