@@ -59,6 +59,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - **An independent reading of draft-abak-agent-control-delivery-evidence-01.** Adds `interop/acde_01`, a verifier-side implementation derived from our reading of the text of -01 alone, with 130 requirement sentences, 146 vectors and a run record with agreement 108, contradiction 0, ambiguity 14 and not implemented 8. Nothing outside `interop/acde_01` changes.
 
+### Fixed
+
+- **The pytest plugin writes no receipt that names a metric it did not compute** (`proofbundle.pytest_plugin`).
+  The plugin computes the pass rate and wrote it under any name `PROOFBUNDLE_METRIC` gave: with `accuracy`, one
+  test passed and one failed, the signed receipt said `accuracy` against a threshold of 0.9 for a value that was
+  the pass rate (Codex on pull request 302). A value other than `pass_rate` now skips the receipt and prints why;
+  unset or `pass_rate`, nothing changes. INTEGRATIONS.md says which variables the plugin reads.
+
 ## [6.2.1] - 2026-10-10
 
 Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
