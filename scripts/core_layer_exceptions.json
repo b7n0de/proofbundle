@@ -1,0 +1,193 @@
+{
+  "schema": "proofbundle.core_layer_exceptions.v1",
+  "note": "Every finding of scripts/core_layer_gate.py inside the core, bound to rule, module and operation, with the number of times it occurs there. Approved baseline of S1, measured at main 53d9210f (tag v6.2.1). The set only shrinks: a finding outside it is red even when another entry disappeared, one more occurrence of an approved operation is red, and an entry that occurs less often or no longer is red until its count is lowered or it is removed here. Entries without a reason are the state S2 starts from, not approvals.",
+  "entries": [
+    {
+      "rule": "clock",
+      "module": "proofbundle.decision",
+      "operation": "datetime.datetime.now",
+      "count": 1
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.decision",
+      "operation": "time.time",
+      "count": 1
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.evalclaim",
+      "operation": "datetime.datetime.now",
+      "count": 1
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.policy",
+      "operation": "datetime.datetime.now",
+      "count": 6
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle",
+      "operation": "getattr(computed name)",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle._membership",
+      "operation": ".__dict__",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.budget",
+      "operation": "getattr(computed name)",
+      "count": 2
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": ".__dict__",
+      "count": 4
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "builtins.vars",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "sys.modules",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "sys.modules.items",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_import",
+      "module": "proofbundle",
+      "operation": "import importlib",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_import",
+      "module": "proofbundle",
+      "operation": "importlib.import_module",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": ".read",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": ".read",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": "builtins.open",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": "os.stat",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": ".read",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": ".write",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "builtins.open",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.fdopen",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.open",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": ".read",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": "builtins.open",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": "os.stat",
+      "count": 1
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "import urllib.request",
+      "count": 1
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "urllib.request.Request",
+      "count": 1
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "urllib.request.urlopen",
+      "count": 1
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.errors",
+      "operation": "os.urandom",
+      "count": 1,
+      "reason": "named exception, owner order Z376: the per-process origin key (_ORIGIN_KEY) stamps every VerificationResult so that policy.evaluate_policy can refuse a hand-built result; it protects a binding and stays until S2 replaces it with an equivalent"
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.evalclaim",
+      "operation": "os.urandom",
+      "count": 2
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.sdjwt_issue",
+      "operation": "os.urandom",
+      "count": 1
+    }
+  ]
+}
