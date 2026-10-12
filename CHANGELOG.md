@@ -6,7 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [6.3.0] - 2026-10-14
+
+Two entries change existing behaviour for package users: DSSE envelopes now name their signing key by default (Changed), and the pytest plugin skips the receipt when `PROOFBUNDLE_METRIC` names a metric other than `pass_rate` (Fixed). The remaining entries add material or concern the project's CI.
 
 ### Added
 
