@@ -23,8 +23,10 @@ from proofbundle._integration import emit_config
 REPO = Path(__file__).resolve().parents[1]
 _VARIABLE = re.compile(r"PROOFBUNDLE_[A-Z][A-Z_]*")
 #: A stated default: the word, optionally "to", "is" or a colon, then a value in backticks, in double
-#: quotes, or a bare number.
-_DEFAULT = re.compile(r"\bdefaults?(?:\s+to|\s+is|:)?\s*(?:`([^`]*)`|\"([^\"]*)\"|([0-9][0-9.]*))", re.IGNORECASE)
+#: quotes, or a bare number. The word that ends an identifier is not the word: the scope of 6.3.0 names the branch
+#: `claude/integrations-threshold-default`, and its closing backtick was read as the start of a value.
+_DEFAULT = re.compile(r"(?<![-/.])\bdefaults?(?:\s+to|\s+is|:)?\s*(?:`([^`]*)`|\"([^\"]*)\"|([0-9][0-9.]*))",
+                      re.IGNORECASE)
 
 
 def _measured_defaults() -> dict:
@@ -96,6 +98,17 @@ class TheReaderOfStatedDefaults(unittest.TestCase):
                         "`PROOFBUNDLE_THRESHOLD` is required for receipt emission since\n5.0.0, with no default.")
         self.assertEqual(_stated_defaults(integrations), [("PROOFBUNDLE_COMPARATOR", ">=")])
 
+    def test_a_branch_name_that_ends_in_default_states_nothing(self) -> None:
+        """The scope of 6.3.0 names the branch `claude/integrations-threshold-default` in the row whose sentence names
+        PROOFBUNDLE_METRIC, and the reader took the closing backtick of the branch as the start of a stated value
+        (measured 2026-10-12 on the review of that scope). A real default beside such a name is still read."""
+        zeile = ("| PR302 | 302 | the pytest plugin skips receipt generation when PROOFBUNDLE_METRIC names another "
+                 "metric | `claude/integrations-threshold-default` |\n| PR303 | 303 | the pilot profile | "
+                 "`claude/pilot-profile` |")
+        self.assertEqual(_stated_defaults(zeile), [])
+        self.assertEqual(_stated_defaults("`PROOFBUNDLE_COMPARATOR` defaults to `>=` on the branch `x-default`"),
+                         [("PROOFBUNDLE_COMPARATOR", ">=")])
+
     def test_the_measured_defaults(self) -> None:
         self.assertEqual(_measured_defaults(), {"PROOFBUNDLE_METRIC": None, "PROOFBUNDLE_COMPARATOR": ">=",
                                                 "PROOFBUNDLE_THRESHOLD": None})
@@ -164,6 +177,8 @@ CURRENT = {
     "docs/INSPECT_HAPPY_PATH.md": "the walkthrough; a reader follows it command by command",
     "COMPATIBILITY.md": "the compatibility policy; its worked example names the 5.0.0 threshold change",
     "README.md": "the front page since 6.2.1; shows the pytest and Inspect commands with the threshold",
+    "docs/release_scope/6.3.0.md": "the scope of the coming release; its PR302 row says how the pytest plugin treats "
+                                   "PROOFBUNDLE_METRIC now",
 }
 #: Documents that record a past state and are not rewritten when the code moves on. Each names why.
 HISTORIC = {

@@ -8,90 +8,24 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-### CI
-
-- **A label starts no CI run any more, and `landung` still starts the mutation layer**
-  (`.github/workflows/ci.yml`, new `.github/workflows/landung.yml`). ci.yml ran on `labeled` and
-  `unlabeled` for the label `landung`, and its concurrency group cancels a running pull-request run, so
-  every label set on a pull request cancelled its CI and started a full one (measured 2026-09-28 on the
-  pull requests of the 6.2.0 chain, about 55 minutes each). ci.yml now runs on opened, synchronize and
-  reopened only. The mutation layer runs from landung.yml when `landung` is set and again on every new head
-  of a pull request that carries it, and is cancelled when the label is taken off. There it waits, as in
-  ci.yml, for test and coverage of the same head: `needs` does not reach into another workflow, so the job
-  `ci-prerequisites` waits for them and for the collector `all-checks-passed` in the ci.yml run of the head
-  (`scripts/landung_waits_for_ci.py`), and the layer needs that job; the collector keeps a fork's one-leg
-  run from counting as the release matrix. Its other ways in (by hand, a `release/` branch, the merge queue) stay in
-  ci.yml behind test and coverage. The two copies of the mutation jobs are held equal by
-  `tests/test_ein_label_startet_keine_ci.py`, which also holds that landung.yml carries no required
-  context: its jobs are skipped on every other label, and a skipped required check reads as passed. No
-  required context changed. A fork pull request still gets the full matrix under the label, now at its
-  next push.
-
 ### Added
 
-- **eval-result v0.2, the revised in-toto/attestation#575 draft, under its own type**
-  (`https://b7n0de.com/attestation/eval-result/v0.2`; `intoto.EVAL_RESULT_V02_PREDICATE_TYPE`,
-  `export_eval_result_v02_dsse`, `to_eval_result_v02_statement`, `to_eval_result_v02_predicate`,
-  `receipt_evidence`, `classify_eval_result_v02_predicate`; `proofbundle intoto --predicate-version v0.2
-  --evaluator <URI> [--receipt-uri <URI>]`). The draft, as revised on 2026-09-28, changed three things:
-  `evaluator` (the evaluation role) in place of `verifier`, required and without a default, and not
-  refused when it is also the signer; for each of model and dataset exactly one of a salted commitment
-  (private, `salted` MUST be `true`) and a predicate-level ResourceDescriptor with `digest` (public),
-  both locations inspected, subject and evidence never counted; and `evidence[]` in place of the `receipt`
-  block, each entry with the digest of the artifact it names (the decoded bytes when `content` is
-  present). The receipt's entry is the SHA-256 of the receipt file's exact bytes, which carry its
-  signature; its internal Merkle root is written nowhere in the entry. `verify_eval_result_dsse` adds the
-  v0.2 shape to the verdict for a statement that declares v0.2 (`predicate_shape_ok`,
-  `predicate_shape_detail`); unknown fields are ignored at every level. The examples under
-  `examples/intoto/` are in the v0.2 shape, with the receipt they reference (`eval-receipt.json`) and a
-  public-model example that identifies the model by descriptor. `docs/upstream/eval-result.md` is the
-  upstream file byte for byte plus the repository's header comment; the vendor-alias note moved to
-  `docs/upstream/README.md`.
-
-  **Migration.** v0.1 keeps its meaning (gate G2), shown by regression evidence rather than a signature
-  check: `tests/fixtures/eval_result_v0_1/corpus.json` carries 14 v0.1 envelopes (5 fixtures from the
-  published 6.1.0 wheel, 9 own reconstructions from the source at the release tags v2.0.0 to v6.0.0),
-  and this version gives the released 6.1.0 verifier's verdict on each, on each under another key and
-  on six negative variants, judges each under the v0.1 rules (`predicate_shape_ok` is `None`), and
-  dispatches on `predicateType`. The default call still expects v0.1. `proofbundle intoto` still writes
-  v0.1 unless asked for v0.2; `--verify` accepts both. Field mapping and the readings of the draft (A1 to
-  A10): `docs/IN_TOTO_PROFILE.md`.
-
+- Add opt-in eval-result v0.2 export and verification under `https://b7n0de.com/attestation/eval-result/v0.2` for the revised in-toto draft. Export with `proofbundle intoto --predicate-version v0.2 --evaluator <URI>`. v0.2 requires an `evaluator`, identifies each model and dataset by exactly one of a salted commitment or a digest-bearing ResourceDescriptor, and records artifact digests in `evidence[]`. Receipt evidence uses the SHA-256 of the receipt file's exact bytes. Exports still default to v0.1; `--verify` accepts both versions. See `docs/IN_TOTO_PROFILE.md` for mappings and migration details.
 - **An independent reading of draft-abak-agent-control-delivery-evidence-01.** Adds `interop/acde_01`, a verifier-side implementation derived from our reading of the text of -01 alone, with 130 requirement sentences, 146 vectors and a run record with agreement 108, contradiction 0, ambiguity 14 and not implemented 8. Nothing outside `interop/acde_01` changes.
+- Add SCITT statement identification requirements and a package verifiable against them.
+- Add a pilot profile and vectors for the shipped decision and outcome predicates.
+- Document which capabilities ship in 6.1.0 and which are available only on the main branch at the documented comparison point.
+- Add an incremental Merkle accumulator alongside the bundle emitter, with a restart rule and before-and-after run records.
+- Add the first pilot contract for comparing approved agent actions with GitHub evidence.
 
 ### Changed
 
-- **DSSE envelopes name their signing key by default** (`dsse.sign_envelope`, and through it every in-toto
-  export and every DSSE-signed statement of this package; the trust pack signs its own envelopes and
-  already names its keys). The in-toto envelope layer says a keyid SHOULD
-  be included for each signing key, and none was. Measured with the 6.1.0 export (Z225,
-  `claude/intoto-external` at 13d8faa): securesystemslib 1.5.1 raised `KeyError: 'keyid'` and GUAC
-  1.1.0 could not find the key. The default keyid is the signer's OpenSSH SHA256 fingerprint, the form
-  go-securesystemslib derives (`SHA256:wjwlWYX6X7KTNYJHUEGfZLwSCudesRmpA6ELAIZHj2k` for the Z225 test
-  key, from its `dsse.SHA256KeyID`). `keyid=""` writes none, and a signer that exposes no Ed25519 public
-  key, such as a sign-only adapter, gets none unless one is passed. The keyid is not signed.
-  `dsse.verify_envelope`, the in-toto verifiers and `pb_verify_rs verify-dsse` check one pinned key and select
-  none by it, so among well-formed envelopes their verdict and exit code do not change with its value; the
-  trust pack, which names several keys, selects each signing key by its keyid, by design. Like
-  any other field it must be well-formed JSON text, and a keyid holding a lone surrogate makes the envelope
-  malformed for both verifiers. Every DSSE envelope of the shipped conformance corpus names its key now:
-  the agent-review vectors and the relation vectors are regenerated by their generators, and the eight
-  relation cases that have no generator in the tree get the keyid of the recorded key that verifies each
-  signature, their signatures unchanged. Not every envelope the sdist ships names its key: the archived
-  agent-review receipts under `receipts/agent_review`, which it ships as regression inputs, the fixture
-  `tests/fixtures/kette_147/receipt.json` and the eval-result v0.1 statements that released versions emitted,
-  under `tests/fixtures/eval_result_v0_1`, were signed before this change and keep the bytes they were signed
-  with, so they carry no keyid, and a reader that requires one refuses them. `docs/IN_TOTO_PROFILE.md` records the four other Z225 findings as what the tools do with a
-  conforming statement: the top-level `contentRootAlg`, the test-result payloadType, GUAC's missing
-  parser for these predicate types, and cosign's image-digest match.
+- DSSE envelopes created by `dsse.sign_envelope`, including in-toto exports, now include the signer's OpenSSH SHA256 fingerprint as `keyid` by default. Use `keyid=""` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly. The key ID is unsigned. The pinned-key DSSE and in-toto verifiers, including `pb_verify_rs verify-dsse`, do not use it to select a key; the trust pack retains its key-selection rules. Archived receipts and regression fixtures may still omit it and be rejected by consumers that require it. See `docs/IN_TOTO_PROFILE.md` for interoperability notes.
+- Pull-request label changes no longer restart the main CI workflow. The `landung` label starts mutation checks in a separate workflow; new commits rerun them while the label is present, and removing the label cancels them.
 
 ### Fixed
 
-- **The pytest plugin writes no receipt that names a metric it did not compute** (`proofbundle.pytest_plugin`).
-  The plugin computes the pass rate and wrote it under any name `PROOFBUNDLE_METRIC` gave: with `accuracy`, one
-  test passed and one failed, the signed receipt said `accuracy` against a threshold of 0.9 for a value that was
-  the pass rate (Codex on pull request 302). A value other than `pass_rate` now skips the receipt and prints why;
-  unset or `pass_rate`, nothing changes. INTEGRATIONS.md says which variables the plugin reads.
+- The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
 
 ## [6.2.1] - 2026-10-10
 
