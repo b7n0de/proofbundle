@@ -535,9 +535,14 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     A without a declaration, B with one, C without; HEAD and the tracking ref at C, the remote reset to A; the range
     against the tracking ref is empty, while git sends C and B;
   - d. every local record of a remote ref the push may write is read with its commit: the refs each remote's fetch
-    rules map a destination candidate to, and `refs/remotes/<remote>/<branch>`; for a URL or path every configured
-    remote's records, as the choice is unclear. A declaration there blocks the exception, a broken or dangling record
-    is no empty state, and a missing record says nothing about the remote.
+    rules map a destination candidate to, and `refs/remotes/<remote>/<branch>`, for the remote named and for every
+    other remote one of whose URLs is its push URL; for a URL or path every configured remote's records, as the choice
+    is unclear. A declaration there blocks the exception, a broken or dangling record is no empty state, and a missing
+    record says nothing about the remote. Where the push goes to an endpoint or a namespace these records do not model,
+    a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
+    not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
+    held a declaration, and under GIT_NAMESPACE with a declaration recorded from refs/namespaces/, the push had been
+    called locally inactive).
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 

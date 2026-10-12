@@ -3921,7 +3921,15 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
     if remotes is None or rules is None:
         return None, ("git cannot read the remotes or their fetch rules, so the local records of the destination are "
                       "not known")
-    chosen = [remote] if remote in remotes else sorted(remotes)
+    if remote in remotes:
+        # Every remote whose URL is the one the push goes to records the destination too (review round 11 of
+        # 2026-10-12, the class of R11-3): a second remote of the same repository keeps its own records.
+        chosen = _remotes_of_endpoint(repo, remote, remotes, deadline)
+        if chosen is None:
+            return None, ("git cannot read the URLs of the remotes, so the local records of the destination are not "
+                          "known")
+    else:
+        chosen = sorted(remotes)
     wanted: dict[str, str] = {}
     for value in values:
         for name, _strong in _dest_candidates(value):
@@ -3966,6 +3974,42 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
             return None, f"the local record {local} of the destination names no commit this repository holds"
         records.append((local, name, commit.stdout.decode().strip()))
     return records, None
+
+
+def _same_endpoint(repo: str, one: str, other: str) -> bool:
+    """Whether two URLs git printed name the same place: equal as written, or both local paths (a file:// URL or a path
+    without a host part) that resolve to the same folder from the repository's top level."""
+    if one == other:
+        return True
+
+    def local(url: str) -> str | None:
+        if url.startswith("file://"):
+            return url[len("file://"):]
+        if "://" in url or re.match(r"^[^/]*:", url):
+            return None   # a URL with a scheme, or the scp form host:path
+        return url
+    first, second = local(one), local(other)
+    return (first is not None and second is not None
+            and os.path.realpath(os.path.join(repo, first)) == os.path.realpath(os.path.join(repo, second)))
+
+
+def _remotes_of_endpoint(repo: str, remote: str, remotes: set, deadline: float) -> list[str] | None:
+    """`remote` and every other configured remote one of whose URLs is a push URL of `remote` (git's `remote get-url`,
+    rewrites applied), so their local records are read as records of the destination; None where git cannot give a
+    remote's URLs."""
+    push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
+    targets = _git_lines(push.stdout) if push.returncode == 0 else None
+    if targets is None:
+        return None
+    chosen = [remote]
+    for each in sorted(remotes - {remote}):
+        fetch = _git(repo, "remote", "get-url", "--all", each, deadline=deadline)
+        urls = _git_lines(fetch.stdout) if fetch.returncode == 0 else None
+        if urls is None:
+            return None
+        if any(_same_endpoint(repo, url, target) for url in urls for target in targets):
+            chosen.append(each)
+    return chosen
 
 
 def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources: list[str] | None,
@@ -4017,6 +4061,16 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         if remote is None or _push_adds_unnamed_refs(repo, remote, deadline):
             return None, ("the configuration adds ref updates the command does not name (remote.<name>.push, "
                           "remote.<name>.mirror or push.followTags)")
+        # Condition d reads the records of the ref the push writes. Under a namespace git writes another ref, and a
+        # push URL other than the fetch URL writes to an endpoint whose records are not origin's: neither is modelled
+        # here, so the exception does not apply (review round 11 of 2026-10-12, R11-3).
+        if _git_namespace() is not None:
+            return None, (f"GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on the "
+                          "remote, and the local records of such a ref are not modelled here")
+        if remote in remotes and not _endpoint_consistent(repo, remote, deadline):
+            return None, (f"the push of remote {remote} goes to another endpoint than the one its local records come "
+                          "from (a pushurl, a further URL or a URL rewrite), and the records of that endpoint are not "
+                          "modelled here")
         shallow = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
         if shallow.returncode != 0 or shallow.stdout.decode().strip() != "false":
             return None, ("the repository is shallow, or git does not say that it is not, so the history the push may "
