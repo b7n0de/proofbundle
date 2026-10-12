@@ -206,10 +206,10 @@ class JederPullRequestGenauEinmal(unittest.TestCase):
             # the source must carry exactly that many.
             if not vorlage.is_file():
                 self.skipTest("NOT MEASURED: the reviewed body is not in the tree")
-            m = re.search(r"<summary>All (\d+) fix(?:es)?, one line each",
+            m = re.search(r"<summary>All (\d+) (?:fix(?:es)?|entr(?:y|ies)), one line each",
                           vorlage.read_text(encoding="utf-8"))
-            self.assertIsNotNone(m, "the reviewed body names no count of fixes")
-            self.assertEqual(len(d["fixes"]), int(m.group(1)))
+            self.assertIsNotNone(m, "the reviewed body names no count of fixes or entries")
+            self.assertEqual(len(_rr._zeilen_der_quelle(d)), int(m.group(1)))
             return
         nummern = [e["nr"] for g in d["gruppen"] for e in g["eintraege"]]
         self.assertEqual(len(nummern), len(set(nummern)), "a pull request appears twice")
@@ -746,7 +746,8 @@ _CHANGELOG_999 = ("# Changelog\n\n## [9.9.9] - 2026-10-09\n\n### Fixed\n\n"
 _RELEASE_MD = "# Release\n\n## Verifying a published release (anyone)\n\nSteps.\n"
 
 
-def _baum_zwei_ebenen(wurzel: Path, ohne: str | None = None, ersetze: dict | None = None) -> Path:
+def _baum_zwei_ebenen(wurzel: Path, ohne: str | None = None, ersetze: dict | None = None,
+                      quelle: dict | None = None) -> Path:
     """A throwaway repository whose described commit carries the files a two-level page links,
     except `ohne`, with the content `ersetze` gives for a path; HEAD carries the source on top."""
     import os
@@ -771,7 +772,7 @@ def _baum_zwei_ebenen(wurzel: Path, ohne: str | None = None, ersetze: dict | Non
     git("init", "-q")
     git("add", "-A")
     git("commit", "-qm", "base")
-    quelle = _zwei_ebenen()
+    quelle = dict(quelle or _zwei_ebenen())
     quelle["release_commit"] = git("rev-parse", "HEAD")
     (wurzel / "release_notes" / "release-source.json").write_text(json.dumps(quelle, indent=2),
                                                                   encoding="utf-8")
@@ -826,3 +827,115 @@ class JedeVerlinkteDateiStehtImBeschriebenenBaum(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("2 fixes", r.stdout)
         self.assertIn("## Highlights", text)
+
+
+def _zwei_ebenen_abschnitte() -> dict:
+    """A two-level source of a release that adds, changes and fixes; its lines carry no bold lead."""
+    d = _zwei_ebenen()
+    d.pop("fixes")
+    d["abschnitte"] = [
+        {"titel": "Added", "zeilen": ["Add a first thing.", "Add a second thing with `code`."]},
+        {"titel": "Changed", "zeilen": ["A default now names its key."]},
+        {"titel": "Fixed", "zeilen": ["A plugin skips what it did not compute."]},
+    ]
+    return d
+
+
+_CHANGELOG_999_ABSCHNITTE = ("# Changelog\n\n## [9.9.9] - 2026-10-14\n\nOne opening paragraph.\n\n"
+                             "### Added\n\n- Add a first thing.\n- Add a second thing with `code`.\n\n"
+                             "### Changed\n\n- A default now names its key.\n\n"
+                             "### Fixed\n\n- A plugin skips what it did not compute.\n\n"
+                             "## [9.9.8] - 2026-10-01\n")
+
+
+class DieZweiEbenenFormMitAbschnitten(unittest.TestCase):
+    """OWNER DECISION OF 2026-10-12 for 6.3.0: a release that adds and changes as well as fixes lists
+    every entry as its CHANGELOG line under the CHANGELOG's own sections. The fixes form of 6.2.1 showed
+    only `### Fixed` and asked each line for a bold lead; the reviewed entries of 6.3.0 have none, and
+    nine of its ten entries are not fixes."""
+
+    def test_RED_die_abschnitte_stehen_in_ihrer_reihenfolge_unter_den_details(self):
+        d = _zwei_ebenen_abschnitte()
+        self.assertEqual(pruefe(d), [])
+        text = rendere(d)
+        orte = [text.index(s) for s in (
+            "## Highlights", "## Details", "<summary>All 4 entries, one line each, as in the CHANGELOG</summary>",
+            "### Added", "- Add a first thing.", "- Add a second thing with `code`.", "### Changed",
+            "- A default now names its key.", "### Fixed", "- A plugin skips what it did not compute.",
+            "</details>", "[Full changelog]")]
+        self.assertEqual(orte, sorted(orte), "the sections are out of order")
+        self.assertEqual(text.count("<details>"), 1)
+        self.assertNotIn("fixes, one line each", text)
+
+    def test_einzahl_und_mehrzahl_folgen_der_zahl_der_eintraege(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"] = d["abschnitte"][2:]
+        self.assertIn("<summary>All 1 entry, one line each", rendere(d))
+
+    def test_fang_fixes_und_abschnitte_zugleich(self):
+        d = _zwei_ebenen_abschnitte()
+        d["fixes"] = ["**A fix.** It is fixed."]
+        self.assertIn("the two-level source lists fixes and abschnitte; it lists exactly one of them", pruefe(d))
+
+    def test_fang_ein_unbekannter_abschnitt(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"][1]["titel"] = "CI"
+        self.assertTrue(any("abschnitt 2 is titled 'CI'" in b for b in pruefe(d)), pruefe(d))
+
+    def test_fang_ein_abschnitt_zweimal(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"].append({"titel": "Added", "zeilen": ["Add a third thing."]})
+        self.assertIn("abschnitt(e) declared more than once: Added", pruefe(d))
+
+    def test_fang_ein_leerer_abschnitt_und_eine_zeile_ueber_zwei_zeilen(self):
+        for zeilen in ([], ["one line\nand another"]):
+            with self.subTest(zeilen=zeilen):
+                d = _zwei_ebenen_abschnitte()
+                d["abschnitte"][0]["zeilen"] = zeilen
+                self.assertIn("abschnitt Added is not a list of one or more CHANGELOG lines", pruefe(d))
+
+    def test_gegenrichtung_die_fixes_form_bleibt_wie_sie_war(self):
+        """WITHOUT THIS a change that broke the form of 6.2.1 would pass the cases above."""
+        d = _zwei_ebenen()
+        self.assertEqual(pruefe(d), [])
+        self.assertIn("<summary>All 2 fixes, one line each, as in the CHANGELOG</summary>", rendere(d))
+        self.assertNotIn("### ", rendere(d))
+
+
+class JederAbschnittIstDerDesChangelog(unittest.TestCase):
+    """The page must not say one thing and the CHANGELOG another, now per section: every heading of the
+    version's CHANGELOG section, in its order, with its lines byte for byte."""
+
+    def test_RED_die_abschnitte_des_changelog_rendern(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": _CHANGELOG_999_ABSCHNITTE},
+                                  quelle=_zwei_ebenen_abschnitte())
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("4 entries", r.stdout)
+
+    def test_fang_ein_weggelassener_abschnitt_ein_anderes_wort_eine_andere_reihenfolge(self):
+        import tempfile
+        weg = _zwei_ebenen_abschnitte()
+        weg["abschnitte"] = [a for a in weg["abschnitte"] if a["titel"] != "Changed"]
+        wort = _zwei_ebenen_abschnitte()
+        wort["abschnitte"][0]["zeilen"][0] = "Add a first item."
+        folge = _zwei_ebenen_abschnitte()
+        folge["abschnitte"] = list(reversed(folge["abschnitte"]))
+        for name, quelle in (("Abschnitt weg", weg), ("ein Wort anders", wort), ("Reihenfolge", folge)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": _CHANGELOG_999_ABSCHNITTE},
+                                      quelle=quelle)
+                r = _render_im(w)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("are not the sections of 9.9.9 in CHANGELOG.md at", r.stderr)
+
+    def test_fang_ohne_versionsabschnitt_im_changelog(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": "# Changelog\n\n## [9.9.8] - 2026-10-01\n"},
+                                  quelle=_zwei_ebenen_abschnitte())
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("has no section `## [9.9.9]`", r.stderr)
