@@ -38,6 +38,38 @@ class TheVectors(unittest.TestCase):
         neu = json.dumps(self.g.build_vectors(), indent=1, ensure_ascii=False) + "\n"
         self.assertEqual(neu, _VECTORS.read_text(encoding="utf-8"))
 
+    def test_no_envelope_depends_on_the_default_keyid_of_sign_envelope(self) -> None:
+        """The second 6.3.0 batch run (pull request 342) measured the committed vectors red on a tree with pull
+        request 287 merged first: 287 makes dsse.sign_envelope write a keyid when none is passed, and the vectors had
+        none. Every signing path of the generator now passes the keyid itself. Here sign_envelope refuses a call
+        without one, and the vectors are built all the same, byte for byte as committed; each envelope's keyid is the
+        fingerprint `ssh-keygen -l -E sha256` printed for its key on 2026-10-12, written out here."""
+        from proofbundle import dsse
+        echt = dsse.sign_envelope
+        gerufen = []
+
+        def ohne_vorgabe(body, signer, *, payload_type, keyid=None):
+            gerufen.append(keyid)
+            if keyid is None:
+                raise AssertionError("a signing path relies on the default keyid of sign_envelope")
+            return echt(body, signer, payload_type=payload_type, keyid=keyid)
+        dsse.sign_envelope = ohne_vorgabe
+        try:
+            neu = json.dumps(self.g.build_vectors(), indent=1, ensure_ascii=False) + "\n"
+        finally:
+            dsse.sign_envelope = echt
+        self.assertGreater(len(gerufen), 50)
+        self.assertEqual(neu, _VECTORS.read_text(encoding="utf-8"))
+        ssh_keygen = {"gate": "SHA256:AUaMzddCP5jVLTOF3KlFlLnLjv0sOKGO44fCZ9Phhf0",
+                      "observer": "SHA256:x5s9NHfvMYPFZBx5do95fwWrU1T6O9S0fUnlymR8aqM",
+                      "someone else": "SHA256:DT1kcPIOIkuKWmGKghdcyiokn1jiNL4HxrAxuwbFSbE"}
+        for label, fingerabdruck in ssh_keygen.items():
+            with self.subTest(key=label):
+                self.assertEqual(self.g.keyid_of(self.g.test_key(label)), fingerabdruck)
+        umschlaege = [u for f in self.daten["cases"] for u in (f["decision"], f["outcome"]) if u is not None]
+        keyids = {s.get("keyid") for u in umschlaege for s in u["signatures"]}
+        self.assertEqual(keyids, set(ssh_keygen.values()))
+
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
         self.assertEqual(len(ergebnisse), 54)

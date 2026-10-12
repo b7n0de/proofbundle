@@ -179,12 +179,27 @@ def outcome_predicate(*, outcome_id: str, decision_root: str, executor_id: str, 
     return pred
 
 
+def keyid_of(key: Ed25519PrivateKey) -> str:
+    """OpenSSH's SHA256 fingerprint of the key's public half: `SHA256:` and the unpadded base64 of SHA-256 over its SSH
+    wire form (string "ssh-ed25519", string key; RFC 8709 section 4), as `ssh-keygen -l` prints it.
+
+    Every envelope of the profile carries it, passed explicitly at each signing call. Pull request 287 makes
+    dsse.sign_envelope write this fingerprint when no keyid is passed, and before it no keyid is written; passed
+    explicitly, the envelopes and the committed vectors are the same bytes on a tree with that default and on one
+    without it (the combined tree of the second 6.3.0 batch run, 342, measured the vectors red with 287 merged
+    first)."""
+    def string(b: bytes) -> bytes:
+        return len(b).to_bytes(4, "big") + b
+    digest = hashlib.sha256(string(b"ssh-ed25519") + string(_pub(key))).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
 def sign_decision(predicate: dict, key: Ed25519PrivateKey) -> dict:
-    return emit_decision_receipt(predicate, key, strict=True)
+    return emit_decision_receipt(predicate, key, keyid=keyid_of(key), strict=True)
 
 
 def sign_outcome(predicate: dict, key: Ed25519PrivateKey) -> dict:
-    return emit_outcome_receipt(predicate, key, strict=True)
+    return emit_outcome_receipt(predicate, key, keyid=keyid_of(key), strict=True)
 
 
 def _answer(verdict: str, reasons: list, checks: dict) -> dict:
@@ -427,7 +442,8 @@ def _gate_signed_as_is(predicate: dict, key: Ed25519PrivateKey) -> dict:
                  "subject": [{"name": f"decision:{predicate.get('decisionId', '')}",
                               "digest": {"sha256": sha256_hex(canonicalize_statement(predicate))}}],
                  "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": predicate}
-    return dsse.sign_envelope(canonicalize_statement(statement), key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return dsse.sign_envelope(canonicalize_statement(statement), key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE,
+                              keyid=keyid_of(key))
 
 
 GATE_ID, OBSERVER_ID = "operator:outbound-gate", "operator:github-observer"
