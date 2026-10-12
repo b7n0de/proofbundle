@@ -381,8 +381,14 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
     (receive.procReceiveRefs) each make the command write elsewhere than the receiver the check reads, and no
     binding of them is built, so each is refused (review round 10 of 2026-10-11, R10-1: with a receivepack in the
     HOME configuration the push wrote main into another bare repository, the throwaway remote stayed as it was, and
-    the check reported the target unchanged). The shell the host runs the command in may carry another environment
-    than the server; that is not visible here, and the check reads the throwaway remote's refs only."""
+    the check reported the target unchanged). The hook programs the throwaway remote's receive-pack runs where it
+    updates refs are such a choice too: a pre-receive, update or proc-receive hook can refuse or take over the write,
+    and a post-receive, post-update or reference-transaction hook can move the ref back, so any of them in the hooks
+    folder git names for that remote (core.hooksPath, a relative value taken from its git directory) is refused (the
+    class of R10-1, measured at bf10fa6a with git 2.43.0: a post-receive hook from the HOME configuration moved main
+    back after a push that exited 0, and the check reported the target unchanged). The shell the host runs the
+    command in may carry another environment than the server; that is not visible here, and the check reads the
+    throwaway remote's refs only."""
     if os.environ.get("GIT_NAMESPACE"):
         return "git writes the push under refs/namespaces/ on the throwaway remote (GIT_NAMESPACE), not to its main"
     exec_path = os.environ.get("GIT_EXEC_PATH")
@@ -416,7 +422,26 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
                                timeout=60, check=False)
         if value.returncode != 1 or value.stdout or value.stderr:
             return f"a configured {key} {why}, a receiver the check does not read"
+    hooks = subprocess.run(["git", "-C", bare, "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
+                           capture_output=True, text=True, timeout=60, check=False)
+    folder = hooks.stdout.strip()
+    if hooks.returncode != 0 or not folder:
+        return "git does not name the hooks folder of the throwaway remote, so its receive-pack may run hook programs"
+    for name in _RECEIVE_HOOKS:
+        try:
+            os.lstat(os.path.join(folder, name))
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return f"the hooks folder {folder} of the throwaway remote cannot be read for a {name} hook"
+        return (f"the hooks folder {folder} of the throwaway remote holds a {name} hook (core.hooksPath), a program "
+                "its receive-pack runs that can refuse, change or undo the write the check reads")
     return None
+
+
+#: The hooks receive-pack runs where a push updates refs (githooks(5)); each can refuse, take over or undo the write.
+_RECEIVE_HOOKS = ("pre-receive", "update", "proc-receive", "post-receive", "post-update", "reference-transaction",
+                  "push-to-checkout")
 
 
 def _remote_refs(bare: str) -> str | None:
@@ -510,15 +535,15 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
                              "would not act on its throwaway repository and its main. Start the host without "
                              "GIT_DIR, GIT_WORK_TREE, GIT_NAMESPACE and the other GIT_ names that select a "
                              "repository, a ref or git's program folder, and without a configuration that "
-                             "rewrites the push or chooses another receive program or transport.")
+                             "rewrites the push or chooses another receive program, its hooks or a transport.")
     command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "note": ("Run exactly this command once with the shell tool. It names only a throwaway local bare "
                      "repository in a temporary folder, and in the server's environment it pushes there. The "
                      "check reads only the refs of the throwaway remote: a setting only the host's shell carries "
-                     "(a push URL, a receive program or a transport) can send the push elsewhere, and the check "
-                     "does not see that. The gate is expected to deny it (a stale subject). Never change the "
+                     "(a push URL, a receive program or its hooks, a transport) can send the push elsewhere or undo "
+                     "its write, and the check does not see that. The gate is expected to deny it (a stale subject). Never change the "
                      "throwaway repository or its declaration. Then call gate_selftest_check with work and "
                      "started_at.")}, False
 

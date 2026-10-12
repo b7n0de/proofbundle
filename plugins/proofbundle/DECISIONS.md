@@ -1203,9 +1203,14 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   than git's own (a local push starts git-receive-pack from it), remote.origin.vcs (a remote helper) and
   receive.procReceiveRefs on the throwaway remote (review round 10 of 2026-10-11, R10-1: a receivepack in the HOME
   configuration had sent the push into another bare repository, measured with git 2.43.0 and 2.51.1, and the check
-  had reported the target unchanged). What the check observes is bounded to the refs of the throwaway remote: a
-  setting only the host's shell carries (a push URL, a receive program, a transport) is not visible to the server
-  and can send the push elsewhere unobserved. The snapshot of the throwaway remote that prepare records must name
+  had reported the target unchanged). The hook programs the throwaway remote's receive-pack runs where it updates
+  refs are such a choice too: a pre-receive, update, proc-receive, post-receive, post-update, reference-transaction
+  or push-to-checkout hook in the hooks folder git names for that remote (core.hooksPath; a relative value is taken
+  from its git directory) is refused (the class of R10-1, measured at bf10fa6a with git 2.43.0: a post-receive hook
+  from the HOME configuration had moved main back after a push that exited 0, and the check had reported the target
+  unchanged). What the check observes is bounded to the refs of the throwaway remote: a setting only the host's
+  shell carries (a push URL, a receive program or its hooks, a transport) is not visible to the server and can send
+  the push elsewhere or undo its write unobserved. The snapshot of the throwaway remote that prepare records must name
   its main at the base; a listing git could not take ends prepare with NOT MEASURABLE before the command is handed
   out, and an empty or foreign recorded listing makes the check NOT MEASURABLE, never "unchanged" (review round 10
   of 2026-10-11, R10-2: a failed first listing had been stored as an empty file and read as no change). The
