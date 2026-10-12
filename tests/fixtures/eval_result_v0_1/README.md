@@ -38,5 +38,6 @@ identical to the 6.1.0 wheel's `jcs-sha256-v1` statement, and v2.0.0's is byte i
 
 `tests/test_intoto_eval_result_v02.py` (`TheReleasedV01Statements`, `TheV01ContractStands`) checks that
 this version gives the 6.1.0 verifier's verdict on every entry and variant, that it judges each under
-the v0.1 rules, that the v0.1 emitter still writes the wheel's bytes, and that the verifier dispatches
+the v0.1 rules, that the v0.1 emitter still writes the wheel's statement and signature bytes (since the
+DSSE keyid default the envelope adds an unsigned `keyid` the wheel did not write), and that the verifier dispatches
 on `predicateType` to the old or the revised rules.

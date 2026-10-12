@@ -245,7 +245,9 @@ type, `https://b7n0de.com/attestation/eval-result/v0.2`.
   this version equals the verdict the released 6.1.0 verifier gives (recorded in the corpus, not
   recomputed); every entry is judged under the v0.1 rules (`predicate_shape_ok` is `None`) and returns
   its statement unchanged;
-- the v0.1 emitter still writes the five wheel envelopes byte for byte;
+- the v0.1 emitter still writes the statement and the signature of the five wheel envelopes byte for
+  byte; since the DSSE keyid default the envelope also names its signing key in an unsigned `keyid`,
+  the signer's OpenSSH SHA256 fingerprint, and without that field each envelope equals the wheel's;
 - the verifier dispatches on `predicateType`: the same predicate relabelled as v0.2 is refused by the
   revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which never checked
   the predicate's shape;
