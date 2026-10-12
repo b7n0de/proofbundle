@@ -6,6 +6,11 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 27 (owner choices A of 2026-10-12, card SER-ID-02-SEIT-00-01): Section 11 names the implementation at
+a339424e, which reaches the expected verdict and first failing step on all 66 vectors; the appendix of changes has the
+points since -01 (with the review blocks A to C) and since -00. Round 25 now holds every point of both subsections, in
+order, and counts them.
+
 Round 26 (owner choice A of 2026-10-12, review of the -01, blocks A to C): the field 'Security considerations' of
 10.1 now ends "See Section 8 of this document and [RFC8259] Section 12." (block C), and round 18 reads it so; the
 sentences of Section 11 of round 25 name the measured scope, the verdict and the first failing step of each vector.
@@ -1877,23 +1882,18 @@ def main():
     # Round 25: revision -02. Section 11 gives the conformance run and the further verifier; the numbers it states for
     # Appendix A are counted from the text. The Open Items are gone; an appendix of changes follows Appendix A.
     flat25 = re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(kept)))
-    s25 = ["On 2026-10-12, the implementation named above, at commit de2a21086e42991dc3726c70c81779d6d41a953c of its "
+    s25 = ["On 2026-10-12, the implementation named above, at commit a339424e07fd58fa261d8ca3f41af5de4dcbf751 of its "
            "work branch, was run on the 66 vectors of Appendix A with the bytes given there, and for each vector its "
-           "verdict and first failing step were compared with the expected ones: it follows revision -00 of this "
-           "document, whose receipt has a fourth member, inclusion, and it stopped at step 1 on every vector, so it "
-           "reached the expected verdict on the 56 vectors that expect FAIL and the expected first failing step on 9 "
-           "of them.",
+           "verdict and first failing step were compared with the expected ones: it reached the expected verdict and "
+           "the expected first failing step on all 66 vectors.",
            "A further verifier, written from the published text of this document alone, agreed with the verifier "
            "written by the author of the generator on the verdict and the first failing step of each of the 66 "
            "vectors, on 23000 targeted inputs across all eleven "
            "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
            "on 2026-10-11)."]
-    n_fail25 = sum(1 for v in app.values() if v["expected"] == "FAIL")
-    n_step25 = sum(1 for v in app.values() if v["expected"] == "FAIL" and v["step"].split()[0] == "1")
-    chk("Section 11 (round 25): the conformance run of the implementation and the further verifier stand, and the "
-        "numbers they give for Appendix A are those of the text (%d vectors, %d expect FAIL, %d of them at step 1)"
-        % (len(app), n_fail25, n_step25),
-        all(x in flat25 for x in s25) and (len(app), n_fail25, n_step25) == (66, 56, 9),
+    chk("Section 11 (rounds 25 and 27): the conformance run of the implementation and the further verifier stand, "
+        "and the number of vectors they give is that of Appendix A (%d)" % len(app),
+        all(x in flat25 for x in s25) and len(app) == 66,
         "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none"))
     lines25 = [ln.rstrip() for ln in kept]
     i_ch25 = next((i for i, ln in enumerate(lines25) if ln == "Changes (to be removed before publication)"), None)
@@ -1901,19 +1901,38 @@ def main():
     i_aa25 = next((i for i, ln in enumerate(lines25) if ln == "Author's Address"), None)
     ch25 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines25[i_ch25:i_aa25])))
             if None not in (i_ch25, i_aa25) else "")
-    s25c = ["Since draft-gruszka-signed-evaluation-receipts-01",
-            "Section 11 adds the conformance run of the implementation named there on the vectors of Appendix A, "
-            "and the result of a further verifier written from the text.",
-            "The Open Items section is removed. The references were checked against the published documents on "
-            "2026-10-12, and Section 11 now gives the conformance result it asked for.",
-            "This appendix is added."]
-    chk("Revision -02 (round 25): the name is draft-gruszka-signed-evaluation-receipts-02, no Open Items stand, and "
-        "the unnumbered appendix of changes follows Appendix A with the changes since -01",
+    # Round 27: every point of both subsections, in order; the points are counted
+    s25c = {"01": ["Section 1 ends with the scope of this document and its interoperability target.",
+                   "Section 6 opens with what PASS does not mean and says that establishing who controls the key is "
+                   "outside the procedure.",
+                   "The security considerations of Section 10.1 also refer to [RFC8259] Section 12.",
+                   "Section 11 adds the conformance run of the implementation named there, at commit a339424e, on the "
+                   "vectors of Appendix A, and the result of a further verifier written from the text.",
+                   "The Open Items section is removed. The references were checked against the published documents on "
+                   "2026-10-12, and Section 11 now gives the conformance result it asked for.",
+                   "This appendix is added."],
+            "00": ["Section 1 names the two parties the format serves, an Issuer and a Receiver that share no "
+                   "infrastructure, and says why the receipt object stands next to the DSSE-compatible signature.",
+                   "Section 3.2 states that the vectors of this version are maintained in Appendix A and that a later "
+                   "version of the format uses a different identifier with its own vectors.",
+                   "Section 6 adds that a receipt does not show where B came from.",
+                   "Section 8 adds that criteria_digest binds bytes, not a time, and carries weight only against "
+                   "criteria bytes the Receiver obtained independently.",
+                   "Section 10.1 writes out the security considerations of the registration template and names "
+                   "contact, author and change controller.",
+                   "Section 11 adds a local measurement on 2026-10-10 of a receipt made from the result of a test run."]}
+    h01 = ch25.find("Since draft-gruszka-signed-evaluation-receipts-01")
+    h00 = ch25.find("Since draft-gruszka-signed-evaluation-receipts-00")
+    got25 = {"01": [b.strip() for b in ch25[h01:h00 if h00 > h01 else None].split(" * ")[1:]] if h01 > -1 else [],
+             "00": [b.strip() for b in ch25[h00:].split(" * ")[1:]] if -1 < h01 < h00 else []}
+    chk("Revision -02 (rounds 25 and 27): the name is draft-gruszka-signed-evaluation-receipts-02, no Open Items stand, "
+        "and the unnumbered appendix of changes follows Appendix A with the points since -01 (%d) and since -00 (%d), "
+        "each as written, in that order" % (len(got25["01"]), len(got25["00"])),
         any(ln.strip() == "draft-gruszka-signed-evaluation-receipts-02" for ln in lines25)
         and not any(ln.strip().startswith("Open Items") for ln in lines25)
-        and None not in (i_ch25, i_last25, i_aa25) and i_last25 < i_ch25 < i_aa25
-        and all(x in ch25 for x in s25c),
-        "missing: " + (", ".join(x[:40] for x in s25c if x not in ch25) or "none"))
+        and None not in (i_ch25, i_last25, i_aa25) and i_last25 < i_ch25 < i_aa25 and got25 == s25c,
+        "differing points: " + (", ".join("%s %d" % (k, i + 1) for k in s25c for i in range(max(len(s25c[k]),
+                                len(got25[k]))) if s25c[k][i:i + 1] != got25[k][i:i + 1]) or "none"))
     # Round 17: SHA-256 at its first use, and RFC 6234 among the normative references.
     sha17 = "SHA-256 is the hash function specified in [RFC6234]."
     i33 = next((i for i, ln in enumerate(lines15) if ln == "3.3.  Salted Commitments"), None)
