@@ -2034,10 +2034,13 @@ def _blob(repo: str, head: str, path: str, deadline: float, limit: int) -> bytes
     kind = _git(repo, "cat-file", "-t", f"{head}:{path}", deadline=deadline)
     if kind.returncode != 0:
         listing = _git(repo, "ls-tree", "-z", "--full-tree", head, "--", path, deadline=deadline)
-        if listing.returncode == 0 and listing.stdout == b"":
-            return None  # a measured absence: the tree is readable and holds no such path
+        if listing.returncode == 0:
+            _whole_along(repo, head, path, deadline)
+            if listing.stdout == b"":
+                return None  # a measured absence: the tree is readable, whole and holds no such path
         raise GateError(f"the gate could not read {path} at {head[:12]}: the commit or its tree is not "
                         "available in this repository")
+    _whole_along(repo, head, path, deadline)
     if kind.stdout.strip() != b"blob":
         raise GateError(f"{path} at HEAD is a {kind.stdout.strip().decode(errors='replace')}, not a file")
     size = _git(repo, "cat-file", "-s", f"{head}:{path}", deadline=deadline)
@@ -2047,6 +2050,36 @@ def _blob(repo: str, head: str, path: str, deadline: float, limit: int) -> bytes
     if content.returncode != 0:
         raise GateError(f"git could not read {path} at HEAD")
     return content.stdout
+
+
+#: The entries of each tree _whole_along read whole, by (repository, tree id); a tree's bytes never change.
+_WHOLE_TREES: dict[tuple[str, str], dict] = {}
+
+
+def _whole_along(repo: str, commit: str, path: str, deadline: float) -> None:
+    """GateError where a tree on the way to `path` at `commit`, the root tree included, names one entry twice or is not
+    given whole. git's lookup of `<commit>:<path>` takes the first of two entries of one name and a checkout writes the
+    last, so neither is a whole reading of the path, for its bytes, its object id or its absence (review round 11 of
+    2026-10-12, the class of R11-4: with X's .proofbundle folder first and a second one after it, the pre-push hook
+    passed the commit on X's declaration while its checkout declared an empty evidence list)."""
+    root = _git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{tree}}", deadline=deadline)
+    oid = root.stdout.decode("ascii", "replace").strip()
+    if root.returncode != 0 or not oid:
+        raise GateError(f"the gate could not read {path} at {commit[:12]}: git does not name its tree")
+    parts = path.split("/")
+    for depth, part in enumerate(parts):
+        entries = _WHOLE_TREES.get((repo, oid))
+        if entries is None:
+            read = _objects(repo, [oid], deadline).get(oid)
+            entries = None if read is None or read[0] != b"tree" else _tree_entries(read[1], len(oid) // 2)
+            if entries is None:
+                raise GateError(f"git does not give the whole tree on the way to {path} at {commit[:12]}: a tree "
+                                "there names one entry twice, or git does not give it")
+            _WHOLE_TREES[(repo, oid)] = entries
+        entry = entries.get(part.encode()) if depth < len(parts) - 1 else None
+        if entry is None or entry[0] != b"40000":
+            return   # the path ends here, or nothing further down is a folder: git's own lookup reads what stands
+        oid = entry[1]
 
 
 # --- the tree the evidence speaks for ----------------------------------------------------------------
@@ -2754,9 +2787,16 @@ def _item(n: int, item: dict) -> str:
 
 
 def _absent_at_head(repo: str, commit: str, deadline: float) -> bool:
-    """True only when git lists nothing at DECLARATION in the commit's tree and says so with exit 0."""
+    """True only when git lists nothing at DECLARATION in the commit's tree and says so with exit 0, and every tree on
+    the way to it is whole (_whole_along, the class of R11-4)."""
     listing = _git(repo, "ls-tree", "-z", "--full-tree", commit, "--", DECLARATION, deadline=deadline)
-    return listing.returncode == 0 and listing.stdout == b""
+    if listing.returncode != 0 or listing.stdout != b"":
+        return False
+    try:
+        _whole_along(repo, commit, DECLARATION, deadline)
+    except GateError:
+        return False
+    return True
 
 
 def _absent_in_working_tree(repo: str) -> bool:
@@ -2794,12 +2834,19 @@ def _rules_at(repo: str, commit: str, deadline: float) -> tuple:
         return ("malformed", hashlib.sha256(raw).hexdigest())
     rules = tuple(sorted((i["kind"], i["path"], i.get("policy", ""), i.get("public_key", "")) for i in items))
     policies = []
-    for path in sorted({i["policy"] for i in items if "policy" in i}):
-        policies.append((path, _blob_id(repo, commit, path, deadline)))
-    return ("declared", rules, tuple(policies), _done_rule(repo, commit, done, deadline))
+    try:
+        for path in sorted({i["policy"] for i in items if "policy" in i}):
+            policies.append((path, _blob_id(repo, commit, path, deadline)))
+        done_rule = _done_rule(repo, commit, done, deadline)
+    except GateError as exc:
+        return ("unreadable", str(exc))
+    return ("declared", rules, tuple(policies), done_rule)
 
 
 def _blob_id(repo: str, commit: str, path: str, deadline: float) -> str:
+    """The object id at `path` of the commit, "" where git names none; GateError where a tree on the way to it is not
+    whole (_whole_along)."""
+    _whole_along(repo, commit, path, deadline)
     blob = _git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}", deadline=deadline)
     return blob.stdout.decode().strip() if blob.returncode == 0 else ""
 

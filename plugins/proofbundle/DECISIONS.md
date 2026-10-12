@@ -513,7 +513,12 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
   - a repository without a commit;
   - a directory the gate cannot resolve;
   - a HEAD or a working tree where the gate cannot measure the absence, such as a failing `git ls-tree`,
-    a file where the `.proofbundle/` folder should be, or a dangling link at the declaration's path.
+    a file where the `.proofbundle/` folder should be, or a dangling link at the declaration's path;
+  - a commit where a tree on the way to the path the gate reads, the root tree included, names one entry twice.
+    git's lookup of `<commit>:<path>` takes the first of the two and a checkout writes the last, so neither is a
+    whole reading of the path, for its bytes, its object id or its absence, and the gate gives none (review round 11
+    of 2026-10-12, the class of R11-4: with the declared `.proofbundle` folder first and a second one after it, the
+    pre-push hook passed the commit while its checkout declared an empty evidence list or held another policy).
 - Failures stay `deny` (D6).
 - A push under Level 1 (owner choice 1 A, 2026-10-11, with the review's four conditions as part of the choice): a
   repository without a declaration stays outside Level 1. This is local inactivity, never a pass and never a check
