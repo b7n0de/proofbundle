@@ -54,6 +54,10 @@ generator; it re-derives every claim from the bytes in mappings.json:
       INDETERMINATE, R1 Unresolved), a reference or a statement over it is a resource-limit error, and step 5 passes on
       the receipts draft's checker's RESOURCE_LIMIT. A number is kept as its token, so a number of 5000 digits in a
       candidate or in a reference reads as one of 5 digits does.
+  V   a digest counts only as a text value: R1 with its digest written as a JSON number (64 digits, or 64 characters
+      with an exponent), as true or as an array holding the right text, or with digest_alg as an array, is Failed with
+      INDETERMINATE (Section 5.1); C1 with its value as a number, true or an array is INDETERMINATE (Section 3.3
+      step 1).
 Exit 0 when all hold.
 """
 import base64
@@ -185,7 +189,8 @@ def b_of(receipt: bytes) -> bytes:
 
 
 def match(citation, receipt: bytes) -> str:
-    if citation.get("alg") != "sha-256" or not re.fullmatch(r"[0-9a-f]{64}", citation.get("hex", "")):
+    value = citation.get("hex")
+    if citation.get("alg") != "sha-256" or not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         return "INDETERMINATE"
     try:
         b = b_of(receipt)
@@ -604,7 +609,10 @@ def reference_state(ref_text: str, receipt: bytes):
         # It carries no type, so the declaration does not apply, as for {}: Unresolved; and the matching rule finds
         # no SHA-256 and no digest (Section 3.3 step 1): INDETERMINATE.
         return "Unresolved", "INDETERMINATE"
-    ok_form = ref.get("digest_alg") == "SHA-256" and re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is not None
+    # digest is a text value (Section 5.1); a JSON number is not one, even when its token is 64 hexadecimal characters
+    digest = ref.get("digest")
+    ok_form = (ref.get("digest_alg") == "SHA-256" and isinstance(digest, str)
+               and re.fullmatch(r"[0-9a-f]{64}", digest) is not None)
     try:
         b = b_of(receipt)
     except NoB:
@@ -612,7 +620,7 @@ def reference_state(ref_text: str, receipt: bytes):
     if not ok_form or b is None:
         match_ = "INDETERMINATE"
     else:
-        match_ = "MATCH" if hashlib.sha256(b).hexdigest() == ref["digest"] else "NO_MATCH"
+        match_ = "MATCH" if hashlib.sha256(b).hexdigest() == digest else "NO_MATCH"
     if ref.get("type") != TYPE or "purpose" in ref:
         return "Unresolved", match_
     if not ok_form:
@@ -971,6 +979,20 @@ def main():
             ("R1 with a member of 5000 digits, P1", reference_state(r1[:-1] + ',"x":1' + "0" * 4999 + "}", p1),
              ("Verified", "MATCH"))):
         ok &= check("Z %s: %s (expected %s)" % (what, got, want), got == want)
+    hex1 = json.loads(r1)["digest"]
+    assert r1.count('"%s"' % hex1) == 1 and r1.count('"SHA-256"') == 1
+    for what, ref_text in (
+            ("digest 1 and 63 zeros", r1.replace('"%s"' % hex1, "1" + "0" * 63)),
+            ("digest 1, 61 zeros and e0", r1.replace('"%s"' % hex1, "1" + "0" * 61 + "e0")),
+            ("digest true", r1.replace('"%s"' % hex1, "true")),
+            ("digest an array with the right text", r1.replace('"%s"' % hex1, '["%s"]' % hex1)),
+            ("digest_alg an array", r1.replace('"SHA-256"', '["SHA-256"]'))):
+        got = reference_state(ref_text, p1)
+        ok &= check("V R1 with %s, P1: %s (expected Failed, INDETERMINATE)" % (what, got),
+                    got == ("Failed", "INDETERMINATE"))
+    for what, value in (("1 and 63 zeros", 10 ** 63), ("1e63", 1e63), ("true", True), ("an array", [hex1])):
+        got = match(dict(cit, hex=value), p1)
+        ok &= check("V C1 with its value %s, P1: %s (expected INDETERMINATE)" % (what, got), got == "INDETERMINATE")
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
