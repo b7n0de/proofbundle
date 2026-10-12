@@ -22,10 +22,12 @@ generator; it re-derives every claim from the bytes in mappings.json:
       certificate pair of the examples (the did:x509 issuer of X1 and the test root certificate) equals the
       expected status; the certificates are read with the cryptography library, the chain signature is checked
       as RSASSA-PKCS1-v1_5 with SHA-256 and the statement signature as ECDSA P-256 with SHA-256.
-  R   for each of R1 to R13, the state under the declaration of Section 5.1 (Malformed in the terms of CPB Section
+  R   for each of R1 to R14, the state under the declaration of Section 5.1 (Malformed in the terms of CPB Section
       3; Verified, Failed or Unresolved in the terms of CPB Section 8.1) and the result of the matching rule with the
       JSON extraction rule of Section 5.1 equal the expected ones. The reference is read as RFC 8259 JSON with its
-      member pairs in order, a repeated name kept and names compared after unescaping; no value is converted.
+      member pairs in order, a repeated name kept and names compared after unescaping; no value is converted. R14
+      is the bytes EF BB BF followed by the bytes of R1; the byte order mark is not part of the JSON grammar, so R14
+      is Malformed with INDETERMINATE, and a reader that drops it (json.loads on bytes does) would read R1.
   T   for each Transparent Statement, the status under both configured pairs equals the expected one: an
       unprotected header with label 394 alone, holding an array of one or more byte strings, is removed before
       step 2, and the receipts are not read; T2 is X1 with one receipt under 394, byte for byte.
@@ -89,6 +91,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.x509.oid import ExtensionOID, SignatureAlgorithmOID
 
 TYPE = "application/vnd.signed-evidence.eval-receipt+json"
+#: The UTF-8 byte order mark, as bytes (Section 5.1, vector R14).
+BOM_UTF8 = bytes.fromhex("efbbbf")
 RECEIPT_VECTORS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ser", "examples",
                                "vectors.json")
 B64_RE = re.compile(r"\A(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\Z")
@@ -873,6 +877,15 @@ def main():
         got = reference_state(r["reference_json"], cand)
         ok &= check("%s state %s, matching rule %s (expected %s, %s)" % (r["id"], got[0], got[1], r["expected_state"],
                     r["expected_match"]), got == (r["expected_state"], r["expected_match"]))
+    # R14 (A.7): the bytes EF BB BF and then the bytes of R1, not a text that spells them. A reader that drops the
+    # byte order mark, as json.loads does for bytes, reads R1 and gives Verified and MATCH; Section 5.1 does not.
+    r14 = next((r for r in d["reference_vectors"] if r["id"] == "R14"), None)
+    r14_bytes = r14["reference_json"].encode("utf-8") if r14 else b""
+    ok &= check("R R14 is the bytes EF BB BF followed by the bytes of R1",
+                r14_bytes == BOM_UTF8 + d["reference_vectors"][0]["reference_json"].encode("utf-8"))
+    dropped = reference_state(r14_bytes.decode("utf-8-sig"), p1)
+    ok &= check("R R14 with the byte order mark dropped by the reader is R1: %s, %s (Section 5.1 does not drop it)"
+                % dropped, dropped == ("Verified", "MATCH"))
     t2 = next(t for t in d["transparent_vectors"] if t["id"] == "T2")
     t2v = cbor2.loads(bytes.fromhex(t2["statement_hex"])).value
     x1v = cbor2.loads(bytes.fromhex(d["certificate_vectors"][0]["statement_hex"])).value

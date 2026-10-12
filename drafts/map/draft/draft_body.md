@@ -667,8 +667,10 @@ normalization; repeated names are detected before any conversion
 that could discard them. Input that violates the JSON grammar, is
 not an object, has a repeated member name, lacks a required member,
 has a non-string value for one of the named members, or has another
-member is Malformed ({{CPB}} Section 3). This form check precedes
-reference resolution and verification. The rules assigning
+member is Malformed ({{CPB}} Section 3). A byte order mark before the
+JSON text is not part of the JSON grammar, so such input is Malformed,
+although {{RFC8259}} Section 8.1 allows a parser to ignore it. This form
+check precedes reference resolution and verification. The rules assigning
 Unresolved, Failed or Verified apply only to well-formed references.
 These form requirements define this JSON representation; they do
 not replace the rules for `cpb-refs` or another profile's own
@@ -701,7 +703,7 @@ After those checks, a verifier obtains B by steps 1 to 3 of
 Unresolved and the matching result is INDETERMINATE. Otherwise the
 verifier computes SHA-256 over B and compares its hexadecimal text
 with `digest`: equality gives Verified and MATCH, and inequality
-gives Failed and NO_MATCH. Vectors R1 to R13 ({{reference-vectors}})
+gives Failed and NO_MATCH. Vectors R1 to R14 ({{reference-vectors}})
 illustrate these states and Malformed.
 
 Only the digest crosses, as for the Signed Statement below. A reference that
@@ -1170,7 +1172,7 @@ value of {{examples}} from the bytes: the match result of every case, with its
 own implementation of steps 1 to 3 of {{RECEIPTS}} Section 5; the status of M2,
 of every status vector and of every certificate-profile vector, with its own
 implementation of the steps of {{check-statement}} in both profiles; and the
-state and the matching result of each of R1 to R13, with its own
+state and the matching result of each of R1 to R14, with its own
 implementation of the form rules of {{typed-reference}}.
 
 An implementation of both directions of the key profile of
@@ -1201,21 +1203,25 @@ P-256 test leaf and alg -7, was registered, and microsoft/scitt-verifier 0.4.0
 verified the Transparent Statement it returned offline, with the network
 unavailable, under a policy that fixed the receipt issuer, the statement issuer
 and the statement subject and compared the payload with SHA-256 over B. On
-2026-10-12 the same service, built again at that commit and configured for the
-test root, registered X1 again and refused X2, which is X1 with alg -9 signed
-again under the test leaf, with "COSE algorithm -9 is not supported", also when
-ESP256 was named among its accepted algorithms; its source at that commit and
-at the head of its main branch maps no -9. pycose 1.1.0 and go-cose v1.3.0
-refused -9 as an unknown algorithm before verifying, and the source of
-microsoft/scitt-verifier 0.4.0 maps no -9 for the statement signature. The
+2026-10-12 the same service, built again at commit 00101f76 and
+configured for the test root, registered X1 again and refused X2,
+which is X1 with alg -9 signed again under the test leaf, with
+"COSE algorithm -9 is not supported", also when ESP256 was named
+among its accepted algorithms; its source at that commit and at
+commit d68579b5, the head of its main branch inspected that day,
+maps no -9. pycose 1.1.0 and go-cose v1.3.0 refused -9 as an
+unknown algorithm before verifying, and the source of
+microsoft/scitt-verifier at commit bd6fb8ba (package version 0.4.0)
+maps no -9 for the statement signature. The
 steps of {{check-statement}}, applied on 2026-10-11 to the registered statement
 under the certificate pair of its test root, give accepted, and so they do for
 the Transparent Statement that the service returned for it.
 
-In the same measurement the service registered a statement whose payload was
-not SHA-256 over the B it named, and two local instances of the service carried
-the same receipt issuer name (127.0.0.1:8000) and differed only in their
-service keys. microsoft/scitt-verifier 0.4.0 reported a receipt taken from
+In the earlier registration and offline-verification measurement,
+the service registered a statement whose payload was not SHA-256
+over the B it named, and two local instances of the service carried
+the same receipt issuer name (127.0.0.1:8000) and differed only in
+their service keys. microsoft/scitt-verifier 0.4.0 reported a receipt taken from
 another entry, a receipt with one byte changed and a receipt of the other
 instance as cannot-evaluate (exit status 3), not as untrusted (exit status 1);
 this document maps no verdict of another tool to a status of
@@ -1245,11 +1251,15 @@ general Ed25519 implementation (its checks M2-17 and M2-18).
 * The certificate profile does not admit alg -9 (ESP256). {{alg-choice}} gives
   the measured reason, {{impl}} the measurement, and vector X2
   ({{certificate-vectors}}) is the statement that was refused.
-* The open items are resolved and removed. The in-toto references stay pinned
-  to release v1.2.0, the draft names of {{RECEIPTS}} and {{STATEMENT-ID}} stay
-  as cited, {{typed-reference}} already says that no profile names its
-  declaration, and {{signed-statement}} now limits the certificate profile to
-  the form measured to work.
+* The Open Items section is removed. The in-toto references stay
+  pinned to release v1.2.0, the draft names of {{RECEIPTS}} and
+  {{STATEMENT-ID}} stay as cited, {{typed-reference}} already says that no
+  profile names its declaration, and {{signed-statement}} now states the
+  measured reason for retaining the certificate profile's
+  existing limits.
+* {{typed-reference}} makes explicit that a byte order mark is not ignored
+  in this JSON representation, and vector R14 illustrates the
+  resulting Malformed state and INDETERMINATE matching result.
 * This appendix is added.
 
 ## Since draft-gruszka-evaluation-receipt-mappings-01

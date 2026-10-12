@@ -19,10 +19,11 @@ read from that draft's vectors.json). Output, all bytes deterministic:
   * X1 to X6, certificate-profile vectors: X1 a statement in the certificate profile (alg -7, x5chain of a P-256
     test leaf and an RSA-3072 test root, iss a did:x509 identifier that names the root), each other vector X1 with
     one change; the chain and the ES256 signatures are deterministic test material of test_chain.py;
-  * R1 to R13, inputs to the typed digest reference processing of the mappings draft, Section 5.1, each with a
-    candidate receipt, its state in the terms of CPB Sections 3 and 8.1 (R7 to R13 Malformed but R12) and the result
+  * R1 to R14, inputs to the typed digest reference processing of the mappings draft, Section 5.1, each with a
+    candidate receipt, its state in the terms of CPB Sections 3 and 8.1 (R7 to R14 Malformed but R12) and the result
     of the matching rule with the JSON extraction rule of Section 5.1; R7 to R13 are JSON texts written as such,
-    with repeated or escaped member names where the vector asks for them;
+    with repeated or escaped member names where the vector asks for them, and R14 is the three bytes EF BB BF, the
+    UTF-8 byte order mark, followed by the bytes of R1;
   * T1 to T5, Transparent Statements: T2 is the recorded statement that a local Transparency Service returned for
     X1 (registered_x1.json, X1 with one COSE Receipt under unprotected label 394), the others are made from it.
 
@@ -123,7 +124,12 @@ REFS = [
     ("R13", "P1", "escaped second name", "Malformed", "R1 with an additional member named \"\\u0064igest\" whose "
      "value equals the original digest. The decoded names are equal; equal values do not make a repeated name "
      "acceptable"),
+    ("R14", "P1", "byte order mark", "Malformed", "R1 with the UTF-8 byte order mark EF BB BF before the JSON text; "
+     "this representation does not ignore it"),
 ]
+
+#: The UTF-8 byte order mark, as bytes: R14 is these three bytes followed by the bytes of R1.
+BOM_UTF8 = bytes.fromhex("efbbbf")
 
 #: (vector, candidate receipt, expected status, first failing step or None, what it shows)
 STATUS = [
@@ -345,6 +351,8 @@ def main():
         "purpose null": jcs(dict(ref1, purpose=None)).decode("utf-8"),
         "escaped name": r1t.replace('"digest":', '"\\u0064igest":', 1),
         "escaped second name": r1t.replace('"digest":"%s"' % h1, '"digest":"%s","\\u0064igest":"%s"' % (h1, h1)),
+        # R14: the bytes EF BB BF, then the bytes of R1; the text is what these bytes decode to under UTF-8
+        "byte order mark": (BOM_UTF8 + r1t.encode("utf-8")).decode("utf-8"),
     }
     refs = []
     for rid, vid, change, state, shows in REFS:
