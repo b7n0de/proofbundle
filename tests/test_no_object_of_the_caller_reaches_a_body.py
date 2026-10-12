@@ -162,6 +162,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("evalclaim.issuer_fingerprint", "signer"): _SIGNIERER,
     ("experimental.enclave.issue_enclave_attestation", "signer"): _SIGNIERER,
     ("intoto.export_eval_result_dsse", "signer"): _SIGNIERER,
+    ("intoto.export_eval_result_v02_dsse", "signer"): _SIGNIERER,
     ("intoto.export_intoto_dsse", "signer"): _SIGNIERER,
     ("intoto.export_svr_dsse", "signer"): _SIGNIERER,
     ("outcome.emit_outcome_receipt", "signer"): _SIGNIERER,
