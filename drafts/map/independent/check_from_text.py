@@ -3,6 +3,10 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 28 (owner choice A of 2026-10-12, point 7b, no change to the text): ref_state gives Unresolved with
+INDETERMINATE for a reference that is not an object, as for one without the declared type; Section 5.1 and A.7 name
+no state for it, which is an open question for the -02. Before, it stopped with AttributeError. R28-FORM holds it.
+
 Round 27 (owner choice B of 2026-10-12, the depth siblings, no change to the text): the JSON reader parse_ijson stops
 at JSON_DEPTH_LIMIT (64, a top-level array or object at depth 1), measured after the byte order mark and UTF-8 checks
 and before parsing, as the receipts draft's own checker does; before, a deep candidate crashed match_rule, ref_state,
@@ -2713,6 +2717,8 @@ CHANGES7 = {"(none)": {}, "purpose evaluation added": {"purpose": "evaluation"},
 
 def ref_state(ref, rb):
     """Section 5.1 with CPB Section 8.1 as Section 5.1 cites it: (state, matching rule)."""
+    if not isinstance(ref, Mapping):   # round 28: no type, so the declaration does not apply; no algorithm, no digest
+        return "Unresolved", "INDETERMINATE"
     mr = match_rule_in("typed reference", ref.get("digest_alg"), ref.get("digest"), rb)[0]
     try:
         B_, fail_, _ = steps_1_to_3(rb)
@@ -3179,6 +3185,16 @@ check("DEMO", "R27-DEPTH", all((m_, r_, s20_, s19_) == (w_[0], w_[1], w_[2], w_[
       % (JSON_DEPTH_LIMIT, JSON_DEPTH_LIMIT, JSON_DEPTH_LIMIT + 1),
       *["candidate %s: match %s, reference %s, status20 %s, status19 %s" % (d_, m_, r_, s20_, s19_)
         for d_, m_, r_, s20_, s19_, _ in _got27])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 28: a typed digest reference that is not an object (5.1, A.7) ===")
+_got28 = [(d_, ref_state(r_, VEC["P1"]["R"])) for d_, r_ in (("an array", []), ("a text", D2_TYPE), ("a number", 1),
+                                                              ("null", None), ("an object without members", {}))]
+check("DEMO", "R28-FORM", all(g_ == ("Unresolved", "INDETERMINATE") for _, g_ in _got28),
+      "a reference that is not an object carries no type, so the declaration of 5.1 does not apply, as for an object "
+      "without members: Unresolved, and the matching rule gives INDETERMINATE; 5.1 and A.7 name no state for it",
+      *["reference that is %s, with P1: %s" % (d_, g_) for d_, g_ in _got28])
 print()
 
 # ---------------------------------------------------------------------------
