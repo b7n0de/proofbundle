@@ -22,6 +22,56 @@ def _fmt(x: float) -> str:
     return format(x, ".6f").rstrip("0").rstrip(".") or "0"
 
 
+_COMPARE = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b,
+            "<=": lambda a, b: a <= b, "<": lambda a, b: a < b}
+
+
+def _as_fraction(threshold: str):
+    """The decimal threshold as the exact fraction it writes. Read through `Decimal`, whose constructor keeps
+    every digit whatever the caller's decimal context: `Fraction(str)` converts the digits with `int()`, and
+    CPython refuses that past 4300 digits, so a threshold of `0.` and 4400 zeros and a `1` skipped the receipt
+    (iteration 2 of the gate on this fix)."""
+    from decimal import Decimal  # noqa: PLC0415
+    from fractions import Fraction  # noqa: PLC0415
+    return Fraction(Decimal(threshold))
+
+
+def _verdict_from_the_counts(passed: int, ran: int, comparator: str, threshold: str):
+    """The verdict of the exact rate passed/ran against the decimal threshold, or None when the threshold or
+    the comparator is not one the claim rule accepts (then `build_eval_claim` refuses with its own reason)."""
+    from fractions import Fraction  # noqa: PLC0415
+    from ._membership import is_member  # noqa: PLC0415
+    from .evalclaim import _COMPARATORS, _DECIMAL_RE  # noqa: PLC0415
+    if not is_member(comparator, _COMPARATORS) or not _DECIMAL_RE.match(threshold):
+        return None
+    return _COMPARE[comparator](Fraction(passed, ran), _as_fraction(threshold))
+
+
+def _score_beside_the_verdict(passed: int, ran: int, threshold: str) -> str:
+    """The score handed to `build_eval_claim`, on the same side of the threshold as the exact rate.
+
+    `build_eval_claim` computes the signed `passed` from the score it is given and then discards the score
+    (`evalclaim.eval_evidence_class`). The score was the rate rounded to six places, so the rounding decided
+    the verdict: two passed of three is 0.666666..., written 0.666667, and against a threshold of 0.666667
+    that signed passed=true (K2 of the Codex defect search of the 6.3.0 candidate 98b168b9).
+
+    Rounded up at six places when the exact rate lies above the threshold, down when it lies below, and the
+    threshold's own digits when the rate equals it. A rounded-up rate is at least the rate and so above the
+    threshold, a rounded-down one at most the rate and so below it, at any number of places; only equality
+    needs the digits of the threshold. Then the score compares with the threshold as the rate does, under each
+    of the four comparators. The rate lies between 0 and 1, so the six places are written from a small integer
+    as text, and no decimal context of the host takes part.
+    """
+    from fractions import Fraction  # noqa: PLC0415
+    rate, schwelle = Fraction(passed, ran), _as_fraction(threshold)
+    if rate == schwelle:
+        return threshold
+    scaled = rate * 10 ** 6
+    ganz = -(-scaled.numerator // scaled.denominator) if rate > schwelle else scaled.numerator // scaled.denominator
+    digits = str(ganz).rjust(7, "0")
+    return (digits[:-6] + "." + digits[-6:]).rstrip("0").rstrip(".")
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     flag = bool(config.getoption("proofbundle", default=False))
     from ._integration import emit_enabled  # noqa: PLC0415
@@ -69,12 +119,24 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         rootname = getattr(getattr(config, "rootpath", None), "name", None) or "pytest"
         provenance = {"harness": "pytest", "exit_status": int(exitstatus), "tests_ran": ran,
                       "tests_passed": len(clean_passed), **{f"n_{k}": v for k, v in counts.items()}}
+        # THE VERDICT IS THE COUNTS' (K2): the score below only carries it to `build_eval_claim`, which
+        # computes `passed` from that score. A threshold or comparator the claim rule refuses keeps the old
+        # score, so the builder refuses it with its own reason.
+        verdikt = _verdict_from_the_counts(len(clean_passed), ran, cfg["comparator"], cfg["threshold"])
+        score = (_fmt(pass_rate) if verdikt is None
+                 else _score_beside_the_verdict(len(clean_passed), ran, cfg["threshold"]))
         claim, _ = build_eval_claim(
             suite="pytest", suite_version=str(getattr(__import__("pytest"), "__version__", "unknown")),
             metric="pass_rate", comparator=cfg["comparator"], threshold=cfg["threshold"],
-            score=_fmt(pass_rate), n=ran, model_id=str(getattr(config, "rootpath", rootname)),
+            score=score, n=ran, model_id=str(getattr(config, "rootpath", rootname)),
             dataset_id="pytest-suite", issuer="", timestamp=datetime.now(timezone.utc).isoformat(),
             provenance=provenance)
+        if claim["passed"] is not verdikt:
+            # A guard for the step between the two: the builder computes `passed` from the score, and the
+            # plugin signs only the counts' verdict. Should the two ever differ, no receipt is signed.
+            print(f"[proofbundle] the claim's verdict {claim['passed']!r} is not the verdict of "
+                  f"{len(clean_passed)}/{ran} against {cfg['threshold']} — receipt skipped")
+            return
         emit_claim_receipt(claim, "proofbundle_pytest_receipt.json")
     except Exception as e:  # noqa: BLE001 — an integration must never fail the host test run
         print(f"[proofbundle] pytest receipt emission skipped ({type(e).__name__}: {e})")

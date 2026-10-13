@@ -922,5 +922,177 @@ class TheCommandLine(unittest.TestCase):
         self.assertEqual(code, 1, text)
 
 
+# The hash functions whose digest form the v0.2 verifier checks, written out here and not read from the module, so
+# that a name dropped from its table shows as a difference (K1).
+_FORM_CHECKED = ("md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha512_224", "sha512_256", "sha3_224",
+                 "sha3_256", "sha3_384", "sha3_512")
+# The four the content comparison left out at 98b168b9; the Codex report T1 names the last three.
+_LEFT_OUT = ("md5", "sha3_224", "sha512_224", "sha512_256")
+_PLACES = ("subject", "model", "dataset", "evidence")
+_CONTENT = b"x"
+
+
+def _digest_of(name: str, data: bytes) -> str:
+    return hashlib.new(name, data).hexdigest()
+
+
+def _descriptor_with_content(place: str, name: str, digest: str) -> dict:
+    return {"name": f"k1-{place}", "digest": {name: digest}, "content": base64.b64encode(_CONTENT).decode()}
+
+
+def _statement_with_content(place: str, name: str, named: bytes) -> dict:
+    """The draft's example with one descriptor at `place` whose `content` is b"x" and whose digest under `name` is
+    taken over `named`: b"x" for the descriptor that tells the truth, b"y" for the one that does not."""
+    statement = _base_statement()
+    pred = statement["predicate"]
+    rd = _descriptor_with_content(place, name, _digest_of(name, named))
+    if place == "subject":
+        statement["subject"] = [rd]
+    elif place == "evidence":
+        pred["evidence"] = [rd]
+    else:
+        del pred["commitments"][place]
+        pred[place] = rd
+    return statement
+
+
+class TheContentIsComparedUnderEveryDigestTheFormKnows(unittest.TestCase):
+    """K1 of the Codex defect search of the 6.3.0 candidate 98b168b9 (T1): the form check knew twelve hash functions and
+    the content comparison eight, so a descriptor with `content` b"x" and a well-formed sha3_224 digest of b"y"
+    verified ok=True, at the subject, the model, the dataset and an evidence entry alike, and the CLI said PASS. The
+    refused cases under the four names left out fail at 98b168b9 and pass after the fix; the descriptor whose digest
+    is over its content is the control at the same place and passes at both."""
+
+    def test_the_form_and_the_comparison_read_one_table(self):
+        self.assertEqual({name for name, _ in I._HASH_FUNCTIONS}, set(_FORM_CHECKED))
+
+    def test_every_name_of_the_table_has_its_form_checked(self):
+        """The form half of the one table: under each name, a digest one character short or in upper case names no
+        content and is refused, also without `content` (lens 3 of the gate on this fix: dropping one name from the
+        form loop survived for every name but sha256)."""
+        lengths = dict(I._HASH_FUNCTIONS)
+        for name in _FORM_CHECKED:
+            for case, digest in (("one character short", "a" * (lengths[name] - 1)),
+                                 ("upper case", "A" * lengths[name])):
+                with self.subTest(algorithm=name, case=case):
+                    statement = _base_statement()
+                    statement["predicate"]["evidence"] = [{"name": "f", "digest": {name: digest}}]
+                    res = _verify_v02(statement)
+                    self.assertIs(res["ok"], False)
+                    self.assertIn(f"digest {name!r} must be {lengths[name]} lowercase hex characters",
+                                  res["predicate_shape_detail"])
+            with self.subTest(algorithm=name, control="the right length in lower case"):
+                statement = _base_statement()
+                statement["predicate"]["evidence"] = [{"name": "f", "digest": {name: "a" * lengths[name]}}]
+                self.assertIs(_verify_v02(statement)["ok"], True)
+
+    def test_every_name_a_digest_carries_is_compared_not_only_the_first(self):
+        """A digest with two names of the table, one over the content and one over other bytes, is refused in either
+        order (lens 3: a loop that stopped at the first matching name survived every other test)."""
+        for right, wrong in (("md5", "sha3_224"), ("sha3_224", "md5"), ("sha256", "sha512_256"),
+                             ("sha512_256", "sha256")):
+            for erst_richtig in (True, False):
+                with self.subTest(right=right, wrong=wrong, right_first=erst_richtig):
+                    paare = [(right, _digest_of(right, _CONTENT)), (wrong, _digest_of(wrong, b"y"))]
+                    digest = dict(paare if erst_richtig else paare[::-1])
+                    statement = _base_statement()
+                    statement["predicate"]["evidence"] = [
+                        {"name": "two", "digest": digest, "content": base64.b64encode(_CONTENT).decode()}]
+                    res = _verify_v02(statement)
+                    self.assertIs(res["ok"], False)
+                    self.assertIn(f"digest {wrong!r} does not identify the decoded content",
+                                  res["predicate_shape_detail"])
+        statement = _base_statement()
+        statement["predicate"]["evidence"] = [{"name": "two", "content": base64.b64encode(_CONTENT).decode(),
+                                               "digest": {"md5": _digest_of("md5", _CONTENT),
+                                                          "sha3_224": _digest_of("sha3_224", _CONTENT)}}]
+        self.assertIs(_verify_v02(statement)["ok"], True, "control: both names over the content")
+
+    def test_a_content_that_is_not_its_digests_bytes_is_refused_at_every_place(self):
+        for place in _PLACES:
+            for name in _LEFT_OUT:
+                with self.subTest(place=place, algorithm=name):
+                    res = _verify_v02(_statement_with_content(place, name, b"y"))
+                    self.assertIs(res["ok"], False)
+                    self.assertIs(res["content_root_ok"], True, "the refusal must come from the descriptor")
+                    self.assertIs(res["predicate_shape_ok"], False)
+                    self.assertIn(f"digest {name!r} does not identify the decoded content",
+                                  res["predicate_shape_detail"])
+                    self.assertIn(place, res["predicate_shape_detail"])
+                with self.subTest(place=place, algorithm=name, control="the digest is over the content"):
+                    res = _verify_v02(_statement_with_content(place, name, _CONTENT))
+                    self.assertIs(res["ok"], True, res.get("predicate_shape_detail"))
+
+    def test_every_name_the_form_checks_is_compared_with_the_content(self):
+        for name in _FORM_CHECKED:
+            with self.subTest(algorithm=name):
+                self.assertIs(_verify_v02(_statement_with_content("evidence", name, b"y"))["ok"], False)
+                self.assertIs(_verify_v02(_statement_with_content("evidence", name, _CONTENT))["ok"], True)
+
+    def test_a_comparison_that_cannot_run_is_never_a_match(self):
+        """A Python whose OpenSSL lacks a function cannot recompute that digest. The descriptor is then refused, even
+        when its digest is right, rather than read as bound to its content."""
+        from unittest import mock
+        original = hashlib.new
+
+        def without_sha512_224(name, *args, **kwargs):
+            if name == "sha512_224":
+                raise ValueError("unsupported hash type sha512_224")
+            return original(name, *args, **kwargs)
+        statement = _statement_with_content("evidence", "sha512_224", _CONTENT)
+        with mock.patch.object(I.hashlib, "new", side_effect=without_sha512_224):
+            res = _verify_v02(statement)
+        self.assertIs(res["ok"], False)
+        self.assertIn("'sha512_224' cannot be recomputed", res["predicate_shape_detail"])
+        self.assertIs(_verify_v02(statement)["ok"], True, "control: the same statement where the function runs")
+
+    def test_the_exporter_writes_no_descriptor_whose_content_contradicts_its_digest(self):
+        for name in _LEFT_OUT:
+            wrong = _descriptor_with_content("x", name, _digest_of(name, b"y"))
+            right = _descriptor_with_content("x", name, _digest_of(name, _CONTENT))
+            for place in ("model", "dataset", "evidence"):
+                def kw(rd, place=place):
+                    return {place: [rd]} if place == "evidence" else {place: rd}
+                with self.subTest(place=place, algorithm=name):
+                    with self.assertRaises(BundleFormatError):
+                        I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, root_b64=ROOT, **kw(wrong))
+                with self.subTest(place=place, algorithm=name, control="the digest is over the content"):
+                    env = I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, root_b64=ROOT,
+                                                        **kw(right))
+                    self.assertIs(I.verify_eval_result_dsse(
+                        env, _pub(), expected_predicate_type=I.EVAL_RESULT_V02_PREDICATE_TYPE)["ok"], True)
+            with self.subTest(place="subject", algorithm=name):
+                with self.assertRaises(BundleFormatError):
+                    I.to_eval_result_v02_statement(CLAIM, subject=[wrong], evaluator_id=EVALUATOR)
+                st = I.to_eval_result_v02_statement(CLAIM, subject=[right], evaluator_id=EVALUATOR)
+                self.assertEqual(I.classify_eval_result_v02_predicate(st), (True, ""))
+
+
+class TheCommandLineComparesTheContentToo(unittest.TestCase):
+    """T1 through `proofbundle intoto --verify` with the pinned key: FAIL with exit 1 for the contradicting descriptor,
+    PASS with exit 0 for its control, at each place and under each of the four functions left out at 98b168b9."""
+
+    _run = TheCommandLine._run
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.pub = base64.b64encode(_pub()).decode()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_verify_refuses_a_content_its_digest_does_not_name(self):
+        for place in _PLACES:
+            for name in _LEFT_OUT:
+                for named, expected in ((b"y", 1), (_CONTENT, 0)):
+                    with self.subTest(place=place, algorithm=name, truthful=named == _CONTENT):
+                        path = self.dir / f"k1_{place}_{name}_{expected}.json"
+                        path.write_text(json.dumps(_sign(_statement_with_content(place, name, named))),
+                                        encoding="utf-8")
+                        code, text = self._run("intoto", str(path), "--verify", "--pub", self.pub)
+                        self.assertEqual(code, expected, text)
+
+
 if __name__ == "__main__":
     unittest.main()

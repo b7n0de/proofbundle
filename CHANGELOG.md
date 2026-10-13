@@ -28,6 +28,7 @@ Two entries change existing behaviour for package users: DSSE envelopes now name
 ### Fixed
 
 - The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
+- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. Two passes out of three no longer pass a threshold of `0.666667`.
 
 ## [6.2.1] - 2026-10-10
 
