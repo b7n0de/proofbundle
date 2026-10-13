@@ -149,4 +149,6 @@ def test_control_present_refs_without_a_declaration_keep_the_exception(env, tmp_
     answer, entry, text = w1._l1(env, work)
     w1._assert_inactive(answer, entry, text)
     count = len(w1._git(work, "for-each-ref", "--format=%(refname)").stdout.split())
+    # since the class of R13-1 the lines of FETCH_HEAD count as well
+    count += len((work / ".git" / "FETCH_HEAD").read_text(encoding="utf-8").splitlines())
     assert f"at any of the {count} local refs of this repository" in text, text

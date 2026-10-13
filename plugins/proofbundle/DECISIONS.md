@@ -573,6 +573,12 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     out with exit 0 and no warning, and a ref store in another format than files (reftable), which the gate does not
     read whole here, leave the exception unapplied (review round 13 of 2026-10-13, R13-1: with
     `refs/remotes/origin/main` or `refs/recorded/x` a symbolic ref to a missing branch, the push had been called
+    inactive). The records git's listing leaves out altogether are read too, named as git names them: FETCH_HEAD
+    line by line, the other root refs of the worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin), and the
+    HEAD, the root refs and the own refs of every other worktree (`worktrees/<name>/HEAD`, from a linked worktree
+    `main-worktree/HEAD`); one that is symbolic counts through its target, and one whose target git does not list
+    leaves the exception unapplied (the class of R13-1: a declared commit only in FETCH_HEAD after `git fetch
+    <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release` had been called
     inactive). Where the push goes to an endpoint or a namespace these records do not model,
     a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
