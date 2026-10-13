@@ -1,4 +1,4 @@
-**A feature release for everyone on 6.2.1.** It adds the eval-result v0.2 export, a SCITT statement identification package, a pilot profile with its contract and an incremental Merkle accumulator, and DSSE envelopes now name their signing key by default.
+**A feature release following 6.2.1.** The installed package adds opt-in eval-result v0.2 export and verification, changes the default DSSE key ID handling, and fixes two pytest receipt behaviours. The repository also adds SCITT statement identification material, a pilot profile and contract, and an incremental Merkle accumulator.
 
 ```
 python -m pip install --upgrade proofbundle==6.3.0
@@ -6,18 +6,22 @@ python -m pip install --upgrade proofbundle==6.3.0
 
 ## Highlights
 
-- **DSSE envelopes name their signing key.** Envelopes created by `dsse.sign_envelope`, in-toto exports included, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default, and `keyid=""` omits it.
+- **DSSE key IDs are included by default when available.** Envelopes created by `dsse.sign_envelope`, including in-toto exports, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default when the signer exposes its Ed25519 public key. Use `keyid=""` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly.
 - **eval-result v0.2 for the revised in-toto draft.** An opt-in export and verification under its own predicate type; exports still default to v0.1, and `--verify` accepts both.
-- **Statement identification for SCITT.** Requirements and a package that can be verified against them.
-- **A pilot profile, its contract and an incremental accumulator.** A profile with vectors over the shipped decision and outcome predicates, the first pilot contract, and a Merkle accumulator beside the bundle emitter with a restart rule.
+- **Statement identification material for SCITT.** The repository includes requirements and a verification package in `docs/scitt/statement_identification/`.
+- **Repository pilot material and an incremental accumulator.** A profile and vectors for the shipped decision and outcome predicates, the first pilot contract, and an incremental Merkle accumulator with a restart rule are provided under `docs/` and `tools/`.
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/7aae76509e2a5a15c367255003f5385a63cc1677/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
 A valid signature binds the signed content to the signing key. It does not make a reported result true.
+
+## Measured on the reference machine
+
+The budget cost axis was measured on the reference machine on 2026-10-13. All 12 axes and all 7 combinations passed, and none was skipped. `maschinenfaktor_schnellstes_ende` is 1.0581, the distance of the measuring machine from the recorded reference load, and `latte_aus_der_klammer` is `schnellstes_ende`, the limit position in force. The [measurement record](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
 
 ## Details
 
@@ -42,10 +46,10 @@ A valid signature binds the signed content to the signing key. It does not make 
 ### Fixed
 
 - The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
-- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. Two passes out of three no longer pass a threshold of `0.666667`.
+- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. With the `>=` comparator, two passes out of three no longer pass a threshold of `0.666667`.
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/7aae76509e2a5a15c367255003f5385a63cc1677/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/7aae76509e2a5a15c367255003f5385a63cc1677/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/7aae76509e2a5a15c367255003f5385a63cc1677/docs/release_scope/6.3.0.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/CHANGELOG.md) · [Known limitations for 6.3.0](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/RESTRISIKO_630.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/91508f948d999d27a9d14ac11d546c98c613670a/docs/release_scope/6.3.0.md) · [proofbundle.dev](https://proofbundle.dev)
 
 Created with AI assistance. Reviewed and published by me.
