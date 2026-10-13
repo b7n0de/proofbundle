@@ -799,6 +799,24 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     „Anker nicht im selben Commit wie der Kandidat eingefuehrt" uebersprungen statt zu raten — sie
     braucht einen echten Baum, um etwas zu messen.
     """
+    # ONE READING OF EACH INPUT (CODEX-KLASSENSUCHE-631-01, B1, measured at f6ea5cc3): the signed body was built
+    # from `artifact.items()`, while `signer_role` and `produced_at` were read again through `artifact.get`, so a
+    # dict subclass answered the anchor's validity window with another time than the one signed (`verified` for a
+    # signature made after the anchor expired; the same stored document as a plain dict was `untrusted`). The
+    # artifact and the anchor are copied once from their storage into plain values, and every check below, the
+    # signature, the role, the times and the anchor binding, reads only these copies.
+    try:
+        from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    except Exception as exc:                             # noqa: BLE001 — die Bibliothek fehlt: Umgebung
+        return ART_UNMEASURABLE_HERE, (f"the plain-value reader is not available in this environment "
+                                       f"({type(exc).__name__}: {exc}) — not measurable is not verified")
+    try:
+        artifact = plain_json(artifact, what="the artifact", error=ValueError)
+        trusted = plain_json(trusted, what="the trust anchor", error=ValueError)
+    except ValueError as exc:
+        return ART_UNTRUSTED, f"the artifact or its anchor is no plain JSON value ({exc}), so no single reading is signed"
+    if not isinstance(artifact, dict):
+        return ART_UNTRUSTED, "the artifact is no JSON object"
     sig = artifact.get("signature")
     if not isinstance(sig, dict):
         return ART_UNSIGNED, "the artifact carries no signature block"
