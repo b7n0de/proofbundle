@@ -21,25 +21,25 @@
 
 ## Current release
 
-**[v6.2.1](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.1) · Beta · Check the closing audit record in the tagged tree**
+**[v6.3.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.3.0) · Beta · [Audit status and limits](https://github.com/b7n0de/proofbundle/blob/v6.3.0/audit_artifacts/630/README.md)**
 
-[Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.2.1/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/release_scope/6.2.1.md)
+[Known limitations for 6.3.0](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_630.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/release_scope/6.3.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-**A security update for everyone on 6.2.0.** It tightens checks on policy validity, timestamps, key algorithms and log inclusion proofs, and rejects ambiguous input on additional paths.
+**A feature release following 6.2.1.** The installed package adds opt-in eval-result v0.2 export and verification, changes the default DSSE key ID handling, and fixes two pytest receipt behaviours. The repository also adds SCITT statement identification material, a pilot profile and contract, and an incremental Merkle accumulator.
 
-- **Policy checks use one time for both validity limits.** Decision-policy lifetime checks keep fractions of a second, and claim-age checks no longer truncate the calculated age to whole seconds.
-- **One signature method cannot stand in for another.** An old root key cannot approve a rotation using an unsupported algorithm, and an Ed25519 outcome signature alone cannot meet a hybrid-key requirement. Empty log-key or origin lists reject the respective trust check.
-- **A proof counts only where it was checked.** Trust in a transparency log inclusion applies only to the inclusion context the verifier checked, including its position, tree size, proof path and root.
-- **Duplicate fields and unsupported requirements are rejected.** Agent-review policy files and Chia node replies with duplicate JSON keys are rejected. The credential profile check also rejects unsupported or malformed critical-extension fields.
+- **DSSE key IDs are included by default when available.** Envelopes created by `dsse.sign_envelope`, including in-toto exports, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default when the signer exposes its Ed25519 public key. Use `keyid=""` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly.
+- **eval-result v0.2 for the revised in-toto draft.** An opt-in export and verification under its own predicate type; exports still default to v0.1, and `--verify` accepts both.
+- **Statement identification material for SCITT.** The repository includes requirements and a verification package in `docs/scitt/statement_identification/`.
+- **Repository pilot material and an incremental accumulator.** A profile and vectors for the shipped decision and outcome predicates, the first pilot contract, and an incremental Merkle accumulator with a restart rule are provided under `docs/` and `tools/`.
 
-In the tagged tree, check `audit_artifacts/621/pre_tag_receipt_v6.2.1.json` for the recorded audit command and result.
+In the tagged tree, check `audit_artifacts/630/pre_tag_receipt_v6.3.0.json` for the recorded audit command and result.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
-[Residual risks](https://github.com/b7n0de/proofbundle/blob/v6.2.1/RESTRISIKO_620.md)
+[Residual risks for 6.3.0](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_630.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md)
 
 </details>
 
@@ -48,10 +48,10 @@ The package being published and its closing audit passing are separate facts. An
 Install the verifier, download an example, then verify the local file.
 
 ```bash
-python -m pip install proofbundle==6.2.1
+python -m pip install proofbundle==6.3.0
 
 curl -fsSLo receipt.json \
-  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.2.1/examples/example_bundle.json
+  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.3.0/examples/example_bundle.json
 
 proofbundle verify receipt.json
 ```
@@ -75,13 +75,13 @@ These exit codes apply to `proofbundle verify`, not to every command in the pack
 To try deliberate tampering, install the evaluation extra and run the demo.
 
 ```bash
-python -m pip install 'proofbundle[eval]==6.2.1'
+python -m pip install 'proofbundle[eval]==6.3.0'
 proofbundle demo
 ```
 
 The demo checks an honest receipt, tampered variants and a sample swap. It exits with a nonzero code if a tamper is accepted.
 
-[Guided walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/DEMO.md) · [Inspect plugin](#plugins)
+[Guided walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/DEMO.md) · [Inspect plugin](#plugins)
 
 </details>
 
@@ -95,7 +95,7 @@ The demo checks an honest receipt, tampered variants and a sample swap. It exits
 
 **A valid signature does not make a reported result true.** Checks depend on the receipt format and the policy you request.
 
-[Threat model](https://github.com/b7n0de/proofbundle/blob/v6.2.1/THREAT_MODEL.md) · [Non claims](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/NON_CLAIMS.md)
+[Threat model](https://github.com/b7n0de/proofbundle/blob/v6.3.0/THREAT_MODEL.md) · [Non claims](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/NON_CLAIMS.md)
 
 <a name="choose-the-path-that-matches-your-task"></a>
 
@@ -104,23 +104,23 @@ The demo checks an honest receipt, tampered variants and a sample swap. It exits
 | I want to | Start here |
 |---|---|
 | Verify a receipt | [Quick start](#quick-start) |
-| Create evaluation evidence | [Evaluation walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/DEMO.md) |
+| Create evaluation evidence | [Evaluation walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/DEMO.md) |
 | Add receipts to Inspect AI | [Inspect plugin](#plugins) |
-| Assess proofbundle for adoption | [Adversarial review guide](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/REVIEWERS.md) |
+| Assess proofbundle for adoption | [Adversarial review guide](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/REVIEWERS.md) |
 
 <details>
 <summary>Other workflows and optional features</summary>
 
 | Workflow | Package or reference |
 |---|---|
-| Evaluation receipts and preregistration | `proofbundle[eval]` · [Claim format](https://github.com/b7n0de/proofbundle/blob/v6.2.1/EVAL_CLAIM.md) |
+| Evaluation receipts and preregistration | `proofbundle[eval]` · [Claim format](https://github.com/b7n0de/proofbundle/blob/v6.3.0/EVAL_CLAIM.md) |
 | Inspect AI | `proofbundle[inspect]` · [Plugin setup](#plugins) |
-| Agent review disclosures | [Profile inventory](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/predicates/README.md) · [Conformance examples](https://github.com/b7n0de/proofbundle/tree/v6.2.1/conformance/agent_review) |
-| RFC 3161 and OpenTimestamps | `proofbundle[anchors]` · [Anchor guide](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/ANCHORS.md) |
-| ML-DSA-44 witness cosignatures | `proofbundle[pq]` · [Anchor guide](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/ANCHORS.md) |
-| TEE attestation bridge | `proofbundle[experimental]` · [Experimental bridge](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/EXPERIMENTAL_ENCLAVE.md) |
+| Agent review disclosures | [Profile inventory](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/predicates/README.md) · [Conformance examples](https://github.com/b7n0de/proofbundle/tree/v6.3.0/conformance/agent_review) |
+| RFC 3161 and OpenTimestamps | `proofbundle[anchors]` · [Anchor guide](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/ANCHORS.md) |
+| ML-DSA-44 witness cosignatures | `proofbundle[pq]` · [Anchor guide](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/ANCHORS.md) |
+| TEE attestation bridge | `proofbundle[experimental]` · [Experimental bridge](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/EXPERIMENTAL_ENCLAVE.md) |
 
-Shipped features do not all have the same maturity. Agent review disclosures are self declarations. Anchor and enclave paths have experimental boundaries. Check the [predicate inventory](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/predicates/README.md) for the exact profile before relying on it.
+Shipped features do not all have the same maturity. Agent review disclosures are self declarations. Anchor and enclave paths have experimental boundaries. Check the [predicate inventory](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/predicates/README.md) for the exact profile before relying on it.
 
 </details>
 
@@ -139,14 +139,14 @@ proofbundle ships plugins for pytest and Inspect AI. Receipt emission is opt-in 
 **pytest**
 
 ```bash
-python -m pip install 'proofbundle[pytest,eval]==6.2.1'
+python -m pip install 'proofbundle[pytest,eval]==6.3.0'
 PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest
 ```
 
 **Inspect AI**
 
 ```bash
-python -m pip install 'proofbundle[inspect,eval]==6.2.1'
+python -m pip install 'proofbundle[inspect,eval]==6.3.0'
 PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model <model>
 ```
 
@@ -162,11 +162,11 @@ Receipts go to the current directory by default, and the plugin prints the outpu
 
 | Your question | Reference |
 |---|---|
-| How do I implement the format? | [Specification](https://github.com/b7n0de/proofbundle/blob/v6.2.1/SPEC.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CONFORMANCE.md) |
-| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.2.1/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/GLOSSARY.md) |
-| Which keys and claims should I accept? | [Policies](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/POLICY_PROFILES.md) · [Trust anchors](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/TRUST_ANCHORS.md) |
-| How is security assessed? | [Threat model](https://github.com/b7n0de/proofbundle/blob/v6.2.1/THREAT_MODEL.md) · [Security policy](https://github.com/b7n0de/proofbundle/blob/v6.2.1/SECURITY.md) |
-| How was this release prepared? | [Release process](https://github.com/b7n0de/proofbundle/blob/v6.2.1/RELEASE.md) · [Pre tag audit](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/PRE_TAG_AUDIT.md) |
+| How do I implement the format? | [Specification](https://github.com/b7n0de/proofbundle/blob/v6.3.0/SPEC.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CONFORMANCE.md) |
+| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.3.0/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/GLOSSARY.md) |
+| Which keys and claims should I accept? | [Policies](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/POLICY_PROFILES.md) · [Trust anchors](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/TRUST_ANCHORS.md) |
+| How is security assessed? | [Threat model](https://github.com/b7n0de/proofbundle/blob/v6.3.0/THREAT_MODEL.md) · [Security policy](https://github.com/b7n0de/proofbundle/blob/v6.3.0/SECURITY.md) |
+| How was this release prepared? | [Release process](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RELEASE.md) · [Pre tag audit](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/PRE_TAG_AUDIT.md) |
 
 <a name="how-it-works"></a>
 
@@ -198,7 +198,7 @@ Decision receipts record a verdict over named evidence. That does not establish 
 
 The Rust cross verifier is experimental and advisory. Agreement on recorded cases does not prove either implementation correct, and the Rust tool is not part of the Python package.
 
-[Predicate inventory](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/predicates/README.md) · [Conformance boundaries](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CONFORMANCE.md)
+[Predicate inventory](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/predicates/README.md) · [Conformance boundaries](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CONFORMANCE.md)
 
 </details>
 
@@ -210,13 +210,13 @@ The Rust cross verifier is experimental and advisory. Agreement on recorded case
 
 The core uses `cryptography` and `rfc8785`, rather than implementing its own cryptographic primitives. The test approach includes external vectors, mutation checks and parser fuzzing. Those are test signals, not a proof of correctness.
 
-Receipt signatures are Ed25519, not post quantum. ML-DSA-44 witness cosignatures and the experimental renewal path do not turn the payload signature into a post quantum signature. See the [anchor documentation](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/ANCHORS.md).
+Receipt signatures are Ed25519, not post quantum. ML-DSA-44 witness cosignatures and the experimental renewal path do not turn the payload signature into a post quantum signature. See the [anchor documentation](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/ANCHORS.md).
 
-Build provenance and package attestations answer questions about the build and its bytes. They do not establish the truth of an evaluation or replace a security audit. See the [release process](https://github.com/b7n0de/proofbundle/blob/v6.2.1/RELEASE.md).
+Build provenance and package attestations answer questions about the build and its bytes. They do not establish the truth of an evaluation or replace a security audit. See the [release process](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RELEASE.md).
 
-[Report a vulnerability](https://github.com/b7n0de/proofbundle/blob/v6.2.1/SECURITY.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CONFORMANCE.md) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/REVIEWERS.md)
+[Report a vulnerability](https://github.com/b7n0de/proofbundle/blob/v6.3.0/SECURITY.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CONFORMANCE.md) · [Adoption review](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/REVIEWERS.md)
 
-The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proofbundle) is a heuristic, not a product verdict. Read the [per check explanations](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/SCORECARD.md) and [self assessment](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/openssf_best_practices_self_assessment.md).
+The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proofbundle) is a heuristic, not a product verdict. Read the [per check explanations](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/SCORECARD.md) and [self assessment](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/openssf_best_practices_self_assessment.md).
 
 </details>
 
@@ -227,7 +227,7 @@ The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/b7n0de/proo
 
 proofbundle complements other evidence systems. A format mapping or an open proposal is not the same as adoption by the upstream project.
 
-[Tool comparison](https://github.com/b7n0de/proofbundle/blob/v6.2.1/INTEROP.md) · [Receipt envelope profile](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/RECEIPT_ENVELOPE_PROFILE.md) · [in-toto mapping](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/IN_TOTO_PROFILE.md) · [SCITT mapping](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/SCITT_CPB_MAPPING.md) · [Related work](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/RELATED_WORK.md)
+[Tool comparison](https://github.com/b7n0de/proofbundle/blob/v6.3.0/INTEROP.md) · [Receipt envelope profile](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/RECEIPT_ENVELOPE_PROFILE.md) · [in-toto mapping](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/IN_TOTO_PROFILE.md) · [SCITT mapping](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/SCITT_CPB_MAPPING.md) · [Related work](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/RELATED_WORK.md)
 
 The [interop discussion with inspect-receipts](https://github.com/b7n0de/proofbundle/issues/147) records a specific envelope comparison. It must not be read as evidence of a second independent implementation of every predicate.
 
@@ -242,11 +242,11 @@ The [interop discussion with inspect-receipts](https://github.com/b7n0de/proofbu
 
 proofbundle is not a hosted transparency service, a complete in-toto client, a trusted execution environment, a consensus system or a compliance product by itself.
 
-[Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/release_scope/6.2.1.md) records what belongs to this release. [Deferred work](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/release_scope/6.3.0.md) is not a delivered capability.
+[Release scope](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/release_scope/6.3.0.md) records what belongs to this release. [Deferred work](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/release_scope/6.3.0.md#out--the-register-not-blocking-630) is not a delivered capability.
 
-Use [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CITATION.cff) for citation metadata. The software archive has concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note has concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466). Software and Technical Note versions are separate records.
+Use [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CITATION.cff) for citation metadata. The software archive has concept DOI [10.5281/zenodo.21110642](https://doi.org/10.5281/zenodo.21110642). The Technical Note has concept DOI [10.5281/zenodo.21230466](https://doi.org/10.5281/zenodo.21230466). Software and Technical Note versions are separate records.
 
-[Contributing guide](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CONTRIBUTING.md) · [Code of Conduct](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CODE_OF_CONDUCT.md) · [Good first issues](https://github.com/b7n0de/proofbundle/labels/good-first-issue) · [Security reports](https://github.com/b7n0de/proofbundle/blob/v6.2.1/SECURITY.md)
+[Contributing guide](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CONTRIBUTING.md) · [Code of Conduct](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CODE_OF_CONDUCT.md) · [Good first issues](https://github.com/b7n0de/proofbundle/labels/good-first-issue) · [Security reports](https://github.com/b7n0de/proofbundle/blob/v6.3.0/SECURITY.md)
 
 </details>
 
@@ -254,4 +254,4 @@ Use [CITATION.cff](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CITATION.cf
 
 ---
 
-[MIT license](https://github.com/b7n0de/proofbundle/blob/v6.2.1/LICENSE) · Part of [b7n0de](https://b7n0de.com), Verified AI Work
+[MIT license](https://github.com/b7n0de/proofbundle/blob/v6.3.0/LICENSE) · Part of [b7n0de](https://b7n0de.com), Verified AI Work

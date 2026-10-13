@@ -184,6 +184,8 @@ CURRENT = {
 HISTORIC = {
     "CHANGELOG.md": "release history; the 5.0.0 entry quotes the removed default \"0\" as the old behaviour",
     "docs/release_scope/5.0.0.md": "the scope record of the 5.0.0 release; names the old default it removed",
+    "release_notes/RELEASE_NOTES_v6.3.0.md": "the release page of 6.3.0; its entries are the 6.3.0 CHANGELOG section byte "
+                                             "for byte, and it is not rewritten after the release",
     "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER6.md": "a frozen pre-registration of a past audit run",
     "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER7.md": "a frozen pre-registration of a past audit run",
     "audit_artifacts/500/PRE_REGISTRATION_DEEP_500_ITER8.md": "a frozen pre-registration of a past audit run",

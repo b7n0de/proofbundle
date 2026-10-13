@@ -1,50 +1,63 @@
 {
  "schema": "b7n0de.release_source.v1",
  "form": "zwei_ebenen",
- "warum_diese_datei": "Die Gruppierung eines Release kommt aus einer VERSIONIERTEN Inhaltsquelle, nicht aus dem Titelpraefix eines Pull Requests. Ab 6.2.1 in zwei Ebenen (Owner-Entscheid 09.10.2026): oben ein Satz, die Installation, drei oder vier Highlights, wie man das Release selbst prueft und was ein Beleg nicht beweist; darunter jeder Fix als seine CHANGELOG-Zeile. Jeder Satz ist woertlich aus TEXTE_621_NACH_REVIEW_20261009.md (sha256 ac93a132).",
- "version": "6.2.1",
- "vorheriger_tag": "v6.2.0",
- "tag": "v6.2.1",
- "release_commit": "8502cec712be15e9281690902c88723c6107b4e6",
- "kopfsatz": "**A security update for everyone on 6.2.0.** It tightens checks on policy validity, timestamps, key algorithms and log inclusion proofs, and rejects ambiguous input on additional paths.",
+ "warum_diese_datei": "Die Gruppierung eines Release kommt aus einer VERSIONIERTEN Inhaltsquelle, nicht aus dem Titelpraefix eines Pull Requests. 6.3.0 ist ein Feature-Release: oben ein Satz, die Installation, vier Highlights, wie man das Release selbst prueft und was ein Beleg nicht beweist; darunter jede Zeile des CHANGELOG-Abschnitts 6.3.0 unter ihrer Ueberschrift, byte-gleich (Owner-Entscheid 12.10.2026, Karte zur Form der Notes, Option A). Kopfsatz und Highlights stehen im Review der Texte 6.3.0.",
+ "version": "6.3.0",
+ "vorheriger_tag": "v6.2.1",
+ "tag": "v6.3.0",
+ "release_commit": "470cd4d114db79e3051be21922e99bf84247a235",
+ "kopfsatz": "**A feature release following 6.2.1.** The installed package adds opt-in eval-result v0.2 export and verification, changes the default DSSE key ID handling, and fixes two pytest receipt behaviours. The repository also adds SCITT statement identification material, a pilot profile and contract, and an incremental Merkle accumulator.",
  "highlights": [
   {
-   "kern": "Policy checks use one time for both validity limits.",
-   "text": "Decision-policy lifetime checks keep fractions of a second, and claim-age checks no longer truncate the calculated age to whole seconds."
+   "kern": "DSSE key IDs are included by default when available.",
+   "text": "Envelopes created by `dsse.sign_envelope`, including in-toto exports, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default when the signer exposes its Ed25519 public key. Use `keyid=\"\"` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly."
   },
   {
-   "kern": "One signature method cannot stand in for another.",
-   "text": "An old root key cannot approve a rotation using an unsupported algorithm, and an Ed25519 outcome signature alone cannot meet a hybrid-key requirement. Empty log-key or origin lists reject the respective trust check."
+   "kern": "eval-result v0.2 for the revised in-toto draft.",
+   "text": "An opt-in export and verification under its own predicate type; exports still default to v0.1, and `--verify` accepts both."
   },
   {
-   "kern": "A proof counts only where it was checked.",
-   "text": "Trust in a transparency log inclusion applies only to the inclusion context the verifier checked, including its position, tree size, proof path and root."
+   "kern": "Statement identification material for SCITT.",
+   "text": "The repository includes requirements and a verification package in `docs/scitt/statement_identification/`."
   },
   {
-   "kern": "Duplicate fields and unsupported requirements are rejected.",
-   "text": "Agent-review policy files and Chia node replies with duplicate JSON keys are rejected. The credential profile check also rejects unsupported or malformed critical-extension fields."
+   "kern": "Repository pilot material and an incremental accumulator.",
+   "text": "A profile and vectors for the shipped decision and outcome predicates, the first pilot contract, and an incremental Merkle accumulator with a restart rule are provided under `docs/` and `tools/`."
   }
  ],
- "selbst_pruefen": "Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](RELEASE.md#verifying-a-published-release-anyone).",
+ "selbst_pruefen": "Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](RELEASE.md#verifying-a-published-release-anyone).",
  "nicht_bewiesen": "A valid signature binds the signed content to the signing key. It does not make a reported result true.",
- "fixes": [
-  "**Repeated field names are rejected in review policies.** `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.",
-  "**Replies from Chia with repeated field names are rejected.** The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.",
-  "**Credential checks reject unsupported requirements.** `sdjwt_vc.check_vc_profile` refuses an issuer JWT header with an unsupported or malformed `crit` field (RFC 7515 §4.1.11), including when the issuer signature is not required.",
-  "**A policy is checked at the same time as the receipt, including fractions of a second.** `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.",
-  "**These verification commands require whole seconds.** `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.",
-  "**These commands label results at a supplied time as HISTORICAL.** With `--verification-time`, `decision verify` labels verification results HISTORICAL even without `--policy`, and `verify-enclave` labels its JSON and text results HISTORICAL.",
-  "**One clock reading judges both ends of a policy's validity.** A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.",
-  "**Policy time checks do not silently replace a supplied time with the current time.** For their time comparisons, `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` no longer replace a malformed non-`None` `now` with the wall clock; `None` retains the default clock behaviour, and naive datetimes are treated as UTC.",
-  "**An enclave check rejects an invalid supplied time.** `verify_enclave_attestation` refuses an evaluation time `now` other than `None` unless its type is exactly `int`.",
-  "**Fractions of a second count when checking a claim's age.** `check_freshness` compares parsed timestamps without truncating their age to whole seconds; with `max_age_seconds` set, a negative age or an age above the bound is not fresh.",
-  "**The time is checked before it reaches the proof verifier.** Before dispatching an anchor verifier, `verify_anchor` and `verify_anchors` reject a supplied `now` other than `None` unless its type is exactly `int`.",
-  "**A log entry must match the proof that was checked.** `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.",
-  "**An old key cannot approve its replacement using an unsupported signing method.** `verify_trust_pack` no longer treats an explicit unsupported or invalid `alg` on an old-root pin as Ed25519; an absent `alg` and the legacy bare-key form still mean Ed25519.",
-  "**When two signature methods are required, one alone is not enough.** `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.",
-  "**An empty list of permitted log keys or sources grants no permission.** `evaluate_public_transparency` treats a present `trustedLogKeys` list as an allowlist when `requireSignedCheckpoint` is enabled, and a present `trustedLogOrigins` list as an allowlist; an empty list accepts no key or origin in the respective check."
+ "referenzmessung": "The budget cost axis was measured on the reference machine on 2026-10-13. All 12 axes and all 7 combinations passed, and none was skipped. The calibration factor `maschinenfaktor_schnellstes_ende` is 1.0581, the ratio of the fastest recorded calibration time in this run to the median of the earlier reference recording. The timing limits used the fastest-sample setting, recorded as `latte_aus_der_klammer=schnellstes_ende`. The [measurement record](audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.",
+ "abschnitte": [
+  {
+   "titel": "Added",
+   "zeilen": [
+    "Add opt-in eval-result v0.2 export and verification under `https://b7n0de.com/attestation/eval-result/v0.2` for the revised in-toto draft. Export with `proofbundle intoto --predicate-version v0.2 --evaluator <URI>`. v0.2 requires an `evaluator`, identifies each model and dataset by exactly one of a salted commitment or a digest-bearing ResourceDescriptor, and records artifact digests in `evidence[]`. Receipt evidence uses the SHA-256 of the receipt file's exact bytes. Exports still default to v0.1; `--verify` accepts both versions. See `docs/IN_TOTO_PROFILE.md` for mappings and migration details.",
+    "**An independent reading of draft-abak-agent-control-delivery-evidence-01.** Adds `interop/acde_01`, a verifier-side implementation derived from our reading of the text of -01 alone, with 130 requirement sentences, 146 vectors and a run record with agreement 108, contradiction 0, ambiguity 14 and not implemented 8. Nothing outside `interop/acde_01` changes.",
+    "Add SCITT statement identification requirements and a package verifiable against them.",
+    "Add a pilot profile and vectors for the shipped decision and outcome predicates.",
+    "Document which capabilities ship in 6.1.0 and which are available only on the main branch at the documented comparison point.",
+    "Add an incremental Merkle accumulator alongside the bundle emitter, with a restart rule and before-and-after run records.",
+    "Add the first pilot contract for comparing approved agent actions with GitHub evidence."
+   ]
+  },
+  {
+   "titel": "Changed",
+   "zeilen": [
+    "DSSE envelopes created by `dsse.sign_envelope`, including in-toto exports, now include the signer's OpenSSH SHA256 fingerprint as `keyid` by default. Use `keyid=\"\"` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly. The key ID is unsigned. The pinned-key DSSE and in-toto verifiers, including `pb_verify_rs verify-dsse`, do not use it to select a key; the trust pack retains its key-selection rules. Archived receipts and regression fixtures may still omit it and be rejected by consumers that require it. See `docs/IN_TOTO_PROFILE.md` for interoperability notes.",
+    "Pull-request label changes no longer restart the main CI workflow. The `landung` label starts mutation checks in a separate workflow; new commits rerun them while the label is present, and removing the label cancels them."
+   ]
+  },
+  {
+   "titel": "Fixed",
+   "zeilen": [
+    "The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.",
+    "The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. With the `>=` comparator, two passes out of three no longer pass a threshold of `0.666667`."
+   ]
+  }
  ],
- "restrisiko": "RESTRISIKO_620.md",
+ "restrisiko": "RESTRISIKO_630.md",
+ "frueherer_risikobericht": "RESTRISIKO_620.md",
  "weitere_links": [
   {
    "text": "proofbundle.dev",
