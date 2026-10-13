@@ -592,9 +592,14 @@ def validate_test_result_statement(statement: Any) -> list[str]:
     # PR 224, P1, measured: `result: PASSED` with `failedTests: ['definitely-failed']` validated
     # clean and could be joined as a passing run). The corpus rule that a skipped check is never
     # a pass is a rule about the LISTS; a result that the lists do not derive is a signed headline
-    # contradicted by its own detail. Judged whenever any list is present; a name in two lists is
-    # the same contradiction one level down.
-    if listen_ok and any(k in pred for k in ("passedTests", "warnedTests", "failedTests")):
+    # contradicted by its own detail. A name in two lists is the same contradiction one level down.
+    # JUDGED WHETHER THE LISTS ARE PRESENT OR NOT (E1 of the class search for 6.3.1 at f6ea5cc3,
+    # P1, measured: with all three lists removed from a valid PASSED statement, this validator, the
+    # signing helper and `join_test_result` all said yes and the result stayed PASSED, while three
+    # empty lists were refused). The in-toto test-result predicate makes each list optional, so an
+    # absent list is an empty one; a rule that ran only when a list was present was a rule the
+    # producer could switch off by leaving the lists out.
+    if listen_ok:
         failed = list(pred.get("failedTests") or [])
         warned = list(pred.get("warnedTests") or [])
         passed = list(pred.get("passedTests") or [])
