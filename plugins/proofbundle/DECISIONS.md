@@ -57,7 +57,13 @@ that commit.
   declaration and the evidence live. A folder of that name deeper in the tree is covered.
 - The digest is computed from the commit alone, offline, and deterministically: modes come from git
   (100644, 100755, 120000) and bytes from the committed blobs, so checkout settings play no part. A tree
-  with a submodule has no digest, and the gate says so.
+  with a submodule has no digest, and the gate says so. Nor has a tree that names a path twice, a file or a folder
+  at any depth, the `.proofbundle` folder included: git's lookup reads the first of the two entries and a checkout
+  writes the last, so no one manifest stands for it. Every place that makes or checks the digest refuses such a tree
+  the same way: the gate's function and with it the evidence check, the CI mode, `run-evidence` and the
+  `tree-digest` command, and the README's recipe; the digest of every tree that names each path once stays
+  byte-equal (review round 12 of 2026-10-13, B-17, owner's choice to fix it now: `src/` naming `app.py` twice had
+  given two records for one path, and evidence signed over them had passed the CI mode).
 - It is not the git tree id, which is SHA-1 and git's own object format. The README prints a recipe that
   computes the digest with git and coreutils, and `hooks/proofbundle_gate.py tree-digest` prints it.
 - An item without a subject, or with a subject other than the digest of HEAD, is denied.

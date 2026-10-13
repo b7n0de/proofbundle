@@ -268,7 +268,9 @@ The subject is `proofbundle-tree-sha256/v1`. It covers every file of the commit 
 top-level `.proofbundle/` folder, where the declaration and the evidence live, so the evidence never has
 to cover itself. It is sha256 over the line `proofbundle-tree-sha256/v1` and, for each covered file
 sorted by the path's bytes, `<mode> <sha256 of the file's bytes> <path>` and a NUL byte. It is computed
-from the commit alone, offline; it is not the git tree id. A tree with a submodule has no digest.
+from the commit alone, offline; it is not the git tree id. A tree with a submodule has no digest, nor has
+a tree that names a path twice, a file or a folder at any depth: git reads the first of the two entries and a
+checkout writes the last, so no one manifest stands for it.
 
 The gate prints it, and the statement a bundle signs to name it:
 
@@ -281,17 +283,22 @@ The same digest with git and coreutils only, without the plugin:
 
 ```sh
 # proofbundle-tree-sha256/v1 of a commit, with git and coreutils only; run it with bash in the repository.
-# Usage: bash tree-digest.sh [REV]   (default HEAD). Prints 64 hex characters, or fails for a submodule.
+# Usage: bash tree-digest.sh [REV]   (default HEAD). Prints 64 hex characters, or fails for a submodule
+# or for a tree that names a path twice.
 set -euo pipefail
 export LC_ALL=C
 rev="${1:-HEAD}"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-git ls-tree -r -z --full-tree "$rev" > "$tmp/listing"
+git ls-tree -r -t -z --full-tree "$rev" > "$tmp/listing"
+# Every path once, folders included; a tree that names a path twice has no digest.
+while IFS= read -r -d '' record; do printf '%s\0' "${record#*$'\t'}"; done < "$tmp/listing" | sort -z | uniq -zd > "$tmp/twice"
+if [ -s "$tmp/twice" ]; then echo "tree-digest: the tree names $(head -zn1 "$tmp/twice" | tr -d '\0') twice; no digest" >&2; exit 1; fi
 # One record per file: the path's bytes in hex (for sorting by the path's bytes), then
 # "<mode> <sha256 of the file's bytes> <path>". The top-level .proofbundle/ folder is left out.
 while IFS= read -r -d '' record; do
   meta="${record%%$'\t'*}"; path="${record#*$'\t'}"
   read -r mode kind oid <<< "$meta"
+  if [ "$kind" = tree ]; then continue; fi
   case "$path" in .proofbundle/*) continue ;; esac
   if [ "$kind" != blob ]; then echo "tree-digest: $kind at $path (a submodule?); no digest" >&2; exit 1; fi
   case "$mode" in 100644|100755|120000) ;; *) echo "tree-digest: mode $mode at $path; no digest" >&2; exit 1 ;; esac

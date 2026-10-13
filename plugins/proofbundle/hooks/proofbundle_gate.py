@@ -2146,16 +2146,19 @@ def tree_manifest(repo: str, rev: str = "HEAD", deadline: float | None = None) -
     by the path's bytes: `<mode> <sha256 of the file's bytes> <path>` and a NUL byte, after the line
     `proofbundle-tree-sha256/v1`. The mode is git's (100644, 100755 or 120000); the bytes are the
     committed blob, so checkout settings play no part. A submodule has no bytes in the commit, so a
-    tree with one has no digest.
+    tree with one has no digest. Nor has a tree that names a path twice, a file or a folder at any depth, the
+    .proofbundle folder included: git's lookup reads the first of the two entries and a checkout writes the last, so
+    no one manifest stands for it (review round 12 of 2026-10-13, B-17: src/ naming app.py twice had given two records
+    for one path, and evidence signed over them had passed the CI mode).
     """
     if deadline is None:
         deadline = time.monotonic() + DEADLINE_SECONDS
     if not rev or rev.startswith("-"):
         raise GateError(f"not a revision: {rev!r}")
-    listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", rev, deadline=deadline)
+    listing = _git(repo, "ls-tree", "-r", "-t", "-z", "--full-tree", rev, deadline=deadline)
     if listing.returncode != 0:
         raise GateError(f"git could not list the tree of {rev}")
-    entries = []
+    entries, seen = [], set()
     for record in listing.stdout.split(b"\0"):
         if not record:
             continue
@@ -2164,6 +2167,12 @@ def tree_manifest(repo: str, rev: str = "HEAD", deadline: float | None = None) -
         if not tab or len(fields) != 3:
             raise GateError("git ls-tree gave a line the gate cannot read")
         mode, kind, oid = fields
+        if path in seen:
+            raise GateError(f"the tree names {path.decode(errors='replace')} twice; {TREE_ALGORITHM} needs every path "
+                            "once, so the tree has no digest")
+        seen.add(path)
+        if kind == b"tree":
+            continue   # a folder: listed for the check above, covered through its files
         if path.startswith(EVIDENCE_DIR.encode()):
             continue
         if kind != b"blob" or mode not in TREE_MODES:
