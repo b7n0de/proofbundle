@@ -349,6 +349,16 @@ def test_point_6_an_object_git_does_not_give_is_no_absence(env, tmp_path):
                                                       "give here")
 
 
+@pytest.mark.parametrize("key", ["remote.origin.promisor", "extensions.partialClone"])
+def test_point_6_the_reads_of_condition_d_refuse_promisor_configuration(tmp_path, key):
+    """The refusal stands before each read of condition d itself, not only before the earlier reads of the hook
+    (found by the mutation probe of the contract: without it in _git, the hook still refused at its state check)."""
+    work, _remote, _a = w1._undeclared(tmp_path)
+    w1._git(work, "config", key, "true" if key.endswith("promisor") else "origin")
+    with pytest.raises(gate.GateError, match="promisor-related configuration that this gate does not evaluate"):
+        gate._present_refs(str(work), time.monotonic() + 120)
+
+
 def test_point_7_a_warning_beside_the_known_hint_is_asked(tmp_path, monkeypatch):
     work, _remote, _a = w1._undeclared(tmp_path)
     _listing_changed(monkeypatch, lambda out, err: (out, err + b"hint: something else\n"))
