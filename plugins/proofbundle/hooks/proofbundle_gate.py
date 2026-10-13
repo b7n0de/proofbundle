@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import binascii
 import collections
+import concurrent.futures
 import errno
 import fnmatch
 import hashlib
@@ -4102,10 +4103,15 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     beside, why = _root_records(paths, present, symbolic)
     if beside is None:
         return None, why
-    clash = sorted(set(beside) & set(present))
+    # Nor any further file of the git directory git resolves as a ref (owner choice of 2026-10-13, 20:0x, K16-1).
+    further, why = _further_records(repo, paths, present, symbolic, deadline)
+    if further is None:
+        return None, why
+    clash = sorted((set(beside) | set(further)) & set(present))
     if clash:
         return None, _off_form("a name twice in git's listing and beside it", clash[0])
     present.update(beside)
+    present.update(further)
     return present, broken
 
 
@@ -4352,8 +4358,9 @@ def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]
               "unread")
     found: dict[str, str] = {}
     try:
-        names = sorted(name for name in os.listdir(folder)
-                       if _ROOT_REF.fullmatch(name) or name in _ROOT_REF_OTHERS or name == "HEAD")
+        names = sorted(name for name in os.listdir(folder) if _root_record_name(name))
+        if os.path.lexists(os.path.join(folder, _INFO_REFS)):
+            names.append(_INFO_REFS)
         for name in names:
             path = os.path.join(folder, name)
             if not _no_link(path):
@@ -4368,6 +4375,15 @@ def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]
                     match = _FETCH_LINE.fullmatch(line)
                     if match is None:
                         return None, _off_form(_FETCH_FORM, name if number == 1 else f"{name} (line {number})")
+                    found[name if number == 1 else f"{name} (line {number})"] = match.group(1).decode("ascii")
+                continue
+            if name == _INFO_REFS:
+                if raw and not raw.endswith(b"\n"):
+                    return None, _off_form(_INFO_REFS_FORM, name)
+                for number, line in enumerate(raw.split(b"\n")[:-1], 1):
+                    match = _INFO_REFS_LINE.fullmatch(line)
+                    if match is None:
+                        return None, _off_form(_INFO_REFS_FORM, name if number == 1 else f"{name} (line {number})")
                     found[name if number == 1 else f"{name} (line {number})"] = match.group(1).decode("ascii")
                 continue
             if name == "MERGE_HEAD" and raw.endswith(b"\n") and raw.count(b"\n") > 1:
@@ -4391,6 +4407,192 @@ def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]
             found[name] = value
     except OSError:
         return None, unread
+    return found, ""
+
+
+def _root_record_name(name: str) -> bool:
+    """Whether `name`, a path relative to the git directory, is one of the records _root_records reads in their strict
+    form: HEAD, the root refs at the top of the git directory, and info/refs. The search for further records
+    (_further_records) leaves them to that reading, so a broken form of theirs is never taken for an ordinary file."""
+    return name == "HEAD" or bool(_ROOT_REF.fullmatch(name)) or name in _ROOT_REF_OTHERS or name == _INFO_REFS
+
+
+#: The copy of the refs `git update-server-info` writes for the dumb transports; `git gc` writes it through `git repack`
+#: (measured with git 2.43.0). git resolves the name info/refs to the object of its first line, so it is a record; every
+#: line is read, each `<object>TAB<name>LF` as git writes it, a peeled tag as <name>^{} (FIX-17, the gc control).
+_INFO_REFS = "info/refs"
+_INFO_REFS_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})\t[^\n]+")
+_INFO_REFS_FORM = "a line of info/refs not of the form <object>TAB<name>LF"
+#: The most further files the gate takes from the git directory beside the ref store and the root records (narrow
+#: contract, point 7); more leave the exception unapplied.
+MAX_FURTHER_FILES = 20000
+#: How much of a further file the gate reads to know its form; a record in the direct normal form <oid>LF has 41 or 65.
+_FURTHER_HEAD = 4096
+#: A line of a reflog as git 2.43.0 writes it: the old and the new object, the identity, the time and its zone, and a tab
+#: with the message where there is one.
+_REFLOG_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64}) ([0-9a-f]{40}|[0-9a-f]{64}) [^<>\n]*<[^<>\n]*> [0-9]+ "
+                          rb"[+-][0-9]{4}(?:\t[^\n]*)?")
+#: The start of a file git can read as a ref (refs.c, parse_loose_ref_contents of git 2.43.0): `ref:`, or an object name,
+#: whose hex digits git takes in either case. A file that starts so and that git does not resolve is no ordinary file.
+_RECORD_LIKE = re.compile(rb"ref:|[0-9a-fA-F]{40}")
+#: The supported form of BISECT_START that names a branch: its short name and a line feed, as `git bisect start` writes it
+#: on a branch (measured with git 2.43.0); the branch is one git lists.
+_BISECT_START = "BISECT_START"
+#: How many of git's answers for further files the gate asks for side by side.
+_FURTHER_WORKERS = 4
+
+
+def _further(reason: str, entry: str) -> str:
+    """Why the exception does not apply to a further file of the git directory (owner choice of 2026-10-13, 20:0x,
+    K16-1; review round 17): the reason and the entry."""
+    return f"the git directory holds a file the gate does not read as a record whole ({reason}): {entry}"
+
+
+def _further_name_ok(name: str) -> bool:
+    """Whether git's ref rules take `name` as a ref name of one or more levels (git check-ref-format --allow-onelevel,
+    refs.c of git 2.43.0): parts not empty, not starting with `.` and not ending in .lock, no `..`, no `@{`, not `@`,
+    no character of _REF_NAME_REFUSED or below 0x20, and no `/` or `.` at the end. Only such a name is handed to git, so
+    no revision expression ever is."""
+    if name == "@" or name.endswith(("/", ".")) or ".." in name or "@{" in name:
+        return False
+    if any(not part or part.startswith(".") or part.endswith(".lock") for part in name.split("/")):
+        return False
+    return not any(char in _REF_NAME_REFUSED or ord(char) < 0x20 for char in name)
+
+
+def _valid_reflog(raw: bytes) -> bool:
+    """Whether `raw` is a reflog whole: one or more lines, each of the form _REFLOG_LINE, and a line feed at the end. A
+    file of only <oid>LF is no reflog (owner choice of 2026-10-13, 21:4x)."""
+    return (raw.endswith(b"\n") and
+            all(_REFLOG_LINE.fullmatch(line) for line in raw[:-1].split(b"\n")))
+
+
+def _resolution(repo: str, name: str, deadline: float) -> tuple[str, str | None, str | None]:
+    """git's two answers for a further file's name, with fixed, hardened calls and the name after `--end-of-options`:
+    ("none", None, None) where both calls end in git's ordinary negative case, exit 1 with no output and no warning;
+    ("broken", None, None) for the same where each call says only `warning: ignoring broken ref <name>`, which git 2.43.0
+    prints for every file under a folder of the git directory whose bytes are no ref, a hook sample or an object file
+    alike (measured; a file at the top prints nothing), so arbitrary text is not taken for a broken former ref by its
+    path; ("found", object, full name) where both give exactly one line; ("warning", line, None) for any other line on
+    stderr than the known graft hint; ("unknown", None, None) for anything else."""
+    oid = _git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", name, deadline=deadline)
+    full = _git(repo, "rev-parse", "--verify", "--quiet", "--symbolic-full-name", "--end-of-options", name,
+                deadline=deadline)
+    lines = [line for call in (oid, full) for line in call.stderr.decode("utf-8", "replace").splitlines()
+             if line not in _GRAFT_HINT]
+    negative = oid.returncode == 1 and full.returncode == 1 and not oid.stdout and not full.stdout
+    if lines:
+        if negative and len(lines) == 2 and set(lines) == {f"warning: ignoring broken ref {name}"}:
+            return "broken", None, None
+        return "warning", lines[0], None
+    if negative:
+        return "none", None, None
+    if oid.returncode == 0 and full.returncode == 0:
+        value, named = oid.stdout.split(b"\n"), full.stdout.split(b"\n")
+        if len(value) == 2 and value[1] == b"" and _OID.fullmatch(value[0]) and len(named) == 2 and named[1] == b"" \
+                and named[0]:
+            return "found", value[0].decode("ascii"), _git_text(named[0])
+    return "unknown", None, None
+
+
+def _further_records(repo: str, paths: dict, present: dict[str, str], symbolic: dict[str, str],
+                     deadline: float) -> tuple[dict[str, str] | None, str]:
+    """Every further file of the git directory that git resolves as a ref, as {name: object} (owner choice of
+    2026-10-13, 20:0x, K16-1, and the rule of review round 17): additional files outside the known ref stores and root
+    records are included when git resolves their exact names. The git directory is read recursively, logs/, objects/,
+    rebase-merge/ and any unknown folder included; refs/ and packed-refs are the store (_stored_refs) and HEAD, the root
+    refs and info/refs are read in their strict form (_root_records), so a broken form of theirs never passes here.
+    Only worktrees/ is left out: any entry there puts the repository outside the narrow contract (_narrow_range, point
+    1). A valid reflog under logs/ is historical data and stays outside (owner choice of 2026-10-13, 21:4x); a file there
+    of only <oid>LF is no reflog and is read here.
+
+    Each other regular file whose name git's ref rules take goes to git twice, `rev-parse --verify --quiet` for the
+    object and the same call with `--symbolic-full-name` for the full name. Only where the full name is exactly the
+    file's name has git resolved this file: it must then hold <oid>LF, the object git gives. A full name of another ref
+    already read, with its object, is git's substitution of a name, no record here. Where both calls end in git's
+    ordinary negative case the file holds no record git can resolve now, which says nothing about whether it ever was
+    one; a file that starts like a record and is not resolved is asked. A symbolic record, a record in another form, a
+    record under a name the rules refuse, a warning, an answer the gate cannot read, a symbolic link, an entry that is
+    no regular file or cannot be read, more than MAX_FURTHER_FILES files, and a file that changed while it was read are
+    asked: (None, why)."""
+    folder = paths["gitdir"]
+    asked: list[tuple[str, str, bytes, str, str | None, bool]] = []   # (name, path, head, kind, value, record-like)
+    count = 0
+
+    def stop(exc: OSError) -> None:
+        raise exc
+
+    try:
+        for root, dirs, files in os.walk(folder, onerror=stop):
+            here = os.path.relpath(root, folder).replace(os.sep, "/")
+            prefix = "" if here == "." else here + "/"
+            if here == ".":
+                dirs[:] = [d for d in dirs if d not in ("refs", "worktrees")]
+            for name in sorted(dirs):
+                if os.path.islink(os.path.join(root, name)):
+                    return None, _off_form("a symbolic link", prefix + name)
+            dirs.sort()
+            for name in sorted(files):
+                rel = prefix + name
+                if here == "." and (name == "packed-refs" or _root_record_name(name)) or rel == _INFO_REFS:
+                    continue
+                count += 1
+                if count > MAX_FURTHER_FILES:
+                    return None, (f"the git directory holds more than {MAX_FURTHER_FILES} further files, more than the "
+                                  "gate reads, and any of them may record the ref this push writes")
+                path = os.path.join(root, name)
+                mode = os.lstat(path).st_mode
+                if stat.S_ISLNK(mode):
+                    return None, _off_form("a symbolic link", rel)
+                if not stat.S_ISREG(mode):
+                    return None, _further("an entry that is no regular file", rel)
+                if rel.startswith("logs/"):
+                    whole = _record_bytes(path)
+                    if whole is not None and _valid_reflog(whole):
+                        continue   # historical reflog data (owner choice of 2026-10-13, 21:4x)
+                with open(path, "rb") as handle:
+                    head = handle.read(_FURTHER_HEAD + 1)
+                kind, value = _ref_file(head) if len(head) <= _FURTHER_HEAD else ("off", None)
+                like = bool(_RECORD_LIKE.match(head))
+                if not _further_name_ok(rel):
+                    if like:
+                        return None, _further("a record under a name git's ref rules refuse", rel)
+                    continue
+                if head.startswith(b"ref:"):
+                    return None, _further("a symbolic record", rel)
+                asked.append((rel, path, head, kind, value, like))
+        # git answers for each name; the calls run side by side, each with the gate's hardening and its deadline.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_FURTHER_WORKERS) as pool:
+            answers = list(pool.map(lambda item: _resolution(repo, item[0], deadline), asked))
+        found: dict[str, str] = {}
+        for (rel, path, head, kind, value, like), (answer, oid, full) in zip(asked, answers):
+            if answer == "warning":
+                return None, _further(f"git warns while it resolves the name: {oid}", rel)
+            if answer == "unknown":
+                return None, _further("an answer of git the gate cannot read", rel)
+            if answer in ("none", "broken"):
+                if rel == _BISECT_START and kind == "off" and not like:
+                    branch = _git_text(head[:-1]) if head.endswith(b"\n") and head.count(b"\n") == 1 else ""
+                    if not (branch and f"refs/heads/{branch}" in present and f"refs/heads/{branch}" not in symbolic):
+                        return None, _further("BISECT_START in a form the gate does not read", rel)
+                elif like:
+                    return None, _further("a record form git does not resolve", rel)
+            elif full == rel:
+                if kind != "object":
+                    return None, _further("a record not of the form <object>LF", rel)
+                if value != oid:
+                    return None, _further("a record git resolves to another object than the file holds", rel)
+                found[rel] = oid
+            elif full in present and present[full] == oid:
+                if like:   # a file that reads as a record, and git resolved another ref by its name
+                    return None, _further("a record form git does not resolve", rel)
+            else:
+                return None, _further("an answer of git the gate cannot read", rel)
+            with open(path, "rb") as handle:
+                if handle.read(_FURTHER_HEAD + 1) != head:
+                    return None, _further("a file that changed while the gate read it", rel)
+    except OSError:
+        return None, ("the git directory cannot be read whole, so a record of the destination may be unread")
     return found, ""
 
 
@@ -4661,7 +4863,8 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
     text = (f"NOT MEASURED: the gate checks nothing here. {repo} declares no evidence: nothing stands at {DECLARATION} "
             f"at HEAD {head[:12]}, in the working tree, at the {len(history)} commit(s) the push may send (the whole "
             f"history of {tips}) or at any of the {len(present)} local refs of this repository (git's listing, "
-            "FETCH_HEAD line by line and the other root refs of its one worktree), each read since which "
+            "FETCH_HEAD line by line, the other root refs of its one worktree, and every further file of its git "
+            "directory whose exact name git resolves, valid reflogs left outside), each read since which "
             f"of them recorded the destination is not determinable here{found}. The gate is not active in this "
             "repository, because nothing is declared. This is local inactivity (owner choice 1 A of 2026-10-11, "
             "DECISIONS.md D5), not a check and not a pass, and the host's normal approval decides. The push's "

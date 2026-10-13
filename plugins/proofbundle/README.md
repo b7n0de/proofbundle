@@ -186,7 +186,12 @@ It never answers allow. Every deny and ask names the evidence, what failed and t
 carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts
 only in a repository that declares evidence; a push under Level 1 stays outside it only under the four conditions of
 owner choice 1 A, and for the local refs only in the narrow range of D5: one ordinary main worktree whose only symbolic
-refs are `HEAD` and `refs/remotes/<remote>/HEAD`. A repository with more worktrees is asked (D5). Whoever deletes
+refs are `HEAD` and `refs/remotes/<remote>/HEAD`. A repository with more worktrees is asked (D5). Additional files
+outside the known ref stores and root records are included when Git resolves their exact names. Recognizable record
+forms that cannot be resolved leave the exception unapplied. A negative resolution does not establish that a file was
+never used as a ref. Valid historical reflog data remains outside this condition. The gate reads the git directory
+recursively for them, asks git `rev-parse` for each name and reads a file as a record only where git's full name is the
+file's own and it holds `<oid>LF` (D5, finding K16-1). Whoever deletes
 the declaration switches the gate off at HEAD; a push is still asked while the declaration stands in the history it may
 send or at a present local ref, and a declaration only the remote holds, with its removal, can go unnoticed at Level 1
 (D5). The declaration format and every design choice are in

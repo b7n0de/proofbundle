@@ -658,9 +658,62 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
        between their reading and the reading of their objects leaves no finished measurement of absence.
     8. Conditions a to c, the other cases of this section and the Codex rules are unchanged.
     The price: a repository with more than one worktree, or with a symbolic ref beyond HEAD and a remote's HEAD, is
-    asked; the case of more worktrees follows the milestone as its own extension. A ref git writes outside refs/ and
-    outside the root records above, such as `git update-ref FOO`, is not read (finding K16-1 of FIX-16, open for the
-    owner).
+    asked; the case of more worktrees follows the milestone as its own extension.
+    Further records of the git directory (finding K16-1 of FIX-16, owner choice of 2026-10-13, 20:0x Berlin, A, with
+    the rule of review round 17): git resolves a ref name also as a file at that path in its git directory, outside
+    refs/ and outside the root records above, and `git for-each-ref` does not list such a file (`git update-ref FOO D`
+    writes `.git/FOO`; measured with git 2.43.0 for FOO, FOO_BAR, foo_HEAD, Foo_HEAD, foo and sub/foo, and by the
+    reviewer for logs/foo, objects/custom, info/custom, hooks/custom and rebase-merge/orig-head with git 2.43.0 and
+    2.51.1; Level 1 had answered inactive while such a file named a declared commit). Additional files outside the
+    known ref stores and root records are included when Git resolves their exact names. Recognizable record forms
+    that cannot be resolved leave the exception unapplied. A negative resolution does not establish that a file was
+    never used as a ref. Valid historical reflog data remains outside this condition. As built:
+    - The strict reading of refs/, packed-refs, HEAD and the root records above stays as it is. Beside it the one git
+      directory is read recursively, logs/, objects/, hooks/, info/, rebase-merge/, rebase-apply/ and any unknown
+      folder included. Only refs/ and packed-refs (the store), HEAD, the root records and info/refs (each read in its
+      strict form) are not read a second time, and worktrees/, where point 1 allows no entry at all. A symbolic link
+      anywhere in the git directory, an entry that is no regular file, an error of the inventory, a file the gate
+      cannot read and more than MAX_FURTHER_FILES (20000) further files leave the exception unapplied.
+    - A file starting with `ref:` or with 40 hexadecimal digits in either case is a recognizable record form; other
+      text is none. A name git's ref rules refuse (git check-ref-format with one-level names allowed) is never handed
+      to git: such a file in a record form is asked, other text under it is no record.
+    - For every other file git answers twice, `git rev-parse --verify --quiet --end-of-options <name>` and the same
+      call with `--symbolic-full-name`, with the hardening and the promisor refusal of point 6. Only where the full
+      name is the file's own name has git resolved this file. It must then hold exactly `<oid>LF`, in lower case, with
+      the object git gives, and it is read like any record: the object, the tree and the declaration checks follow.
+      That the file exists is no reason to ask.
+    - A negative resolution, both calls with exit 1, no output and no warning, means no record. git 2.43.0 warns
+      `warning: ignoring broken ref <name>` for every file below a folder of the git directory whose bytes are no ref,
+      a hook sample or an object file alike, and prints nothing for such a file at the top (measured); this exact
+      warning, once per call with both calls negative, counts as a negative resolution too, since arbitrary text is
+      not a damaged former ref by its path alone. A recognizable record form that git does not resolve as this file is
+      asked: a symbolic record, an object with a blank, a second line, no line feed or capitals after it, or one git
+      reads as no ref at all.
+    - Where git resolves the name to another ref already read, with the same object, git substitutes a name and the
+      file is no record (`.git/description` beside a branch `description`), unless the file itself is in a record
+      form. Any other warning, an ambiguity (`refname 'foo' is ambiguous`), two answers that do not fit together, a
+      time-out and an answer the gate cannot read are asked.
+    - A valid reflog under logs/, every line `<old> <new> <identity> <time> <zone>`, a tab and the message where there
+      is one, and at most MAX_RECORD_BYTES, stays outside, like reflogs in general above. A file there that is no
+      valid reflog is read like any other file, so one of only `<oid>LF` is a record.
+    - The inventory, the bytes, the full name and the object must fit together: each file is read again after git's
+      answers and must hold the same bytes, the final reading after the objects (R17-1) must give the same records,
+      and a further record must not carry the name of a ref git lists; otherwise the exception is not applied.
+    The states git leaves in its directory, as built and measured with git 2.43.0:
+    - `BISECT_START`: `<oid>LF` (a bisection started detached) is a record. The branch form `<branch>LF` (started on a
+      branch) is supported explicitly: it is read as refs/heads/<branch>, which must be a ref git lists and no symbolic
+      ref; otherwise it is asked. The other bisect files are text git does not resolve, or refs under refs/bisect/.
+    - `AUTO_MERGE`: a root record above; it names a tree, which is read for the declaration like any tree.
+    - `shallow`: condition c is unchanged, a shallow repository is asked before condition d is read.
+    - The object files of rebase-merge/ and rebase-apply/ (onto, orig-head, stopped-sha, original-commit,
+      abort-safety): records, read by the procedure above; their other files are text git does not resolve.
+    - logs/: a valid reflog stays outside; a bare `<oid>LF` there is a record.
+    - An unknown folder: read like any other.
+    - `info/refs`, which `git gc` writes through `git update-server-info`: git resolves the name to the object of its
+      first line; the gate reads it whole, line by line, each line `<oid>TAB<name>LF` a record, like FETCH_HEAD.
+    The price: a file in a record form that git does not resolve as itself is asked, such as a COMMIT_EDITMSG whose
+    message starts with an object name, a MERGE_RR that rerere writes, or a hooks/ folder that is a symbolic link.
+    git 2.51.1 was not measured for the built boundary here.
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 
