@@ -1187,7 +1187,13 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   (gate_error), the entry keeps what was read before: the files read at the commit where it stopped, with that commit
   as `head` and the check `not completed: gate_error`, and the record of the commits checked before; a file whose
   reading failed has no digest (review round 11 of 2026-10-12, R11-5: a bundle read before a policy over the size
-  limit had been logged as no digest and no head).
+  limit had been logged as no digest and no head). The same holds for a stop of any kind anywhere in the push's
+  check, a GateError or another exception (then internal_error and the check `not completed: internal_error`), in
+  the evidence check, in the done check that follows it or in any later step: a passed evidence check stays
+  logged as passed while the done check fails on its own, the entry names the commit where the check stopped and
+  the digests read there, and a done policy the check did not read gets no digest (review round 12 of
+  2026-10-13, R12-2: a done policy over the size limit after a passed evidence check, and a verifier that could
+  not start with an OSError, had left digests [], head null and no record).
 - The place is the first named plugin data directory the host gives the hook that is, or can be made, a
   writable directory, given as an absolute path. Measured: Claude Code 2.1.285 gives a PreToolUse hook
   `CLAUDE_PLUGIN_DATA` (a run of a probe hook, the directory existed and was writable). Codex 0.159.2

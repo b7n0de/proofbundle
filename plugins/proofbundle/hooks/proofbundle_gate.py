@@ -3746,20 +3746,20 @@ def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: fl
     the evidence bytes each checked commit read (_source_reads), up to and including a commit that denies; the deny
     carries them too (owner choice 3 A of 2026-10-11)."""
     reads = [] if reads is None else reads
-    for commit in dict.fromkeys(sources):
-        where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
-        try:
+    try:
+        for commit in dict.fromkeys(sources):
+            where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
             verdict = _evaluate_tree(repo, commit, deadline, where, "")
-        except GateError as exc:   # R11-5: the record of the commits read before, then this commit's
-            exc.reads = (*reads, *exc.reads)
-            raise
-        reads.extend(_source_reads(commit, verdict))
-        if verdict.decision == "deny":
-            return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
-                                  f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
-                           failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
-                           repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
-    denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
+            reads.extend(_source_reads(commit, verdict))
+            if verdict.decision == "deny":
+                return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
+                                      f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
+                               failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
+                               repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
+        denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
+    except Exception as exc:   # R11-5, R12-2: the record of the commits read before, then the failing step's
+        _keep_reads(exc, reads)
+        raise
     if denial is not None:
         return Verdict("deny", denial.detail.rstrip() + " Separately, the comparison with the target was NOT "
                               f"MEASURED: {why.rstrip('.')}.", denial.reason_id, evidence=denial.evidence,
@@ -3774,7 +3774,15 @@ def _push_done(repo: str, sources: list[str], deadline: float) -> tuple[Verdict 
     the first deny, worded for the push, and the passes; a tip whose declaration has no done check adds neither."""
     passes = []
     for commit in dict.fromkeys(sources):
-        verdict = done_evaluation(repo, deadline, at_commit=commit)["verdict"]
+        try:
+            verdict = done_evaluation(repo, deadline, at_commit=commit)["verdict"]
+        except Exception as exc:   # R12-2: the commit whose done check stopped; no digest of a file it did not read
+            if getattr(exc, "head", None) is None:
+                try:
+                    exc.head = commit
+                except AttributeError:
+                    pass
+            raise
         if verdict.decision == "deny":
             return Verdict("deny", f"proofbundle gate: the push needs the done check at the pushed commit "
                                    f"{commit[:12]} (owner choice N2 C, DECISIONS.md D26), and it does not pass: "
@@ -4220,16 +4228,39 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
 # --- one tree ----------------------------------------------------------------------------------------
 
 def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tail: str) -> Verdict:
-    """The verdict of _evaluate_tree_reading. Where it raises GateError, the exception names the commit and the
-    evidence and policy files read there before it stopped (R11-5); a file whose reading failed is not among them."""
+    """The verdict of _evaluate_tree_reading. Where it raises, of any kind, the exception names the commit and the
+    evidence and policy files read there before it stopped (R11-5, R12-2); a file whose reading failed is not among
+    them."""
     digests: list[str] = []
     try:
         return _evaluate_tree_reading(repo, commit, deadline, where, pass_tail, digests)
-    except GateError as exc:
-        if exc.head is None:
-            exc.head, exc.digests = commit, tuple(digests)
-            exc.reads = (*exc.reads, *_read_entries(commit, digests, "not completed: gate_error"))
+    except Exception as exc:
+        if getattr(exc, "head", None) is None:
+            check = "not completed: gate_error" if isinstance(exc, GateError) else "not completed: internal_error"
+            try:
+                exc.head, exc.digests = commit, tuple(digests)
+                exc.reads = (*getattr(exc, "reads", ()), *_read_entries(commit, digests, check))
+            except AttributeError:   # an exception whose instances take no attributes keeps no record
+                pass
         raise
+
+
+def _keep_reads(exc: BaseException, reads: list, head: str | None = None) -> None:
+    """Hand an exception of any kind, once, the record of the evidence a push's check read before it stopped: the
+    earlier reads before those it carries, the commit where it stopped where it names none, and the digests read there
+    where it names none (owner choice 3 A; review round 12 of 2026-10-13, R12-2: a failure after the source check, in
+    the done check or outside the gate's own errors, had left the log with no record, no commit and no digest)."""
+    if getattr(exc, "reads_whole", False):
+        return
+    try:
+        exc.reads = (*reads, *getattr(exc, "reads", ()))
+        exc.reads_whole = True
+        if getattr(exc, "head", None) is None:
+            exc.head = head
+        if exc.head is not None and not getattr(exc, "digests", ()):
+            exc.digests = tuple(f"{e['path']} sha256:{e['sha256']}" for e in exc.reads if e["commit"] == exc.head)
+    except AttributeError:   # an exception whose instances take no attributes keeps no record
+        pass
 
 
 def _evaluate_tree_reading(repo: str, commit: str, deadline: float, where: str, pass_tail: str,
@@ -4487,21 +4518,25 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
             return _unresolved_verdict(repo, head_commit, _with_note(_then(told, f"for the destination, {why}"), note),
                                        next_step)
         reads: list = []
-        denial = _source_denial(repo, head_commit, sources, deadline, why, reads)
-        if denial is not None:
-            return denial
-        local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
-        if local is not None:
-            return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
-        told = _with_note(_then(why, _sources_clean(sources)), note)
-        try:
-            hints = _rules_hints(repo, push_args, deadline) if note is None else []
-        except GateError as exc:
-            hints = [f"The evidence rules were not compared with a local record of the destination ({exc}); a "
-                     "comparison that was not made is no equality."]
-        if hints:
-            told = f"{told.rstrip('.')}. " + " ".join(hints)
-        return _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
+        try:   # R12-2: a failure of any kind after the source check keeps its record
+            denial = _source_denial(repo, head_commit, sources, deadline, why, reads)
+            if denial is not None:
+                return denial
+            local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
+            if local is not None:
+                return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
+            told = _with_note(_then(why, _sources_clean(sources)), note)
+            try:
+                hints = _rules_hints(repo, push_args, deadline) if note is None else []
+            except GateError as exc:
+                hints = [f"The evidence rules were not compared with a local record of the destination ({exc}); a "
+                         "comparison that was not made is no equality."]
+            if hints:
+                told = f"{told.rstrip('.')}. " + " ".join(hints)
+            return _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
+        except Exception as exc:
+            _keep_reads(exc, reads, head_commit)
+            raise
     return _evaluate_targets(repo, head_commit, targets, deadline)
 
 
@@ -5768,6 +5803,14 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                     failed=str(exc),
                                     next_step="fix the cause named here; the gate denies until it reaches a verdict",
                                     digests=exc.digests, repo=resolved, head=exc.head, reads=exc.reads))
+        except Exception as exc:  # noqa: BLE001 - any failure denies, with the record of what was read (R12-2)
+            verdicts.append(Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. The call "
+                                            "is denied because the gate reached no verdict.", "internal_error",
+                                    evidence=f"the declaration {DECLARATION} and the evidence it names",
+                                    failed=f"{type(exc).__name__}: {exc}",
+                                    next_step="report this error; the gate denies until it is fixed",
+                                    digests=getattr(exc, "digests", ()), repo=resolved,
+                                    head=getattr(exc, "head", None), reads=getattr(exc, "reads", ())))
     for decision in ("deny", "ask", "warn"):
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
@@ -7916,7 +7959,9 @@ def main(argv: list[str] | None = None) -> int:
         failure = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
                                   "The call is denied because the gate reached no verdict.", "internal_error",
                           evidence="none, the gate failed before a verdict", failed=f"{type(exc).__name__}: {exc}",
-                          next_step="report this error; the gate denies until it is fixed")
+                          next_step="report this error; the gate denies until it is fixed",
+                          digests=getattr(exc, "digests", ()), head=getattr(exc, "head", None),
+                          reads=getattr(exc, "reads", ()))   # R12-2: what an exception carries stays in the log
         verdict = Outcome("deny", failure.text(), [failure])
     if host in HOSTS:
         try:
