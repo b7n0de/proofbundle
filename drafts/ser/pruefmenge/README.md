@@ -22,7 +22,7 @@ Python 3, standard library only.
 | `challenge.jsonl` | goes out | `{"id": "c001", "receipt_b64": "...", "key_b64": "..."}` per line |
 | `expected.jsonl` | stays | `{"id", "verdict", "step", "detail"}` per line |
 | `befunde.jsonl` | stays | entries the two verifiers disagreed on, left out of the set |
-| `bauarten.jsonl` | stays | the kind of each entry |
+| `bauarten.jsonl` | stays | the kind of each entry, and for an entry with two faults the later one |
 | `erzeugung.json` | stays | counts and SHA-256 digests |
 
 A second call with the same name reads `seed.hex` again and writes the same bytes. A call with another count refuses
@@ -30,7 +30,8 @@ to overwrite `challenge.jsonl`. The name `anhang-a` is reserved.
 
 `pruefmenge_vergleichen` compares `answers.jsonl` with `expected.jsonl`. It reports:
 
-- the agreement in verdict, step and profile rule, overall and per expected answer;
+- the agreement in verdict, step and detail, overall and per expected answer;
+- the agreement in the verdict alone, and in the profile rule alone (without the key or R) for step 11;
 - each deviation, with its id and both answers;
 - missing, duplicate and foreign ids, and broken lines.
 
@@ -46,6 +47,11 @@ The answer file is foreign input, and the comparison reads each line on its own.
 
 Ids and details from the answer file appear in the report JSON-escaped to ASCII. The text report names at most 20
 ids or lines per list, and `--json` names all of them.
+
+For step 11, `detail` names the profile rule. Where the rule checks the key or R, it names that too: `profile 1,
+key`, `profile 1, R`, `profile 2, key`, `profile 2, R`, `profile 3`, `profile 4`. Full agreement needs that label.
+Neither the case of ASCII letters nor space or tab around the comma counts as a deviation. Any other difference
+does, including space at either end and any character outside ASCII.
 
 `pruefmenge_vergleichen anhang-a results.jsonl` compares a `results.jsonl` for Appendix A in the same form.
 

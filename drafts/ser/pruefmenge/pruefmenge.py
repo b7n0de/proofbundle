@@ -20,7 +20,8 @@ Interface, as the prompt for the second implementation states it:
   challenge.jsonl  one line per entry: {"id": "c001", "receipt_b64": "...", "key_b64": "..."}, the receipt bytes and
                    the 32-byte verification key, each base64 with padding
   answers.jsonl    one line per entry: {"id", "verdict": PASS, FAIL or ERROR, "step": 1 to 11 or null,
-                   "detail": a profile rule such as "profile 4", or null}
+                   "detail": the profile rule, with the key or R where the rule checks them, such as
+                   "profile 2, key", "profile 1, R" or "profile 4", or null}
   results.jsonl    the same form for Appendix A, with the vector ids as id
 
 Calls (Python 3, standard library only):
@@ -51,7 +52,11 @@ sys.path.insert(0, str(SER / "independent"))
 import check_receipts as autor_pruefer  # noqa: E402  the generator author's verifier
 import verify_from_text as text_pruefer  # noqa: E402  the verifier written from the text alone
 
+#: The derivation of a set's random stream; it changes only when the same seed should give other challenge bytes.
 VERSION = "ser-pruefmenge-3"
+#: The tool as erzeugung.json names it; -4 writes detail with the key or R (owner choice O2) and the later fault of
+#: entries with two faults, with challenge bytes unchanged from -3.
+WERKZEUG = "ser-pruefmenge-4"
 VECTORS = SER / "examples" / "vectors.json"
 STANDARD_ANZAHL = 200
 ORDNER_VARIABLE = "SER_PRUEFMENGE_ORDNER"
@@ -871,7 +876,13 @@ class Werkstatt:
 
     # two faults in one entry: the earlier step decides (Section 5), within step 11 the earlier rule, and within rules
     # 1 and 2 the key before R (Section 4)
-    def mehrfach(self):
+    def mehrfach(self, form: int | None = None):
+        """An entry with two faults. self.zweiter is the label of the later fault: the answer of an implementation
+        that checks in another order. form fixes the form for tests; the random stream is the same either way."""
+        rb, key, first, self.zweiter = self._mehrfach(form)
+        return rb, key, first
+
+    def _mehrfach(self, form):
         rng, s = self.rng, self.s
         pub = s.issuer.public
         B = self.B()
@@ -880,47 +891,54 @@ class Werkstatt:
         bad_key, bad_R = rng.choice(NONCANONICAL), rng.choice(NONCANONICAL)
         good_R = _compress(_mul(1 + rng.below(L - 1), BASE))
         low_S, big_S = rng.below(L).to_bytes(32, "little"), (L + rng.below(2 ** 256 - L)).to_bytes(32, "little")
-        form = rng.below(14)
+        drawn = rng.below(14)
+        form = drawn if form is None else form
         if form == 0:   # rule 2 for the key, rule 1 for R
-            return receipt(B, bad_R + low_S, self._hint_for(small_key), rng), small_key, "11 (profile 1, R)"
+            return (receipt(B, bad_R + low_S, self._hint_for(small_key), rng), small_key,
+                    "11 (profile 1, R)", "11 (profile 2, key)")
         if form == 1:   # rule 1 for the key and for R
-            return receipt(B, bad_R + low_S, self._hint_for(bad_key), rng), bad_key, "11 (profile 1, key)"
+            return (receipt(B, bad_R + low_S, self._hint_for(bad_key), rng), bad_key,
+                    "11 (profile 1, key)", "11 (profile 1, R)")
         if form == 2:   # rule 2 for the key and for R
-            return receipt(B, small_R + low_S, self._hint_for(small_key), rng), small_key, "11 (profile 2, key)"
+            return (receipt(B, small_R + low_S, self._hint_for(small_key), rng), small_key,
+                    "11 (profile 2, key)", "11 (profile 2, R)")
         if form == 3:   # rule 2 for R, rule 3
-            return receipt(B, small_R + big_S, self._hint("issuer"), rng), pub, "11 (profile 2, R)"
+            return (receipt(B, small_R + big_S, self._hint("issuer"), rng), pub,
+                    "11 (profile 2, R)", "11 (profile 3)")
         if form == 4:   # rule 3, rule 4
-            return receipt(B, good_R + big_S, self._hint("issuer"), rng), pub, "11 (profile 3)"
+            return (receipt(B, good_R + big_S, self._hint("issuer"), rng), pub,
+                    "11 (profile 3)", "11 (profile 4)")
         if form == 5:   # the mixed-order key (rule 2), rule 3
             key = s.mixed_public
-            return receipt(B, good_R + big_S, self._hint_for(key), rng), key, "11 (profile 2, key)"
+            return (receipt(B, good_R + big_S, self._hint_for(key), rng), key,
+                    "11 (profile 2, key)", "11 (profile 3)")
         if form == 6:   # step 2, step 9
-            return self.signed(B, schema_text=json.dumps(rng.choice(["application/json", MEDIA_TYPE.upper()])),
-                               alg_text=json.dumps(rng.choice(["Ed25519", "EdDSA"]))), pub, "2"
+            return (self.signed(B, schema_text=json.dumps(rng.choice(["application/json", MEDIA_TYPE.upper()])),
+                                alg_text=json.dumps(rng.choice(["Ed25519", "EdDSA"]))), pub, "2", "9")
         if form == 7:   # step 3, step 10
-            return receipt(B, s.issuer.sign(msg), s.other.public, rng, payload_text=json.dumps(b64(B) + "A")), \
-                pub, "3"
+            return (receipt(B, s.issuer.sign(msg), s.other.public, rng, payload_text=json.dumps(b64(B) + "A")),
+                    pub, "3", "10")
         if form == 8:   # step 7, step 8
             p = payload(s, rng)
             p["model_id_commit"] = p["model_id_commit"].upper()
             p["passed"] = not p["passed"]
-            return self.signed(self.B(p)), pub, "7"
+            return self.signed(self.B(p)), pub, "7", "8"
         if form == 9:   # step 8, step 11 (rule 4: signed with the other key)
             p = payload(s, rng)
             p["passed"] = not p["passed"]
             Bp = self.B(p)
-            return receipt(Bp, s.other.sign(pae(MEDIA_TYPE, Bp)), None, rng), pub, "8"
+            return receipt(Bp, s.other.sign(pae(MEDIA_TYPE, Bp)), None, rng), pub, "8", "11 (profile 4)"
         if form == 10:  # step 10, step 11: the other key's hint and signature, verified with the issuer key
-            return receipt(B, s.other.sign(msg), s.other.public, rng), pub, "10"
+            return receipt(B, s.other.sign(msg), s.other.public, rng), pub, "10", "11 (profile 4)"
         if form == 11:  # step 5, step 6: a member too many, and B not in its RFC 8785 form
             p = payload(s, rng)
             p["extra"] = "x"
-            return self.signed(json.dumps(p, separators=(", ", ": "), ensure_ascii=False).encode()), pub, "5"
+            return self.signed(json.dumps(p, separators=(", ", ": "), ensure_ascii=False).encode()), pub, "5", "6"
         if form == 12:  # step 9, step 10
             sig = s.issuer.sign(msg)
-            return receipt(B, sig, s.other.public, rng, sig_text=json.dumps(b64(sig[:63]))), pub, "9"
+            return receipt(B, sig, s.other.public, rng, sig_text=json.dumps(b64(sig[:63]))), pub, "9", "10"
         # step 1, step 2
-        return self.signed(B, schema_text='"x"') + b" x", pub, "1"
+        return self.signed(B, schema_text='"x"') + b" x", pub, "1", "2"
 
     # a single byte fault in a valid receipt; the verifiers alone say what it is
     def bytefehler(self):
@@ -981,9 +999,10 @@ def antwort(entry_id: str, verdict: str, label: str) -> dict:
         return {"id": entry_id, "verdict": "PASS", "step": None, "detail": None}
     if verdict == "RESOURCE_LIMIT":
         return {"id": entry_id, "verdict": "ERROR", "step": None, "detail": None}
-    m = re.match(r"11 \(profile ([1-4])", label)
-    if m:
-        return {"id": entry_id, "verdict": "FAIL", "step": 11, "detail": "profile " + m.group(1)}
+    m = re.match(r"11 \(profile ([1-4])(?:, (key|R))?\)\Z", label)
+    if m:   # owner choice O2: where the rule checks the key or R, detail names it
+        detail = "profile " + m.group(1) + (", " + m.group(2) if m.group(2) else "")
+        return {"id": entry_id, "verdict": "FAIL", "step": 11, "detail": detail}
     return {"id": entry_id, "verdict": "FAIL", "step": int(label), "detail": None}
 
 
@@ -1031,10 +1050,11 @@ def erzeugen(seed: bytes, anzahl: int = STANDARD_ANZAHL, kennung: str = "einsend
         kinds += pool
     plan += kinds[:invalid]
     annex, seen = _annex_receipts(), set()
-    entries, befunde, abweichungen_bau = [], [], 0
+    entries, befunde, abweichungen_bau, grenze = [], [], 0, 0
     for slot, kind in enumerate(plan):
         for attempt in range(50):
             rb, key, intended = getattr(werk, kind)()
+            zweiter = werk.zweiter if kind == "mehrfach" else None
             if rb in annex or (rb, key) in seen:
                 continue
             a, t = _label_autor(rb, key), _label_text(rb, key)
@@ -1043,33 +1063,36 @@ def erzeugen(seed: bytes, anzahl: int = STANDARD_ANZAHL, kennung: str = "einsend
                                 "autor": "%s %s" % a, "text": "%s %s" % t})
                 continue
             if a[0] == "RESOURCE_LIMIT":
+                grenze += 1
                 continue
             if intended is not None and a[1] != intended:
                 abweichungen_bau += 1
             seen.add((rb, key))
-            entries.append((kind, intended, rb, key, a))
+            entries.append((kind, intended, zweiter, rb, key, a))
             break
         else:
             raise RuntimeError("no entry of kind %s after 50 attempts (slot %d)" % (kind, slot))
     rng.child("mischen").shuffle(entries)
     width = max(3, len(str(anzahl)))
     challenge, expected, bauarten = [], [], []
-    for i, (kind, intended, rb, key, label) in enumerate(entries, 1):
+    for i, (kind, intended, zweiter, rb, key, label) in enumerate(entries, 1):
         entry_id = "c%0*d" % (width, i)
         challenge.append({"id": entry_id, "receipt_b64": b64(rb), "key_b64": b64(key)})
         expected.append(antwort(entry_id, *label))
-        bauarten.append({"id": entry_id, "bauart": kind, "beabsichtigt": intended, "pruefer": label[1]})
+        bauarten.append({"id": entry_id, "bauart": kind, "beabsichtigt": intended, "pruefer": label[1],
+                         "zweiter_fehler": zweiter})
     counts: dict = {}
     for e in expected:
         name = "PASS" if e["verdict"] == "PASS" else ("11 %s" % e["detail"] if e["step"] == 11 else str(e["step"]))
         counts[name] = counts.get(name, 0) + 1
     challenge_b, expected_b = _jsonl(challenge), _jsonl(expected)
-    meta = {"werkzeug": VERSION, "kennung": kennung, "anzahl": anzahl,
+    meta = {"werkzeug": WERKZEUG, "ableitung": VERSION, "kennung": kennung, "anzahl": anzahl,
             "seed_sha256": hashlib.sha256(seed).hexdigest(),
             "challenge_sha256": hashlib.sha256(challenge_b).hexdigest(),
             "expected_sha256": hashlib.sha256(expected_b).hexdigest(),
             "je_erwartung": dict(sorted(counts.items(), key=lambda kv: _order_key(kv[0]))),
-            "ausgelassen_uneinig": len(befunde), "bau_anders_als_beabsichtigt": abweichungen_bau,
+            "ausgelassen_uneinig": len(befunde), "ausgelassen_grenze": grenze,
+            "bau_anders_als_beabsichtigt": abweichungen_bau,
             "schluessel_aussteller_b64": b64(satz.issuer.public)}
     return Pruefmenge(challenge_b, expected_b, befunde, bauarten, meta, satz.issuer.public)
 
@@ -1127,6 +1150,7 @@ def gemischte_antworten(challenge: bytes, expected: bytes, seed: bytes) -> bytes
 class Vergleich:
     def __init__(self):
         self.gesamt = self.uebereinstimmung = self.urteil_gleich = 0
+        self.profilregel_gleich = self.profil_gesamt = 0
         self.je_schritt: dict = {}
         self.abweichungen: list = []
         self.fehlend: list = []
@@ -1139,6 +1163,25 @@ class Vergleich:
     @property
     def vollstaendig(self) -> bool:
         return not (self.fehlend or self.doppelt or self.fremd or self.kaputt)
+
+
+_PROFILREGEL = re.compile(r"profile ([1-4])(?:, (?:key|r))?\Z")
+
+
+def _detail(detail):
+    """detail as the comparison weighs it (owner choice O2): the case of ASCII letters and space or tab around the
+    comma are no deviation. A string with a character outside ASCII stays as it is, so that no other script's letter
+    stands in for an ASCII one."""
+    if detail is None or not detail.isascii():
+        return detail
+    return re.sub(r"[ \t]*,[ \t]*", ", ", detail.lower())
+
+
+def _profilregel(detail):
+    """The number of the profile rule a detail names, or None."""
+    d = _detail(detail)
+    m = _PROFILREGEL.match(d) if isinstance(d, str) else None
+    return int(m.group(1)) if m else None
 
 
 def _name(e: dict) -> str:
@@ -1267,11 +1310,15 @@ def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
         name = _name(e)
         hit, total = v.je_schritt.get(name, (0, 0))
         a = got.get(e["id"])
+        if e["step"] == 11:
+            v.profil_gesamt += 1
+            v.profilregel_gleich += (a is not None and a["verdict"] == "FAIL" and a["step"] == 11
+                                     and _profilregel(a["detail"]) == _profilregel(e["detail"]))
         if a is None:
             v.fehlend.append(e["id"])
             v.je_schritt[name] = (hit, total + 1)
             continue
-        same = (a["verdict"], a["step"], a["detail"]) == (e["verdict"], e["step"], e["detail"])
+        same = (a["verdict"], a["step"], _detail(a["detail"])) == (e["verdict"], e["step"], _detail(e["detail"]))
         v.urteil_gleich += a["verdict"] == e["verdict"]
         if same:
             v.uebereinstimmung += 1
@@ -1309,7 +1356,9 @@ def bericht(v: Vergleich, kennung: str) -> str:
     out = ["Prüfmenge %s: %d Einträge" % (kennung, v.gesamt),
            "Übereinstimmung (Urteil, Schritt und Profilpunkt): %d von %d (%.1f %%)"
            % (v.uebereinstimmung, v.gesamt, 100.0 * v.uebereinstimmung / v.gesamt if v.gesamt else 0.0),
-           "Nur das Urteil gleich: %d von %d" % (v.urteil_gleich, v.gesamt), "Je erwarteter Antwort:"]
+           "Nur das Urteil gleich: %d von %d" % (v.urteil_gleich, v.gesamt),
+           "Profilregel gleich, key oder R nicht gewertet: %d von %d mit Erwartung Schritt 11"
+           % (v.profilregel_gleich, v.profil_gesamt), "Je erwarteter Antwort:"]
     for name in sorted(v.je_schritt, key=_name_key):
         hit, total = v.je_schritt[name]
         out.append("  %-24s %d von %d" % (name, hit, total))
@@ -1431,7 +1480,8 @@ def main_vergleichen(argv: list) -> int:
     sys.stdout.write(bericht(v, args.kennung))
     if args.json:
         summary = {"kennung": args.kennung, "gesamt": v.gesamt, "uebereinstimmung": v.uebereinstimmung,
-                   "urteil_gleich": v.urteil_gleich, "je_erwartung": {k: list(x) for k, x in v.je_schritt.items()},
+                   "urteil_gleich": v.urteil_gleich, "profilregel_gleich": v.profilregel_gleich,
+                   "profil_gesamt": v.profil_gesamt, "je_erwartung": {k: list(x) for k, x in v.je_schritt.items()},
                    "abweichungen": v.abweichungen, "fehlend": v.fehlend, "doppelt": v.doppelt, "fremd": v.fremd,
                    "kaputt": [list(k) for k in v.kaputt], "vollstaendig": v.vollstaendig,
                    "antworten_sha256": hashlib.sha256(answers).hexdigest()}
