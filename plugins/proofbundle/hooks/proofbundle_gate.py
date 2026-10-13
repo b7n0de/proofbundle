@@ -4037,7 +4037,7 @@ def _working_tree_declares(repo: str) -> bool:
 
 def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, set[str] | str]:
     """Every present ref of the repository with the object it names, and the refs git calls broken; (None, why) where
-    git does not list them whole."""
+    git does not list them whole, or where the ref store is not in the form the gate reads (_off_form)."""
     listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)", deadline=deadline)
     if listing.returncode != 0:
         return None, "git cannot list this repository's refs, so the local records of the destination are not known"
@@ -4054,6 +4054,8 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
         refname, nul, rest = line.partition(b"\0")
         if nul:
             oid, _nul, target = rest.partition(b"\0")
+            if _git_text(refname) in present:   # R16-1: git lists a name of packed-refs twice, exit 0, no warning
+                return None, _off_form("a name twice in git's listing", _git_text(refname))
             present[_git_text(refname)] = oid.decode("ascii", "replace")
             if target:   # %(symref) marks a symbolic ref; it names the end of the chain, not the first step
                 symbolic.add(_git_text(refname))
@@ -4062,18 +4064,27 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     paths, why = _repo_paths(repo, deadline)
     if paths is None or not paths["common"] or not paths["gitdir"]:
         return None, why or "git does not name the repository's directories, so its refs are not known"
-    stored, packed, why = _stored_ref_names(repo, paths, deadline)
-    if stored is None:
+    store, why = _stored_refs(repo, paths, deadline)
+    if store is None:
         return None, why
-    unlisted = sorted(stored - set(present) - broken)
+    unlisted = sorted(set(store["names"]) - set(present) - broken)
     if unlisted:
         return None, _unresolved(unlisted[0])
+    refused = sorted(name for name in present if not _ref_name_ok(name))
+    if refused:
+        return None, _off_form("a name git's ref rules refuse", refused[0])
     # Nor does it list FETCH_HEAD, the other root refs or a ref of another worktree (the class of R13-1).
-    beside, why = _refs_beside_the_listing(paths, packed, symbolic)
+    beside, why = _refs_beside_the_listing(paths, store, symbolic)
     if beside is None:
         return None, why
     present.update(beside)
     return present, broken
+
+
+def _off_form(reason: str, entry: str) -> str:
+    """Why the exception does not apply where the ref store is not in the normal form the gate reads (owner choice of
+    2026-10-13, 16:4x Berlin, A, on R16-1 to R16-4 of review round 16): the reason and the entry."""
+    return f"the ref store is not in the form the gate reads ({reason}): {entry}"
 
 
 def _not_established(record: str) -> str:
@@ -4096,20 +4107,71 @@ _PER_WORKTREE = ("refs/bisect/", "refs/worktree/", "refs/rewritten/")
 #: does not exist (measured with git 2.43.0); the gate does not follow such a link (the class of R13-1).
 _LINKED_FOLDER = ("a folder of the repository's refs is a symbolic link, which git follows and the gate does not, so a "
                   "record of the destination may be unread")
+#: An object name as git writes it into the ref store, in lower case, for SHA-1 or SHA-256.
+_OID = re.compile(rb"[0-9a-f]{40}|[0-9a-f]{64}")
+#: The characters git's ref rules refuse anywhere in a name (refs.c, check_refname_component, git 2.43.0): a space,
+#: ~ ^ : ? * [ and a backslash, besides the control characters below 0x20 and DEL.
+_REF_NAME_REFUSED = frozenset(" ~^:?*[\\\x7f")
 
 
-def _stored_ref_names(repo: str, paths: dict, deadline: float) -> tuple[set[str] | None, dict[str, str], str]:
-    """Every ref name the ref store of the files format holds: each file under refs/ of the common directory and of this
-    worktree's git directory, and each entry of packed-refs, which holds no symbolic ref; (None, why) for a store the
-    gate cannot read whole here, one in another format (extensions.refStorage, such as reftable) or a folder or file it
-    cannot read (review round 13 of 2026-10-13, R13-1). The second value holds each entry of packed-refs with its
-    object, which _refs_beside_the_listing resolves shared names with."""
+def _ref_name_ok(name: str) -> bool:
+    """Whether git's ref rules (git check-ref-format, refs.c of git 2.43.0) take `name` as a full ref name: one under
+    refs/ whose parts are not empty, do not start with `.` and do not end in .lock, with no `..`, no `@{`, no character
+    of _REF_NAME_REFUSED or below 0x20, and no `/` or `.` at the end; or a root ref of the gate's list (HEAD, _ROOT_REF,
+    _ROOT_REF_OTHERS). Bytes above 0x7f, which git takes, pass (owner choice of 2026-10-13, 16:4x Berlin, A, R16-3: a
+    name the rules refuse is no name the gate models, and the exception does not apply)."""
+    if "/" not in name:
+        return name == "HEAD" or bool(_ROOT_REF.fullmatch(name)) or name in _ROOT_REF_OTHERS
+    if not name.startswith("refs/") or name.endswith(("/", ".")) or ".." in name or "@{" in name:
+        return False
+    if any(not part or part.startswith(".") or part.endswith(".lock") for part in name.split("/")):
+        return False
+    return not any(char in _REF_NAME_REFUSED or ord(char) < 0x20 for char in name)
+
+
+def _ref_file(raw: bytes) -> tuple[str, str]:
+    """A loose ref file or a root record in the normal form, exactly `<oid>LF` or `ref: <name>LF` with a name
+    _ref_name_ok takes: ("object", oid), ("symbolic", name), or ("off", reason). git reads more than this (a trailing
+    space, a second line, no LF, CRLF, `ref:` with no space, measured with git 2.43.0) and less (a leading empty line,
+    R16-4), so any other form is off the normal form."""
+    if not raw.endswith(b"\n") or raw.count(b"\n") != 1:
+        return "off", "a file not of the form <object>LF or ref: <name>LF"
+    line = raw[:-1]
+    if _OID.fullmatch(line):
+        return "object", line.decode("ascii")
+    if line.startswith(b"ref: "):
+        target = _git_text(line[len(b"ref: "):])
+        return ("symbolic", target) if _ref_name_ok(target) else ("off", "a target git's ref rules refuse")
+    return "off", "a file not of the form <object>LF or ref: <name>LF"
+
+
+def _no_link(path: str) -> bool:
+    """Whether path is no symbolic link; an answer the filesystem does not give counts as one."""
+    try:
+        return not stat.S_ISLNK(os.lstat(path).st_mode)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+
+def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, str]:
+    """The ref store of the files format, read whole and checked against its normal form: {"names": every ref name it
+    holds, each file under refs/ of the common directory and of this worktree's git directory and each entry of
+    packed-refs; "packed": each entry of packed-refs with its object; "loose": each loose file with what it holds
+    (_ref_file)}; (None, why) for a store the gate cannot read whole here, one in another format (extensions.refStorage,
+    such as reftable), a folder or file it cannot read (review round 13 of 2026-10-13, R13-1), or one off the normal
+    form (owner choice of 2026-10-13, 16:4x Berlin, A, review round 16): a symbolic link anywhere in it, a loose file
+    not of the form _ref_file reads, a line of packed-refs not of the form `<oid> <name>` with a `^<oid>` line only
+    after one and its header only at the top, a name there outside refs/ or twice (R16-1), or out of the order its
+    `sorted` header promises, which git's lookup then misses (measured with git 2.43.0). Only the common directory's
+    loose files answer for a shared name; a shared name in a linked worktree's own folder is one git does not read."""
     storage = _git(repo, "config", "--get", "extensions.refstorage", deadline=deadline)
     if storage.returncode not in (0, 1) or (storage.returncode == 0 and storage.stdout.strip().lower() != b"files"):
-        return None, {}, ("the repository keeps its refs in a format other than files (extensions.refStorage), whose "
-                          "refs the gate does not read whole here, so a record of the destination may be unread")
+        return None, ("the repository keeps its refs in a format other than files (extensions.refStorage), whose refs "
+                      "the gate does not read whole here, so a record of the destination may be unread")
     names: set[str] = set()
-    packed_refs: dict[str, str] = {}
+    loose: dict[str, tuple[str, str]] = {}
 
     def stop(exc: OSError) -> None:
         raise exc
@@ -4119,34 +4181,71 @@ def _stored_ref_names(repo: str, paths: dict, deadline: float) -> tuple[set[str]
             top = os.path.join(base, "refs")
             if base != paths["common"] and not os.path.lexists(top):
                 continue   # a linked worktree that holds no ref of its own
+            if not _no_link(top):
+                return None, _off_form("a symbolic link", os.path.relpath(top, paths["common"]))
             linked_common = base == paths["common"] and paths["gitdir"] != paths["common"]
             for root, dirs, files in os.walk(top, onerror=stop):
                 if any(os.path.islink(os.path.join(root, name)) for name in dirs):
-                    return None, {}, _LINKED_FOLDER
+                    return None, _LINKED_FOLDER
                 for name in files:
-                    ref = "refs/" + os.path.relpath(os.path.join(root, name), top).replace(os.sep, "/")
-                    if not (linked_common and ref.startswith(_PER_WORKTREE)):
-                        names.add(ref)
-        with open(os.path.join(paths["common"], "packed-refs"), "rb") as handle:
+                    path = os.path.join(root, name)
+                    ref = "refs/" + os.path.relpath(path, top).replace(os.sep, "/")
+                    if linked_common and ref.startswith(_PER_WORKTREE):
+                        continue
+                    if not _no_link(path):
+                        return None, _off_form("a symbolic link", ref)   # R16-2
+                    names.add(ref)
+                    if not _ref_name_ok(ref):
+                        continue   # a name git does not list stays one the listing must name (_present_refs)
+                    with open(path, "rb") as handle:
+                        held = _ref_file(handle.read())
+                    if held[0] == "off":
+                        return None, _off_form(held[1], ref)
+                    if base == paths["common"]:
+                        loose[ref] = held
+        packed_path = os.path.join(paths["common"], "packed-refs")
+        if not _no_link(packed_path):
+            return None, _off_form("a symbolic link", "packed-refs")
+        with open(packed_path, "rb") as handle:
             packed = handle.read()
     except FileNotFoundError as exc:
         if exc.filename and os.path.basename(exc.filename) == "packed-refs":
             packed = b""
         else:
-            return None, {}, ("a folder of the repository's refs cannot be read, so a record of the destination may be "
-                              "unread")
+            return None, ("a folder of the repository's refs cannot be read, so a record of the destination may be "
+                          "unread")
     except OSError:
-        return None, {}, "the repository's refs cannot be read whole, so a record of the destination may be unread"
-    for line in packed.split(b"\n"):
-        if not line or line.startswith((b"#", b"^")):
+        return None, "the repository's refs cannot be read whole, so a record of the destination may be unread"
+    packed_refs: dict[str, str] = {}
+    lines = packed.split(b"\n")
+    if packed and lines[-1] != b"":
+        return None, _off_form("a line of packed-refs not of the form <object> <name>", "packed-refs")
+    lines = lines[:-1]
+    sorted_ = False
+    if lines and lines[0].startswith(b"# pack-refs with:"):
+        sorted_ = b" sorted " in lines[0][len(b"# pack-refs with:"):] + b" "
+        lines = lines[1:]
+    previous, peelable = None, False
+    for line in lines:
+        if line.startswith(b"^") and peelable and _OID.fullmatch(line[1:]):
+            peelable = False
             continue
-        oid, space, name = line.partition(b" ")
-        if not space or not name:
-            return None, {}, ("packed-refs holds a line the gate cannot read, so a record of the destination may be "
-                              "unread")
-        names.add(_git_text(name))
-        packed_refs[_git_text(name)] = oid.decode("ascii", "replace")
-    return names, packed_refs, ""
+        oid, space, raw_name = line.partition(b" ")
+        if not space or not _OID.fullmatch(oid) or not raw_name:
+            return None, _off_form("a line of packed-refs not of the form <object> <name>", "packed-refs")
+        name = _git_text(raw_name)
+        if not name.startswith("refs/"):
+            return None, _off_form("a name outside refs/ in packed-refs", name)   # git lists it, rev-parse misses it
+        if not _ref_name_ok(name):
+            return None, _off_form("a name git's ref rules refuse", name)
+        if name in packed_refs:
+            return None, _off_form("a name twice in packed-refs", name)   # R16-1
+        if sorted_ and previous is not None and raw_name <= previous:
+            return None, _off_form("packed-refs out of the order its header promises", name)
+        previous, peelable = raw_name, True
+        names.add(name)
+        packed_refs[name] = oid.decode("ascii")
+    return {"names": names, "packed": packed_refs, "loose": loose}, ""
 
 
 #: The files of a git directory that hold refs beside refs/, git's root refs and pseudorefs: a name of capitals, `-` and
@@ -4154,12 +4253,11 @@ def _stored_ref_names(repo: str, paths: dict, deadline: float) -> tuple[set[str]
 _ROOT_REF = re.compile(r"[A-Z_-]+_HEAD")
 _ROOT_REF_OTHERS = frozenset({"AUTO_MERGE", "BISECT_EXPECTED_REV", "MERGE_AUTOSTASH", "NOTES_MERGE_PARTIAL",
                               "NOTES_MERGE_REF"})
-#: A line that names an object, alone or before a tab or a space (FETCH_HEAD adds what was fetched from where).
+#: A line of FETCH_HEAD: an object, alone or before a tab or a space and what was fetched from where.
 _REF_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})(?:[\t ].*)?")
 
 
-def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
-                             symbolic: set[str]) -> tuple[dict[str, str] | None, str]:
+def _refs_beside_the_listing(paths: dict, store: dict, symbolic: set[str]) -> tuple[dict[str, str] | None, str]:
     """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object}:
     FETCH_HEAD line by line, the other root refs of this worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin),
     and the HEAD, the root refs and the own refs of every other worktree, named as git names them (main-worktree/HEAD,
@@ -4168,7 +4266,13 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
     of a chain. A shared symbolic ref, which git lists here as one (`symbolic`), is present in every worktree, so it is
     resolved in each other worktree as well, from its first step as the ref store holds it (review round 15 of
     2026-10-13, the class of R15-1; git's %(symref) names the end of the chain, measured with git 2.43.0, and starting
-    there had skipped the steps before it)."""
+    there had skipped the steps before it).
+
+    Every file is checked against the normal form before it counts (owner choice of 2026-10-13, 16:4x Berlin, A, review
+    round 16): no symbolic link, neither a worktree's folder nor a file (R16-2); every own ref of a worktree with a name
+    _ref_name_ok takes (R16-3); every root record and own ref in the exact form _ref_file reads, with no line taken out
+    (R16-4); FETCH_HEAD keeps its own rule, a line of _REF_LINE each, and MERGE_HEAD, which holds one object per merged
+    head, takes `<oid>LF` lines."""
     common, gitdir = paths["common"], paths["gitdir"]
     places = [(gitdir, "", False)]
     if os.path.realpath(gitdir) != os.path.realpath(common):
@@ -4183,6 +4287,8 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
         return None, unread
     for name in others:
         folder = os.path.join(common, "worktrees", name)
+        if not _no_link(folder):
+            return None, _off_form("a symbolic link", f"worktrees/{name}")
         if os.path.realpath(folder) != os.path.realpath(gitdir):
             places.append((folder, f"worktrees/{name}/", True))
     files: list[tuple[str, str, str]] = []
@@ -4208,6 +4314,8 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
             for top in tops:
                 if not os.path.lexists(top):
                     continue
+                if not _no_link(top):
+                    return None, _off_form("a symbolic link", prefix + os.path.relpath(top, folder))
                 base = os.path.join(folder, "refs")
                 for root, dirs, names in os.walk(top, onerror=stop):
                     if any(os.path.islink(os.path.join(root, name)) for name in dirs):
@@ -4215,11 +4323,15 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
                     for name in names:
                         path = os.path.join(root, name)
                         ref = "refs/" + os.path.relpath(path, base).replace(os.sep, "/")
+                        if not _ref_name_ok(ref):
+                            return None, _off_form("a name git's ref rules refuse", prefix + ref)   # R16-3
                         files.append((prefix, ref, path))
                         if not other:
                             steps_only.add((prefix, ref))
         contents = []
         for prefix, name, path in files:
+            if not _no_link(path):
+                return None, _off_form("a symbolic link", prefix + name)   # R16-2
             with open(path, "rb") as handle:
                 contents.append((prefix, name, handle.read()))
     except OSError:
@@ -4227,24 +4339,34 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
     records: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
     for prefix, name, raw in contents:
         label = prefix + name
-        lines = [(number, line) for number, line in enumerate(raw.split(b"\n"), 1) if line.strip()]
-        if not lines and name != "FETCH_HEAD":
+        entries = records.setdefault((prefix, name), [])
+        if name == "FETCH_HEAD":
+            for number, line in enumerate(raw.split(b"\n"), 1):
+                if not line.strip():
+                    continue
+                match = _REF_LINE.fullmatch(line.rstrip(b"\r"))
+                if match is None:
+                    return None, (f"the local ref {label} holds a line the gate cannot read, and it may record the "
+                                  "ref this push writes")
+                entries.append((label if not entries else f"{label} (line {number})", "object",
+                                match.group(1).decode("ascii")))
+            continue
+        if name == "MERGE_HEAD" and raw.endswith(b"\n") and raw.count(b"\n") > 1:
+            for number, line in enumerate(raw[:-1].split(b"\n"), 1):
+                if not _OID.fullmatch(line):
+                    return None, _off_form("a line of MERGE_HEAD not of the form <object>LF", label)
+                entries.append((label if number == 1 else f"{label} (line {number})", "object", line.decode("ascii")))
+            continue
+        if not raw:
             return None, (f"the local ref {label} names nothing the gate can read, and it may record the ref this push "
                           "writes")
-        entries = records.setdefault((prefix, name), [])
-        for count, (number, line) in enumerate(lines):
-            shown = label if count == 0 else f"{label} (line {number})"
-            if line.startswith(b"ref: "):
-                entries.append((shown, "symbolic", _git_text(line[len(b"ref: "):].strip())))
-                continue
-            match = _REF_LINE.fullmatch(line.rstrip(b"\r"))
-            if match is None:
-                return None, (f"the local ref {shown} holds a line the gate cannot read, and it may record the ref "
-                              "this push writes")
-            entries.append((shown, "object", match.group(1).decode("ascii")))
+        kind, value = _ref_file(raw)
+        if kind == "off":
+            return None, _off_form(value, label)   # R16-4
+        entries.append((label, kind, value))
 
     def shared(name: str) -> tuple[str, str] | None:
-        return _shared_ref(common, packed, name)
+        return _shared_ref(store, name)
 
     found: dict[str, str] = {}
     for (prefix, name), entries in sorted(records.items()):
@@ -4265,25 +4387,15 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
     return found, ""
 
 
-def _shared_ref(common: str, packed: dict[str, str], name: str) -> tuple[str, str] | None:
+def _shared_ref(store: dict, name: str) -> tuple[str, str] | None:
     """What the shared ref `name` holds in the ref store, as ("object", oid) or ("symbolic", target): its loose file in
-    the common directory, else its entry of packed-refs; None where it holds neither, where the gate cannot read it, or
-    for a name git would not take as a ref (a part that is empty, `.`, `..` or ends in .lock), which no path may leave
-    the store by."""
-    parts = name.split("/")
-    if parts[0] != "refs" or any(part in ("", ".", "..") or part.endswith(".lock") or "\0" in part for part in parts):
-        return None
-    try:
-        with open(os.path.join(common, *parts), "rb") as handle:
-            first = handle.read().split(b"\n", 1)[0]
-    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
-        return ("object", packed[name]) if name in packed else None
-    except OSError:
-        return None
-    if first.startswith(b"ref: "):
-        return "symbolic", _git_text(first[len(b"ref: "):].strip())
-    match = _REF_LINE.fullmatch(first.rstrip(b"\r"))
-    return ("object", match.group(1).decode("ascii")) if match else None
+    the common directory as _stored_refs read and checked it, else its entry of packed-refs, which a folder at the
+    loose place leaves to answer as git does; None where it holds neither. Only names the store read come back, so no
+    path leaves the store, and no file is opened a second time or through a link (review round 16, R16-2: a loose
+    symbolic link to nothing had been read as a missing file, and packed-refs had answered)."""
+    if name in store["loose"]:
+        return store["loose"][name]
+    return ("object", store["packed"][name]) if name in store["packed"] else None
 
 
 #: How many refs git reads one after another for one resolution, the one it starts from included, before it gives up

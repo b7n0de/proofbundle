@@ -142,7 +142,9 @@ def test_a_broken_ref_anywhere_leaves_the_exception_unapplied(env, tmp_path):
     broken.parent.mkdir(parents=True)
     broken.write_text("garbage\n", encoding="utf-8")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, "the local ref refs/recorded/x is a broken ref")
+    # The normal form of the ref store (review round 16 of 2026-10-13) names the file before git calls it broken.
+    w1._assert_exception_refused(answer, entry, text, "the ref store is not in the form the gate reads (a file not of "
+                                                      "the form <object>LF or ref: <name>LF): refs/recorded/x")
 
 
 def test_control_present_refs_without_a_declaration_keep_the_exception(env, tmp_path):

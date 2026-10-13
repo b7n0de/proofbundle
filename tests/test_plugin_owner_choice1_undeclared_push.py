@@ -354,14 +354,18 @@ def test_d_a_recorded_candidate_with_a_declaration_blocks_the_exception(env, tmp
                               "the local ref refs/recorded/origin/remotes/refs/heads/main holds something at")
 
 
-@pytest.mark.parametrize("content", ["1" * 40 + "\n", "garbage\n"], ids=["dangling", "broken"])
-def test_d_an_unreadable_record_is_no_empty_state(env, tmp_path, content):
+@pytest.mark.parametrize("content, why", [
+    pytest.param("1" * 40 + "\n", "the local ref refs/remotes/origin/release, which may record the ref this push "
+                 "writes", id="dangling"),
+    # The normal form of the ref store (review round 16 of 2026-10-13) names the file before git calls it broken.
+    pytest.param("garbage\n", "the ref store is not in the form the gate reads (a file not of the form <object>LF or "
+                 "ref: <name>LF): refs/remotes/origin/release", id="broken")])
+def test_d_an_unreadable_record_is_no_empty_state(env, tmp_path, content, why):
     work, _remote, _a = _undeclared(tmp_path)
     (work / ".git" / "refs" / "remotes" / "origin").mkdir(parents=True, exist_ok=True)
     (work / ".git" / "refs" / "remotes" / "origin" / "release").write_text(content, encoding="utf-8")
     answer, entry, text = _l1(env, work, "git push origin main:release")
-    _assert_exception_refused(answer, entry, text, "the local ref refs/remotes/origin/release, which may record the "
-                                                   "ref this push writes")
+    _assert_exception_refused(answer, entry, text, why)
 
 
 def test_d_a_deletion_whose_record_holds_a_declaration_is_not_exempted(env, tmp_path):

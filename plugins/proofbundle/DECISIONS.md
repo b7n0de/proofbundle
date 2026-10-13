@@ -624,6 +624,28 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     protection for packed-refs and for a ref store in another format than files stays (mutants M3 and M4 of FIX-13
     survived under git 2.43.0, which gives no case for either; the reviewer measured a real reftable store with git
     2.51.1, and the hook asked).
+    The ref store is read only in a normal form the gate checks exactly (owner choice of 2026-10-13, 16:4x Berlin, A,
+    on review round 16, in place of single fixes); whatever departs from it leaves the exception unapplied, and the
+    ask names the reason and the entry. No ref name stands twice, neither in packed-refs read raw nor in git's listing
+    (R16-1: git 2.43.0 lists both lines of a name packed twice, with exit 0, also beside a loose file of the name, and
+    the gate had kept the last one, so a declared commit in the first line had been passed over). No symbolic link of
+    the file system stands in the ref store of any worktree, a loose ref, a root record, packed-refs, the refs folder
+    and a worktree's folder included (R16-2: a loose refs/heads/side linked to nothing had been read as missing and
+    answered from packed-refs, where git does not resolve the name). Every name on every branch of a resolution, the
+    worktree's own branch included, is one git's ref rules take (git check-ref-format), and a name the gate does not
+    model is asked (R16-3: refs/bisect/foo..bar of another worktree had resolved its ORIG_HEAD). Every root record and
+    loose ref file holds exactly `<oid>LF` or `ref: <name>LF`, with no empty line before, no blank and no line after;
+    FETCH_HEAD keeps its own rule of lines, and MERGE_HEAD holds one object per line (R16-4: an ORIG_HEAD of a line
+    feed and A, which git does not resolve, had been read as A). Each line of packed-refs is `<oid> <name>` with the
+    object in lower case and the name under refs/, a `^<oid>` line only after one, the header only at the top, and
+    the lines keep the order the header's `sorted` promises, since git's lookup misses a name out of that order while
+    its listing names it. git reads more forms than this, a blank, a second line, no line feed, a carriage return,
+    `ref:` without a space or an object in capitals among them (measured with git 2.43.0); those are asked, which is
+    the price of the choice. Measured with git 2.43.0 in a fresh clone, a clone with two worktrees, a clone after `git
+    gc` and `git pack-refs --all`, and after a fetch, a reset, a stash, a note, a bisect and a merge in progress, each
+    without a declaration: the normal form asked in none. The rules the review confirmed stay: a valid loose file goes
+    before packed-refs, a real folder at a loose place leaves the name to packed-refs, a record is resolved in its own
+    worktree (R15-1), and the refs read for one resolution are counted as git counts them (R15-2).
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 

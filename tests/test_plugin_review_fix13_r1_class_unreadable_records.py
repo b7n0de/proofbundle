@@ -46,7 +46,9 @@ def test_a_root_ref_with_a_line_that_names_no_object(env, tmp_path):
     work, _remote, _a = w1._undeclared(tmp_path)
     (work / ".git" / "ORIG_HEAD").write_text("garbage\n", encoding="utf-8")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, "the local ref ORIG_HEAD holds a line the gate cannot read")
+    # Since review round 16 of 2026-10-13 the reason is the normal form of the ref store, and the entry stays named.
+    w1._assert_exception_refused(answer, entry, text, "the ref store is not in the form the gate reads (a file not of "
+                                                      "the form <object>LF or ref: <name>LF): ORIG_HEAD")
 
 
 def test_control_an_empty_fetch_head_keeps_the_exception(env, tmp_path):

@@ -72,4 +72,6 @@ def test_a_name_that_leaves_the_ref_store_does_not_resolve(env, tmp_path):
     (work / ".git" / "worktrees" / "other" / "ORIG_HEAD").write_text("ref: refs/../../outside\n", encoding="utf-8")
     assert not _git_resolves(other, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/ORIG_HEAD")
+    # Since review round 16 of 2026-10-13 a target git's ref rules refuse is off the normal form of the ref store.
+    w1._assert_exception_refused(answer, entry, text, "the ref store is not in the form the gate reads (a target git's "
+                                                      "ref rules refuse): worktrees/other/ORIG_HEAD")
