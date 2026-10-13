@@ -519,6 +519,11 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     whole reading of the path, for its bytes, its object id or its absence, and the gate gives none (review round 11
     of 2026-10-12, the class of R11-4: with the declared `.proofbundle` folder first and a second one after it, the
     pre-push hook passed the commit while its checkout declared an empty evidence list or held another policy).
+  The answer keeps three cases apart: a measured absence (inactive, or `declaration_uncommitted` where the working
+  tree holds a declaration the commit lacks), and a declaration the gate could not read at the commit, over the
+  read limit, in a tree not read whole or in a commit this repository does not hold (`declaration_unread`, NOT
+  MEASURED, with the cause and a fitting next step, never called absent or uncommitted; review round 12 of
+  2026-10-13, B-12: a committed declaration of 65537 bytes had been answered as absent and not committed).
 - Failures stay `deny` (D6).
 - A push under Level 1 (owner choice 1 A, 2026-10-11, with the review's four conditions as part of the choice): a
   repository without a declaration stays outside Level 1. This is local inactivity, never a pass and never a check

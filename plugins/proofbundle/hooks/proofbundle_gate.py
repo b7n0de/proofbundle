@@ -4269,14 +4269,21 @@ def _evaluate_tree_reading(repo: str, commit: str, deadline: float, where: str, 
     deny. No working-tree read and no range comparison; `where` names the commit in every message and
     `pass_tail` is appended to a pass. parse_declaration and the evidence-file _blob reads raise GateError,
     which the caller turns into a deny, so a tree whose evidence cannot be read is never silently treated as
-    declaring nothing. The DECLARATION read is the one exception: an unreadable or unconfirmable declaration
-    returns 'inactive' here, and the caller's absence nuance (D5) turns an UNMEASURED absence into a NOT
-    MEASURED ask and only a MEASURED absence (git lists the path empty with exit 0) into inactive — so a
-    failed `cat-file` is still never silently 'absent' (review Runde 5, R5-1)."""
+    declaring nothing. The DECLARATION read is the one exception: a declaration the gate cannot read at the commit
+    (over the read limit, in a tree git does not give whole, a commit this repository does not hold) is a NOT
+    MEASURED ask that names the cause, never an absence and never an uncommitted declaration (review Runde 5, R5-1;
+    review round 12 of 2026-10-13, B-12: a committed declaration over the limit had been answered as absent and not
+    committed). Only a MEASURED absence (git lists the path empty with exit 0, in a tree read whole) returns
+    'inactive' here, and the caller's absence nuance (D5) tells it from a declaration only in the working tree."""
     try:
         raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
-    except GateError:
-        raw = None  # unreadable/unconfirmed: the caller's absence nuance decides ask vs inactive
+    except GateError as exc:
+        return Verdict("ask", f"NOT MEASURED: the gate could not read {DECLARATION} at {where}: {exc}. Nothing was "
+                              "verified.", "declaration_unread",
+                       evidence=f"the declaration {DECLARATION} at {where}", failed=f"the gate could not read it ({exc})",
+                       next_step=f"make {DECLARATION} at the commit a file of at most {MAX_DECLARATION_BYTES} bytes in "
+                                 "a tree git gives whole in this repository, or fetch the commit in full, then retry",
+                       repo=repo, head=commit)
     if raw is None:
         return Verdict("inactive", f"NOT MEASURED: no evidence is declared at {where} ({DECLARATION} is absent).",
                        "nothing_declared", repo=repo, head=commit)

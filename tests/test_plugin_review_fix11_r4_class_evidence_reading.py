@@ -183,7 +183,9 @@ def test_no_absence_from_a_root_that_names_the_folder_twice(tmp_path, folders):
     listing = n2c._git(work, "ls-tree", "-z", "--full-tree", b, "--", gate.DECLARATION).stdout
     assert listing == ""
     verdict = gate.evaluate_repository(str(work), time.monotonic() + 120)
-    assert verdict.decision == "ask" and verdict.reason_id == "absence_not_measured", verdict.detail
+    # B-12 (review round 12 of 2026-10-13): a tree not read whole is named as not read, not as an unmeasured absence
+    assert verdict.decision == "ask" and verdict.reason_id == "declaration_unread", verdict.detail
+    assert "names one entry twice" in verdict.detail and "is absent" not in verdict.detail, verdict.detail
     with pytest.raises(gate.GateError, match=TWICE):
         gate._blob(str(work), b, gate.DECLARATION, time.monotonic() + 120, gate.MAX_DECLARATION_BYTES)
 
