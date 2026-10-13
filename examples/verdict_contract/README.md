@@ -39,6 +39,24 @@ The checker never takes the key from the folder it checks. `publickey.hex` is wr
 
 The reply is hashed before anything decodes it, and `find_verdict` runs on the strict UTF-8 decoding of the same bytes with no newline translation. A reply normalized before hashing, for example CRLF turned into LF or trailing spaces and blank lines stripped, does not match its own receipt. The repository's `.gitattributes` keeps `out/`, `reply.txt` and `verdict_contract.py` byte for byte in every checkout, `core.autocrlf` included.
 
+## What the parser accepts
+
+`PROMPT_RULE` in `verdict_contract.py` asks for `===VERDICT=== <value>` as the very last line, with "No backticks, no bold, no brackets, nothing else on that line". `find_verdict` reads more than that: its marker pattern skips leading `#`, `>`, `*` and `-`, matches the marker in any case and with two or more `=`, and strips spaces, tabs, `:`, `*`, `` ` `` and `.` around the value before it compares it. Measured with the vendored file, the reply body of `measure_cases.py` and each line below as the last line:
+
+| Last line | `find_verdict` |
+|---|---|
+| `===VERDICT=== APPROVE` | APPROVE |
+| `===VERDICT=== APPROVE.` | APPROVE |
+| `===VERDICT=== **APPROVE**` | APPROVE |
+| `**===VERDICT=== APPROVE**` | APPROVE |
+| `> ===VERDICT=== APPROVE` | APPROVE |
+| `===verdict=== approve` | APPROVE |
+| `== VERDICT == APPROVE` | APPROVE |
+| `===VERDICT===APPROVE` | APPROVE |
+| `> ===VERDICT=== request changes` | REQUEST_CHANGES |
+
+So an APPROVE in this record says that `find_verdict` read APPROVE from the bound bytes, not that the last line has the form `PROMPT_RULE` asks for, and the checker holds the reply to the parser, not to `PROMPT_RULE`. The parser stays vendored unchanged, because the record names its bytes; a reader who needs the bare form checks the last line of `reply.txt` itself. `tests/test_verdict_contract_example_names_what_the_parser_accepts.py` holds this table to the vendored file.
+
 ## What the receipt does not show
 
 The receipt is a self-declaration. In the words of its `nonClaims`, it does not show that a review ran in CI or anywhere else, it does not show that the reply was produced from this diff, and it does not show that the review was right. The reply in this example was written for the example and is not a real review. The pull request is a toy one, its identifiers are example values, and the receipt is signed with an example key whose private half is not in this repository.
