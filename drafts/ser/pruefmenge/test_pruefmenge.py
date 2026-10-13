@@ -435,9 +435,10 @@ class AnswerSizeLimit(unittest.TestCase):
                               capture_output=True, text=True, env=self.env, timeout=600, check=False)
 
     def _padded(self, size: int) -> pathlib.Path:
-        # the 30 answers, then one line of spaces up to size bytes in all: a blank line the comparison passes over
+        # the 30 answers, the last line padded with spaces (JSON whitespace) up to size bytes in all; an empty line
+        # would be an execution error of its own (Nachtrag 2, point 6)
         path = self.base / ("answers_%d.jsonl" % size)
-        path.write_bytes(self.answers + b" " * (size - len(self.answers) - 1) + b"\n")
+        path.write_bytes(self.answers[:-1] + b" " * (size - len(self.answers)) + b"\n")
         self.assertEqual(path.stat().st_size, size)
         return path
 
