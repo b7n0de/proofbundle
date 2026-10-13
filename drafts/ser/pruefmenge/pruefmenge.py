@@ -1114,6 +1114,37 @@ def _readable(row) -> str | None:
     return None
 
 
+class _DoppelterName(ValueError):
+    pass
+
+
+def _eindeutig(pairs: list) -> dict:
+    """object_pairs_hook: a member name twice in one object makes the line ambiguous."""
+    out: dict = {}
+    for name, value in pairs:
+        if name in out:
+            raise _DoppelterName()
+        out[name] = value
+    return out
+
+
+def _zeile(chunk: bytes):
+    """The answer of one line, or the reason it is a broken line. Each line is read on its own and strictly: UTF-8,
+    one JSON text, no member name twice, nesting only as deep as the parser goes without running out of stack."""
+    try:
+        line = chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "kein UTF-8"
+    try:
+        return json.loads(line, object_pairs_hook=_eindeutig), None
+    except _DoppelterName:
+        return None, "ein Name steht doppelt"
+    except RecursionError:
+        return None, "zu tief verschachtelt"
+    except ValueError:
+        return None, "kein JSON"
+
+
 def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
     """Compare answers.jsonl with expected.jsonl; deviations are a result, not an error."""
     erwartet = [json.loads(line) for line in expected.decode("utf-8").splitlines() if line.strip()]
@@ -1121,19 +1152,17 @@ def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
     v = Vergleich()
     v.gesamt = len(erwartet)
     got: dict = {}
-    text = answers.decode("utf-8", errors="replace")
-    if text.startswith("﻿"):
-        text = text[1:]
-    lines = text.split("\n")
-    for number, line in enumerate(lines, 1):
-        if not line.strip():
+    if answers.startswith(b"\xef\xbb\xbf"):
+        answers = answers[3:]
+    lines = answers.split(b"\n")
+    for number, chunk in enumerate(lines, 1):
+        if not chunk.strip():
             if number < len(lines):
                 v.leere_zeilen += 1
             continue
-        try:
-            row = json.loads(line)
-        except ValueError:
-            v.kaputt.append((number, "kein JSON"))
+        row, why = _zeile(chunk)
+        if why is not None:
+            v.kaputt.append((number, why))
             continue
         why = _readable(row)
         if why is not None:
