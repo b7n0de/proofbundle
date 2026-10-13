@@ -592,9 +592,12 @@ def validate_test_result_statement(statement: Any) -> list[str]:
     # PR 224, P1, measured: `result: PASSED` with `failedTests: ['definitely-failed']` validated
     # clean and could be joined as a passing run). The corpus rule that a skipped check is never
     # a pass is a rule about the LISTS; a result that the lists do not derive is a signed headline
-    # contradicted by its own detail. Judged whenever any list is present; a name in two lists is
-    # the same contradiction one level down.
-    if listen_ok and any(k in pred for k in ("passedTests", "warnedTests", "failedTests")):
+    # contradicted by its own detail. A name in two lists is the same contradiction one level down.
+    # JUDGED WHETHER OR NOT A LIST IS PRESENT (CODEX-KLASSENSUCHE-631-01, E1, measured at f6ea5cc3): the rule
+    # ran only when some list was there, so a valid PASSED statement with all three lists removed validated
+    # clean, could be signed and joined ok, a run naming no case where three present empty lists are refused.
+    # An absent list names no case, as an empty one does.
+    if listen_ok:
         failed = list(pred.get("failedTests") or [])
         warned = list(pred.get("warnedTests") or [])
         passed = list(pred.get("passedTests") or [])
