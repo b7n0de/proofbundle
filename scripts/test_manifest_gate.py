@@ -150,32 +150,56 @@ def _env() -> dict:
     return e
 
 
+class LockUnreadable(ValueError):
+    """The lock file holds no single reading of its floors."""
+
+
 def load_lock(path: Path = LOCK_PATH) -> dict:
+    """The lock, read once within the input budget and parsed strictly (CODEX-KLASSENSUCHE-631-01, D4, measured
+    at f6ea5cc3): with `json.loads` the lock {"min_collected_tests":2,"min_collected_tests":1,...} kept the last
+    floor, and one collected test passed a floor that also read 2. A member twice raises LockUnreadable."""
     if not path.is_file():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    if str(REPO / "src") not in sys.path:
+        sys.path.insert(0, str(REPO / "src"))
+    from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    kappe = int(DEFAULT_BUDGET.input_bytes)
+    with path.open("rb") as fh:
+        roh = fh.read(kappe + 1)
+    if len(roh) > kappe:
+        raise LockUnreadable(f"the lock {path.name} holds more than the input_bytes budget of {kappe} bytes")
+    try:
+        return loads_strict(roh)
+    except (ValueError, UnicodeDecodeError, RecursionError, ProofBundleError) as exc:
+        raise LockUnreadable(f"the lock {path.name} is not valid strict JSON: {exc}") from None
 
 
 def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict:
     tests_dir = tests_dir or (REPO / "tests")
-    lock = load_lock(lock_path)
-    floor_tests = int(lock.get("min_collected_tests", 0))
-    floor_pytest_only = int(lock.get("min_pytest_only_modules", 0))
+    problems: list[str] = []
+    try:
+        lock = load_lock(lock_path)
+    except LockUnreadable as exc:
+        lock = None
+        problems.append(f"{exc}; a floor read from it is no floor, so no population verdict stands")
+    floor_tests = int(lock.get("min_collected_tests", 0)) if lock is not None else None
+    floor_pytest_only = int(lock.get("min_pytest_only_modules", 0)) if lock is not None else None
 
     collected, errors, tail = collect_count(tests_dir)
     pyonly = pytest_only_modules(tests_dir)
 
-    problems: list[str] = []
     if collected < 0:
         problems.append(f"could not parse pytest collection summary; tail:\n{tail}")
     if errors:
         problems.append(f"pytest reported {errors} collection error(s) — a file silently dropped "
                         f"from the run is a FAIL (WP-B); tail:\n{tail}")
-    if collected >= 0 and collected < floor_tests:
+    if collected >= 0 and floor_tests is not None and collected < floor_tests:
         problems.append(f"collected {collected} tests < locked floor {floor_tests} "
                         "(unintended test shrink — a suite stopped collecting, or the floor needs a "
                         "reviewed bump via --update)")
-    if len(pyonly) < floor_pytest_only:
+    if floor_pytest_only is not None and len(pyonly) < floor_pytest_only:
         problems.append(f"{len(pyonly)} pytest-only module(s) < locked floor {floor_pytest_only} "
                         "(pytest-only coverage regressed — the unittest-invisible class shrank)")
     # DIE ERWARTUNG KOMMT AUS DEM BAUM, NICHT AUS EINER ZAHL (Owner 2026-09-07). Der Boden oben
@@ -201,7 +225,7 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
         "pytest_only_modules": len(pyonly),
         "pytest_only_modules_ast": len(pyonly_ast),
         "min_pytest_only_modules": floor_pytest_only,
-        "headroom_tests": (collected - floor_tests) if collected >= 0 else None,
+        "headroom_tests": (collected - floor_tests) if collected >= 0 and floor_tests is not None else None,
         "problems": problems,
     }
 
