@@ -47,12 +47,13 @@ def test_the_reviewers_case_an_empty_line_before_the_object(env, tmp_path, place
     work, where, label = _orig_head(tmp_path, place, lambda a: f"\n{a}\n")
     assert not _git_resolves(where, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text,
-                                 f"{OFF_FORM} (a file not of the form <object>LF or ref: <name>LF): {label}")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 @pytest.mark.parametrize("place", PLACES)
 def test_control_the_object_alone_keeps_the_exception(env, tmp_path, place):
     work, where, _label = _orig_head(tmp_path, place, lambda a: f"{a}\n")
     assert _git_resolves(where, "ORIG_HEAD")
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")

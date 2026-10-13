@@ -579,26 +579,13 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     read whole here, leave the exception unapplied (review round 13 of 2026-10-13, R13-1: with
     `refs/remotes/origin/main` or `refs/recorded/x` a symbolic ref to a missing branch, the push had been called
     inactive). The records git's listing leaves out altogether are read too, named as git names them: FETCH_HEAD
-    line by line, the other root refs of the worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin), and the
-    HEAD, the root refs and the own refs of every other worktree (`worktrees/<name>/HEAD`, from a linked worktree
-    `main-worktree/HEAD`); one that is symbolic counts through its target, resolved step by step from the ref store in
-    its own worktree as git resolves it there (a per-worktree name such as refs/bisect/ or a root ref among that
-    worktree's records, a shared name by its loose file or its entry of packed-refs, and every symbolic step of either
-    kind in that worktree again, never by a name's place in a listing git resolved for the current worktree; a chain
-    only as far as git follows it, which reads at most five refs for one resolution, the record it starts from
-    included, so four symbolic refs before the object resolve and five do not, a cycle never), and a shared symbolic
-    ref, present in every worktree, is resolved in each, from its first step as the ref store holds it (git's listing
-    names the end of its chain);
-    one that does not resolve so leaves the exception unapplied (review round 15 of 2026-10-13, R15-1: a shared
-    refs/heads/bridge to refs/bisect/here had ended the chain of another worktree's ORIG_HEAD, which git there does not
-    resolve, with its place in the listing of the current worktree; R15-2: five symbolic refs, which git does not
-    resolve, had been followed to the object) (the class of R13-1: a declared commit only in
-    FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
-    had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
-    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). The
-    ask for such a record says that the gate cannot establish how it resolves in its worktree and names the record; it
-    says nothing about git's resolution, which can reach further, as for a per-worktree name that stands only in
-    packed-refs (owner choice of 2026-10-13, 15:1x Berlin, on W-3 of review round 14). A
+    line by line, not-for-merge lines included, and the other root refs of the worktree's git directory (ORIG_HEAD,
+    MERGE_HEAD and their kin) (the class of R13-1: a declared commit only in FETCH_HEAD after `git fetch <path>
+    refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release` had been called inactive). Until
+    the narrow contract below, the gate also read the records of every other worktree and resolved symbolic records
+    itself, step by step in their own worktree (review round 14 of 2026-10-13, R14-1; round 15, R15-1 and R15-2), and
+    its ask then said that it could not establish how a record resolves (owner choice of 2026-10-13, 15:1x Berlin, on
+    W-3); that rebuild and its wording are gone with the contract, and git resolves every ref. A
     folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the exception unapplied
     as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from
     its older remote files, .git/remotes/<name> or .git/branches/<name>
@@ -626,26 +613,54 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     2.51.1, and the hook asked).
     The ref store is read only in a normal form the gate checks exactly (owner choice of 2026-10-13, 16:4x Berlin, A,
     on review round 16, in place of single fixes); whatever departs from it leaves the exception unapplied, and the
-    ask names the reason and the entry. No ref name stands twice, neither in packed-refs read raw nor in git's listing
-    (R16-1: git 2.43.0 lists both lines of a name packed twice, with exit 0, also beside a loose file of the name, and
-    the gate had kept the last one, so a declared commit in the first line had been passed over). No symbolic link of
-    the file system stands in the ref store of any worktree, a loose ref, a root record, packed-refs, the refs folder
-    and a worktree's folder included (R16-2: a loose refs/heads/side linked to nothing had been read as missing and
-    answered from packed-refs, where git does not resolve the name). Every name on every branch of a resolution, the
-    worktree's own branch included, is one git's ref rules take (git check-ref-format), and a name the gate does not
-    model is asked (R16-3: refs/bisect/foo..bar of another worktree had resolved its ORIG_HEAD). Every root record and
-    loose ref file holds exactly `<oid>LF` or `ref: <name>LF`, with no empty line before, no blank and no line after;
-    FETCH_HEAD keeps its own rule of lines, and MERGE_HEAD holds one object per line (R16-4: an ORIG_HEAD of a line
-    feed and A, which git does not resolve, had been read as A). Each line of packed-refs is `<oid> <name>` with the
-    object in lower case and the name under refs/, a `^<oid>` line only after one, the header only at the top, and
-    the lines keep the order the header's `sorted` promises, since git's lookup misses a name out of that order while
-    its listing names it. git reads more forms than this, a blank, a second line, no line feed, a carriage return,
-    `ref:` without a space or an object in capitals among them (measured with git 2.43.0); those are asked, which is
-    the price of the choice. Measured with git 2.43.0 in a fresh clone, a clone with two worktrees, a clone after `git
-    gc` and `git pack-refs --all`, and after a fetch, a reset, a stash, a note, a bisect and a merge in progress, each
-    without a declaration: the normal form asked in none. The rules the review confirmed stay: a valid loose file goes
-    before packed-refs, a real folder at a loose place leaves the name to packed-refs, a record is resolved in its own
-    worktree (R15-1), and the refs read for one resolution are counted as git counts them (R15-2).
+    ask names the reason and the entry. No ref name stands twice, neither in packed-refs read raw nor in git's listing,
+    and git's listing is checked before any name is assigned (R16-1: git 2.43.0 lists both lines of a name packed
+    twice, with exit 0, also beside a loose file of the name, and the gate had kept the last one, so a declared commit
+    in the first line had been passed over). No symbolic link of the file system stands in the ref store, a loose
+    ref, a root record, packed-refs and the refs folder included (R16-2: a loose refs/heads/side linked to nothing had
+    been read as missing and answered from packed-refs, where git does not resolve the name). Every name the gate
+    reads is one git's ref rules take (git check-ref-format), and a name the gate does not model is asked (R16-3).
+    Every root record and loose ref file holds exactly `<oid>LF` or `ref: <name>LF`, with no empty line before, no
+    blank and no line after (R16-4: an ORIG_HEAD of a line feed and A, which git does not resolve, had been read as
+    A); MERGE_HEAD holds one object per line, and FETCH_HEAD lines of exactly `<oid>TAB[not-for-merge]TAB<note>LF`,
+    as git 2.43.0 writes them. Each line of packed-refs is `<oid> <name>` with the object in lower case and the name
+    under refs/, a `^<oid>` line only after one, the header only at the top, and the lines keep the order the
+    header's `sorted` promises, since git's lookup misses a name out of that order while its listing names it. A valid
+    loose file beside its packed entry is git's ordinary precedence, a real folder at a loose place leaves the name to
+    packed-refs, and packed refs are no reason to ask. git reads more forms than this, a blank, a second line, no line
+    feed, a carriage return, `ref:` without a space or an object in capitals among them (measured with git 2.43.0);
+    those are asked, which is the price of the choice.
+    The narrow contract (owner choice of 2026-10-13, 17:0x Berlin, A and A, after the external design review of that
+    day at 101bd167, which measured with git 2.51.1 that git's answer in each worktree was right where the gate's
+    rebuild of chains, worktree contexts and depths was not): condition d grants local inactivity only in this range,
+    and git resolves within it. All of the following hold together, or the push is asked, NOT MEASURED, with the
+    reason and the entry and the next step that a person reviews the push; the answer then never says that nothing is
+    declared, and it asks no one to remove a worktree, a stash, a record or evidence.
+    1. Exactly one ordinary main worktree: its `.git` is its own folder and git's directory for it, no linked worktree,
+       no entry at all under `<git directory>/worktrees`, read itself and not counted from `git worktree list`, and no
+       inherited GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR, which move git's view of the repository.
+    2. Symbolic refs only HEAD and refs/remotes/<remote>/HEAD of a remote git lists, each naming directly a ref git
+       lists that is no symbolic ref itself. Any other symbolic ref, a chain, and a name that only ends in HEAD are
+       asked.
+    3. The ref store in the files format and in the normal form above.
+    4. The whole inventory: local branches, tags, remote-tracking refs, the current refs/stash, every other ref git
+       lists, and the root records above. A ref the store holds and git does not list, and any form the gate does not
+       know, are asked, never read as absent; git's listing is read whole, each line with its fields and the output
+       ending in a line feed.
+    5. FETCH_HEAD and MERGE_HEAD whole and bounded, not-for-merge lines included; `git rev-parse FETCH_HEAD` reads the
+       first line only, so the gate reads the file. Another form is asked.
+    6. git resolves: fixed local reads as argument lists without a shell, full names after the name check, fixed
+       formats and `--end-of-options`, and the promisor refusal before every call that can read an object. An object
+       name git prints is no readable object yet; the object, tree and declaration checks follow.
+    7. Output that is not whole, a warning about a record left out, a missing object, a time or size limit passed
+       (MAX_RECORD_BYTES, 16 MiB a file) leave the exception unapplied. The one known harmless output is git's hint on
+       the emptied graft file, matched line by line; everything else on stderr is a warning. A change of the refs
+       between their reading and the reading of their objects leaves no finished measurement of absence.
+    8. Conditions a to c, the other cases of this section and the Codex rules are unchanged.
+    The price: a repository with more than one worktree, or with a symbolic ref beyond HEAD and a remote's HEAD, is
+    asked; the case of more worktrees follows the milestone as its own extension. A ref git writes outside refs/ and
+    outside the root records above, such as `git update-ref FOO`, is not read (finding K16-1 of FIX-16, open for the
+    owner).
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 

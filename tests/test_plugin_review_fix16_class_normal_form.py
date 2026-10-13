@@ -257,7 +257,8 @@ def test_a_ref_of_another_worktree_as_a_symbolic_link(env, tmp_path):
     os.symlink("real", work / ".git" / "worktrees" / "other" / "refs" / "bisect" / "x")
     assert _git_resolves(other, "refs/bisect/x")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{OFF_FORM} (a symbolic link): worktrees/other/refs/bisect/x")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_the_refs_folder_of_another_worktree_as_a_symbolic_link(env, tmp_path):
@@ -269,7 +270,8 @@ def test_the_refs_folder_of_another_worktree_as_a_symbolic_link(env, tmp_path):
     os.symlink("refs.real", refs)
     assert _git_resolves(other, "refs/bisect/here")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{OFF_FORM} (a symbolic link): worktrees/other/refs")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_the_folder_of_another_worktree_as_a_symbolic_link(env, tmp_path):
@@ -281,7 +283,8 @@ def test_the_folder_of_another_worktree_as_a_symbolic_link(env, tmp_path):
     os.symlink("../moved/other", folder)
     assert _git_resolves(other, "HEAD")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{OFF_FORM} (a symbolic link): worktrees/other")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 # --- the loose files that answer for a shared name ---------------------------------------------------------------
@@ -300,4 +303,5 @@ def test_a_shared_name_in_a_linked_worktree_s_own_folder_answers_nothing(env, tm
     assert not _git_resolves(work, "refs/heads/bridge") and _git_resolves(linked, "refs/heads/bridge")
     assert w1._git(linked, "symbolic-ref", "refs/heads/bridge").stdout.strip() == "refs/bisect/here"
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}main-worktree/refs/heads/bridge")
+    # Narrow contract of 2026-10-13, 17:0x: a linked worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a linked worktree", str(linked))

@@ -42,7 +42,8 @@ def test_control_a_shared_step_that_stands_only_in_packed_refs(env, tmp_path):
     assert not (work / ".git" / "refs" / "heads" / "side").exists()
     w1._git(other, "symbolic-ref", "ORIG_HEAD", "refs/heads/side")
     assert _git_resolves(other, "ORIG_HEAD")
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")
 
 
 def test_control_a_root_ref_of_this_worktree_to_its_own_per_worktree_ref(env, tmp_path):
@@ -50,7 +51,8 @@ def test_control_a_root_ref_of_this_worktree_to_its_own_per_worktree_ref(env, tm
     w1._git(work, "update-ref", "refs/bisect/good", a)
     w1._git(work, "symbolic-ref", "ORIG_HEAD", "refs/bisect/good")
     assert _git_resolves(work, "ORIG_HEAD")
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD is asked.
+    w1._assert_outside(*w1._l1(env, work), "a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", "ORIG_HEAD")
 
 
 def test_control_the_steps_of_this_worktree_are_not_counted_twice(env, tmp_path):
@@ -73,5 +75,5 @@ def test_a_name_that_leaves_the_ref_store_does_not_resolve(env, tmp_path):
     assert not _git_resolves(other, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, work)
     # Since review round 16 of 2026-10-13 a target git's ref rules refuse is off the normal form of the ref store.
-    w1._assert_exception_refused(answer, entry, text, "the ref store is not in the form the gate reads (a target git's "
-                                                      "ref rules refuse): worktrees/other/ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")

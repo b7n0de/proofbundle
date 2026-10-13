@@ -85,6 +85,16 @@ def _assert_exception_refused(answer: dict, entry: dict, text: str, why: str) ->
     assert EXCEPTION in text and why in text, text
 
 
+#: The narrow contract of owner choice 1 (owner choice of 2026-10-13, 17:0x Berlin, A and A): outside its range the
+#: exception does not apply, and the ask names the reason and the entry.
+OUTSIDE = ("the repository is outside the range the exception covers, one ordinary main worktree whose only symbolic "
+           "refs are HEAD and refs/remotes/<remote>/HEAD, each naming a ref git lists")
+
+
+def _assert_outside(answer: dict, entry: dict, text: str, reason: str, name: str) -> None:
+    _assert_exception_refused(answer, entry, text, f"{OUTSIDE} ({reason}): {name}")
+
+
 # --- the exception -----------------------------------------------------------------------------------------------
 
 def test_a_push_from_an_undeclared_repository_is_locally_inactive(env, tmp_path):

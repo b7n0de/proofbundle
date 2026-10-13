@@ -24,7 +24,8 @@ def test_a_root_ref_that_is_a_symbolic_ref_without_a_target(env, tmp_path):
     work, _remote, _a = w1._undeclared(tmp_path)
     (work / ".git" / "ORIG_HEAD").write_text("ref: refs/heads/missing\n", encoding="utf-8")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD is asked.
+    w1._assert_outside(answer, entry, text, "a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", "ORIG_HEAD")
 
 
 def test_another_worktree_on_a_branch_that_does_not_exist_yet(env, tmp_path):
@@ -32,7 +33,8 @@ def test_another_worktree_on_a_branch_that_does_not_exist_yet(env, tmp_path):
     w1._git(work, "worktree", "add", "-q", "--orphan", "-b", "fresh", str(tmp_path / "fresh"))
     assert (work / ".git" / "worktrees" / "fresh" / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/fresh\n"
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/fresh/HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/fresh")
 
 
 def test_an_empty_root_ref(env, tmp_path):

@@ -52,11 +52,13 @@ def test_the_reviewers_case_a_ref_of_the_same_name_here_does_not_clear_it(env, t
     w1._git(other, "symbolic-ref", form, "refs/bisect/present_here")
     _unresolved_there(other, form)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}{FORMS[form]}")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
     w1._git(work, "update-ref", "refs/bisect/present_here", a)          # only in the main worktree
     _unresolved_there(other, form)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}{FORMS[form]}")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_from_a_linked_worktree_a_ref_there_does_not_clear_one_of_the_main_worktree(env, tmp_path):
@@ -67,7 +69,8 @@ def test_from_a_linked_worktree_a_ref_there_does_not_clear_one_of_the_main_workt
     w1._git(linked, "update-ref", "refs/bisect/only_in_linked", a)
     _unresolved_there(work, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}main-worktree/ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a linked worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a linked worktree", str(linked))
 
 
 def test_a_cycle_in_another_worktree_does_not_resolve(env, tmp_path):
@@ -81,7 +84,8 @@ def test_a_cycle_in_another_worktree_does_not_resolve(env, tmp_path):
     w1._git(work, "update-ref", "refs/bisect/one", a)                   # the same names here resolve
     w1._git(work, "update-ref", "refs/bisect/two", a)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/refs/bisect/one")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_control_a_chain_that_resolves_in_its_own_worktree_keeps_the_exception(env, tmp_path):
@@ -92,4 +96,5 @@ def test_control_a_chain_that_resolves_in_its_own_worktree_keeps_the_exception(e
     w1._git(other, "symbolic-ref", "ORIG_HEAD", "refs/bisect/alias")
     w1._git(other, "symbolic-ref", "refs/bisect/to_main", "refs/heads/main")
     assert w1.n2c._rev(other, "ORIG_HEAD") == a
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")

@@ -4036,29 +4036,40 @@ def _working_tree_declares(repo: str) -> bool:
 
 
 def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, set[str] | str]:
-    """Every present ref of the repository with the object it names, and the refs git calls broken; (None, why) where
-    git does not list them whole, or where the ref store is not in the form the gate reads (_off_form)."""
+    """Every present ref of the repository with the object it names, as this worktree reads them, and the refs git calls
+    broken; (None, why) where git does not list them whole, where the ref store is not in the form the gate reads
+    (_off_form), or where a symbolic ref lies outside the narrow contract (_outside). git resolves every ref: its
+    listing names the object of each, and the gate follows no chain of its own (owner choice of 2026-10-13, 17:0x
+    Berlin, A and A, the narrow contract, points 2, 4 and 6; the external design review of that day at 101bd167
+    measured git's answer right in each worktree and the gate's own rebuild of chains, worktree contexts and depths
+    wrong). The records git's listing leaves out are read from this worktree's git directory (_root_records)."""
     listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)", deadline=deadline)
     if listing.returncode != 0:
         return None, "git cannot list this repository's refs, so the local records of the destination are not known"
     broken = set()
     for line in listing.stderr.decode("utf-8", "replace").splitlines():
-        if line.startswith("hint: "):
-            continue   # git's hint on the emptied graft file (_read_env)
+        if line in _GRAFT_HINT:
+            continue   # git's known hint on the emptied graft file (_read_env), nothing about a ref
         if not line.startswith("warning: ignoring broken ref "):
             return None, ("git warns while it lists this repository's refs, so a record of the destination may be "
-                          "unread")
+                          f"unread: {line}")
         broken.add(line[len("warning: ignoring broken ref "):])
-    present, symbolic = {}, set()
-    for line in listing.stdout.split(b"\n"):
-        refname, nul, rest = line.partition(b"\0")
-        if nul:
-            oid, _nul, target = rest.partition(b"\0")
-            if _git_text(refname) in present:   # R16-1: git lists a name of packed-refs twice, exit 0, no warning
-                return None, _off_form("a name twice in git's listing", _git_text(refname))
-            present[_git_text(refname)] = oid.decode("ascii", "replace")
-            if target:   # %(symref) marks a symbolic ref; it names the end of the chain, not the first step
-                symbolic.add(_git_text(refname))
+    # Each line is the name, the object and the end of a symbolic ref's chain, with a NUL after each of the first two
+    # and a line feed after all; any other line, or output that ends without a line feed, is no whole listing (narrow
+    # contract, points 4 and 7). A name twice stops before any assignment (R16-1).
+    present, symbolic = {}, {}
+    if listing.stdout and not listing.stdout.endswith(b"\n"):
+        return None, _UNREAD_LISTING
+    for line in listing.stdout.split(b"\n")[:-1]:
+        fields = line.split(b"\0")
+        if len(fields) != 3 or not _OID.fullmatch(fields[1]):
+            return None, _UNREAD_LISTING
+        name = _git_text(fields[0])
+        if name in present:   # R16-1: git lists a name of packed-refs twice, exit 0, no warning
+            return None, _off_form("a name twice in git's listing", name)
+        present[name] = fields[1].decode("ascii")
+        if fields[2]:   # %(symref) marks a symbolic ref; it names the end of the chain, not the first step
+            symbolic[name] = _git_text(fields[2])
     # git's listing leaves out a symbolic ref whose target does not exist, with exit 0 and no warning (review round 13
     # of 2026-10-13, R13-1): every ref the ref store holds must be one git lists or calls broken.
     paths, why = _repo_paths(repo, deadline)
@@ -4073,10 +4084,16 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     refused = sorted(name for name in present if not _ref_name_ok(name))
     if refused:
         return None, _off_form("a name git's ref rules refuse", refused[0])
-    # Nor does it list FETCH_HEAD, the other root refs or a ref of another worktree (the class of R13-1).
-    beside, why = _refs_beside_the_listing(paths, store, symbolic)
+    why = _symbolic_outside(repo, store, present, symbolic, deadline)
+    if why is not None:
+        return None, why
+    # Nor does git list FETCH_HEAD and the other root refs (the class of R13-1).
+    beside, why = _root_records(paths, present, symbolic)
     if beside is None:
         return None, why
+    clash = sorted(set(beside) & set(present))
+    if clash:
+        return None, _off_form("a name twice in git's listing and beside it", clash[0])
     present.update(beside)
     return present, broken
 
@@ -4087,13 +4104,12 @@ def _off_form(reason: str, entry: str) -> str:
     return f"the ref store is not in the form the gate reads ({reason}): {entry}"
 
 
-def _not_established(record: str) -> str:
-    """Why a record beside git's listing leaves the exception unapplied where the gate's own resolution in its worktree
-    (_resolves) does not reach an object, git's resolution there being something the gate does not establish (owner
-    choice of 2026-10-13, 15:1x Berlin, on W-3 of review round 14: the reason names the gate's missing resolution, not
-    one by git, and the record stays named)."""
-    return ("The gate cannot establish how this local record resolves in its worktree, so the exception does not "
-            f"apply: {record}")
+def _outside(reason: str, entry: str) -> str:
+    """Why the exception does not apply to a repository outside the range the narrow contract covers (owner choice of
+    2026-10-13, 17:0x Berlin, A and A, points 1 and 2): the reason and the entry. It says what the gate does not
+    measure here, never that nothing is declared, and asks no one to remove a worktree, a ref or a record."""
+    return (f"the repository is outside the range the exception covers, one ordinary main worktree whose only symbolic "
+            f"refs are HEAD and refs/remotes/<remote>/HEAD, each naming a ref git lists ({reason}): {entry}")
 
 
 def _unresolved(ref: str) -> str:
@@ -4101,6 +4117,15 @@ def _unresolved(ref: str) -> str:
             "exist, or a name git does not list), and it may record the ref this push writes")
 
 
+#: Output of git's listing the gate cannot read as a whole listing (narrow contract, points 4 and 7).
+_UNREAD_LISTING = "git lists a line the gate cannot read, so a record of the destination may be unread"
+#: The hint git 2.43.0 prints, line by line, under GIT_GRAFT_FILE set to the empty device (_read_env), measured on
+#: rev-list; the one known harmless output on stderr (narrow contract, point 7). Every other line is a warning.
+_GRAFT_HINT = frozenset({
+    "hint: Support for <GIT_DIR>/info/grafts is deprecated", "hint: and will be removed in a future Git version.",
+    "hint: ", "hint: Please use \"git replace --convert-graft-file\"", "hint: to convert the grafts into replace refs.",
+    "hint: Turn this message off by running", "hint: \"git config advice.graftFileDeprecated false\"",
+})
 #: The refs of one worktree; in a linked worktree those of the common directory belong to the main worktree.
 _PER_WORKTREE = ("refs/bisect/", "refs/worktree/", "refs/rewritten/")
 #: git lists the refs in a folder under refs/ that is a symbolic link and leaves out a symbolic ref there whose target
@@ -4112,6 +4137,9 @@ _OID = re.compile(rb"[0-9a-f]{40}|[0-9a-f]{64}")
 #: The characters git's ref rules refuse anywhere in a name (refs.c, check_refname_component, git 2.43.0): a space,
 #: ~ ^ : ? * [ and a backslash, besides the control characters below 0x20 and DEL.
 _REF_NAME_REFUSED = frozenset(" ~^:?*[\\\x7f")
+#: The most bytes the gate reads of one file of the ref store, packed-refs, a loose ref or a root record; a larger one
+#: leaves the exception unapplied (narrow contract, points 5 and 7).
+MAX_RECORD_BYTES = 16 * 1024 * 1024
 
 
 def _ref_name_ok(name: str) -> bool:
@@ -4155,17 +4183,31 @@ def _no_link(path: str) -> bool:
         return False
 
 
+def _record_bytes(path: str) -> bytes | None:
+    """The bytes of one file of the ref store, None where it holds more than MAX_RECORD_BYTES; OSError as open raises
+    it."""
+    with open(path, "rb") as handle:
+        raw = handle.read(MAX_RECORD_BYTES + 1)
+    return None if len(raw) > MAX_RECORD_BYTES else raw
+
+
+def _too_large(entry: str) -> str:
+    return (f"the record {entry} holds more than {MAX_RECORD_BYTES} bytes, more than the gate reads, and it may record "
+            "the ref this push writes")
+
+
 def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, str]:
     """The ref store of the files format, read whole and checked against its normal form: {"names": every ref name it
     holds, each file under refs/ of the common directory and of this worktree's git directory and each entry of
-    packed-refs; "packed": each entry of packed-refs with its object; "loose": each loose file with what it holds
-    (_ref_file)}; (None, why) for a store the gate cannot read whole here, one in another format (extensions.refStorage,
-    such as reftable), a folder or file it cannot read (review round 13 of 2026-10-13, R13-1), or one off the normal
-    form (owner choice of 2026-10-13, 16:4x Berlin, A, review round 16): a symbolic link anywhere in it, a loose file
-    not of the form _ref_file reads, a line of packed-refs not of the form `<oid> <name>` with a `^<oid>` line only
-    after one and its header only at the top, a name there outside refs/ or twice (R16-1), or out of the order its
-    `sorted` header promises, which git's lookup then misses (measured with git 2.43.0). Only the common directory's
-    loose files answer for a shared name; a shared name in a linked worktree's own folder is one git does not read."""
+    packed-refs; "packed": each entry of packed-refs with its object; "loose": each loose file of the common directory
+    with what it holds (_ref_file)}; (None, why) for a store the gate cannot read whole here, one in another format
+    (extensions.refStorage, such as reftable), a folder or file it cannot read (review round 13 of 2026-10-13, R13-1),
+    a file over MAX_RECORD_BYTES, or one off the normal form (owner choice of 2026-10-13, 16:4x Berlin, A, review
+    round 16, kept as point 3 of the narrow contract of 17:0x): a symbolic link anywhere in it, a loose file not of
+    the form _ref_file reads, a line of packed-refs not of the form `<oid> <name>` with a `^<oid>` line only after one
+    and its header only at the top, a name there outside refs/ or twice (R16-1), or out of the order its `sorted` header
+    promises, which git's lookup then misses (measured with git 2.43.0). A valid loose file beside its packed entry is
+    git's ordinary precedence, and packed refs are no reason to ask."""
     storage = _git(repo, "config", "--get", "extensions.refstorage", deadline=deadline)
     if storage.returncode not in (0, 1) or (storage.returncode == 0 and storage.stdout.strip().lower() != b"files"):
         return None, ("the repository keeps its refs in a format other than files (extensions.refStorage), whose refs "
@@ -4197,8 +4239,10 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
                     names.add(ref)
                     if not _ref_name_ok(ref):
                         continue   # a name git does not list stays one the listing must name (_present_refs)
-                    with open(path, "rb") as handle:
-                        held = _ref_file(handle.read())
+                    raw = _record_bytes(path)
+                    if raw is None:
+                        return None, _too_large(ref)
+                    held = _ref_file(raw)
                     if held[0] == "off":
                         return None, _off_form(held[1], ref)
                     if base == paths["common"]:
@@ -4206,8 +4250,9 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
         packed_path = os.path.join(paths["common"], "packed-refs")
         if not _no_link(packed_path):
             return None, _off_form("a symbolic link", "packed-refs")
-        with open(packed_path, "rb") as handle:
-            packed = handle.read()
+        packed = _record_bytes(packed_path)
+        if packed is None:
+            return None, _too_large("packed-refs")
     except FileNotFoundError as exc:
         if exc.filename and os.path.basename(exc.filename) == "packed-refs":
             packed = b""
@@ -4248,185 +4293,128 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
     return {"names": names, "packed": packed_refs, "loose": loose}, ""
 
 
+def _symbolic_outside(repo: str, store: dict, present: dict[str, str], symbolic: dict[str, str],
+                      deadline: float) -> str | None:
+    """Why a symbolic ref git lists lies outside the narrow contract (owner choice of 2026-10-13, 17:0x Berlin, point
+    2), or None: the only one allowed under refs/ is refs/remotes/<remote>/HEAD of a remote git lists, whose loose file
+    names exactly the ref git's listing ends its chain with, a ref git lists that is no symbolic ref itself. Any other
+    symbolic ref, a chain, and a name that only ends in HEAD are asked; the gate follows no chain of its own."""
+    if not symbolic:
+        return None
+    remotes = _remote_names(repo, deadline)
+    if remotes is None:
+        return "git cannot list the remotes, so whether a symbolic ref is one of a remote's HEAD is not known"
+    for name, end in sorted(symbolic.items()):
+        remote = (name[len("refs/remotes/"):-len("/HEAD")]
+                  if name.startswith("refs/remotes/") and name.endswith("/HEAD") else None)
+        if remote not in remotes:
+            return _outside("a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", name)
+        if store["loose"].get(name) != ("symbolic", end) or end not in present or end in symbolic:
+            return _outside("a symbolic ref whose target is not a ref git lists, named directly", name)
+    return None
+
+
 #: The files of a git directory that hold refs beside refs/, git's root refs and pseudorefs: a name of capitals, `-` and
-#: `_` that ends in _HEAD, and the five names git keeps otherwise (refs.c, irregular_root_refs).
+#: `_` that ends in _HEAD (refs.c, is_pseudoref_syntax of git 2.43.0), and the few others git writes.
 _ROOT_REF = re.compile(r"[A-Z_-]+_HEAD")
 _ROOT_REF_OTHERS = frozenset({"AUTO_MERGE", "BISECT_EXPECTED_REV", "MERGE_AUTOSTASH", "NOTES_MERGE_PARTIAL",
                               "NOTES_MERGE_REF"})
-#: A line of FETCH_HEAD: an object, alone or before a tab or a space and what was fetched from where.
-_REF_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})(?:[\t ].*)?")
+#: A line of FETCH_HEAD as git 2.43.0 writes it: the object, a tab, not-for-merge or nothing, a tab and what was fetched
+#: from where (measured for a fetch of a remote, a branch, an object, a tag and --tags).
+_FETCH_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})\t(?:not-for-merge)?\t[^\n]*")
 
 
-def _refs_beside_the_listing(paths: dict, store: dict, symbolic: set[str]) -> tuple[dict[str, str] | None, str]:
-    """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object}:
-    FETCH_HEAD line by line, the other root refs of this worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin),
-    and the HEAD, the root refs and the own refs of every other worktree, named as git names them (main-worktree/HEAD,
-    worktrees/<name>/HEAD). A symbolic one adds nothing where it resolves in its own worktree (_resolves); one that does
-    not, or a file the gate cannot read, gives (None, why). This worktree's HEAD and its own refs are read only as steps
-    of a chain. A shared symbolic ref, which git lists here as one (`symbolic`), is present in every worktree, so it is
-    resolved in each other worktree as well, from its first step as the ref store holds it (review round 15 of
-    2026-10-13, the class of R15-1; git's %(symref) names the end of the chain, measured with git 2.43.0, and starting
-    there had skipped the steps before it).
-
-    Every file is checked against the normal form before it counts (owner choice of 2026-10-13, 16:4x Berlin, A, review
-    round 16): no symbolic link, neither a worktree's folder nor a file (R16-2); every own ref of a worktree with a name
-    _ref_name_ok takes (R16-3); every root record and own ref in the exact form _ref_file reads, with no line taken out
-    (R16-4); FETCH_HEAD keeps its own rule, a line of _REF_LINE each, and MERGE_HEAD, which holds one object per merged
-    head, takes `<oid>LF` lines."""
-    common, gitdir = paths["common"], paths["gitdir"]
-    places = [(gitdir, "", False)]
-    if os.path.realpath(gitdir) != os.path.realpath(common):
-        places.append((common, "main-worktree/", True))
+def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]) -> tuple[dict[str, str] | None, str]:
+    """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object},
+    from this worktree's git directory: FETCH_HEAD line by line, not-for-merge lines included, MERGE_HEAD with one
+    object per line, and the other root refs (ORIG_HEAD and its kin), each read whole up to MAX_RECORD_BYTES and in the
+    normal form (narrow contract, points 3 and 5). HEAD is no record here, condition b reads it; it is an object or a
+    direct symbolic ref to a ref git lists that is no symbolic ref itself (point 2). Any other symbolic root record, any
+    other form and a symbolic link are asked."""
+    folder = paths["gitdir"]
     unread = ("the records beside the repository's refs cannot be read whole, so a record of the destination may be "
               "unread")
-    try:
-        others = sorted(os.listdir(os.path.join(common, "worktrees")))
-    except FileNotFoundError:
-        others = []
-    except OSError:
-        return None, unread
-    for name in others:
-        folder = os.path.join(common, "worktrees", name)
-        if not _no_link(folder):
-            return None, _off_form("a symbolic link", f"worktrees/{name}")
-        if os.path.realpath(folder) != os.path.realpath(gitdir):
-            places.append((folder, f"worktrees/{name}/", True))
-    files: list[tuple[str, str, str]] = []
-    steps_only = {("", "HEAD")}
-
-    def stop(exc: OSError) -> None:
-        raise exc
-
-    try:
-        for folder, prefix, other in places:
-            for name in sorted(os.listdir(folder)):
-                if _ROOT_REF.fullmatch(name) or name in _ROOT_REF_OTHERS or name == "HEAD":
-                    files.append((prefix, name, os.path.join(folder, name)))
-            # The own refs of a worktree: of another one under worktrees/<name>/refs/ all of them, in the common
-            # directory the per-worktree ones of the main worktree; of this one, which git lists, the per-worktree ones,
-            # read only as steps of a chain.
-            if not other:
-                tops = [os.path.join(folder, part.rstrip("/")) for part in _PER_WORKTREE]
-            elif prefix != "main-worktree/":
-                tops = [os.path.join(folder, "refs")]
-            else:
-                tops = [os.path.join(folder, part.rstrip("/")) for part in _PER_WORKTREE]
-            for top in tops:
-                if not os.path.lexists(top):
-                    continue
-                if not _no_link(top):
-                    return None, _off_form("a symbolic link", prefix + os.path.relpath(top, folder))
-                base = os.path.join(folder, "refs")
-                for root, dirs, names in os.walk(top, onerror=stop):
-                    if any(os.path.islink(os.path.join(root, name)) for name in dirs):
-                        return None, _LINKED_FOLDER
-                    for name in names:
-                        path = os.path.join(root, name)
-                        ref = "refs/" + os.path.relpath(path, base).replace(os.sep, "/")
-                        if not _ref_name_ok(ref):
-                            return None, _off_form("a name git's ref rules refuse", prefix + ref)   # R16-3
-                        files.append((prefix, ref, path))
-                        if not other:
-                            steps_only.add((prefix, ref))
-        contents = []
-        for prefix, name, path in files:
-            if not _no_link(path):
-                return None, _off_form("a symbolic link", prefix + name)   # R16-2
-            with open(path, "rb") as handle:
-                contents.append((prefix, name, handle.read()))
-    except OSError:
-        return None, unread
-    records: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
-    for prefix, name, raw in contents:
-        label = prefix + name
-        entries = records.setdefault((prefix, name), [])
-        if name == "FETCH_HEAD":
-            for number, line in enumerate(raw.split(b"\n"), 1):
-                if not line.strip():
-                    continue
-                match = _REF_LINE.fullmatch(line.rstrip(b"\r"))
-                if match is None:
-                    return None, (f"the local ref {label} holds a line the gate cannot read, and it may record the "
-                                  "ref this push writes")
-                entries.append((label if not entries else f"{label} (line {number})", "object",
-                                match.group(1).decode("ascii")))
-            continue
-        if name == "MERGE_HEAD" and raw.endswith(b"\n") and raw.count(b"\n") > 1:
-            for number, line in enumerate(raw[:-1].split(b"\n"), 1):
-                if not _OID.fullmatch(line):
-                    return None, _off_form("a line of MERGE_HEAD not of the form <object>LF", label)
-                entries.append((label if number == 1 else f"{label} (line {number})", "object", line.decode("ascii")))
-            continue
-        if not raw:
-            return None, (f"the local ref {label} names nothing the gate can read, and it may record the ref this push "
-                          "writes")
-        kind, value = _ref_file(raw)
-        if kind == "off":
-            return None, _off_form(value, label)   # R16-4
-        entries.append((label, kind, value))
-
-    def shared(name: str) -> tuple[str, str] | None:
-        return _shared_ref(store, name)
-
     found: dict[str, str] = {}
-    for (prefix, name), entries in sorted(records.items()):
-        if (prefix, name) in steps_only:
-            continue
-        for shown, kind, value in entries:
-            if kind == "object":
-                found[shown] = value
-            elif not _resolves(records, shared, prefix, value, 1):
-                return None, _not_established(shown)
-    for prefix in [prefix for _folder, prefix, other in places if other]:
-        for name in sorted(symbolic):
-            if not name.startswith("refs/") or name.startswith(_PER_WORKTREE):
-                continue   # this worktree's own, which git resolves here
-            first = shared(name)
-            if first is None or first[0] != "symbolic" or not _resolves(records, shared, prefix, first[1], 1):
-                return None, _not_established(prefix + name)
+    try:
+        names = sorted(name for name in os.listdir(folder)
+                       if _ROOT_REF.fullmatch(name) or name in _ROOT_REF_OTHERS or name == "HEAD")
+        for name in names:
+            path = os.path.join(folder, name)
+            if not _no_link(path):
+                return None, _off_form("a symbolic link", name)   # R16-2
+            raw = _record_bytes(path)
+            if raw is None:
+                return None, _too_large(name)
+            if name == "FETCH_HEAD":
+                if raw and not raw.endswith(b"\n"):
+                    return None, _off_form(_FETCH_FORM, name)
+                for number, line in enumerate(raw.split(b"\n")[:-1], 1):
+                    match = _FETCH_LINE.fullmatch(line)
+                    if match is None:
+                        return None, _off_form(_FETCH_FORM, name if number == 1 else f"{name} (line {number})")
+                    found[name if number == 1 else f"{name} (line {number})"] = match.group(1).decode("ascii")
+                continue
+            if name == "MERGE_HEAD" and raw.endswith(b"\n") and raw.count(b"\n") > 1:
+                for number, line in enumerate(raw[:-1].split(b"\n"), 1):
+                    if not _OID.fullmatch(line):
+                        return None, _off_form("a line of MERGE_HEAD not of the form <object>LF", name)
+                    found[name if number == 1 else f"{name} (line {number})"] = line.decode("ascii")
+                continue
+            if not raw:
+                return None, (f"the local ref {name} names nothing the gate can read, and it may record the ref this "
+                              "push writes")
+            kind, value = _ref_file(raw)
+            if kind == "off":
+                return None, _off_form(value, name)   # R16-4
+            if name == "HEAD":
+                if kind == "symbolic" and (value not in present or value in symbolic):
+                    return None, _outside("a symbolic ref whose target is not a ref git lists, named directly", name)
+                continue
+            if kind == "symbolic":
+                return None, _outside("a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", name)
+            found[name] = value
+    except OSError:
+        return None, unread
     return found, ""
 
 
-def _shared_ref(store: dict, name: str) -> tuple[str, str] | None:
-    """What the shared ref `name` holds in the ref store, as ("object", oid) or ("symbolic", target): its loose file in
-    the common directory as _stored_refs read and checked it, else its entry of packed-refs, which a folder at the
-    loose place leaves to answer as git does; None where it holds neither. Only names the store read come back, so no
-    path leaves the store, and no file is opened a second time or through a link (review round 16, R16-2: a loose
-    symbolic link to nothing had been read as a missing file, and packed-refs had answered)."""
-    if name in store["loose"]:
-        return store["loose"][name]
-    return ("object", store["packed"][name]) if name in store["packed"] else None
+#: What a line of FETCH_HEAD in another form is called (narrow contract, point 5).
+_FETCH_FORM = "a line of FETCH_HEAD not of the form <object>TAB[not-for-merge]TAB<note>LF"
+#: The names in the environment that move git's view of the repository away from the work tree the call names
+#: (external design review of 2026-10-13 at 101bd167); within one ordinary main worktree none is needed.
+_CONTEXT_NAMES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
 
 
-#: How many refs git reads one after another for one resolution, the one it starts from included, before it gives up
-#: (refs.c of git 2.43.0, SYMREF_MAXDEPTH; measured by the reviewer with git 2.51.1 and 2.43.0 and here with 2.43.0:
-#: four symbolic refs and the object resolve, five symbolic refs do not).
-SYMREF_MAXDEPTH = 5
-
-
-def _resolves(records: dict, shared, prefix: str, target: str, read: int) -> bool:
-    """Whether the target of a symbolic record of the worktree `prefix` names ("" this one, main-worktree/ or
-    worktrees/<name>/ another) resolves there, step by step from the ref store, as git resolves it in that worktree:
-    a per-worktree name (refs/bisect/, refs/worktree/, refs/rewritten/, a root ref, any name outside refs/) among that
-    worktree's own records, a shared name in the store (_shared_ref), and a symbolic step of either kind in the same
-    worktree again (review round 14 of 2026-10-13, R14-1: the target had been looked up among the refs of the current
-    worktree; review round 15, R15-1: a shared symbolic step had ended with the name's place in the listing of the
-    current worktree, which git resolves there and not in the record's worktree). No step is answered from a listing
-    git resolved already. `read` counts the refs read for this resolution so far, the record it starts from included,
-    and the target is one more: where git would read more than SYMREF_MAXDEPTH, as along a cycle, it does not resolve
-    (review round 15 of 2026-10-13, R15-2: counted from the target, the gate had read the object at the sixth ref, where
-    git gives up after the fifth)."""
-    if read >= SYMREF_MAXDEPTH:
-        return False
-    if target.startswith("refs/") and not target.startswith(_PER_WORKTREE):
-        entry = shared(target)
-    else:
-        entries = records.get((prefix, target))
-        entry = entries[0][1:] if entries else None
-    if entry is None:
-        return False
-    kind, value = entry
-    return kind == "object" or _resolves(records, shared, prefix, value, read + 1)
+def _narrow_range(repo: str, deadline: float) -> str | None:
+    """None where the repository lies in the range the exception covers (owner choice of 2026-10-13, 17:0x Berlin, A
+    and A, the narrow contract, point 1), else why not: exactly one ordinary main worktree, its .git a folder of its own
+    that is git's directory for it, no linked worktree and no entry at all under <git directory>/worktrees, which is
+    read itself and not counted from `git worktree list`, and no inherited GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR,
+    which move git's view of the repository. More worktrees lie outside on purpose; they are asked."""
+    named = [name for name in _CONTEXT_NAMES if os.environ.get(name) is not None]
+    if named:
+        return _outside("the environment sets a name that moves git's view of the repository", named[0])
+    paths, why = _repo_paths(repo, deadline)
+    if paths is None or not paths["common"] or not paths["gitdir"]:
+        return why or "git does not name the repository's directories, so its worktrees are not known"
+    if os.path.realpath(paths["gitdir"]) != os.path.realpath(paths["common"]):
+        return _outside("a linked worktree", str(repo))
+    dot_git = os.path.join(str(repo), ".git")
+    if (not _no_link(dot_git) or not os.path.isdir(dot_git)
+            or os.path.realpath(dot_git) != os.path.realpath(paths["gitdir"])):
+        return _outside("a .git that is not the worktree's own folder of the repository", dot_git)
+    folder = os.path.join(paths["common"], "worktrees")
+    if not _no_link(folder):
+        return _outside("a symbolic link", "worktrees")
+    try:
+        entries = sorted(os.listdir(folder))
+    except FileNotFoundError:
+        entries = []
+    except OSError:
+        return _outside("an entry the gate cannot read", "worktrees")
+    if entries:
+        return _outside("a further worktree", f"worktrees/{entries[0]}")
+    return None
 
 
 #: The most tags the gate peels one after another to reach the object a ref names at last.
@@ -4505,7 +4493,8 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
             return None, f"the local ref {local}, which may record the ref this push writes, is a broken ref"
         if local not in present:
             continue
-        commit = _git(repo, "rev-parse", "--verify", "--quiet", f"{present[local]}^{{commit}}", deadline=deadline)
+        commit = _git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{present[local]}^{{commit}}",
+                      deadline=deadline)
         if commit.returncode != 0 or not commit.stdout.strip():
             return None, (f"the local ref {local}, which may record the ref this push writes, names no commit this "
                           "repository holds")
@@ -4594,6 +4583,10 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         if any(value is None for value in values):
             return None, ("which ref the push writes on the remote cannot be named here, so its local records cannot "
                           "be read")
+        # Condition d holds only within the narrow contract (owner choice of 2026-10-13, 17:0x Berlin, A and A).
+        why = _narrow_range(repo, deadline)
+        if why is not None:
+            return None, why
         records, why = _destination_records(repo, remote, [v for v in values if v is not None], deadline)
         if records is None:
             return None, why
@@ -4634,6 +4627,14 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
                           f"{at[:12]}; {_NOT_ESTABLISHED}" if state == "present" else
                           f"git does not give the whole tree of {at[:12]}, the object of the local ref {local}, which "
                           "may record the ref this push writes")
+        # A change between the reading of the refs and the reading of their objects leaves no finished measurement of
+        # absence (narrow contract, point 7).
+        again, why = _present_refs(repo, deadline)
+        if again is None:
+            return None, why
+        if again != present or why != broken:
+            return None, ("the local refs changed while the gate read them, so its reading is no finished measurement "
+                          "that nothing is declared")
     except GateError as exc:
         return None, f"the gate could not finish its reading ({exc})"
     tips = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none, the push only deletes"
@@ -4644,7 +4645,7 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
     text = (f"NOT MEASURED: the gate checks nothing here. {repo} declares no evidence: nothing stands at {DECLARATION} "
             f"at HEAD {head[:12]}, in the working tree, at the {len(history)} commit(s) the push may send (the whole "
             f"history of {tips}) or at any of the {len(present)} local refs of this repository (git's listing, "
-            "FETCH_HEAD line by line, the other root refs and the refs of its other worktrees), each read since which "
+            "FETCH_HEAD line by line and the other root refs of its one worktree), each read since which "
             f"of them recorded the destination is not determinable here{found}. The gate is not active in this "
             "repository, because nothing is declared. This is local inactivity (owner choice 1 A of 2026-10-11, "
             "DECISIONS.md D5), not a check and not a pass, and the host's normal approval decides. The push's "

@@ -52,7 +52,8 @@ def test_the_reviewers_case_a_shared_step_to_a_name_the_other_worktree_lacks(env
     w1._git(work, "update-ref", "refs/bisect/here", a)
     assert not _resolves_there(other, form) and _resolves_there(work, "refs/heads/bridge")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/{form}")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_from_a_linked_worktree_a_shared_step_of_the_main_worktrees_record(env, tmp_path):
@@ -64,7 +65,8 @@ def test_from_a_linked_worktree_a_shared_step_of_the_main_worktrees_record(env, 
     w1._git(linked, "update-ref", "refs/bisect/here", a)
     assert not _resolves_there(work, "ORIG_HEAD") and _resolves_there(linked, "refs/heads/bridge")
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}main-worktree/ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a linked worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a linked worktree", str(linked))
 
 
 def test_a_shared_symbolic_ref_that_another_worktree_does_not_resolve(env, tmp_path):
@@ -75,7 +77,8 @@ def test_a_shared_symbolic_ref_that_another_worktree_does_not_resolve(env, tmp_p
     w1._git(work, "update-ref", "refs/bisect/here", a)
     assert not _resolves_there(other, "refs/heads/bridge") and _resolves_there(work, "refs/heads/bridge")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/refs/heads/bridge")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 @pytest.mark.parametrize("form", FORMS)
@@ -87,4 +90,5 @@ def test_control_the_target_in_the_other_worktree_too_keeps_the_exception(env, t
     w1._git(work, "update-ref", "refs/bisect/here", a)
     w1._git(other, "update-ref", "refs/bisect/here", a)
     assert _resolves_there(other, form)
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")

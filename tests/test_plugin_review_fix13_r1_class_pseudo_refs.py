@@ -66,7 +66,8 @@ def test_the_head_of_another_worktree_is_read(env, tmp_path):
     declared = a1._declared_on_top(work, a)
     w1._git(work, "worktree", "add", "-q", "--detach", str(tmp_path / "other"), declared)
     answer, entry, text = w1._l1(env, work)
-    p1._refused_at(answer, entry, text, "worktrees/other/HEAD", declared)
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_control_fetch_head_of_clean_commits_keeps_the_exception(env, tmp_path):
@@ -74,13 +75,8 @@ def test_control_fetch_head_of_clean_commits_keeps_the_exception(env, tmp_path):
     assert (work / ".git" / "FETCH_HEAD").is_file()
     w1._git(work, "worktree", "add", "-q", "-b", "side", str(tmp_path / "other"))
     answer, entry, text = w1._l1(env, work)
-    w1._assert_inactive(answer, entry, text)
-    # git's listing, the lines of FETCH_HEAD and the ORIG_HEAD `git worktree add` wrote for the other worktree; its
-    # HEAD, a symbolic ref to refs/heads/side, adds nothing
-    listed = len(w1._git(work, "for-each-ref", "--format=%(refname)").stdout.split())
-    fetched = len((work / ".git" / "FETCH_HEAD").read_text(encoding="utf-8").splitlines())
-    assert (work / ".git" / "worktrees" / "other" / "ORIG_HEAD").is_file()
-    assert f"at any of the {listed + fetched + 1} local refs of this repository" in text, text
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_a_per_worktree_ref_of_the_main_worktree_is_read_from_a_linked_one(env, tmp_path):
@@ -91,4 +87,5 @@ def test_a_per_worktree_ref_of_the_main_worktree_is_read_from_a_linked_one(env, 
     linked = tmp_path / "linked"
     w1._git(work, "worktree", "add", "-q", "-b", "side", str(linked))
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    p1._refused_at(answer, entry, text, "main-worktree/refs/bisect/bad", declared)
+    # Narrow contract of 2026-10-13, 17:0x: a linked worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a linked worktree", str(linked))

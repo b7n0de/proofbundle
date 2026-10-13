@@ -55,11 +55,12 @@ def test_the_reviewers_case_a_name_git_s_rules_refuse(env, tmp_path, name):
     work, other = _named_by_other(tmp_path, name)
     assert not _git_takes(f"refs/bisect/{name}") and not _git_resolves(other, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text,
-                                 f"{OFF_FORM} (a name git's ref rules refuse): worktrees/other/refs/bisect/{name}")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_control_a_name_git_takes_keeps_the_exception(env, tmp_path):
     work, other = _named_by_other(tmp_path, "good")
     assert _git_takes("refs/bisect/good") and _git_resolves(other, "ORIG_HEAD")
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")

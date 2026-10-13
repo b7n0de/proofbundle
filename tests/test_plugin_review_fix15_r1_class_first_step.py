@@ -63,7 +63,8 @@ def test_a_shared_symbolic_ref_one_ref_too_long_in_another_worktree(env, tmp_pat
     assert _git_resolves(work, "refs/heads/s1") and not _git_resolves(other, "refs/heads/s1")
     assert _git_resolves(other, "refs/bisect/x")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/refs/heads/s1")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_a_per_worktree_step_the_other_worktree_does_not_hold(env, tmp_path):
@@ -75,4 +76,5 @@ def test_a_per_worktree_step_the_other_worktree_does_not_hold(env, tmp_path):
     w1._git(work, "symbolic-ref", "refs/heads/s1", "refs/bisect/m")
     assert _git_resolves(work, "refs/heads/s1") and not _git_resolves(other, "refs/heads/s1")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/refs/heads/s1")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")

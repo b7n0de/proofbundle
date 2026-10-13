@@ -49,10 +49,8 @@ def test_the_reviewers_case_in_another_worktree(env, tmp_path, steps):
     resolves = _git_resolves(other, "ORIG_HEAD")
     assert resolves == (steps <= 4), (steps, resolves)          # git's own answer, measured here
     answer, entry, text = w1._l1(env, work)
-    if resolves:
-        w1._assert_inactive(answer, entry, text)
-    else:
-        w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 @pytest.mark.parametrize("steps", [4, 5])
@@ -64,7 +62,5 @@ def test_a_root_ref_of_this_worktree_through_shared_names(env, tmp_path, steps):
     resolves = _git_resolves(work, "ORIG_HEAD")
     assert resolves == (steps <= 4), (steps, resolves)
     answer, entry, text = w1._l1(env, work)
-    if resolves:
-        w1._assert_inactive(answer, entry, text)
-    else:
-        w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}ORIG_HEAD")
+    # Narrow contract of 2026-10-13, 17:0x: a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD is asked.
+    w1._assert_outside(answer, entry, text, "a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", "refs/heads/s1")

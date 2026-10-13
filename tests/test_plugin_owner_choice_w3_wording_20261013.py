@@ -33,5 +33,6 @@ def test_a_record_git_resolves_and_the_gate_does_not_is_named_without_a_claim_ab
                            capture_output=True, text=True, check=False)
     assert (there.returncode, there.stdout.strip()) == (0, a), there
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, WORDING)
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
     assert "git does not resolve" not in text, text

@@ -51,10 +51,12 @@ def test_the_reviewers_case_a_loose_entry_that_is_a_symbolic_link(env, tmp_path,
     os.symlink(target, link)
     assert not _git_resolves(other, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"{OFF_FORM} (a symbolic link): refs/heads/side")
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
 
 
 def test_control_without_the_link_keeps_the_exception(env, tmp_path):
     work, other = _side_packed_and_named_by_other(tmp_path)
     assert _git_resolves(other, "ORIG_HEAD")
-    w1._assert_inactive(*w1._l1(env, work))
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(*w1._l1(env, work), "a further worktree", "worktrees/other")

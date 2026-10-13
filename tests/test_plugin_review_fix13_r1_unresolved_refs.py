@@ -113,4 +113,5 @@ def test_control_a_push_from_a_linked_worktree_keeps_the_exception(env, tmp_path
     w1._git(work, "worktree", "add", "-q", "-b", "side", str(linked))
     w1._git(work, "update-ref", "refs/bisect/main-worktree", "HEAD")
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    w1._assert_inactive(answer, entry, text)
+    # Narrow contract of 2026-10-13, 17:0x: a linked worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a linked worktree", str(linked))

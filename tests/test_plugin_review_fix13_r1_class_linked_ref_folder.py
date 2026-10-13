@@ -51,4 +51,5 @@ def test_a_linked_folder_of_another_worktrees_own_refs(env, tmp_path):
     own.mkdir(exist_ok=True)       # git 2.51.1 writes it on `git worktree add`, git 2.43.0 does not (R14-2)
     _linked_folder(tmp_path, own / "bisect", a)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, LINKED)
+    # Narrow contract of 2026-10-13, 17:0x: a further worktree lies outside its range and is asked first.
+    w1._assert_outside(answer, entry, text, "a further worktree", "worktrees/other")
