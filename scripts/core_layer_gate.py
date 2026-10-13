@@ -7,7 +7,8 @@ WHAT IT MEASURES, at the tree it runs in:
 1. THE CORE LIST. The static import closure of the two verification paths named in
    scripts/core_layer_modules.json (today proofbundle.bundle for verify_bundle and proofbundle.decision
    for verify_decision_receipt). Every import statement counts, at any depth of a function, except the
-   ones under `if TYPE_CHECKING:`. A reached module brings its package initialisation with it, because
+   ones under `if TYPE_CHECKING:`, and those only while no module of the package can change
+   `typing.TYPE_CHECKING`. A reached module brings its package initialisation with it, because
    Python runs `__init__.py` before the submodule. The lazy package map of proofbundle/__init__.py is
    not followed: it loads through `importlib` on attribute access, and that access is itself reported
    as a dynamic import of the package initialisation. The computed closure must EQUAL the fixed list.
@@ -241,7 +242,45 @@ def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]
             other[node.arg] = 1
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             other[node.name] = 1
+    if type_checking_may_change(tree):
+        return frozenset(), frozenset()
     return frozenset(names - set(other)), frozenset(modules - set(other))
+
+
+_ATTRIBUTE_WRITERS = ("setattr", "delattr")
+
+
+def type_checking_may_change(tree: ast.AST) -> bool:
+    """Whether this module can change `typing.TYPE_CHECKING` at run time, so that no guard in it, or in any
+    module run after it, is evidence of a body that never runs (CODEX-630-K6, sibling).
+
+    `typing.TYPE_CHECKING = True` before `if typing.TYPE_CHECKING:` made the body run while the gate skipped it
+    as a type-checking block. Changes the gate sees: an assignment or deletion of any attribute named
+    TYPE_CHECKING, a `setattr` or `delattr` whose name is TYPE_CHECKING or not a literal, and a write through a
+    module's `__dict__` or `vars()`.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)) \
+                and node.attr in ("TYPE_CHECKING", "__dict__"):
+            return True
+        if isinstance(node, ast.Subscript) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            holder = node.value
+            if isinstance(holder, ast.Attribute) and holder.attr == "__dict__":
+                return True
+            if isinstance(holder, ast.Call) and isinstance(holder.func, ast.Name) and holder.func.id == "vars":
+                return True
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+            if name in _ATTRIBUTE_WRITERS:
+                arg = node.args[1] if len(node.args) >= 2 else None
+                if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)) \
+                        or arg.value == "TYPE_CHECKING":
+                    return True
+    return False
+
+
+_NO_GUARDS: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
 
 
 def _is_type_checking(test: ast.expr, guards: tuple[frozenset[str], frozenset[str]]) -> bool:
@@ -278,7 +317,8 @@ def _absolute(modname: str, is_pkg: bool, level: int, module: str | None) -> str
     return ".".join(parts + ([module] if module else []))
 
 
-def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str]) -> list[tuple[str, int]]:
+def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str],
+               guards: tuple[frozenset[str], frozenset[str]] | None = None) -> list[tuple[str, int]]:
     """(imported module, line) for every runtime import; parents of a dotted name come along."""
     found: list[tuple[str, int]] = []
 
@@ -287,7 +327,7 @@ def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str]) -> li
         for i in range(1, len(parts) + 1):
             found.append((".".join(parts[:i]), line))
 
-    for node in runtime_nodes(tree):
+    for node in runtime_nodes(tree, guards):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 add(alias.name, node.lineno)
@@ -303,7 +343,8 @@ def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str]) -> li
 
 
 def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
-            trees: dict[str, ast.Module]) -> tuple[dict[str, set[str]], dict[str, dict[str, list[int]]]]:
+            trees: dict[str, ast.Module], guards: tuple[frozenset[str], frozenset[str]] | None = None,
+            ) -> tuple[dict[str, set[str]], dict[str, dict[str, list[int]]]]:
     """The static closure: member -> roots reaching it, and per member its imports with lines."""
     reached: dict[str, set[str]] = {}
     edges: dict[str, dict[str, list[int]]] = {}
@@ -327,7 +368,7 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
                     queue.append(parent)
             if m not in trees:
                 trees[m] = parse(mods[m][0])
-            imp = imports_of(trees[m], m, mods[m][1], known)
+            imp = imports_of(trees[m], m, mods[m][1], known, guards)
             per = edges.setdefault(m, {})
             for target, line in imp:
                 per.setdefault(target, []).append(line)
@@ -343,7 +384,7 @@ class _Scope:
     def __init__(self, kind: str, parent: "_Scope | None") -> None:
         self.kind = kind
         self.parent = parent
-        self.alias: dict[str, str] = {}
+        self.alias: dict[str, set[str]] = {}
         self.local: set[str] = set()
         self.globals: set[str] = set()
         self.nonlocals: set[str] = set()
@@ -359,7 +400,10 @@ class _Names:
 
     An import or a simple re-binding (`reader = open`) makes an alias in its scope; every other binding
     (a parameter, a loop or `with` target, an assignment the gate cannot resolve, a def or a class)
-    shadows the name in that scope only. A function does not see the scope of the class it is defined
+    shadows the name in that scope only. A scope keeps EVERY alias it makes for a name, not the last one:
+    `import os; VALUE = os.getenv("X"); import math as os` read the environment before the re-binding,
+    and the gate resolved the earlier use against the later alias (CODEX-630-K6). A use is judged
+    against each binding it may meet. A function does not see the scope of the class it is defined
     in; `global` sends a name to the module scope. Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
     builtin that a rule names, because there the builtin is used whenever the binding has not run.
@@ -376,9 +420,9 @@ class _Names:
             changed = False
             for s in self._scopes:
                 for name, value in s.assigns:
-                    q = self._qual(value, s)
-                    if q and s.alias.get(name) != q:
-                        s.alias[name] = q
+                    new = self._quals(value, s) - s.alias.get(name, set())
+                    if new:
+                        s.alias.setdefault(name, set()).update(new)
                         changed = True
             if not changed:
                 break
@@ -447,15 +491,18 @@ class _Names:
             for a in node.names:
                 target = self.module if (a.asname or a.name.split(".")[0]) in scope.globals else scope
                 if a.asname:
-                    target.alias[a.asname] = a.name
+                    target.alias.setdefault(a.asname, set()).add(a.name)
                 else:
                     top = a.name.split(".")[0]
-                    target.alias[top] = top
+                    target.alias.setdefault(top, set()).add(top)
         elif isinstance(node, ast.ImportFrom):
             base = _absolute(self._modname, self._is_pkg, node.level, node.module)
             for a in node.names:
                 if a.name != "*":
-                    scope.alias[a.asname or a.name] = f"{base}.{a.name}" if base else a.name
+                    # `global` sends a from-import to the module scope as it does a plain import
+                    bound = a.asname or a.name
+                    target = self.module if bound in scope.globals else scope
+                    target.alias.setdefault(bound, set()).add(f"{base}.{a.name}" if base else a.name)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
             self._bind(scope, node.id)
         elif isinstance(node, ast.ExceptHandler) and node.name:
@@ -469,7 +516,7 @@ class _Names:
         for child in ast.iter_child_nodes(node):
             self._visit(child, scope)
 
-    def _lookup(self, name: str, scope: _Scope) -> str | None:
+    def _lookup(self, name: str, scope: _Scope) -> set[str]:
         s: _Scope | None = scope
         first = True
         while s is not None:
@@ -487,27 +534,29 @@ class _Names:
                     # a binding there may never run (under `if`, in `try`, through `global` in a
                     # function nobody calls). There a builtin with a rule is not hidden by any binding.
                     if s.kind != "function" and _is_ruled_builtin(name):
-                        return f"builtins.{name}"
-                    return s.alias.get(name)
+                        return {f"builtins.{name}"} | s.alias.get(name, set())
+                    return set(s.alias.get(name, ()))
             s, first = s.parent, False
-        return f"builtins.{name}" if name in _BUILTIN_NAMES else None
+        return {f"builtins.{name}"} if name in _BUILTIN_NAMES else set()
 
-    def _qual(self, node: ast.expr, scope: _Scope) -> str | None:
+    def _quals(self, node: ast.expr, scope: _Scope) -> set[str]:
         if isinstance(node, ast.Name):
             return self._lookup(node.id, scope)
         if isinstance(node, ast.Attribute):
-            base = self._qual(node.value, scope)
-            return f"{base}.{node.attr}" if base else None
-        return None
+            return {f"{base}.{node.attr}" for base in self._quals(node.value, scope)}
+        return set()
 
-    def qual(self, node: ast.expr) -> str | None:
-        return self._qual(node, self.scope_of.get(id(node), self.module))
+    def quals(self, node: ast.expr) -> list[str]:
+        """Every qualified name the expression may stand for, sorted; empty when the gate cannot resolve it."""
+        return sorted(self._quals(node, self.scope_of.get(id(node), self.module)))
 
 
 # ── findings ───────────────────────────────────────────────────────────────────────────────────
-def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, str, int]]:
+def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
+                guards: tuple[frozenset[str], frozenset[str]] | None = None) -> list[tuple[str, str, int]]:
     """(rule, operation, line) for one core module."""
-    guards = type_checking_guards(tree)
+    if guards is None:
+        guards = type_checking_guards(tree)
     names = _Names(tree, modname, is_pkg, guards)
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
@@ -531,25 +580,24 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, st
                 if rule and not _rule_of_module(node.module):
                     out.append((rule, f"{node.module}.{a.name}", line))
         elif isinstance(node, ast.Call):
-            q = names.qual(node.func)
-            if q in _DYNAMIC_ATTRIBUTE_CALLS and len(node.args) >= 2:
-                name_arg = node.args[1]
-                if isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str):
-                    target = names.qual(node.args[0])
-                    attr = name_arg.value
-                    full = f"{target}.{attr}" if target else None
-                    rule = _rule_of_name(full) if full else None
-                    if rule:
-                        out.append((rule, full or attr, line))
-                    elif target is None and attr in _FILE_METHODS:
-                        out.append(("file", f".{attr}", line))
-                    elif target is None and attr in _ENVIRONMENT_METHODS:
-                        out.append(("environment", f".{attr}", line))
-                else:
-                    out.append(("dynamic_access", f"{q.split('.')[-1]}(computed name)", line))
-            if q in _CLOCK_WITHOUT_ARGUMENT and len(node.args) <= _CLOCK_WITHOUT_ARGUMENT[q] \
-                    and not node.keywords:
-                out.append(("clock", f"{q}()", line))
+            for q in names.quals(node.func):
+                if q in _DYNAMIC_ATTRIBUTE_CALLS and len(node.args) >= 2:
+                    name_arg = node.args[1]
+                    if isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str):
+                        targets = names.quals(node.args[0])
+                        attr = name_arg.value
+                        ruled = [(rule, f"{t}.{attr}") for t in targets if (rule := _rule_of_name(f"{t}.{attr}"))]
+                        if ruled:
+                            out.extend((rule, full, line) for rule, full in ruled)
+                        elif not targets and attr in _FILE_METHODS:
+                            out.append(("file", f".{attr}", line))
+                        elif not targets and attr in _ENVIRONMENT_METHODS:
+                            out.append(("environment", f".{attr}", line))
+                    else:
+                        out.append(("dynamic_access", f"{q.split('.')[-1]}(computed name)", line))
+                if q in _CLOCK_WITHOUT_ARGUMENT and len(node.args) <= _CLOCK_WITHOUT_ARGUMENT[q] \
+                        and not node.keywords:
+                    out.append(("clock", f"{q}()", line))
         elif isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
             up = parent.get(id(node))
             if isinstance(up, ast.Attribute) and up.value is node:
@@ -557,18 +605,16 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, st
             if isinstance(node, ast.Name) and node.id == "__builtins__":
                 out.append(("dynamic_access", "__builtins__", line))
                 continue
-            q = names.qual(node)
-            if q:
-                rule = _rule_of_name(q)
-                if rule:
-                    out.append((rule, q, line))
-                    continue
+            ruled = [(rule, q) for q in names.quals(node) if (rule := _rule_of_name(q))]
+            if ruled:
+                out.extend((rule, q, line) for rule, q in ruled)
+                continue
             if isinstance(node, ast.Attribute):
                 if node.attr == "__dict__":
                     out.append(("dynamic_access", ".__dict__", line))
-                elif node.attr in _FILE_METHODS and names.qual(node.value) is None:
+                elif node.attr in _FILE_METHODS and not names.quals(node.value):
                     out.append(("file", f".{node.attr}", line))
-                elif node.attr in _ENVIRONMENT_METHODS and names.qual(node.value) is None:
+                elif node.attr in _ENVIRONMENT_METHODS and not names.quals(node.value):
                     out.append(("environment", f".{node.attr}", line))
     return out
 
@@ -615,14 +661,26 @@ def measure(root: Path, modules_file: Path) -> dict:
         raise NotMeasurable(f"{modules_file}: trust boundaries without a reason: {unexplained}")
     mods = discover(root / "src", package)
     trees: dict[str, ast.Module] = {}
-    reached, edges = closure(sorted(roots), mods, package, trees)
+    # typing is one module for the whole process: a module of the package that changes TYPE_CHECKING
+    # changes it for every core module run after it, so then no guard anywhere skips a body (CODEX-630-K6).
+    # A module that does not parse cannot run and changes nothing.
+    changers = []
+    for m in sorted(mods):
+        try:
+            trees.setdefault(m, parse(mods[m][0]))
+        except NotMeasurable:
+            continue
+        if type_checking_may_change(trees[m]):
+            changers.append(m)
+    guards = _NO_GUARDS if changers else None
+    reached, edges = closure(sorted(roots), mods, package, trees, guards)
     listed = spec.get("modules")
     if not isinstance(listed, list) or not all(isinstance(m, str) for m in listed):
         raise NotMeasurable(f"{modules_file}: modules must be a list of module names")
     core = set(listed)
     raw: dict[tuple[str, str, str], list[int]] = {}
     for m in sorted(reached):
-        for rule, op, line in findings_of(trees[m], m, mods[m][1]):
+        for rule, op, line in findings_of(trees[m], m, mods[m][1], guards):
             raw.setdefault((rule, m, op), []).append(line)
         for rule, op, line in external_and_edges(edges.get(m, {}), core, package, boundaries):
             raw.setdefault((rule, m, op), []).append(line)
@@ -632,6 +690,7 @@ def measure(root: Path, modules_file: Path) -> dict:
         "closure": {m: sorted(r) for m, r in sorted(reached.items())},
         "listed": sorted(core),
         "trust_boundaries": dict(sorted(boundaries.items())),
+        "type_checking_changed_by": changers,
         "findings": [{"rule": r, "module": m, "operation": op, "count": len(ls),
                       "lines": sorted(set(ls))[:10]}
                      for (r, m, op), ls in sorted(raw.items())],
