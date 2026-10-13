@@ -21,6 +21,7 @@ the ask names the ref without claiming it is a record of the destination. Red ag
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -93,9 +94,12 @@ def test_the_records_of_a_remote_whose_configuration_is_gone_are_read(env, tmp_p
     w1._git(work, "fetch", "-q", "--no-tags", "gone")
     w1._git(work, "config", "--remove-section", "remote.gone")     # the configuration goes, the refs stay
     _back_to_clean(work, remote, a)
-    assert w1.n2c._rev(work, "refs/remotes/gone/main") == declared
     answer, entry, text = w1._l1(env, work)
-    _refused_at(answer, entry, text, "refs/remotes/gone/main", declared)
+    named = re.search(r"the local ref (refs/remotes/gone/\S+) holds something", text)
+    assert named is not None, text
+    record = named.group(1)
+    assert w1.n2c._rev(work, record) == declared
+    _refused_at(answer, entry, text, record, declared)
 
 
 def test_the_refs_an_earlier_fetch_rule_wrote_are_read(env, tmp_path):
