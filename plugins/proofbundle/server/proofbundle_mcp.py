@@ -399,32 +399,32 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
         return "git writes the push under refs/namespaces/ on the throwaway remote (GIT_NAMESPACE), not to its main"
     exec_path = os.environ.get("GIT_EXEC_PATH")
     if exec_path:
-        own = subprocess.run(["git", "--exec-path"], capture_output=True, text=True, timeout=60, check=False,
+        own = subprocess.run(["git", "--exec-path"], capture_output=True, text=True, errors="surrogateescape", timeout=60, check=False,
                              env={k: v for k, v in os.environ.items() if k != "GIT_EXEC_PATH"})
         if own.returncode != 0 or os.path.realpath(own.stdout.strip()) != os.path.realpath(exec_path):
             return ("GIT_EXEC_PATH names another program folder than git's own, from which a local push starts "
                     "its receive program")
     query = subprocess.run(["git", "-C", work, "rev-parse", "--path-format=absolute", "--absolute-git-dir",
                             "--git-common-dir", "--show-toplevel", "--git-path", "index", "--git-path", "objects"],
-                           capture_output=True, text=True, timeout=60, check=False)
+                           capture_output=True, text=True, errors="surrogateescape", timeout=60, check=False)
     git_dir = os.path.join(work, ".git")
     expected = [git_dir, git_dir, work, os.path.join(git_dir, "index"), os.path.join(git_dir, "objects")]
     if query.returncode != 0 or [os.path.realpath(p) for p in query.stdout.splitlines()] != \
             [os.path.realpath(p) for p in expected]:
         return "git takes another repository, work tree, index or object store for a call in the self-test's folder"
     url = subprocess.run(["git", "-C", work, "remote", "get-url", "--push", "--all", "origin"],
-                         capture_output=True, text=True, timeout=60, check=False)
+                         capture_output=True, text=True, errors="surrogateescape", timeout=60, check=False)
     if url.returncode != 0 or url.stdout.splitlines() != [bare]:
         return "git pushes the self-test's origin to another URL than its throwaway remote"
     mapping = subprocess.run(["git", "-C", work, "config", "--get-all", "remote.origin.push"],
-                             capture_output=True, text=True, timeout=60, check=False, env=_config_env())
+                             capture_output=True, text=True, errors="surrogateescape", timeout=60, check=False, env=_config_env())
     if mapping.returncode != 1 or mapping.stdout or mapping.stderr:
         return "a push mapping of origin (remote.origin.push) sends `push origin main` to another ref than its main"
     for where, key, why in ((["-C", work], "remote.origin.receivepack", "names another receive program for origin"),
                             (["-C", work], "remote.origin.vcs", "makes a remote helper the transport of origin"),
                             (["--git-dir", bare], "receive.procReceiveRefs",
                              "hands refs to a proc-receive program on the throwaway remote")):
-        value = subprocess.run(["git", *where, "config", "--get-all", key], capture_output=True, text=True,
+        value = subprocess.run(["git", *where, "config", "--get-all", key], capture_output=True, text=True, errors="surrogateescape",
                                timeout=60, check=False, env=_config_env())
         if value.returncode != 1 or value.stdout or value.stderr:
             return f"a configured {key} {why}, a receiver the check does not read"
@@ -445,10 +445,31 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
             except FileNotFoundError:
                 continue
             except OSError:
-                return f"the hooks folder {folder} of the throwaway remote cannot be read for a {name} hook"
-            return (f"the hooks folder {folder} of the throwaway remote holds a {name} hook (core.hooksPath), a "
+                return f"the hooks folder {_shown(folder)} of the throwaway remote cannot be read for a {name} hook"
+            return (f"the hooks folder {_shown(folder)} of the throwaway remote holds a {name} hook (core.hooksPath), a "
                     "program its receive-pack runs that can refuse, change or undo the write the check reads")
     return None
+
+
+def _shown(path: str) -> str:
+    """A path read byte for byte, shown unambiguously and printably: its bytes as UTF-8 text, a backslash doubled, a
+    byte that is no UTF-8 text as \\xNN (always 80 to ff), a control character or DEL as \\xNN below 80, and a C1
+    control as \\u00NN (review round 12 of 2026-10-13, R12-3: a hooks folder whose last name byte was 0xff had put that
+    raw byte into the server's JSON)."""
+    raw = os.fsencode(path).replace(b"\\", b"\\\\").decode("utf-8", "backslashreplace")
+    return "".join(f"\\x{ord(c):02x}" if ord(c) < 0x20 or ord(c) == 0x7f else
+                   f"\\u{ord(c):04x}" if 0x80 <= ord(c) < 0xa0 else c for c in raw)
+
+
+def _json_text(value: object, **options) -> str:
+    """JSON text that is valid UTF-8 whatever strings `value` holds: where a string carries a byte os.fsdecode could
+    only keep as a lone surrogate, the whole text uses JSON's \\u escapes instead of writing that byte raw (R12-3)."""
+    text = json.dumps(value, ensure_ascii=False, **options)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.dumps(value, ensure_ascii=True, **options)
+    return text
 
 
 #: What git clears in the environment of the receive-pack a local push starts (local_repo_env in git's environment.c):
@@ -479,7 +500,7 @@ def _remote_refs(bare: str) -> str | None:
     """Every ref of the throwaway remote with its object, one per line and sorted, refs/namespaces/ included; None
     where git cannot list them."""
     listing = subprocess.run(["git", "--git-dir", bare, "for-each-ref", "--format=%(refname) %(objectname)"],
-                             capture_output=True, text=True, timeout=60, check=False, env=_selftest_git_env())
+                             capture_output=True, text=True, errors="surrogateescape", timeout=60, check=False, env=_selftest_git_env())
     return "".join(sorted(listing.stdout.splitlines(keepends=True))) if listing.returncode == 0 else None
 
 
@@ -512,6 +533,13 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     if shutil.which("git") is None:
         raise ToolInputError("git is not on PATH")
     root = tempfile.mkdtemp(prefix=SELFTEST_PREFIX)
+    try:
+        os.fsencode(root).decode("utf-8")
+    except UnicodeDecodeError:
+        shutil.rmtree(root, ignore_errors=True)
+        raise ToolInputError(f"NOT MEASURABLE: the self-test's throwaway folder {_shown(root)} has a path that is not "
+                             "UTF-8 text, so its command cannot be handed out as the text the host runs. Start the "
+                             "host with a TMPDIR whose path is UTF-8 text.") from None
     bare, work = os.path.join(root, "remote.git"), os.path.join(root, "work")
     _run_git("init", "-q", "--bare", bare)
     _run_git("init", "-q", "-b", "main", work)
@@ -543,7 +571,7 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     _run_git("-C", work, "remote", "add", "origin", bare)
     _run_git(*identity, "-C", work, "push", "-q", "origin", "HEAD:refs/heads/main")
     base_oid = subprocess.run(["git", "-C", work, "rev-parse", "refs/remotes/origin/main"],
-                              capture_output=True, text=True, check=True, env=_selftest_git_env()).stdout.strip()
+                              capture_output=True, text=True, errors="surrogateescape", check=True, env=_selftest_git_env()).stdout.strip()
     snapshot = _remote_refs(bare)
     if not _snapshot_holds_base(snapshot, base_oid):
         shutil.rmtree(root, ignore_errors=True)
@@ -598,7 +626,7 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     # 'changed' from an empty string.
     valid_base = len(base_oid) in (40, 64) and all(c in "0123456789abcdef" for c in base_oid)
     remote = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
-                             "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False,
+                             "--quiet", "refs/heads/main"], capture_output=True, text=True, errors="surrogateescape", check=False,
                             env=_selftest_git_env())
     remote_main = remote.stdout.strip()
     # Every ref of the throwaway remote against the state prepare recorded, not main alone: a push the host's shell
@@ -748,7 +776,7 @@ def _call_tool(params: dict) -> dict:
         payload, is_error = TOOLS[name][0](args)
     except ToolInputError as exc:
         payload, is_error = {"error": str(exc)}, True
-    return {"content": [{"type": "text", "text": json.dumps(payload, indent=2, ensure_ascii=False)}],
+    return {"content": [{"type": "text", "text": _json_text(payload, indent=2)}],
             "isError": is_error}
 
 
@@ -800,7 +828,7 @@ def main() -> int:
             else:
                 reply = handle(message)
         if reply is not None:
-            sys.stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
+            sys.stdout.write(_json_text(reply) + "\n")
             sys.stdout.flush()
     return 0
 

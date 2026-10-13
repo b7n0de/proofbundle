@@ -1252,7 +1252,13 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   prepare while the push took it). The hooks folder is the one git names, with every character of its path; only
   the line end of git's answer is removed, and an answer of more than one line names no folder (review round 11 of
   2026-10-12, R11-2: a trailing blank of core.hooksPath had been stripped, and prepare had looked into another,
-  missing folder). What the check observes is bounded to the refs of the throwaway remote: a setting only the host's
+  missing folder). Prepare reads git's answers with the filesystem's own decoding and shows a path in its
+  messages unambiguously and printably: a byte that is no UTF-8 text as \xNN, a backslash doubled; a throwaway
+  folder whose path is no UTF-8 text is refused as NOT MEASURABLE, since its command cannot be handed out as text;
+  and every reply of the server is valid UTF-8, a string with such a byte written with JSON's \u escapes (review
+  round 12 of 2026-10-13, R12-3: a hooks folder whose last name byte was 0xff had put that raw byte into the JSON
+  on stdout, and a TMPDIR with such a byte had ended prepare in an internal error). What the check observes is
+  bounded to the refs of the throwaway remote: a setting only the host's
   shell carries (a push URL, a receive program or its hooks, a transport) is not visible to the server and can send
   the push elsewhere or undo its write unobserved. The snapshot of the throwaway remote that prepare records must name
   its main at the base; a listing git could not take ends prepare with NOT MEASURABLE before the command is handed
