@@ -1,0 +1,76 @@
+name: SER implementation report
+description: Report a verifier for Signed Evaluation Receipts that you built from the draft text
+title: "SER second implementation report"
+labels: ["ser-implementation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for building a verifier for draft-gruszka-signed-evaluation-receipts. Submissions on GitHub are public, and consent to being named is separate. Do not include secret keys, credentials or confidential test data.
+
+        After the initial report, we will send a new challenge set. Reply in the same thread with its identifier, the SHA-256 digest of the received file, your implementation version and the unchanged answers.jsonl. Identify incomplete runs and later corrections separately.
+  - type: dropdown
+    id: revision
+    attributes:
+      label: Draft revision
+      options:
+        - "-02"
+    validations:
+      required: true
+  - type: input
+    id: language
+    attributes:
+      label: Language and libraries
+      description: Language and version, libraries with versions, operating system
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source code
+      description: A link to the code, or the word closed if it is not public
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: results.jsonl for Appendix A
+      description: Paste the unchanged JSON Lines output for every vector you ran. State in the report whether the run is complete or partial and list all vectors not run.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: SER_IMPLEMENTATION_REPORT.md
+      description: Paste the report or link to its attachment. Include the implementation version or SHA-256 digest, environment and library versions, test and batch commands, all cases not run, and every deviation or execution error.
+    validations:
+      required: true
+  - type: textarea
+    id: unclear
+    attributes:
+      label: Unclear passages
+      description: Section number, a short quote and how you read it
+    validations:
+      required: false
+  - type: checkboxes
+    id: independence
+    attributes:
+      label: Independence
+      options:
+        - label: During the reported work, neither I nor my coding agent consulted SER implementation code from proofbundle or another existing implementation. We used the draft, its referenced standards and general-purpose library documentation. I have disclosed any prior exposure that could have influenced the implementation.
+          required: true
+  - type: checkboxes
+    id: naming
+    attributes:
+      label: Naming
+      options:
+        - label: You may identify this implementation in a future revision after the challenge results have been reviewed. Use only the implementation, person or organisation name I provide below.
+          required: false
+  - type: input
+    id: name
+    attributes:
+      label: Name to use if named
+      description: Complete this only if you consent to being named. If you leave it blank, we will ask before naming anyone.
+    validations:
+      required: false
