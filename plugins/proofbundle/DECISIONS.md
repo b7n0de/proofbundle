@@ -582,8 +582,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     one whose target does not resolve so leaves the exception unapplied (the class of R13-1: a declared commit only in
     FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
     had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
-    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). A folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the
-    exception unapplied as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from its older remote files, .git/remotes/<name> or .git/branches/<name>
+    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). A
+    folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the exception unapplied
+    as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from
+    its older remote files, .git/remotes/<name> or .git/branches/<name>
     (a name the configuration gives no URL, which `git remote` does not list), the URLs and pushed refs of that file
     decide the push, and the gate does not read them: a push with no refspec is not resolved, and the exception does
     not apply to a push to that remote (the class of R13-1: with a `Push:` line sending another branch whose history
@@ -596,6 +598,16 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
     held a declaration, and under GIT_NAMESPACE with a declaration recorded from refs/namespaces/, the push had been
     called locally inactive).
+    Where these records end (owner choice of 2026-10-13, 14:0x Berlin, on the reviewer's recommendation of review
+    round 14): the current refs/stash is a present ref and is read. Older stash entries and reflogs in general are no
+    condition of the exception and are not read, since a reflog can be missing, expire or be deleted and proves no
+    complete history; the answer names refs, never reflog entries. A state chosen as the source of a push, an older
+    stash entry too, goes through the normal resolution of sources, and condition c reads its whole history. A
+    leftover lock file under refs/ or a name there that git skips (one starting with a dot) leaves the exception
+    unapplied, and the ask names the entry; the gate cleans up nothing, and the declaration is not weakened. The
+    protection for packed-refs and for a ref store in another format than files stays (mutants M3 and M4 of FIX-13
+    survived under git 2.43.0, which gives no case for either; the reviewer measured a real reftable store with git
+    2.51.1, and the hook asked).
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 
