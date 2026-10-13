@@ -16,14 +16,15 @@ env = w1.env
 _clean_git_environment = w1._clean_git_environment
 gate = w1.gate
 
-NOT_RESOLVED = "is present, but git does not resolve it"
+NOT_ESTABLISHED = ("The gate cannot establish how this local record resolves in its worktree, so the exception does "
+                   "not apply: ")
 
 
 def test_a_root_ref_that_is_a_symbolic_ref_without_a_target(env, tmp_path):
     work, _remote, _a = w1._undeclared(tmp_path)
     (work / ".git" / "ORIG_HEAD").write_text("ref: refs/heads/missing\n", encoding="utf-8")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref ORIG_HEAD {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}ORIG_HEAD")
 
 
 def test_another_worktree_on_a_branch_that_does_not_exist_yet(env, tmp_path):
@@ -31,7 +32,7 @@ def test_another_worktree_on_a_branch_that_does_not_exist_yet(env, tmp_path):
     w1._git(work, "worktree", "add", "-q", "--orphan", "-b", "fresh", str(tmp_path / "fresh"))
     assert (work / ".git" / "worktrees" / "fresh" / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/fresh\n"
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref worktrees/fresh/HEAD {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/fresh/HEAD")
 
 
 def test_an_empty_root_ref(env, tmp_path):

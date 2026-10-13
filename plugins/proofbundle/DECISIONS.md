@@ -582,7 +582,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     one whose target does not resolve so leaves the exception unapplied (the class of R13-1: a declared commit only in
     FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
     had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
-    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). A
+    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). The
+    ask for such a record says that the gate cannot establish how it resolves in its worktree and names the record; it
+    says nothing about git's resolution, which can reach further, as for a per-worktree name that stands only in
+    packed-refs (owner choice of 2026-10-13, 15:1x Berlin, on W-3 of review round 14). A
     folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the exception unapplied
     as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from
     its older remote files, .git/remotes/<name> or .git/branches/<name>

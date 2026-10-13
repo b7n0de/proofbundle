@@ -27,7 +27,8 @@ env = w1.env
 _clean_git_environment = w1._clean_git_environment
 gate = w1.gate
 
-NOT_RESOLVED = "is present, but git does not resolve it"
+NOT_ESTABLISHED = ("The gate cannot establish how this local record resolves in its worktree, so the exception does "
+                   "not apply: ")
 FORMS = {"ORIG_HEAD": "worktrees/other/ORIG_HEAD", "HEAD": "worktrees/other/HEAD",
          "refs/bisect/alias": "worktrees/other/refs/bisect/alias"}
 
@@ -51,11 +52,11 @@ def test_the_reviewers_case_a_ref_of_the_same_name_here_does_not_clear_it(env, t
     w1._git(other, "symbolic-ref", form, "refs/bisect/present_here")
     _unresolved_there(other, form)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref {FORMS[form]} {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}{FORMS[form]}")
     w1._git(work, "update-ref", "refs/bisect/present_here", a)          # only in the main worktree
     _unresolved_there(other, form)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref {FORMS[form]} {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}{FORMS[form]}")
 
 
 def test_from_a_linked_worktree_a_ref_there_does_not_clear_one_of_the_main_worktree(env, tmp_path):
@@ -66,7 +67,7 @@ def test_from_a_linked_worktree_a_ref_there_does_not_clear_one_of_the_main_workt
     w1._git(linked, "update-ref", "refs/bisect/only_in_linked", a)
     _unresolved_there(work, "ORIG_HEAD")
     answer, entry, text = w1._l1(env, linked, "git push origin side")
-    w1._assert_exception_refused(answer, entry, text, f"the local ref main-worktree/ORIG_HEAD {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}main-worktree/ORIG_HEAD")
 
 
 def test_a_cycle_in_another_worktree_does_not_resolve(env, tmp_path):
@@ -80,7 +81,7 @@ def test_a_cycle_in_another_worktree_does_not_resolve(env, tmp_path):
     w1._git(work, "update-ref", "refs/bisect/one", a)                   # the same names here resolve
     w1._git(work, "update-ref", "refs/bisect/two", a)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref worktrees/other/refs/bisect/one {NOT_RESOLVED}")
+    w1._assert_exception_refused(answer, entry, text, f"{NOT_ESTABLISHED}worktrees/other/refs/bisect/one")
 
 
 def test_control_a_chain_that_resolves_in_its_own_worktree_keeps_the_exception(env, tmp_path):

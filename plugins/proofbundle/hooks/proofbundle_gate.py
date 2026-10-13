@@ -4067,6 +4067,15 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     return present, broken
 
 
+def _not_established(record: str) -> str:
+    """Why a record beside git's listing leaves the exception unapplied where the gate's own resolution in its worktree
+    (_resolves) does not reach an object, git's resolution there being something the gate does not establish (owner
+    choice of 2026-10-13, 15:1x Berlin, on W-3 of review round 14: the reason names the gate's missing resolution, not
+    one by git, and the record stays named)."""
+    return ("The gate cannot establish how this local record resolves in its worktree, so the exception does not "
+            f"apply: {record}")
+
+
 def _unresolved(ref: str) -> str:
     return (f"the local ref {ref} is present, but git does not resolve it (a symbolic ref to a ref that does not "
             "exist, or a name git does not list), and it may record the ref this push writes")
@@ -4216,7 +4225,7 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
             if kind == "object":
                 found[shown] = value
             elif not _resolves(records, present, prefix, value, 1):
-                return None, _unresolved(shown)
+                return None, _not_established(shown)
     return found, ""
 
 
