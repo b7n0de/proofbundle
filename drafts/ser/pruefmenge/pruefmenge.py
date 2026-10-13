@@ -1152,6 +1152,8 @@ def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
     v = Vergleich()
     v.gesamt = len(erwartet)
     got: dict = {}
+    fremd: set = set()
+    doppelt: set = set()
     if answers.startswith(b"\xef\xbb\xbf"):
         answers = answers[3:]
     lines = answers.split(b"\n")
@@ -1171,11 +1173,13 @@ def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
         if len(row) > 4:
             v.weitere_felder += 1
         if row["id"] not in by_id:
-            if row["id"] not in v.fremd:
+            if row["id"] not in fremd:
+                fremd.add(row["id"])
                 v.fremd.append(row["id"])
             continue
         if row["id"] in got:
-            if row["id"] not in v.doppelt:
+            if row["id"] not in doppelt:
+                doppelt.add(row["id"])
                 v.doppelt.append(row["id"])
             continue
         got[row["id"]] = row
@@ -1198,8 +1202,27 @@ def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
     return v
 
 
-def _kurz(a: dict) -> str:
-    return "%s %s %s" % (a["verdict"], "-" if a["step"] is None else a["step"], a["detail"] or "-")
+#: How many ids or lines of one kind the text report names; --json names all.
+GEZEIGT = 20
+
+
+def _fremd(text: str) -> str:
+    """A string from the answer file as the report shows it: JSON-escaped to ASCII, so that no control character,
+    escape sequence or bidirectional mark reaches the terminal, and at most 60 characters of it."""
+    shown = json.dumps(text[:60], ensure_ascii=True).replace("\x7f", "\\u007f")
+    return shown + ("..." if len(text) > 60 else "")
+
+
+def _kurz(a: dict, foreign: bool = False) -> str:
+    detail = "-" if a["detail"] is None else (_fremd(a["detail"]) if foreign else a["detail"])
+    return "%s %s %s" % (a["verdict"], "-" if a["step"] is None else a["step"], detail)
+
+
+def _liste(items: list) -> str:
+    if not items:
+        return "keine"
+    more = len(items) - GEZEIGT
+    return "; ".join(items[:GEZEIGT]) + ("; und %d weitere (alle mit --json)" % more if more > 0 else "")
 
 
 def bericht(v: Vergleich, kennung: str) -> str:
@@ -1212,12 +1235,12 @@ def bericht(v: Vergleich, kennung: str) -> str:
         out.append("  %-24s %d von %d" % (name, hit, total))
     out.append("Abweichungen: %d" % len(v.abweichungen))
     for a in v.abweichungen:
-        out.append("  %s: erwartet %s, Antwort %s" % (a["id"], _kurz(a["erwartet"]), _kurz(a["antwort"])))
-    out.append("fehlende ids (%d): %s" % (len(v.fehlend), ", ".join(v.fehlend) or "keine"))
-    out.append("doppelte ids (%d): %s" % (len(v.doppelt), ", ".join(v.doppelt) or "keine"))
-    out.append("fremde ids (%d): %s" % (len(v.fremd), ", ".join(v.fremd) or "keine"))
-    out.append("kaputte Zeilen (%d): %s" % (len(v.kaputt), "; ".join("Zeile %d, %s" % k for k in v.kaputt)
-                                           or "keine"))
+        out.append("  %s: erwartet %s, Antwort %s" % (a["id"], _kurz(a["erwartet"]), _kurz(a["antwort"], True)))
+    out.append("fehlende ids (%d): %s" % (len(v.fehlend), _liste(v.fehlend)))
+    out.append("doppelte ids (%d): %s" % (len(v.doppelt), _liste(v.doppelt)))
+    out.append("fremde ids (%d): %s" % (len(v.fremd), _liste([_fremd(i) for i in v.fremd[:GEZEIGT]] +
+                                                             v.fremd[GEZEIGT:])))
+    out.append("kaputte Zeilen (%d): %s" % (len(v.kaputt), _liste(["Zeile %d, %s" % k for k in v.kaputt])))
     if v.weitere_felder:
         out.append("Zeilen mit weiteren Feldern (gelesen): %d" % v.weitere_felder)
     if v.leere_zeilen:
@@ -1327,7 +1350,7 @@ def main_vergleichen(argv: list) -> int:
                    "abweichungen": v.abweichungen, "fehlend": v.fehlend, "doppelt": v.doppelt, "fremd": v.fremd,
                    "kaputt": [list(k) for k in v.kaputt], "vollstaendig": v.vollstaendig,
                    "antworten_sha256": hashlib.sha256(answers).hexdigest()}
-        pathlib.Path(args.json).write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        pathlib.Path(args.json).write_text(json.dumps(summary, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return 0 if v.vollstaendig else 1
 
 

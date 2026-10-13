@@ -34,6 +34,16 @@ to overwrite `challenge.jsonl`. The name `anhang-a` is reserved.
 - each deviation, with its id and both answers;
 - missing, duplicate and foreign ids, and broken lines.
 
+The answer file is foreign input, and the comparison reads each line on its own. A line is a broken line when it:
+
+- is not UTF-8;
+- is not one JSON text;
+- names a member twice;
+- nests deeper than the parser can follow.
+
+Ids and details from the answer file appear in the report JSON-escaped to ASCII. The text report names at most 20
+ids or lines per list, and `--json` names all of them.
+
 `pruefmenge_vergleichen anhang-a results.jsonl` compares a `results.jsonl` for Appendix A in the same form.
 
 | Exit | Meaning |
