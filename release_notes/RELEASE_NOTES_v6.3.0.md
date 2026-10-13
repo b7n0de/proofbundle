@@ -13,7 +13,7 @@ python -m pip install --upgrade proofbundle==6.3.0
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/da5ae64babc30e31b6803382443977ef03a90b43/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/87b1e00207f3a1f81c52915e208d14ce5cf964b3/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
@@ -22,7 +22,7 @@ A valid signature binds the signed content to the signing key. It does not make 
 ## Details
 
 <details>
-<summary>All 10 entries, one line each, as in the CHANGELOG</summary>
+<summary>All 11 entries, one line each, as in the CHANGELOG</summary>
 
 ### Added
 
@@ -42,9 +42,10 @@ A valid signature binds the signed content to the signing key. It does not make 
 ### Fixed
 
 - The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
+- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. Two passes out of three no longer pass a threshold of `0.666667`.
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/da5ae64babc30e31b6803382443977ef03a90b43/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/da5ae64babc30e31b6803382443977ef03a90b43/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/da5ae64babc30e31b6803382443977ef03a90b43/docs/release_scope/6.3.0.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/87b1e00207f3a1f81c52915e208d14ce5cf964b3/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/87b1e00207f3a1f81c52915e208d14ce5cf964b3/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/87b1e00207f3a1f81c52915e208d14ce5cf964b3/docs/release_scope/6.3.0.md) · [proofbundle.dev](https://proofbundle.dev)
 
 Created with AI assistance. Reviewed and published by me.

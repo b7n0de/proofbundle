@@ -5,7 +5,7 @@
  "version": "6.3.0",
  "vorheriger_tag": "v6.2.1",
  "tag": "v6.3.0",
- "release_commit": "da5ae64babc30e31b6803382443977ef03a90b43",
+ "release_commit": "87b1e00207f3a1f81c52915e208d14ce5cf964b3",
  "kopfsatz": "**A feature release for everyone on 6.2.1.** It adds the eval-result v0.2 export, a SCITT statement identification package, a pilot profile with its contract and an incremental Merkle accumulator, and DSSE envelopes now name their signing key by default.",
  "highlights": [
   {
@@ -50,7 +50,8 @@
   {
    "titel": "Fixed",
    "zeilen": [
-    "The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric."
+    "The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.",
+    "The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. Two passes out of three no longer pass a threshold of `0.666667`."
    ]
   }
  ],
