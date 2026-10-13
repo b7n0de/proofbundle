@@ -34,6 +34,9 @@ to overwrite `challenge.jsonl`. The name `anhang-a` is reserved.
 - each deviation, with its id and both answers;
 - missing, duplicate and foreign ids, and broken lines.
 
+The comparison reads at most 10 MB (10 000 000 bytes) of the answer file. A larger file gives exit 2, is not read
+further, and produces no report.
+
 The answer file is foreign input, and the comparison reads each line on its own. A line is a broken line when it:
 
 - is not UTF-8;

@@ -1168,6 +1168,29 @@ def _readable(row) -> str | None:
     return None
 
 
+#: Owner choice O1 of 2026-10-13: the comparison reads at most 10 MB (10 000 000 bytes) of an answer file.
+MAX_ANTWORT_BYTES = 10 * 1000 * 1000
+
+
+class AntwortZuGross(Exception):
+    """The answer file holds more than MAX_ANTWORT_BYTES; it is not compared."""
+
+
+def lies_begrenzt(fh, grenze: int = MAX_ANTWORT_BYTES) -> bytes:
+    """All bytes of a binary stream if there are at most grenze; AntwortZuGross as soon as one more is there. Reads at
+    most grenze + 1 bytes, so a stream without end is not read past the limit."""
+    parts, total = [], 0
+    while total <= grenze:
+        chunk = fh.read(grenze + 1 - total)
+        if not chunk:
+            break
+        parts.append(chunk)
+        total += len(chunk)
+    if total > grenze:
+        raise AntwortZuGross(grenze)
+    return b"".join(parts)
+
+
 class _DoppelterName(ValueError):
     pass
 
@@ -1200,7 +1223,10 @@ def _zeile(chunk: bytes):
 
 
 def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
-    """Compare answers.jsonl with expected.jsonl; deviations are a result, not an error."""
+    """Compare answers.jsonl with expected.jsonl; deviations are a result, not an error. Answers above
+    MAX_ANTWORT_BYTES raise AntwortZuGross."""
+    if len(answers) > MAX_ANTWORT_BYTES:
+        raise AntwortZuGross(MAX_ANTWORT_BYTES)
     erwartet = [json.loads(line) for line in expected.decode("utf-8").splitlines() if line.strip()]
     by_id = {e["id"]: e for e in erwartet}
     v = Vergleich()
@@ -1392,7 +1418,12 @@ def main_vergleichen(argv: list) -> int:
             return 2
         expected = path.read_bytes()
     try:
-        answers = pathlib.Path(args.antworten).read_bytes()
+        with open(args.antworten, "rb", buffering=0) as fh:   # unbuffered: no read ahead past the limit
+            answers = lies_begrenzt(fh)
+    except AntwortZuGross:
+        print("Die Antwortdatei ist größer als %d Bytes (10 MB); sie wird nicht weiter gelesen und nicht verglichen."
+              % MAX_ANTWORT_BYTES, file=sys.stderr)
+        return 2
     except OSError as exc:
         print("Die Antwortdatei ist nicht lesbar: %s" % exc, file=sys.stderr)
         return 2
