@@ -5,7 +5,7 @@
  "version": "6.3.0",
  "vorheriger_tag": "v6.2.1",
  "tag": "v6.3.0",
- "release_commit": "25b352019ce2dceb0f2492447389029e3c5e2c6e",
+ "release_commit": "470cd4d114db79e3051be21922e99bf84247a235",
  "kopfsatz": "**A feature release following 6.2.1.** The installed package adds opt-in eval-result v0.2 export and verification, changes the default DSSE key ID handling, and fixes two pytest receipt behaviours. The repository also adds SCITT statement identification material, a pilot profile and contract, and an incremental Merkle accumulator.",
  "highlights": [
   {
