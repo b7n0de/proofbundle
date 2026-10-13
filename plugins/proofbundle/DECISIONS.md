@@ -567,9 +567,13 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     fetch rule and of a one-time fetch into a branch record the destination as well, and which present ref did is
     not determinable here; a broken ref, a ref naming an object git does not give and more than 20000 refs leave the
     exception unapplied too (review round 12 of 2026-10-13, R12-1: a tag that `git fetch` followed held the
-    declaration, no fetch rule named tags, and `git push origin :refs/tags/release` had been called inactive). Where
-    the push
-    goes to an endpoint or a namespace these records do not model,
+    declaration, no fetch rule named tags, and `git push origin :refs/tags/release` had been called inactive). Every
+    ref the ref store holds, its loose files and its packed-refs alike, must be one git lists or calls broken; a
+    present ref git does not resolve, such as a symbolic ref whose target does not exist, which git's listing leaves
+    out with exit 0 and no warning, and a ref store in another format than files (reftable), which the gate does not
+    read whole here, leave the exception unapplied (review round 13 of 2026-10-13, R13-1: with
+    `refs/remotes/origin/main` or `refs/recorded/x` a symbolic ref to a missing branch, the push had been called
+    inactive). Where the push goes to an endpoint or a namespace these records do not model,
     a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
     held a declaration, and under GIT_NAMESPACE with a declaration recorded from refs/namespaces/, the push had been

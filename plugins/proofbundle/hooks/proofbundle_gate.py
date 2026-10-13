@@ -4017,7 +4017,67 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
         refname, nul, oid = line.partition(b"\0")
         if nul:
             present[_git_text(refname)] = oid.decode("ascii", "replace")
+    # git's listing leaves out a symbolic ref whose target does not exist, with exit 0 and no warning (review round 13
+    # of 2026-10-13, R13-1): every ref the ref store holds must be one git lists or calls broken.
+    stored, why = _stored_ref_names(repo, deadline)
+    if stored is None:
+        return None, why
+    unlisted = sorted(stored - set(present) - broken)
+    if unlisted:
+        return None, (f"the local ref {unlisted[0]} is present, but git does not resolve it (a symbolic ref to a ref "
+                      "that does not exist, or a name git does not list), and it may record the ref this push writes")
     return present, broken
+
+
+#: The refs of one worktree; in a linked worktree those of the common directory belong to the main worktree.
+_PER_WORKTREE = ("refs/bisect/", "refs/worktree/", "refs/rewritten/")
+
+
+def _stored_ref_names(repo: str, deadline: float) -> tuple[set[str] | None, str]:
+    """Every ref name the ref store of the files format holds: each file under refs/ of the common directory and of this
+    worktree's git directory, and each entry of packed-refs, which holds no symbolic ref; (None, why) for a store the
+    gate cannot read whole here, one in another format (extensions.refStorage, such as reftable) or a folder or file it
+    cannot read (review round 13 of 2026-10-13, R13-1)."""
+    storage = _git(repo, "config", "--get", "extensions.refstorage", deadline=deadline)
+    if storage.returncode not in (0, 1) or (storage.returncode == 0 and storage.stdout.strip().lower() != b"files"):
+        return None, ("the repository keeps its refs in a format other than files (extensions.refStorage), whose refs "
+                      "the gate does not read whole here, so a record of the destination may be unread")
+    paths, why = _repo_paths(repo, deadline)
+    if paths is None or not paths["common"] or not paths["gitdir"]:
+        return None, why or "git does not name the repository's directories, so its refs are not known"
+    names: set[str] = set()
+
+    def stop(exc: OSError) -> None:
+        raise exc
+
+    try:
+        for base in dict.fromkeys((paths["common"], paths["gitdir"])):
+            top = os.path.join(base, "refs")
+            if base != paths["common"] and not os.path.lexists(top):
+                continue   # a linked worktree that holds no ref of its own
+            linked_common = base == paths["common"] and paths["gitdir"] != paths["common"]
+            for root, _dirs, files in os.walk(top, onerror=stop):
+                for name in files:
+                    ref = "refs/" + os.path.relpath(os.path.join(root, name), top).replace(os.sep, "/")
+                    if not (linked_common and ref.startswith(_PER_WORKTREE)):
+                        names.add(ref)
+        with open(os.path.join(paths["common"], "packed-refs"), "rb") as handle:
+            packed = handle.read()
+    except FileNotFoundError as exc:
+        if exc.filename and os.path.basename(exc.filename) == "packed-refs":
+            packed = b""
+        else:
+            return None, "a folder of the repository's refs cannot be read, so a record of the destination may be unread"
+    except OSError:
+        return None, "the repository's refs cannot be read whole, so a record of the destination may be unread"
+    for line in packed.split(b"\n"):
+        if not line or line.startswith((b"#", b"^")):
+            continue
+        _oid, space, name = line.partition(b" ")
+        if not space or not name:
+            return None, "packed-refs holds a line the gate cannot read, so a record of the destination may be unread"
+        names.add(_git_text(name))
+    return names, ""
 
 
 #: The most tags the gate peels one after another to reach the object a ref names at last.
