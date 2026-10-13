@@ -579,7 +579,8 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     `main-worktree/HEAD`); one that is symbolic counts through its target, and one whose target git does not list
     leaves the exception unapplied (the class of R13-1: a declared commit only in FETCH_HEAD after `git fetch
     <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release` had been called
-    inactive). Where git takes the remote from its older remote files, .git/remotes/<name> or .git/branches/<name>
+    inactive). A folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the
+    exception unapplied as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from its older remote files, .git/remotes/<name> or .git/branches/<name>
     (a name the configuration gives no URL, which `git remote` does not list), the URLs and pushed refs of that file
     decide the push, and the gate does not read them: a push with no refspec is not resolved, and the exception does
     not apply to a push to that remote (the class of R13-1: with a `Push:` line sending another branch whose history

@@ -4063,6 +4063,10 @@ def _unresolved(ref: str) -> str:
 
 #: The refs of one worktree; in a linked worktree those of the common directory belong to the main worktree.
 _PER_WORKTREE = ("refs/bisect/", "refs/worktree/", "refs/rewritten/")
+#: git lists the refs in a folder under refs/ that is a symbolic link and leaves out a symbolic ref there whose target
+#: does not exist (measured with git 2.43.0); the gate does not follow such a link (the class of R13-1).
+_LINKED_FOLDER = ("a folder of the repository's refs is a symbolic link, which git follows and the gate does not, so a "
+                  "record of the destination may be unread")
 
 
 def _stored_ref_names(repo: str, paths: dict, deadline: float) -> tuple[set[str] | None, str]:
@@ -4085,7 +4089,9 @@ def _stored_ref_names(repo: str, paths: dict, deadline: float) -> tuple[set[str]
             if base != paths["common"] and not os.path.lexists(top):
                 continue   # a linked worktree that holds no ref of its own
             linked_common = base == paths["common"] and paths["gitdir"] != paths["common"]
-            for root, _dirs, files in os.walk(top, onerror=stop):
+            for root, dirs, files in os.walk(top, onerror=stop):
+                if any(os.path.islink(os.path.join(root, name)) for name in dirs):
+                    return None, _LINKED_FOLDER
                 for name in files:
                     ref = "refs/" + os.path.relpath(os.path.join(root, name), top).replace(os.sep, "/")
                     if not (linked_common and ref.startswith(_PER_WORKTREE)):
@@ -4160,7 +4166,9 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
                 if not os.path.lexists(top):
                     continue
                 base = os.path.join(folder, "refs")
-                for root, _dirs, names in os.walk(top, onerror=stop):
+                for root, dirs, names in os.walk(top, onerror=stop):
+                    if any(os.path.islink(os.path.join(root, name)) for name in dirs):
+                        return None, _LINKED_FOLDER
                     for name in names:
                         path = os.path.join(root, name)
                         ref = "refs/" + os.path.relpath(path, base).replace(os.sep, "/")
