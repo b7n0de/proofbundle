@@ -576,10 +576,13 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     inactive). The records git's listing leaves out altogether are read too, named as git names them: FETCH_HEAD
     line by line, the other root refs of the worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin), and the
     HEAD, the root refs and the own refs of every other worktree (`worktrees/<name>/HEAD`, from a linked worktree
-    `main-worktree/HEAD`); one that is symbolic counts through its target, and one whose target git does not list
-    leaves the exception unapplied (the class of R13-1: a declared commit only in FETCH_HEAD after `git fetch
-    <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release` had been called
-    inactive). A folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the
+    `main-worktree/HEAD`); one that is symbolic counts through its target, resolved in the namespace of its own
+    worktree as git resolves it there (a per-worktree target such as refs/bisect/ or a root ref among that worktree's
+    records, a shared one among the shared refs, a chain within the worktree up to git's depth of 5, a cycle never), and
+    one whose target does not resolve so leaves the exception unapplied (the class of R13-1: a declared commit only in
+    FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
+    had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
+    cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). A folder of the refs that is a symbolic link, which git follows and the gate does not, leaves the
     exception unapplied as well (a symbolic ref without a target in such a folder had been passed over). Where git takes the remote from its older remote files, .git/remotes/<name> or .git/branches/<name>
     (a name the configuration gives no URL, which `git remote` does not list), the URLs and pushed refs of that file
     decide the push, and the gate does not read them: a push with no refspec is not resolved, and the exception does

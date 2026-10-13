@@ -4128,8 +4128,9 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
     """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object}:
     FETCH_HEAD line by line, the other root refs of this worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin),
     and the HEAD, the root refs and the own refs of every other worktree, named as git names them (main-worktree/HEAD,
-    worktrees/<name>/HEAD). A symbolic one whose target git lists adds nothing; one whose target git does not list, or
-    a file the gate cannot read, gives (None, why). This worktree's HEAD is condition b's."""
+    worktrees/<name>/HEAD). A symbolic one adds nothing where it resolves in the namespace of its own worktree
+    (_resolves); one that does not, or a file the gate cannot read, gives (None, why). This worktree's HEAD is condition
+    b's; it is read only as the target of another record."""
     common, gitdir = paths["common"], paths["gitdir"]
     places = [(gitdir, "", False)]
     if os.path.realpath(gitdir) != os.path.realpath(common):
@@ -4146,7 +4147,7 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
         folder = os.path.join(common, "worktrees", name)
         if os.path.realpath(folder) != os.path.realpath(gitdir):
             places.append((folder, f"worktrees/{name}/", True))
-    files: list[tuple[str, str]] = []
+    files: list[tuple[str, str, str]] = []
 
     def stop(exc: OSError) -> None:
         raise exc
@@ -4154,8 +4155,8 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
     try:
         for folder, prefix, other in places:
             for name in sorted(os.listdir(folder)):
-                if _ROOT_REF.fullmatch(name) or name in _ROOT_REF_OTHERS or (other and name == "HEAD"):
-                    files.append((prefix + name, os.path.join(folder, name)))
+                if _ROOT_REF.fullmatch(name) or name in _ROOT_REF_OTHERS or name == "HEAD":
+                    files.append((prefix, name, os.path.join(folder, name)))
             if not other:
                 continue
             # The own refs of another worktree: under worktrees/<name>/refs/ all of them, in the common directory the
@@ -4171,32 +4172,65 @@ def _refs_beside_the_listing(paths: dict, present: dict[str, str]) -> tuple[dict
                         return None, _LINKED_FOLDER
                     for name in names:
                         path = os.path.join(root, name)
-                        ref = "refs/" + os.path.relpath(path, base).replace(os.sep, "/")
-                        files.append((prefix + ref, path))
+                        files.append((prefix, "refs/" + os.path.relpath(path, base).replace(os.sep, "/"), path))
         contents = []
-        for label, path in files:
+        for prefix, name, path in files:
             with open(path, "rb") as handle:
-                contents.append((label, handle.read()))
+                contents.append((prefix, name, handle.read()))
     except OSError:
         return None, unread
-    found: dict[str, str] = {}
-    for label, raw in contents:
+    records: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    for prefix, name, raw in contents:
+        label = prefix + name
         lines = [(number, line) for number, line in enumerate(raw.split(b"\n"), 1) if line.strip()]
-        if not lines and not label.endswith("FETCH_HEAD"):
+        if not lines and name != "FETCH_HEAD":
             return None, (f"the local ref {label} names nothing the gate can read, and it may record the ref this push "
                           "writes")
+        entries = records.setdefault((prefix, name), [])
         for count, (number, line) in enumerate(lines):
-            name = label if count == 0 else f"{label} (line {number})"
+            shown = label if count == 0 else f"{label} (line {number})"
             if line.startswith(b"ref: "):
-                if _git_text(line[len(b"ref: "):].strip()) not in present:
-                    return None, _unresolved(name)
-                continue   # the target is one git lists, read already
+                entries.append((shown, "symbolic", _git_text(line[len(b"ref: "):].strip())))
+                continue
             match = _REF_LINE.fullmatch(line.rstrip(b"\r"))
             if match is None:
-                return None, (f"the local ref {name} holds a line the gate cannot read, and it may record the ref this "
-                              "push writes")
-            found[name] = match.group(1).decode("ascii")
+                return None, (f"the local ref {shown} holds a line the gate cannot read, and it may record the ref "
+                              "this push writes")
+            entries.append((shown, "object", match.group(1).decode("ascii")))
+    found: dict[str, str] = {}
+    for (prefix, name), entries in sorted(records.items()):
+        if prefix == "" and name == "HEAD":
+            continue
+        for shown, kind, value in entries:
+            if kind == "object":
+                found[shown] = value
+            elif not _resolves(records, present, prefix, value, 1):
+                return None, _unresolved(shown)
     return found, ""
+
+
+#: How many symbolic refs git follows one after another before it gives up (refs.c of git 2.43.0, SYMREF_MAXDEPTH).
+SYMREF_MAXDEPTH = 5
+
+
+def _resolves(records: dict, present: dict[str, str], prefix: str, target: str, depth: int) -> bool:
+    """Whether the target of a symbolic record of the worktree `prefix` names ("" this one, main-worktree/ or
+    worktrees/<name>/ another) resolves there, as git resolves it in that worktree (review round 14 of 2026-10-13,
+    R14-1: the target had been looked up among the refs of the current worktree, so a ref of the same name here had
+    cleared a record of another worktree that git does not resolve). A per-worktree target (refs/bisect/,
+    refs/worktree/, refs/rewritten/, a root ref, any name outside refs/) resolves only among that worktree's records,
+    and for this worktree among the per-worktree refs git lists here; a shared one among the refs git lists, which hold
+    no symbolic ref without a target (R13-1). A chain is followed within the worktree; one longer than SYMREF_MAXDEPTH,
+    a cycle among them, does not resolve."""
+    if depth > SYMREF_MAXDEPTH:
+        return False
+    if target.startswith("refs/") and not target.startswith(_PER_WORKTREE):
+        return target in present
+    entries = records.get((prefix, target))
+    if not entries:
+        return prefix == "" and target.startswith("refs/") and target in present
+    _shown, kind, value = entries[0]
+    return kind == "object" or _resolves(records, present, prefix, value, depth + 1)
 
 
 #: The most tags the gate peels one after another to reach the object a ref names at last.
