@@ -939,3 +939,99 @@ class JederAbschnittIstDerDesChangelog(unittest.TestCase):
             r = _render_im(w)
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("has no section `## [9.9.9]`", r.stderr)
+
+
+class ZweiRisikoberichteUndDieReferenzmessung(unittest.TestCase):
+    """OWNER DECISION OF 2026-10-13 on the text review of 6.3.0. The page links the residual-risk record of
+    this release and, as a link of its own, the earlier one, so the findings of this release are not left
+    out behind the older record. And it states the two values of the budget measurement on the reference
+    machine that RELEASE.md asks the release notes to carry, with the record they come from."""
+
+    def _quelle(self) -> dict:
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = "RESTRISIKO_997.md"
+        d["referenzmessung"] = ("Measured on the reference machine. The [record](budget_record.json) "
+                                "holds every axis.")
+        return d
+
+    def test_RED_beide_berichte_stehen_mit_ihrem_umfang_in_der_linkzeile(self):
+        basis = "https://github.com/b7n0de/proofbundle/blob/" + "0" * 40
+        self.assertEqual(pruefe(self._quelle()), [])
+        self.assertIn(f"[Known limitations for 9.9.9]({basis}/RESTRISIKO_998.md) · "
+                      f"[Earlier risk record]({basis}/RESTRISIKO_997.md) · [Release scope]",
+                      rendere(self._quelle()))
+
+    def test_RED_die_referenzmessung_steht_vor_den_details_und_ihr_link_ist_gebunden(self):
+        text = rendere(self._quelle())
+        orte = [text.index(s) for s in (
+            "## What a receipt still does not prove", "## Measured on the reference machine",
+            "[record](https://github.com/b7n0de/proofbundle/blob/" + "0" * 40 + "/budget_record.json)",
+            "## Details")]
+        self.assertEqual(orte, sorted(orte), "the sections are out of order")
+        self.assertNotIn("](budget_record.json)", text)
+
+    def test_gegenrichtung_ohne_die_felder_bleibt_die_seite_wie_sie_war(self):
+        """WITHOUT THIS a change that altered every page would pass the cases above."""
+        text = rendere(_zwei_ebenen())
+        self.assertIn("[Known limitations](https://github.com/b7n0de/proofbundle/blob/", text)
+        self.assertNotIn("Earlier risk record", text)
+        self.assertNotIn("## Measured on the reference machine", text)
+
+    def test_fang_ein_leeres_optionales_feld(self):
+        for feld in ("frueherer_risikobericht", "referenzmessung"):
+            with self.subTest(feld=feld):
+                d = self._quelle()
+                d[feld] = " "
+                self.assertIn(f"the two-level source carries {feld}, and it is empty", pruefe(d))
+
+    def test_RED_ein_fehlender_frueherer_bericht_oder_messbeleg_verweigert_den_render(self):
+        import tempfile
+        dateien = {"RESTRISIKO_997.md": "earlier\n", "budget_record.json": "{}\n"}
+        for ohne in dateien:
+            with self.subTest(ohne=ohne), tempfile.TemporaryDirectory() as d:
+                r = _render_im(_baum_zwei_ebenen(Path(d), ohne=ohne, ersetze=dateien, quelle=self._quelle()))
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn(f"the page links {ohne}", r.stderr)
+
+    def test_gegenrichtung_mit_beiden_dateien_rendert(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_zwei_ebenen(Path(d), quelle=self._quelle(), ersetze={
+                "RESTRISIKO_997.md": "earlier\n", "budget_record.json": "{}\n"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class DieNeuenFelderFallenNirgendsStillWeg(unittest.TestCase):
+    """Adversarial reading of 2026-10-13 on the two optional fields: a grouped source dropped them without a
+    finding, the earlier record took any value as a link target, and a value that was no string ended in a
+    traceback instead of a refusal."""
+
+    def test_fang_eine_gruppierte_quelle_mit_einem_feld_der_zweiten_form(self):
+        for feld in ("referenzmessung", "frueherer_risikobericht"):
+            with self.subTest(feld=feld):
+                d = _gruppiert()
+                d[feld] = "RESTRISIKO_997.md"
+                self.assertTrue(any("only the two-level form renders" in b and feld in b for b in pruefe(d)),
+                                pruefe(d))
+
+    def test_fang_ein_frueherer_bericht_der_kein_anderer_risikobericht_ist(self):
+        for wert in ("docs", "CHANGELOG.md", "RESTRISIKO_998.md", "../RESTRISIKO_997.md", 5, True, ["x"]):
+            with self.subTest(wert=wert):
+                d = _zwei_ebenen()
+                d["frueherer_risikobericht"] = wert
+                self.assertTrue(any("frueherer_risikobericht" in b for b in pruefe(d)), pruefe(d))
+
+    def test_RED_ein_nicht_text_wird_verweigert_und_endet_nicht_im_traceback(self):
+        import tempfile
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = 5
+        with tempfile.TemporaryDirectory() as w:
+            r = _render_im(_baum_zwei_ebenen(Path(w), quelle=d))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("frueherer_risikobericht", r.stderr)
+
+    def test_gegenrichtung_ein_anderer_risikobericht_besteht(self):
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = "RESTRISIKO_997.md"
+        self.assertEqual(pruefe(d), [])

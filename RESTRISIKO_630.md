@@ -1,28 +1,21 @@
 # Residual risk, release 6.3.0
 
-This file names what the defect search on the 6.3.0 candidate found and where each finding stands. It does not
-claim that the release is defect free. The items that were open before this release stay in `RESTRISIKO_620.md`.
+This file records findings reported during the 6.3.0 candidate review and their stated status for this release. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the earlier residual-risk record](RESTRISIKO_620.md).
 
 ## The defect search on the candidate
 
-Codex searched the candidate `98b168b9` on 2026-10-12 for false positive verdicts under a written contract and
-reported ten classes it rated P1, four P2 findings and no P0. The owner's triage of 2026-10-12 decided:
+The candidate review examined commit `98b168b9` on 2026-10-12 for false positive verdicts within its stated scope. It reported ten finding classes rated P1, four additional P2 groups and no P0 findings. The maintainer assessed their release impact on 2026-10-12.
 
-- K1 and K2 lie in the installed package and are fixed before the tag.
-- K3 to K10 lie outside the installed package, in tools, examples, gates of this repository and the interop
-  reading. They move to 6.3.1 with severity P2 by that triage; the search rated them P1 under its contract.
-- The four P2 findings move to 6.3.1 and are not register entries.
+- The fixes for K1 and K2 are included in this release candidate through pull requests 346 and 347.
+- K3 to K10 remain open outside the installed Python package, in repository tools, examples, checks and interoperability code. The review rated them P1; the maintainer assigned P2 during the release assessment. They are targeted for 6.3.1.
+- Four additional P2 groups listed below are also targeted for 6.3.1 and are not included in the signed register. Some concern the installed package. These targets are planned follow-up work, not completed fixes.
 
-## Closed before the tag
+## Fixed in this candidate
 
-- **K1, a digest the verifier did not recompute.** The eval-result v0.2 verifier accepted evidence whose
-  `sha3_224`, `sha512_224` or `sha512_256` digest did not match the supplied content, because the shape table
-  knew those algorithms and the content check did not. Register entry `CODEX-630-K1`.
-- **K2, a rounded pass rate decided the threshold.** The pytest plugin rounded the pass rate to six decimals
-  before comparing it with the threshold, so two of three tests passed a threshold of 0.666667. Register entry
-  `CODEX-630-K2`.
+- **K1, descriptor digests were not always recomputed.** The unreleased eval-result v0.2 implementation could accept ResourceDescriptors whose `md5`, `sha3_224`, `sha512_224` or `sha512_256` digests did not match the supplied content, including descriptors in subject, model, dataset and evidence fields. The exporter could also emit these inconsistent descriptors. The fix uses one algorithm table for digest validation and content comparison. For these recognised algorithms, supplied content is checked against the digest, and a mismatch or an unavailable hash function causes rejection. Register entry `CODEX-630-K1`.
+- **K2, a rounded pass rate decided the threshold.** The pytest plugin rounded the pass rate to six decimal places before comparing it with the threshold. With the `>=` comparator, two passes out of three therefore passed a threshold of `0.666667`. This candidate bases the verdict on exact test counts instead. Register entry `CODEX-630-K2`.
 
-## Open, moved to 6.3.1
+## Open, targeted for 6.3.1
 
 - **K3, two readings of one object.** `tools/pilot/github_write_profile.py` reads the payload again after
   verification, so a mapping subtype can make a refused outcome read as accepted; the outer envelope of
@@ -42,7 +35,7 @@ reported ten classes it rated P1, four P2 findings and no P0. The owner's triage
 - **K10, an equation taken from the report it checks.** `interop/acde_01/acde01/report_check.py` trusts
   `draft_equation_holds`. Register entry `CODEX-630-K10`.
 
-## P2 findings, moved to 6.3.1
+## Additional P2 findings, targeted for 6.3.1
 
 - `proofbundle intoto --verify` ignores the options that only apply when writing, and two benchmark renderers accept
   unknown options.

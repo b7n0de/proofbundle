@@ -8,7 +8,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [6.3.0] - 2026-10-14
 
-Two entries change existing behaviour for package users: DSSE envelopes now name their signing key by default (Changed), and the pytest plugin skips the receipt when `PROOFBUNDLE_METRIC` names a metric other than `pass_rate` (Fixed). The remaining entries add material or concern the project's CI.
+Three entries change existing behaviour for package users. By default, DSSE signing adds a key ID when the signer exposes its Ed25519 public key (Changed). The pytest plugin skips receipt generation for metric names other than `pass_rate` and bases threshold decisions on exact test counts rather than a pass rate rounded to six decimal places (Fixed). The remaining entries add material or concern the project's CI.
 
 ### Added
 
@@ -28,7 +28,7 @@ Two entries change existing behaviour for package users: DSSE envelopes now name
 ### Fixed
 
 - The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
-- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. Two passes out of three no longer pass a threshold of `0.666667`.
+- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. With the `>=` comparator, two passes out of three no longer pass a threshold of `0.666667`.
 
 ## [6.2.1] - 2026-10-10
 

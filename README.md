@@ -21,25 +21,25 @@
 
 ## Current release
 
-**[v6.3.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.3.0) · Beta · Check the closing audit record in the tagged tree**
+**[v6.3.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.3.0) · Beta · [Audit status and limits](https://github.com/b7n0de/proofbundle/blob/v6.3.0/audit_artifacts/630/README.md)**
 
-[Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/release_scope/6.3.0.md)
+[Known limitations for 6.3.0](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_630.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.3.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.3.0/docs/release_scope/6.3.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-**A feature release for everyone on 6.2.1.** It adds the eval-result v0.2 export, a SCITT statement identification package, a pilot profile with its contract and an incremental Merkle accumulator, and DSSE envelopes now name their signing key by default.
+**A feature release following 6.2.1.** The installed package adds opt-in eval-result v0.2 export and verification, changes the default DSSE key ID handling, and fixes two pytest receipt behaviours. The repository also adds SCITT statement identification material, a pilot profile and contract, and an incremental Merkle accumulator.
 
-- **DSSE envelopes name their signing key.** Envelopes created by `dsse.sign_envelope`, in-toto exports included, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default, and `keyid=""` omits it.
+- **DSSE key IDs are included by default when available.** Envelopes created by `dsse.sign_envelope`, including in-toto exports, carry the signer's OpenSSH SHA256 fingerprint as an unsigned `keyid` by default when the signer exposes its Ed25519 public key. Use `keyid=""` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly.
 - **eval-result v0.2 for the revised in-toto draft.** An opt-in export and verification under its own predicate type; exports still default to v0.1, and `--verify` accepts both.
-- **Statement identification for SCITT.** Requirements and a package that can be verified against them.
-- **A pilot profile, its contract and an incremental accumulator.** A profile with vectors over the shipped decision and outcome predicates, the first pilot contract, and a Merkle accumulator beside the bundle emitter with a restart rule.
+- **Statement identification material for SCITT.** The repository includes requirements and a verification package in `docs/scitt/statement_identification/`.
+- **Repository pilot material and an incremental accumulator.** A profile and vectors for the shipped decision and outcome predicates, the first pilot contract, and an incremental Merkle accumulator with a restart rule are provided under `docs/` and `tools/`.
 
 In the tagged tree, check `audit_artifacts/630/pre_tag_receipt_v6.3.0.json` for the recorded audit command and result.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
-[Residual risks](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md)
+[Residual risks for 6.3.0](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_630.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/v6.3.0/RESTRISIKO_620.md)
 
 </details>
 

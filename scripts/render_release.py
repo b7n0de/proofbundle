@@ -72,6 +72,12 @@ ABSCHNITTE = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security")
 #: render without it, so a reviewed text would be dropped with nothing refusing it.
 NUR_GRUPPEN = ("gruppen", "sicherheit", "was_sich_aenderte", "vor_dem_upgrade", "auditstatus", "danke")
 
+#: Texts a two-level source MAY carry. Owner decision of 2026-10-13 on the text review of 6.3.0:
+#: `frueherer_risikobericht` names the residual-risk record of an earlier release, linked beside the
+#: record of this one; `referenzmessung` carries the values of the budget measurement on the reference
+#: machine, which RELEASE.md asks the release notes to state. A source without them renders as before.
+OPTIONALE_TEXTE = ("frueherer_risikobericht", "referenzmessung")
+
 #: What a public two-level page must not name: the internal process behind a fix. Each entry is a
 #: shape and the reason it is refused, so a finding says what it found.
 INTERNE_MARKEN = (
@@ -215,6 +221,13 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
     if doppelt:
         befunde.append(f"group name(s) declared more than once: {', '.join(doppelt)}")
 
+    # THE SAME RULE IN THE OTHER DIRECTION (adversarial reading of 2026-10-13): the grouped form renders
+    # neither optional text of the two-level form, so a grouped source carrying one would drop it.
+    nur_zwei = [k for k in OPTIONALE_TEXTE if k in daten]
+    if nur_zwei:
+        befunde.append(f"the grouped source carries fields only the two-level form renders, which would be "
+                       f"dropped: {', '.join(nur_zwei)}")
+
     befunde += _pruefe_bindung(daten, kopf, baum)
 
     s = daten.get("sicherheit")
@@ -325,6 +338,21 @@ def _pruefe_zwei_ebenen(daten: Dict[str, Any]) -> List[str]:
     for feld in ("kopfsatz", "selbst_pruefen", "nicht_bewiesen", "restrisiko", "schlusssatz"):
         if not _text(daten, feld):
             befunde.append(f"the two-level source needs a non-empty {feld}")
+    # OPTIONAL, BUT NEVER EMPTY. A key that is present and empty would render a link without a target or
+    # a section without a sentence, and nothing would refuse it.
+    for feld in OPTIONALE_TEXTE:
+        if feld in daten and not _text(daten, feld):
+            befunde.append(f"the two-level source carries {feld}, and it is empty")
+    # THE EARLIER RECORD IS A RESIDUAL-RISK RECORD OF ANOTHER RELEASE. It is linked as a bare path, so a
+    # directory, another document or the record of this release would render a link that says
+    # "Earlier risk record" and is not one.
+    frueher = daten.get("frueherer_risikobericht")
+    if _text(daten, "frueherer_risikobericht"):
+        if not re.fullmatch(r"RESTRISIKO_\d+\.md", frueher):
+            befunde.append(f"frueherer_risikobericht names {frueher!r}, not a residual-risk record "
+                           f"RESTRISIKO_<digits>.md")
+        elif frueher == _restrisiko(daten):
+            befunde.append("frueherer_risikobericht names the record of this release")
     hl = daten.get("highlights")
     if not isinstance(hl, list) or not 3 <= len(hl) <= 4:
         befunde.append("the two-level source needs three or four highlights")
@@ -379,9 +407,12 @@ def _restrisiko(q: Dict[str, Any]) -> str:
 
 def verlinkte_ziele(daten: Dict[str, Any]) -> List[str]:
     """Every target in the tree a two-level page links, `path` or `path#anchor`, in page order, once."""
-    ziele = ["CHANGELOG.md", _restrisiko(daten), f"docs/release_scope/{daten['version']}.md"]
+    frueher = daten.get("frueherer_risikobericht")
+    ziele = ["CHANGELOG.md", _restrisiko(daten), frueher if isinstance(frueher, str) else "",
+             f"docs/release_scope/{daten['version']}.md"]
     texte = [daten.get("kopfsatz", ""), daten.get("selbst_pruefen", ""),
-             daten.get("nicht_bewiesen", ""), daten.get("schlusssatz", "")]
+             daten.get("nicht_bewiesen", ""), daten.get("referenzmessung", ""),
+             daten.get("schlusssatz", "")]
     texte += [h.get("text", "") for h in daten.get("highlights") or [] if isinstance(h, dict)]
     texte += _zeilen_der_quelle(daten)
     for t in texte:
@@ -464,8 +495,8 @@ def pruefe_verlinkte_dateien(daten: Dict[str, Any], baum: Path) -> List[str]:
 
 def _rendere_zwei_ebenen(q: Dict[str, Any]) -> str:
     """The two-level page: what the release brings and how to install it, three or four highlights,
-    how to verify it and what a receipt does not prove, then every fix as its CHANGELOG line, then
-    the links and the closing sentence."""
+    how to verify it and what a receipt does not prove, the reference measurement when the source
+    carries one, then every fix as its CHANGELOG line, then the links and the closing sentence."""
     basis = f"https://github.com/b7n0de/proofbundle/blob/{q['release_commit']}"
     n = len(_zeilen_der_quelle(q))
     teile: List[str] = [_binde(q["kopfsatz"], basis), "", "```",
@@ -473,8 +504,10 @@ def _rendere_zwei_ebenen(q: Dict[str, Any]) -> str:
                         "## Highlights", ""]
     teile += [f"- **{h['kern']}** {_binde(h['text'], basis)}" for h in q["highlights"]]
     teile += ["", "## Verify this release yourself", "", _binde(q["selbst_pruefen"], basis), "",
-              "## What a receipt still does not prove", "", _binde(q["nicht_bewiesen"], basis), "",
-              "## Details", "", "<details>"]
+              "## What a receipt still does not prove", "", _binde(q["nicht_bewiesen"], basis), ""]
+    if q.get("referenzmessung"):
+        teile += ["## Measured on the reference machine", "", _binde(q["referenzmessung"], basis), ""]
+    teile += ["## Details", "", "<details>"]
     if "abschnitte" in q:
         teile += [f"<summary>All {n} entr{'ies' if n != 1 else 'y'}, one line each, as in the "
                   f"CHANGELOG</summary>"]
@@ -485,8 +518,14 @@ def _rendere_zwei_ebenen(q: Dict[str, Any]) -> str:
         teile += [f"<summary>All {n} fix{'es' if n != 1 else ''}, one line each, as in the "
                   f"CHANGELOG</summary>", ""]
         teile += [f"- {_binde(f, basis)}" for f in q["fixes"]]
-    links = [f"[Full changelog]({basis}/CHANGELOG.md)",
-             f"[Known limitations]({basis}/{_restrisiko(q)})",
+    # TWO RECORDS NEED TWO NAMES. Beside an earlier record, "Known limitations" alone would not say which
+    # release a link speaks for, so both carry their scope; a source without the earlier one keeps the
+    # single link of 6.2.1.
+    risiko = ([f"[Known limitations for {q['version']}]({basis}/{_restrisiko(q)})",
+               f"[Earlier risk record]({basis}/{q['frueherer_risikobericht']})"]
+              if q.get("frueherer_risikobericht") else
+              [f"[Known limitations]({basis}/{_restrisiko(q)})"])
+    links = [f"[Full changelog]({basis}/CHANGELOG.md)", *risiko,
              f"[Release scope]({basis}/docs/release_scope/{q['version']}.md)"]
     links += [f"[{x['text']}]({x['url']})" for x in q.get("weitere_links", [])]
     teile += ["", "</details>", "", " · ".join(links), "", _binde(q["schlusssatz"], basis)]
