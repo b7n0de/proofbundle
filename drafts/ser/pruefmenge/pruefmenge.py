@@ -51,7 +51,7 @@ sys.path.insert(0, str(SER / "independent"))
 import check_receipts as autor_pruefer  # noqa: E402  the generator author's verifier
 import verify_from_text as text_pruefer  # noqa: E402  the verifier written from the text alone
 
-VERSION = "ser-pruefmenge-1"
+VERSION = "ser-pruefmenge-2"
 VECTORS = SER / "examples" / "vectors.json"
 STANDARD_ANZAHL = 200
 ORDNER_VARIABLE = "SER_PRUEFMENGE_ORDNER"
@@ -542,7 +542,10 @@ class Werkstatt:
         if form == 1:
             return rb[:-1] + b",}", self.s.issuer.public, "1"
         if form == 2:
-            return rb.replace(b'"alg"', b"'alg'", 1), self.s.issuer.public, "1"
+            # a member name in single quotes, in a receipt written without escapes so that the name "alg" is there
+            B = self.B()
+            plain = receipt(B, self.s.issuer.sign(pae(MEDIA_TYPE, B)), self.s.issuer.public, None)
+            return plain.replace(b'"alg"', b"'alg'", 1), self.s.issuer.public, "1"
         if form == 3:
             return self._alg_bytes(b"\n"), self.s.issuer.public, "1"
         return rb[:-1] + b',"n":NaN}', self.s.issuer.public, "1"
