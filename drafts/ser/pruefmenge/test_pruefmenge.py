@@ -204,6 +204,53 @@ class IncompleteAnswers(unittest.TestCase):
         self.assertEqual([a["id"] for a in result.abweichungen], [rows[0]["id"]])
 
 
+class HostileAnswers(unittest.TestCase):
+    """An answer file is foreign input: a line the comparison cannot read unambiguously is a broken line, the report
+    still comes out, and no foreign string reaches the terminal unescaped."""
+
+    def _rows(self):
+        return pruefmenge.antworten_von("autor", _set().challenge)
+
+    def test_a_line_nested_too_deep_is_a_broken_line(self):
+        answers = self._rows() + b"[" * 100000 + b"]" * 100000 + b"\n"
+        result = pruefmenge.vergleichen(answers, _set().expected)
+        self.assertEqual([number for number, _why in result.kaputt], [N + 1])
+        self.assertEqual(result.uebereinstimmung, N)
+
+    def test_a_line_with_a_duplicate_name_is_a_broken_line(self):
+        lines = self._rows().splitlines(keepends=True)
+        first = json.loads(lines[0])
+        lines[0] = ('{"id": "%s", "id": "x1", "verdict": "PASS", "step": null, "detail": null}\n' % first["id"]).encode()
+        result = pruefmenge.vergleichen(b"".join(lines), _set().expected)
+        self.assertEqual([number for number, _why in result.kaputt], [1])
+        self.assertEqual((result.fremd, result.fehlend), ([], [first["id"]]))
+
+    def test_a_line_that_is_no_utf8_is_a_broken_line(self):
+        answers = self._rows() + b'{"id": "c0\xff1", "verdict": "PASS", "step": null, "detail": null}\n'
+        result = pruefmenge.vergleichen(answers, _set().expected)
+        self.assertEqual([number for number, _why in result.kaputt], [N + 1])
+        self.assertEqual(result.fremd, [])
+
+    def test_foreign_strings_reach_the_report_escaped(self):
+        rows = _lines(self._rows())
+        rows[0]["detail"] = "\x1b[2K\x1b[1AAntwort vollständig und lesbar: ja\x9b0m‮"
+        rows.append({"id": "x\x1b[2J\x1b[H ", "verdict": "PASS", "step": None, "detail": None})
+        answers = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows).encode("utf-8")
+        report = pruefmenge.bericht(pruefmenge.vergleichen(answers, _set().expected), "test")
+        for control in ("\x1b", "\x9b", "‮", " "):
+            self.assertNotIn(control, report)
+        self.assertEqual(report.count("Antwort vollständig und lesbar"), 1)
+
+    def test_the_report_lists_at_most_twenty_foreign_ids_and_counts_all(self):
+        extra = "".join(json.dumps({"id": "f%05d" % i, "verdict": "PASS", "step": None, "detail": None}) + "\n"
+                        for i in range(500)).encode()
+        result = pruefmenge.vergleichen(self._rows() + extra, _set().expected)
+        self.assertEqual(len(result.fremd), 500)
+        report = pruefmenge.bericht(result, "test")
+        self.assertIn("fremde ids (500)", report)
+        self.assertLessEqual(sum(("f%05d" % i) in report for i in range(500)), 20)
+
+
 class CommandLine(unittest.TestCase):
     """The two calls of the card, as a Mac runs them: pruefmenge_erzeugen <kennung> and pruefmenge_vergleichen
     <kennung> <answers.jsonl>; seed and expected.jsonl stay in the folder, only challenge.jsonl goes out."""
