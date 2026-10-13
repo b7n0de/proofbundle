@@ -4084,6 +4084,17 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     refused = sorted(name for name in present if not _ref_name_ok(name))
     if refused:
         return None, _off_form("a name git's ref rules refuse", refused[0])
+    # The object git lists for a direct ref is the one the store holds, a valid loose file before its packed entry (review
+    # round 17 of 2026-10-13, R17-1): the names alone matched while a ref moved between git's listing and the reading of
+    # the store, and the map the final reading was compared with still held the earlier object. A difference leaves no
+    # finished measurement, and the map returned holds only objects both readings gave.
+    for name, oid in sorted(present.items()):
+        if name in symbolic:
+            continue   # its loose file names the end git lists, checked in _symbolic_outside
+        held = store["loose"].get(name)
+        stored = (held[1] if held[0] == "object" else None) if held is not None else store["packed"].get(name)
+        if stored != oid:
+            return None, _moved(name)
     why = _symbolic_outside(repo, store, present, symbolic, deadline)
     if why is not None:
         return None, why
@@ -4110,6 +4121,11 @@ def _outside(reason: str, entry: str) -> str:
     measure here, never that nothing is declared, and asks no one to remove a worktree, a ref or a record."""
     return (f"the repository is outside the range the exception covers, one ordinary main worktree whose only symbolic "
             f"refs are HEAD and refs/remotes/<remote>/HEAD, each naming a ref git lists ({reason}): {entry}")
+
+
+def _moved(ref: str) -> str:
+    return (f"the local ref {ref} names another object in git's listing than in the ref store, so the refs changed while "
+            "the gate read them and its reading is no finished measurement that nothing is declared")
 
 
 def _unresolved(ref: str) -> str:
@@ -4245,7 +4261,7 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
                     held = _ref_file(raw)
                     if held[0] == "off":
                         return None, _off_form(held[1], ref)
-                    if base == paths["common"]:
+                    if base == paths["common"] or ref.startswith(_PER_WORKTREE):
                         loose[ref] = held
         packed_path = os.path.join(paths["common"], "packed-refs")
         if not _no_link(packed_path):
