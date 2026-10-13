@@ -3753,22 +3753,19 @@ def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: fl
     that was not measured is named separately in it; anything else returns None, so the caller's NOT
     MEASURED stands — a pass at a source is never a verdict on a push whose comparison is unknown. `reads` receives
     the evidence bytes each checked commit read (_source_reads), up to and including a commit that denies; the deny
-    carries them too (owner choice 3 A of 2026-10-11)."""
+    carries them too (owner choice 3 A of 2026-10-11). Where a step fails, the caller hands the exception that record
+    (evaluate_push, _keep_reads; owner choice of 2026-10-13 on R12-2 M2: one hand-over, not a second one here)."""
     reads = [] if reads is None else reads
-    try:
-        for commit in dict.fromkeys(sources):
-            where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
-            verdict = _evaluate_tree(repo, commit, deadline, where, "")
-            reads.extend(_source_reads(commit, verdict))
-            if verdict.decision == "deny":
-                return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
-                                      f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
-                               failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
-                               repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
-        denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
-    except Exception as exc:   # R11-5, R12-2: the record of the commits read before, then the failing step's
-        _keep_reads(exc, reads)
-        raise
+    for commit in dict.fromkeys(sources):
+        where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
+        verdict = _evaluate_tree(repo, commit, deadline, where, "")
+        reads.extend(_source_reads(commit, verdict))
+        if verdict.decision == "deny":
+            return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
+                                  f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
+                           failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
+                           repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
+    denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
     if denial is not None:
         return Verdict("deny", denial.detail.rstrip() + " Separately, the comparison with the target was NOT "
                               f"MEASURED: {why.rstrip('.')}.", denial.reason_id, evidence=denial.evidence,
