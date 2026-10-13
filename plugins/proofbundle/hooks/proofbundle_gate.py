@@ -2977,6 +2977,29 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
             or _config_bool(repo, "push.followTags", deadline))
 
 
+def _legacy_remote(repo: str, remote: str, deadline: float) -> bool:
+    """Whether git takes the remote from its older remote files, $GIT_COMMON_DIR/remotes/<name> or branches/<name>,
+    which `git remote` does not list and the configuration does not hold: git reads them for a name without a `/` that
+    the configuration gives no URL (remote.c of git 2.43.0, remote_get_1). Such a file names further URLs and the refs a
+    push sends (`Push:`, or HEAD to the branch a branches file names), which the gate does not read (review round 13 of
+    2026-10-13, the class of R13-1: with .git/remotes/legacy pushing refs/heads/other, `git push legacy` had been
+    called locally inactive while git pushed another branch). A file the gate cannot rule out counts as present."""
+    if not remote or remote in (".", "..") or "/" in remote or _config_present(repo, f"remote.{remote}.url", deadline):
+        return False
+    paths, _why = _repo_paths(repo, deadline)
+    if paths is None or not paths["common"]:
+        return True
+    for folder in ("remotes", "branches"):
+        try:
+            os.lstat(os.path.join(paths["common"], folder, remote))
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError:
+            return True
+        return True
+    return False
+
+
 #: The configuration only `git push` parses, read by git before it pushes anything, whatever the push needs (review
 #: round 7 of 2026-10-10, R7-3; the push names compiled into git 2.43.0 and 2.51.1, each measured with both): a value
 #: git cannot read stops the push with exit 128, an invalid value before a valid one too. The keys of remotes, branches
@@ -3578,7 +3601,7 @@ def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) 
             remote = fetch_remote
     if remote == "":
         return None  # git takes the empty value as the remote and cannot push to it
-    if _config_present(repo, f"remote.{remote}.push", deadline):
+    if _config_present(repo, f"remote.{remote}.push", deadline) or _legacy_remote(repo, remote, deadline):
         return None  # the remote's own push list decides what goes, not the current branch
     default = _config_value(repo, "push.default", deadline)
     default = "simple" if default is None else default
@@ -4304,6 +4327,9 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         if _git_namespace() is not None:
             return None, (f"GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on the "
                           "remote, and the local records of such a ref are not modelled here")
+        if _legacy_remote(repo, remote, deadline):
+            return None, (f"git takes the remote {remote} from its older remote files (.git/remotes/ or "
+                          ".git/branches/), whose URLs and pushed refs the gate does not read")
         if remote in remotes and not _endpoint_consistent(repo, remote, deadline):
             return None, (f"the push of remote {remote} goes to another endpoint than the one its local records come "
                           "from (a pushurl, a further URL or a URL rewrite), and the records of that endpoint are not "
