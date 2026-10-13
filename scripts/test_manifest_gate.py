@@ -157,9 +157,10 @@ class LockUnreadable(ValueError):
 def load_lock(path: Path = LOCK_PATH) -> dict:
     """The lock, read once within the input budget and parsed strictly (CODEX-KLASSENSUCHE-631-01, D4, measured
     at f6ea5cc3): with `json.loads` the lock {"min_collected_tests":2,"min_collected_tests":1,...} kept the last
-    floor, and one collected test passed a floor that also read 2. A member twice raises LockUnreadable."""
+    floor, and one collected test passed a floor that also read 2. A member twice raises LockUnreadable, and so
+    does a lock that is not there (E2): no floor is invented for it."""
     if not path.is_file():
-        return {}
+        raise LockUnreadable(f"the lock {path.name} is missing")
     if str(REPO / "src") not in sys.path:
         sys.path.insert(0, str(REPO / "src"))
     from proofbundle._strict_json import loads_strict  # noqa: PLC0415
@@ -184,8 +185,24 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
     except LockUnreadable as exc:
         lock = None
         problems.append(f"{exc}; a floor read from it is no floor, so no population verdict stands")
-    floor_tests = int(lock.get("min_collected_tests", 0)) if lock is not None else None
-    floor_pytest_only = int(lock.get("min_pytest_only_modules", 0)) if lock is not None else None
+    # BOTH FLOORS ARE REQUIRED AND TYPED, NEVER DEFAULTED (CODEX-KLASSENSUCHE-631-01, E2, measured at f6ea5cc3):
+    # a missing lock read as {} and `.get(..., 0)` made two zero floors, so a population of one test passed with
+    # ok=True, and the guard against unnoticed test loss went away with its anchor. A floor is a JSON integer of
+    # 0 or more, written out; 0 written out stays a floor, an absent one is none.
+    floor_tests = floor_pytest_only = None
+    if lock is not None and not isinstance(lock, dict):
+        problems.append("the lock is no JSON object; no population verdict stands")
+    elif lock is not None:
+        floors = []
+        for name in ("min_collected_tests", "min_pytest_only_modules"):
+            value = lock.get(name)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                floors.append(value)
+            else:
+                floors.append(None)
+                problems.append(f"the lock names no {name} as an integer of 0 or more (it holds {value!r}); "
+                                "a floor that is not written out is no floor, so no population verdict stands")
+        floor_tests, floor_pytest_only = floors
 
     collected, errors, tail = collect_count(tests_dir)
     pyonly = pytest_only_modules(tests_dir)
