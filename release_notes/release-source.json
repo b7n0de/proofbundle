@@ -5,7 +5,7 @@
  "version": "6.3.0",
  "vorheriger_tag": "v6.2.1",
  "tag": "v6.3.0",
- "release_commit": "87b1e00207f3a1f81c52915e208d14ce5cf964b3",
+ "release_commit": "7aae76509e2a5a15c367255003f5385a63cc1677",
  "kopfsatz": "**A feature release for everyone on 6.2.1.** It adds the eval-result v0.2 export, a SCITT statement identification package, a pilot profile with its contract and an incremental Merkle accumulator, and DSSE envelopes now name their signing key by default.",
  "highlights": [
   {
