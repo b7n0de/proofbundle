@@ -568,9 +568,11 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     records today's fetch rules name, every present ref of the repository is read, each tag peeled to the tree it
     names at last: a tag git followed on a fetch, the refs of a remote whose configuration is gone, of an earlier
     fetch rule and of a one-time fetch into a branch record the destination as well, and which present ref did is
-    not determinable here; a broken ref, a ref naming an object git does not give and more than 20000 refs leave the
-    exception unapplied too (review round 12 of 2026-10-13, R12-1: a tag that `git fetch` followed held the
-    declaration, no fetch rule named tags, and `git push origin :refs/tags/release` had been called inactive). Every
+    not determinable here; a broken ref, a ref naming an object git does not give, a chain of more than 16 tags (the
+    gate's own limit, which git does not share, measured with 17, and the ask says so; the class of R15-2 of
+    2026-10-13) and more than 20000 refs leave the exception unapplied too (review round 12 of 2026-10-13, R12-1: a
+    tag that `git fetch` followed held the declaration, no fetch rule named tags, and `git push origin
+    :refs/tags/release` had been called inactive). Every
     ref the ref store holds, its loose files and its packed-refs alike, must be one git lists or calls broken; a
     present ref git does not resolve, such as a symbolic ref whose target does not exist, which git's listing leaves
     out with exit 0 and no warning, and a ref store in another format than files (reftable), which the gate does not

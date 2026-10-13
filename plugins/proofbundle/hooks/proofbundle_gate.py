@@ -4321,10 +4321,13 @@ def _resolves(records: dict, shared, prefix: str, target: str, read: int) -> boo
 MAX_TAG_DEPTH = 16
 
 
-def _ref_trees(repo: str, refs: dict[str, str], deadline: float) -> tuple[dict[str, tuple[str, str]], str | None]:
+def _ref_trees(repo: str, refs: dict[str, str],
+               deadline: float) -> tuple[dict[str, tuple[str, str]], tuple[str, str] | None]:
     """The root tree each ref's object names once its tags are peeled, as {ref: (object, tree)}: a commit gives its tree,
-    a tree is its own; a blob holds no path and gives none. The second value names the first ref whose object git does
-    not give, or whose chain of tags is longer than MAX_TAG_DEPTH, else None."""
+    a tree is its own; a blob holds no path and gives none. The second value is (ref, "object") for the first ref whose
+    object git does not give, (ref, "depth") for the first whose chain of tags is longer than MAX_TAG_DEPTH, else None.
+    MAX_TAG_DEPTH is the gate's own limit; git peels a longer chain (measured with git 2.43.0: 17 tags), so the reason
+    for that one names the gate's limit and not git (review round 15 of 2026-10-13, the class of R15-2)."""
     found: dict[str, tuple[str, str]] = {}
     pending = dict(refs)
     for _depth in range(MAX_TAG_DEPTH + 1):
@@ -4342,9 +4345,9 @@ def _ref_trees(repo: str, refs: dict[str, str], deadline: float) -> tuple[dict[s
             elif read is not None and read[0] == b"tag" and first.startswith(b"object "):
                 later[ref] = first[len(b"object "):].decode("ascii", "replace")
             elif read is None or read[0] != b"blob":
-                return found, ref
+                return found, (ref, "object")
         pending = later
-    return found, min(pending) if pending else None
+    return found, (min(pending), "depth") if pending else None
 
 
 def _destination_records(repo: str, remote: str | None, values: list[str],
@@ -4505,9 +4508,12 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         if len(present) > MAX_HISTORY_COMMITS:
             return None, (f"this repository holds more than {MAX_HISTORY_COMMITS} refs, more than the gate reads, and "
                           "any of them may record the ref this push writes")
-        ref_trees, unread_ref = _ref_trees(repo, present, deadline)
-        if unread_ref is not None:
-            return None, (f"the local ref {unread_ref} names an object git does not give here, and it may record the "
+        ref_trees, unread = _ref_trees(repo, present, deadline)
+        if unread is not None and unread[1] == "depth":
+            return None, (f"the local ref {unread[0]} names a chain of more than {MAX_TAG_DEPTH} tags, more than the "
+                          "gate peels, and it may record the ref this push writes")
+        if unread is not None:
+            return None, (f"the local ref {unread[0]} names an object git does not give here, and it may record the "
                           "ref this push writes")
         state, at = _declaration_at(repo, list(dict.fromkeys(ref_trees.values())), deadline)
         if state != "absent":
