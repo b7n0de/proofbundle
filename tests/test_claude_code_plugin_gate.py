@@ -613,8 +613,9 @@ def test_an_unresolved_push_is_not_measured_even_when_nothing_is_declared(shim, 
 
 
 @pytest.mark.parametrize("command, records", [
-    ("git push https://example/x main", "the local record(s) of its destination: refs/remotes/origin/main at "),
-    ("git push origin HEAD:release", "no local record of its destination was found, which says nothing about the remote"),
+    ("git push https://example/x main", "today's fetch rules map the destination to refs/remotes/origin/main at "),
+    ("git push origin HEAD:release", "today's fetch rules map the destination to no present ref, which says "
+                                     "nothing about the remote"),
 ])
 def test_a_determined_push_from_a_repository_that_declares_nothing_is_locally_inactive(shim, tmp_path, command,
                                                                                        records):

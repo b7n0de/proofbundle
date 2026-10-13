@@ -3981,6 +3981,58 @@ def _working_tree_declares(repo: str) -> bool:
     return not _absent_in_working_tree(repo)
 
 
+def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, set[str] | str]:
+    """Every present ref of the repository with the object it names, and the refs git calls broken; (None, why) where
+    git does not list them whole."""
+    listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)", deadline=deadline)
+    if listing.returncode != 0:
+        return None, "git cannot list this repository's refs, so the local records of the destination are not known"
+    broken = set()
+    for line in listing.stderr.decode("utf-8", "replace").splitlines():
+        if line.startswith("hint: "):
+            continue   # git's hint on the emptied graft file (_read_env)
+        if not line.startswith("warning: ignoring broken ref "):
+            return None, ("git warns while it lists this repository's refs, so a record of the destination may be "
+                          "unread")
+        broken.add(line[len("warning: ignoring broken ref "):])
+    present = {}
+    for line in listing.stdout.split(b"\n"):
+        refname, nul, oid = line.partition(b"\0")
+        if nul:
+            present[_git_text(refname)] = oid.decode("ascii", "replace")
+    return present, broken
+
+
+#: The most tags the gate peels one after another to reach the object a ref names at last.
+MAX_TAG_DEPTH = 16
+
+
+def _ref_trees(repo: str, refs: dict[str, str], deadline: float) -> tuple[dict[str, tuple[str, str]], str | None]:
+    """The root tree each ref's object names once its tags are peeled, as {ref: (object, tree)}: a commit gives its tree,
+    a tree is its own; a blob holds no path and gives none. The second value names the first ref whose object git does
+    not give, or whose chain of tags is longer than MAX_TAG_DEPTH, else None."""
+    found: dict[str, tuple[str, str]] = {}
+    pending = dict(refs)
+    for _depth in range(MAX_TAG_DEPTH + 1):
+        if not pending:
+            return found, None
+        objects = _objects(repo, sorted(set(pending.values())), deadline)
+        later = {}
+        for ref, oid in sorted(pending.items()):
+            read = objects.get(oid)
+            first = read[1].split(b"\n", 1)[0] if read is not None else b""
+            if read is not None and read[0] == b"commit" and first.startswith(b"tree "):
+                found[ref] = (oid, first[len(b"tree "):].decode("ascii", "replace"))
+            elif read is not None and read[0] == b"tree":
+                found[ref] = (oid, oid)
+            elif read is not None and read[0] == b"tag" and first.startswith(b"object "):
+                later[ref] = first[len(b"object "):].decode("ascii", "replace")
+            elif read is None or read[0] != b"blob":
+                return found, ref
+        pending = later
+    return found, min(pending) if pending else None
+
+
 def _destination_records(repo: str, remote: str | None, values: list[str],
                          deadline: float) -> tuple[list[tuple[str, str, str]] | None, str | None]:
     """Every local ref that records a remote ref git push may write for one of `values`, as (local ref, remote ref,
@@ -4015,22 +4067,9 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
                         local = None
                     if local is not None:
                         wanted.setdefault(local, name)
-    listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)", deadline=deadline)
-    if listing.returncode != 0:
-        return None, "git cannot list this repository's refs, so the local records of the destination are not known"
-    broken = set()
-    for line in listing.stderr.decode("utf-8", "replace").splitlines():
-        if line.startswith("hint: "):
-            continue   # git's hint on the emptied graft file (_read_env)
-        if not line.startswith("warning: ignoring broken ref "):
-            return None, ("git warns while it lists this repository's refs, so a record of the destination may be "
-                          "unread")
-        broken.add(line[len("warning: ignoring broken ref "):])
-    present = {}
-    for line in listing.stdout.split(b"\n"):
-        refname, nul, oid = line.partition(b"\0")
-        if nul:
-            present[_git_text(refname)] = oid.decode("ascii", "replace")
+    present, broken = _present_refs(repo, deadline)
+    if present is None:
+        return None, broken
     records = []
     for local, name in sorted(wanted.items()):
         if local in broken:
@@ -4138,15 +4177,39 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
                           f"{at[:12]}; {_NOT_ESTABLISHED}" if state == "present" else
                           f"git does not give the whole tree of {at[:12]}, the commit of the local ref {local}, which "
                           "may record the ref this push writes")
+        # Every present ref, not only those today's fetch rules name: a tag git followed, the refs of a remote whose
+        # configuration is gone, of an earlier fetch rule or of a one-time fetch into a branch record the destination
+        # as well, and which present ref did is not determinable here (review round 12 of 2026-10-13, R12-1).
+        present, broken = _present_refs(repo, deadline)
+        if present is None:
+            return None, broken
+        if broken:
+            return None, f"the local ref {min(broken)} is a broken ref, and it may record the ref this push writes"
+        if len(present) > MAX_HISTORY_COMMITS:
+            return None, (f"this repository holds more than {MAX_HISTORY_COMMITS} refs, more than the gate reads, and "
+                          "any of them may record the ref this push writes")
+        ref_trees, unread_ref = _ref_trees(repo, present, deadline)
+        if unread_ref is not None:
+            return None, (f"the local ref {unread_ref} names an object git does not give here, and it may record the "
+                          "ref this push writes")
+        state, at = _declaration_at(repo, list(dict.fromkeys(ref_trees.values())), deadline)
+        if state != "absent":
+            local = min(ref for ref, (oid, _tree) in ref_trees.items() if oid == at)
+            return None, (f"the local ref {local} holds something at {DECLARATION} or in place of its folder at "
+                          f"{at[:12]}; {_NOT_ESTABLISHED}" if state == "present" else
+                          f"git does not give the whole tree of {at[:12]}, the object of the local ref {local}, which "
+                          "may record the ref this push writes")
     except GateError as exc:
         return None, f"the gate could not finish its reading ({exc})"
     tips = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none, the push only deletes"
-    found = ("; the local record(s) of its destination: " + ", ".join(f"{local} at {commit[:12]}"
-                                                                       for local, _name, commit in records)
-             if records else "; no local record of its destination was found, which says nothing about the remote")
+    found = ("; of them, today's fetch rules map the destination to " + ", ".join(f"{local} at {commit[:12]}"
+                                                                               for local, _name, commit in records)
+             if records else "; today's fetch rules map the destination to no present ref, which says nothing about "
+                             "the remote")
     text = (f"NOT MEASURED: the gate checks nothing here. {repo} declares no evidence: nothing stands at {DECLARATION} "
             f"at HEAD {head[:12]}, in the working tree, at the {len(history)} commit(s) the push may send (the whole "
-            f"history of {tips}) or at a local record of its destination{found}. The gate is not active in this "
+            f"history of {tips}) or at any of the {len(present)} local refs of this repository, each read since which "
+            f"of them recorded the destination is not determinable here{found}. The gate is not active in this "
             "repository, because nothing is declared. This is local inactivity (owner choice 1 A of 2026-10-11, "
             "DECISIONS.md D5), not a check and not a pass, and the host's normal approval decides. The push's "
             "destination and its current state remain NOT MEASURED; a declaration that only the remote holds is not "

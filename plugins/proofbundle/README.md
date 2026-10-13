@@ -175,7 +175,7 @@ measured.
 |---|---|
 | Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
-| No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. A push under Level 1 gets the same only where the four conditions of owner choice 1 A hold: its sources are determined, nothing is declared in the whole history it may send or at a local record of its destination, and no added update, wrapper or submodule push is involved. This is local inactivity, not a check: the destination stays NOT MEASURED, and a declaration only the remote holds is not seen. Otherwise the push asks and names the condition that failed (D5, D3). |
+| No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. A push under Level 1 gets the same only where the four conditions of owner choice 1 A hold: its sources are determined, nothing is declared in the whole history it may send or at any present local ref, and no added update, wrapper or submodule push is involved. This is local inactivity, not a check: the destination stays NOT MEASURED, and a declaration only the remote holds is not seen. Otherwise the push asks and names the condition that failed (D5, D3). |
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 | The evidence verifies, but the push changes the evidence rules against the remote's state of the ref, as git hands it to the pre-push hook (the declaration's items, a policy, a key, the done check or the done policy) | Level 2 asks under Claude Code and denies under Codex, with the change named: changes to the evidence rules need a review (D20). Level 1 names a difference against a local record of the destination only as a hint, a local comparison of two tips; the push stays NOT MEASURED there (owner choice 4 A, D20). |
 | The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks (D20). A fetch does not make a push measurable under Level 1 (D3). |
@@ -186,7 +186,7 @@ It never answers allow. Every deny and ask names the evidence, what failed and t
 carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts
 only in a repository that declares evidence; a push under Level 1 stays outside it only under the four conditions of
 owner choice 1 A (D5). Whoever deletes the declaration switches the gate off at HEAD; a push is still asked while the
-declaration stands in the history it may send or at a local record of its destination, and a declaration only the
+declaration stands in the history it may send or at a present local ref, and a declaration only the
 remote holds, with its removal, can go unnoticed at Level 1 (D5). The declaration format and every design choice are in
 [DECISIONS.md](DECISIONS.md). MCP tools of other names are not gated; D8 lists the known ones.
 

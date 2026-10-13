@@ -550,7 +550,14 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     exception, a broken or dangling record is no empty state, and a missing record says nothing about the remote.
     The ask names the concrete local record and says that its relation to the actual destination is not
     established; it claims no equality of remotes, since a record of another remote may be relevant without being
-    shown to be a record of the destination (owner choice of 2026-10-13, which keeps this strictness). Where the push
+    shown to be a record of the destination (owner choice of 2026-10-13, which keeps this strictness). Beyond the
+    records today's fetch rules name, every present ref of the repository is read, each tag peeled to the tree it
+    names at last: a tag git followed on a fetch, the refs of a remote whose configuration is gone, of an earlier
+    fetch rule and of a one-time fetch into a branch record the destination as well, and which present ref did is
+    not determinable here; a broken ref, a ref naming an object git does not give and more than 20000 refs leave the
+    exception unapplied too (review round 12 of 2026-10-13, R12-1: a tag that `git fetch` followed held the
+    declaration, no fetch rule named tags, and `git push origin :refs/tags/release` had been called inactive). Where
+    the push
     goes to an endpoint or a namespace these records do not model,
     a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
@@ -564,7 +571,7 @@ The reason starts with `NOT MEASURED:` and says that nothing was verified. In a 
 
 The price of C: whoever deletes the declaration switches the gate off at HEAD. Under owner choice 1 A a removal
 does not switch it off for a push while the declaration still stands in the history the push may send (condition c)
-or at a local record of its destination (condition d); the push is then asked. The price of 1 A, named by the owner:
+or at a present local ref (condition d); the push is then asked. The price of 1 A, named by the owner:
 a declaration that only the remote holds, standing neither in the checked source history nor in a local record, and
 its removal can go unnoticed at Level 1, above all with a push that only deletes a ref. In the other direction a
 declaration removed long ago from the source history still blocks the exception, and every push from such a history

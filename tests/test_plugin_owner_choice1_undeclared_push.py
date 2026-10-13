@@ -99,7 +99,7 @@ def test_a_push_to_a_new_branch_without_any_record_is_locally_inactive(env, tmp_
     work, _remote, _a = _undeclared(tmp_path)
     answer, entry, text = _l1(env, work, "git push origin main:fresh")
     _assert_inactive(answer, entry, text)
-    assert "no local record of its destination was found, which says nothing about the remote" in text, text
+    assert "today's fetch rules map the destination to no present ref, which says nothing about the remote" in text, text
 
 
 def test_a_pure_deletion_with_a_clean_record_is_locally_inactive(env, tmp_path):
