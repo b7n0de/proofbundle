@@ -51,7 +51,7 @@ sys.path.insert(0, str(SER / "independent"))
 import check_receipts as autor_pruefer  # noqa: E402  the generator author's verifier
 import verify_from_text as text_pruefer  # noqa: E402  the verifier written from the text alone
 
-VERSION = "ser-pruefmenge-2"
+VERSION = "ser-pruefmenge-3"
 VECTORS = SER / "examples" / "vectors.json"
 STANDARD_ANZAHL = 200
 ORDNER_VARIABLE = "SER_PRUEFMENGE_ORDNER"
@@ -869,6 +869,59 @@ class Werkstatt:
             sig = _compress(_mul(r, BASE)) + rng.below(L).to_bytes(32, "little")
         return receipt(B, sig, self._hint("issuer"), rng), pub, "11 (profile 4)"
 
+    # two faults in one entry: the earlier step decides (Section 5), within step 11 the earlier rule, and within rules
+    # 1 and 2 the key before R (Section 4)
+    def mehrfach(self):
+        rng, s = self.rng, self.s
+        pub = s.issuer.public
+        B = self.B()
+        msg = pae(MEDIA_TYPE, B)
+        small_key, small_R = _compress(rng.choice(SMALL)[0]), _compress(rng.choice(SMALL)[0])
+        bad_key, bad_R = rng.choice(NONCANONICAL), rng.choice(NONCANONICAL)
+        good_R = _compress(_mul(1 + rng.below(L - 1), BASE))
+        low_S, big_S = rng.below(L).to_bytes(32, "little"), (L + rng.below(2 ** 256 - L)).to_bytes(32, "little")
+        form = rng.below(14)
+        if form == 0:   # rule 2 for the key, rule 1 for R
+            return receipt(B, bad_R + low_S, self._hint_for(small_key), rng), small_key, "11 (profile 1, R)"
+        if form == 1:   # rule 1 for the key and for R
+            return receipt(B, bad_R + low_S, self._hint_for(bad_key), rng), bad_key, "11 (profile 1, key)"
+        if form == 2:   # rule 2 for the key and for R
+            return receipt(B, small_R + low_S, self._hint_for(small_key), rng), small_key, "11 (profile 2, key)"
+        if form == 3:   # rule 2 for R, rule 3
+            return receipt(B, small_R + big_S, self._hint("issuer"), rng), pub, "11 (profile 2, R)"
+        if form == 4:   # rule 3, rule 4
+            return receipt(B, good_R + big_S, self._hint("issuer"), rng), pub, "11 (profile 3)"
+        if form == 5:   # the mixed-order key (rule 2), rule 3
+            key = s.mixed_public
+            return receipt(B, good_R + big_S, self._hint_for(key), rng), key, "11 (profile 2, key)"
+        if form == 6:   # step 2, step 9
+            return self.signed(B, schema_text=json.dumps(rng.choice(["application/json", MEDIA_TYPE.upper()])),
+                               alg_text=json.dumps(rng.choice(["Ed25519", "EdDSA"]))), pub, "2"
+        if form == 7:   # step 3, step 10
+            return receipt(B, s.issuer.sign(msg), s.other.public, rng, payload_text=json.dumps(b64(B) + "A")), \
+                pub, "3"
+        if form == 8:   # step 7, step 8
+            p = payload(s, rng)
+            p["model_id_commit"] = p["model_id_commit"].upper()
+            p["passed"] = not p["passed"]
+            return self.signed(self.B(p)), pub, "7"
+        if form == 9:   # step 8, step 11 (rule 4: signed with the other key)
+            p = payload(s, rng)
+            p["passed"] = not p["passed"]
+            Bp = self.B(p)
+            return receipt(Bp, s.other.sign(pae(MEDIA_TYPE, Bp)), None, rng), pub, "8"
+        if form == 10:  # step 10, step 11: the other key's hint and signature, verified with the issuer key
+            return receipt(B, s.other.sign(msg), s.other.public, rng), pub, "10"
+        if form == 11:  # step 5, step 6: a member too many, and B not in its RFC 8785 form
+            p = payload(s, rng)
+            p["extra"] = "x"
+            return self.signed(json.dumps(p, separators=(", ", ": "), ensure_ascii=False).encode()), pub, "5"
+        if form == 12:  # step 9, step 10
+            sig = s.issuer.sign(msg)
+            return receipt(B, sig, s.other.public, rng, sig_text=json.dumps(b64(sig[:63]))), pub, "9"
+        # step 1, step 2
+        return self.signed(B, schema_text='"x"') + b" x", pub, "1"
+
     # a single byte fault in a valid receipt; the verifiers alone say what it is
     def bytefehler(self):
         rb, key, _label = self.gueltig()
@@ -900,11 +953,12 @@ UNGUELTIG = ["s1_bom", "s1_utf8", "s1_surrogate", "s1_noncharacter", "s1_duplica
              "s1_syntax", "s2_schema", "s3_payload_b64", "s4_payload_json", "s5_jcs", "s5_jcs", "s5_jcs",
              "s5_numbers_that_pass", "s5_numbers_that_pass", "s6_member", "s6_types", "s6_values", "s7_pattern",
              "s8_passed", "s9_signature", "s10_hint", "p1_key", "p1_R", "p2_key_small", "p2_key_mixed", "p2_R",
-             "p3_S", "p4_equation"]
+             "p3_S", "p4_equation", "mehrfach", "mehrfach", "mehrfach"]
 #: One kind per step and per profile rule, placed first so that every set of at least this many invalid entries holds
 #: each.
 PFLICHT = ["s1_members", "s2_schema", "s3_payload_b64", "s4_payload_json", "s5_jcs", "s6_types", "s7_pattern",
-           "s8_passed", "s9_signature", "s10_hint", "p1_key", "p1_R", "p2_key_small", "p2_R", "p3_S", "p4_equation"]
+           "s8_passed", "s9_signature", "s10_hint", "p1_key", "p1_R", "p2_key_small", "p2_R", "p3_S", "p4_equation",
+           "mehrfach", "mehrfach"]
 
 
 # ---- the verifiers' answers ---------------------------------------------------------------------------------------

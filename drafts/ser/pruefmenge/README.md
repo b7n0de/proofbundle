@@ -61,7 +61,9 @@ A set is fixed by the seed, the count (200 by default) and the name. The same th
 - The rest mix all eleven steps of Section 5 and the four rules of the verification profile, including:
   - edge cases of the RFC 8785 number form;
   - keys of small order and of mixed order;
-  - non-canonical point encodings and S not below L.
+  - non-canonical point encodings and S not below L;
+  - entries with two faults. The earlier step decides; within step 11 the earlier rule decides, and within rules 1
+    and 2 the key comes before R. An implementation that checks in another order answers these differently.
 - No entry equals a vector of Appendix A byte for byte.
 
 ## Where the expected answers come from
