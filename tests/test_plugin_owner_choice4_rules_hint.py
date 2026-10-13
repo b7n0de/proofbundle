@@ -104,8 +104,8 @@ def test_an_unreadable_side_is_no_equality(shim, repo):  # noqa: F811
 
 def test_a_missing_record_is_no_equality(shim, repo):  # noqa: F811
     text = _ask(shim, repo, "git push origin main:fresh")
-    assert (f"No local record of fresh was found, so the evidence rules at source commit {_rev(repo, 'HEAD')[:12]} "
-            "were compared with none; that is no equality.") in text, text
+    assert (f"Today's fetch rules map fresh to no present ref, so the evidence rules at source commit "
+            f"{_rev(repo, 'HEAD')[:12]} were compared with none; that is no equality.") in text, text
 
 
 def test_control_equal_rules_name_no_difference(shim, repo):  # noqa: F811

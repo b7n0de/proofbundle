@@ -1154,7 +1154,9 @@ on 2026-10-01):
   push destination and its current state remain NOT MEASURED.", with the two trees read and what differs; a record
   of another candidate than the destination itself, or one of several records, is called a locally recorded
   candidate ref. Only the two tips are compared, no commit between them. A side git does not give whole, and a
-  destination without any local record, are named as a comparison not made, which is no equality. A subject or a
+  destination today's fetch rules map to no present ref, are named as a comparison not made, which is no equality;
+  the hint claims no absence of local records, since a present ref no rule maps, such as a tag git followed, may
+  record the destination too (the class of R12-1, 2026-10-13). A subject or a
   receipt is no rule. The answer stays NOT MEASURED (`push_not_measured`); a push that only deletes a ref, or whose
   source or destination is not named, gets no hint.
 - A difference is asked under Claude Code and denied under Codex at Level 2, with the change named and the note

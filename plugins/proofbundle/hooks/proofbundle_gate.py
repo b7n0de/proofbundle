@@ -4678,8 +4678,10 @@ def _rules_hints(repo: str, args: list[str] | None, deadline: float) -> list[str
                          f"{value}: {why}; a comparison that was not made is no equality.")
             continue
         if not records:
-            hints.append(f"No local record of {value} was found, so the evidence rules at source commit {source[:12]} "
-                         "were compared with none; that is no equality.")
+            # Today's fetch rules name these records; a present ref they do not map, such as a tag git followed, may
+            # record the destination too, so no absence of records is claimed (the class of R12-1, 2026-10-13).
+            hints.append(f"Today's fetch rules map {value} to no present ref, so the evidence rules at source commit "
+                         f"{source[:12]} were compared with none; that is no equality.")
             continue
         dest = _qualify_dest(value)
         unclear = len(records) > 1 or any(name != dest for _local, name, _commit in records)
