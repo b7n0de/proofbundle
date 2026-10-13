@@ -18,10 +18,12 @@ Run: python3 -m unittest test_pruefmenge   (in this folder; standard library onl
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import sys
@@ -51,6 +53,11 @@ def _set(seed: bytes = SEED, anzahl: int = N, kennung: str = "test-einsendung"):
 
 def _lines(raw: bytes) -> list:
     return [json.loads(line) for line in raw.decode("utf-8").splitlines()]
+
+
+def _summe(folder: pathlib.Path) -> str:
+    """The SHA-256 of challenge.jsonl as the submission reports it back (Nachtrag 2, point 5)."""
+    return hashlib.sha256((folder / "challenge.jsonl").read_bytes()).hexdigest()
 
 
 def _rate(answers: bytes, expected: bytes) -> float:
@@ -206,12 +213,16 @@ class KeyOrR(unittest.TestCase):
         self.assertEqual((result.profilregel_gleich, result.profil_gesamt), (step11, step11))
         self.assertIn("Profilregel gleich", pruefmenge.bericht(result, "test"))
 
-    def test_case_and_space_around_the_comma_are_no_deviation(self):
+    def test_case_and_space_around_the_comma_are_a_form_deviation(self):
+        # Nachtrag 2, point 2, replaces the sentence of Nachtrag 1: equal only after the normalisation table is a
+        # number of its own, never agreement and never a deviation in content
         rows = [dict(e, detail=e["detail"].upper().replace(", ", " ,\t")) if e["detail"] else e
                 for e in _lines(_set().expected)]
+        changed = sum(r["detail"] is not None for r in rows)
         self.assertTrue(any(" ,\t" in (r["detail"] or "") for r in rows))
         result = pruefmenge.vergleichen(self._write(rows), _set().expected)
-        self.assertEqual(result.uebereinstimmung, N)
+        self.assertEqual((result.uebereinstimmung, result.formabweichung), (N - changed, changed))
+        self.assertEqual((result.abweichungen, result.formfehler), ([], []))
 
     def test_a_letter_outside_ascii_is_a_deviation(self):
         # U+212A KELVIN SIGN lowercases to an ASCII k; it is no spelling of "key"
@@ -219,7 +230,9 @@ class KeyOrR(unittest.TestCase):
         target = next(i for i, e in enumerate(rows) if e["detail"] and e["detail"].endswith(", key"))
         rows[target] = dict(rows[target], detail=rows[target]["detail"][:-3] + "\u212aey")
         result = pruefmenge.vergleichen(self._write(rows), _set().expected)
-        self.assertEqual([a["id"] for a in result.abweichungen], [rows[target]["id"]])
+        # Nachtrag 2: a detail outside the six values is a form error, not a deviation in content
+        self.assertEqual([f["id"] for f in result.formfehler], [rows[target]["id"]])
+        self.assertEqual(result.abweichungen, [])
         self.assertEqual(result.profilregel_gleich, result.profil_gesamt - 1)
 
     def test_two_faults_in_one_rule_ask_for_the_key_before_r(self):
@@ -278,7 +291,10 @@ class IncompleteAnswers(unittest.TestCase):
         result = pruefmenge.vergleichen(self._write(rows), _set().expected)
         self.assertFalse(result.vollstaendig)
         self.assertEqual(result.fremd, ["x999"])
-        self.assertEqual([number for number, _why in result.kaputt], [N + 2, N + 3])
+        # Nachtrag 2: the line with id c001 belongs to an entry and is a second answer to it (envelope), its verdict
+        # MAYBE is not read as a broken line any more
+        self.assertEqual([number for number, _why in result.kaputt], [N + 2])
+        self.assertEqual(result.doppelt, ["c001"])
 
     def test_deviations_alone_leave_the_answer_complete(self):
         rows = self._answers()
@@ -369,7 +385,7 @@ class CommandLine(unittest.TestCase):
                          (challenge, expected))
         answers = self.base / "answers.jsonl"
         answers.write_bytes(pruefmenge.antworten_von("text", challenge))
-        compared = self._run(HERE / "pruefmenge_vergleichen", "einsendung-1", answers)
+        compared = self._run(HERE / "pruefmenge_vergleichen", "einsendung-1", answers, "--summe", _summe(folder))
         self.assertEqual(compared.returncode, 0, compared.stderr)
         self.assertIn("30 von 30", compared.stdout)
 
@@ -379,7 +395,8 @@ class CommandLine(unittest.TestCase):
         rows = pruefmenge.antworten_von("autor", challenge).splitlines(keepends=True)
         answers = self.base / "answers.jsonl"
         answers.write_bytes(b"".join(rows[1:]))
-        compared = self._run(HERE / "pruefmenge_vergleichen", "einsendung-2", answers)
+        compared = self._run(HERE / "pruefmenge_vergleichen", "einsendung-2", answers, "--summe",
+                             _summe(self.base / "einsendung-2"))
         self.assertNotEqual(compared.returncode, 0)
         self.assertIn("fehlend", compared.stdout)
 
@@ -413,7 +430,8 @@ class AnswerSizeLimit(unittest.TestCase):
         self.tmp.cleanup()
 
     def _compare(self, path, *extra):
-        return subprocess.run([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", str(path), *extra],
+        return subprocess.run([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", str(path), "--summe",
+                               _summe(self.base / "grenze"), *extra],
                               capture_output=True, text=True, env=self.env, timeout=600, check=False)
 
     def _padded(self, size: int) -> pathlib.Path:
@@ -452,7 +470,8 @@ class AnswerSizeLimit(unittest.TestCase):
         self.assertEqual(pruefmenge.lies_begrenzt(Counting(b"x" * 1000), 1000), b"x" * 1000)
 
     def test_a_stream_without_end_is_not_read_past_the_limit(self):
-        proc = subprocess.Popen([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", "/dev/stdin"],
+        proc = subprocess.Popen([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", "/dev/stdin",
+                                 "--summe", _summe(self.base / "grenze")],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
         written, chunk = 0, b"x" * 65536
         try:
@@ -462,10 +481,214 @@ class AnswerSizeLimit(unittest.TestCase):
             proc.stdin.close()
         except BrokenPipeError:
             pass
-        out, _err = proc.communicate(timeout=600)
+        out, err = proc.communicate(timeout=600)
         self.assertEqual(proc.returncode, 2)
         self.assertEqual(out, b"")
+        self.assertIn(b"10000000", err)   # the limit is the reason, not an earlier refusal of the call
         self.assertLess(written, self.LIMIT + 2 * 1000 * 1000)
+
+
+class ResultContract(unittest.TestCase):
+    """Nachtrag 2 of 2026-10-13 after the external review of the call for verifier no. 2: one result contract for
+    the submission and the comparison (prompt items 7 and 8)."""
+
+    SIX = ("profile 1, key", "profile 1, R", "profile 2, key", "profile 2, R", "profile 3", "profile 4")
+
+    @staticmethod
+    def _write(rows) -> bytes:
+        return "".join((r if isinstance(r, str) else json.dumps(r, ensure_ascii=False)) + "\n"
+                       for r in rows).encode("utf-8")
+
+    def _answers(self):
+        return _lines(pruefmenge.antworten_von("autor", _set().challenge))
+
+    @staticmethod
+    def _index(rows, test):
+        return [i for i, r in enumerate(rows) if test(r)]
+
+    # point 1: the form of an answer
+    def test_1_the_contract_names_six_details_and_two_error_details(self):
+        self.assertEqual(pruefmenge.SECHS, self.SIX)
+        self.assertEqual(pruefmenge.ERROR_DETAILS, ("resource-limit", "execution-error"))
+        ok = [{"id": "a", "verdict": "PASS", "step": None, "detail": None},
+              {"id": "a", "verdict": "FAIL", "step": 4, "detail": None},
+              {"id": "a", "verdict": "FAIL", "step": 11, "detail": "profile 2, R"},
+              {"id": "a", "verdict": "ERROR", "step": None, "detail": "execution-error"}]
+        for row in ok:
+            self.assertIsNone(pruefmenge.vertragsform(row), row)
+        bad = [{"id": "a", "verdict": "PASS", "step": 3, "detail": None},
+               {"id": "a", "verdict": "PASS", "step": None, "detail": "x"},
+               {"id": "a", "verdict": "FAIL", "step": 4, "detail": "profile 1, key"},
+               {"id": "a", "verdict": "FAIL", "step": 11, "detail": None},
+               {"id": "a", "verdict": "FAIL", "step": 11, "detail": "profile 3, key"},
+               {"id": "a", "verdict": "FAIL", "step": 12, "detail": None},
+               {"id": "a", "verdict": "FAIL", "step": True, "detail": None},
+               {"id": "a", "verdict": "FAIL", "step": 4.0, "detail": None},
+               {"id": "a", "verdict": "ERROR", "step": None, "detail": None},
+               {"id": "a", "verdict": "ERROR", "step": 2, "detail": "resource-limit"},
+               {"id": "a", "verdict": "MAYBE", "step": None, "detail": None},
+               {"id": "a", "verdict": "PASS", "step": None, "detail": None, "note": "x"},
+               {"id": "a", "verdict": "PASS", "step": None}]
+        for row in bad:
+            self.assertIsNotNone(pruefmenge.vertragsform(row), row)
+
+    def test_1_an_answer_outside_the_contract_is_a_form_error_and_no_result(self):
+        rows = self._answers()
+        changes = {
+            self._index(rows, lambda r: r["detail"] == "profile 3")[0]: {"detail": "profile 3, key"},
+            self._index(rows, lambda r: r["verdict"] == "PASS")[0]: {"step": 5},
+            self._index(rows, lambda r: r["verdict"] == "PASS")[1]: {"note": "x"},
+            self._index(rows, lambda r: r["step"] == 4)[0]: {"detail": "profile 1, key"},
+            self._index(rows, lambda r: r["step"] == 6)[0]: {"verdict": "MAYBE"},
+        }
+        for i, change in changes.items():
+            rows[i] = dict(rows[i], **change)
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertTrue(result.vollstaendig)
+        self.assertEqual(sorted(f["id"] for f in result.formfehler), sorted(rows[i]["id"] for i in changes))
+        self.assertEqual(result.abweichungen, [])
+        self.assertEqual((result.uebereinstimmung, result.formabweichung), (N - len(changes), 0))
+
+    # point 2: exact strings; equal only after the fixed normalisation is a number of its own
+    def test_2_equal_only_after_the_normalisation_is_a_form_deviation(self):
+        rows = self._answers()
+        changes = {
+            self._index(rows, lambda r: r["detail"] == "profile 2, key")[0]: {"detail": "PROFILE 2 ,\tKEY"},
+            self._index(rows, lambda r: r["detail"] == "profile 1, R")[0]: {"detail": "profile 1 r"},
+            self._index(rows, lambda r: r["detail"] == "profile 4")[0]: {"detail": " Profile  4 "},
+            self._index(rows, lambda r: r["verdict"] == "PASS")[0]: {"verdict": "pass"},
+            self._index(rows, lambda r: r["step"] == 7)[0]: {"verdict": " FAIL"},
+        }
+        for i, change in changes.items():
+            rows[i] = dict(rows[i], **change)
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual(sorted(f["id"] for f in result.formabweichungen), sorted(rows[i]["id"] for i in changes))
+        self.assertEqual((result.uebereinstimmung, result.formabweichung), (N - len(changes), len(changes)))
+        self.assertEqual((result.abweichungen, result.formfehler), ([], []))
+
+    def test_2_normalised_to_another_value_or_outside_ascii_is_a_form_error(self):
+        rows = self._answers()
+        key = self._index(rows, lambda r: r["detail"] == "profile 2, key")
+        rows[key[0]] = dict(rows[key[0]], detail="PROFILE 2, R")
+        rows[key[1]] = dict(rows[key[1]], detail="profile 2, \u212aey")
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual(sorted(f["id"] for f in result.formfehler), sorted(rows[i]["id"] for i in key[:2]))
+        self.assertEqual((result.formabweichung, result.abweichungen), (0, []))
+
+    def test_2_the_normalisation_table_is_what_the_code_does(self):
+        self.assertGreaterEqual(len(pruefmenge.NORMALISIERUNG), 4)
+        for feld, regel, before, after in pruefmenge.NORMALISIERUNG:
+            row = {"id": "a", "verdict": "FAIL", "step": 11, "detail": "profile 2, key"}
+            row[feld] = before
+            got = pruefmenge.normalisiert(row)
+            self.assertEqual(None if got is None else got[feld], after, regel)
+
+    # point 3: expectations carry the six values, through an explicit table
+    def test_3_every_expected_answer_is_in_the_contract_and_none_is_error(self):
+        for raw in (_set().expected, pruefmenge.erwartung_anhang_a()):
+            for e in _lines(raw):
+                self.assertIsNone(pruefmenge.vertragsform(e), e)
+                self.assertNotEqual(e["verdict"], "ERROR")
+                if e["step"] == 11:
+                    self.assertIn(e["detail"], self.SIX)
+
+    def test_3_the_generator_maps_its_labels_through_an_explicit_table(self):
+        table = pruefmenge.ABBILDUNG
+        for label in ("11 (profile 1, key)", "11 (profile 1, R)", "11 (profile 2, key)", "11 (profile 2, R)",
+                      "11 (profile 3)", "11 (profile 4)"):
+            self.assertEqual(table[label][0:2], ("FAIL", 11))
+            self.assertIn(table[label][2], self.SIX)
+        self.assertEqual(table["all"], ("PASS", None, None))
+        self.assertEqual({table[str(k)] for k in range(1, 11)}, {("FAIL", k, None) for k in range(1, 11)})
+        self.assertEqual(sorted(t[2] for t in table.values() if t[1] == 11), sorted(self.SIX))
+        with self.assertRaises(ValueError):
+            pruefmenge.antwort("a", "FAIL", "11 (profile 5)")
+
+    # point 4: ERROR is not answered
+    def test_4_error_answers_count_as_not_answered_by_their_detail(self):
+        rows = self._answers()
+        for i in range(0, 6, 2):
+            rows[i] = dict(rows[i], verdict="ERROR", step=None, detail="resource-limit")
+        for i in range(1, 5, 2):
+            rows[i] = dict(rows[i], verdict="ERROR", step=None, detail="execution-error")
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual(result.nicht_beantwortet, {"resource-limit": 3, "execution-error": 2})
+        self.assertEqual((result.uebereinstimmung, result.abweichungen, result.formfehler), (N - 5, [], []))
+        self.assertTrue(result.vollstaendig)
+
+    # point 5: the envelope of the set
+    def test_5_the_generator_checks_the_envelope_of_its_set(self):
+        self.assertEqual(pruefmenge.pruefe_challenge(_set().challenge), [])
+        good = _lines(_set().challenge)
+        key_b64 = good[0]["key_b64"]
+        cases = {
+            "id twice": [good[0], dict(good[1], id=good[0]["id"])],
+            "id no string": [dict(good[0], id=7)],
+            "padding missing": [dict(good[0], key_b64=key_b64.rstrip("="))],
+            "padding bits set": [dict(good[0], key_b64=key_b64[:-2] + "B=")],
+            "key of 31 bytes": [dict(good[0], key_b64=base64.b64encode(bytes(31)).decode())],
+            "field too many": [dict(good[0], note="x")],
+        }
+        for name, rows in cases.items():
+            raw = "".join(json.dumps(r) + "\n" for r in rows).encode()
+            self.assertNotEqual(pruefmenge.pruefe_challenge(raw), [], name)
+
+    def test_5_the_comparison_takes_name_and_sum_back_and_checks_both(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp)
+            env = dict(os.environ, SER_PRUEFMENGE_ORDNER=str(base))
+
+            def run(*args):
+                return subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True, env=env,
+                                      timeout=600, check=False)
+            made = run(HERE / "pruefmenge_erzeugen", "summe-1", "--anzahl", "20")
+            self.assertEqual(made.returncode, 0, made.stderr)
+            summe = _summe(base / "summe-1")
+            self.assertIn(summe, made.stdout)
+            self.assertIn("summe-1", made.stdout)
+            answers = base / "answers.jsonl"
+            answers.write_bytes(pruefmenge.antworten_von("text", (base / "summe-1" / "challenge.jsonl").read_bytes()))
+            self.assertEqual(run(HERE / "pruefmenge_vergleichen", "summe-1", answers, "--summe", summe).returncode, 0)
+            missing = run(HERE / "pruefmenge_vergleichen", "summe-1", answers)
+            self.assertEqual(missing.returncode, 2)
+            wrong = run(HERE / "pruefmenge_vergleichen", "summe-1", answers, "--summe", "0" * 64)
+            self.assertEqual(wrong.returncode, 1)
+            self.assertIn("Summe", wrong.stdout)
+            self.assertNotIn("20 von 20", wrong.stdout)
+            shutil.copytree(base / "summe-1", base / "summe-2")
+            other = run(HERE / "pruefmenge_vergleichen", "summe-2", answers, "--summe", summe)
+            self.assertEqual(other.returncode, 1)
+            self.assertIn("Kennung", other.stdout)
+
+    # point 6: the envelope of the answer
+    def test_6_reordered_ids_are_an_execution_error_and_nothing_is_filled_in(self):
+        rows = self._answers()
+        rows[3], rows[4] = rows[4], rows[3]
+        del rows[10]
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertFalse(result.vollstaendig)
+        self.assertTrue(result.umgestellt)
+        self.assertEqual(len(result.fehlend), 1)
+        self.assertEqual(result.uebereinstimmung, N - 1)
+        self.assertEqual(result.zeilenzahl, N - 1)
+        self.assertTrue(any("Zeilenzahl" in h for h in result.huelle))
+
+    def test_6_a_byte_order_mark_and_an_empty_line_are_execution_errors(self):
+        raw = self._write(self._answers())
+        for name, data in (("BOM", b"\xef\xbb\xbf" + raw), ("leere Zeile", raw.replace(b"\n", b"\n\n", 1))):
+            result = pruefmenge.vergleichen(data, _set().expected)
+            self.assertFalse(result.vollstaendig, name)
+            self.assertTrue(any(name in h for h in result.huelle), (name, result.huelle))
+            self.assertEqual(result.uebereinstimmung, N, name)
+
+    def test_6_the_sum_of_the_classes_is_the_count_of_the_set(self):
+        rows = self._answers()
+        rows[0] = dict(rows[0], verdict="ERROR", step=None, detail="resource-limit")
+        rows[1] = dict(rows[1], verdict="MAYBE")
+        del rows[2]
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual(sum(result.klassen.values()), N)
+        self.assertEqual(result.klassen["fehlt"], 1)
 
 
 class AppendixA(unittest.TestCase):
