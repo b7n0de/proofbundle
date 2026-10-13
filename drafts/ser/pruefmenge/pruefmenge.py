@@ -16,20 +16,24 @@ which they do not give the same verdict and the same first failing step (with th
 the set and kept as a finding on the text. The comparison only reads a submission's answers; it never runs foreign
 code.
 
-Interface, as the prompt for the second implementation states it:
-  challenge.jsonl  one line per entry: {"id": "c001", "receipt_b64": "...", "key_b64": "..."}, the receipt bytes and
-                   the 32-byte verification key, each base64 with padding
-  answers.jsonl    one line per entry: {"id", "verdict": PASS, FAIL or ERROR, "step": 1 to 11 or null,
-                   "detail": the profile rule, with the key or R where the rule checks them, such as
-                   "profile 2, key", "profile 1, R" or "profile 4", or null}
+Interface, as the prompt for the second implementation states it (items 7 and 8):
+  challenge.jsonl  one line per entry: {"id": "c001", "receipt_b64": "...", "key_b64": "..."}, unique string ids, the
+                   receipt bytes and the 32-byte verification key, each canonical base64 with padding
+  answers.jsonl    one line per entry, in input order, exactly {"id", "verdict", "step", "detail"}: PASS with step
+                   and detail null; FAIL with step 1 to 11, detail null at steps 1 to 10 and one of SECHS at step 11;
+                   ERROR with step null and detail "resource-limit" or "execution-error"
   results.jsonl    the same form for Appendix A, with the vector ids as id
 
 Calls (Python 3, standard library only):
   pruefmenge_erzeugen <kennung> [--anzahl N]          writes seed.hex, challenge.jsonl, expected.jsonl into
                                                        $SER_PRUEFMENGE_ORDNER/<kennung> (default ~/ser_pruefmengen)
-  pruefmenge_vergleichen <kennung> <answers.jsonl>     compares; exit 0 for a complete and readable answer, whatever
-                                                       the number of deviations; 1 when ids are missing, doubled or
-                                                       foreign or lines are broken; 2 for a call that cannot run
+                                                       and prints the name and the SHA-256 of challenge.jsonl
+  pruefmenge_vergleichen <kennung> <answers.jsonl> --summe <sha256>
+                                                       checks name and sum from the reply, then compares; exit 0
+                                                       when the envelope of the answer is complete, whatever the
+                                                       classes of the entries; 1 for an execution error of the
+                                                       envelope or a name or sum that do not match; 2 for a call
+                                                       that cannot run
 Seed and expected.jsonl stay in that folder; only challenge.jsonl goes out. Keys and salts are test material only.
 """
 from __future__ import annotations
@@ -993,17 +997,29 @@ def _label_text(rb: bytes, key: bytes) -> tuple:
 PRUEFER = {"autor": _label_autor, "text": _label_text}
 
 
+#: The answer contract of prompt item 7 (Nachtrag 2): the six details of step 11 and the two details of ERROR.
+SECHS = ("profile 1, key", "profile 1, R", "profile 2, key", "profile 2, R", "profile 3", "profile 4")
+ERROR_DETAILS = ("resource-limit", "execution-error")
+FELDER = ("id", "verdict", "step", "detail")
+
+#: Nachtrag 2, point 3: each label of our verifiers ("all", "6", "11 (profile 2, key)") and the answer
+#: (verdict, step, detail) it stands for, as an explicit table; a label that is not in it is no answer.
+ABBILDUNG = {"all": ("PASS", None, None)}
+ABBILDUNG.update({str(k): ("FAIL", k, None) for k in range(1, 11)})
+ABBILDUNG.update({"11 (%s)" % d: ("FAIL", 11, d) for d in SECHS})
+#: What a verifier that stops at its own resource limit answers, whatever step it stopped in.
+GRENZE = ("ERROR", None, "resource-limit")
+
+
 def antwort(entry_id: str, verdict: str, label: str) -> dict:
-    """The answer form of the prompt from a verifier's verdict and label ("all", "6", "11 (profile 2, key)")."""
-    if verdict == "PASS":
-        return {"id": entry_id, "verdict": "PASS", "step": None, "detail": None}
+    """The answer of the contract for a verifier's verdict and label, through ABBILDUNG."""
     if verdict == "RESOURCE_LIMIT":
-        return {"id": entry_id, "verdict": "ERROR", "step": None, "detail": None}
-    m = re.match(r"11 \(profile ([1-4])(?:, (key|R))?\)\Z", label)
-    if m:   # owner choice O2: where the rule checks the key or R, detail names it
-        detail = "profile " + m.group(1) + (", " + m.group(2) if m.group(2) else "")
-        return {"id": entry_id, "verdict": "FAIL", "step": 11, "detail": detail}
-    return {"id": entry_id, "verdict": "FAIL", "step": int(label), "detail": None}
+        form = GRENZE
+    else:
+        form = ABBILDUNG.get(label)
+        if form is None or form[0] != verdict:
+            raise ValueError("the label %r with the verdict %r is not in the mapping table" % (label, verdict))
+    return {"id": entry_id, "verdict": form[0], "step": form[1], "detail": form[2]}
 
 
 def _jsonl(rows: list) -> bytes:
@@ -1086,6 +1102,9 @@ def erzeugen(seed: bytes, anzahl: int = STANDARD_ANZAHL, kennung: str = "einsend
         name = "PASS" if e["verdict"] == "PASS" else ("11 %s" % e["detail"] if e["step"] == 11 else str(e["step"]))
         counts[name] = counts.get(name, 0) + 1
     challenge_b, expected_b = _jsonl(challenge), _jsonl(expected)
+    probleme = pruefe_challenge(challenge_b)
+    if probleme:
+        raise RuntimeError("the set breaks its own envelope: %s" % "; ".join(probleme[:5]))
     meta = {"werkzeug": WERKZEUG, "ableitung": VERSION, "kennung": kennung, "anzahl": anzahl,
             "seed_sha256": hashlib.sha256(seed).hexdigest(),
             "challenge_sha256": hashlib.sha256(challenge_b).hexdigest(),
@@ -1095,6 +1114,57 @@ def erzeugen(seed: bytes, anzahl: int = STANDARD_ANZAHL, kennung: str = "einsend
             "bau_anders_als_beabsichtigt": abweichungen_bau,
             "schluessel_aussteller_b64": b64(satz.issuer.public)}
     return Pruefmenge(challenge_b, expected_b, befunde, bauarten, meta, satz.issuer.public)
+
+
+def _b64_kanonisch(value):
+    """The bytes of canonical base64 with padding, or None."""
+    if not isinstance(value, str) or not value.isascii():
+        return None
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except ValueError:
+        return None
+    return raw if base64.b64encode(raw).decode("ascii") == value else None
+
+
+def pruefe_challenge(challenge: bytes) -> list:
+    """Nachtrag 2, point 5: what breaks the envelope of a challenge set, or []. UTF-8 without a byte order mark, one
+    object per line ending in LF with exactly id, receipt_b64 and key_b64, unique non-empty string ids, canonical
+    base64 with padding, and keys that decode to exactly 32 bytes."""
+    out = []
+    if challenge.startswith(b"\xef\xbb\xbf"):
+        out.append("BOM am Anfang")
+    if not challenge.endswith(b"\n"):
+        out.append("die letzte Zeile endet nicht mit LF")
+    try:
+        text = challenge.decode("utf-8")
+    except UnicodeDecodeError:
+        return out + ["kein UTF-8"]
+    seen: set = set()
+    for n, line in enumerate(text[:-1].split("\n") if text.endswith("\n") else text.split("\n"), 1):
+        try:
+            row = json.loads(line, object_pairs_hook=_eindeutig)
+        except (ValueError, RecursionError):
+            out.append("Zeile %d: kein JSON-Objekt" % n)
+            continue
+        if not isinstance(row, dict) or set(row) != {"id", "receipt_b64", "key_b64"}:
+            out.append("Zeile %d: nicht genau die Felder id, receipt_b64, key_b64" % n)
+            continue
+        if not isinstance(row["id"], str) or not row["id"]:
+            out.append("Zeile %d: id ist keine nicht leere Zeichenkette" % n)
+        elif row["id"] in seen:
+            out.append("Zeile %d: die id %s steht doppelt" % (n, row["id"]))
+        else:
+            seen.add(row["id"])
+        for name in ("receipt_b64", "key_b64"):
+            raw = _b64_kanonisch(row[name])
+            if raw is None:
+                out.append("Zeile %d: %s ist kein kanonisches Base64 mit Padding" % (n, name))
+            elif name == "key_b64" and len(raw) != 32:
+                out.append("Zeile %d: key_b64 dekodiert zu %d Bytes statt 32" % (n, len(raw)))
+    if not out and not seen:
+        out.append("keine Einträge")
+    return out
 
 
 def _order_key(name: str):
@@ -1147,40 +1217,59 @@ def gemischte_antworten(challenge: bytes, expected: bytes, seed: bytes) -> bytes
 
 
 # ---- the comparison -------------------------------------------------------------------------------------------------
+#: The classes of an expected entry; their counts add up to the number of entries.
+KLASSEN = ("voll gleich", "Formabweichung", "inhaltliche Abweichung", "ERROR resource-limit",
+           "ERROR execution-error", "Formfehler", "fehlt")
+
+
 class Vergleich:
     def __init__(self):
-        self.gesamt = self.uebereinstimmung = self.urteil_gleich = 0
+        self.gesamt = self.uebereinstimmung = self.formabweichung = self.urteil_gleich = 0
         self.profilregel_gleich = self.profil_gesamt = 0
+        self.nicht_beantwortet = {d: 0 for d in ERROR_DETAILS}
+        self.klassen = {k: 0 for k in KLASSEN}
         self.je_schritt: dict = {}
-        self.abweichungen: list = []
+        self.abweichungen: list = []        # answers in the contract that differ in content
+        self.formabweichungen: list = []    # answers equal to the expected one only after NORMALISIERUNG
+        self.formfehler: list = []          # answers outside the contract: no SER result
+        # the envelope of the answer: execution errors of the submission, never a SER result
         self.fehlend: list = []
         self.doppelt: list = []
         self.fremd: list = []
+        self.umgestellt: list = []
         self.kaputt: list = []
-        self.weitere_felder = 0
-        self.leere_zeilen = 0
+        self.leere_zeilen: list = []
+        self.bom = False
+        self.zeilenzahl = 0
+
+    @property
+    def huelle(self) -> list:
+        """The execution errors of the answer file, each with its reason; [] for a complete run."""
+        out = []
+        if self.bom:
+            out.append("BOM am Anfang der Datei")
+        if self.leere_zeilen:
+            out.append("leere Zeile: Zeile %s" % ", ".join(map(str, self.leere_zeilen[:GEZEIGT])))
+        if self.zeilenzahl != self.gesamt:
+            out.append("Zeilenzahl %d statt %d" % (self.zeilenzahl, self.gesamt))
+        for name, items in (("fehlende ids", self.fehlend), ("doppelte ids", self.doppelt),
+                            ("fremde ids", self.fremd), ("umgestellte ids", self.umgestellt),
+                            ("kaputte Zeilen", self.kaputt)):
+            if items:
+                out.append("%s: %d" % (name, len(items)))
+        return out
 
     @property
     def vollstaendig(self) -> bool:
-        return not (self.fehlend or self.doppelt or self.fremd or self.kaputt)
+        return not self.huelle
 
 
-_PROFILREGEL = re.compile(r"profile ([1-4])(?:, (?:key|r))?\Z")
-
-
-def _detail(detail):
-    """detail as the comparison weighs it (owner choice O2): the case of ASCII letters and space or tab around the
-    comma are no deviation. A string with a character outside ASCII stays as it is, so that no other script's letter
-    stands in for an ASCII one."""
-    if detail is None or not detail.isascii():
-        return detail
-    return re.sub(r"[ \t]*,[ \t]*", ", ", detail.lower())
+_PROFILREGEL = re.compile(r"profile ([1-4])(?:, (?:key|R))?\Z")
 
 
 def _profilregel(detail):
-    """The number of the profile rule a detail names, or None."""
-    d = _detail(detail)
-    m = _PROFILREGEL.match(d) if isinstance(d, str) else None
+    """The number of the profile rule one of the six details names, or None."""
+    m = _PROFILREGEL.match(detail) if isinstance(detail, str) else None
     return int(m.group(1)) if m else None
 
 
@@ -1192,23 +1281,74 @@ def _name(e: dict) -> str:
     return "Schritt 11, %s" % e["detail"] if e["step"] == 11 else "Schritt %d" % e["step"]
 
 
-def _readable(row) -> str | None:
-    """Why a line is no answer, or None."""
+def vertragsform(row) -> str | None:
+    """Nachtrag 2, point 1: why an answer is outside the contract of prompt item 7, or None. Exactly the fields id,
+    verdict, step and detail; PASS with step and detail null; FAIL with an integer step from 1 to 11, detail null at
+    steps 1 to 10 and one of SECHS at step 11; ERROR with step null and one of ERROR_DETAILS."""
     if not isinstance(row, dict):
-        return "keine JSON-Zeile mit einem Objekt"
-    for name in ("id", "verdict", "step", "detail"):
-        if name not in row:
-            return "das Feld %s fehlt" % name
+        return "kein JSON-Objekt"
+    if set(row) != set(FELDER):
+        fehlt = [k for k in FELDER if k not in row]
+        return ("es fehlt %s" % ", ".join(fehlt)) if fehlt else "weitere Felder neben id, verdict, step, detail"
     if not isinstance(row["id"], str):
         return "id ist keine Zeichenkette"
-    if row["verdict"] not in ("PASS", "FAIL", "ERROR"):
+    verdict, step, detail = row["verdict"], row["step"], row["detail"]
+    if verdict == "PASS":
+        if step is not None or detail is not None:
+            return "PASS mit step oder detail ungleich null"
+    elif verdict == "FAIL":
+        if isinstance(step, bool) or not isinstance(step, int) or not 1 <= step <= 11:
+            return "FAIL ohne step als ganze Zahl von 1 bis 11"
+        if step == 11 and not (isinstance(detail, str) and detail in SECHS):
+            return "Schritt 11 ohne einen der sechs Werte in detail"
+        if step != 11 and detail is not None:
+            return "detail ungleich null an Schritt 1 bis 10"
+    elif verdict == "ERROR":
+        if step is not None:
+            return "ERROR mit step ungleich null"
+        if not (isinstance(detail, str) and detail in ERROR_DETAILS):
+            return "ERROR ohne resource-limit oder execution-error in detail"
+    else:
         return "verdict ist nicht PASS, FAIL oder ERROR"
-    step = row["step"]
-    if step is not None and (isinstance(step, bool) or not isinstance(step, int) or not 1 <= step <= 11):
-        return "step ist weder null noch eine ganze Zahl von 1 bis 11"
-    if row["detail"] is not None and not isinstance(row["detail"], str):
-        return "detail ist weder null noch eine Zeichenkette"
     return None
+
+
+#: Nachtrag 2, point 2: the fixed normalisation, as (field, rule, example before, example after). An answer outside
+#: the contract that equals the expected one after these rules is a form deviation, a number of its own, never
+#: agreement and never a deviation in content. Nothing else is changed; normalisiert() does exactly this, and a test
+#: holds each example against it.
+NORMALISIERUNG = (
+    ("verdict", "Leerzeichen und Tab am Anfang und Ende entfernt", " FAIL\t", "FAIL"),
+    ("verdict", "ASCII-Kleinbuchstaben werden groß", "fail", "FAIL"),
+    ("detail", "Leerzeichen und Tab am Anfang und Ende entfernt", " profile 2, key ", "profile 2, key"),
+    ("detail", "eine Folge von Leerzeichen und Tab wird ein Leerzeichen", "profile  2,\tkey", "profile 2, key"),
+    ("detail", "ASCII-Großbuchstaben werden klein, nur ein r am Ende wird R", "PROFILE 1, R", "profile 1, R"),
+    ("detail", "ein fehlendes Komma oder Leerraum um das Komma vor key oder R wird Komma und ein Leerzeichen",
+     "profile 2 ,key", "profile 2, key"),
+    ("detail", "ohne Komma vor key oder R", "Profile 1 r", "profile 1, R"),
+    ("verdict", "ein Wert mit einem Zeichen außerhalb ASCII wird nicht normalisiert", "FA\u0130L", None),
+    ("detail", "ein Wert mit einem Zeichen außerhalb ASCII wird nicht normalisiert", "profile 2, \u212aey", None),
+)
+_LEERRAUM = re.compile(r"[ \t]+")
+_KOMMA = re.compile(r"(profile [1-4]) ?,? ?(key|r)\Z")
+
+
+def normalisiert(row):
+    """The answer after NORMALISIERUNG, or None where the table does not apply: not an object with exactly the four
+    fields, or a verdict or detail with a character outside ASCII. step and id are never changed."""
+    if not isinstance(row, dict) or set(row) != set(FELDER):
+        return None
+    out = dict(row)
+    if isinstance(row["verdict"], str):
+        if not row["verdict"].isascii():
+            return None
+        out["verdict"] = row["verdict"].strip(" \t").upper()
+    if isinstance(row["detail"], str):
+        if not row["detail"].isascii():
+            return None
+        d = _LEERRAUM.sub(" ", row["detail"].strip(" \t")).lower()
+        out["detail"] = _KOMMA.sub(lambda m: m.group(1) + ", " + ("R" if m.group(2) == "r" else "key"), d)
+    return out
 
 
 #: Owner choice O1 of 2026-10-13: the comparison reads at most 10 MB (10 000 000 bytes) of an answer file.
@@ -1266,66 +1406,94 @@ def _zeile(chunk: bytes):
 
 
 def vergleichen(answers: bytes, expected: bytes) -> Vergleich:
-    """Compare answers.jsonl with expected.jsonl; deviations are a result, not an error. Answers above
-    MAX_ANTWORT_BYTES raise AntwortZuGross."""
+    """Compare answers.jsonl with expected.jsonl (Nachtrag 2). Each expected entry falls in one class of KLASSEN;
+    the envelope of the answer file (vollstaendig, huelle) is judged apart, and a run with an envelope error is
+    evaluated only as far as its lines go: no missing answer is filled in. Answers above MAX_ANTWORT_BYTES raise
+    AntwortZuGross."""
     if len(answers) > MAX_ANTWORT_BYTES:
         raise AntwortZuGross(MAX_ANTWORT_BYTES)
     erwartet = [json.loads(line) for line in expected.decode("utf-8").splitlines() if line.strip()]
-    by_id = {e["id"]: e for e in erwartet}
+    position = {e["id"]: i for i, e in enumerate(erwartet)}
     v = Vergleich()
     v.gesamt = len(erwartet)
     got: dict = {}
     fremd: set = set()
     doppelt: set = set()
     if answers.startswith(b"\xef\xbb\xbf"):
+        v.bom = True
         answers = answers[3:]
     lines = answers.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()                       # the LF that ends the last line
+    v.zeilenzahl = len(lines)
+    weiteste = -1
     for number, chunk in enumerate(lines, 1):
         if not chunk.strip():
-            if number < len(lines):
-                v.leere_zeilen += 1
+            v.leere_zeilen.append(number)
             continue
         row, why = _zeile(chunk)
+        if why is None and not (isinstance(row, dict) and isinstance(row.get("id"), str)):
+            why = "keine Zeile mit einer id als Zeichenkette"
         if why is not None:
             v.kaputt.append((number, why))
             continue
-        why = _readable(row)
-        if why is not None:
-            v.kaputt.append((number, why))
+        entry_id = row["id"]
+        if entry_id not in position:
+            if entry_id not in fremd:
+                fremd.add(entry_id)
+                v.fremd.append(entry_id)
             continue
-        if len(row) > 4:
-            v.weitere_felder += 1
-        if row["id"] not in by_id:
-            if row["id"] not in fremd:
-                fremd.add(row["id"])
-                v.fremd.append(row["id"])
+        if entry_id in got:
+            if entry_id not in doppelt:
+                doppelt.add(entry_id)
+                v.doppelt.append(entry_id)
             continue
-        if row["id"] in got:
-            if row["id"] not in doppelt:
-                doppelt.add(row["id"])
-                v.doppelt.append(row["id"])
-            continue
-        got[row["id"]] = row
+        if position[entry_id] < weiteste:
+            v.umgestellt.append(entry_id)
+        weiteste = max(weiteste, position[entry_id])
+        got[entry_id] = row
     for e in erwartet:
         name = _name(e)
         hit, total = v.je_schritt.get(name, (0, 0))
         a = got.get(e["id"])
         if e["step"] == 11:
             v.profil_gesamt += 1
-            v.profilregel_gleich += (a is not None and a["verdict"] == "FAIL" and a["step"] == 11
-                                     and _profilregel(a["detail"]) == _profilregel(e["detail"]))
         if a is None:
             v.fehlend.append(e["id"])
+            v.klassen["fehlt"] += 1
             v.je_schritt[name] = (hit, total + 1)
             continue
-        same = (a["verdict"], a["step"], _detail(a["detail"])) == (e["verdict"], e["step"], _detail(e["detail"]))
-        v.urteil_gleich += a["verdict"] == e["verdict"]
-        if same:
-            v.uebereinstimmung += 1
+        v.urteil_gleich += a.get("verdict") == e["verdict"]
+        grund = vertragsform(a)
+        wirksam = a if grund is None else None
+        same = False
+        if grund is None and a["verdict"] == "ERROR":
+            v.nicht_beantwortet[a["detail"]] += 1
+            v.klassen["ERROR " + a["detail"]] += 1
+        elif grund is None:
+            same = (a["verdict"], a["step"], a["detail"]) == (e["verdict"], e["step"], e["detail"])
+            if same:
+                v.uebereinstimmung += 1
+                v.klassen["voll gleich"] += 1
+            else:
+                v.klassen["inhaltliche Abweichung"] += 1
+                v.abweichungen.append({"id": e["id"], "erwartet": {k: e[k] for k in FELDER[1:]},
+                                       "antwort": {k: a[k] for k in FELDER[1:]}})
         else:
-            v.abweichungen.append({"id": e["id"], "erwartet": {k: e[k] for k in ("verdict", "step", "detail")},
-                                   "antwort": {k: a[k] for k in ("verdict", "step", "detail")}})
+            n = normalisiert(a)
+            if n is not None and vertragsform(n) is None and all(n[k] == e[k] for k in FELDER[1:]):
+                wirksam = n
+                v.formabweichung += 1
+                v.klassen["Formabweichung"] += 1
+                v.formabweichungen.append({"id": e["id"], "antwort": a})
+            else:
+                v.klassen["Formfehler"] += 1
+                v.formfehler.append({"id": e["id"], "grund": grund, "antwort": a})
+        if (e["step"] == 11 and wirksam is not None and wirksam["verdict"] == "FAIL" and wirksam["step"] == 11
+                and _profilregel(wirksam["detail"]) == _profilregel(e["detail"])):
+            v.profilregel_gleich += 1
         v.je_schritt[name] = (hit + same, total + 1)
+    assert sum(v.klassen.values()) == v.gesamt
     return v
 
 
@@ -1340,9 +1508,19 @@ def _fremd(text: str) -> str:
     return shown + ("..." if len(text) > 60 else "")
 
 
-def _kurz(a: dict, foreign: bool = False) -> str:
-    detail = "-" if a["detail"] is None else (_fremd(a["detail"]) if foreign else a["detail"])
-    return "%s %s %s" % (a["verdict"], "-" if a["step"] is None else a["step"], detail)
+def _kurz(a: dict) -> str:
+    """An answer in the contract (ours or a submission's), short."""
+    return "%s %s %s" % (a["verdict"], "-" if a["step"] is None else a["step"], a["detail"] or "-")
+
+
+def _fremd_json(value) -> str:
+    """Any value from the answer file as the report shows it: JSON, escaped to ASCII, at most 160 characters."""
+    try:
+        text = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    except (TypeError, ValueError, RecursionError):
+        text = "<nicht darstellbar>"
+    text = text.replace("\x7f", "\\u007f")
+    return text[:160] + ("..." if len(text) > 160 else "")
 
 
 def _liste(items: list) -> str:
@@ -1352,28 +1530,46 @@ def _liste(items: list) -> str:
     return "; ".join(items[:GEZEIGT]) + ("; und %d weitere (alle mit --json)" % more if more > 0 else "")
 
 
+def _prozent(teil: int, ganz: int) -> str:
+    return "%.1f %%" % (100.0 * teil / ganz if ganz else 0.0)
+
+
 def bericht(v: Vergleich, kennung: str) -> str:
     out = ["Prüfmenge %s: %d Einträge" % (kennung, v.gesamt),
-           "Übereinstimmung (Urteil, Schritt und Profilpunkt): %d von %d (%.1f %%)"
-           % (v.uebereinstimmung, v.gesamt, 100.0 * v.uebereinstimmung / v.gesamt if v.gesamt else 0.0),
+           "Volle Übereinstimmung (alle vier Felder gleich): %d von %d (%s)"
+           % (v.uebereinstimmung, v.gesamt, _prozent(v.uebereinstimmung, v.gesamt)),
+           "Formabweichung (gleich erst nach der Normalisierungstabelle): %d" % v.formabweichung,
+           "Inhaltliche Abweichung: %d" % len(v.abweichungen),
+           "Nicht beantwortet, ERROR resource-limit: %d" % v.nicht_beantwortet["resource-limit"],
+           "Nicht beantwortet, ERROR execution-error: %d" % v.nicht_beantwortet["execution-error"],
+           "Formfehler (kein SER-Ergebnis): %d" % len(v.formfehler),
+           "Fehlt (keine Zeile): %d" % len(v.fehlend),
+           "Summe der Klassen: %d" % sum(v.klassen.values()),
            "Nur das Urteil gleich: %d von %d" % (v.urteil_gleich, v.gesamt),
            "Profilregel gleich, key oder R nicht gewertet: %d von %d mit Erwartung Schritt 11"
-           % (v.profilregel_gleich, v.profil_gesamt), "Je erwarteter Antwort:"]
+           % (v.profilregel_gleich, v.profil_gesamt), "Je erwarteter Antwort, voll gleich:"]
     for name in sorted(v.je_schritt, key=_name_key):
         hit, total = v.je_schritt[name]
         out.append("  %-24s %d von %d" % (name, hit, total))
-    out.append("Abweichungen: %d" % len(v.abweichungen))
+    out.append("Inhaltliche Abweichungen: %d" % len(v.abweichungen))
     for a in v.abweichungen:
-        out.append("  %s: erwartet %s, Antwort %s" % (a["id"], _kurz(a["erwartet"]), _kurz(a["antwort"], True)))
+        out.append("  %s: erwartet %s, Antwort %s" % (a["id"], _kurz(a["erwartet"]), _fremd_json(a["antwort"])))
+    out.append("Formabweichungen: %d" % len(v.formabweichungen))
+    for a in v.formabweichungen:
+        out.append("  %s: Antwort %s" % (a["id"], _fremd_json(a["antwort"])))
+    out.append("Formfehler: %d" % len(v.formfehler))
+    for a in v.formfehler:
+        out.append("  %s: %s; Antwort %s" % (a["id"], a["grund"], _fremd_json(a["antwort"])))
+    out.append("Hülle der Antwort (Fehler der Ausführung, kein SER-Ergebnis): %s"
+               % ("in Ordnung" if v.vollstaendig else "; ".join(v.huelle)))
     out.append("fehlende ids (%d): %s" % (len(v.fehlend), _liste(v.fehlend)))
     out.append("doppelte ids (%d): %s" % (len(v.doppelt), _liste(v.doppelt)))
     out.append("fremde ids (%d): %s" % (len(v.fremd), _liste([_fremd(i) for i in v.fremd[:GEZEIGT]] +
                                                              v.fremd[GEZEIGT:])))
+    out.append("umgestellte ids (%d): %s" % (len(v.umgestellt), _liste(v.umgestellt)))
     out.append("kaputte Zeilen (%d): %s" % (len(v.kaputt), _liste(["Zeile %d, %s" % k for k in v.kaputt])))
-    if v.weitere_felder:
-        out.append("Zeilen mit weiteren Feldern (gelesen): %d" % v.weitere_felder)
-    if v.leere_zeilen:
-        out.append("leere Zeilen (übergangen): %d" % v.leere_zeilen)
+    if not v.vollstaendig:
+        out.append("Unvollständiger Lauf: gewertet sind nur die vorhandenen Zeilen, keine fehlende Antwort ergänzt")
     out.append("Antwort vollständig und lesbar: %s" % ("ja" if v.vollstaendig else "nein"))
     return "\n".join(out) + "\n"
 
@@ -1442,7 +1638,9 @@ def main_erzeugen(argv: list) -> int:
     _write_private(folder / "erzeugung.json", (json.dumps(made.meta, indent=2, ensure_ascii=False) + "\n").encode())
     print("Prüfmenge %s: %d Einträge, %d ausgelassen, weil die beiden Prüfer uneinig waren"
           % (args.kennung, args.anzahl, len(made.befunde)))
-    print("Nach außen geht nur: %s" % challenge_file)
+    print("Kennung: %s" % args.kennung)
+    print("SHA-256 von challenge.jsonl: %s" % made.meta["challenge_sha256"])
+    print("Nach außen geht nur: %s, mit Kennung und SHA-256; die Rückmeldung nennt beide wieder" % challenge_file)
     print("Bleiben hier: %s und %s" % (seed_file, folder / "expected.jsonl"))
     return 0
 
@@ -1454,17 +1652,47 @@ def main_vergleichen(argv: list) -> int:
     ap.add_argument("antworten", help="answers.jsonl, für anhang-a results.jsonl")
     ap.add_argument("--ordner", help="Grundordner (Vorgabe $%s oder ~/ser_pruefmengen)" % ORDNER_VARIABLE)
     ap.add_argument("--json", help="schreibt die Auswertung zusätzlich als JSON in diese Datei")
+    ap.add_argument("--summe", help="SHA-256 von challenge.jsonl, wie die Rückmeldung der Einsendung sie nennt "
+                    "(Pflicht für eine Prüfmenge)")
     args = ap.parse_args(argv)
     if args.kennung == ANHANG_A:
         expected = erwartung_anhang_a()
+        if args.summe:
+            print("Hinweis: für anhang-a gibt es keine Prüfmenge; die Summe wird nicht geprüft.", file=sys.stderr)
     else:
         if not KENNUNG.match(args.kennung):
             print("Die Kennung ist kein Ordnername.", file=sys.stderr)
             return 2
-        path = _ordner(args.ordner) / args.kennung / "expected.jsonl"
+        folder = _ordner(args.ordner) / args.kennung
+        path = folder / "expected.jsonl"
         if not path.exists():
             print("Keine Prüfmenge %s: %s fehlt." % (args.kennung, path), file=sys.stderr)
             return 2
+        if not args.summe:
+            print("Die Summe aus der Rückmeldung fehlt: --summe <SHA-256 von challenge.jsonl>.", file=sys.stderr)
+            return 2
+        try:
+            meta = json.loads((folder / "erzeugung.json").read_text(encoding="utf-8"))
+            eigene = hashlib.sha256((folder / "challenge.jsonl").read_bytes()).hexdigest()
+        except (OSError, ValueError) as exc:
+            print("Die Prüfmenge %s ist hier nicht lesbar: %s" % (args.kennung, exc), file=sys.stderr)
+            return 2
+        if eigene != meta.get("challenge_sha256"):
+            print("challenge.jsonl in %s passt nicht zu erzeugung.json; die Prüfmenge am Mac ist verändert."
+                  % folder, file=sys.stderr)
+            return 2
+        huelle = []
+        if meta.get("kennung") != args.kennung:
+            huelle.append("Kennung passt nicht: der Ordner %s hält die Prüfmenge %s"
+                          % (args.kennung, _fremd(str(meta.get("kennung")))))
+        if args.summe.lower() != eigene:
+            huelle.append("Summe passt nicht: die Rückmeldung nennt %s, die Prüfmenge %s hat %s"
+                          % (_fremd(args.summe), args.kennung, eigene))
+        if huelle:
+            sys.stdout.write("Prüfmenge %s: Antwort nicht verglichen\n" % args.kennung
+                             + "".join("Hülle: %s\n" % h for h in huelle)
+                             + "Antwort vollständig und lesbar: nein\n")
+            return 1
         expected = path.read_bytes()
     try:
         with open(args.antworten, "rb", buffering=0) as fh:   # unbuffered: no read ahead past the limit
@@ -1479,12 +1707,16 @@ def main_vergleichen(argv: list) -> int:
     v = vergleichen(answers, expected)
     sys.stdout.write(bericht(v, args.kennung))
     if args.json:
-        summary = {"kennung": args.kennung, "gesamt": v.gesamt, "uebereinstimmung": v.uebereinstimmung,
-                   "urteil_gleich": v.urteil_gleich, "profilregel_gleich": v.profilregel_gleich,
-                   "profil_gesamt": v.profil_gesamt, "je_erwartung": {k: list(x) for k, x in v.je_schritt.items()},
-                   "abweichungen": v.abweichungen, "fehlend": v.fehlend, "doppelt": v.doppelt, "fremd": v.fremd,
-                   "kaputt": [list(k) for k in v.kaputt], "vollstaendig": v.vollstaendig,
-                   "antworten_sha256": hashlib.sha256(answers).hexdigest()}
+        summary = {"kennung": args.kennung, "summe": args.summe, "gesamt": v.gesamt, "klassen": v.klassen,
+                   "uebereinstimmung": v.uebereinstimmung, "formabweichung": v.formabweichung,
+                   "nicht_beantwortet": v.nicht_beantwortet, "urteil_gleich": v.urteil_gleich,
+                   "profilregel_gleich": v.profilregel_gleich, "profil_gesamt": v.profil_gesamt,
+                   "je_erwartung": {k: list(x) for k, x in v.je_schritt.items()},
+                   "abweichungen": v.abweichungen, "formabweichungen": v.formabweichungen,
+                   "formfehler": v.formfehler, "huelle": v.huelle, "fehlend": v.fehlend, "doppelt": v.doppelt,
+                   "fremd": v.fremd, "umgestellt": v.umgestellt, "kaputt": [list(k) for k in v.kaputt],
+                   "leere_zeilen": v.leere_zeilen, "bom": v.bom, "zeilenzahl": v.zeilenzahl,
+                   "vollstaendig": v.vollstaendig, "antworten_sha256": hashlib.sha256(answers).hexdigest()}
         pathlib.Path(args.json).write_text(json.dumps(summary, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return 0 if v.vollstaendig else 1
 
