@@ -587,7 +587,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     (a name the configuration gives no URL, which `git remote` does not list), the URLs and pushed refs of that file
     decide the push, and the gate does not read them: a push with no refspec is not resolved, and the exception does
     not apply to a push to that remote (the class of R13-1: with a `Push:` line sending another branch whose history
-    held a declaration, `git push legacy` had been called inactive). Where the push goes to an endpoint or a
+    held a declaration, `git push legacy` had been called inactive). Whether the configuration gives that URL is read
+    from the list git uses, with its reset at an empty value as in git 2.51.1: with no URL after the last empty value
+    the files decide, as with no key at all (review round 14 of 2026-10-13, R14-3: an empty remote.legacy.url had hidden
+    the file, and the current branch had been named as the commit pushed). Where the push goes to an endpoint or a
     namespace these records do not model,
     a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record

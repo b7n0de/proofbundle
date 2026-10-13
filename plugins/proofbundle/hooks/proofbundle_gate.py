@@ -2983,8 +2983,19 @@ def _legacy_remote(repo: str, remote: str, deadline: float) -> bool:
     the configuration gives no URL (remote.c of git 2.43.0, remote_get_1). Such a file names further URLs and the refs a
     push sends (`Push:`, or HEAD to the branch a branches file names), which the gate does not read (review round 13 of
     2026-10-13, the class of R13-1: with .git/remotes/legacy pushing refs/heads/other, `git push legacy` had been
-    called locally inactive while git pushed another branch). A file the gate cannot rule out counts as present."""
-    if not remote or remote in (".", "..") or "/" in remote or _config_present(repo, f"remote.{remote}.url", deadline):
+    called locally inactive while git pushed another branch). A file the gate cannot rule out counts as present.
+
+    Whether the configuration gives a URL is read from the list git uses, not from the key being there (review round 14
+    of 2026-10-13, R14-3, measured by the reviewer with git 2.51.1: an empty remote.<name>.url starts the list anew,
+    and with no URL after it git took the remote from .git/remotes/<name> while the gate, seeing the key, had named the
+    current branch as the commit pushed). With no URL after the last empty value the files decide, as with no key; a
+    URL after it is git's URL. git 2.43.0 refuses an empty URL and pushes nothing (_endpoint_consistent)."""
+    if not remote or remote in (".", "..") or "/" in remote:
+        return False
+    urls = _config_all(repo, f"remote.{remote}.url", deadline)
+    if "" in urls:
+        urls = urls[len(urls) - urls[::-1].index(""):]   # the values after the last empty one
+    if urls:
         return False
     paths, _why = _repo_paths(repo, deadline)
     if paths is None or not paths["common"]:
