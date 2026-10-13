@@ -2140,3 +2140,25 @@ order without paths, a deep enough shallow clone, a push with the work).
 Options (owner card Nordstern of KARTEN-01):
 - A. Leave it: done means green receipts for the state at hand (D26).
 - B. With paths, done requires a change in them since the commit that declared the order (chosen).
+
+## D32. The answer leads to the push form Level 1 resolves (owner choice A, 2026-10-13, 23:3x Berlin)
+
+Measured in the self-use of 2026-10-13 (stage 0, observer in one session, head 101bd167): Claude Code writes a push
+as `cd <repo> && git push <remote> <refspec>`. Level 1 resolves no `cd` and no chain since review Runde 4 (D3), so
+the gate answers ask with `directory_unresolved`, rightly, and nearly every push of a working day asks.
+
+Chosen (A): the resolution stays exactly as it is, no `cd`, no chain and no new case. The plugin leads the agent to
+the safe form Level 1 already resolves and checks: `git -C <absolute path> push <remote> <refspec>`, one command of its
+own with one literal absolute `-C`, for example `git -C /home/me/repo push origin HEAD:refs/heads/topic`.
+
+- The next step of `directory_unresolved` for a push names this form with the example and says that the gate resolves
+  and checks it, while a `cd`, a `pushd` or any chain before the push stays unresolved. For another gated call it
+  names one command with literal words and, for git, one literal absolute `git -C`.
+- The next step of `possible_unmodeled_push` and of `mcp_target_unbound` names the same form where it named a plain
+  `git push`.
+- Under Codex the hint names the plain `git push <remote> <refspec>` in the session's directory instead, because there
+  only that form warns and a global option such as `-C` is denied (owner choice K5-1 C, D12).
+- The self-test already hands out `git -C <work> push origin main` (server/proofbundle_mcp.py).
+
+Reason: a hint toward a form the gate does not resolve costs an ask on every push and teaches nothing; a hint
+toward the form it resolves keeps the check and drops the ask. Nothing about what the gate resolves changed.

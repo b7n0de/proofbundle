@@ -93,7 +93,11 @@ NOT MEASURED, never passed off as checked: any `;`/`&&`/`||`/`|`/`&`/newline cha
 brace group, a shell keyword, a function, a wrapper such as `env`/`sudo`, a nested shell (`bash -lc`,
 `sh -c`, and the `-lc`/`-cl` bundles), `eval`, `source`, a command or parameter substitution, a
 here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git`
-run by a path. **The former free list for local git commands has been removed** (review Runde 9, owner
+run by a path. The form to push in is therefore `git -C <absolute path> push <remote> <refspec>`, for example
+`git -C /home/me/repo push origin HEAD:refs/heads/topic`, as a command of its own: the gate resolves it from any
+working directory and checks the commits it sends, while `cd <repo> && git push …` stays unresolved and is asked,
+and the answer to such a push names this form (D32; under Codex the plain `git push …` in the session's directory,
+D12). **The former free list for local git commands has been removed** (review Runde 9, owner
 choice B, 2026-10-03; D3; wording of review Runde 10, R10-3). Those forms are NOT MEASURED, asked under
 Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
 judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain `git add` and `git commit -m`

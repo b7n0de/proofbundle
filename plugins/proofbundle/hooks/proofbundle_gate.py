@@ -6105,8 +6105,8 @@ def decide_mcp(tool: str, cwd: str, deadline: float, host: str = "claude") -> Ou
                                 f"this call: the local repository at {cwd}, at its HEAD, reads {diagnosis}",
                       "mcp_target_unbound", evidence=f"the remote target and the bytes {tool} writes",
                       failed="the hook binds neither the tool's actual target nor the bytes it writes",
-                      next_step="have a person review the call, or publish through a plain `git push`, whose sent "
-                                "commits the gate checks; its destination stays NOT MEASURED under Level 1 (D3)")
+                      next_step=(f"have a person review the call, or publish through {_push_form_hint(host)}; its "
+                                 "destination stays NOT MEASURED under Level 1 (D3)"))
     return Outcome(decision, verdict.text(), [verdict])
 
 
@@ -6354,6 +6354,25 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
 #: The next step of a refused `git add` or `git commit` form (a chain, an option, a wrapper): the two forms K-NW-2 B
 #: frees, so an agent without a person can still commit (measured in a Claude Code run on 2026-10-08: an agent that
 #: chained the edit, `git add` and `git commit` was refused, read "have a person review the call" and stopped).
+#: The push form Level 1 resolves from any working directory and checks, named wherever the gate tells the agent how
+#: to push (FIX-17 Nachtrag 1, owner choice A of 2026-10-13, 23:3x Berlin, D32). Measured in the self-use of
+#: 2026-10-13: Claude Code writes a push as `cd <repo> && git push <remote> <refspec>`, which Level 1 does not resolve
+#: since review Runde 4 (directory_unresolved), so nearly every push asked. The resolution stays as it is; the answer
+#: leads to the form it resolves: one command, one literal absolute `-C`, no `cd`, no chain.
+SAFE_PUSH_FORM = "git -C <absolute path> push <remote> <refspec>"
+SAFE_PUSH_EXAMPLE = "git -C /home/me/repo push origin HEAD:refs/heads/topic"
+
+
+def _push_form_hint(host: str) -> str:
+    """How to write a push the gate resolves and checks under `host`. Under Codex only the plain `git push …` in the
+    session's directory warns (owner choice K5-1 C, D12): a global option such as `-C` is not that form there."""
+    if host == "codex":
+        return "the plain `git push <remote> <refspec>` on its own, in the session's directory"
+    return (f"`{SAFE_PUSH_FORM}` as a command of its own, for example `{SAFE_PUSH_EXAMPLE}`: the gate resolves the "
+            "repository from that path and checks the commits the push sends, while a `cd`, a `pushd` or any chain "
+            "before the push stays unresolved and is asked")
+
+
 _FREE_FORMS_HINT = ("run `git add <paths>` and then `git commit -m <message>`, each as a whole command of its own with no "
                     "chain, wrapper, redirection or other option: the gate frees exactly these two forms after a state "
                     "check of the repository (DECISIONS.md D3); otherwise have a person review the call")
@@ -6476,9 +6495,8 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "transport); the gate checked nothing.",
                 "possible_unmodeled_push", evidence="the commits and refs this command might send",
                 failed="the command is not one strict push form the gate resolves",
-                next_step="have a person review the command, or run the push as a plain `git push <remote> "
-                          "<refspec>`, whose sent commits the gate checks; its destination stays NOT MEASURED under "
-                          "Level 1 (D3)"))
+                next_step=(f"have a person review the command, or run the push as {_push_form_hint(host)}; its "
+                           "destination stays NOT MEASURED under Level 1 (D3)")))
             continue
         if resolved is UNKNOWN:
             verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "
@@ -6486,8 +6504,11 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                            "shell may rewrite, such as a glob).",
                                     "directory_unresolved", evidence=f"unknown, the repository {name} acts on",
                                     failed="the gate cannot resolve the directory",
-                                    next_step="run the call in the repository's directory, with a literal path and "
-                                              "literal words"))
+                                    next_step=(f"run the push as {_push_form_hint(host)}, or have a person push"
+                                               if name == "git push" else
+                                               "run the call as one command of its own with literal words, for "
+                                               "git with one literal absolute path as `git -C <absolute path> …`; "
+                                               "a `cd`, a `pushd` or any chain before it stays unresolved")))
             continue
         try:
             verdicts.append(_evaluate_call(name, resolved, detail, deadline))
