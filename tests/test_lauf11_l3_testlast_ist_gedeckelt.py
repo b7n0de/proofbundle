@@ -587,14 +587,20 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             "x = ArchiveTimeStamp('sha256', 'a' * 64, 0)\n"
             "geteilt = t.gemessene_bytes_je_element('renewal_ats_chain')\n"
             "object.__delattr__(x, 'time')\n"
+            "assert not hasattr(x, 'time'), 'the instance still holds time, the key sharing is not broken'\n"
             "print(geteilt, t.gemessene_bytes_je_element('renewal_ats_chain'))\n")
         lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
         self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
         geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
-        self.assertGreater(ungeteilt, geteilt, "control: breaking the key sharing costs memory")
+        # What the break costs is the interpreter's: 572.8 B against 356.6 B in the worker of pull request 309,
+        # nothing on CPython 3.12.14 (320.9 B both times, Codex search of the 6.3.0 candidate, where a strict
+        # "costs more" control was a false red), 0.1 B on 3.11.17, 3.12.3 and 3.13.16 (631 part 2, P2 group 4).
+        # The property is that the table carries the larger of the two readings; the control is that the child
+        # broke the sharing (its assert above) and measured something.
+        self.assertGreater(geteilt, 0.0, "control: the measurement measured something")
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
-        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
+        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], max(geteilt, ungeteilt))
 
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle
