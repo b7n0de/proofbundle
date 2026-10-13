@@ -107,6 +107,7 @@ from typing import List, Optional
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import merkle
+from proofbundle._plain_value import plain_json
 from proofbundle._wire_b64 import decode_b64
 from proofbundle.canonical import _bytes_von, _folge_von, _puffer_von, canonicalize_statement
 from proofbundle.emit import SCHEMA
@@ -334,6 +335,11 @@ class MerkleAccumulator:
         # canonicalized as it was signed, and the pinned key checked as a trust anchor: a malformed,
         # non-canonical or low-order key refuses the state before any signature arithmetic.
         try:
+            # ONE READING OF THE OUTER ENVELOPE as well (CODEX-630-K3): the inner state was read back from the signed
+            # bytes, but the signature came from the envelope's own `__getitem__`, so a dict subclass storing an
+            # invalid signature and showing a valid one restored. The envelope is copied from its storage once, and
+            # the state and the signature are read from that copy.
+            gespeichert = plain_json(gespeichert, what="the persisted state", error=ValueError)
             inhalt, signatur = gespeichert["state"], decode_b64(gespeichert["signature"])
             nachricht = canonicalize_statement(inhalt)
         except (KeyError, TypeError, ValueError, ProofBundleError) as exc:
