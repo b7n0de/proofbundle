@@ -336,7 +336,7 @@ def test_r8_2_a_promisor_key_with_an_empty_remote_subsection_is_a_partial_clone(
     repo = _repo(tmp_path)
     _git(repo, "config", "--local", "remote..promisor", "true")
     assert _git(repo, "config", "--get-regexp", r"^remote\.\.promisor$") == "remote..promisor true"
-    with pytest.raises(gate.GateError, match="partial clone"):
+    with pytest.raises(gate.GateError, match="promisor-related configuration"):
         gate.tree_digest(str(repo), "HEAD", _deadline())
     assert _not_free("git cat-file -p HEAD", repo)   # review Runde 9: asked as a git form, the key is not read
 
@@ -422,7 +422,7 @@ def test_r8_3_contract_the_batch_reader_refuses_a_partial_clone(tmp_path):
     oid = _git(repo, "rev-parse", "HEAD:a.txt").encode()
     assert len(gate._blob_sha256s(str(repo), [oid], _deadline())) == 1      # the control: a full clone is read
     _partial_clone_keys(repo)
-    with pytest.raises(gate.GateError, match="partial clone"):
+    with pytest.raises(gate.GateError, match="promisor-related configuration"):
         gate._blob_sha256s(str(repo), [oid], _deadline())
 
 
@@ -434,5 +434,5 @@ def test_r8_3_contract_the_working_tree_comparison_refuses_a_partial_clone(tmp_p
     commit = _git(repo, "rev-parse", "HEAD")
     assert gate._working_tree_problem(str(repo), commit, _deadline()) is None   # the control: a clean full clone
     _partial_clone_keys(repo)
-    with pytest.raises(gate.GateError, match="partial clone"):
+    with pytest.raises(gate.GateError, match="promisor-related configuration"):
         gate._working_tree_problem(str(repo), commit, _deadline())

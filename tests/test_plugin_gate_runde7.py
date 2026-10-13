@@ -135,7 +135,7 @@ def test_r7_7_the_mcp_diagnosis_reads_no_object_of_a_partial_clone(tmp_path, hos
     outcome = gate.decide_mcp("mcp__github__create_pull_request", str(repo), _deadline(), host=host)
     assert not marker.exists(), "the gate's diagnosis started the promisor transport"
     assert outcome is not None and outcome.decision == expected, outcome
-    assert "partial clone" in outcome.text, outcome.text
+    assert "promisor-related configuration" in outcome.text, outcome.text
     subprocess.run(["git", "-C", str(repo), "cat-file", "-t", "HEAD:.proofbundle/evidence.json"],
                    capture_output=True, check=False)
     assert marker.exists(), "the promisor transport is not live for a plain git; the case would be vacuous"

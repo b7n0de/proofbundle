@@ -1969,8 +1969,16 @@ def _git_namespace() -> str | None:
 #: marker uploadpack, and decide_mcp's diagnosis started it while it read a declaration this clone did not hold.
 #: git makes a remote a promisor through remote.<name>.promisor and remote.<name>.partialclonefilter and through
 #: the repository format's extensions.partialClone; whatever the value, the gate reads no object from such a
-#: repository. The remote's subsection may be empty (remote..promisor, review Runde 8, R8-2), hence `.*`.
+#: repository. The remote's subsection may be empty (remote..promisor, review Runde 8, R8-2), hence `.*`. The keys are
+#: read by their presence, never by a last boolean value: measured by the reviewer in round 15 of 2026-10-13, true
+#: followed by false still started the transport program at an object read, and a filter, extensions.partialClone and
+#: another remote's key did as well (owner choice of 2026-10-13, 15:1x Berlin, on C-5).
 _PARTIAL_CLONE_KEYS = r"^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$"
+#: The refusal under those keys, in the owner's words (C-5): it says that the gate does not evaluate the configuration
+#: and claims no partial clone, which a key set to false, say, does not make. GateError adds the closing full stop.
+_PROMISOR_REFUSAL = ("This repository has promisor-related configuration that this gate does not evaluate. The gate "
+                     "refuses object reads under this configuration. Use a full repository without that configuration "
+                     "for this check")
 
 
 def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedProcess:
@@ -1987,21 +1995,19 @@ def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedPro
 
 
 def _refuse_partial_clone(repo: str, deadline: float) -> None:
-    """GateError when repo is a partial clone (_PARTIAL_CLONE_KEYS), asked before an object read, so no read of
-    the gate can fetch. `git config --get-regexp` reads the configuration and no object; exit 1 with no output
-    is "no such key", anything else refuses. A directory that does not exist is left to the call itself, which
-    then fails as before without reading an object."""
+    """GateError (_PROMISOR_REFUSAL) when repo has promisor-related configuration (_PARTIAL_CLONE_KEYS), asked before
+    an object read, so no read of the gate can fetch. `git config --get-regexp` reads the configuration and no object;
+    exit 1 with no output is "no such key", anything else refuses. A directory that does not exist is left to the call
+    itself, which then fails as before without reading an object."""
     if not os.path.isdir(repo):
         return
     probe = _run_git(repo, ("config", "-z", "--get-regexp", _PARTIAL_CLONE_KEYS), deadline)
     if probe.returncode == 0 and probe.stdout:
-        names = sorted({e.split(b"\n", 1)[0].decode("utf-8", "replace") for e in probe.stdout.split(b"\0") if e})
-        raise GateError(f"{repo} is a partial clone ({', '.join(names)[:160]}): git fetches an object it does not "
-                        "hold from the promisor remote and starts the program that remote's configuration names, "
-                        "so the gate reads no object from it (NOT MEASURED); clone the repository in full")
+        raise GateError(_PROMISOR_REFUSAL)
     if probe.returncode != 1 or probe.stdout:
         why = probe.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise GateError(f"git could not say whether {repo} is a partial clone" + (f": {why[0]}" if why else ""))
+        raise GateError(f"git could not say whether {repo} has promisor-related configuration"
+                        + (f": {why[0]}" if why else ""))
 
 
 #: The gate's git calls that read the configuration or the repository layout and no object: the reads of the

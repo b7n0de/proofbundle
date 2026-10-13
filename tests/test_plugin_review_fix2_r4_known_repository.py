@@ -34,7 +34,7 @@ def test_a_partial_clone_refused_before_head_ends_in_the_blocker(env, tmp_path, 
     dc._git(repo, "config", key, "origin" if key.startswith("extensions") else "true")
     blocker = f6.ends_in_the_blocker(env, repo, gate.DEFAULT_MAX_BLOCKS, "gate_error", host)
     assert blocker["open"][0]["id"] == "done-check"
-    assert "partial clone" in blocker["open"][0]["detail"]
+    assert "promisor-related configuration" in blocker["open"][0]["detail"]
 
 
 def test_removing_the_partial_clone_key_lets_the_check_go_on(env, tmp_path, keys):

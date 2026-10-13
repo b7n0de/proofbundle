@@ -378,9 +378,12 @@ Kept:
   real-push check;
 - the write gate for the repository's configuration and hooks (D8), which still reads the effective
   configuration files and the effective hook directory, only to protect them from a file tool;
-- the locks on the gate's own git calls: the refusal to read objects from a partial clone and
+- the locks on the gate's own git calls: the refusal to read objects under promisor-related configuration and
   `GIT_NO_LAZY_FETCH=1` (review Runde 7, R7-7), no filter, hook or fsmonitor in the diagnosis, in
-  `tree-digest` and in `run-evidence` (review Runde 8, R8-1).
+  `tree-digest` and in `run-evidence` (review Runde 8, R8-1). The refusal reads the keys remote.<name>.promisor,
+  remote.<name>.partialclonefilter and extensions.partialClone by their presence, whatever the value, and says that
+  the gate does not evaluate that configuration; it claims no partial clone (owner choice of 2026-10-13, 15:1x
+  Berlin, on C-5 of review round 14: true followed by false still started the transport program at an object read).
 
 The gate's own git calls use the subcommands `rev-parse`, `config`, `ls-tree`, `cat-file` (also
 `--batch`, without `--filters` or `--textconv`), `rev-list`, `symbolic-ref`, `remote`, `var` and
