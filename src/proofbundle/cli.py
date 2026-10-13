@@ -1925,6 +1925,31 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+#: The options of `intoto` and `svr` that only one of their two modes reads, by dest and spelling. A mode refuses
+#: an option it does not read instead of dropping it (631 part 2, P2 group 1, measured at 063b4e22: `intoto
+#: --verify --predicate-version v0.2`, `--evaluator`, `--receipt-uri not-a-uri` and every other export option
+#: ended `=> OK` with exit 0 exactly as without them, as did `svr --verify` with `--policy-uri` or `--key`, and
+#: an export with `--pub`). `--subject-profile` and `--predicate-version` have no parser default for this reason:
+#: the default is applied in the export, so a value given to `--verify` can be told from none.
+_INTOTO_EXPORT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"),
+                          ("subject_profile", "--subject-profile"), ("subject_name", "--subject-name"),
+                          ("subject_sha256", "--subject-sha256"), ("predicate_version", "--predicate-version"),
+                          ("evaluator", "--evaluator"), ("receipt_uri", "--receipt-uri"))
+_SVR_EMIT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"), ("policy_uri", "--policy-uri"),
+                     ("policy_sha256", "--policy-sha256"))
+
+
+def _options_the_mode_does_not_read(args: argparse.Namespace, command: str, options: tuple) -> bool:
+    """True (with a named error) when `args` carries an option of `options`, which the chosen mode does not read;
+    an option is given when its value is not None, so an empty value counts as given."""
+    given = [flag for dest, flag in options if getattr(args, dest, None) is not None]
+    if given:
+        mode = "--verify" if args.verify else "the export"
+        print(f"ERROR: {command} {mode} does not read {', '.join(given)}; give only the options this mode reads",
+              file=sys.stderr)
+    return bool(given)
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -1941,6 +1966,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             # "ERROR: base64 field must be str or bytes, got NoneType" — true, but it does not tell the
             # caller which flag is missing.
             print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
+        if _options_the_mode_does_not_read(args, "intoto", _INTOTO_EXPORT_OPTIONS):
             return 2
         try:
             with _open_input(args.receipt) as handle:
@@ -1965,7 +1992,14 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
     # The version decides which flags mean something; a flag the chosen version does not read is refused,
     # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
-    version, evaluator = args.predicate_version, args.evaluator
+    if _options_the_mode_does_not_read(args, "intoto", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    version = args.predicate_version if args.predicate_version is not None else "v0.1"
+    profile = args.subject_profile if args.subject_profile is not None else "receipt"
+    evaluator = args.evaluator
     if version == "v0.1":
         if evaluator is not None or args.receipt_uri is not None:
             print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
@@ -2000,19 +2034,19 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         roots = recompute_merkle_root_b64(bundle)
         if version == "v0.2":
             model = None
-            if args.subject_profile == "public-model":
+            if profile == "public-model":
                 # The public model is disclosed as the subject; the predicate identifies it once, by the
                 # same name and digest, instead of by a salted commitment.
                 model = {"name": args.subject_name,
                          "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
             envelope = export_eval_result_v02_dsse(
-                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                claim, signer, evaluator_id=str(evaluator), subject_profile=profile,
                 subject_name=args.subject_name, subject_sha256=args.subject_sha256,
                 root_b64=roots.get("stated_b64"), model=model,
                 evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
         else:
             envelope = export_eval_result_dsse(
-                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                claim, signer, subject_profile=profile, subject_name=args.subject_name,
                 subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
@@ -2021,9 +2055,9 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
     if version == "v0.2":
-        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {profile})")
     else:
-        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {profile})")
     return 0
 
 
@@ -2034,6 +2068,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         if args.pub is None:
             # MJ-1: --verify needs --pub (cannot be argparse-required — this command also EMITs).
             print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
+        if _options_the_mode_does_not_read(args, "svr", _SVR_EMIT_OPTIONS):
             return 2
         try:
             with _open_input(args.receipt) as handle:
@@ -2063,6 +2099,15 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         return 0 if res["ok"] else 1
 
     from .bundle import load_bundle  # noqa: PLC0415
+    if _options_the_mode_does_not_read(args, "svr", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    if args.policy_sha256 is not None and args.policy_uri is None:
+        # The digest is written only as the digest OF a policy URI; alone it was dropped and the SVR written without it.
+        print("ERROR: --policy-sha256 names the digest of --policy-uri and needs it", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
@@ -3279,12 +3324,12 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
     intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
-                        default="receipt",
+                        default=None,
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
-    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default=None,
                         help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
                              "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
     intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
