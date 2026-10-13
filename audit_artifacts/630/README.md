@@ -20,6 +20,7 @@ These totals count register entries only. They exclude the four additional P2 gr
 |---|---|
 | Findings-register totals | Reported above from the release record; no final-head audit verdict is asserted here |
 | Final pre-tag audit and signed receipt | Pending |
+| Paths named twice at the final release head | None found in the [recorded check](https://github.com/b7n0de/proofbundle/releases/download/v6.3.0/paths_named_twice_check_v6.3.0.json) before the pre-tag receipt was produced. |
 
 ## Verification and limits
 

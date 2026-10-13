@@ -1,6 +1,6 @@
 # Residual risk, release 6.3.0
 
-This file records findings reported during the 6.3.0 candidate review and their stated status for this release. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the earlier residual-risk record](RESTRISIKO_620.md).
+This file records findings reported for the 6.3.0 release and their stated status. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the earlier residual-risk record](RESTRISIKO_620.md).
 
 ## The defect search on the candidate
 
@@ -48,3 +48,7 @@ The candidate review examined commit `98b168b9` on 2026-10-12 for false positive
 
 It does not say that the search covered every path of the candidate; its report names what it did not measure, among
 them the full suite, the mutation layer and the SCITT package, which needs `cbor2`.
+
+## Found after the candidate review
+
+- **Two trees that name a path twice can share one release digest.** `subject_tree_digest` in `scripts/pre_tag_receipt_lib.py` and `tree_digest` in `scripts/sign_readiness_artifact.py` accept a Git tree that names the same path twice and give the same digest for either order of the two entries, although `git show` and a checkout then read different content. The check on candidate `c2d189b6d32b0ae94874151edc1976f2890d295b` found no repeated paths among 2,217 tree entries. The final release tree was [checked](audit_artifacts/630/README.md) before the pre-tag receipt was produced, and no repeated paths were found. This check addresses the reported duplicate-path case in the inspected tree; it does not establish a general guarantee that the receipt binds a unique interpretation of every possible tree. Refusing such trees in both functions is targeted for 6.3.1. This finding is not in the signed register.
