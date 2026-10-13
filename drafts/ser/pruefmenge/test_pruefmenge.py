@@ -90,6 +90,11 @@ class ChallengeSet(unittest.TestCase):
         valid = sum(e["verdict"] == "PASS" for e in expected)
         self.assertTrue(0.25 * N <= valid <= 0.40 * N, valid)        # about a third valid
 
+    def test_no_expected_answer_is_error(self):
+        # O3: no entry is meant to reach a resource limit; ERROR belongs to an implementation's own limit only
+        self.assertEqual([e["id"] for e in _lines(_set().expected) if e["verdict"] == "ERROR"], [])
+        self.assertEqual([e["id"] for e in _lines(pruefmenge.erwartung_anhang_a()) if e["verdict"] == "ERROR"], [])
+
     def test_entries_with_two_faults_ask_for_the_order_of_the_text(self):
         # Section 5: the first step that fails gives FAIL; Section 4: the rules in the order given, within rules 1
         # and 2 the key before R. With one fault per entry, an implementation that checks in another order answers
