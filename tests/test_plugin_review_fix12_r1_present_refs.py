@@ -21,7 +21,6 @@ the ask names the ref without claiming it is a record of the destination. Red ag
 from __future__ import annotations
 
 import pathlib
-import re
 import subprocess
 
 import pytest
@@ -87,19 +86,43 @@ def test_the_reviewers_control_with_a_tag_rule_is_asked(env, tmp_path):
     _refused_at(answer, entry, text, "refs/tags/release", declared)
 
 
-def test_the_records_of_a_remote_whose_configuration_is_gone_are_read(env, tmp_path):
+def _gone(tmp_path: pathlib.Path, remote_head: bool) -> tuple[pathlib.Path, str]:
+    """A remote fetched once and its configuration removed, its records left. Whether a fetch also writes the symbolic
+    refs/remotes/gone/HEAD depends on the git version (2.51.1 does, 2.43.0 does not; review round 17 of 2026-10-13,
+    R17-2), so each case sets it itself: present as a symbolic ref, or absent."""
     work, remote, a = w1._undeclared(tmp_path)
     declared = _declared_on_remote(work, remote, a)
     w1._git(work, "remote", "add", "gone", str(remote))
     w1._git(work, "fetch", "-q", "--no-tags", "gone")
+    present = subprocess.run(["git", "-C", str(work), "symbolic-ref", "-q", "refs/remotes/gone/HEAD"],
+                             capture_output=True, text=True, check=False).returncode == 0
+    if remote_head and not present:
+        w1._git(work, "symbolic-ref", "refs/remotes/gone/HEAD", "refs/remotes/gone/main")
+    if not remote_head and present:
+        w1._git(work, "symbolic-ref", "--delete", "refs/remotes/gone/HEAD")
     w1._git(work, "config", "--remove-section", "remote.gone")     # the configuration goes, the refs stay
     _back_to_clean(work, remote, a)
-    answer, entry, text = w1._l1(env, work)
-    named = re.search(r"the local ref (refs/remotes/gone/\S+) holds something", text)
-    assert named is not None, text
-    record = named.group(1)
+    return work, declared
+
+
+def test_the_records_of_a_remote_whose_configuration_is_gone_are_read(env, tmp_path):
+    """Only the direct record stays: it is read, and its declaration is named with its object."""
+    work, declared = _gone(tmp_path, remote_head=False)
+    record = "refs/remotes/gone/main"
     assert w1.n2c._rev(work, record) == declared
+    assert subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "--quiet", "refs/remotes/gone/HEAD"],
+                          capture_output=True, check=False).returncode == 1
+    answer, entry, text = w1._l1(env, work)
     _refused_at(answer, entry, text, record, declared)
+
+
+def test_the_symbolic_head_of_a_remote_whose_configuration_is_gone_is_outside_the_contract(env, tmp_path):
+    """The symbolic refs/remotes/gone/HEAD stays as well: a symbolic ref of a remote git no longer lists lies outside
+    the narrow contract, and the ask names it (the production contract is not loosened)."""
+    work, declared = _gone(tmp_path, remote_head=True)
+    assert w1.n2c._rev(work, "refs/remotes/gone/HEAD") == declared
+    w1._assert_outside(*w1._l1(env, work), "a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD",
+                       "refs/remotes/gone/HEAD")
 
 
 def test_the_refs_an_earlier_fetch_rule_wrote_are_read(env, tmp_path):
