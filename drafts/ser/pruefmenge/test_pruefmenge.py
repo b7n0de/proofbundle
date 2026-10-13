@@ -86,7 +86,9 @@ class ChallengeSet(unittest.TestCase):
         steps = {e["step"] for e in expected if e["verdict"] == "FAIL"}
         self.assertEqual(steps, set(range(1, 12)))
         details = {e["detail"] for e in expected if e["step"] == 11}
-        self.assertEqual(details, {"profile 1", "profile 2", "profile 3", "profile 4"})
+        # owner choice O2: rules 1 and 2 name the key or R
+        self.assertEqual(details, {"profile 1, key", "profile 1, R", "profile 2, key", "profile 2, R", "profile 3",
+                                   "profile 4"})
         valid = sum(e["verdict"] == "PASS" for e in expected)
         self.assertTrue(0.25 * N <= valid <= 0.40 * N, valid)        # about a third valid
 
@@ -176,6 +178,74 @@ class AnswersThatFallShort(unittest.TestCase):
         self.assertTrue(result.vollstaendig)
         self.assertLess(result.uebereinstimmung / result.gesamt, 0.75)
         self.assertEqual(result.urteil_gleich, N)
+
+
+class KeyOrR(unittest.TestCase):
+    """Owner choice O2 of 2026-10-13, 19:2x Berlin: where a profile rule checks the key or R, detail names it
+    ("profile 2, key", "profile 1, R"). Full agreement needs exactly that label; the agreement in the profile rule alone
+    is a number of its own; case and space around the comma are no deviation."""
+
+    @staticmethod
+    def _write(rows) -> bytes:
+        return "".join(json.dumps(r) + "\n" for r in rows).encode()
+
+    def test_key_and_r_swapped_is_a_deviation_but_the_rule_agrees(self):
+        expected = _lines(_set().expected)
+        rows, swapped = [], 0
+        for e in expected:
+            if e["detail"] and e["detail"].endswith((", key", ", R")):
+                head = e["detail"].rsplit(", ", 1)[0]
+                e = dict(e, detail=head + (", R" if e["detail"].endswith("key") else ", key"))
+                swapped += 1
+            rows.append(e)
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        step11 = sum(e["step"] == 11 for e in expected)
+        self.assertGreater(swapped, 0)
+        self.assertTrue(result.vollstaendig)
+        self.assertEqual(result.uebereinstimmung, N - swapped)
+        self.assertEqual((result.profilregel_gleich, result.profil_gesamt), (step11, step11))
+        self.assertIn("Profilregel gleich", pruefmenge.bericht(result, "test"))
+
+    def test_case_and_space_around_the_comma_are_no_deviation(self):
+        rows = [dict(e, detail=e["detail"].upper().replace(", ", " ,\t")) if e["detail"] else e
+                for e in _lines(_set().expected)]
+        self.assertTrue(any(" ,\t" in (r["detail"] or "") for r in rows))
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual(result.uebereinstimmung, N)
+
+    def test_a_letter_outside_ascii_is_a_deviation(self):
+        # U+212A KELVIN SIGN lowercases to an ASCII k; it is no spelling of "key"
+        rows = _lines(_set().expected)
+        target = next(i for i, e in enumerate(rows) if e["detail"] and e["detail"].endswith(", key"))
+        rows[target] = dict(rows[target], detail=rows[target]["detail"][:-3] + "\u212aey")
+        result = pruefmenge.vergleichen(self._write(rows), _set().expected)
+        self.assertEqual([a["id"] for a in result.abweichungen], [rows[target]["id"]])
+        self.assertEqual(result.profilregel_gleich, result.profil_gesamt - 1)
+
+    def test_two_faults_in_one_rule_ask_for_the_key_before_r(self):
+        # the two forms of the first report's T2: key and R both against rule 1, or both against rule 2
+        for form, first, second in ((1, "11 (profile 1, key)", "11 (profile 1, R)"),
+                                    (2, "11 (profile 2, key)", "11 (profile 2, R)")):
+            rng = pruefmenge.Zufall(bytes(32))
+            werk = pruefmenge.Werkstatt(pruefmenge.Satz(rng.child("satz")), rng.child("werkstatt"))
+            rb, key, intended = werk.mehrfach(form)
+            self.assertEqual((intended, werk.zweiter), (first, second))
+            for name in ("autor", "text"):
+                self.assertEqual(pruefmenge.PRUEFER[name](rb, key), ("FAIL", first), name)
+            expected = self._write([pruefmenge.antwort("m1", "FAIL", first)])
+            wrong = self._write([pruefmenge.antwort("m1", "FAIL", second)])
+            result = pruefmenge.vergleichen(wrong, expected)
+            self.assertEqual((result.uebereinstimmung, result.profilregel_gleich, result.profil_gesamt), (0, 1, 1))
+
+    def test_an_implementation_checking_in_another_order_deviates_on_every_two_fault_entry(self):
+        made = _set()
+        kinds = {b["id"]: b for b in made.bauarten}
+        rows = [pruefmenge.antwort(e["id"], "FAIL", kinds[e["id"]]["zweiter_fehler"])
+                if kinds[e["id"]]["bauart"] == "mehrfach" else e for e in _lines(made.expected)]
+        result = pruefmenge.vergleichen(self._write(rows), made.expected)
+        double = sorted(i for i, b in kinds.items() if b["bauart"] == "mehrfach")
+        self.assertGreaterEqual(len(double), 5)
+        self.assertEqual(sorted(a["id"] for a in result.abweichungen), double)
 
 
 class IncompleteAnswers(unittest.TestCase):
