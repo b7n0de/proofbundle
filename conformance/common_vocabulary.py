@@ -167,8 +167,23 @@ def compare(want: dict, got: dict) -> tuple[bool, list[str]]:
     return (not diffs, diffs)
 
 
+def agree(left: dict, right: dict) -> tuple[bool, list[str]]:
+    """Whether two OBSERVED labels agree: every axis is compared, whichever side fills it.
+
+    ``compare`` checks only the axes its first argument pins, which is right for a declared expectation held
+    against an observation and wrong between two observations (matrix630, finding of delta at 479e01ee, the
+    sibling of CODEX-KLASSENSUCHE-631-01 F1): a Python label with ``policyVerdict`` None was never compared
+    with the Rust one, whatever Rust reported. NOT_EVALUATED and None stay one observable fact."""
+    diffs: list[str] = []
+    for axis in AXES:
+        left_v, right_v = left.get(axis), right.get(axis)
+        if not _axis_equal(left_v, right_v):
+            diffs.append(f"{axis}: {left_v!r} on one side, {right_v!r} on the other")
+    return (not diffs, diffs)
+
+
 __all__ = [
     "EXIT_CLASS", "EXIT_CLASSES", "EXIT_VERIFIED", "EXIT_CRYPTO_FAIL", "EXIT_MALFORMED",
     "EXIT_POLICY_UNMET", "LINEAGE_STATES", "POLICY_VERDICTS", "AXES",
-    "exit_class", "label_from_verify", "expected_label", "compare",
+    "exit_class", "label_from_verify", "expected_label", "compare", "agree",
 ]

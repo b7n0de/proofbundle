@@ -166,8 +166,14 @@ _DIFF_GUT = {
     "total_relation_vectors": 2,
     "all_agree": True,
     "rows": [
-        {"caseId": "a", "agree_python_rust": True},
-        {"caseId": "b", "agree_python_rust": True},
+        # The row form tools/pb_verify_rs/crosscheck.py writes; the cell recomputes each row from its labels
+        # (CODEX-KLASSENSUCHE-631-01, F1), so a row of flags alone is no evidence of agreement.
+        {"caseId": c, "kind": "outcome_relation",
+         "expected": {"exitClass": "VERIFIED", "lineage": "VERIFIED", "policyVerdict": None},
+         "python": {"exitClass": "VERIFIED", "lineage": "VERIFIED", "policyVerdict": None},
+         "rust": {"exitClass": "VERIFIED", "lineage": "VERIFIED", "policyVerdict": None},
+         "python_exit": 0, "rust_exit": 0, "agree_python_rust": True, "rust_reproduces_expectation": True}
+        for c in ("a", "b")
     ],
 }
 

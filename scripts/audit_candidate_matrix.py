@@ -2311,6 +2311,48 @@ _DIFFERENTIAL_ARTIFACT_REL = "audit_artifacts/360/rust_differential_matrix.json"
 _DIFFERENTIAL_SCHEMA = "proofbundle.rust_relation_differential_matrix.v1"
 
 
+def _differential_rows(rows: list) -> tuple[list, list, list]:
+    """The rows of the differential report as C8.2 judges them, as three lists of caseIds: the incomplete rows,
+    the rows that contradict themselves, and the rows on which Python, Rust or the expectation disagree."""
+    # THE GATE COMPUTES THE AGREEMENT, THE FLAGS ARE CHECKED AGAINST IT (CODEX-KLASSENSUCHE-631-01, F1, measured at
+    # f6ea5cc3): a signed one-row report with expected and python VERIFIED/VERIFIED, exit 0, and rust
+    # CRYPTO_FAIL/FAIL, exit 1, carried agree_python_rust, rust_reproduces_expectation and all_agree true, and this
+    # cell answered "Python==Rust on every row". Each row must hold the three labels over the common axes in the
+    # common vocabulary and both exit codes; each side's exit class is its exit code's class; Python and Rust are
+    # compared on every axis either fills (`agree`, the matrix630 sibling), Rust and the expectation on the axes
+    # the expectation pins (`compare`). A flag that is not that result, or all_agree that is not their conjunction,
+    # is a report that contradicts itself.
+    from common_vocabulary import (  # noqa: PLC0415
+        AXES, EXIT_CLASSES, LINEAGE_STATES, POLICY_VERDICTS, agree, compare, exit_class)
+    werte = {"exitClass": EXIT_CLASSES, "lineage": LINEAGE_STATES, "policyVerdict": POLICY_VERDICTS}
+
+    def _label_ok(label, gepinnt: bool) -> bool:
+        return (type(label) is dict and set(label) == set(AXES)
+                and all(label[a] in werte[a] or (label[a] is None and (gepinnt or a != "exitClass"))
+                        for a in AXES))
+
+    unvollstaendig, widerspruch, uneins = [], [], []
+    for r in rows:
+        fall = r.get("caseId") if isinstance(r, dict) else None
+        if not (isinstance(r, dict) and _label_ok(r.get("expected"), True) and _label_ok(r.get("python"), False)
+                and _label_ok(r.get("rust"), False) and type(r.get("python_exit")) is int
+                and type(r.get("rust_exit")) is int and type(r.get("agree_python_rust")) is bool
+                and type(r.get("rust_reproduces_expectation")) is bool):
+            unvollstaendig.append(fall)
+            continue
+        if (r["python"]["exitClass"] != exit_class(r["python_exit"])
+                or r["rust"]["exitClass"] != exit_class(r["rust_exit"])):
+            widerspruch.append(fall)
+            continue
+        gleich, _ = agree(r["python"], r["rust"])
+        reproduziert, _ = compare(r["expected"], r["rust"])
+        if r["agree_python_rust"] is not gleich or r["rust_reproduces_expectation"] is not reproduziert:
+            widerspruch.append(fall)
+        elif not (gleich and reproduziert):
+            uneins.append(fall)
+    return unvollstaendig, widerspruch, uneins
+
+
 def c8_2_differential_agrees():
     """Python == Rust — ueber ZEILEN, nicht ueber ein einzelnes Bool.
 
@@ -2350,11 +2392,16 @@ def c8_2_differential_agrees():
     if len(rows) != erwartet:
         return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} claims {erwartet} vector(s) but carries "
                       f"{len(rows)} row(s) — the artifact contradicts its own population")
-    uneins = [r.get("caseId") for r in rows
-              if not isinstance(r, dict) or r.get("agree_python_rust") is not True]
+    unvollstaendig, widerspruch, uneins = _differential_rows(rows)
+    if unvollstaendig:
+        return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries {len(unvollstaendig)} row(s) without the three labels "
+                      f"in the common vocabulary, both exit codes and both flags: {unvollstaendig[:5]}")
+    if widerspruch:
+        return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries {len(widerspruch)} row(s) whose exit codes or flags "
+                      f"contradict their own labels: {widerspruch[:5]}")
     if uneins:
-        return FAIL, (f"Python and Rust disagree on {len(uneins)} differential vector(s): "
-                      f"{uneins[:5]}")
+        return FAIL, (f"Python and Rust, or Rust and the declared expectation, disagree on {len(uneins)} "
+                      f"differential vector(s): {uneins[:5]}")
     if b.get("all_agree") is not True:
         return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries all_agree="
                       f"{b.get('all_agree')!r} while every row agrees — the artifact contradicts itself")
