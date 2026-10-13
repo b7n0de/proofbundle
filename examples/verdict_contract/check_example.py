@@ -12,16 +12,20 @@
 3. sha256(reply.txt, raw bytes) and sha256(verdict_contract.py) are the ones verdict.json names.
 4. verdict_contract.find_verdict on the reply gives the verdict verdict.json states.
 Exit 0 only when all four hold. The verdict itself is printed; it is not the exit status.
+
+The JSON files and the payload are read strictly at the file boundary, with the library's reader: a member named
+twice is refused, not cleaned to its last value before the library sees it (CODEX-630-K5, SPEC Section 2).
 """
 import argparse
-import base64
 import hashlib
-import json
 import sys
 from pathlib import Path
 
 from proofbundle import agent_review as AR
 from proofbundle import canonicalize_statement
+from proofbundle._strict_json import loads_strict
+from proofbundle._wire_b64 import decode_b64
+from proofbundle.errors import ProofBundleError
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -50,7 +54,11 @@ def main(d: Path, expected_key: bytes | None = None) -> int:
         ok = ok and passed
         print(("ok    " if passed else "FAIL  ") + text)
 
-    envelope = json.loads((d / "receipt.json").read_bytes())
+    try:
+        envelope = loads_strict((d / "receipt.json").read_bytes())
+    except (ValueError, ProofBundleError) as exc:
+        line(False, f"receipt.json is not strict JSON: {exc}")
+        return 1
     body = (d / "pr_body.md").read_bytes().decode("utf-8")
     toy = toy_repo.build(d / "toyrepo")
     expected_sc = {**EXAMPLE_PR, **toy, "bodyCoreDigest": AR.body_core_digest(body),
@@ -62,12 +70,20 @@ def main(d: Path, expected_key: bytes | None = None) -> int:
                           f"subject={r['expected_subject_match']} body={r['body_core_digest_match']} "
                           f"policy={r.get('policy_decision')} errors={r['errors']}")
 
-    predicate = json.loads(base64.b64decode(envelope["payload"]))["predicate"]
-    claimed = predicate["declaration"]["reviewRuns"][0]["evidenceRef"]["sha256"]
+    try:
+        predicate = loads_strict(decode_b64(envelope["payload"]))["predicate"]
+        claimed = predicate["declaration"]["reviewRuns"][0]["evidenceRef"]["sha256"]
+    except (ValueError, ProofBundleError, KeyError, IndexError, TypeError) as exc:
+        line(False, f"the payload is not the strict JSON statement the check reads: {type(exc).__name__}: {exc}")
+        return 1
     record_bytes = (d / "verdict.json").read_bytes()
     line(sha256(record_bytes) == claimed, "verdict.json is the record the receipt binds")
 
-    record = json.loads(record_bytes)
+    try:
+        record = loads_strict(record_bytes)
+    except (ValueError, ProofBundleError) as exc:
+        line(False, f"verdict.json is not strict JSON: {exc}")
+        return 1
     reply = (d / "reply.txt").read_bytes()
     line(sha256(reply) == record["reply"]["sha256"], "reply.txt, raw bytes, is the reply the record names")
     line(sha256((HERE / "verdict_contract.py").read_bytes()) == record["parser"]["sha256"],
