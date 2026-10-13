@@ -68,7 +68,7 @@ def test_git_pushes_over_a_path_without_its_suffix_into_the_repository(env, tmp_
 def test_the_record_of_a_remote_naming_the_repository_without_its_suffix_is_read(env, tmp_path):
     work, _remote, _a, declared = _mirror_without_suffix(tmp_path)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local record refs/remotes/mirror/main of the destination "
+    w1._assert_exception_refused(answer, entry, text, f"the local ref refs/remotes/mirror/main "
                                                       f"holds something at {gate.DECLARATION} or in place of its "
                                                       f"folder at {declared[:12]}")
 
@@ -90,7 +90,7 @@ def test_the_record_of_a_remote_spelling_a_network_url_otherwise_is_read(env, tm
     declared = _declared_on_top(work, a)
     w1._git(work, "update-ref", "refs/remotes/mirror/main", declared)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local record refs/remotes/mirror/main of the destination "
+    w1._assert_exception_refused(answer, entry, text, f"the local ref refs/remotes/mirror/main "
                                                       f"holds something at {gate.DECLARATION} or in place of its "
                                                       f"folder at {declared[:12]}")
 

@@ -547,7 +547,11 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     11 of 2026-10-12, the class of R11-3: a second remote naming `remote.git` as `remote`, which git completes, and one
     network repository spelt as https and scp form, as ssh URL, without `.git` or through a host alias had been told
     apart as written, and the declaration in its record had been passed over). A declaration there blocks the
-    exception, a broken or dangling record is no empty state, and a missing record says nothing about the remote. Where the push goes to an endpoint or a namespace these records do not model,
+    exception, a broken or dangling record is no empty state, and a missing record says nothing about the remote.
+    The ask names the concrete local record and says that its relation to the actual destination is not
+    established; it claims no equality of remotes, since a record of another remote may be relevant without being
+    shown to be a record of the destination (owner choice of 2026-10-13, which keeps this strictness). Where the push
+    goes to an endpoint or a namespace these records do not model,
     a push URL other than the fetch URL (a pushurl, a further URL, a URL rewrite) or GIT_NAMESPACE, the exception does
     not apply (review round 11 of 2026-10-12, R11-3: with remote.origin.pushurl naming another remote whose record
     held a declaration, and under GIT_NAMESPACE with a declaration recorded from refs/namespaces/, the push had been

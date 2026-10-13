@@ -60,7 +60,7 @@ def test_control_the_push_to_other_itself_is_asked(env, tmp_path):
     w1._git(work, "remote", "add", "other", str(other))
     w1._git(work, "fetch", "-q", "--no-tags", "other")
     answer, entry, text = w1._l1(env, work, "git push other +main:refs/heads/main")
-    w1._assert_exception_refused(answer, entry, text, f"the local record refs/remotes/other/main of the destination "
+    w1._assert_exception_refused(answer, entry, text, f"the local ref refs/remotes/other/main "
                                                       f"holds something at {gate.DECLARATION} or in place of its folder "
                                                       f"at {declared[:12]}")
 
@@ -76,7 +76,7 @@ def test_a_second_remote_with_the_same_url_has_its_records_read(env, tmp_path):
     w1._git(work, "fetch", "-q", "--no-tags", "origin")
     assert w1.n2c._rev(work, "refs/remotes/origin/main") == a
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local record refs/remotes/mirror/main of the destination "
+    w1._assert_exception_refused(answer, entry, text, f"the local ref refs/remotes/mirror/main "
                                                       f"holds something at {gate.DECLARATION} or in place of its "
                                                       f"folder at {declared[:12]}")
 

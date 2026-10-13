@@ -3820,6 +3820,10 @@ def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | 
 #: bound target state the commits a push newly sends are unknown, so no tracking ref is subtracted; a longer history is
 #: not read, and the push is asked.
 MAX_HISTORY_COMMITS = 20000
+#: What the ask says of a local ref that holds a declaration and may record the ref a push writes (owner choice of
+#: 2026-10-13): its relation to the actual destination is not established, and no equality of remotes is claimed.
+_NOT_ESTABLISHED = ("it may record the ref this push writes, but whether it records the actual destination is not "
+                    "established")
 #: What owner choice 1 A says where it does not apply in a repository whose HEAD and working tree declare nothing.
 _LOCAL_EXCEPTION = ("The gate's exception for a repository without a declaration (owner choice 1 A of 2026-10-11, "
                     "DECISIONS.md D5) does not apply: ")
@@ -4030,12 +4034,13 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
     records = []
     for local, name in sorted(wanted.items()):
         if local in broken:
-            return None, f"the local record {local} of the destination is a broken ref"
+            return None, f"the local ref {local}, which may record the ref this push writes, is a broken ref"
         if local not in present:
             continue
         commit = _git(repo, "rev-parse", "--verify", "--quiet", f"{present[local]}^{{commit}}", deadline=deadline)
         if commit.returncode != 0 or not commit.stdout.strip():
-            return None, f"the local record {local} of the destination names no commit this repository holds"
+            return None, (f"the local ref {local}, which may record the ref this push writes, names no commit this "
+                          "repository holds")
         records.append((local, name, commit.stdout.decode().strip()))
     return records, None
 
@@ -4126,10 +4131,13 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
             return None, "git could not list the commits of the destination's local records"
         state, at = _declaration_at(repo, record_trees, deadline)
         if state != "absent":
+            # The ask names the record and leaves its relation to the actual destination open: a record of another remote
+            # may be relevant, it is not shown to be one of the destination (owner choice of 2026-10-13).
             local = next(local for local, _name, commit in records if commit == at)
-            return None, (f"the local record {local} of the destination holds something at {DECLARATION} or in place "
-                          f"of its folder at {at[:12]}" if state == "present" else
-                          f"git does not give the whole tree of {at[:12]}, the commit of the local record {local}")
+            return None, (f"the local ref {local} holds something at {DECLARATION} or in place of its folder at "
+                          f"{at[:12]}; {_NOT_ESTABLISHED}" if state == "present" else
+                          f"git does not give the whole tree of {at[:12]}, the commit of the local ref {local}, which "
+                          "may record the ref this push writes")
     except GateError as exc:
         return None, f"the gate could not finish its reading ({exc})"
     tips = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none, the push only deletes"

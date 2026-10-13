@@ -337,7 +337,7 @@ def test_d_a_record_of_the_destination_with_a_declaration_blocks_the_exception(e
     declared = _record_with_declaration(work, remote, "release")
     answer, entry, text = _l1(env, work, "git push origin main:release")
     _assert_exception_refused(answer, entry, text,
-                              f"the local record refs/remotes/origin/release of the destination holds something at "
+                              f"the local ref refs/remotes/origin/release holds something at "
                               f"{gate.DECLARATION} or in place of its folder at {declared[:12]}")
 
 
@@ -351,7 +351,7 @@ def test_d_a_recorded_candidate_with_a_declaration_blocks_the_exception(env, tmp
     _git(work, "fetch", "-q", "--no-tags", "origin")
     answer, entry, text = _l1(env, work, "git push origin HEAD:refs/heads/main")
     _assert_exception_refused(answer, entry, text,
-                              "the local record refs/recorded/origin/remotes/refs/heads/main of the destination")
+                              "the local ref refs/recorded/origin/remotes/refs/heads/main holds something at")
 
 
 @pytest.mark.parametrize("content", ["1" * 40 + "\n", "garbage\n"], ids=["dangling", "broken"])
@@ -360,14 +360,15 @@ def test_d_an_unreadable_record_is_no_empty_state(env, tmp_path, content):
     (work / ".git" / "refs" / "remotes" / "origin").mkdir(parents=True, exist_ok=True)
     (work / ".git" / "refs" / "remotes" / "origin" / "release").write_text(content, encoding="utf-8")
     answer, entry, text = _l1(env, work, "git push origin main:release")
-    _assert_exception_refused(answer, entry, text, "the local record refs/remotes/origin/release of the destination")
+    _assert_exception_refused(answer, entry, text, "the local ref refs/remotes/origin/release, which may record the "
+                                                   "ref this push writes")
 
 
 def test_d_a_deletion_whose_record_holds_a_declaration_is_not_exempted(env, tmp_path):
     work, remote, _a = _undeclared(tmp_path)
     _record_with_declaration(work, remote, "old")
     answer, entry, text = _l1(env, work, "git push origin :old")
-    _assert_exception_refused(answer, entry, text, "the local record refs/remotes/origin/old of the destination")
+    _assert_exception_refused(answer, entry, text, "the local ref refs/remotes/origin/old holds something at")
 
 
 # --- the price, named in D5 and D20 ----------------------------------------------------------------------------------
