@@ -580,10 +580,13 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     its own worktree as git resolves it there (a per-worktree name such as refs/bisect/ or a root ref among that
     worktree's records, a shared name by its loose file or its entry of packed-refs, and every symbolic step of either
     kind in that worktree again, never by a name's place in a listing git resolved for the current worktree; a chain
-    within git's depth of 5, a cycle never), and a shared symbolic ref, present in every worktree, is resolved in each;
+    only as far as git follows it, which reads at most five refs for one resolution, the record it starts from
+    included, so four symbolic refs before the object resolve and five do not, a cycle never), and a shared symbolic
+    ref, present in every worktree, is resolved in each;
     one that does not resolve so leaves the exception unapplied (review round 15 of 2026-10-13, R15-1: a shared
     refs/heads/bridge to refs/bisect/here had ended the chain of another worktree's ORIG_HEAD, which git there does not
-    resolve, with its place in the listing of the current worktree) (the class of R13-1: a declared commit only in
+    resolve, with its place in the listing of the current worktree; R15-2: five symbolic refs, which git does not
+    resolve, had been followed to the object) (the class of R13-1: a declared commit only in
     FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
     had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
     cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). The

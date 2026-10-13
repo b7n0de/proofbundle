@@ -4276,11 +4276,13 @@ def _shared_ref(common: str, packed: dict[str, str], name: str) -> tuple[str, st
     return ("object", match.group(1).decode("ascii")) if match else None
 
 
-#: How many symbolic refs git follows one after another before it gives up (refs.c of git 2.43.0, SYMREF_MAXDEPTH).
+#: How many refs git reads one after another for one resolution, the one it starts from included, before it gives up
+#: (refs.c of git 2.43.0, SYMREF_MAXDEPTH; measured by the reviewer with git 2.51.1 and 2.43.0 and here with 2.43.0:
+#: four symbolic refs and the object resolve, five symbolic refs do not).
 SYMREF_MAXDEPTH = 5
 
 
-def _resolves(records: dict, shared, prefix: str, target: str, depth: int) -> bool:
+def _resolves(records: dict, shared, prefix: str, target: str, read: int) -> bool:
     """Whether the target of a symbolic record of the worktree `prefix` names ("" this one, main-worktree/ or
     worktrees/<name>/ another) resolves there, step by step from the ref store, as git resolves it in that worktree:
     a per-worktree name (refs/bisect/, refs/worktree/, refs/rewritten/, a root ref, any name outside refs/) among that
@@ -4288,8 +4290,11 @@ def _resolves(records: dict, shared, prefix: str, target: str, depth: int) -> bo
     worktree again (review round 14 of 2026-10-13, R14-1: the target had been looked up among the refs of the current
     worktree; review round 15, R15-1: a shared symbolic step had ended with the name's place in the listing of the
     current worktree, which git resolves there and not in the record's worktree). No step is answered from a listing
-    git resolved already. A chain longer than SYMREF_MAXDEPTH, a cycle among them, does not resolve."""
-    if depth > SYMREF_MAXDEPTH:
+    git resolved already. `read` counts the refs read for this resolution so far, the record it starts from included,
+    and the target is one more: where git would read more than SYMREF_MAXDEPTH, as along a cycle, it does not resolve
+    (review round 15 of 2026-10-13, R15-2: counted from the target, the gate had read the object at the sixth ref, where
+    git gives up after the fifth)."""
+    if read >= SYMREF_MAXDEPTH:
         return False
     if target.startswith("refs/") and not target.startswith(_PER_WORKTREE):
         entry = shared(target)
@@ -4299,7 +4304,7 @@ def _resolves(records: dict, shared, prefix: str, target: str, depth: int) -> bo
     if entry is None:
         return False
     kind, value = entry
-    return kind == "object" or _resolves(records, shared, prefix, value, depth + 1)
+    return kind == "object" or _resolves(records, shared, prefix, value, read + 1)
 
 
 #: The most tags the gate peels one after another to reach the object a ref names at last.
