@@ -255,6 +255,11 @@ class CommandLine(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertFalse((self.base.parent / "draussen").exists())
 
+    def test_the_name_of_appendix_a_is_no_submission(self):
+        refused = self._run(HERE / "pruefmenge_erzeugen", "anhang-a")
+        self.assertEqual(refused.returncode, 2)
+        self.assertFalse((self.base / "anhang-a").exists())
+
 
 class AppendixA(unittest.TestCase):
     """results.jsonl for Appendix A has the form of answers.jsonl with the vector ids; both verifiers reach 66 of 66."""
