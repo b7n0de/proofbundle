@@ -719,10 +719,12 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     The price, measured with git 2.43.0 in clones without a declaration: a file in a record form that git does not read
     as `<oid>LF` is asked, such as a COMMIT_EDITMSG whose message starts with an object name and a blank, or the
     MERGE_RR that rerere writes during a conflict; a submodule's git directory under modules/ is asked, since its HEAD
-    is a symbolic record git resolves in the superproject; a hooks/ folder that is a symbolic link is asked. A fresh
-    clone, a clone after `git gc` and `git pack-refs --all`, after `git fetch`, a bisect, a merge, a rebase and a
-    cherry-pick, each also stopped at a conflict, keep the exception. git 2.51.1 was not measured for the built
-    boundary here.
+    is a symbolic record git resolves in the superproject; a hooks/ folder that is a symbolic link is asked; a split
+    commit-graph chain, objects/info/commit-graphs/commit-graph-chain, which `git maintenance run --task=commit-graph`
+    and `git fetch` with fetch.writeCommitGraph write, is asked, since git resolves it and it names graph files, no
+    objects, until `git gc` replaces it. A fresh clone, a clone after `git gc` and `git pack-refs --all`, after `git
+    fetch` with its defaults, a bisect, a merge, a rebase and a cherry-pick, each also stopped at a conflict, keep the
+    exception. git 2.51.1 was not measured for the built boundary here.
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 
