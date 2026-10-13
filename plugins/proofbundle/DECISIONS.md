@@ -576,10 +576,14 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     inactive). The records git's listing leaves out altogether are read too, named as git names them: FETCH_HEAD
     line by line, the other root refs of the worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin), and the
     HEAD, the root refs and the own refs of every other worktree (`worktrees/<name>/HEAD`, from a linked worktree
-    `main-worktree/HEAD`); one that is symbolic counts through its target, resolved in the namespace of its own
-    worktree as git resolves it there (a per-worktree target such as refs/bisect/ or a root ref among that worktree's
-    records, a shared one among the shared refs, a chain within the worktree up to git's depth of 5, a cycle never), and
-    one whose target does not resolve so leaves the exception unapplied (the class of R13-1: a declared commit only in
+    `main-worktree/HEAD`); one that is symbolic counts through its target, resolved step by step from the ref store in
+    its own worktree as git resolves it there (a per-worktree name such as refs/bisect/ or a root ref among that
+    worktree's records, a shared name by its loose file or its entry of packed-refs, and every symbolic step of either
+    kind in that worktree again, never by a name's place in a listing git resolved for the current worktree; a chain
+    within git's depth of 5, a cycle never), and a shared symbolic ref, present in every worktree, is resolved in each;
+    one that does not resolve so leaves the exception unapplied (review round 15 of 2026-10-13, R15-1: a shared
+    refs/heads/bridge to refs/bisect/here had ended the chain of another worktree's ORIG_HEAD, which git there does not
+    resolve, with its place in the listing of the current worktree) (the class of R13-1: a declared commit only in
     FETCH_HEAD after `git fetch <path> refs/tags/release`, which stores no ref, and `git push origin :refs/tags/release`
     had been called inactive; review round 14 of 2026-10-13, R14-1: a ref of the same name in the current worktree had
     cleared a symbolic ORIG_HEAD, HEAD or refs/bisect/alias of another worktree that git there does not resolve). The
