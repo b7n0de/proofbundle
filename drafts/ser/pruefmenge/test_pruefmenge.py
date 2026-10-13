@@ -89,6 +89,16 @@ class ChallengeSet(unittest.TestCase):
         valid = sum(e["verdict"] == "PASS" for e in expected)
         self.assertTrue(0.25 * N <= valid <= 0.40 * N, valid)        # about a third valid
 
+    def test_entries_with_two_faults_ask_for_the_order_of_the_text(self):
+        # Section 5: the first step that fails gives FAIL; Section 4: the rules in the order given, within rules 1
+        # and 2 the key before R. With one fault per entry, an implementation that checks in another order answers
+        # the same; with two, it does not.
+        made = _set()
+        double = [b for b in made.bauarten if b["bauart"] == "mehrfach"]
+        self.assertGreaterEqual(len(double), 5)
+        self.assertEqual([b for b in double if b["beabsichtigt"] != b["pruefer"]], [])
+        self.assertEqual(made.meta["bau_anders_als_beabsichtigt"], 0)
+
     def test_no_entry_is_a_vector_of_appendix_a_byte_for_byte(self):
         doc = json.loads(VECTORS.read_text(encoding="utf-8"))
         vectors = {bytes.fromhex(v["receipt_hex"]) for v in doc["vectors"]}
