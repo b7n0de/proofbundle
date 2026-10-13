@@ -219,6 +219,27 @@ def test_RED_a_further_record_in_another_form(env, tmp_path, data, reason):
     w1._assert_exception_refused(*w1._l1(env, work), gate._further(reason, "sub/foo"))
 
 
+@pytest.mark.parametrize("name", ["foo", "sub/foo"])
+def test_RED_a_recognizable_record_form_git_does_not_resolve(env, tmp_path, name):
+    """Rule 5: an object name followed by other bytes is a record form, and git resolves it as nothing (at the top with
+    no output, below a folder with its warning about a broken ref, measured with git 2.43.0)."""
+    work, _a, declared = _declared_alone(tmp_path)
+    _write(work, name, f"{declared}xyz\n".encode())
+    assert _rev(work, name) is None, "precondition: git does not resolve the file"
+    w1._assert_exception_refused(*w1._l1(env, work), gate._further("a record form git does not resolve", name))
+
+
+def test_CONTROL_text_below_a_folder_is_no_former_ref_by_its_path(env, tmp_path):
+    """Rule 5, the other half: git warns `ignoring broken ref` for any text below a folder of the git directory, and
+    arbitrary text is not a damaged former ref by its path alone."""
+    work, _a, _declared = _declared_alone(tmp_path)
+    _write(work, "sub/notes", b"just a note\n")
+    probe = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "--quiet", "--end-of-options", "sub/notes"],
+                           capture_output=True, text=True, check=False)
+    assert (probe.returncode, probe.stderr) == (1, "warning: ignoring broken ref sub/notes\n"), "precondition"
+    w1._assert_inactive(*w1._l1(env, work))
+
+
 def test_RED_a_record_under_a_name_git_s_rules_refuse(env, tmp_path):
     work, _a, declared = _declared_alone(tmp_path)
     _write(work, "sub/foo.lock", f"{declared}\n".encode())
