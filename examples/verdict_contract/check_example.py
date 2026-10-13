@@ -1,14 +1,19 @@
 """Offline check of the worked example. No network, no CI log.
 
     python check_example.py out
+    python check_example.py DIR --public-key <64 hex digits>
 
-1. The receipt verifies with the pinned public key, against the pull request context the checker
-   computes itself (toy repository ids, the raw diff-tree digest, the body as it stands).
+1. The receipt verifies with the expected public key, against the pull request context the checker
+   computes itself (toy repository ids, the raw diff-tree digest, the body as it stands). The expected
+   key is the example key pinned below, or the key the caller gives with --public-key. The folder's
+   publickey.hex decides nothing: the producer writes it next to the receipt, so a package issued by
+   another key would bring its own (CODEX-630-K4).
 2. sha256(verdict.json) is the receipt's reviewRuns[0].evidenceRef.
 3. sha256(reply.txt, raw bytes) and sha256(verdict_contract.py) are the ones verdict.json names.
 4. verdict_contract.find_verdict on the reply gives the verdict verdict.json states.
 Exit 0 only when all four hold. The verdict itself is printed; it is not the exit status.
 """
+import argparse
 import base64
 import hashlib
 import json
@@ -23,6 +28,9 @@ sys.path.insert(0, str(HERE))
 import toy_repo  # noqa: E402
 import verdict_contract as vc  # noqa: E402
 
+#: The key the files in out/ were signed with, pinned in the checker and not read from the folder it checks.
+EXAMPLE_PUBLIC_KEY = bytes.fromhex("1547dfe036045ac7a69f1673c3c0cf3710dea9f90dc28dfdce6405573ca00e1f")
+
 EXAMPLE_PR = {"kind": "githubPullRequest", "forge": "github.com",
               "repositoryId": "R_example_not_a_real_repository",
               "pullRequestNodeId": "PR_example_not_a_real_pull_request"}
@@ -32,8 +40,10 @@ def sha256(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-def main(d: Path) -> int:
+def main(d: Path, expected_key: bytes | None = None) -> int:
+    """Check the package in `d` against `expected_key`, by default EXAMPLE_PUBLIC_KEY."""
     ok = True
+    pubkey = EXAMPLE_PUBLIC_KEY if expected_key is None else expected_key
 
     def line(passed: bool, text: str) -> None:
         nonlocal ok
@@ -41,7 +51,6 @@ def main(d: Path) -> int:
         print(("ok    " if passed else "FAIL  ") + text)
 
     envelope = json.loads((d / "receipt.json").read_bytes())
-    pubkey = bytes.fromhex((d / "publickey.hex").read_text().strip())
     body = (d / "pr_body.md").read_bytes().decode("utf-8")
     toy = toy_repo.build(d / "toyrepo")
     expected_sc = {**EXAMPLE_PR, **toy, "bodyCoreDigest": AR.body_core_digest(body),
@@ -74,5 +83,17 @@ def main(d: Path) -> int:
     return 0 if ok else 1
 
 
+def _public_key(text: str) -> bytes:
+    raw = bytes.fromhex(text)
+    if len(raw) != 32:
+        raise ValueError("an Ed25519 public key has 32 bytes")
+    return raw
+
+
 if __name__ == "__main__":
-    sys.exit(main(Path(sys.argv[1] if len(sys.argv) > 1 else "out")))
+    ap = argparse.ArgumentParser(description="Offline check of the worked example.")
+    ap.add_argument("folder", nargs="?", default="out", type=Path)
+    ap.add_argument("--public-key", type=_public_key, default=None,
+                    help="the expected Ed25519 public key, 64 hex digits; by default the example key")
+    a = ap.parse_args()
+    sys.exit(main(a.folder, a.public_key))

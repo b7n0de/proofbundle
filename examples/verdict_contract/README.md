@@ -25,9 +25,15 @@ python check_example.py out
 
 The files in `out/` were produced and checked with proofbundle 6.2.1. `git` must be on the path, because the check rebuilds the toy repository with it.
 
-The check exits 0 only when the receipt verifies against the public key in `out/publickey.hex` at the commit you checked out and against the pull request context the checker computes itself, `verdict.json` is the record the receipt binds, `reply.txt` and `verdict_contract.py` are the bytes the record names, and `find_verdict` on the reply gives the recorded verdict. The verdict is printed and is not the exit status.
+The check exits 0 only when the receipt verifies against the expected public key and against the pull request context the checker computes itself, `verdict.json` is the record the receipt binds, `reply.txt` and `verdict_contract.py` are the bytes the record names, and `find_verdict` on the reply gives the recorded verdict. The verdict is printed and is not the exit status.
 
-The check takes the public key from this folder, so it is only as strong as the source the reader takes that key from. Here that source is this folder at a fixed commit.
+The expected key is pinned in `check_example.py` (`EXAMPLE_PUBLIC_KEY`, the key in `out/publickey.hex` at this commit), or you give it yourself:
+
+```
+python check_example.py DIR --public-key <64 hex digits>
+```
+
+The checker never takes the key from the folder it checks. `publickey.hex` is written by the producer next to the receipt, so a package issued by another key would bring its own key with it, and the check would only show that the package agrees with itself. The check is as strong as the source you take the expected key from.
 
 ## Byte binding
 
