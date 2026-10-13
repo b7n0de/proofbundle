@@ -1221,8 +1221,11 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
 
 # A URI with a scheme and no whitespace or control character (RFC 3986 shape, not a registry lookup).
 _URI_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z")
+# ASCII digits only: `\d` in a str pattern matches every Unicode decimal digit, and int() reads them, so
+# "\u0662\u0660\u0662\u0666-07-05T12:00:00Z" was a valid evaluatedAt (631 part 2, P2 group 2, measured at 063b4e22).
 _RFC3339_RE = re.compile(
-    r"\A(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))\Z")
+    r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]+)?"
+    r"(?:[Zz]|[+-]([0-9]{2}):([0-9]{2}))\Z")
 _LOWER_HEX_RE = re.compile(r"\A[0-9a-f]+\Z")
 # The claim builder's grammar for a decimal string (evalclaim._DECIMAL_RE): the draft says "decimal
 # string" and gives no grammar, so this is the reading implemented (ambiguity A3, docs/IN_TOTO_PROFILE.md).

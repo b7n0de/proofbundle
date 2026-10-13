@@ -362,6 +362,10 @@ class MerkleAccumulator:
         groesse = inhalt.get("tree_size")
         if type(groesse) is not int or groesse < 0:
             raise AccumulatorStateError("the state's tree_size is not a size")
+        # A list, as state() writes it: iterating {} or "" gives no entry, and the signed empty state restored
+        # from three spellings of its frontier (631 part 2, P2 group 2, measured at 063b4e22).
+        if type(inhalt.get("frontier")) is not list:
+            raise AccumulatorStateError("the state's frontier is not a list of height and root")
         try:
             front = [(e["height"], bytes.fromhex(e["root"])) for e in inhalt["frontier"]]
             wurzeln = [e["root"] for e in inhalt["frontier"]]
