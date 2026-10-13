@@ -18,6 +18,7 @@ Run: python3 -m unittest test_pruefmenge   (in this folder; standard library onl
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import pathlib
@@ -316,6 +317,80 @@ class CommandLine(unittest.TestCase):
         refused = self._run(HERE / "pruefmenge_erzeugen", "anhang-a")
         self.assertEqual(refused.returncode, 2)
         self.assertFalse((self.base / "anhang-a").exists())
+
+
+class AnswerSizeLimit(unittest.TestCase):
+    """Owner choice O1 of 2026-10-13, 19:2x Berlin: the comparison reads at most 10 MB (10 000 000 bytes) of an answer
+    file; above that it exits 2 with the reason, reads nothing further and reports nothing about the content."""
+
+    LIMIT = 10 * 1000 * 1000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = pathlib.Path(self.tmp.name)
+        self.env = dict(os.environ, SER_PRUEFMENGE_ORDNER=str(self.base))
+        made = subprocess.run([sys.executable, str(HERE / "pruefmenge_erzeugen"), "grenze", "--anzahl", "30"],
+                              capture_output=True, text=True, env=self.env, timeout=600, check=False)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.answers = pruefmenge.antworten_von("text", (self.base / "grenze" / "challenge.jsonl").read_bytes())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _compare(self, path, *extra):
+        return subprocess.run([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", str(path), *extra],
+                              capture_output=True, text=True, env=self.env, timeout=600, check=False)
+
+    def _padded(self, size: int) -> pathlib.Path:
+        # the 30 answers, then one line of spaces up to size bytes in all: a blank line the comparison passes over
+        path = self.base / ("answers_%d.jsonl" % size)
+        path.write_bytes(self.answers + b" " * (size - len(self.answers) - 1) + b"\n")
+        self.assertEqual(path.stat().st_size, size)
+        return path
+
+    def test_an_answer_file_of_exactly_10_mb_is_compared(self):
+        compared = self._compare(self._padded(self.LIMIT))
+        self.assertEqual(compared.returncode, 0, compared.stderr)
+        self.assertIn("30 von 30", compared.stdout)
+
+    def test_an_answer_file_one_byte_above_10_mb_is_refused_without_a_report(self):
+        summary = self.base / "auswertung.json"
+        compared = self._compare(self._padded(self.LIMIT + 1), "--json", summary)
+        self.assertEqual(compared.returncode, 2)
+        self.assertEqual(compared.stdout, "")
+        self.assertIn("10000000", compared.stderr.replace(" ", "").replace(".", ""))
+        self.assertFalse(summary.exists())
+
+    def test_the_reader_stops_one_byte_after_the_limit(self):
+        class Counting(io.BytesIO):
+            taken = 0
+
+            def read(self, size=-1):
+                data = super().read(size)
+                Counting.taken += len(data)
+                return data
+
+        with self.assertRaises(pruefmenge.AntwortZuGross):
+            pruefmenge.lies_begrenzt(Counting(b"x" * 5000), 1000)
+        self.assertLessEqual(Counting.taken, 1001)
+        Counting.taken = 0
+        self.assertEqual(pruefmenge.lies_begrenzt(Counting(b"x" * 1000), 1000), b"x" * 1000)
+
+    def test_a_stream_without_end_is_not_read_past_the_limit(self):
+        proc = subprocess.Popen([sys.executable, str(HERE / "pruefmenge_vergleichen"), "grenze", "/dev/stdin"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
+        written, chunk = 0, b"x" * 65536
+        try:
+            while written < 3 * self.LIMIT:
+                proc.stdin.write(chunk)
+                written += len(chunk)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        out, _err = proc.communicate(timeout=600)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(out, b"")
+        self.assertLess(written, self.LIMIT + 2 * 1000 * 1000)
 
 
 class AppendixA(unittest.TestCase):
