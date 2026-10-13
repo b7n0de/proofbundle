@@ -48,7 +48,7 @@ def test_a_linked_folder_of_another_worktrees_own_refs(env, tmp_path):
     work, _remote, a = w1._undeclared(tmp_path)
     w1._git(work, "worktree", "add", "-q", "--detach", str(tmp_path / "other"), a)
     own = work / ".git" / "worktrees" / "other" / "refs"
-    own.mkdir()
+    own.mkdir(exist_ok=True)       # git 2.51.1 writes it on `git worktree add`, git 2.43.0 does not (R14-2)
     _linked_folder(tmp_path, own / "bisect", a)
     answer, entry, text = w1._l1(env, work)
     w1._assert_exception_refused(answer, entry, text, LINKED)

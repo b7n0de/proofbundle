@@ -18,6 +18,7 @@ format than files (reftable), which the gate cannot read whole, leaves the excep
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -30,6 +31,27 @@ _clean_git_environment = w1._clean_git_environment
 gate = w1.gate
 
 NOT_RESOLVED = "is present, but git does not resolve it"
+NAMED = re.compile(r"the local ref (\S+) is present, but git does not resolve it")
+
+
+def _refused_on_the_damaged_chain(answer, entry, text, work: pathlib.Path, damaged: str) -> None:
+    """The ask names a record that is present, that git does not resolve and whose chain of symbolic refs runs through
+    the damaged ref. Which one of them is named is not fixed: under git 2.51.1 a fetch also writes
+    refs/remotes/origin/HEAD, a symbolic ref to refs/remotes/origin/main (review round 14 of 2026-10-13, R14-2)."""
+    named = NAMED.search(text)
+    assert named is not None, text
+    record = named.group(1)
+    w1._assert_exception_refused(answer, entry, text, f"the local ref {record} {NOT_RESOLVED}")
+    resolved = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "--quiet", record],
+                              capture_output=True, text=True, check=False)
+    assert resolved.returncode != 0 and resolved.stdout == "", resolved
+    chain = [record]
+    while chain[-1] != damaged and len(chain) <= 5:
+        step = subprocess.run(["git", "-C", str(work), "symbolic-ref", "--quiet", "--no-recurse", chain[-1]],
+                              capture_output=True, text=True, check=False)
+        assert step.returncode == 0, (chain, step)      # present, and a symbolic ref
+        chain.append(step.stdout.strip())
+    assert chain[-1] == damaged, chain
 
 
 def _dangling(work: pathlib.Path, ref: str) -> None:
@@ -45,7 +67,7 @@ def test_the_reviewers_case_a_symbolic_ref_without_a_target_leaves_the_exception
     work, _remote, _a = w1._undeclared(tmp_path)
     _dangling(work, ref)
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref {ref} {NOT_RESOLVED}")
+    _refused_on_the_damaged_chain(answer, entry, text, work, ref)
 
 
 def test_with_packed_refs_the_symbolic_ref_without_a_target_is_still_found(env, tmp_path):
@@ -55,7 +77,7 @@ def test_with_packed_refs_the_symbolic_ref_without_a_target_is_still_found(env, 
     assert (work / ".git" / "packed-refs").is_file()
     _dangling(work, "refs/remotes/origin/main")
     answer, entry, text = w1._l1(env, work)
-    w1._assert_exception_refused(answer, entry, text, f"the local ref refs/remotes/origin/main {NOT_RESOLVED}")
+    _refused_on_the_damaged_chain(answer, entry, text, work, "refs/remotes/origin/main")
 
 
 def test_a_symbolic_ref_whose_target_is_another_symbolic_ref_without_a_target(env, tmp_path):
