@@ -4049,14 +4049,14 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
             return None, ("git warns while it lists this repository's refs, so a record of the destination may be "
                           "unread")
         broken.add(line[len("warning: ignoring broken ref "):])
-    present, symbolic = {}, {}
+    present, symbolic = {}, set()
     for line in listing.stdout.split(b"\n"):
         refname, nul, rest = line.partition(b"\0")
         if nul:
             oid, _nul, target = rest.partition(b"\0")
             present[_git_text(refname)] = oid.decode("ascii", "replace")
-            if target:
-                symbolic[_git_text(refname)] = _git_text(target)
+            if target:   # %(symref) marks a symbolic ref; it names the end of the chain, not the first step
+                symbolic.add(_git_text(refname))
     # git's listing leaves out a symbolic ref whose target does not exist, with exit 0 and no warning (review round 13
     # of 2026-10-13, R13-1): every ref the ref store holds must be one git lists or calls broken.
     paths, why = _repo_paths(repo, deadline)
@@ -4159,14 +4159,16 @@ _REF_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})(?:[\t ].*)?")
 
 
 def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
-                             symbolic: dict[str, str]) -> tuple[dict[str, str] | None, str]:
+                             symbolic: set[str]) -> tuple[dict[str, str] | None, str]:
     """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object}:
     FETCH_HEAD line by line, the other root refs of this worktree's git directory (ORIG_HEAD, MERGE_HEAD and their kin),
     and the HEAD, the root refs and the own refs of every other worktree, named as git names them (main-worktree/HEAD,
     worktrees/<name>/HEAD). A symbolic one adds nothing where it resolves in its own worktree (_resolves); one that does
     not, or a file the gate cannot read, gives (None, why). This worktree's HEAD and its own refs are read only as steps
-    of a chain. A shared symbolic ref, which git lists here with its one step (`symbolic`), is present in every
-    worktree, so it is resolved in each other worktree as well (review round 15 of 2026-10-13, the class of R15-1)."""
+    of a chain. A shared symbolic ref, which git lists here as one (`symbolic`), is present in every worktree, so it is
+    resolved in each other worktree as well, from its first step as the ref store holds it (review round 15 of
+    2026-10-13, the class of R15-1; git's %(symref) names the end of the chain, measured with git 2.43.0, and starting
+    there had skipped the steps before it)."""
     common, gitdir = paths["common"], paths["gitdir"]
     places = [(gitdir, "", False)]
     if os.path.realpath(gitdir) != os.path.realpath(common):
@@ -4254,9 +4256,11 @@ def _refs_beside_the_listing(paths: dict, packed: dict[str, str],
             elif not _resolves(records, shared, prefix, value, 1):
                 return None, _not_established(shown)
     for prefix in [prefix for _folder, prefix, other in places if other]:
-        for name, target in sorted(symbolic.items()):
-            if name.startswith("refs/") and not name.startswith(_PER_WORKTREE) and \
-                    not _resolves(records, shared, prefix, target, 1):
+        for name in sorted(symbolic):
+            if not name.startswith("refs/") or name.startswith(_PER_WORKTREE):
+                continue   # this worktree's own, which git resolves here
+            first = shared(name)
+            if first is None or first[0] != "symbolic" or not _resolves(records, shared, prefix, first[1], 1):
                 return None, _not_established(prefix + name)
     return found, ""
 

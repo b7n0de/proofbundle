@@ -585,7 +585,8 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     kind in that worktree again, never by a name's place in a listing git resolved for the current worktree; a chain
     only as far as git follows it, which reads at most five refs for one resolution, the record it starts from
     included, so four symbolic refs before the object resolve and five do not, a cycle never), and a shared symbolic
-    ref, present in every worktree, is resolved in each;
+    ref, present in every worktree, is resolved in each, from its first step as the ref store holds it (git's listing
+    names the end of its chain);
     one that does not resolve so leaves the exception unapplied (review round 15 of 2026-10-13, R15-1: a shared
     refs/heads/bridge to refs/bisect/here had ended the chain of another worktree's ORIG_HEAD, which git there does not
     resolve, with its place in the listing of the current worktree; R15-2: five symbolic refs, which git does not
