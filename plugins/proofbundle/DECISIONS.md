@@ -706,14 +706,23 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     - `AUTO_MERGE`: a root record above; it names a tree, which is read for the declaration like any tree.
     - `shallow`: condition c is unchanged, a shallow repository is asked before condition d is read.
     - The object files of rebase-merge/ and rebase-apply/ (onto, orig-head, stopped-sha, original-commit,
-      abort-safety): records, read by the procedure above; their other files are text git does not resolve.
+      abort-safety, amend): records, read by the procedure above. git's rewritten lists of a stopped rebase,
+      rebase-merge/rewritten-list and rebase-apply/rewritten of `<old> <new>LF` lines and rebase-merge/rewritten-pending
+      of `<oid>LF` lines, are supported explicitly: git resolves each name to the first object of its first line, and
+      every object of every line is a record, the first under the file's name, the others as `<name> (line N, object
+      M)`; another form is asked (a rebase stopped at a later pick, or inside a fixup chain, had been asked at
+      b3ce11d7). Their other files are text git does not resolve.
     - logs/: a valid reflog stays outside; a bare `<oid>LF` there is a record.
     - An unknown folder: read like any other.
     - `info/refs`, which `git gc` writes through `git update-server-info`: git resolves the name to the object of its
       first line; the gate reads it whole, line by line, each line `<oid>TAB<name>LF` a record, like FETCH_HEAD.
-    The price: a file in a record form that git does not resolve as itself is asked, such as a COMMIT_EDITMSG whose
-    message starts with an object name, a MERGE_RR that rerere writes, or a hooks/ folder that is a symbolic link.
-    git 2.51.1 was not measured for the built boundary here.
+    The price, measured with git 2.43.0 in clones without a declaration: a file in a record form that git does not read
+    as `<oid>LF` is asked, such as a COMMIT_EDITMSG whose message starts with an object name and a blank, or the
+    MERGE_RR that rerere writes during a conflict; a submodule's git directory under modules/ is asked, since its HEAD
+    is a symbolic record git resolves in the superproject; a hooks/ folder that is a symbolic link is asked. A fresh
+    clone, a clone after `git gc` and `git pack-refs --all`, after `git fetch`, a bisect, a merge, a rebase and a
+    cherry-pick, each also stopped at a conflict, keep the exception. git 2.51.1 was not measured for the built
+    boundary here.
   Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
   so condition a never holds there.
 

@@ -4440,6 +4440,13 @@ _RECORD_LIKE = re.compile(rb"ref:|[0-9a-fA-F]{40}")
 _BISECT_START = "BISECT_START"
 #: How many of git's answers for further files the gate asks for side by side.
 _FURTHER_WORKERS = 4
+#: git's lists of a stopped rebase, with the number of objects on each of their lines (sequencer.c and builtin/am.c of
+#: git 2.43.0): rewritten-list and rewritten hold `<old> <new>LF` for each commit rewritten so far, rewritten-pending
+#: `<oid>LF` for each commit of a fixup chain not yet written. git resolves each name to the first object of its first
+#: line (measured), so each is a record, and every object of every line is read as one, as for FETCH_HEAD (FIX-17: a
+#: rebase stopped at a later pick had been asked).
+_REWRITTEN = {"rebase-merge/rewritten-list": 2, "rebase-apply/rewritten": 2, "rebase-merge/rewritten-pending": 1}
+_REWRITTEN_FORM = "a line of a rebase's rewritten list not of the form git writes"
 
 
 def _further(reason: str, entry: str) -> str:
@@ -4465,6 +4472,30 @@ def _valid_reflog(raw: bytes) -> bool:
     file of only <oid>LF is no reflog (owner choice of 2026-10-13, 21:4x)."""
     return (raw.endswith(b"\n") and
             all(_REFLOG_LINE.fullmatch(line) for line in raw[:-1].split(b"\n")))
+
+
+def _rewritten(rel: str, path: str, head: bytes, oid: str) -> tuple[dict[str, str] | None, str]:
+    """The records of one of git's rewritten lists (_REWRITTEN), as {name: object}: the first object of the first line
+    under the file's own name, as git resolves it, every other one as `<name> (line N, object M)`. (None, why) where the
+    file is larger than the gate reads, its bytes do not start as they did when the gate read its start, a line is not
+    of the form git writes, or its first object is not the one git gave."""
+    whole = _record_bytes(path)
+    if whole is None:
+        return None, _too_large(rel)
+    if whole[:len(head)] != head:
+        return None, _further("a file that changed while the gate read it", rel)
+    if not whole.endswith(b"\n"):
+        return None, _further(_REWRITTEN_FORM, rel)
+    found: dict[str, str] = {}
+    for number, line in enumerate(whole[:-1].split(b"\n"), 1):
+        parts = line.split(b" ")
+        if len(parts) != _REWRITTEN[rel] or not all(_OID.fullmatch(part) for part in parts):
+            return None, _further(_REWRITTEN_FORM, rel)
+        for place, part in enumerate(parts, 1):
+            found[rel if (number, place) == (1, 1) else f"{rel} (line {number}, object {place})"] = part.decode("ascii")
+    if found[rel] != oid:
+        return None, _further("a record git resolves to another object than the file holds", rel)
+    return found, ""
 
 
 def _resolution(repo: str, name: str, deadline: float) -> tuple[str, str | None, str | None]:
@@ -4508,7 +4539,8 @@ def _further_records(repo: str, paths: dict, present: dict[str, str], symbolic: 
 
     Each other regular file whose name git's ref rules take goes to git twice, `rev-parse --verify --quiet` for the
     object and the same call with `--symbolic-full-name` for the full name. Only where the full name is exactly the
-    file's name has git resolved this file: it must then hold <oid>LF, the object git gives. A full name of another ref
+    file's name has git resolved this file: it must then hold <oid>LF, the object git gives, or be one of git's rewritten
+    lists of a stopped rebase in the form git writes (_REWRITTEN), whose objects are all read. A full name of another ref
     already read, with its object, is git's substitution of a name, no record here. Where both calls end in git's
     ordinary negative case the file holds no record git can resolve now, which says nothing about whether it ever was
     one; a file that starts like a record and is not resolved is asked. A symbolic record, a record in another form, a
@@ -4578,11 +4610,17 @@ def _further_records(repo: str, paths: dict, present: dict[str, str], symbolic: 
                 elif like:
                     return None, _further("a record form git does not resolve", rel)
             elif full == rel:
-                if kind != "object":
+                if rel in _REWRITTEN:
+                    listed, why = _rewritten(rel, path, head, oid)
+                    if listed is None:
+                        return None, why
+                    found.update(listed)
+                elif kind != "object":
                     return None, _further("a record not of the form <object>LF", rel)
-                if value != oid:
+                elif value != oid:
                     return None, _further("a record git resolves to another object than the file holds", rel)
-                found[rel] = oid
+                else:
+                    found[rel] = oid
             elif full in present and present[full] == oid:
                 if like:   # a file that reads as a record, and git resolved another ref by its name
                     return None, _further("a record form git does not resolve", rel)
