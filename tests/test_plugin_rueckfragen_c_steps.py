@@ -7,7 +7,9 @@ inert-Python rule (answer 6, review finding Q18-1); an interpreter, or a program
 names git or gh asks at least, and a literal redirection or tee target is judged as a file-tool write (answer 9).
 
 RED: the answer at d828c2be, the parent of this build, differs (asked where only text names git, or free where code
-names git or a redirect writes a hook). CONTROL: the same at the parent. The ground-truth cases run the command for
+names git or a redirect writes a hook). CONTROL: the same at the parent. SUITE: the plugin suite at b6e46962 found
+class c freer than the whole command where D3 or the gate's word reading say otherwise; these hold at d828c2be and
+fail at b6e46962. The ground-truth cases run the command for
 real in bash with stand-ins for git and gh that only log their words, and compare with the steps the parser finds.
 Run with git 2.43.0 and GNU bash 5.2.
 """
@@ -72,18 +74,43 @@ def test_RED_text_that_names_git_or_gh_is_no_call(env, tmp_path, name):
     assert decision is None, (decision, reasons)
 
 
-def test_RED_add_and_commit_in_a_chain_are_judged_each_on_their_own(env, tmp_path):
-    """K-NW-2 B in a chain (DESIGN_rueckfragen.md 8): each step gets the state check it gets alone, where no step
-    before it may change the state that check read. d828c2be asked for the chain."""
+@pytest.mark.parametrize("command", ["git add notes/a.md && git commit -m 'notes'",
+                                     "echo hi > notes/c.md && git add notes/c.md && git commit -m c"])
+def test_SUITE_add_and_commit_in_a_chain_keep_the_whole_answer(env, tmp_path, command):
+    """K-NW-2 B frees `git add` and `git commit -m` only as the whole command (D3); class c keeps the answer of the
+    chain, which names the two forms (suite of b6e46962, test_plugin_gate_k_nw_2_b.py)."""
     work = _repo(tmp_path)
-    decision, reasons = _decide(work, "git add notes/a.md && git commit -m 'notes'", env)
-    assert decision == "pass" and reasons == ["free_after_state_check", "free_after_state_check"], (decision, reasons)
+    decision, reasons = _decide(work, command, env)
+    assert decision == _whole(work, command, env) == "ask" and set(reasons) == {"git_form_not_free"}, (decision,
+                                                                                                        reasons)
 
 
-def test_RED_a_data_command_that_writes_a_plain_file_does_not_stop_the_chain(env, tmp_path):
+# --- the suite of b6e46962: a step is judged on its own only where the whole command would be read the same ----
+
+@pytest.mark.parametrize("command", ["git commit -m fix#12", 'git commit -m "fix\\\n"#12'])
+def test_SUITE_a_word_zsh_may_rewrite_keeps_the_whole_answer(env, tmp_path, command):
+    """`#` is zsh's extended glob (_shell_rewrites): the step's quoted text is not the word the shell runs. b6e46962
+    judged `git commit -m 'fix#12'` alone and freed it (test_plugin_review_fix2_narrower_spelling.py, fix3_r1)."""
     work = _repo(tmp_path)
-    decision, reasons = _decide(work, "echo hi > notes/c.md && git add notes/c.md && git commit -m c", env)
-    assert decision == "pass", (decision, reasons)
+    decision, reasons = _decide(work, command, env)
+    assert decision == _whole(work, command, env) and decision in ("ask", "deny"), (decision, reasons)
+
+
+@pytest.mark.parametrize("command", ["git push origin main#1; echo done", "git push origin ^main; echo done"])
+def test_CONTROL_a_push_with_a_word_zsh_may_rewrite_is_not_free(env, tmp_path, command):
+    work = _repo(tmp_path)
+    decision, reasons = _decide(work, command, env)
+    assert decision == _whole(work, command, env) and decision in ("ask", "deny"), (decision, reasons)
+
+
+def test_SUITE_a_push_after_cd_keeps_the_safe_push_form_of_the_whole_answer(env, tmp_path):
+    """After a directory change the step keeps the whole command's answer, which names the D32 form; b6e46962 gave a
+    text of its own (test_plugin_review_fix17_n1_safe_push_form.py)."""
+    work = _repo(tmp_path)
+    outcome = gate.decide(f"cd {work} && git push origin main", str(work), time.monotonic() + 60, "claude", env)
+    assert outcome is not None and outcome.decision == "ask", outcome and outcome.decision
+    assert [v.reason_id for v in outcome.verdicts] == ["directory_unresolved"], outcome.verdicts
+    assert gate.SAFE_PUSH_FORM in outcome.text, outcome.text
 
 
 # --- the strengthening: code that names git asks, a redirect into a hook is a write -------------------------

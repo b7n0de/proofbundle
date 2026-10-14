@@ -2191,13 +2191,13 @@ every simple command bash would execute, in order.
   that runs nothing, find without -exec, tee and their kin) and a comment are text, not calls. A comment that names git
   or gh keeps the whole answer: zsh with changed histchars runs it (review Runde 11, R11-2).
 - Every git and gh step gets the gate's answer for that step alone, as a command of its own in its directory with its
-  redirections. Without class e a `cd` leaves the directory unknown: a git or gh step after it asks
-  (`directory_unresolved`), and keeps a deny it has on its own.
-- A step whose own answer is free (K-NW-2 B's `git add` and `git commit -m`, a push's local inactivity) asks
-  (`step_after_state_change`) where a step before it or beside it may change the configuration, the hooks, the
-  evidence or the environment: an unknown program, a carrier of code, an assignment that is not neutral, `printf -v`,
-  or a write to a file the write gate protects. K-NW-2 B thus holds in a chain only where no earlier step may change
-  state (DESIGN_rueckfragen.md 8).
+  redirections. Without class e a `cd` leaves the directory unknown: a git or gh step after it keeps the answer of the
+  whole command, with the form that answer names (the D32 push form).
+- K-NW-2 B's `git add` and `git commit -m` stay free only as the whole command (D3): in a longer command a step whose
+  own answer is that state check keeps the whole command's answer, which names the two forms.
+- A step whose own answer is free (a push's local inactivity) asks (`step_after_state_change`) where a step before it
+  or beside it may change the configuration, the hooks, the evidence or the environment: an unknown program, a carrier
+  of code, an assignment that is not neutral, `printf -v`, or a write to a file the write gate protects.
 - A push, a gated gh call or a possible transfer is judged on its own only as the first executed step, at the top
   level, after at most `cd` steps and without a redirection; under Codex never.
 - Every literal file a redirection or `tee` writes is judged like a file-tool write (decide_write, as under Claude
@@ -2212,7 +2212,9 @@ Kept, with the answer of the whole command: a deny of the whole command; an appr
 `git --version`; every form the parser does not model (shell keywords, functions, background jobs, ANSI-C and locale
 quotes, a here-document inside a substitution, a named file descriptor, a redirection that opens a file on a subshell or
 group, a parameter expansion with a quote or a substitution inside, a backtick with a backslash inside, deep nesting);
-a command word the shell builds (`$(echo git) push`, `$X push`) or git and gh in another letter case; a carrier of code
+a command word the shell builds (`$(echo git) push`, `$X push`) or git and gh in another letter case; a word the gate
+reads as one the shell may rewrite (_shell_rewrites, zsh's `#` and `^` and a leading `=` among them: a step's quoted
+text would not be the word the shell runs); a carrier of code
 or a program the gate does not know with a word the shell may rewrite (`sudo gi* status`, R14-1); a `git --version`
 step in a longer command (D3 frees only the exact bare text); a git or gh step with an expansion or a prefix assignment
 that is not neutral; a gated step that is not first.

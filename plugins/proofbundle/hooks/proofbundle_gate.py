@@ -6274,7 +6274,11 @@ class _ShParser:
                 self.i += 1
         if self.i == start:
             return None
-        return _ShWord(self.s[start:self.i], "".join(buf), subs, quoted, rewrite)
+        raw = self.s[start:self.i]
+        # the gate's own reading as well (_shell_rewrites): zsh's extended glob `#` and `^`, a leading `=` and a `~` or
+        # `=` after `=` or `:`, so a step is literal only where the whole command's words would be (suite of b6e46962:
+        # `git commit -m fix#12` had been judged as `git commit -m 'fix#12'`)
+        return _ShWord(raw, "".join(buf), subs, quoted, rewrite or _shell_rewrites(raw))
 
     def parse_list(self, closer: str = "") -> _ShList:
         items = []
@@ -6762,7 +6766,9 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
     the gate does not know, whose text names git or gh; a carrier of code that reads a git or gh step's output; git or
     gh text anywhere beside a step that runs code (a value assigned and then run by eval). Otherwise every literal file a step writes is judged like a file-tool write (decide_write), every
     git and gh step gets the gate's answer for that step alone in its directory, and a step that would be free asks
-    where a step before it or beside it may change the state that answer read (_sh_changes_state)."""
+    where a step before it or beside it may change the state that answer read (_sh_changes_state). Also kept: a word
+    the gate reads as one the shell may rewrite (_shell_rewrites), a step after a `cd` (its directory is unknown until
+    class e), and K-NW-2 B's two forms in a longer command (free only as the whole command, D3)."""
     try:
         try:
             tree = _sh_parse(command)
@@ -6836,10 +6842,12 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
         if _sh_gated(s):
             if host == "codex" or not s.top_level or s.cmd.redirs or any(t.kind != "cd" for t in s.before):
                 raise _ShKeep(f"the gated step {_sh_step_text(s)} is not the first step on its own")
-        answer = judge_whole(_sh_step_text(s), s.cwd if s.cwd is not None else cwd)
         if s.cwd is None:
-            if answer is not None and answer.decision == "deny":
-                verdicts.extend(answer.verdicts)
+            # The directory is unknown after a directory change (class e is not built): the step keeps the answer of
+            # the whole command, with the form that answer names (suite of b6e46962: the safe push form of D32 had
+            # given way to a text of its own). Its verdicts count once, however many steps keep them.
+            if whole is not None:
+                verdicts.extend(v for v in whole.verdicts if all(v is not w for w in verdicts))
                 continue
             verdicts.append(Verdict(
                 "ask", f"NOT MEASURED: the gate cannot tell which repository {s.head} acts on after a directory "
@@ -6849,6 +6857,12 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 next_step="run the call as one command of its own with literal words, for git as "
                           "`git -C <absolute path> …`"))
             continue
+        answer = judge_whole(_sh_step_text(s), s.cwd)
+        if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
+                                                         for v in answer.verdicts):
+            # K-NW-2 B frees `git add` and `git commit -m` only as the whole command (D3), and its refusal names those
+            # two forms (suite of b6e46962: `git add . && git commit -m x` had become free)
+            raise _ShKeep("`git add` and `git commit -m` are free only as the whole command (K-NW-2 B, D3)")
         if answer is None or answer.decision in ("pass", "inactive"):
             changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected)]
             if changed:

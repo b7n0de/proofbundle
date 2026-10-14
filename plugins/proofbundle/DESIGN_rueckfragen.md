@@ -448,8 +448,10 @@ Under Codex a, d and e stay off (answer 10).
 - the sentence "the former free list has been removed" no longer holds for read forms, which are free under the read
   profile.
 
-Owner choice B of Runde 9 stands for every other local form. K-NW-2 B (add and commit -m) is unchanged, and in chains
-it applies only when no earlier step may change state.
+Owner choice B of Runde 9 stands for every other local form. K-NW-2 B (add and commit -m) is unchanged: its two forms
+are free only as the whole command, and a chain with them keeps the chain's answer, which names the two forms. Judging
+them step by step in a chain is an open owner question (the plugin suite at b6e46962 showed that the build had done so
+against D3).
 
 **D5.** D5 C extends from the push (owner choice 1 A, unchanged) to local forms: inactive where the repository surely
 declares nothing, as in 3.4. The push keeps its four conditions.
