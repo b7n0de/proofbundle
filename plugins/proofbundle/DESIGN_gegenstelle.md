@@ -346,7 +346,9 @@ pre-push hook gives the verdict on the actual update, and the record. The log re
 - Consumption: Level 2 renames the pointer to `proofbundle-handover.consumed`, reads and removes it, and renames the
   record to `<nonce>.json.consumed` before it reads it; whoever renames first owns the hand-over, so it is used at
   most once. Every outcome consumes it: a pass, a block, a refusal of the hand-over itself. A pointer or record nested
-  deeper than the JSON reader goes is refused like any unreadable one (lens of 2026-10-14, F6). Level 2 names the
+  deeper than the JSON reader goes is refused like any unreadable one (lens of 2026-10-14, F6), and so is a record
+  whose times lie outside 1970 to 9999 or whose source is no ASCII object id; a transport entry whose repository is
+  no usable path approves nothing (lens 2, F-D). Level 2 names the
   pointer and the record it found, never Level 1 as their author (F7).
 - Validity: 300 seconds from the moment Level 1 wrote it (`HANDOVER_TTL_SECONDS`).
 

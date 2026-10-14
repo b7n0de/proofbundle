@@ -861,3 +861,29 @@ def test_a_deeply_nested_transport_approval_approves_nothing(env, tmp_path):
                                                                                     encoding="utf-8")
     answer, entry = _level1(env, r.path)
     assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
+@pytest.mark.parametrize("change, why", [
+    (lambda rec: rec["updates"][0].update(source="\ud800" * 40), "not a list of sources and full destinations"),
+    (lambda rec: rec.update(expires=10 ** 20), "between 1970 and 9999"),
+    (lambda rec: rec.update(created=-1), "between 1970 and 9999"),
+], ids=["surrogate-source", "expires-out-of-range", "created-negative"])
+def test_a_record_git_cannot_read_as_a_time_or_an_oid_is_refused_with_a_verdict(env, tmp_path, change, why):
+    """Lens 2, F-D: a lone surrogate in a source and a time beyond what time.gmtime takes raised a traceback."""
+    r = _repo(tmp_path, env)
+    _level1(env, r.path)
+    _rewrite_record(env, change)
+    proc = _push(env, r.path)
+    assert proc.returncode != 0 and "Level 2 refuses the hand-over" in proc.stderr and why in proc.stderr, proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+@pytest.mark.parametrize("repo", ["/x\u0000y", "/x\ud800"], ids=["nul", "surrogate"])
+def test_a_transport_approval_with_an_unusable_repository_path_approves_nothing(env, tmp_path, repo):
+    r = _repo(tmp_path, env)
+    path = pathlib.Path(env["PROOFBUNDLE_GATE_DIR"]) / gate.TRANSPORTS_FILE
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    entries.append(dict(entries[0], repo=repo))
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "the transport is not approved")

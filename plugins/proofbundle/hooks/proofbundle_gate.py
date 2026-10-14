@@ -5845,6 +5845,20 @@ TRANSPORTS_FILE = "transports.json"
 MAX_TRANSPORTS = 256
 _TRANSPORT_ENTRY_KEYS = frozenset({"repo", "remote", "url", "transport_digest"})
 _NONCE = re.compile(r"[0-9a-f]{32}")
+#: The last second a record's times may name (9999-12-31T23:59:59Z): time.gmtime raises beyond it (lens 2, F-D).
+_MAX_EPOCH = 253402300799
+
+
+def _plain_path(value: object) -> bool:
+    """Whether value is an absolute path os.path can take: a string with no NUL that the filesystem encoding encodes
+    (a lone surrogate outside surrogateescape raises; adversarial lens 2 of 2026-10-14, F-D)."""
+    if not isinstance(value, str) or "\0" in value or not os.path.isabs(value):
+        return False
+    try:
+        os.fsencode(value)
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _canonical_digest(document: object) -> str:
@@ -6066,7 +6080,7 @@ def _read_transports(environ: dict) -> list[dict]:
     for item in data:
         if not isinstance(item, dict) or set(item) != _TRANSPORT_ENTRY_KEYS:
             return []
-        if not (isinstance(item["repo"], str) and os.path.isabs(item["repo"]) and isinstance(item["remote"], str)
+        if not (_plain_path(item["repo"]) and isinstance(item["remote"], str)
                 and item["remote"] and isinstance(item["url"], str) and item["url"]
                 and isinstance(item["transport_digest"], str) and _HEX64.fullmatch(item["transport_digest"])):
             return []
@@ -6343,14 +6357,15 @@ def _handover_form(record: object, nonce: str) -> str | None:
         return "the record is not a hand-over of this plugin (its schema or fields differ)"
     if record["nonce"] != nonce:
         return "the record names another hand-over than the pointer"
-    if not all(type(record[k]) is int for k in ("created", "expires")):
-        return "the record's times are not whole numbers"
+    if not all(type(record[k]) is int and 0 <= record[k] <= _MAX_EPOCH for k in ("created", "expires")):
+        return "the record's times are not whole numbers of seconds between 1970 and 9999"
     if not all(isinstance(record[k], str) and record[k] for k in ("repo", "worktree", "gitdir", "remote", "url")):
         return "the record does not name its repository, remote and URL"
     updates = record["updates"]
     if not (isinstance(updates, list) and updates and all(
             isinstance(u, dict) and set(u) == {"source", "dest"} and isinstance(u["source"], str)
-            and _OID.fullmatch(u["source"].encode()) and isinstance(u["dest"], str) and u["dest"].startswith(_TRACKABLE)
+            and u["source"].isascii() and _OID.fullmatch(u["source"].encode("ascii")) and isinstance(u["dest"], str)
+            and u["dest"].startswith(_TRACKABLE)
             for u in updates)):
         return "the record's expected updates are not a list of sources and full destinations"
     binding = record["binding"]
