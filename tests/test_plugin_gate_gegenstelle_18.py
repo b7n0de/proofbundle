@@ -244,6 +244,33 @@ def test_a_hook_that_runs_another_plugin_version_is_no_bound_level_2(env, tmp_pa
     assert_asked_without_handover(answer, entry, "not this gate")
 
 
+@pytest.mark.parametrize("settings, why", [
+    ([("push.gpgSign", "true")], "push.gpgSign"), ([("push.gpgSign", "if-asked")], "push.gpgSign"),
+    ([("push.gpgSign", "false"), ("push.gpgSign", "true")], "push.gpgSign"),
+    ([("push.pushOption", "ci.skip")], "push.pushOption"),
+    ([("push.pushOption", ""), ("push.pushOption", "ci.skip")], "push.pushOption")])
+def test_the_configured_counterpart_of_an_excluded_option_is_no_hand_over(env, tmp_path, settings, why):
+    """Lens 1, F3: push.gpgSign signs the push as --signed does, push.pushOption sends options as -o does."""
+    r = _repo(tmp_path, env)
+    for key, value in settings:
+        base._git(r.path, "config", "--add", key, value)
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, why)
+    assert not _pointer(r.path).exists() and _records(env) == []
+
+
+@pytest.mark.parametrize("settings", [[("push.gpgSign", "true"), ("push.gpgSign", "false")],
+                                      [("push.pushOption", "ci.skip"), ("push.pushOption", "")]])
+def test_a_counterpart_turned_off_again_is_handed_over(env, tmp_path, settings):
+    """git takes the last push.gpgSign, and an empty push.pushOption clears the list before it."""
+    r = _repo(tmp_path, env)
+    for key, value in settings:
+        base._git(r.path, "config", "--add", key, value)
+    _approve(env, r.path)   # the configuration changed after the approval of _repo; a person approves it as it is now
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+
+
 def test_a_git_wrapper_earlier_on_path_is_no_hand_over(env, tmp_path):
     """Lens 1, F1: a `git` earlier on PATH that pushes with --no-verify starts no Level 2, so it must keep the ask."""
     r = _repo(tmp_path, env)

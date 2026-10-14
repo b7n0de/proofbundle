@@ -2203,7 +2203,8 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   Level 1 had announced, and that a dashed `git-push` runs whatever program PATH names); every target resolves up to the destination check and the one reason left open for each is the default case of
   `_dest_resolution` (`DEST_OPEN_AT_REMOTE`; a value that does not name the destination, a recorded candidate, a
   deletion, a forced update and every other reason are no hand-over); only the options `_HANDOVER_FLAGS` names (no
-  force, lease, dry run, signed push or push option); the evidence at every sent commit verified, or a commit that
+  force, lease, dry run, signed push or push option), and no configured counterpart of an excluded option (push.gpgSign
+  true or if-asked, a non-empty push.pushOption list; lens of 2026-10-14); the evidence at every sent commit verified, or a commit that
   declares only a done check passed it; no rules hint of owner choice 4 A, a comparison Level 1 could not make
   included; the approval mode is `with-approvals` (D25); the transport is approved (below); a bound Level 2 is
   installed: the pre-push hook git uses here is a regular, executable file, byte for byte the wrapper of

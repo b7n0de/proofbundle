@@ -6022,6 +6022,36 @@ def _bound_level2(hooks: str | None, deadline: float) -> tuple[dict | None, str]
     return {"hook": hook, "hook_sha256": hashlib.sha256(raw).hexdigest(), "gate": own, "gate_sha256": gate_sha256}, ""
 
 
+def _handover_push_config_problem(repo: str, deadline: float) -> str | None:
+    """Why the push configuration does what an option a hand-over excludes does, or None (adversarial lens of 2026-10-14,
+    F3): push.gpgSign true or if-asked signs the push as --signed does and starts a signing program, and a non-empty
+    push.pushOption list sends push options as -o does, which reach the server's hooks and which Level 2 never sees. git
+    takes the last value of push.gpgSign (a key without a value is true), and an empty push.pushOption clears the list
+    before it (_push_config_problem)."""
+    def values(key: str) -> list[str | None] | None:
+        out = _git(repo, "config", "--null", "--get-regexp", "^" + key.replace(".", "[.]") + "$", deadline=deadline)
+        if out.returncode == 1 and not out.stdout and not out.stderr:
+            return []
+        if out.returncode != 0 or not out.stdout.endswith(b"\0"):
+            return None
+        return [_git_text(value) if newline else None
+                for _key, newline, value in (entry.partition(b"\n") for entry in out.stdout[:-1].split(b"\0"))]
+    signing, options = values("push.gpgsign"), values("push.pushoption")
+    if signing is None or options is None:
+        return "git cannot list push.gpgSign or push.pushOption, so the gate cannot tell what the push sends"
+    if signing and (signing[-1] is None or signing[-1].lower() == "if-asked"
+                    or not _git_false(repo, signing[-1], deadline)):
+        return ("the configuration signs the push (push.gpgSign), as --signed does: a signing program starts, and a "
+                "hand-over excludes a signed push")
+    listed: list = []
+    for value in options:
+        listed = [] if value == "" else [*listed, value]
+    if listed:
+        return ("the configuration sends push options (push.pushOption), as -o does: they reach the server's hooks, Level "
+                "2 never sees them, and a hand-over excludes a push option")
+    return None
+
+
 def _git_identity_problem(deadline: float) -> str | None:
     """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
     program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
@@ -6102,6 +6132,9 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
         if word.startswith("-") and word != "-" and word not in _HANDOVER_FLAGS:
             return (f"the option {word} is not one a hand-over allows (a force, a lease, a dry run, a signed push and a "
                     "push option keep the push an ask)"), False
+    why = _handover_push_config_problem(repo, deadline)
+    if why is not None:
+        return why, False
     if set(dict.fromkeys(sources)) != {t.source for t in targets}:
         return "the commits the push sends and the targets Level 1 resolved do not agree", False
     evidence, done = outcomes.get("evidence", {}), outcomes.get("done", set())

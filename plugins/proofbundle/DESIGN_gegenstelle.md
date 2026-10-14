@@ -308,7 +308,9 @@ evidenced failure, ask otherwise), and the ask names the condition that failed.
 3. Every target of the push resolves up to the destination check, and the one reason left open for each is the
    default case of `_dest_resolution_problem` ("whether the remote holds one of them is not known here"). A value that
    does not name the destination, a recorded candidate, a deletion, an unresolved source and every other open
-   reason are no hand-over.
+   reason are no hand-over. Only the options `_HANDOVER_FLAGS` names are allowed (no force, lease, dry run, signed push
+   or push option), and the configuration does not do what an excluded option does: push.gpgSign true or if-asked
+   signs the push, a non-empty push.pushOption list sends push options (adversarial lens of 2026-10-14, F3).
 4. The evidence at every source commit verified (pass), or, where a source declares only a done check, that done
    check passed. A source that declares nothing is no hand-over (D5 keeps its own path).
 5. No rules hint of owner choice 4 A is open: Level 1 found no difference of the evidence rules against a local
