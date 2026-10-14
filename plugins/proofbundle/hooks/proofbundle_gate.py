@@ -5809,6 +5809,13 @@ _HANDOVER_FLAGS = frozenset({"-q", "--quiet", "-v", "--verbose", "--progress", "
 #: command reaches the hook as GIT_CONFIG_PARAMETERS, and a hand-over push never carries one). The binding compares
 #: git's exec path on its own and leaves these two out of the environment it compares.
 _SET_BY_GIT_FOR_HOOKS = frozenset({"GIT_EXEC_PATH", "GIT_PREFIX"})
+#: Names the Bash tool of Claude Code sets in the shell a push runs in, with these values, and the host process does not
+#: carry (measured in a session of 2026-10-14 by the adversarial lens and again by the builder: the host process held no
+#: GIT_* name, the Bash tool's shell GIT_EDITOR=true and GIT_OPTIONAL_LOCKS=0). Bound, every hand-over of a real session
+#: was refused. With these values they select no program and change nothing a push does: git push starts no editor, and
+#: optional locks concern the index refresh of status. Any other value is bound. Whether a hook's own environment
+#: carries them is NOT MEASURED; with these values it does not matter.
+_HOST_SHELL_INERT = {"GIT_EDITOR": frozenset({"true", ":"}), "GIT_OPTIONAL_LOCKS": frozenset({"0", "1"})}
 #: The names beside GIT_* the environment binding reads: where git reads its configuration, the gate directory, and
 #: what selects ssh credentials and proxies. PATH is bound through the programs it selects (git, the interpreter).
 _BINDING_ENV = frozenset({"HOME", "XDG_CONFIG_HOME", "PROOFBUNDLE_GATE_DIR", "SSH_AUTH_SOCK", "SSH_ASKPASS",
@@ -5868,9 +5875,10 @@ def _interpreter_identity() -> list:
 
 def _environment_digest(environ: dict) -> str:
     """The digest of the program-selecting environment the binding reads (every GIT_* name but those git sets for a
-    hook, and _BINDING_ENV), name and value."""
+    hook and those the host's shell sets with an inert value, _HOST_SHELL_INERT; and _BINDING_ENV), name and value."""
     names = sorted(n for n in environ
-                   if (n.startswith("GIT_") and n not in _SET_BY_GIT_FOR_HOOKS) or n in _BINDING_ENV)
+                   if ((n.startswith("GIT_") and n not in _SET_BY_GIT_FOR_HOOKS
+                        and environ[n] not in _HOST_SHELL_INERT.get(n, ())) or n in _BINDING_ENV))
     return _canonical_digest([[name, environ[name]] for name in names])
 
 

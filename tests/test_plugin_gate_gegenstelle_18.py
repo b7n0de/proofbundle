@@ -572,6 +572,25 @@ def test_a_change_between_level_1_and_the_push_is_refused(env, tmp_path, what):
     assert proc.returncode != 0 and f"{what}" in proc.stderr, proc.stderr
 
 
+def test_the_names_the_bash_tool_sets_do_not_refuse_the_hand_over(env, tmp_path):
+    """Lens 1, F5, measured in a real session: the host process carries no GIT_* name, the Bash tool's shell carries
+    GIT_EDITOR=true and GIT_OPTIONAL_LOCKS=0. Level 1 measures the first, git's hook the second."""
+    r = _repo(tmp_path, env)
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+    proc = _push(dict(env, GIT_EDITOR="true", GIT_OPTIONAL_LOCKS="0"), r.path)
+    assert proc.returncode == 0 and _remote(tmp_path) == base._rev(r.path, "HEAD"), proc.stderr
+    assert "checked the update set of hand-over" in proc.stderr
+
+
+@pytest.mark.parametrize("name, value", [("GIT_EDITOR", "vim"), ("GIT_OPTIONAL_LOCKS", "x")])
+def test_another_value_of_those_names_is_bound(env, tmp_path, name, value):
+    r = _repo(tmp_path, env)
+    _level1(env, r.path)
+    proc = _push(dict(env, **{name: value}), r.path)
+    assert proc.returncode != 0 and "environment" in proc.stderr, proc.stderr
+
+
 @pytest.mark.parametrize("lines, why", [
     ([("refs/heads/main", "a" * 40, "refs/heads/main", "b" * 40)] * 2, "twice"),
     ([("refs/heads/main", "c" * 40, "refs/heads/main", "b" * 40)], "the hand-over names aaaaaaaaaaaa"),
