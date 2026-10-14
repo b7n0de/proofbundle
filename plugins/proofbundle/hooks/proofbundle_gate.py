@@ -3140,7 +3140,7 @@ class Verdict:
         self.reads = tuple(reads)   # owner choice 3 A: the evidence bytes a push's source check read (_source_reads)
 
     def text(self) -> str:
-        if self.decision in ("pass", "inactive"):
+        if self.decision in ("pass", "inactive", "handover"):
             return self.detail
         if self.detail.startswith("NOT MEASURED: "):
             prefix, detail = "NOT MEASURED: ", self.detail[len("NOT MEASURED: "):]
@@ -3741,11 +3741,27 @@ def _shell_command(*words: str) -> str:
     return " ".join(shlex.quote(word) for word in words)
 
 
+#: The kinds of reason _dest_resolution gives (DECISIONS.md D35): the value does not name the destination, this
+#: repository records a candidate, or the default case, a candidate whose presence on the remote is not known here.
+#: Only the last may be handed over to Level 2; the other two stay asks.
+DEST_NOT_NAMED = "not_named"
+DEST_RECORDED_CANDIDATE = "recorded_candidate"
+DEST_OPEN_AT_REMOTE = "open_at_remote"
+
+
 def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                              deadline: float) -> tuple[str, str] | None:
-    """Why git push's resolution of the destination value `value` to exactly `dest` is not evidenced, with the next
-    step, for the answer (NOT MEASURED; review round 8 of 2026-10-10, R8-2, and round 9 of 2026-10-11, R9-1); None
-    only for a value git can match to no other ref.
+    """The reason and next step of _dest_resolution, for the answer, without its kind."""
+    found = _dest_resolution(repo, remote, value, dest, deadline)
+    return None if found is None else (found[1], found[2])
+
+
+def _dest_resolution(repo: str, remote: str, value: str, dest: str,
+                     deadline: float) -> tuple[str, str, str] | None:
+    """Why git push's resolution of the destination value `value` to exactly `dest` is not evidenced, as (kind, reason,
+    next step), for the answer (NOT MEASURED; review round 8 of 2026-10-10, R8-2, and round 9 of 2026-10-11, R9-1);
+    None only for a value git can match to no other ref. The kind is one of DEST_NOT_NAMED, DEST_RECORDED_CANDIDATE
+    and DEST_OPEN_AT_REMOTE, decided here and nowhere else (D35: only the last may be handed over).
 
     git looks the value up among every ref the remote advertises to the push, by the rules of _REV_PARSE_RULES: for
     the value refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and
@@ -3760,7 +3776,7 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
     review = "have a person review the push"
     candidates = _dest_candidates(value)
     if (dest, True) not in candidates:
-        return f"git push looks up {value} on the remote, which does not name {dest}", review
+        return DEST_NOT_NAMED, f"git push looks up {value} on the remote, which does not name {dest}", review
     others = [name for name, _strong in candidates if name != dest]
     if not others:
         return None
@@ -3785,10 +3801,12 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                          f"beside {dest}" if strength.get(name) else
                          f"git push matches {name} for {value} only weakly: a weak match counts only when no strong "
                          "match exists on the remote, whose current refs the gate does not read")
-                return (f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
+                return (DEST_RECORDED_CANDIDATE,
+                        f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
                         f"not know; {match}, and what the remote holds now is not known here", review)
     strong = [name for name, is_strong in candidates if is_strong and name != dest]
-    return (f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
+    return (DEST_OPEN_AT_REMOTE,
+            f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
             "them is not known here: the gate does not read the remote, and a ref this repository does not record "
             "is no evidence that the remote lacks it (D3)", review)
 
@@ -3833,8 +3851,15 @@ def _qualify_dest(value: str) -> str | None:
     return "refs/heads/" + value
 
 
+def _handover_drop(handover: dict | None) -> None:
+    """The push is no hand-over (D35): a step other than the default destination case left it open."""
+    if handover is not None:
+        handover["targets"] = []
+        handover["remote"] = None
+
+
 def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
-                         reasons: list | None = None) -> list[PushTarget] | None:
+                         reasons: list | None = None, handover: dict | None = None) -> list[PushTarget] | None:
     """The ref updates a `git push` performs, each with its locally known target state, or None when the
     gate cannot resolve them completely (DECISIONS.md, D3 option B; N1, N2, N3).
 
@@ -3894,7 +3919,7 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
     if remotes is None:
         return None  # git cannot read the remote configuration, and its push stops there as well
     if remote is None:  # a bare `git push`: the current branch to its chosen remote, same name
-        return _default_targets(repo, deadline, remotes, reasons=reasons)
+        return _default_targets(repo, deadline, remotes, reasons=reasons, handover=handover)
     if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
         return None
     try:
@@ -3903,39 +3928,60 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
     except GateError:
         return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     if not refspecs:
-        return _default_targets(repo, deadline, remotes, remote=remote, reasons=reasons)
+        return _default_targets(repo, deadline, remotes, remote=remote, reasons=reasons, handover=handover)
     targets = []
     for spec in refspecs:
-        spec = spec[1:] if spec.startswith("+") else spec
+        forced = spec.startswith("+")
+        spec = spec[1:] if forced else spec
         if "*" in spec or spec.startswith("^"):
+            _handover_drop(handover)
             return None
         src, sep, dst = spec.partition(":")
         if not sep:  # `name` pushes the ref `name` to the same ref on the remote
             dst = src
         dest = _qualify_dest(dst)
         if dest is None:
+            _handover_drop(handover)
             return None
         tracking = _tracking_ref(repo, remote, dest, deadline)
         if tracking is None:  # no uniquely mapped local target state: NOT MEASURED, no fallback (N1)
+            _handover_drop(handover)
             return None
         # The value git looks up on the remote: the destination as written, or for a refspec without `:` the source's
         # own full name (R8-2); neither its spelling nor the fetch mapping of dest shows that git resolves it to dest
         value = dst if sep else _source_full_name(repo, src, deadline)
         try:
-            problem = None if value is None else _dest_resolution_problem(repo, remote, value, dest, deadline)
+            found = None if value is None else _dest_resolution(repo, remote, value, dest, deadline)
         except GateError:
+            _handover_drop(handover)
             return None
-        if value is None or problem is not None:
-            if problem is not None:
-                _note_reason(reasons, *problem)
-            return None
+        if value is None or found is not None:
+            if found is not None:
+                _note_reason(reasons, found[1], found[2])
+            # D35: the one reason Level 1 may hand over is the default case; it is collected and the next refspec read,
+            # and the push stays unresolved for Level 1 whatever is collected. A deletion and a forced update are no
+            # hand-over.
+            commit = (_push_source(repo, src, deadline) if handover is not None and found is not None
+                      and found[0] == DEST_OPEN_AT_REMOTE and src != "" and not forced else None)
+            if commit is None:
+                _handover_drop(handover)
+                return None
+            handover["targets"].append(PushTarget(source=commit, dest=dest, tracking=tracking))
+            continue
         if src == "":  # `:dst` deletes the destination ref
             targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
             continue
         commit = _push_source(repo, src, deadline)
         if commit is None:
+            _handover_drop(handover)
             return None
         targets.append(PushTarget(source=commit, dest=dest, tracking=tracking))
+    if handover is not None and handover["targets"]:
+        if targets:
+            _handover_drop(handover)   # a refspec git could resolve beside one handed over: not the modelled case
+        else:
+            handover["remote"] = remote
+        return None
     return targets or None
 
 
@@ -4003,10 +4049,11 @@ def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) 
 
 
 def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None,
-                     reasons: list | None = None) -> list[PushTarget] | None:
+                     reasons: list | None = None, handover: dict | None = None) -> list[PushTarget] | None:
     """A push with no refspec: the branch git pushes (_default_push) to the remote git chooses, but only when that
     is faithful here. A configured remote.push, a pushurl, a mirror or push.followTags add updates the gate cannot
-    name, so those are NOT MEASURED."""
+    name, so those are NOT MEASURED. Where the one reason left open is the default destination case, `handover`
+    receives the target and the remote (D35)."""
     try:
         chosen = _default_push(repo, deadline, remotes, remote)
     except GateError:
@@ -4025,16 +4072,20 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
     if tracking is None:
         return None
     try:   # git sets up `<branch>:<dest>` with dest in full, and looks that value up on the remote (R8-2)
-        problem = _dest_resolution_problem(repo, remote, dest, dest, deadline)
+        found = _dest_resolution(repo, remote, dest, dest, deadline)
     except GateError:
         return None
-    if problem is not None:
-        _note_reason(reasons, *problem)
-        return None
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
-    if head.returncode != 0 or not head.stdout.strip():
+    source = head.stdout.decode().strip() if head.returncode == 0 and head.stdout.strip() else None
+    if found is not None:
+        _note_reason(reasons, found[1], found[2])
+        if handover is not None and found[0] == DEST_OPEN_AT_REMOTE and source is not None:
+            handover["targets"] = [PushTarget(source=source, dest=dest, tracking=tracking)]
+            handover["remote"] = remote
         return None
-    return [PushTarget(source=head.stdout.decode().strip(), dest=dest, tracking=tracking)]
+    if source is None:
+        return None
+    return [PushTarget(source=source, dest=dest, tracking=tracking)]
 
 
 def _newly_reachable(repo: str, source: str, tracking: str, deadline: float) -> list[str] | None:
@@ -4146,25 +4197,31 @@ def _read_entries(commit: str, digests, check: str) -> list[dict]:
 
 
 def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: float, why: str,
-                   reads: list | None = None) -> Verdict | None:
+                   reads: list | None = None, outcomes: dict | None = None) -> Verdict | None:
     """Befund 1 (review Runde 6): the evidence at uniquely determined source commits is checked even when the
     comparison with the target is NOT MEASURED. A proven evidence failure stays a deny, and the comparison
     that was not measured is named separately in it; anything else returns None, so the caller's NOT
     MEASURED stands — a pass at a source is never a verdict on a push whose comparison is unknown. `reads` receives
     the evidence bytes each checked commit read (_source_reads), up to and including a commit that denies; the deny
     carries them too (owner choice 3 A of 2026-10-11). Where a step fails, the caller hands the exception that record
-    (evaluate_push, _keep_reads; owner choice of 2026-10-13 on R12-2 M2: one hand-over, not a second one here)."""
+    (evaluate_push, _keep_reads; owner choice of 2026-10-13 on R12-2 M2: one hand-over, not a second one here). Where
+    `outcomes` is a dict, it receives the verdict of each source's evidence check under "evidence" and the set of
+    source commits whose done check passed under "done", for the hand-over of D35."""
     reads = [] if reads is None else reads
     for commit in dict.fromkeys(sources):
         where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
         verdict = _evaluate_tree(repo, commit, deadline, where, "")
         reads.extend(_source_reads(commit, verdict))
+        if outcomes is not None:
+            outcomes.setdefault("evidence", {})[commit] = verdict
         if verdict.decision == "deny":
             return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
                                   f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
                            failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
                            repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
-    denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
+    denial, passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
+    if outcomes is not None:
+        outcomes["done"] = {v.head for v in passes}
     if denial is not None:
         return Verdict("deny", denial.detail.rstrip() + " Separately, the comparison with the target was NOT "
                               f"MEASURED: {why.rstrip('.')}.", denial.reason_id, evidence=denial.evidence,
@@ -5601,14 +5658,21 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
 
 # --- a push, resolved to its targets and the commits it sends (DECISIONS.md, D3 option B, D20) --------
 
-def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) -> Verdict:
+def evaluate_push(directory: str, push_args: list[str] | None, deadline: float,
+                  environ: dict | None = None, plain_push: bool = False) -> Verdict:
     """The Level 1 verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
     branch to its upstream). Since review round 9 of 2026-10-11 (R9-1) every push whose earlier steps resolve ends
     NOT MEASURED at the destination check, because git resolves the destination against refs of the remote the gate
     does not read, and no fetch rule changes that. The evidence at the commits the push sends (the uniquely
     determined source commits) is still checked: an evidenced failure there is a deny, and otherwise the answer is
     an ask that says what was checked. The comparison with the destination's state, and the range of newly sent
-    commits, are Level 2's (pre_push_verdict), on git's own ref lines (review round 10, R10-5)."""
+    commits, are Level 2's (pre_push_verdict), on git's own ref lines (review round 10, R10-5).
+
+    The one place Level 1 hands a push over to Level 2 (owner adoption of review round 18, DECISIONS.md D35) is here,
+    after every check above: only where the one reason left open is the default destination case, the source evidence
+    is valid, the transport is approved, a bound Level 2 is installed and the command is the plain push form
+    (`plain_push`, _codex_plain_push) (_handover_offer). Then the verdict is
+    `handover`, which carries no permission decision; otherwise the answer is the ask it was, naming why."""
     repo, unreadable = _work_tree(directory, deadline)
     if unreadable:
         return Verdict("ask", f"NOT MEASURED: {unreadable}, so no evidence was checked.", "not_a_work_tree",
@@ -5628,7 +5692,8 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
                        next_step="commit first, then retry", repo=repo)
     head_commit = head.stdout.decode().strip()
     reasons: list = []
-    targets = resolve_push_targets(repo, push_args, deadline, reasons)
+    handover = {"targets": [], "remote": None} if push_args is not None else None
+    targets = resolve_push_targets(repo, push_args, deadline, reasons, handover)
     if targets is None:
         found, next_step = reasons[0] if reasons else (None, None)
         try:
@@ -5664,8 +5729,9 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
             return _unresolved_verdict(repo, head_commit, _with_note(_then(told, f"for the destination, {why}"), note),
                                        next_step)
         reads: list = []
+        outcomes: dict = {}
         try:   # R12-2: a failure of any kind after the source check keeps its record
-            denial = _source_denial(repo, head_commit, sources, deadline, why, reads)
+            denial = _source_denial(repo, head_commit, sources, deadline, why, reads, outcomes)
             if denial is not None:
                 return denial
             local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
@@ -5679,6 +5745,18 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
                          "comparison that was not made is no equality."]
             if hints:
                 told = f"{told.rstrip('.')}. " + " ".join(hints)
+            # D35: the one place Level 1 hands a push over. Where it does not, the ask says why.
+            offer, missing_level2 = _handover_offer(repo, head_commit, push_args, handover, sources, outcomes, hints,
+                                                    note, reads, deadline, environ, plain_push)
+            if isinstance(offer, Verdict):
+                return offer
+            if offer is not None:
+                told = f"{told.rstrip('.')}. No hand-over to Level 2 (DECISIONS.md D35): {offer.rstrip('.')}."
+            if missing_level2:   # answer 5 of review round 18: named as a voluntary step, never installed here
+                next_step = (f"{(next_step or 'have a person review the push').rstrip('.')}; or, if you want such a push "
+                             "to need no question, install Level 2 in this repository yourself with "
+                             f"`{_shell_command('python3', os.path.realpath(__file__), 'install-pre-push', '--repo', repo)}`"
+                             " (optional, D24B; the gate installs nothing)")
             return _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
         except Exception as exc:
             _keep_reads(exc, reads, head_commit)
@@ -5976,7 +6054,8 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
 _ZERO_OIDS = frozenset({"0" * 40, "0" * 64})
 
 
-def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Verdict:
+def pre_push_verdict(directory: str, lines: list[tuple], deadline: float, remote: str | None = None,
+                     url: str | None = None) -> Verdict:
     """PROTOTYPE Ebene-2 pre-push verdict (DECISIONS.md, D24 — measured in test fixtures only, not installed
     or wired to core.hooksPath outside tests). git hands a pre-push hook, on stdin, one line
     `<local_ref> <local_sha> <remote_ref> <remote_sha>` per ref being pushed, in the repository the push
@@ -5984,7 +6063,12 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
     any shell command, so it reaches a verdict where Ebene 1 (the shell grammar) says NOT MEASURED. Each
     line becomes a target: source = the local sha (None when it is all-zero, a deletion), dest = the remote
     ref, tracking = the remote sha (None when the remote has no such ref yet). Then the shared core judges
-    the evidence exactly as for a resolved shell push."""
+    the evidence exactly as for a resolved shell push.
+
+    Two modes (D35, answer 6 of review round 18): where the worktree holds a hand-over pointer of Level 1, the
+    hand-over is consumed and the push must be the push Level 1 handed over (_handover_mismatch: its age, its binding
+    and its whole update set) before the core judges it; without one, Level 2 runs standalone as before and says so.
+    `remote` and `url` are the two arguments git gives the hook."""
     repo, unreadable = _work_tree(directory, deadline)
     if repo is None:
         named = unreadable or f"{directory} is not inside a git work tree"
@@ -5993,6 +6077,25 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
                        next_step="run the hook from the repository")
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     head_commit = head.stdout.decode().strip() if head.returncode == 0 and head.stdout.strip() else ""
+    # The pointer is looked up in the git directory git names as one value, which holds a path whose name carries a
+    # line feed; _repo_paths reads three paths line by line and is asked only where a hand-over is present.
+    named = _git(repo, "rev-parse", "--absolute-git-dir", deadline=deadline)
+    gitdir = _git_value(named.stdout) if named.returncode == 0 else None
+    if gitdir is None or not os.path.isabs(gitdir):
+        return Verdict("deny", "proofbundle gate (pre-push): git does not name this repository's git directory as one "
+                               "absolute path, so whether a hand-over pointer is present is not known. The push is "
+                               "denied.", "git_directory_unread", evidence="the git directory of the repository",
+                       failed="git does not name the git directory", next_step="have a person review the push",
+                       repo=repo, head=head_commit)
+    record, refusal, nonce = _take_handover(gitdir)
+    if refusal is None and record is not None:
+        paths, why = _repo_paths(repo, deadline)
+        refusal = (_handover_mismatch(repo, paths, record, remote, url, lines, deadline)
+                   if paths is not None and paths["gitdir"] and paths["common"] else
+                   f"git does not name the repository's directories ({why or 'no answer'}), so the hand-over cannot be "
+                   "compared")
+    if refusal is not None:
+        return _handover_refused(repo, head_commit or (lines[0][1] if lines else ""), nonce, refusal)
     targets = []
     for local_ref, local_sha, remote_ref, remote_sha in lines:
         dest = remote_ref if remote_ref.startswith(_TRACKABLE) else None
@@ -6004,12 +6107,21 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
         tracking = None if remote_sha in _ZERO_OIDS else remote_sha
         targets.append(PushTarget(source=source, dest=dest, tracking=tracking, remote_absent=tracking is None))
     if not targets:
-        return Verdict("inactive", "NOT MEASURED: the pre-push hook received no ref to push.", "nothing_declared",
-                       repo=repo, head=head_commit)
+        if record is not None:   # a no-op: git ran the hook with no ref line (measured with git 2.34.1)
+            return Verdict("inactive", f"NOT MEASURED: the pre-push hook received no ref to push, so it checked nothing "
+                                       f"and claims no update. The pointer names hand-over {record['nonce']}, which "
+                                       f"names {len(record['updates'])} update(s); git gave a line for none of them. git "
+                                       "does that for a no-op, a ref the remote reports at the commit it would send "
+                                       "(measured with git 2.34.1); whether that is why was not checked. The hand-over "
+                                       "is consumed.", "handover_no_update",
+                           repo=repo, head=head_commit)
+        return _with_mode(Verdict("inactive", "NOT MEASURED: the pre-push hook received no ref to push.",
+                                  "nothing_declared", repo=repo, head=head_commit), None, lines)
     try:
-        return _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline, remote_state=True)
+        verdict = _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline, remote_state=True)
     except VerifierCannotStart as exc:
         return _sandbox_verdict(repo, head_commit or targets[0].source, exc)
+    return _with_mode(verdict, record, lines)
 
 
 SANDBOX_REASON = "sandbox_verifier_unavailable"
@@ -6025,6 +6137,910 @@ def _sandbox_verdict(repo: str, commit: str, exc: VerifierCannotStart) -> Verdic
                    evidence="the start of the verifier: uv's answer and a probe of the gate's own",
                    failed=exc.sign, next_step="have a person push from outside the sandbox; the required CI check "
                                               "stays the boundary", repo=repo, head=commit)
+
+
+# --- the hand-over of a push from Level 1 to Level 2 (owner adoption of review round 18, DECISIONS.md D35) ---------
+#
+# Level 1 does not read the remote (D3), so a push whose only open reason is the default destination case asks. Where a
+# person approved the push's transport and a bound Level 2 is installed, Level 1 hands the push over instead: it writes
+# the expected order into a one-time record and answers with no permission decision (D4 stays), and git's pre-push hook
+# judges the actual update against that order. The record proves no origin and grants nothing Level 2 does not check
+# again itself; it only narrows what Level 2 accepts (DESIGN_gegenstelle.md, section 7).
+
+HANDOVER_SCHEMA = "proofbundle-plugin/handover/v1"
+HANDOVER_POINTER_SCHEMA = "proofbundle-plugin/handover-pointer/v1"
+#: The pointer in the per-worktree git directory that tells Level 2 a hand-over was given (the channel of D35). It is
+#: found through git's own repository, not through the environment.
+HANDOVER_POINTER = "proofbundle-handover"
+#: How long a hand-over is valid after Level 1 wrote it.
+HANDOVER_TTL_SECONDS = 300
+MAX_HANDOVER_BYTES = 64 * 1024
+_HANDOVER_KEYS = frozenset({"schema", "nonce", "created", "expires", "repo", "worktree", "gitdir", "remote", "url",
+                            "push_words", "updates", "binding"})
+_BINDING_KEYS = frozenset({"exec_path", "git_sha256", "hook", "hook_sha256", "gate", "gate_sha256", "plugin_version",
+                           "interpreter", "environment", "configuration", "transport"})
+#: The push options a hand-over allows. Every other option keeps the push an ask: a force or a lease (the remote's
+#: history is replaced), a dry run, a signed push (a signing program starts), a push option and every option the gate
+#: does not model.
+_HANDOVER_FLAGS = frozenset({"-q", "--quiet", "-v", "--verbose", "--progress", "--no-progress", "--porcelain", "-u",
+                             "--set-upstream", "--atomic", "--no-atomic", "--verify", "--thin", "--no-thin", "-4",
+                             "--ipv4", "-6", "--ipv6"})
+#: The names git sets for a hook it starts (measured with git 2.34.1: GIT_EXEC_PATH and GIT_PREFIX everywhere, and
+#: GIT_DIR in a linked worktree and in a repository with a separate git directory, adversarial lens 2 of 2026-10-14,
+#: F-B; a `-c` of the command reaches the hook as GIT_CONFIG_PARAMETERS, and a hand-over push never carries one). The
+#: binding compares git's exec path on its own, and the repository, worktree and git directory git names in the hook
+#: (which follow GIT_DIR) against the record, so it leaves these three out of the environment it compares.
+_SET_BY_GIT_FOR_HOOKS = frozenset({"GIT_EXEC_PATH", "GIT_PREFIX", "GIT_DIR"})
+#: Names the Bash tool of Claude Code sets in the shell a push runs in, with these values, and the host process does not
+#: carry (measured in a session of 2026-10-14 by the adversarial lens and again by the builder: the host process held no
+#: GIT_* name, the Bash tool's shell GIT_EDITOR=true and GIT_OPTIONAL_LOCKS=0). Bound, every hand-over of a real session
+#: was refused. With these values they select no program and change nothing a push does: git push starts no editor, and
+#: optional locks concern the index refresh of status. Any other value is bound. Whether a hook's own environment
+#: carries them is NOT MEASURED; with these values it does not matter.
+_HOST_SHELL_INERT = {"GIT_EDITOR": frozenset({"true", ":"}), "GIT_OPTIONAL_LOCKS": frozenset({"0", "1"})}
+#: The names beside GIT_* the environment binding reads: where git reads its configuration, the gate directory, and
+#: what selects ssh credentials and proxies. PATH is bound through the programs it selects (git, the interpreter).
+_BINDING_ENV = frozenset({"HOME", "XDG_CONFIG_HOME", "PROOFBUNDLE_GATE_DIR", "SSH_AUTH_SOCK", "SSH_ASKPASS",
+                          "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy",
+                          "NO_PROXY", "no_proxy"})
+#: What the transport digest reads besides the configuration (DESIGN_gegenstelle.md, 7.4).
+_TRANSPORT_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_AUTH_SOCK",
+                  "GIT_PROXY_COMMAND", "GIT_ALLOW_PROTOCOL", "GIT_PROTOCOL_FROM_USER", "http_proxy", "https_proxy",
+                  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy")
+_TRANSPORT_SECTIONS = frozenset({"ssh", "credential", "http", "protocol"})
+_TRANSPORT_CORE_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
+_TRANSPORT_PROGRAMS = ("git-receive-pack", "git-remote-http", "git-remote-https")
+#: The configuration values and environment names that name a program the transport starts, one by one (the program
+#: word of a plain command, a credential helper by git's own rules: _named_program). Their files are bound by sha256
+#: (lens 1 of 2026-10-14, F2: the names alone were bound, so a program rewritten after the approval ran unasked).
+_TRANSPORT_PROGRAM_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
+_TRANSPORT_PROGRAM_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND")
+#: v2 (lens 1 of 2026-10-14): the files of the named programs, the ssh configuration for an ssh URL, the own
+#: configuration of a path remote, and configuration origins as absolute paths. No v2 digest equals one of v1, so an
+#: approval written before asks once.
+TRANSPORT_DIGEST_SCHEMA = "proofbundle-plugin/transport/v2"
+TRANSPORTS_FILE = "transports.json"
+MAX_TRANSPORTS = 256
+_TRANSPORT_ENTRY_KEYS = frozenset({"repo", "remote", "url", "transport_digest"})
+_NONCE = re.compile(r"[0-9a-f]{32}")
+#: The last second a record's times may name (9999-12-31T23:59:59Z): time.gmtime raises beyond it (lens 2, F-D).
+_MAX_EPOCH = 253402300799
+
+
+def _plain_path(value: object) -> bool:
+    """Whether value is an absolute path os.path can take: a string with no NUL that the filesystem encoding encodes
+    (a lone surrogate outside surrogateescape raises; adversarial lens 2 of 2026-10-14, F-D)."""
+    if not isinstance(value, str) or "\0" in value or not os.path.isabs(value):
+        return False
+    try:
+        os.fsencode(value)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _canonical_digest(document: object) -> str:
+    """sha256 of the canonical JSON of document; names and values keep the bytes git printed (R4-2)."""
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False)
+                          .encode("utf-8", "surrogateescape")).hexdigest()
+
+
+#: The largest file the binding hashes (adversarial lens 3 of 2026-10-14, F-O: a sparse file of several GiB named as a
+#: program was read whole and raised MemoryError). A larger file binds as unreadable, which keeps the ask.
+MAX_BOUND_FILE_BYTES = 512 * 1024 * 1024
+
+
+def _sha256_or_none(path: str | None) -> str | None:
+    """sha256 of the regular file at path, a link followed, hashed in blocks; None where there is none, it cannot be
+    read, or it holds more than MAX_BOUND_FILE_BYTES. Opened as _read_regular opens: without blocking, its type checked
+    at the descriptor before any read."""
+    if not path:
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+    except (OSError, ValueError):
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BOUND_FILE_BYTES:
+            return None
+        digest, total = hashlib.sha256(), 0
+        while block := os.read(fd, 1 << 20):
+            total += len(block)
+            if total > MAX_BOUND_FILE_BYTES:
+                return None
+            digest.update(block)
+        return digest.hexdigest()
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _git_exec_path(deadline: float) -> str | None:
+    """git's exec path as the git on PATH names it (`git --exec-path`), resolved; None where git does not say."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    try:
+        out = subprocess.run(["git", "--exec-path"], capture_output=True, timeout=left, check=False, env=_read_env())
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired as exc:
+        raise GateError("git did not answer in time") from exc
+    value = _git_value(out.stdout) if out.returncode == 0 else None
+    return os.path.realpath(value) if value and os.path.isabs(value) else None
+
+
+def _interpreter_identity() -> list:
+    """The interpreter that runs this gate: its file, its prefix and its version. The file alone does not tell a virtual
+    environment from the system interpreter it was made from (both resolve to the same binary), and the prefix decides
+    which site packages load."""
+    return [os.path.realpath(sys.executable), sys.prefix, sys.version]
+
+
+def _environment_digest(environ: dict) -> str:
+    """The digest of the program-selecting environment the binding reads (every GIT_* name but those git sets for a
+    hook and those the host's shell sets with an inert value, _HOST_SHELL_INERT; and _BINDING_ENV), name and value."""
+    names = sorted(n for n in environ
+                   if ((n.startswith("GIT_") and n not in _SET_BY_GIT_FOR_HOOKS
+                        and environ[n] not in _HOST_SHELL_INERT.get(n, ())) or n in _BINDING_ENV))
+    return _canonical_digest([[name, environ[name]] for name in names])
+
+
+def _configuration_digest(repo: str, deadline: float) -> str | None:
+    """The digest of the effective configuration git reads here, every entry with scope and origin; None where git
+    cannot list it."""
+    entries, _why = _config_entries(repo, deadline)
+    return None if entries is None else _canonical_digest([list(entry) for entry in entries])
+
+
+def _ssh_url(url: str) -> bool:
+    """Whether git reaches url over ssh: an ssh scheme, or the scp form `[user@]host:path` with no slash before the
+    colon (git's urlmatch rules, read; a local path or another scheme is none)."""
+    if url.startswith(("ssh://", "git+ssh://", "ssh+git://")):
+        return True
+    if "://" in url or url.startswith(("/", ".", "~")):
+        return False
+    return ":" in url.split("/", 1)[0]
+
+
+def _program_file(word: str | None, base: str, exec_path: str, environ: dict) -> list:
+    """[the program word, the file it resolves to, its sha256] for the first word of a command: a word with a slash is a
+    path (relative to base), any other is looked up in git's exec path and then on PATH, as git runs its dashed
+    programs. [word, None, None] where it names no file, a shell builtin or a function for instance."""
+    if not word:
+        return [word, None, None]
+    if "/" in word:
+        found = os.path.join(base, os.path.expanduser(word))
+    else:
+        found = (os.path.join(exec_path, word) if os.path.isfile(os.path.join(exec_path, word))
+                 else shutil.which(word, path=environ.get("PATH")))
+    if not found:
+        return [word, None, None]
+    return [word, os.path.realpath(found), _sha256_or_none(found)]
+
+
+#: A word of a program-naming value a hand-over relies on: no quote, expansion, glob, operator, redirection or space
+#: inside (adversarial lens 3 of 2026-10-14, F-K). The program word alone may begin with `~/`, which the shell expands.
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9_./@%+=:,-]+")
+#: Configuration keys and environment names whose value git runs as one program, with no shell (gitcredentials,
+#: git-config; lens 3, F-L): the whole value is the program.
+_UNSHELLED_PROGRAMS = frozenset({"core.askpass", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS"})
+#: The URL forms a hand-over models (D35): a path, the scp form of ssh, and these schemes, which git carries itself or
+#: with its own http helper. Every other form starts a remote helper (`<x>::<address>`, another scheme, an ext::
+#: command, remote.<name>.vcs), which keeps the ask (lens 3, F-J, F-M). The comparison keeps git's letter case.
+_HANDOVER_SCHEMES = ("file://", "ssh://", "git+ssh://", "ssh+git://", "git://", "http://", "https://")
+
+
+def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]:
+    """(the program word git or the shell starts for a program-naming value, why a hand-over cannot rely on it). git
+    runs the values of _UNSHELLED_PROGRAMS as one program path; every other value is a shell command, which must be
+    plain words (_PLAIN_WORD) separated by single spaces, its program the first word. A leading `NAME=value` keeps
+    the ask: it can set PATH or LD_PRELOAD for the program and so choose another file than the one bound (lens 4 of
+    2026-10-14). A credential.helper names `git-credential-<word>` unless it is a `!command` or an absolute path. An
+    empty credential.helper resets the list and names no program. Anything the gate does not model this way is the
+    reason."""
+    if value is None:
+        return None, f"{key} has no value"
+    name = key if key.startswith(("GIT_", "SSH_")) else key.lower()
+    helper = name.startswith("credential.") and name.endswith(".helper")
+    if helper and value == "":
+        return None, None
+    if name in _UNSHELLED_PROGRAMS:
+        if not _PLAIN_WORD.fullmatch(value):
+            return None, f"{key} names a program path the gate does not model ({value!r})"
+        if value.startswith("/") and _process_dependent(value):
+            return None, (f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves "
+                          "for itself")
+        return value, None
+    command = value[1:] if helper and value.startswith("!") else value
+    words = command.split(" ")
+    program_at = 0
+    if _ASSIGNMENT.match(words[0]):
+        return None, (f"{key} sets an environment name in front of its program ({value!r}), which can choose another "
+                      "program or library than the one the gate binds")
+    for i, word in enumerate(words):
+        plain = word[2:] if i == program_at and word.startswith("~/") else word
+        if not _PLAIN_WORD.fullmatch(plain):
+            return None, (f"{key} is a shell command the gate does not model ({value!r}): a quote, an expansion, a "
+                          "glob, an operator or a redirection decides there which program runs")
+    program = words[program_at]
+    if helper and not value.startswith("!") and not os.path.isabs(program):
+        program = f"git-credential-{program}"
+    if program.startswith(("/", "~/")) and _process_dependent(os.path.expanduser(program)):
+        return None, f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves for itself"
+    return program, None
+
+
+def _handover_url_problem(url: str, vcs: str | None) -> str | None:
+    """Why a hand-over does not model the transport git chooses for `url` (_HANDOVER_SCHEMES), or None."""
+    if vcs is not None:
+        return f"remote.<name>.vcs ({vcs!r}) starts a remote helper"
+    if "::" in url.split("/", 1)[0]:
+        return f"the URL {url!r} names a remote helper (`<transport>::<address>`)"
+    if url.startswith(_HANDOVER_SCHEMES) or "://" not in url:
+        return None
+    return f"the URL {url!r} has a scheme git hands to a remote helper"
+
+
+def _ssh_config_files() -> list[str]:
+    """The ssh client configuration files ssh reads (its user file under the home the password database names, not
+    $HOME, and the system file). An Include inside them is not followed (D35, limits)."""
+    files = ["/etc/ssh/ssh_config"]
+    try:
+        import pwd
+        files.insert(0, os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".ssh", "config"))
+    except (ImportError, KeyError):
+        pass
+    return files
+
+
+def _local_remote(url: str, toplevel: str) -> tuple[str | None, str | None]:
+    """(the git directory git's local transport opens for a path or file:// URL, why a hand-over does not model it);
+    (None, None) for any other URL. git tries `<path>/.git`, `<path>`, `<path>.git/.git` and `<path>.git` in turn and
+    follows a git file (lens 4 of 2026-10-14, F2); a hand-over models only the first two as plain directories: a
+    `<path>/.git` that is a directory with a config file, or else `<path>` itself as one, neither a linked worktree's
+    git directory (commondir). A file URL must be `file:///<path>` with no `#`, `?`, `%` or bracket, which git takes
+    literally while URL parsers do not."""
+    if url.startswith("file://"):
+        path = url[len("file://"):]
+        if not path.startswith("/") or any(c in path for c in "#?%[]\0"):
+            return None, f"the file URL {url!r} is not of the plain form file:///<path> a hand-over models"
+    elif "://" in url or _ssh_url(url):
+        return None, None
+    elif "\0" in url:
+        return None, "the URL holds a NUL"
+    else:
+        path = os.path.join(toplevel, os.path.expanduser(url))
+    dotgit = os.path.join(path, ".git")
+    gitdir = path
+    if os.path.lexists(dotgit):
+        if os.path.islink(dotgit) or not os.path.isdir(dotgit):
+            return None, f"{dotgit} is a git file or a link, and git follows it to a directory the gate does not model"
+        gitdir = dotgit
+    if not (os.path.isfile(os.path.join(gitdir, "config")) and os.path.lexists(os.path.join(gitdir, "HEAD"))):
+        return None, (f"{path} is no git directory git opens as it is; git would try {path}.git and other names "
+                      "next, which a hand-over does not model")
+    if os.path.lexists(os.path.join(gitdir, "commondir")):
+        return None, f"{gitdir} is a linked worktree's git directory, whose configuration lives elsewhere"
+    return os.path.realpath(gitdir), None
+
+
+def _file_binding(path: str, problems: list[str]) -> str | None:
+    """"absent" for a file that does not exist, else its sha256; a file that exists and cannot be hashed (too large,
+    unreadable, no regular file) is a reason a hand-over cannot rely on it (lens 4 of 2026-10-14, F5)."""
+    if not os.path.lexists(path):
+        return "absent"
+    digest = _sha256_or_none(path)
+    if digest is None:
+        problems.append(f"the gate cannot hash {path}, so a change of it would not change the digest")
+    return digest
+
+
+def _transport_parts(repo: str, remote: str, url: str, deadline: float,
+                     environ: dict) -> tuple[dict | None, list[str]]:
+    """(the document whose digest binds the transport, the reasons a hand-over cannot rely on it; lens 3 of 2026-10-14)
+    for what selects the programs, credentials and proxy of the transport to `remote` at `url` (D35,
+    DESIGN_gegenstelle.md 7.4): the URL; every effective configuration entry of the remote, of a URL rewrite, of
+    core.sshCommand, core.askPass and core.gitProxy and of the sections ssh, credential, http and protocol, with scope
+    and origin (an origin file as an absolute path, so an approval does not depend on the worktree it was made in); the
+    environment names of _TRANSPORT_ENV; git's exec path with the sha256 of its transport programs; the file and sha256
+    of every program those entries and names start (one level: what that program reads or starts is not bound); the ssh
+    on PATH and the ssh configuration files where the URL is an ssh URL; and the configuration file of a path remote,
+    whose own settings (core.alternateRefsCommand) run before Level 2. A value the gate does not model as a plain
+    command (_named_program), a program it resolves to no file and a transport that starts a remote helper
+    (_handover_url_problem) are reasons. (None, []) where a part cannot be read."""
+    entries, _why = _config_entries(repo, deadline)
+    exec_path = _git_exec_path(deadline)
+    toplevel, _unreadable = _work_tree(repo, deadline, "--path-format=absolute")
+    if entries is None or exec_path is None or not toplevel:
+        return None, []
+    chosen, named, problems, vcs = [], [], [], None
+    for scope, origin, key, value in entries:
+        section, _dot, rest = key.partition(".")
+        subsection, _dot, variable = rest.rpartition(".")
+        section, variable = section.lower(), variable.lower()
+        if ((section == "remote" and subsection == remote)
+                or (section == "url" and variable in ("insteadof", "pushinsteadof"))
+                or key.lower() in _TRANSPORT_CORE_KEYS or section in _TRANSPORT_SECTIONS):
+            if origin.startswith("file:") and not os.path.isabs(origin[5:]):
+                origin = "file:" + os.path.realpath(os.path.join(toplevel, origin[5:]))
+            chosen.append([scope, origin, key, value])
+            if section == "remote" and variable == "vcs":
+                vcs = value
+            if (key.lower() in _TRANSPORT_PROGRAM_KEYS or (section == "remote" and variable == "receivepack")
+                    or (section == "credential" and variable == "helper")):
+                named.append([key, value])
+    named.extend([name, environ[name]] for name in _TRANSPORT_PROGRAM_ENV if name in environ)
+    bound = []
+    for key, value in named:
+        program, why = _named_program(key, value)
+        found = _program_file(program, toplevel, exec_path, environ)
+        if why is None and program is not None and (found[1] is None or found[2] is None):
+            why = f"{key} names the program {program!r}, which the gate resolves to no file it can hash"
+        if why is not None:
+            problems.append(why)
+        bound.append([key, found])
+    url_problem = _handover_url_problem(url, vcs)
+    if url_problem is not None:
+        problems.append(url_problem)
+    programs: dict = {name: _file_binding(os.path.join(exec_path, name), problems) for name in _TRANSPORT_PROGRAMS}
+    files: dict = {}
+    if _ssh_url(url):
+        ssh = shutil.which("ssh", path=environ.get("PATH"))
+        programs["ssh"] = [os.path.realpath(ssh), _file_binding(ssh, problems)] if ssh else None
+        files = {path: _file_binding(path, problems) for path in _ssh_config_files()}
+    local, local_problem = _local_remote(url, toplevel)
+    if local_problem is not None:
+        problems.append(local_problem)
+    if local is not None:
+        files = {path: _file_binding(path, problems) for path in (os.path.join(local, "config"),
+                                                                   os.path.join(local, "config.worktree"))}
+    return {"schema": TRANSPORT_DIGEST_SCHEMA, "url": url, "configuration": chosen,
+            "environment": [[n, environ[n]] for n in _TRANSPORT_ENV if n in environ],
+            "exec_path": exec_path, "programs": programs, "named_programs": bound, "files": files}, problems
+
+
+def _transport_parts_or_unread(repo: str, remote: str, url: str, deadline: float,
+                               environ: dict) -> tuple[dict | None, list[str]]:
+    """_transport_parts, with a value the filesystem calls refuse (a NUL, an unencodable name: ValueError,
+    UnicodeError) or an OSError read as a transport that cannot be read whole (lens 4 of 2026-10-14, F8)."""
+    try:
+        return _transport_parts(repo, remote, url, deadline, environ)
+    except (OSError, ValueError, UnicodeError):
+        return None, []
+
+
+def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ: dict) -> str | None:
+    """The digest of _transport_parts, or None where a part cannot be read."""
+    document, _problems = _transport_parts_or_unread(repo, remote, url, deadline, environ)
+    return None if document is None else _canonical_digest(document)
+
+
+def _read_transports(environ: dict) -> list[dict]:
+    """The transport approvals a person wrote, each exactly {repo, remote, url, transport_digest}; [] on any problem,
+    as for the rules of D25: a file the gate cannot read whole approves nothing. The gate only ever reads it."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return []
+    try:
+        raw = _read_regular(os.path.join(directory, TRANSPORTS_FILE), MAX_RULES_BYTES + 1, follow=True)
+    except OSError:
+        return []
+    if len(raw) > MAX_RULES_BYTES:
+        return []
+    try:
+        data = strict_json(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return []
+    if not isinstance(data, list) or len(data) > MAX_TRANSPORTS:
+        return []
+    entries = []
+    for item in data:
+        if not isinstance(item, dict) or set(item) != _TRANSPORT_ENTRY_KEYS:
+            return []
+        if not (_plain_path(item["repo"]) and isinstance(item["remote"], str)
+                and item["remote"] and isinstance(item["url"], str) and item["url"]
+                and isinstance(item["transport_digest"], str) and _HEX64.fullmatch(item["transport_digest"])):
+            return []
+        entries.append(item)
+    return entries
+
+
+def _file_stamp(path: str) -> str:
+    """Where a file a person writes lives, when it last changed and its sha256, for the answer that relies on it."""
+    try:
+        when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(os.lstat(path).st_mtime))
+        digest = hashlib.sha256(_read_regular(path, MAX_RULES_BYTES + 1, follow=True)).hexdigest()[:16]
+    except OSError:
+        return f"{path} cannot be read"
+    return f"{path} (last changed {when}, sha256 {digest}…)"
+
+
+def _wrapper_root(raw: bytes) -> str | None:
+    """The plugin folder a wrapper of install-pre-push names on its `root=` line, or None."""
+    for line in raw.split(b"\n"):
+        if line.startswith(b"root="):
+            try:
+                words = shlex.split(line[len(b"root="):].decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                return None
+            return words[0] if len(words) == 1 else None
+    return None
+
+
+def _wrapper_gate(root: str, deadline: float) -> str | None:
+    """The gate the wrapper finds at push time for `root`, by the wrapper's own resolver run here (_PRE_PUSH_RESOLVER);
+    None where it finds none or does not answer."""
+    left = min(deadline - time.monotonic(), 10.0)
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    try:
+        out = subprocess.run([sys.executable, "-I", "-c", _PRE_PUSH_RESOLVER, root], capture_output=True, text=True,
+                             timeout=left, check=False, env=_isolated_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    found = out.stdout.strip()
+    return found if out.returncode == 0 and found else None
+
+
+def _bound_level2(hooks: str | None, deadline: float) -> tuple[dict | None, str]:
+    """(the hook and gate binding, "") where the pre-push hook git uses here is a regular, executable file, byte for
+    byte the wrapper install-pre-push writes, and the gate it finds at push time is this gate file; else (None, why).
+    Installed hook bytes alone are no reason to hand over (answer 1 of review round 18): the hand-over also needs the
+    approved transport, and Level 2 checks the binding again when it runs."""
+    if not hooks:
+        return None, "git names no hook folder for this repository"
+    hook = os.path.join(hooks, "pre-push")
+    try:
+        st = os.lstat(hook)
+    except FileNotFoundError:
+        return None, f"no pre-push hook is installed at {hook}"
+    except OSError as exc:
+        return None, f"the pre-push hook at {hook} cannot be examined ({exc.strerror or exc})"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        return None, f"the pre-push hook at {hook} is no regular file"
+    if not st.st_mode & stat.S_IXUSR:
+        return None, f"the pre-push hook at {hook} is not executable, so git does not run it"
+    try:
+        raw = _read_regular(hook, MAX_HOOK_BYTES + 1)
+    except OSError:
+        return None, f"the pre-push hook at {hook} cannot be read"
+    root = _wrapper_root(raw)
+    if root is None or raw != pre_push_wrapper(root).encode("utf-8"):
+        return None, f"the pre-push hook at {hook} is not the wrapper install-pre-push writes"
+    own = os.path.realpath(__file__)
+    found = _wrapper_gate(root, deadline)
+    if found is None or os.path.realpath(found) != own:
+        return None, (f"the pre-push hook at {hook} runs the gate {found or 'it finds nowhere'} at push time, not this "
+                      f"gate {own} of plugin version {GATE_VERSION}")
+    gate_sha256 = _sha256_or_none(own)
+    if gate_sha256 is None:
+        return None, f"this gate file {own} cannot be read"
+    return {"hook": hook, "hook_sha256": hashlib.sha256(raw).hexdigest(), "gate": own, "gate_sha256": gate_sha256}, ""
+
+
+def _handover_push_config_problem(repo: str, deadline: float) -> str | None:
+    """Why the push configuration does what an option a hand-over excludes does, or None (adversarial lens of 2026-10-14,
+    F3): push.gpgSign true or if-asked signs the push as --signed does and starts a signing program, and a non-empty
+    push.pushOption list sends push options as -o does, which reach the server's hooks and which Level 2 never sees. git
+    takes the last value of push.gpgSign (a key without a value is true), and an empty push.pushOption clears the list
+    before it (_push_config_problem)."""
+    def values(key: str) -> list[str | None] | None:
+        out = _git(repo, "config", "--null", "--get-regexp", "^" + key.replace(".", "[.]") + "$", deadline=deadline)
+        if out.returncode == 1 and not out.stdout and not out.stderr:
+            return []
+        if out.returncode != 0 or not out.stdout.endswith(b"\0"):
+            return None
+        return [_git_text(value) if newline else None
+                for _key, newline, value in (entry.partition(b"\n") for entry in out.stdout[:-1].split(b"\0"))]
+    signing, options = values("push.gpgsign"), values("push.pushoption")
+    if signing is None or options is None:
+        return "git cannot list push.gpgSign or push.pushOption, so the gate cannot tell what the push sends"
+    if signing and (signing[-1] is None or signing[-1].lower() == "if-asked"
+                    or not _git_false(repo, signing[-1], deadline)):
+        return ("the configuration signs the push (push.gpgSign), as --signed does: a signing program starts, and a "
+                "hand-over excludes a signed push")
+    listed: list = []
+    for value in options:
+        listed = [] if value == "" else [*listed, value]
+    if listed:
+        return ("the configuration sends push options (push.pushOption), as -o does: they reach the server's hooks, Level "
+                "2 never sees them, and a hand-over excludes a push option")
+    return None
+
+
+#: Where a path resolves differently in every process: the process's own directory, descriptors and standard streams
+#: (adversarial lens 3 of 2026-10-14, F-H: /proc/self/cwd/bin is absolute, and the hook and the shell stand elsewhere).
+_PROCESS_DEPENDENT = ("/proc/", "/dev/fd/", "/dev/stdin", "/dev/stdout", "/dev/stderr")
+
+
+def _process_dependent(entry: str) -> bool:
+    """Whether the absolute path `entry` resolves through a process-dependent place (_PROCESS_DEPENDENT), directly or
+    through a symbolic link on its way. It is resolved component by component as the kernel does: a link is replaced by
+    its target before a following `..` applies, and leading slashes count as one (lens 4 of 2026-10-14: `//proc/...`
+    and `<link to /proc/self/cwd>/../bin` passed a lexical normalization). os.path.realpath would follow /proc/self/cwd
+    to this process's own directory and hide it, so links are read, not followed (at most 40)."""
+    queue, current, hops = [part for part in entry.split("/") if part not in ("", ".")], "/", 0
+    while queue:
+        part = queue.pop(0)
+        if part == "..":
+            current = os.path.dirname(current) or "/"
+            continue
+        candidate = os.path.join(current, part)
+        if (candidate + "/").startswith(_PROCESS_DEPENDENT):
+            return True
+        if os.path.islink(candidate):
+            hops += 1
+            try:
+                target = os.readlink(candidate)
+            except OSError:
+                return True
+            if hops > 40:
+                return True
+            if target.startswith("/"):
+                current = "/"
+            queue = [part for part in target.split("/") if part not in ("", ".")] + queue
+            continue
+        current = candidate
+    return (current + "/").startswith(_PROCESS_DEPENDENT)
+
+
+def _git_identity_problem(deadline: float) -> str | None:
+    """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
+    program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
+    and without Level 2 nothing judges a handed-over push. A wrapper or a script earlier on PATH, and a shim, differ.
+    This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught.
+    A PATH entry that is no absolute path (an empty one is the working directory) makes every lookup depend on the
+    directory it runs in, and the shell's is not the gate's (adversarial lens 2 of 2026-10-14, F-A): no hand-over."""
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
+        return ("PATH holds an entry that is no absolute path (an empty entry is the working directory) or resolves "
+                "through /proc or /dev/fd, so the program a name selects depends on the process, and the shell's is "
+                "not the gate's")
+    git = shutil.which("git")
+    exec_path = _git_exec_path(deadline)
+    if git is None or exec_path is None:
+        return "git names no program on PATH or no exec path, so the gate cannot tell which git the push starts"
+    on_path, in_exec_path = os.path.realpath(git), os.path.join(exec_path, "git")
+    measured = _sha256_or_none(on_path)
+    if measured is None or measured != _sha256_or_none(in_exec_path):
+        return (f"the git on PATH ({on_path}) is not byte for byte the git of its exec path ({in_exec_path}), so the "
+                "gate cannot tell that the push starts git and its pre-push hook (a wrapper, a script or a shim)")
+    # The pre-push wrapper starts `python3 -I <gate>` from PATH (D24B); a shim there can end the hook before Level 2
+    # runs (lens 3, F-I). The host starts this gate the same way (hooks.json), so the two must be the same program.
+    python, own = shutil.which("python3"), os.path.realpath(sys.executable)
+    measured = _sha256_or_none(os.path.realpath(python)) if python else None
+    if measured is None or measured != _sha256_or_none(own):
+        return (f"the python3 on PATH ({os.path.realpath(python) if python else 'none'}), which the pre-push hook "
+                f"starts, is not byte for byte the interpreter this gate runs under ({own}), so the gate cannot tell "
+                "that the hook reaches Level 2 (a shim, a script or another interpreter)")
+    return None
+
+
+def _handover_binding(repo: str, remote: str, url: str, level2: dict, deadline: float, environ: dict) -> dict | None:
+    """The binding Level 1 records and Level 2 recomputes (D35): git's exec path and the sha256 of the git program the
+    gate runs, the hook and the gate, the plugin version, the interpreter, and the digests of the environment, the
+    effective configuration and the transport. None where a part cannot be read."""
+    exec_path = _git_exec_path(deadline)
+    git = shutil.which("git")
+    configuration = _configuration_digest(repo, deadline)
+    transport = _transport_digest(repo, remote, url, deadline, environ)
+    git_sha256 = _sha256_or_none(os.path.realpath(git)) if git else None
+    if None in (exec_path, git_sha256, configuration, transport):
+        return None
+    return {"exec_path": exec_path, "git_sha256": git_sha256, "hook": level2["hook"],
+            "hook_sha256": level2["hook_sha256"], "gate": level2["gate"], "gate_sha256": level2["gate_sha256"],
+            "plugin_version": GATE_VERSION, "interpreter": _interpreter_identity(),
+            "environment": _environment_digest(environ), "configuration": configuration, "transport": transport}
+
+
+def _write_handover(gate_dir: str, gitdir: str, record: dict) -> str:
+    """Write the record into <gate dir>/handover/<nonce>.json, created exclusively and never through a link, and then
+    the pointer into the worktree's git directory, replacing an earlier one. Returns the record's path; OSError as the
+    filesystem raises it."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    folder = os.path.join(gate_dir, "handover")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, record["nonce"] + ".json")
+    with os.fdopen(os.open(path, flags, 0o600), "wb") as handle:
+        handle.write(json.dumps(record, sort_keys=True, indent=1).encode("utf-8", "surrogateescape") + b"\n")
+    temporary = os.path.join(gitdir, f".{HANDOVER_POINTER}.{secrets.token_hex(6)}.tmp")
+    try:
+        with os.fdopen(os.open(temporary, flags, 0o600), "wb") as handle:
+            handle.write(json.dumps({"schema": HANDOVER_POINTER_SCHEMA, "nonce": record["nonce"]}).encode() + b"\n")
+        os.replace(temporary, os.path.join(gitdir, HANDOVER_POINTER))
+    except BaseException:
+        if os.path.lexists(temporary):
+            os.unlink(temporary)
+        raise
+    return path
+
+
+def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, handover: dict | None,
+                    sources: list[str], outcomes: dict, hints: list, note: str | None, reads: list, deadline: float,
+                    environ: dict | None, plain_push: bool = False) -> tuple[Verdict | str | None, bool]:
+    """The hand-over of D35, decided here and nowhere else: (the `handover` verdict, False) where every condition of
+    DESIGN_gegenstelle.md 7.2 holds and the record is written; (why not, missing_level2) where the push is a candidate
+    and one condition fails, missing_level2 True where only the bound Level 2 is missing; (None, False) where the push is
+    no candidate at all (another open reason, a gh call, a repository that declares nothing)."""
+    environ = os.environ if environ is None else environ
+    if handover is None or push_args is None or not handover["targets"] or handover["remote"] is None or note is not None:
+        return None, False
+    targets, remote = handover["targets"], handover["remote"]
+    if not plain_push:
+        # The binding measures the git a plain `git push` starts in the hook's own environment. A prefix assignment,
+        # an `env` carrier, a quoted or dashed command word (`git-push` is whatever program PATH names), a global
+        # option or a chain runs another program or the same git in another environment than the one Level 1 read.
+        return ("the command is not the plain form `git push …`: one simple command headed by a bare `git`, with no "
+                "prefix assignment, chain, wrapper, global option, other git path, expansion, a redirection that opens "
+                "a file, or an option word the shell may rewrite (the form _codex_plain_push names)"), False
+    for word in push_args:
+        if word == "--":
+            break
+        if word.startswith("-") and word != "-" and word not in _HANDOVER_FLAGS:
+            return (f"the option {word} is not one a hand-over allows (a force, a lease, a dry run, a signed push and a "
+                    "push option keep the push an ask)"), False
+    why = _handover_push_config_problem(repo, deadline)
+    if why is not None:
+        return why, False
+    if set(dict.fromkeys(sources)) != {t.source for t in targets}:
+        return "the commits the push sends and the targets Level 1 resolved do not agree", False
+    evidence, done = outcomes.get("evidence", {}), outcomes.get("done", set())
+    for commit in dict.fromkeys(sources):
+        verdict = evidence.get(commit)
+        if verdict is not None and (verdict.decision == "pass" or (verdict.reason_id == "done_only" and commit in done)):
+            continue
+        return (f"the evidence at the sent commit {commit[:12]} did not verify as a pass "
+                f"({verdict.reason_id if verdict is not None else 'not checked'}), and a hand-over needs valid source "
+                "evidence"), False
+    if hints:
+        return ("the evidence rules differ from a local record of the destination, or were not compared with one "
+                "(owner choice 4 A), which a person reviews"), False
+    if _read_mode(environ) != "with-approvals":
+        return ("the approval mode is strict; a hand-over needs with-approvals (D25), where a person's approval of the "
+                "transport acts"), False
+    gate_dir = _gate_dir(environ)
+    paths, why = _repo_paths(repo, deadline)
+    if gate_dir is None or paths is None or not paths["gitdir"] or not paths["common"]:
+        return (why or "no gate directory is known, or git does not name the repository's directories"), False
+    urls = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
+    url_lines = _git_lines(urls.stdout) if urls.returncode == 0 else None
+    if not url_lines or len(url_lines) != 1 or not url_lines[0]:
+        return f"git does not name one push URL of remote {remote}", False
+    url = url_lines[0]
+    document, problems = _transport_parts_or_unread(repo, remote, url, deadline, environ)
+    if document is None:
+        return "the transport configuration cannot be read whole", False
+    if problems:
+        return ("the transport is not one a hand-over models, so the programs it starts before Level 2 are not known "
+                "here: " + "; ".join(problems)), False
+    transport = _canonical_digest(document)
+    common = os.path.realpath(paths["common"])
+    approvals = os.path.join(gate_dir, TRANSPORTS_FILE)
+    approved = [entry for entry in _read_transports(environ)
+                if os.path.realpath(entry["repo"]) == common and entry["remote"] == remote and entry["url"] == url
+                and entry["transport_digest"] == transport]
+    if not approved:
+        command = _shell_command("python3", os.path.realpath(__file__), "transport-digest", "--repo", repo, "--remote",
+                                 remote)
+        return (f"the transport is not approved: {approvals} holds no entry for repository {common}, remote {remote} and "
+                f"URL {url} with transport digest {transport}. The transport (its programs, credentials and proxy) "
+                f"starts before Level 2 judges (G18-1), so only a person approves it; `{command}` prints the entry"), False
+    level2, why = _bound_level2(paths["hooks"], deadline)
+    if level2 is None:
+        return f"no bound Level 2: {why}", True
+    why = _git_identity_problem(deadline)
+    if why is not None:
+        return why, False
+    binding = _handover_binding(repo, remote, url, level2, deadline, environ)
+    if binding is None:
+        return "the binding of the hand-over (git, configuration, transport) cannot be read whole", False
+    created = int(time.time())
+    record = {"schema": HANDOVER_SCHEMA, "nonce": secrets.token_hex(16), "created": created,
+              "expires": created + HANDOVER_TTL_SECONDS, "repo": common, "worktree": os.path.realpath(repo),
+              "gitdir": os.path.realpath(paths["gitdir"]), "remote": remote, "url": url, "push_words": list(push_args),
+              "updates": [{"source": t.source, "dest": t.dest} for t in targets], "binding": binding}
+    try:
+        path = _write_handover(gate_dir, paths["gitdir"], record)
+    except OSError as exc:
+        return f"the hand-over could not be written ({exc.strerror or exc})", False
+    updates = "; ".join(f"{t.dest} from {t.source[:12]}" for t in targets)
+    until = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record["expires"]))
+    text = (f"proofbundle gate: Level 1 hands this push over to Level 2 (DECISIONS.md D35) and makes no permission "
+            "decision of its own: the gate never answers allow, and the host's own permission settings decide whether "
+            f"it asks. Checked here: {_sources_clean(sources)}; the one reason left open is the destination, which "
+            "git's pre-push hook reads from the remote's own answer to the push. The transport of remote "
+            f"{remote} ({url}) is approved in {_file_stamp(approvals)}. The pre-push hook at {level2['hook']} is this "
+            f"plugin's wrapper and runs this gate ({level2['gate']}, version {GATE_VERSION}). Level 2 checks the actual "
+            f"update against hand-over {record['nonce']} ({updates}), consumes it, and blocks the push where anything "
+            "differs; its verdict decides, not this message, and a Level 2 pass is no successful remote update. Valid "
+            f"until {until}, recorded at {path}. A shell command can write the transport approval and the hand-over "
+            "files, and the gate cannot tell who wrote them (D27).")
+    return Verdict("handover", text, "handed_over", repo=repo, head=head_commit, reads=tuple(reads)), False
+
+
+def _handover_form(record: object, nonce: str) -> str | None:
+    """Why a hand-over record is not of the form Level 1 writes, or None."""
+    if not isinstance(record, dict) or set(record) != _HANDOVER_KEYS or record.get("schema") != HANDOVER_SCHEMA:
+        return "the record is not a hand-over of this plugin (its schema or fields differ)"
+    if record["nonce"] != nonce:
+        return "the record names another hand-over than the pointer"
+    if not all(type(record[k]) is int and 0 <= record[k] <= _MAX_EPOCH for k in ("created", "expires")):
+        return "the record's times are not whole numbers of seconds between 1970 and 9999"
+    if not all(isinstance(record[k], str) and record[k] for k in ("repo", "worktree", "gitdir", "remote", "url")):
+        return "the record does not name its repository, remote and URL"
+    updates = record["updates"]
+    if not (isinstance(updates, list) and updates and all(
+            isinstance(u, dict) and set(u) == {"source", "dest"} and isinstance(u["source"], str)
+            and u["source"].isascii() and _OID.fullmatch(u["source"].encode("ascii")) and isinstance(u["dest"], str)
+            and u["dest"].startswith(_TRACKABLE)
+            for u in updates)):
+        return "the record's expected updates are not a list of sources and full destinations"
+    binding = record["binding"]
+    if not isinstance(binding, dict) or set(binding) != _BINDING_KEYS:
+        return "the record's binding is not the one Level 1 writes"
+    return None
+
+
+def _take_handover(gitdir: str) -> tuple[dict | None, str | None, str]:
+    """Consume the hand-over of this worktree, if there is one: (None, None, "") without a pointer, the standalone mode;
+    (record, None, nonce) for a record of the form Level 1 writes; (None, why, nonce) where the pointer or the record
+    is missing, unreadable, foreign or consumed already. Whoever moves the pointer first owns the hand-over, so it is
+    used at most once, and the record is moved aside before it is read (D35, the channel)."""
+    pointer = os.path.join(gitdir, HANDOVER_POINTER)
+    if not os.path.lexists(pointer):
+        return None, None, ""
+    taken = pointer + ".consumed"
+    try:
+        os.replace(pointer, taken)
+    except FileNotFoundError:
+        return None, "the hand-over was consumed by another push at the same moment", ""
+    except OSError as exc:
+        return None, f"the hand-over pointer cannot be consumed ({exc.strerror or exc})", ""
+    try:
+        raw = _read_regular(taken, 4096)
+        os.unlink(taken)
+        pointed = strict_json(raw)
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):   # RecursionError: a nesting deeper than json reads
+        return None, "the hand-over pointer is no regular file Level 2 can read", ""
+    nonce = pointed.get("nonce") if isinstance(pointed, dict) else None
+    if (not isinstance(pointed, dict) or set(pointed) != {"schema", "nonce"} or pointed["schema"] != HANDOVER_POINTER_SCHEMA
+            or not isinstance(nonce, str) or not _NONCE.fullmatch(nonce)):
+        return None, "the hand-over pointer is not of the form Level 1 writes", ""
+    gate_dir = _gate_dir(os.environ)
+    if gate_dir is None:
+        return None, "no gate directory is known to Level 2, so the record the pointer names cannot be read", nonce
+    record_path = os.path.join(gate_dir, "handover", nonce + ".json")
+    consumed = record_path + ".consumed"
+    try:
+        os.replace(record_path, consumed)
+    except FileNotFoundError:
+        return None, (f"the record {record_path} is missing (consumed already, removed, or written under another gate "
+                      "directory than Level 2's)"), nonce
+    except OSError as exc:
+        return None, f"the record {record_path} cannot be consumed ({exc.strerror or exc})", nonce
+    try:
+        raw = _read_regular(consumed, MAX_HANDOVER_BYTES + 1)
+        record = strict_json(raw) if len(raw) <= MAX_HANDOVER_BYTES else None
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+        return None, f"the record {record_path} is no regular file of strict JSON", nonce
+    why = _handover_form(record, nonce)
+    return (None, why, nonce) if why is not None else (record, None, nonce)
+
+
+def _parent_git_sha256() -> tuple[bool, str | None]:
+    """(measurable, sha256) of the program that started this process, git for a hook, read from /proc/<parent>/exe; (False,
+    None) on a system without /proc, where the git program is bound through its exec path only (D35, not measured)."""
+    if not os.path.isdir("/proc/self"):
+        return False, None
+    return True, _sha256_or_none(os.path.realpath(f"/proc/{os.getppid()}/exe"))
+
+
+def _handover_mismatch(repo: str, paths: dict, record: dict, remote: str | None, url: str | None, lines: list,
+                       deadline: float) -> str | None:
+    """Why the push git runs is not the push Level 1 handed over (DESIGN_gegenstelle.md 7.5, steps 2 to 4), or None."""
+    now = time.time()
+    if now > record["expires"]:
+        return (f"it expired at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(record['expires']))}, "
+                f"{HANDOVER_TTL_SECONDS} s after the time it records as written")
+    if record["created"] > now + 5:
+        return "it was written in the future (the clock moved), so its age is not known"
+    if (os.path.realpath(paths["common"]), os.path.realpath(repo), os.path.realpath(paths["gitdir"])) != \
+            (record["repo"], record["worktree"], record["gitdir"]):
+        return "it was written for another repository, worktree or git directory"
+    if (remote, url) != (record["remote"], record["url"]):
+        return (f"git pushes to remote {remote!r} at {url!r}, and the hand-over names remote {record['remote']!r} at "
+                f"{record['url']!r}")
+    binding = record["binding"]
+    exec_path = os.environ.get("GIT_EXEC_PATH")
+    if not exec_path or os.path.realpath(exec_path) != binding["exec_path"]:
+        return (f"the git that runs this hook has the exec path {exec_path!r} (GIT_EXEC_PATH), and the hand-over "
+                f"records {binding['exec_path']!r}")
+    measurable, parent = _parent_git_sha256()
+    if measurable and parent != binding["git_sha256"]:
+        return "the git program that started this hook is not the git program the hand-over records (sha256 differs)"
+    hook = os.path.join(paths["hooks"] or "", "pre-push")
+    if hook != binding["hook"] or _sha256_or_none(hook) != binding["hook_sha256"]:
+        return (f"the pre-push hook {hook} is not the hook the hand-over records ({binding['hook']}), or its bytes "
+                "changed")
+    own = os.path.realpath(__file__)
+    if own != binding["gate"] or _sha256_or_none(own) != binding["gate_sha256"]:
+        return f"this gate {own} is not the gate file the hand-over records ({binding['gate']}), or its bytes changed"
+    if GATE_VERSION != binding["plugin_version"]:
+        return f"this gate is plugin version {GATE_VERSION}, and the hand-over records {binding['plugin_version']}"
+    if _interpreter_identity() != binding["interpreter"]:
+        return (f"this gate runs under {_interpreter_identity()}, and the hand-over records the interpreter "
+                f"{binding['interpreter']}")
+    if _environment_digest(os.environ) != binding["environment"]:
+        return ("the program-selecting environment of this push differs from the one the hand-over records (a GIT_* "
+                "name, HOME, XDG_CONFIG_HOME, the gate directory, the ssh agent or a proxy)")
+    if _configuration_digest(repo, deadline) != binding["configuration"]:
+        return "the effective git configuration differs from the one the hand-over records"
+    if _transport_digest(repo, record["remote"], record["url"], deadline, os.environ) != binding["transport"]:
+        return "the transport configuration differs from the one the hand-over records"
+    return _handover_update_problem(record["updates"], lines)
+
+
+def _handover_update_problem(updates: list[dict], lines: list) -> str | None:
+    """Why git's ref lines are not the update set of the hand-over (D35, 7.5 step 4), or None: every line must be one of
+    the expected updates with its source. A line twice, a deletion, a line of another destination (the candidate,
+    named with both names), another source or any other update refuses. An expected update without a line is a no-op
+    git left out, which the caller names."""
+    expected = {u["dest"]: u["source"] for u in updates}
+    seen: set = set()
+    for _local_ref, local_sha, remote_ref, _remote_sha in lines:
+        if remote_ref in seen:
+            return f"git hands the hook {remote_ref} twice"
+        seen.add(remote_ref)
+        if local_sha in _ZERO_OIDS:
+            return f"git would delete {remote_ref}, which the hand-over does not name"
+        if remote_ref not in expected:
+            meant = [dest for dest in expected if any(remote_ref == name for name, _s in _dest_candidates(dest))]
+            if meant:
+                return (f"git would write {remote_ref} where the hand-over expects {meant[0]}: git resolved the "
+                        f"destination to this other ref, as it does where the remote holds no {meant[0]} "
+                        "(the candidate write)")
+            return f"git would write {remote_ref}, which is none of the updates the hand-over names"
+        if expected[remote_ref] != local_sha:
+            return (f"git would send {local_sha[:12]} to {remote_ref}, and the hand-over names "
+                    f"{expected[remote_ref][:12]}")
+    return None
+
+
+def _handover_refused(repo: str, head: str, nonce: str, why: str) -> Verdict:
+    """Level 2 refuses a hand-over (D35): the push is denied (exit 1), and the next push asks Level 1 anew."""
+    named = f"hand-over {nonce}" if nonce else "a hand-over"
+    return Verdict("deny", f"proofbundle gate (pre-push): this worktree holds a hand-over pointer ({named}; who wrote it "
+                           f"is not known, D27), and Level 2 refuses the hand-over: {why.rstrip('.')}. The push is not "
+                           "the push that hand-over names, so it is denied, and the hand-over is consumed.",
+                   "handover_refused",
+                   evidence="the hand-over record the pointer names and git's ref lines", failed=why,
+                   next_step="run the push again as one command of its own so that Level 1 decides anew, or have a "
+                             "person review the push", repo=repo, head=head)
+
+
+def _with_mode(verdict: Verdict, record: dict | None, lines: list) -> Verdict:
+    """The verdict of Level 2 with the mode it ran in (answer 6 of review round 18), on a pass and an inactive verdict:
+    standalone, or the hand-over it checked with the expected updates git left out as not checked."""
+    if verdict.decision not in ("pass", "inactive"):
+        return verdict
+    if record is None:
+        note = (" Level 2 ran without a hand-over from Level 1 (standalone mode): git's destination names were not "
+                "compared with an expected target.")
+    else:
+        sent = {remote_ref for _l, _s, remote_ref, _r in lines}
+        left_out = [u["dest"] for u in record["updates"] if u["dest"] not in sent]
+        note = (f" Level 2 checked the update set of hand-over {record['nonce']} (the record the pointer names; who "
+                "wrote it is not known, D27), and git's destinations are the ones it expects."
+                + (f" git gave no line for {', '.join(left_out)}, as it does for a no-op (a ref the remote reports at "
+                   "the commit it would send, measured with git 2.34.1); that update was not checked, and neither was "
+                   "why git left it out." if left_out else "")
+                + " A Level 2 pass is no successful remote update: git's own end result is separate.")
+    return Verdict(verdict.decision, verdict.detail.rstrip() + note, verdict.reason_id, evidence=verdict.evidence,
+                   failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests, repo=verdict.repo,
+                   head=verdict.head, reads=verdict.reads)
 
 
 # --- Nachtrag 24: approval by a human-written rule (no click path yet, owner choice A) ----------------
@@ -7424,10 +8440,11 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
 def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, environ) -> Outcome | None:
     """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge."""
     calls = gated_calls(command)
-    plain = host == "codex" and _codex_plain_push(command)
+    # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D35).
+    plain = _codex_plain_push(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
-        return _judge(calls, cwd, deadline, host, plain_push=plain) if calls else None
+        return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ) if calls else None
     if host != "codex" and _read_mode(environ) == "with-approvals":
         applied = _match_rule(command, cwd, deadline, environ)
         if applied is not None and applied[0] == "free":
@@ -7435,10 +8452,11 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
     nw = _net_words(command)
     unresolved = _net_unresolved(command)
     if not calls:
-        return _judge([net_call], cwd, deadline, host, plain_push=plain) if (nw >= 1 or unresolved) else None
+        return (_judge([net_call], cwd, deadline, host, plain_push=plain, environ=environ)
+                if (nw >= 1 or unresolved) else None)
     if nw > len(calls) or unresolved:
-        return _judge(list(calls) + [net_call], cwd, deadline, host, plain_push=plain)
-    return _judge(calls, cwd, deadline, host, plain_push=plain)
+        return _judge(list(calls) + [net_call], cwd, deadline, host, plain_push=plain, environ=environ)
+    return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ)
 
 
 def mcp_gated(tool: str) -> bool:
@@ -7693,10 +8711,13 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
     return Outcome(decision, verdict.text(), [verdict])
 
 
-def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float) -> Verdict:
+def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float,
+                   environ: dict | None = None, plain_push: bool = False) -> Verdict:
     """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
     `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
-    remote target the gate cannot read, is judged at HEAD with no range comparison."""
+    remote target the gate cannot read, is judged at HEAD with no range comparison. `environ` reaches the push path,
+    which reads the approval mode and the gate directory from it (D35); `plain_push` says whether the whole command is
+    the plain push form (_codex_plain_push), the only form Level 1 hands over."""
     if detail and detail[0] == _HOOKS_DISABLE:
         return Verdict("deny", f"the command would turn off the gate's check of the real push, so it is denied.",
                        "hooks_disabled",
@@ -7705,7 +8726,7 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
                               "(--no-verify, or a core.hooksPath override)",
                        next_step="push without --no-verify and without setting core.hooksPath, or obtain a human review")
     if name == "git push":
-        return evaluate_push(directory, detail, deadline)
+        return evaluate_push(directory, detail, deadline, environ, plain_push)
     if name.startswith("gh "):
         return evaluate_push(directory, detail, deadline)
     return evaluate_repository(directory, deadline)
@@ -7792,7 +8813,8 @@ def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Ver
 
 
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
-           host: str = "claude", extra: list | None = None, plain_push: bool = False) -> Outcome:
+           host: str = "claude", extra: list | None = None, plain_push: bool = False,
+           environ: dict | None = None) -> Outcome:
     verdicts = list(extra or [])
     seen = set()
     for name, directory, detail in calls:
@@ -7900,7 +8922,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                                "a `cd`, a `pushd` or any chain before it stays unresolved")))
             continue
         try:
-            verdicts.append(_evaluate_call(name, resolved, detail, deadline))
+            verdicts.append(_evaluate_call(name, resolved, detail, deadline, environ, plain_push))
         except GateError as exc:
             verdicts.append(Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached "
                                             "no verdict.", "gate_error",
@@ -7920,7 +8942,9 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
             return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
-    combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
+    # A hand-over (D35) is no pass: Level 2 gives the verdict on the actual update, and the log says so.
+    combined = ("handover" if any(v.decision == "handover" for v in verdicts) else
+                "pass" if all(v.decision == "pass" for v in verdicts) else "inactive")
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
 
 
@@ -7952,7 +8976,7 @@ def answer(decision: str, reason: str, host: str = "claude") -> dict:
     if decision == "warn":
         reason = f"{reason} {CODEX_PUSH_WARNING}"
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
-    if decision not in ("pass", "inactive", "warn"):
+    if decision not in ("pass", "inactive", "warn", "handover"):   # D4: the gate never answers allow (D35 too)
         specific.update(permissionDecision=decision, permissionDecisionReason=reason)
     return {"systemMessage": reason, "hookSpecificOutput": specific}
 
@@ -8006,6 +9030,51 @@ def state_digest_command(argv: list[str]) -> int:
     return 0
 
 
+TRANSPORT_USAGE = "usage: transport-digest [--repo DIR] [--remote NAME]"
+
+
+def transport_digest_command(argv: list[str]) -> int:
+    """`transport-digest [--repo DIR] [--remote NAME]` (default remote origin): print the transport digest of D35 and the
+    entry a person copies into transports.json in the gate directory to approve that transport. The gate never writes
+    that file; run this in the same environment the agent's pushes run in, since the digest binds it."""
+    options, i = {"--repo": ".", "--remote": "origin"}, 0
+    while i < len(argv):
+        if argv[i] in options and i + 1 < len(argv):
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"{TRANSPORT_USAGE}; unknown {argv[i]!r}", file=sys.stderr)
+            return 2
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    try:
+        paths, why = _repo_paths(options["--repo"], deadline)
+        if paths is None or paths["common"] is None:
+            print(f"transport-digest: not a git repository, or its layout cannot be read ({why or options['--repo']})",
+                  file=sys.stderr)
+            return 1
+        urls = _git(options["--repo"], "remote", "get-url", "--push", "--all", options["--remote"], deadline=deadline)
+        lines = _git_lines(urls.stdout) if urls.returncode == 0 else None
+        if not lines or len(lines) != 1 or not lines[0]:
+            print(f"transport-digest: git names no single push URL of remote {options['--remote']!r}", file=sys.stderr)
+            return 1
+        document, problems = _transport_parts_or_unread(options["--repo"], options["--remote"], lines[0], deadline,
+                                                        os.environ)
+        digest = None if document is None else _canonical_digest(document)
+    except GateError as exc:
+        print(f"transport-digest: {exc}", file=sys.stderr)
+        return 1
+    for problem in problems:
+        print(f"transport-digest: note: a hand-over does not rely on this transport: {problem}", file=sys.stderr)
+    if digest is None:
+        print("transport-digest: the transport configuration cannot be read whole, so there is no digest",
+              file=sys.stderr)
+        return 1
+    entry = {"repo": os.path.realpath(paths["common"]), "remote": options["--remote"], "url": lines[0],
+             "transport_digest": digest}
+    sys.stdout.write(digest + "\n")
+    sys.stdout.write(json.dumps(entry, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def log_directory(host: str, environ: dict | None = None) -> str | None:
     """The first plugin data directory the host names that is, or can be made, a writable directory."""
     environ = os.environ if environ is None else environ
@@ -8031,7 +9100,8 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     session = event.get("session_id") if isinstance(event, dict) else None
     tool = event.get("tool_name") if isinstance(event, dict) else None
     verdict = outcome.decision if outcome is not None else "not_gated"
-    sent = "none" if verdict in ("pass", "inactive", "warn", "not_gated") else ("deny" if host == "codex" else verdict)
+    sent = ("none" if verdict in ("pass", "inactive", "warn", "handover", "not_gated")
+            else ("deny" if host == "codex" else verdict))
     repos = [] if outcome is None else [
         {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests),
          **({"evidence": list(v.reads)} if v.reads else {})}
@@ -9854,7 +10924,8 @@ def pre_push_command(argv: list[str]) -> int:
     pre-push hook as `hook <remote-name> <remote-url>` with one `<local_ref> <local_sha> <remote_ref>
     <remote_sha>` line per ref on stdin, in the repository being pushed. This reaches a verdict from those
     lines alone and denies the push (exit 1) when the evidence does not verify, whatever shell form launched
-    the push. The two positional arguments (remote name and URL) are accepted and not needed here."""
+    the push. The two positional arguments, the remote's name and the push URL (measured with git 2.34.1: a pushurl
+    and an insteadOf rewrite applied), are compared with a hand-over of Level 1 where there is one (D35)."""
     deadline = time.monotonic() + DEADLINE_SECONDS
     lines = []
     for raw in sys.stdin.read().splitlines():
@@ -9870,7 +10941,8 @@ def pre_push_command(argv: list[str]) -> int:
             return 1
         lines.append(tuple(parts))
     try:
-        verdict = pre_push_verdict(os.getcwd(), lines, deadline)
+        verdict = pre_push_verdict(os.getcwd(), lines, deadline, argv[0] if argv else None,
+                                   argv[1] if len(argv) > 1 else None)
     except GateError as exc:
         sys.stderr.write(f"proofbundle pre-push (prototype): {exc}. The push is denied.\n")
         return 1
@@ -10025,6 +11097,8 @@ def main(argv: list[str] | None = None) -> int:
         return tree_digest_command(argv[1:])
     if argv[:1] == ["state-digest"]:
         return state_digest_command(argv[1:])
+    if argv[:1] == ["transport-digest"]:
+        return transport_digest_command(argv[1:])
     if argv[:1] == ["ci-check"]:
         return ci_check_command(argv[1:])
     if argv[:1] == ["run-evidence"]:

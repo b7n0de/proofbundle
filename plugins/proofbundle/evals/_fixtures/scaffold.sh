@@ -19,6 +19,13 @@
 #                                    working tree, never committed
 # repo-stale                         repo-valid plus one more committed file, so the tree at HEAD is not
 #                                    the tree the declaration and the bundle name
+# repo-handover                      repo-valid with main on the bare remote, then a real fast-forward that adds a note
+#                                    under .proofbundle/ (the rules and the tree digest stay as they are), Level 2
+#                                    installed with install-pre-push; with an absolute PROOFBUNDLE_GATE_DIR also the
+#                                    mode with-approvals and the transport approval of origin there (DECISIONS.md
+#                                    D35). Without that directory nothing is approved and the push asks.
+# repo-creation                      repo-valid (no main on the remote, the local record names one) with Level 2 and,
+#                                    where PROOFBUNDLE_GATE_DIR is given, the approval: the creation stays blocked
 # done-green                         a git repository whose declaration names a done check, one passing test,
 #                                    and, untracked, a receipt under the done policy that says every test
 #                                    passed and names the tree of this working state
@@ -29,6 +36,20 @@
 set -euo pipefail
 mode="$1"
 data="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/data"
+gate="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/hooks/proofbundle_gate.py"
+# Level 2 and, where the operator gave an absolute PROOFBUNDLE_GATE_DIR, the approvals of D35. A scaffold never writes
+# a gate directory it was not given: the user's own one stays untouched.
+level2_and_approval() {
+  python3 "$gate" install-pre-push --repo . > /dev/null
+  case "${PROOFBUNDLE_GATE_DIR:-}" in
+    /*)
+      mkdir -p "$PROOFBUNDLE_GATE_DIR"
+      printf 'with-approvals\n' > "$PROOFBUNDLE_GATE_DIR/mode"
+      python3 "$gate" transport-digest --repo . --remote origin | tail -n +2 \
+        | python3 -c 'import json, sys; print(json.dumps([json.load(sys.stdin)]))' > "$PROOFBUNDLE_GATE_DIR/transports.json" ;;
+    *) echo "scaffold: no absolute PROOFBUNDLE_GATE_DIR, so no transport is approved and the push asks" >&2 ;;
+  esac
+}
 case "$mode" in
   receipt-valid|receipt-tampered)
     cp "$data/$mode.json" receipt.json
@@ -41,6 +62,33 @@ case "$mode" in
   receipt-foreign-key)
     cp "$data/receipt-valid.json" receipt.json
     cp "$data/foreign.pub" issuer.pub ;;
+  repo-handover)
+    git init -q -b main
+    git config user.name Eval
+    git config user.email eval@example.org
+    git config commit.gpgsign false
+    git init -q --bare remote.git
+    git remote add origin remote.git
+    echo "remote.git/" > .git/info/exclude
+    echo "A project that publishes a release." > README.md
+    mkdir -p .proofbundle
+    cp "$data/policy.json" .proofbundle/policy.json
+    cp "$data/evidence.json" .proofbundle/evidence.json
+    cp "$data/bundle-valid.json" .proofbundle/build.bundle.json
+    git add -A
+    git commit -q -m release
+    # The remote holds main, and the local record of it is what this push of the scaffold left (answer 3 of review
+    # round 18: an existing main, unchanged rules, a real fast-forward and an installed Level 2).
+    git push -q origin main
+    echo "Notes for the release; a file under .proofbundle/ is no evidence rule and no part of the tree digest." \
+      > .proofbundle/NOTES.md
+    git add -A
+    git commit -q -m "notes for the release"
+    level2_and_approval ;;
+  repo-creation)
+    exec_self="${BASH_SOURCE[0]}"
+    bash "$exec_self" repo-valid
+    level2_and_approval ;;
   repo-nodecl|repo-valid|repo-tampered|repo-missing|repo-stale|repo-worktree-only|repo-rules-changed|repo-weaken-receipt)
     git init -q -b main
     git config user.name Eval
