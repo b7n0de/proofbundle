@@ -760,6 +760,35 @@ def test_a_named_program_rewritten_after_the_approval_asks_again(env, tmp_path, 
     assert_asked_without_handover(answer, entry, "the transport is not approved")
 
 
+@pytest.mark.parametrize("kind", ["vcs", "scheme", "receivepack-assignment", "sshcommand-assignment"])
+def test_a_remote_helper_or_a_program_behind_an_assignment_rewritten_after_the_approval_asks_again(env, tmp_path, kind):
+    """Lens 2, F-C: git starts git-remote-<x> for remote.<name>.vcs and for a URL scheme it does not carry itself, and
+    the shell runs the program after leading assignments (`X=1 program`). Each is bound by its file."""
+    r = _repo(tmp_path, env, approve=False)
+    if kind in ("vcs", "scheme"):
+        program = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git-remote-probe"
+        program.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        if kind == "vcs":
+            base._git(r.path, "config", "remote.origin.vcs", "probe")
+        else:
+            base._git(r.path, "remote", "set-url", "origin", "probe://example.invalid/x.git")
+    else:
+        program = tmp_path / "program.sh"
+        program.write_text('#!/bin/sh\nexec git-receive-pack "$@"\n', encoding="utf-8")
+        if kind == "receivepack-assignment":
+            base._git(r.path, "config", "remote.origin.receivepack", f"FOO=1 {program}")
+        else:
+            base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
+            base._git(r.path, "config", "core.sshCommand", f"X=1 {program} -o BatchMode=yes")
+    program.chmod(0o755)
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+    program.write_text(program.read_text(encoding="utf-8") + "# rewritten after the approval\n", encoding="utf-8")
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
 def test_the_own_configuration_of_a_path_remote_is_bound(env, tmp_path):
     """A path remote's receive-pack runs with that repository's own configuration, as this user: a
     core.alternateRefsCommand there runs before Level 2 (measured by the lens), so its configuration file is bound."""

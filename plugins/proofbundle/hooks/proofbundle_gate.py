@@ -5928,12 +5928,32 @@ def _program_file(word: str | None, base: str, exec_path: str, environ: dict) ->
 
 
 def _first_word(command: str | None) -> str | None:
-    """The first word of a command string as the shell splits it, or None where it cannot be split."""
+    """The program word of a command string as the shell splits it: the first word after any leading assignment
+    (`NAME=value program` runs program; adversarial lens 2 of 2026-10-14, F-C), or None where it cannot be split or
+    names no program. A wrapper such as `env program` is one level further and not followed (D33, limits)."""
     try:
         words = shlex.split(command or "")
     except ValueError:
         return None
-    return words[0] if words else None
+    return next((word for word in words if not _ASSIGNMENT.match(word)), None)
+
+
+#: The URL schemes git carries itself; every other `<scheme>://` URL starts the remote helper git-remote-<scheme>
+#: (gitremote-helpers; http, https, ftp and ftps are helpers too).
+_BUILTIN_SCHEMES = frozenset({"file", "git", "ssh", "git+ssh", "ssh+git"})
+
+
+def _remote_helper(url: str, vcs: str | None) -> str | None:
+    """The name of the remote helper git starts for `url` (gitremote-helpers): remote.<name>.vcs where set, else the
+    transport of a `<transport>::<address>` URL, else the scheme of a `<scheme>://` URL git does not carry itself; None
+    for a path, the scp form of ssh and the schemes of _BUILTIN_SCHEMES (adversarial lens 2 of 2026-10-14, F-C)."""
+    if vcs:
+        return vcs
+    found = re.match(r"([A-Za-z][A-Za-z0-9+.-]*)::", url)
+    if found:
+        return found.group(1)
+    found = re.match(r"([A-Za-z][A-Za-z0-9+.-]*)://", url)
+    return found.group(1).lower() if found and found.group(1).lower() not in _BUILTIN_SCHEMES else None
 
 
 def _credential_program(value: str | None) -> str | None:
@@ -5984,7 +6004,7 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
     toplevel, _unreadable = _work_tree(repo, deadline, "--path-format=absolute")
     if entries is None or exec_path is None or not toplevel:
         return None
-    chosen, named = [], []
+    chosen, named, vcs = [], [], None
     for scope, origin, key, value in entries:
         section, _dot, rest = key.partition(".")
         subsection, _dot, variable = rest.rpartition(".")
@@ -5995,6 +6015,8 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
             if origin.startswith("file:") and not os.path.isabs(origin[5:]):
                 origin = "file:" + os.path.realpath(os.path.join(toplevel, origin[5:]))
             chosen.append([scope, origin, key, value])
+            if section == "remote" and variable == "vcs":
+                vcs = value
             if key.lower() in _TRANSPORT_PROGRAM_KEYS or (section == "remote" and variable == "receivepack"):
                 named.append([key, _program_file(_first_word(value), toplevel, exec_path, environ)])
             elif section == "credential" and variable == "helper":
@@ -6003,6 +6025,9 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
         if name in environ:
             word = environ[name] if name in ("GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS") else _first_word(environ[name])
             named.append([name, _program_file(word, toplevel, exec_path, environ)])
+    helper = _remote_helper(url, vcs)
+    if helper is not None:
+        named.append(["remote helper", _program_file(f"git-remote-{helper}", toplevel, exec_path, environ)])
     programs: dict = {name: _sha256_or_none(os.path.join(exec_path, name)) for name in _TRANSPORT_PROGRAMS}
     files: dict = {}
     if _ssh_url(url):

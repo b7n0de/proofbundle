@@ -2233,10 +2233,11 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   `core.sshCommand`, `core.askPass` and `core.gitProxy` and of the sections ssh, credential, http and protocol, the
   transport environment names, git's exec path with the sha256 of its transport programs, and the ssh on PATH for an ssh
   URL; since the lens of 2026-10-14 (schema v2) also the file and sha256 of every program those configuration entries
-  and environment names start (one level), the ssh configuration files for an ssh URL, the configuration file of a
-  path remote, and every origin as an absolute path. A person prints it with `proofbundle_gate.py transport-digest [--repo DIR] [--remote NAME]`. Any change of what
-  it binds asks again, before the transport acts (G18-1: a receive program configured after the approval asks; approved
-  in its turn, it runs).
+  and environment names start (the word after any leading assignment, one level) and of the remote helper git starts for
+  `remote.<remote>.vcs`, a `<x>::` URL or a scheme git does not carry itself, the ssh configuration files for an ssh
+  URL, the configuration file of a path remote, and every origin as an absolute path. A person prints it with
+  `proofbundle_gate.py transport-digest [--repo DIR] [--remote NAME]`. Any change of what it binds asks again, before
+  the transport acts (G18-1: a receive program configured after the approval asks; approved in its turn, it runs).
 - Level 2 has two modes and says which ran. Without a pointer it runs standalone, as D24 described it; its pass and
   inactive texts say that git's destination names were not compared with an expected target (answer 6). With a pointer
   it consumes the hand-over first (pointer and record are renamed before they are read, so a hand-over is used at most
@@ -2279,10 +2280,10 @@ Limits:
 - Consumed records stay in the gate directory as the trace of each hand-over; nothing removes them.
 - A pointer whose push never ran (a person declined it, or the command stopped before git) refuses the next push of
   that worktree once, as expired or as another update, and that push consumes it.
-- The transport digest binds one level of programs: what a named program reads or starts in turn, an `Include` of
-  the ssh configuration, an include of a path remote's configuration and that repository's hooks are not bound, and a
-  change between Level 1 and the push acts before Level 2 refuses the hand-over. An approval written under schema v1
-  asks once.
+- The transport digest binds one level of programs: the program behind a wrapper word such as `env`, what a named
+  program reads or starts in turn, an `Include` of the ssh configuration, an include of a path remote's configuration
+  and that repository's hooks are not bound, and a change between Level 1 and the push acts before Level 2 refuses the
+  hand-over. An approval written under schema v1 asks once.
 - A symbolic link or another entry outside the narrow contract of D5 in the git directory leaves Level 1's local rules
   comparison unmade, and that keeps the push an ask.
 - Measured with git 2.34.1 only; git 2.43.0, 2.51.1 and 2.56.0 are NOT MEASURED for this section.

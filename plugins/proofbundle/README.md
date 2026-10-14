@@ -176,17 +176,19 @@ python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --re
 The gate directory is `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else
 `~/.config/proofbundle`. The last command prints a digest and an entry; put the entry into `transports.json` there, a
 JSON array. It approves the transport of that remote at that URL, with the programs, credentials and proxy it uses,
-which start before Level 2 judges. A change of that configuration, of those environment names or of a program file
-they name asks again at the next push; what such a program reads or starts in turn, and an `Include` of the ssh
-configuration, are not bound (D33). Run it in the environment your agent's pushes run in.
+which start before Level 2 judges. A change of that configuration, of those environment names or of a program file they
+name (a remote helper included) asks again at the next push; the program behind a wrapper word such as `env`, what such
+a program reads or starts in turn, and an `Include` of the ssh configuration are not bound (D33). Run it in the
+environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push
-or push option (on the command line or through push.gpgSign and push.pushOption), and whose evidence rules match the local record of the destination, gets no question from the gate,
-when the command is the plain `git push …` on its own (no prefix assignment such as `LANG=C git push`, no chain, no
-`git -C`, no `git-push`, no redirection into a file):
-Level 1 writes a one-time hand-over, valid for 300 seconds, and makes no permission decision, so your own permission
-settings for the host still apply. git's pre-push hook then checks the actual update against that hand-over. It refuses
+or push option (on the command line or through push.gpgSign and push.pushOption), and whose evidence rules match the
+local record of the destination, gets no question from the gate, when the command is the plain `git push …` on its
+own (no prefix assignment such as `LANG=C git push`, no chain, no `git -C`, no `git-push`, no redirection into a file)
+and the `git` on PATH is git's own program, byte for byte the `git` in its exec path (not a wrapper or a shim). Level 1
+writes a one-time hand-over, valid for 300 seconds, and makes no permission decision, so your own permission settings
+for the host still apply. git's pre-push hook then checks the actual update against that hand-over. It refuses
 another destination than the one expected (such as `refs/heads/refs/heads/main` for `main`), an extra, duplicate or
 contradicting update, a changed environment, configuration, hook, gate or transport, and an expired or consumed
 hand-over, and it judges the evidence, the done check and the evidence rules at every commit the push sends. A new ref
