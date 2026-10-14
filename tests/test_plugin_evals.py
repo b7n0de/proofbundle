@@ -696,12 +696,13 @@ def test_the_rules_change_case_changes_the_policy_and_its_counterpart_does_not(t
 # --- the push cases of the hand-over (DECISIONS.md D33, answer 3 of review round 18) ----------------------------------
 
 def _handover_env(tmp_path) -> dict:
-    """_gate_env and a `python3` that is this interpreter, so the pre-push hook git starts runs the gate with the
-    interpreter Level 1 runs with, as the binding of D33 requires."""
+    """_gate_env and a `python3` on PATH that is the interpreter's own program, so Level 1 (started as the host starts
+    it, `python3 -I <gate>`) and the pre-push hook run the gate with the same interpreter, as D33 requires. The gate
+    needs only the standard library."""
     env = _gate_env(tmp_path)
     bin_dir = pathlib.Path(env["PATH"].split(os.pathsep)[0])
-    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-    (bin_dir / "python3").chmod(0o755)
+    (bin_dir / "python3").unlink(missing_ok=True)
+    (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "logs")
     return env
 
@@ -709,8 +710,8 @@ def _handover_env(tmp_path) -> dict:
 def _level1_push(env: dict, workspace: pathlib.Path) -> tuple[dict, dict]:
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(workspace),
                         "tool_input": {"command": "git push origin main"}})
-    proc = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True, env=env,
-                          timeout=180, check=False)
+    proc = subprocess.run([shutil.which("python3", path=env["PATH"]), "-I", str(GATE)], input=event,
+                          capture_output=True, text=True, env=env, timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
     log = pathlib.Path(env["PLUGIN_DATA"]) / "gate-log.jsonl"
     return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])

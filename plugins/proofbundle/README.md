@@ -183,20 +183,20 @@ command with shell syntax or a program the gate resolves to no file, keep the as
 Run it in the environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
-only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push
-or push option (on the command line or through push.gpgSign and push.pushOption), and whose evidence rules match the
-local record of the destination, gets no question from the gate, when the command is the plain `git push …` on its
-own (no prefix assignment such as `LANG=C git push`, no chain, no `git -C`, no `git-push`, no redirection into a file)
-and the `git` on PATH is git's own program, byte for byte the `git` in its exec path (not a wrapper or a shim). Level 1
-writes a one-time hand-over, valid for 300 seconds, and makes no permission decision, so your own permission settings
-for the host still apply. git's pre-push hook then checks the actual update against that hand-over. It refuses
-another destination than the one expected (such as `refs/heads/refs/heads/main` for `main`), an extra, duplicate or
-contradicting update, a changed environment, configuration, hook, gate or transport, and an expired or consumed
-hand-over, and it judges the evidence, the done check and the evidence rules at every commit the push sends. A new ref
-stays blocked. A Level 2 pass is not a successful remote update; git's own result is separate. Under Codex nothing
-changes. Without the hook the push asks as before, and the answer names `install-pre-push` as a voluntary step. A
-shell command can write the approval and the hand-over files, and the gate cannot tell who wrote them (D27), so the
-boundary stays the required CI check.
+only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push or
+push option (on the command line or through push.gpgSign and push.pushOption), and whose evidence rules match the local
+record of the destination, gets no question from the gate, when the command is the plain `git push …` on its own (no
+prefix assignment such as `LANG=C git push`, no chain, no `git -C`, no `git-push`, no redirection into a file), the
+`git` on PATH is git's own program, byte for byte the `git` in its exec path (not a wrapper or a shim), and the
+`python3` on PATH is the interpreter the gate runs under. Level 1 writes a one-time hand-over, valid for 300 seconds,
+and makes no permission decision, so your own permission settings for the host still apply. git's pre-push hook then
+checks the actual update against that hand-over. It refuses another destination than the one expected (such as
+`refs/heads/refs/heads/main` for `main`), an extra, duplicate or contradicting update, a changed environment,
+configuration, hook, gate or transport, and an expired or consumed hand-over, and it judges the evidence, the done check
+and the evidence rules at every commit the push sends. A new ref stays blocked. A Level 2 pass is not a successful
+remote update; git's own result is separate. Under Codex nothing changes. Without the hook the push asks as before, and
+the answer names `install-pre-push` as a voluntary step. A shell command can write the approval and the hand-over files,
+and the gate cannot tell who wrote them (D27), so the boundary stays the required CI check.
 
 **A push needs the done check at the pushed commit** (owner choice N2 C, D30). Where the pushed commit's
 declaration names a done check, Level 1 under Claude Code and Level 2 run the same check as at the end of a

@@ -50,9 +50,10 @@ def env(tmp_path: pathlib.Path) -> dict:
     bin_dir.mkdir()
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\n'
                                 f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
-    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-    for name in ("uv", "python3"):
-        (bin_dir / name).chmod(0o755)
+    (bin_dir / "uv").chmod(0o755)
+    # The host starts the gate as `python3 -I <gate>` from PATH, and so does the pre-push wrapper; Level 1 checks that
+    # the two are the same interpreter (lens 3, F-I). The gate needs only the standard library.
+    (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
     package_root = str(pathlib.Path(base.proofbundle.__file__).resolve().parent.parent)
     clean = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
@@ -97,7 +98,14 @@ def _repo(tmp_path: pathlib.Path, env: dict, case: str = "valid", install: bool 
 
 
 def _level1(env: dict, repo: pathlib.Path, command: str = "git push origin main", host: str = "claude"):
-    return base._level1(env, repo, host=host, command=command)
+    """Level 1 as the host starts it (hooks.json: `python3 -I <gate>` with the python3 on PATH)."""
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
+                        "tool_input": {"command": command}})
+    proc = subprocess.run([shutil.which("python3", path=env["PATH"]), "-I", str(GATE), "--host", host], input=event,
+                          capture_output=True, text=True, env=env, timeout=180, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = pathlib.Path(env["PLUGIN_DATA"]) / gate.LOG_NAME
+    return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
 
 
 def _push(env: dict, repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -296,6 +304,34 @@ def test_a_path_entry_that_is_no_absolute_path_is_no_hand_over(env, tmp_path, en
     wrapper.chmod(0o755)
     answer, entry_log = _level1(dict(env, PATH=entry + os.pathsep + env["PATH"]), r.path)
     assert_asked_without_handover(answer, entry_log, "PATH holds an entry that is no absolute path")
+    assert not _pointer(r.path).exists()
+
+
+@pytest.mark.parametrize("through", ["proc", "link"])
+def test_a_path_entry_that_resolves_through_proc_is_no_hand_over(env, tmp_path, through):
+    """Lens 3, F-H: /proc/self/cwd/zzbin is absolute and still names the directory of each process, directly or
+    behind a symbolic link; os.path.realpath in the hook would resolve it to the hook's own directory."""
+    r = _repo(tmp_path, env)
+    entry = "/proc/self/cwd/zzbin"
+    if through == "link":
+        (tmp_path / "here").symlink_to("/proc/self/cwd")
+        entry = str(tmp_path / "here" / "zzbin")
+    answer, entry_log = _level1(dict(env, PATH=entry + os.pathsep + env["PATH"]), r.path)
+    assert_asked_without_handover(answer, entry_log, "resolves through /proc or /dev/fd")
+
+
+def test_a_python3_shim_the_pre_push_hook_would_start_is_no_hand_over(env, tmp_path):
+    """Lens 3, F-I: the pre-push wrapper starts `python3 -I <gate>` from PATH. A shim there that ends `pre-push` with
+    exit 0 lets the push through with no Level 2, so the python3 on PATH must be the interpreter Level 1 runs under."""
+    r = _repo(tmp_path, env)
+    shim = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "python3"
+    real = os.path.realpath(shim)
+    shim.unlink()
+    shim.write_text(f'#!/bin/sh\nfor a in "$@"; do [ "$a" = pre-push ] && exit 0; done\nexec "{real}" "$@"\n',
+                    encoding="utf-8")
+    shim.chmod(0o755)
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "which the pre-push hook starts, is not byte for byte")
     assert not _pointer(r.path).exists()
 
 

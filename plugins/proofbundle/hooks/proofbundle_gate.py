@@ -6218,6 +6218,30 @@ def _handover_push_config_problem(repo: str, deadline: float) -> str | None:
     return None
 
 
+#: Where a path resolves differently in every process: the process's own directory, descriptors and standard streams
+#: (adversarial lens 3 of 2026-10-14, F-H: /proc/self/cwd/bin is absolute, and the hook and the shell stand elsewhere).
+_PROCESS_DEPENDENT = ("/proc/", "/dev/fd/", "/dev/stdin", "/dev/stdout", "/dev/stderr")
+
+
+def _process_dependent(entry: str) -> bool:
+    """Whether the PATH entry resolves through a process-dependent place (_PROCESS_DEPENDENT), directly or through a
+    symbolic link on its way. os.path.realpath would follow /proc/self/cwd to this process's own directory and hide it,
+    so the links are followed here one by one (at most 40)."""
+    path = os.path.normpath(entry)
+    for _hop in range(40):
+        if (path + "/").startswith(_PROCESS_DEPENDENT):
+            return True
+        head = ""
+        for part in path.split("/")[1:]:
+            head = f"{head}/{part}"
+            if os.path.islink(head):
+                path = os.path.normpath(os.path.join(os.path.dirname(head), os.readlink(head)) + path[len(head):])
+                break
+        else:
+            return False
+    return True
+
+
 def _git_identity_problem(deadline: float) -> str | None:
     """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
     program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
@@ -6225,9 +6249,11 @@ def _git_identity_problem(deadline: float) -> str | None:
     This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught.
     A PATH entry that is no absolute path (an empty one is the working directory) makes every lookup depend on the
     directory it runs in, and the shell's is not the gate's (adversarial lens 2 of 2026-10-14, F-A): no hand-over."""
-    if any(not os.path.isabs(entry) for entry in os.environ.get("PATH", "").split(os.pathsep)):
-        return ("PATH holds an entry that is no absolute path (an empty entry is the working directory), so the program "
-                "a name selects depends on the directory the shell runs in, which is not the one the gate runs in")
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
+        return ("PATH holds an entry that is no absolute path (an empty entry is the working directory) or resolves "
+                "through /proc or /dev/fd, so the program a name selects depends on the process, and the shell's is "
+                "not the gate's")
     git = shutil.which("git")
     exec_path = _git_exec_path(deadline)
     if git is None or exec_path is None:
@@ -6237,6 +6263,13 @@ def _git_identity_problem(deadline: float) -> str | None:
     if measured is None or measured != _sha256_or_none(in_exec_path):
         return (f"the git on PATH ({on_path}) is not byte for byte the git of its exec path ({in_exec_path}), so the "
                 "gate cannot tell that the push starts git and its pre-push hook (a wrapper, a script or a shim)")
+    # The pre-push wrapper starts `python3 -I <gate>` from PATH (D24B); a shim there can end the hook before Level 2
+    # runs (lens 3, F-I). The host starts this gate the same way (hooks.json), so the two must be the same program.
+    python, own = shutil.which("python3"), os.path.realpath(sys.executable)
+    if python is None or _sha256_or_none(os.path.realpath(python)) != _sha256_or_none(own):
+        return (f"the python3 on PATH ({os.path.realpath(python) if python else 'none'}), which the pre-push hook "
+                f"starts, is not byte for byte the interpreter this gate runs under ({own}), so the gate cannot tell "
+                "that the hook reaches Level 2 (a shim, a script or another interpreter)")
     return None
 
 
