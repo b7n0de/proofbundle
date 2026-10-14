@@ -2166,5 +2166,6 @@ own with one literal absolute `-C`, for example `git -C /home/me/repo push origi
   only that form warns and a global option such as `-C` is denied (owner choice K5-1 C, D12).
 - The self-test already hands out `git -C <work> push origin main` (server/proofbundle_mcp.py).
 
-Reason: a hint toward a form the gate does not resolve costs an ask on every push and teaches nothing; a hint
-toward the form it resolves keeps the check and drops the ask. Nothing about what the gate resolves changed.
+A hint toward a form the gate cannot resolve causes an avoidable question. A hint toward a form it can resolve
+removes that reason for asking and allows the source checks to run. Any remaining reason to ask or deny still
+applies. The forms the gate resolves are unchanged.
