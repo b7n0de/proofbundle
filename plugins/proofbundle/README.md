@@ -193,9 +193,10 @@ owner choice 1 A, and for the local refs only in the narrow range of D5: one ord
 refs are `HEAD` and `refs/remotes/<remote>/HEAD`. A repository with more worktrees is asked (D5). Additional files
 outside the known ref stores and root records are included when Git resolves their exact names. Recognizable record
 forms that cannot be resolved leave the exception unapplied. A negative resolution does not establish that a file was
-never used as a ref. Valid historical reflog data remains outside this condition. The gate reads the git directory
-recursively for them, asks git `rev-parse` for each name and reads a file as a record only where git's full name is the
-file's own and it holds `<oid>LF` (D5, finding K16-1). Whoever deletes
+never used as a ref. Valid historical reflog data remains outside this condition. The gate scans the Git directory
+recursively and uses Git to resolve each eligible file name. A file is treated as a record only when Git resolves its
+exact name and its contents match a supported form, either a single object ID or one of the rewritten lists of a
+stopped rebase. Every object in a supported list is checked. Whoever deletes
 the declaration switches the gate off at HEAD; a push is still asked while the declaration stands in the history it may
 send or at a present local ref, and a declaration only the remote holds, with its removal, can go unnoticed at Level 1
 (D5). The declaration format and every design choice are in
