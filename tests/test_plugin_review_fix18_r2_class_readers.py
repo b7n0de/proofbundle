@@ -98,7 +98,9 @@ def test_RED_a_fifo_in_the_gate_directory_is_named_unreadable_in_the_stamp(tmp_p
 
 def test_RED_a_fifo_as_the_mode_does_not_block_the_decision(tmp_path):
     work, _remote, _a = w1._undeclared(tmp_path)
-    assert _probe("decide", work, str(_gate_dir_with_fifo(tmp_path, "mode"))) == "ask"
+    # the answer the decision gives without the FIFO: `git status` asked until FIX-18 part B, and class a (D34) frees it
+    # after the read profile since; what the case shows is that the FIFO does not block the decision
+    assert _probe("decide", work, str(_gate_dir_with_fifo(tmp_path, "mode"))) == "pass"
 
 
 def test_RED_a_receipt_that_turns_into_a_fifo_after_its_check_is_not_read(tmp_path):

@@ -240,10 +240,13 @@ def test_git_version_in_any_other_spelling_is_not_free(tmp_path, command):
 #: choice K-NW-2 B (2026-10-08) frees after the state check of a clean repository (the test after this one). Since the
 #: owner choice of 2026-10-14, 16:2x (Nachtrag 2 to FIX-18 part B) `git add -A && git commit -m msg` is free as a plain
 #: chain too; its `||` form stands in for it.
-_EVERYDAY = ["git status", "git diff", "git log --oneline -n 3", "git show HEAD", "git commit",
-             "git checkout side", "git switch -c topic", "git fetch origin", "git branch -a",
-             "git stash list", "git blame a.txt", "git restore a.txt", "git tag -l", "git rev-parse HEAD",
-             "cd . && git status", "git status && git log --oneline -n 1", "git add -A || git commit -m msg"]
+_EVERYDAY = ["git commit", "git checkout side", "git switch -c topic", "git fetch origin", "git stash list",
+             "git blame a.txt", "git restore a.txt", "git tag -l", "cd . && git status",
+             "git add -A || git commit -m msg"]
+#: The everyday read forms of the same measurement that class a frees under Claude Code after the read profile since
+#: FIX-18 part B (DECISIONS.md D34, owner answer 1 of 2026-10-14); until then they were in _EVERYDAY.
+_EVERYDAY_READ = ["git status", "git diff", "git log --oneline -n 3", "git show HEAD", "git branch -a",
+                  "git rev-parse HEAD", "git status && git log --oneline -n 1"]
 
 
 @pytest.mark.parametrize("command", ["git add a.txt", "git commit -m msg"])
@@ -265,6 +268,19 @@ def test_no_everyday_form_of_the_runde_7_measurement_is_free(tmp_path, command):
     claude = gate.decide(command, str(repo), _deadline())
     codex = gate.decide(command, str(repo), _deadline(), host="codex")
     assert claude is not None and claude.decision == "ask", command
+    assert codex is not None and gate.answer(codex.decision, codex.text, host="codex")[
+        "hookSpecificOutput"]["permissionDecision"] == "deny", command
+
+
+@pytest.mark.parametrize("command", _EVERYDAY_READ)
+def test_the_everyday_read_forms_are_free_under_claude_code_after_the_read_profile(tmp_path, command):
+    """Class a (D34): in a clean repository the read profile finds nothing that starts a program for these forms, so
+    they pass under Claude Code; under Codex class a is off (owner answer 10) and they are denied as before."""
+    repo = _repo(tmp_path)
+    claude = gate.decide(command, str(repo), _deadline())
+    codex = gate.decide(command, str(repo), _deadline(), host="codex")
+    assert claude is not None and claude.decision == "pass", (command, claude and claude.decision)
+    assert {v.reason_id for v in claude.verdicts} == {"free_after_read_profile"}, claude.verdicts
     assert codex is not None and gate.answer(codex.decision, codex.text, host="codex")[
         "hookSpecificOutput"]["permissionDecision"] == "deny", command
 

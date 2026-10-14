@@ -79,13 +79,14 @@ def test_unmodelled_transports_stay_not_measured():
 
 
 def test_the_formerly_checked_forms_are_not_free():
-    """Review Runde 9, owner choice B: the bare forms and vetted options that were free are NOT MEASURED now;
-    only the bare `git --version` stays free."""
+    """Review Runde 9, owner choice B: the bare forms and vetted options that were free are not free by their words
+    any more; only the bare `git --version` stays free. Since FIX-18 part B (class a, D34) each of these read forms is
+    marked for the judge, which frees it only after the read profile of its repository."""
     g = _gate()
     for words in (["status"], ["status", "-s"], ["log", "--oneline"], ["diff", "--stat"],
                   ["show", "HEAD"], ["grep", "needle"], ["branch", "-a"],   # fetch left the list (R7-2)
                   ["-C", "/path", "status"], ["log", "--oneline", "-n", "5"]):
-        assert not _free(g, words) and _not_measured(g, words), words
+        assert not _free(g, words) and g._strict_git(words, "/repo")[2] == [g._READ_FREE], words
     assert _free(g, ["--version"])
     # Nachtrag 19b: rebase left the allow-list (S1, fallback A), so even its bare form is NOT MEASURED now
     assert _not_measured(g, ["rebase", "HEAD~1"])
@@ -125,16 +126,25 @@ def test_environment_and_config_writes_that_can_select_a_program_are_not_measure
 
 
 @pytest.mark.parametrize("command", [
-    "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "GIT_TERMINAL_PROMPT=0 git status",
-    "LC_ALL=C git status", "git config user.name t", "git config --get remote.origin.url",
-    "git config --list", "git config get user.email", "git status && git diff --stat",
+    "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "git config user.name t",
+    "git config --get remote.origin.url", "git config --list", "git config get user.email",
+    "git status && git diff --stat",
 ])
 def test_vetted_assignments_and_config_reads_are_not_free(command):
     """Review Runde 9, owner choice B: a vetted assignment or a configuration read leaves the form a repository
-    form, and none is free."""
+    form, and none is free. A vetted pager assignment keeps a read form so too (class a, D34: it counts like a pager
+    key)."""
     g = _gate()
     calls = _calls(g, command)
     assert calls and all(c[2] == [g._NOT_FREE] for c in calls), (command, calls)
+
+
+@pytest.mark.parametrize("command", ["GIT_TERMINAL_PROMPT=0 git status", "LC_ALL=C git status"])
+def test_a_vetted_assignment_the_read_profile_accepts_leaves_a_read_form_marked(command):
+    """FIX-18 part B, class a (D34): an assignment that selects no pager and no unknown GIT_* setting leaves the read
+    form marked for the judge, which frees it only after the read profile."""
+    g = _gate()
+    assert _calls(g, command) == [("git status", ".", [g._READ_FREE])]
 
 
 def test_an_unvetted_askpass_makes_a_push_not_measured():

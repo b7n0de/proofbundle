@@ -127,11 +127,18 @@ def test_an_alias_configured_in_the_repo_is_a_not_measured_possible_push():
 
 
 @pytest.mark.parametrize("command", [
-    "git status", "git log --oneline", "git diff origin/main", "git config user.name t",
+    "git config user.name t", "git stash list", "git blame a.txt",
 ])   # git fetch left the allow-list in review Runde 7 (R7-2); tests/test_plugin_gate_runde7.py
 def test_a_local_subcommand_is_not_free(command):
     # Review Runde 9, owner choice B: no repository form is left alone any more; each is NOT MEASURED.
     assert gate.gated_calls(command) == [(f"git {command.split()[1]}", gate.UNKNOWN, [gate._NOT_FREE])]
+
+
+@pytest.mark.parametrize("command", ["git status", "git log --oneline", "git diff origin/main"])
+def test_a_read_form_is_not_free_by_itself_either(command):
+    # FIX-18 part B, class a (D34, owner answer 1 of 2026-10-14): the scan only marks a read form of the grammar; the
+    # judge frees it after the read profile of its repository, never the scan by itself.
+    assert gate.gated_calls(command) == [(f"git {command.split()[1]}", ".", [gate._READ_FREE])]
 
 
 @pytest.mark.parametrize("command", ["git rebase main", "git bisect start", "git submodule status"])

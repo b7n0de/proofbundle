@@ -418,7 +418,8 @@ def test_a_refused_add_or_commit_form_names_the_two_free_forms(tmp_path, command
 
 
 def test_another_refused_git_form_keeps_its_next_step(tmp_path):
-    outcome = gate.decide("git status", str(_repo(tmp_path)), _deadline())
+    # `git stash list`, not `git status`: class a frees that read form after the read profile since FIX-18 part B (D34)
+    outcome = gate.decide("git stash list", str(_repo(tmp_path)), _deadline())
     assert outcome is not None and "each as a whole command of its own" not in outcome.text
     assert "have a person review the call" in outcome.text
 

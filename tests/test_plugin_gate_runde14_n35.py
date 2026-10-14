@@ -134,9 +134,11 @@ def test_r13_4_an_argument_expansion_stays_free(tmp_path, command):
     assert "net_unmodeled_git" not in ids, ids
 
 
-@pytest.mark.parametrize("command", ["git status"])
+@pytest.mark.parametrize("command", ["git stash list"])
 def test_the_literal_controls_are_still_gated(tmp_path, command):
-    """The literal push has a control of its own below (owner choice 1 A)."""
+    """The literal push has a control of its own below (owner choice 1 A). Class a (D34) frees the literal `git status`
+    after the read profile, while every hidden spelling above stays NOT MEASURED (a word the shell builds is not the
+    word the gate reads), so the control is `git stash list`, a literal form outside class a."""
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason=None)
 
 

@@ -127,10 +127,12 @@ def test_k1_locale_quote_is_not_measured(tmp_path, command):
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason="net_unmodeled_git")
 
 
-@pytest.mark.parametrize("command", ["git status", "gh pr list"])
+@pytest.mark.parametrize("command", ["git stash list", "gh pr list"])
 def test_k1_literal_controls_are_still_gated(tmp_path, command):
     """Control: the literal forms are gated the same way, so the fix removes a difference, it does not add one. The
-    literal push has a control of its own below (owner choice 1 A)."""
+    literal push has a control of its own below (owner choice 1 A). Class a (D34) frees the literal `git status` after
+    the read profile, while every hidden spelling above stays NOT MEASURED (a word the shell builds is not the word the
+    gate reads), so the git control is `git stash list`, a literal form outside class a."""
     _gated(_repo(tmp_path), tmp_path / "logs", command)
 
 

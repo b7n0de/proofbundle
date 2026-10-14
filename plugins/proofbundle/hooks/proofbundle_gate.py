@@ -446,9 +446,14 @@ _NOT_FREE = "\x00not-free"
 #: repository (_add_commit_state_problem) finds nothing that starts a program for it; otherwise it asks under Claude
 #: Code and is denied under Codex, with the source it found (DECISIONS.md D3, "two forms after a state check").
 _STATE_FREE = "\x00state-free"
-#: The details that already carry their answer (deny, ask, a possible transfer, a state check), which a redirection
-#: does not change into an unresolved push (R2-2).
-_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_MAYBE_PUSH])
+#: Detail marker for a git read form in the grammar _read_form accepts, as the whole command with no global option but
+#: at most one literal `-C` (class a of the ask load, owner answer 1 of 2026-10-14: a narrow read profile, newly
+#: built). Under Claude Code the judge frees it only after the read profile of its repository (_read_profile_problem)
+#: finds nothing that starts a program for this form; under Codex it is the not-free answer of D3 (owner answer 10).
+_READ_FREE = "\x00read-free"
+#: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
+#: redirection does not change into an unresolved push (R2-2).
+_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_MAYBE_PUSH])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -479,11 +484,13 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: The former free list for local git commands has been removed. Those forms ask under Claude Code and are denied
 #: under Codex; a literal `-C` does not change that decision. Only the exact bare command text `git --version` is
 #: exempt, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms after a state check of their repository
-#: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains:
-#: under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks, its destination NOT
-#: MEASURED (D3, R9-1), except the local inactivity of owner choice 1 A for a repository that declares nothing
-#: (_local_inactivity, D5); under Codex every push is NOT MEASURED because its execution context is unbound (review Runde
-#: 11, R11-5), and a `git push` warns since Karte 5 A. The two
+#: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem), and, since the owner's answer 1 of
+#: 2026-10-14, under Claude Code the read forms of class a after a read profile of their repository: a newly built,
+#: narrower allow-list, not the removed free list (_read_form, _read_profile_problem, D34). The separate push path
+#: remains: under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks, its
+#: destination NOT MEASURED (D3, R9-1), except the local inactivity of owner choice 1 A for a repository that declares
+#: nothing (_local_inactivity, D5); under Codex every push is NOT MEASURED because its execution context is unbound
+#: (review Runde 11, R11-5), and a `git push` warns since Karte 5 A. The two
 #: readers below remain for the write gate.
 
 
@@ -1016,6 +1023,345 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     return None
 
 
+# --- class a of the ask load: a read profile for read forms (FIX-18 part B, DESIGN_rueckfragen.md 3.1, D34) ----------
+#
+# Owner answers 1 to 3 and 10 of 2026-10-14: a read form is free under Claude Code when its options are all on the
+# grammar below and the read profile of its repository finds nothing that starts a program for it. The grammar and the
+# profile are allow-lists: an option, a configuration key, a GIT_* setting or a hook they do not name keeps today's
+# answer. Measured with git 2.43.0, stdout a pipe (FIX-18 part B, a/wahrheit_a.py): fsmonitor, filters and hooks start
+# only for the forms that walk the work tree; diff drivers for log, show and diff; a signature program only where a
+# signature is read; a promisor remote for every form that reads an object; a pager only on a terminal.
+
+#: The forms that walk the work tree. git starts core.fsmonitor, a filter and the post-index-change hook for them, and
+#: they read a submodule's own work tree, so for them the read profile also reads the hooks and the submodules.
+_READ_WALKS = frozenset({"status", "diff", "grep", "ls-files"})
+#: The flags of log, show, diff and rev-list the grammar accepts: each prints, selects or orders, and none names a
+#: program, a file to write, a pager or a signature (no --ext-diff, --textconv, --output, --show-signature, -L,
+#: --no-index, --color without `=never`).
+_READ_LOG_FLAGS = frozenset({
+    "--oneline", "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--graph", "--decorate",
+    "--no-decorate", "--all", "--branches", "--tags", "--remotes", "--reverse", "--first-parent", "--merges",
+    "--no-merges", "--abbrev-commit", "--no-abbrev-commit", "-p", "--patch", "-u", "--no-patch", "-s", "--raw",
+    "--summary", "--follow", "-M", "--no-renames", "--no-color", "-w", "--ignore-all-space", "-b",
+    "--ignore-space-change", "--ignore-blank-lines", "--no-ext-diff", "--no-textconv", "--compact-summary",
+    "--left-right", "--topo-order", "--date-order", "--full-history", "--root", "--parents", "--no-notes",
+    "--exit-code", "--quiet", "-R", "--minimal", "--patience", "--histogram", "-i", "--regexp-ignore-case",
+    "--all-match", "--invert-grep", "-E", "--extended-regexp", "-F", "--fixed-strings", "--pretty", "--relative",
+    "--cached", "--staged", "--count",
+})
+_READ_ANY = re.compile(r".*", re.DOTALL)
+_READ_NUMBER = re.compile(r"[0-9]+")
+#: The built-in --pretty names; any other name is a user format (pretty.<name>), which may read a signature.
+_PRETTY_BUILTIN = frozenset({"oneline", "short", "medium", "full", "fuller", "reference", "email", "raw", "mboxrd"})
+#: A placeholder that verifies a signature (`%G?`, `%GS`, `%GK`, …), with the modifiers git allows before it
+#: (measured: `--format=%G? %H` and `--format=%+GS` started the gpg on PATH for a signed commit).
+_SIGNATURE_PLACEHOLDER = re.compile(r"%[-+ ]?G")
+
+
+def _pretty_value_ok(value: str) -> bool:
+    """Whether a --format or --pretty value prints without reading a signature: a built-in name, or a format string
+    with no signature placeholder and no `%(…)` placeholder (`%(describe)` runs git describe)."""
+    if value in _PRETTY_BUILTIN:
+        return True
+    if _SIGNATURE_PLACEHOLDER.search(value) or "%(" in value:
+        return False
+    return value.startswith(("format:", "tformat:")) or "%" in value
+
+
+#: The ref-filter atoms a --format of for-each-ref or branch may use: names, object ids, dates, people and the subject.
+#: No other atom (no signature, describe, contents or if/then).
+_REF_ATOM = re.compile(r"(refname|objectname|objecttype|objectsize|upstream|push|HEAD|subject|authorname|authoremail|"
+                       r"authordate|committername|committeremail|committerdate|creatordate|taggername|taggeremail|"
+                       r"taggerdate|tree|parent|symref|color)(:[^()%]*)?")
+_REF_SORT = re.compile(r"-?((version|v):)?(refname|objectname|objecttype|objectsize|upstream|HEAD|subject|authorname|"
+                       r"authordate|committername|committerdate|creatordate|taggername|taggerdate)(:[a-z]+)?")
+
+
+def _ref_format_ok(value: str) -> bool:
+    """Whether a ref-filter --format uses only the atoms of _REF_ATOM, `%%` and `%xx` hex escapes."""
+    i = 0
+    while i < len(value):
+        if value[i] != "%":
+            i += 1
+        elif value[i + 1:i + 2] == "%":
+            i += 2
+        elif re.fullmatch(r"[0-9a-fA-F]{2}", value[i + 1:i + 3]):
+            i += 3
+        elif value[i + 1:i + 2] == "(":
+            end = value.find(")", i + 2)
+            if end < 0 or not _REF_ATOM.fullmatch(value[i + 2:end]):
+                return False
+            i = end + 1
+        else:
+            return False
+    return True
+
+
+#: The options of one read form: exact flags, the letters a single-dash cluster may combine, `--opt=value` options with
+#: a check of the value, whole words such as `-5` or `-U3`, and the options whose value is the next word (only those
+#: git was measured to take as the value even when it looks like an option, a/getrennte_werte.py).
+_ReadGrammar = collections.namedtuple("_ReadGrammar", "flags letters stuck glued separated",
+                                      defaults=("", {}, None, frozenset()))
+
+
+_LOG_STUCK = {
+    "--format": _pretty_value_ok, "--pretty": _pretty_value_ok, "--date": _READ_ANY.fullmatch,
+    "--since": _READ_ANY.fullmatch, "--until": _READ_ANY.fullmatch, "--after": _READ_ANY.fullmatch,
+    "--before": _READ_ANY.fullmatch, "--author": _READ_ANY.fullmatch, "--committer": _READ_ANY.fullmatch,
+    "--grep": _READ_ANY.fullmatch, "--max-count": _READ_NUMBER.fullmatch, "--skip": _READ_NUMBER.fullmatch,
+    "--abbrev": _READ_NUMBER.fullmatch, "--unified": _READ_NUMBER.fullmatch,
+    "--stat": re.compile(r"[0-9]+(,[0-9]+){0,2}").fullmatch,
+    "--diff-filter": re.compile(r"[ACDMRTUXBacdmrtuxb*]+").fullmatch,
+    "--decorate": re.compile(r"short|full|auto|no").fullmatch, "--find-renames": re.compile(r"[0-9]+%?").fullmatch,
+    "--color": re.compile(r"never").fullmatch, "--relative": _READ_ANY.fullmatch,
+}
+_REF_STUCK = {
+    "--format": _ref_format_ok, "--sort": _REF_SORT.fullmatch, "--count": _READ_NUMBER.fullmatch,
+    "--points-at": _READ_ANY.fullmatch, "--merged": _READ_ANY.fullmatch, "--no-merged": _READ_ANY.fullmatch,
+    "--contains": _READ_ANY.fullmatch, "--no-contains": _READ_ANY.fullmatch,
+}
+_LOG_GRAMMAR = _ReadGrammar(_READ_LOG_FLAGS, stuck=_LOG_STUCK,
+                            glued=re.compile(r"-[0-9]+|-n[0-9]+|-U[0-9]+|-M[0-9]+%?|-[SG].+"),
+                            separated=frozenset({"-n"}))
+#: The read forms class a frees after the read profile (git 2.43.0), and the options each accepts. Not on the list: a
+#: form that writes, a config form (class g), shortlog (it reads standard input when that is no terminal), and every
+#: option that writes a file, starts a program or a pager by name, reads a signature, reads standard input or a file of
+#: patterns, walks a submodule or leaves the repository (--output, --ext-diff, --textconv, -O, -f, --no-index,
+#: --recurse-submodules, --dirty, status -v, rev-parse --show-superproject-working-tree, …).
+_READ_GRAMMAR = {
+    "log": _LOG_GRAMMAR, "show": _LOG_GRAMMAR, "diff": _LOG_GRAMMAR, "rev-list": _LOG_GRAMMAR,
+    "grep": _ReadGrammar(
+        frozenset({"-n", "--line-number", "-i", "--ignore-case", "-l", "--files-with-matches", "--name-only", "-L",
+                   "--files-without-match", "-c", "--count", "-w", "--word-regexp", "-v", "--invert-match", "-E",
+                   "--extended-regexp", "-F", "--fixed-strings", "-G", "--basic-regexp", "-P", "--perl-regexp", "-h",
+                   "-H", "-I", "-q", "--quiet", "-o", "--only-matching", "--heading", "--break", "--cached",
+                   "--full-name", "-r", "--recursive", "--all-match", "--and", "--or", "--not", "-z", "--null",
+                   "--column", "--no-color", "-a", "--text"}),
+        letters="nilLcwvEFGPhHIqorza",
+        stuck={"--max-depth": _READ_NUMBER.fullmatch, "--max-count": _READ_NUMBER.fullmatch,
+               "--threads": _READ_NUMBER.fullmatch, "--context": _READ_NUMBER.fullmatch,
+               "--after-context": _READ_NUMBER.fullmatch, "--before-context": _READ_NUMBER.fullmatch,
+               "--color": re.compile(r"never").fullmatch},
+        glued=re.compile(r"-[ABCm][0-9]+"), separated=frozenset({"-e", "-A", "-B", "-C", "-m"})),
+    "status": _ReadGrammar(
+        frozenset({"-s", "--short", "-b", "--branch", "--porcelain", "--long", "-z", "--show-stash", "--ahead-behind",
+                   "--no-ahead-behind", "--renames", "--no-renames", "-u", "--ignored"}),
+        letters="sbz",
+        stuck={"--porcelain": re.compile(r"v1|v2").fullmatch,
+               "--untracked-files": re.compile(r"no|normal|all").fullmatch,
+               "--ignored": re.compile(r"traditional|matching|no").fullmatch,
+               "--find-renames": re.compile(r"[0-9]+%?").fullmatch},
+        glued=re.compile(r"-u(no|normal|all)")),
+    "ls-files": _ReadGrammar(
+        frozenset({"-c", "--cached", "-d", "--deleted", "-m", "--modified", "-o", "--others", "-i", "--ignored", "-s",
+                   "--stage", "-u", "--unmerged", "-k", "--killed", "-z", "-t", "-v", "-f", "--full-name",
+                   "--error-unmatch", "--exclude-standard", "--directory", "--no-empty-directory", "--eol",
+                   "--deduplicate"}),
+        letters="cdmoisukztvf", stuck={"--abbrev": _READ_NUMBER.fullmatch, "--exclude": _READ_ANY.fullmatch}),
+    "rev-parse": _ReadGrammar(
+        frozenset({"--show-toplevel", "--git-dir", "--git-common-dir", "--absolute-git-dir", "--is-inside-work-tree",
+                   "--is-inside-git-dir", "--is-bare-repository", "--is-shallow-repository", "--show-prefix",
+                   "--show-cdup", "--abbrev-ref", "--symbolic-full-name", "--symbolic", "--verify", "-q", "--quiet",
+                   "--short", "--show-object-format", "--all", "--branches", "--tags", "--remotes"}),
+        stuck={"--short": _READ_NUMBER.fullmatch, "--abbrev-ref": re.compile(r"strict|loose").fullmatch,
+               "--path-format": re.compile(r"absolute|relative").fullmatch}),
+    "for-each-ref": _ReadGrammar(frozenset({"--shell", "--perl", "--python", "--tcl", "--ignore-case"}),
+                                 stuck=dict(_REF_STUCK, **{"--exclude": _READ_ANY.fullmatch})),
+    "branch": _ReadGrammar(
+        frozenset({"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--show-current", "--list", "-l",
+                   "--no-color", "-i", "--ignore-case", "--no-abbrev"}),
+        letters="arvl", stuck=dict(_REF_STUCK, **{"--abbrev": _READ_NUMBER.fullmatch,
+                                                  "--color": re.compile(r"never").fullmatch})),
+    "ls-tree": _ReadGrammar(
+        frozenset({"-r", "-d", "-t", "-l", "--long", "-z", "--name-only", "--name-status", "--object-only",
+                   "--full-name", "--full-tree"}),
+        letters="rdtlz", stuck={"--abbrev": _READ_NUMBER.fullmatch}),
+    "show-ref": _ReadGrammar(
+        frozenset({"--head", "--tags", "--heads", "-d", "--dereference", "-s", "--hash", "--verify", "-q", "--quiet"}),
+        stuck={"--hash": _READ_NUMBER.fullmatch, "--abbrev": _READ_NUMBER.fullmatch}),
+    "merge-base": _ReadGrammar(frozenset({"--all", "--octopus", "--is-ancestor", "--independent", "--fork-point"})),
+    "describe": _ReadGrammar(
+        frozenset({"--tags", "--all", "--long", "--always", "--exact-match", "--contains", "--first-parent"}),
+        stuck={"--abbrev": _READ_NUMBER.fullmatch, "--match": _READ_ANY.fullmatch, "--exclude": _READ_ANY.fullmatch,
+               "--candidates": _READ_NUMBER.fullmatch}),
+}
+_WORKTREE_LIST_FLAGS = frozenset({"--porcelain", "-v", "--verbose", "-z"})
+
+
+def _names_index(word: str) -> bool:
+    """Whether a word may name an entry of the index as a revision (`:path`, `:0:path`, also after `^` or in a range):
+    resolving it reads the index, and reading the index queries fsmonitor for every form, not only for a form that
+    walks the work tree (measured: rev-parse, log, show, rev-list, describe, cat-file and a --points-at or --contains
+    value, a/fsmonitor_index2.py)."""
+    return any(part.lstrip("^").startswith(":") for part in re.split(r"\.\.\.?", word))
+
+
+def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) -> bool:
+    """Whether `git <sub> <args>` is a read form class a frees after the read profile: every option before a `--` is on
+    the form's grammar (_READ_GRAMMAR), and no word before that `--` is one the shell may rewrite (`rewrites`, as for
+    K-NW-2 B: a glob may become an option, review 2026-10-09, F2). `git worktree list` and `git cat-file -t|-s|-e|-p
+    <object>` are fixed forms. A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
+    may name an index entry (_names_index) and a `git branch` pattern without --list are not free (a name without
+    --list creates a branch). The value of a separated option is a number or a pattern, never a revision."""
+    rewritten = list(rewrites) if rewrites is not None else [False] * len(args)
+    if sub == "worktree":
+        return bool(args) and args[0] == "list" and not any(rewritten) and all(a in _WORKTREE_LIST_FLAGS
+                                                                                for a in args[1:])
+    if sub == "cat-file":
+        return (len(args) == 2 and not any(rewritten) and args[0] in ("-t", "-s", "-e", "-p")
+                and not args[1].startswith("-") and not _names_index(args[1]))
+    grammar = _READ_GRAMMAR.get(sub)
+    if grammar is None:
+        return False
+    listing = positional = False
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if rewritten[i]:
+            return False
+        if word == "--":
+            positional = positional or i + 1 < len(args)
+            break
+        if word == "-":
+            return False
+        option, eq, value = word.partition("=")
+        if not word.startswith("-"):
+            if _names_index(word):
+                return False
+            positional = True
+        elif word in grammar.flags:
+            listing = listing or word in ("--list", "-l")
+        elif eq and word.startswith("--") and option in grammar.stuck:
+            if _names_index(value) or not grammar.stuck[option](value):
+                return False
+        elif grammar.glued is not None and grammar.glued.fullmatch(word):
+            pass
+        elif word in grammar.separated:
+            if i + 1 >= len(args) or rewritten[i + 1]:
+                return False
+            i += 1
+        elif grammar.letters and not word.startswith("--") and len(word) > 2 and all(
+                letter in grammar.letters for letter in word[1:]):
+            listing = listing or "l" in word[1:]
+        else:
+            return False
+        i += 1
+    return not (sub == "branch" and positional and not listing)
+
+
+#: The configuration keys the read profile positively understands as starting no program for a read form of the
+#: grammar: the keys K-NW-2 B knows (D3) less the pager, which a read form starts on a terminal, and fsmonitor, which
+#: the profile judges by form; the keys Teil 1 measured for read forms (sequence.editor, gc.auto with maintenance.auto,
+#: merge drivers); and display settings of log, status, grep and diff that name no program, each measured to start
+#: nothing (a/wahrheit_a.py, "Anzeigeschlüssel"). Every other key, log.showSignature, format.pretty, pretty.*,
+#: submodule.* and every other diff.* key among them, keeps the form not free.
+_READ_INERT_KEYS = (_STATE_INERT_KEYS - {"core.pager", "core.fsmonitor"}) | frozenset({
+    "sequence.editor", "gc.auto", "maintenance.auto", "core.abbrev", "log.date", "log.decorate", "log.abbrevcommit",
+    "log.showroot", "log.mailmap", "status.short", "status.branch", "status.showuntrackedfiles", "status.relativepaths",
+    "status.aheadbehind", "status.showstash", "status.renames", "status.renamelimit", "grep.linenumber", "grep.column",
+    "grep.patterntype", "grep.extendedregexp", "grep.fullname", "diff.renames", "diff.algorithm", "diff.colormoved",
+    "diff.colormovedws", "diff.mnemonicprefix", "diff.noprefix", "diff.context", "diff.interhunkcontext",
+    "diff.statgraphwidth", "diff.statnamewidth", "diff.relative", "diff.indentheuristic", "diff.suppressblankempty",
+    "diff.dirstat", "diff.renamelimit", "diff.wserrorhighlight", "merge.conflictstyle",
+})
+#: The families K-NW-2 B knows (_STATE_INERT_PATTERN), the signing settings, which start a program only where a
+#: signature is read and the grammar reads none (measured: gpg.program and an SSH signing set-up started nothing for
+#: these forms), and merge drivers, which a read form never starts (measured).
+_READ_INERT_PATTERN = re.compile(_STATE_INERT_PATTERN.pattern + r"|gpg\.[^\n]+|merge\.[^\n]*\.(driver|name|recursive)")
+#: GIT_* names in the hook's environment the read profile accepts: those of K-NW-2 B (_STATE_INERT_ENV) less
+#: GIT_PAGER, which selects the pager a read form starts on a terminal.
+_READ_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|COUNT|KEY_[0-9]+|VALUE_[0-9]+)"
+                             r"|(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|TERMINAL_PROMPT|EDITOR|SEQUENCE_EDITOR"
+                             r"|ASKPASS|SSH|SSH_COMMAND|SSH_VARIANT|SSL_[A-Z_]+|HTTP_[A-Z_]+)")
+
+
+def _read_env_problem(name: str) -> str | None:
+    """What an environment name means for a read form, set in the hook's environment or by a prefix assignment of the
+    command alike: GIT_PAGER and PAGER, the names git reads to choose the pager, count like a pager key (owner answer
+    3; review Runde 6, point 1: a program-selecting variable counts like its key), and so does a GIT_* name the
+    profile does not know. None for any other name."""
+    if name in ("GIT_PAGER", "PAGER"):
+        return f"a pager: {name}"
+    if name.startswith("GIT_") and not _READ_INERT_ENV.fullmatch(name):
+        return f"an environment setting the read profile does not know to start no program: {name}"
+    return None
+
+
+def _has_submodule(directory: str, toplevel: str, deadline: float) -> str | None:
+    """What makes the repository one with a submodule, or None: a .gitmodules at the top level, or a gitlink in the
+    index. The index is listed through the gate's own git path with fsmonitor off and no hook directory (Q18-2:
+    a check of the gate must not start what it checks for)."""
+    if os.path.lexists(os.path.join(toplevel, ".gitmodules")):
+        return f"a submodule: {os.path.join(toplevel, '.gitmodules')}"
+    out = _git(directory, "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}", "ls-files", "--stage",
+               "-z", deadline=deadline)
+    if out.returncode != 0:
+        return "the index cannot be listed"
+    for entry in out.stdout.split(b"\0"):
+        if entry.startswith(b"160000 "):
+            path = _git_text(entry.partition(b"\t")[2])
+            return f"a submodule: {path}"
+    return None
+
+
+def _read_profile_problem(sub: str, directory: str, deadline: float, environ: dict | None = None) -> str | None:
+    """None when the repository at directory holds nothing that starts a program for the read form `git <sub>`, else
+    what it found (class a, owner answers 1 to 3 of 2026-10-14). Read as K-NW-2 B reads: the effective configuration
+    with every include in the hook's environment, the effective hook directory and the hook's GIT_* environment; for a
+    form that walks the work tree also the submodules. Not free: a promisor key (a lazy fetch, read by presence, C-5);
+    a pager key, and GIT_PAGER or PAGER in the hook's environment (owner answer 3: no host adapter is bound, so the
+    pipe of the Bash tool is not relied on; _read_env_problem, which also judges a prefix assignment of the command);
+    for a form that walks the work tree a filter (answer 2: the git-lfs filter counts like any), fsmonitor that git does
+    not read as false, any hook that is not a sample, and a submodule; any key, hook or GIT_* name the profile does not
+    know."""
+    environ = os.environ if environ is None else environ
+    walks = sub in _READ_WALKS
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        # git reads the configuration, every include with it, before it names the layout
+        return f"the gate cannot read the repository's layout and configuration ({why})"
+    if paths["gitdir"] is None or paths["toplevel"] is None:
+        return "the directory is not inside a git work tree"
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return f"the gate cannot read the effective configuration ({why})"
+    for scope, origin, key, value in entries:
+        lowered, where = key.lower(), f"{key} in the {scope} configuration {origin.removeprefix('file:')}"
+        if re.match(_PARTIAL_CLONE_KEYS, lowered):
+            return f"a lazy fetch from a promisor remote: {where}"
+        if lowered == "core.pager" or lowered.startswith("pager."):
+            return f"a pager: {where}"
+        if lowered == "core.fsmonitor":
+            if walks and not _git_false(directory, value, deadline):
+                return f"fsmonitor: {where}"
+            continue
+        if lowered.startswith("filter."):
+            if walks:
+                return f"a filter: {where}"
+            continue
+        if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
+            return f"a configuration key the read profile does not know to start no program: {where}"
+    if walks:
+        hooks = paths["hooks"]
+        if hooks and os.path.lexists(hooks):
+            if not os.path.isdir(hooks):
+                return f"a hook: the hook directory {hooks} is not a directory"
+            try:
+                names = sorted(os.listdir(hooks))
+            except OSError as exc:
+                return f"a hook: the hook directory {hooks} cannot be read ({exc})"
+            for name in names:
+                if not name.endswith(".sample"):
+                    return f"a hook: {os.path.join(hooks, name)}"
+    for name in sorted(environ):
+        problem = _read_env_problem(name)
+        if problem is not None:
+            return f"{problem} in the hook's environment"
+    if walks:
+        return _has_submodule(directory, paths["toplevel"], deadline)
+    return None
+
+
 #: The default of _strict_git's free_base: the call is the whole command, headed by a bare `git` (from
 #: _resolve_single). Anything else passes UNKNOWN: a program path, a wrapper, a nested shell, a chain, a
 #: pipeline, a background job, a substitution or a later run of a chain (review Runde 7, R7-4; Runde 8, R8-5).
@@ -1034,7 +1380,8 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
                 raws: list[str] | None = None) -> tuple[str, str | None, list[str] | None] | None:
     """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or None
     only for the bare `git --version` that is the whole command (free_base _FROM_DIRECTORY): since review Runde 9
-    (owner choice B) no other git form is free, and every form that acts on a repository is NOT MEASURED
+    (owner choice B) no other git form is free by itself; K-NW-2 B's two forms and the read forms of class a (D34) are
+    marked for the judge, which frees them only after a check of their repository; every other form is NOT MEASURED
     (`_NOT_FREE`, asked under Claude Code, denied under Codex). A `push` resolves its target as before:
     at most one literal `-C` is joined onto the directory (not normalised, so the judge resolves it
     physically through symlinks, R4-2); more than one `-C`, or any other global option (`-c`, `--git-dir`,
@@ -1102,6 +1449,12 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         # K-NW-2 B (2026-10-08): the whole command is a plain `git add` or `git commit -m` with no global option;
         # the judge frees it only after the state check of its repository.
         return f"git {sub}", directory, [_STATE_FREE]
+    if sub is not None and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
+            and not not_measured and c_count <= 1 \
+            and _read_form(sub, args, None if rewrites is None else rewrites[i + 1:]):
+        # Class a (owner answer 1 of 2026-10-14): the whole command is a read form of the grammar with at most one
+        # literal `-C`; the judge frees it under Claude Code only after the read profile of its repository.
+        return f"git {sub}", directory, [_READ_FREE]
     if sub in _GIT_LOCAL_SUBCOMMANDS:
         # No free form (review Runde 9, owner choice B): options, configuration, configured values, hooks and
         # indirect paths can make git start a program the gate does not see.
@@ -1247,11 +1600,13 @@ def _resolve_single(words: list[tuple], directory: str | None,
     name, cdir, detail = call
     if detail in ([_HOOKS_DISABLE], [_NOT_FREE]):
         return [call]  # a hook-disabling form denies and a repository form asks, whatever the context
-    if detail == [_STATE_FREE] and not neutral_only:
+    if detail in ([_STATE_FREE], [_READ_FREE]) and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
+    if detail == [_READ_FREE] and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
+        return [(name, UNKNOWN, [_NOT_FREE])]  # a prefix assignment counts as the hook's environment does (D34)
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
-    if cdir is not UNKNOWN and detail != [_STATE_FREE] and any(rewritten):
+    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], [_READ_FREE]) and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
         return [(name, UNKNOWN, None)]
@@ -1333,7 +1688,9 @@ def _overmatch(command: str, toks: list, depth: int,
 
     def emit(found: list) -> None:
         for name, _dir, detail in found:
-            calls.append((name, UNKNOWN, detail if detail in ([_HOOKS_DISABLE], [_NOT_FREE]) else None))
+            # a read form of class a is free only as a whole command; anywhere else it keeps the answer of D3
+            calls.append((name, UNKNOWN, detail if detail in ([_HOOKS_DISABLE], [_NOT_FREE]) else
+                          [_NOT_FREE] if detail == [_READ_FREE] else None))
 
     run: list = []
     for t in toks:
@@ -1883,8 +2240,9 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                          if c[2] == [_HOOKS_DISABLE]]
             if disabling:
                 return disabling
-        if _redirection_present(text):  # the two free forms are free only without a redirection (K-NW-2 B)
-            calls = [(n, UNKNOWN, [_NOT_FREE]) if d == [_STATE_FREE] else (n, c, d) for n, c, d in calls]
+        if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, class a)
+            calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], [_READ_FREE]) else (n, c, d)
+                     for n, c, d in calls]
         if not _redirections_open_no_file(toks):
             # A redirection that opens a file runs before git does, the pre-push hook may be its target (R2-2): the
             # repository and target of a push or gh call are not resolved, so it is NOT MEASURED, never inactive.
@@ -5904,7 +6262,8 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
     if len(calls) != 1 or _net_words(command) > 1 or _net_unresolved(command):
         return None
     name, _directory, detail = calls[0]
-    if detail not in ([_NOT_FREE], [_STATE_FREE]) or not name.startswith("git ") or name in ("git", "git --version"):
+    if detail not in ([_NOT_FREE], [_STATE_FREE], [_READ_FREE]) or not name.startswith("git ") \
+            or name in ("git", "git --version"):
         return None
     toks = _lex(_drop_comments(command))
     if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
@@ -6695,10 +7054,13 @@ class _ShKeep(Exception):
         self.floor = floor
 
 
-def _sh_step_text(step: _ShStep) -> str:
-    """The step as a command of its own: its words and its redirections, each word quoted. A here-document or a
+def _sh_step_text(step: _ShStep, assigns: bool = False) -> str:
+    """The step as a command of its own: its words and its redirections, each word quoted, and with assigns its prefix
+    assignments too (the step the gate judges: a read form counts a pager assignment, D34). A here-document or a
     here-string is input and is left out, so text in it is no call."""
-    parts = [shlex.quote(w) for w in step.words]
+    parts = [f"{w.value.partition('=')[0]}={shlex.quote(w.value.partition('=')[2])}"
+             for w in step.cmd.assigns] if assigns else []
+    parts += [shlex.quote(w) for w in step.words]
     for r in step.cmd.redirs:
         if isinstance(r.target, _ShHeredoc) or r.op == "<<<":
             continue
@@ -6728,10 +7090,13 @@ def _sh_gated(step: _ShStep) -> bool:
     return sub == "push" or sub not in _GIT_LOCAL_SUBCOMMANDS
 
 
-def _sh_changes_state(step: _ShStep, protected: bool) -> bool:
-    """Whether the step may change what a later step's answer read: the configuration, the hooks, the evidence, the
-    environment, the aliases or the programs a name selects. A data command that writes no file, or only literal files
-    that are no configuration, hook or gate file, a `cd`, and the git forms the gate frees by themselves do not."""
+def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None) -> bool:
+    """Whether the step may change what the answer of the later step read: the configuration, the hooks, the
+    evidence, the environment, the aliases or the programs a name selects, and for a read form that walks the work tree
+    the gitlinks of the index (a `git add` of an embedded repository adds one, and `git status` or `git diff` then
+    start that submodule's fsmonitor; measured, a/kette_index.py). A data command that writes no file, or only
+    literal files that are no configuration, hook or gate file, a `cd`, and the git forms the gate frees by themselves
+    do not."""
     targets, unknown = step.write_targets()
     if unknown or protected:
         return True
@@ -6749,7 +7114,16 @@ def _sh_changes_state(step: _ShStep, protected: bool) -> bool:
         return bool(step.cmd.assigns) and not all(_assignment_neutral(w.value) for w in step.cmd.assigns)
     if step.kind == "git":
         sub_words = step.words[1:]
-        return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"])
+        if sub_words[:1] == ["add"] and later is not None and later.kind == "git":
+            after = later.words[1:]
+            after = after[2:] if after[:1] == ["-C"] else after
+            if after and after[0] in _READ_WALKS:
+                return True     # the gitlinks the read profile read for a walking form (_has_submodule)
+        # a read form of class a writes no configuration, hook, evidence or index entry (the refresh of git status
+        # rewrites the stat data, not the gitlinks the read profile reads)
+        read = sub_words[2:] if sub_words[:1] == ["-C"] else sub_words
+        return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"]
+                    or (bool(read) and _read_form(read[0], read[1:])))
     return True
 
 
@@ -6894,7 +7268,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 next_step="run the call as one command of its own with literal words, for git as "
                           "`git -C <absolute path> …`"))
             continue
-        answer = judge_whole(_sh_step_text(s), s.cwd)
+        answer = judge_whole(_sh_step_text(s, assigns=True), s.cwd)
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
                                                          for v in answer.verdicts):
             # K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and, since the owner's choice of
@@ -6905,7 +7279,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                               "of `&&` and `;` (K-NW-2 B, D3)")
             released = True
         if answer is None or answer.decision in ("pass", "inactive"):
-            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected)]
+            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s)]
             if changed:
                 verdicts.append(Verdict(
                     "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "
@@ -6942,10 +7316,11 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
-    judgment as a git form. The separate push path remains. Under Claude Code it denies an evidenced failure at the
-    commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except the local inactivity of
-    owner choice 1 A for a repository that declares nothing (_local_inactivity, D5); under Codex every push is NOT
-    MEASURED because its execution context is unbound
+    judgment as a git form, besides K-NW-2 B's two forms after a state check (D3) and, under Claude Code, the read
+    forms of class a after a read profile (D34). The separate push path remains. Under Claude Code it denies an
+    evidenced failure at the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except
+    the local inactivity of owner choice 1 A for a repository that declares nothing (_local_inactivity, D5); under
+    Codex every push is NOT MEASURED because its execution context is unbound
     (review Runde 9, owner choice B; wording of review Runde 10, R10-3), and a `git push` warns (Karte 5 A, D12).
 
     After the structured scan, a safety net always runs (review Runde 12, R12-1 and R12-2): it builds a normal
@@ -7391,6 +7766,31 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
+def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Verdict:
+    """The verdict for a read form of class a under Claude Code: pass when the read profile of its repository finds
+    nothing that starts a program for it, else the not-free answer of D3 with the source it found (owner answers 1 to
+    3 of 2026-10-14, DESIGN_rueckfragen.md 3.1). Under Codex the judge never asks for it (owner answer 10)."""
+    try:
+        problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline) if directory is not UNKNOWN
+                   else "the gate cannot tell which repository the call acts on")
+    except GateError as exc:
+        problem = f"the read profile reached no result ({exc})"
+    if problem is None:
+        return Verdict("pass", f"proofbundle gate: {name} is free. The read profile of the repository at {directory} "
+                               "found no promisor remote, pager, filter, fsmonitor, hook or submodule this form starts "
+                               "or reads, every option is one the gate knows to start no program, and every "
+                               "configuration key and environment setting it read is one it knows to start no program "
+                               "for this form (class a, owner answers 1 to 3 of 2026-10-14; DECISIONS.md D34).",
+                       "free_after_read_profile", repo=directory)
+    return Verdict(
+        "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the read profile found {problem}. Such a "
+               "setting selects a program git may start for this form, which the gate does not see (class a, owner "
+               "answers 1 to 3 of 2026-10-14; DECISIONS.md D3, D34).",
+        "git_form_not_free", evidence=f"the repository state {name} runs with",
+        failed=f"{name} may start a program: {problem}",
+        next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
+
+
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
            host: str = "claude", extra: list | None = None, plain_push: bool = False) -> Outcome:
     verdicts = list(extra or [])
@@ -7461,7 +7861,10 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         if detail == [_STATE_FREE]:
             verdicts.append(_state_free_verdict(name, resolved, deadline, host))
             continue
-        if detail == [_NOT_FREE]:
+        if detail == [_READ_FREE] and host != "codex":
+            verdicts.append(_read_free_verdict(name, resolved, deadline))
+            continue
+        if detail in ([_NOT_FREE], [_READ_FREE]):   # class a is off under Codex (owner answer 10 of 2026-10-14)
             verdicts.append(Verdict(
                 "ask", f"NOT MEASURED: the gate gives no free answer for {name}. A git form that acts on a repository "
                        "can start another program through its options, the repository's configuration and "

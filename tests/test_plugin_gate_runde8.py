@@ -360,11 +360,13 @@ def test_r8_3_git_version_in_a_nested_shell_is_not_bound(tmp_path):
 def test_r8_3_git_version_in_a_pipeline_background_here_document_or_substitution_is_not_bound(tmp_path, command):
     """R8-3, second counterprobe, four cases: each form asks; with the unbinding lock for pipelines, the
     background, here-documents and substitutions undone alone, each got no answer. Since review Runde 9 shown on
-    the bare `git --version`, the only free form; the same four forms with `git status --short` ask too."""
+    the bare `git --version`, the only free form; the same four forms with `git stash list` ask too. (Until FIX-18
+    part B the second form was `git status --short`; class a, D34, now frees that read form after the read profile,
+    and class c judges it as a step where no step runs its output as code.)"""
     repo = _repo(tmp_path)
     assert _decision("git --version", repo) == (None, "")
     assert _not_free(command, repo), command
-    assert _not_free(command.replace("git --version", "git status --short"), repo), command
+    assert _not_free(command.replace("git --version", "git stash list"), repo), command
 
 
 def _trace_reader():

@@ -174,7 +174,11 @@ def test_r7_4_a_free_form_after_a_command_that_writes_the_configuration_is_not_f
     repo, marker = _repo(tmp_path), tmp_path / "marker-fsmonitor"
     program = _fsmonitor_marker(tmp_path, marker)
     command = f"printf '[core]\\n\\tfsmonitor = {program}\\n' >> .git/config; git status --short"
-    assert _not_free(command, repo)   # review Runde 9: the git form after the append asks, as every git form
+    # review Runde 9: the git form after the append asks. Since FIX-18 part B `git status --short` alone is a read form
+    # of class a (D34); after the append class c keeps it asked and names the step that changes the state it read
+    outcome = gate.decide(command, str(repo), _deadline())
+    assert outcome is not None and outcome.decision == "ask", outcome and outcome.decision
+    assert "step_after_state_change" in {v.reason_id for v in outcome.verdicts}, outcome.verdicts
     with open(repo / ".git" / "config", "a", encoding="utf-8") as config:
         config.write(f"[core]\n\tfsmonitor = {program}\n")
     subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False)

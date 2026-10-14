@@ -66,23 +66,26 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
 
 # --- R10-1: a shell comment after a valid git command --------------------------------------------------------------
 
-_R10_1 = [("git config proofbundle.parserMarker comment # don't bypass", "git config proofbundle.parserMarker comment"),
-          ("git status --short # don't bypass", "git status --short")]
+#: (the command with a comment, its control, the control's answer under Claude Code). `git status --short` is a read
+#: form class a frees after the read profile since FIX-18 part B (D34); the comment must not change that answer either.
+_R10_1 = [("git config proofbundle.parserMarker comment # don't bypass", "git config proofbundle.parserMarker comment",
+           "ask"),
+          ("git status --short # don't bypass", "git status --short", None)]
 
 
 @pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
-@pytest.mark.parametrize("commented, control", _R10_1, ids=["git-config", "git-status"])
-def test_r10_1_a_git_command_with_a_shell_comment_is_answered_as_its_control(tmp_path, commented, control):
+@pytest.mark.parametrize("commented, control, claude", _R10_1, ids=["git-config", "git-status"])
+def test_r10_1_a_git_command_with_a_shell_comment_is_answered_as_its_control(tmp_path, commented, control, claude):
     """R10-1, the review's case over the real JSON answers of both host paths: the command with the comment is valid
     bash and does what its control does (the config case sets the value), and the gate gives it the control's
-    answer, ask under Claude Code and deny under Codex, with the control's reason. At 494bb373 the commented command
-    got no answer and the log said not_gated."""
+    answer, ask under Claude Code (no decision for the read form of class a, D34) and deny under Codex, with the
+    control's reason. At 494bb373 the commented command got no answer and the log said not_gated."""
     repo = _repo(tmp_path)
     ran = subprocess.run(["bash", "-c", commented], cwd=repo, capture_output=True, text=True, timeout=60, check=False)
     assert ran.returncode == 0, ran.stderr
     if "config" in commented:
         assert _git(repo, "config", "--get", "proofbundle.parserMarker").stdout.strip() == "comment"
-    for host, expected in (("claude", "ask"), ("codex", "deny")):
+    for host, expected in (("claude", claude), ("codex", "deny")):
         logs = tmp_path / f"logs-{host}"
         got, got_ids, got_answer = _hook(repo, logs, host, commented)
         want, want_ids, _ = _hook(repo, logs, host, control)

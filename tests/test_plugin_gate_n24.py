@@ -12,6 +12,10 @@ Red/green at the named commit (claude/codex-plugin):
 - L1, L3, L5, L7, L8, L9, L10 are safety constraints on the new capability; they are green at 096b7191 only
   because the capability does not exist there, so each also has its catch proof in the mutation run (n24/fang),
   where undoing the guard turns the lock red.
+
+The example form is `git stash list`, a local form that asks without a rule. Until FIX-18 part B it was `git status`,
+which class a (DECISIONS.md D34, owner answer 1 of 2026-10-14) now frees after the read profile without any rule, so
+it no longer shows what a rule does.
 """
 from __future__ import annotations
 
@@ -115,11 +119,11 @@ def test_l1_strict_default_ignores_a_matching_free_rule(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
     # no mode file -> strict (the default): the rule does not act, so the form asks under Claude, denies under Codex
-    d_claude, entry = _hook(env, repo, "claude", "git status")
-    d_codex, _ = _hook(env, repo, "codex", "git status")
+    d_claude, entry = _hook(env, repo, "claude", "git stash list")
+    d_codex, _ = _hook(env, repo, "codex", "git stash list")
     assert d_claude == "ask" and d_codex == "deny", (d_claude, d_codex)
     assert entry["mode"] == "strict" and "applied_rule" not in entry
     assert "approved_by_rule" not in entry["reason_ids"]
@@ -131,13 +135,13 @@ def test_l2_with_approvals_a_matching_free_rule_passes(tmp_path):
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
-    d_claude, entry = _hook(env, repo, "claude", "git status")
+    d_claude, entry = _hook(env, repo, "claude", "git stash list")
     assert d_claude is None, d_claude                      # a pass carries no permission decision
     assert entry["decision"] == "none" and entry["verdict"] == "pass"
     assert entry["mode"] == "with-approvals"
-    assert entry["applied_rule"] == {"origin": "rule", "repo": _common(repo), "form": "git status",
+    assert entry["applied_rule"] == {"origin": "rule", "repo": _common(repo), "form": "git stash list",
                                      "effect": "free", "state_match": True}
     assert "approved_by_rule" in entry["reason_ids"]
 
@@ -149,7 +153,7 @@ def test_l2_without_a_rule_the_same_form_still_asks(tmp_path):
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
     _set_rules(gate_dir, [])
-    assert _hook(env, repo, "claude", "git status")[0] == "ask"
+    assert _hook(env, repo, "claude", "git stash list")[0] == "ask"
 
 
 # --- L3: push and gh are never freed, even by a rule that names them -----------------------------------------------
@@ -212,13 +216,13 @@ def test_l5_a_config_change_stops_the_rule(tmp_path):
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
-    assert _hook(env, repo, "claude", "git status")[0] is None       # the rule acts
+    assert _hook(env, repo, "claude", "git stash list")[0] is None       # the rule acts
     _git(repo, "config", "core.pager", "less")                       # the state changes
-    assert _hook(env, repo, "claude", "git status")[0] == "ask"      # the rule no longer acts
+    assert _hook(env, repo, "claude", "git stash list")[0] == "ask"      # the rule no longer acts
     _git(repo, "config", "--unset", "core.pager")                    # restored -> the rule acts again
-    assert _hook(env, repo, "claude", "git status")[0] is None
+    assert _hook(env, repo, "claude", "git stash list")[0] is None
 
 
 def test_l5_a_new_hook_stops_the_rule(tmp_path):
@@ -226,21 +230,21 @@ def test_l5_a_new_hook_stops_the_rule(tmp_path):
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
-    assert _hook(env, repo, "claude", "git status")[0] is None
+    assert _hook(env, repo, "claude", "git stash list")[0] is None
     (pathlib.Path(_common(repo)) / "hooks" / "pre-commit").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    assert _hook(env, repo, "claude", "git status")[0] == "ask"
+    assert _hook(env, repo, "claude", "git stash list")[0] == "ask"
 
 
 # --- L7: a malformed or oversized rule file frees nothing (fail-closed) --------------------------------------------
 @pytest.mark.parametrize("content", [
     "{ not json",                                             # not JSON
     "{}",                                                     # a list is required
-    '[{"repo":"x","form":"git status","effect":"free","state_digest":"d"}]',   # repo not absolute
-    '[{"repo":"/a","form":"git status","effect":"maybe","state_digest":"d"}]',  # effect not free/ask
-    '[{"repo":"/a","form":"git status","effect":"free"}]',   # missing state_digest
-    '[{"repo":"/a","form":"git status","effect":"free","state_digest":"d","extra":1}]',  # unknown key
+    '[{"repo":"x","form":"git stash list","effect":"free","state_digest":"d"}]',   # repo not absolute
+    '[{"repo":"/a","form":"git stash list","effect":"maybe","state_digest":"d"}]',  # effect not free/ask
+    '[{"repo":"/a","form":"git stash list","effect":"free"}]',   # missing state_digest
+    '[{"repo":"/a","form":"git stash list","effect":"free","state_digest":"d","extra":1}]',  # unknown key
 ])
 def test_l7_a_malformed_rule_file_asks(tmp_path, content):
     logs = tmp_path / "logs"
@@ -248,7 +252,7 @@ def test_l7_a_malformed_rule_file_asks(tmp_path, content):
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
     (gate_dir / "rules.json").write_text(content, encoding="utf-8")
-    assert _hook(env, repo, "claude", "git status")[0] == "ask", content
+    assert _hook(env, repo, "claude", "git stash list")[0] == "ask", content
 
 
 def test_l7_a_duplicate_key_in_the_rule_file_asks(tmp_path):
@@ -258,9 +262,9 @@ def test_l7_a_duplicate_key_in_the_rule_file_asks(tmp_path):
     _set_mode(gate_dir, "with-approvals")
     digest = _digest(repo, env)
     (gate_dir / "rules.json").write_text(
-        f'[{{"repo":"{_common(repo)}","form":"git status","form":"git log","effect":"free",'
+        f'[{{"repo":"{_common(repo)}","form":"git stash list","form":"git log","effect":"free",'
         f'"state_digest":"{digest}"}}]', encoding="utf-8")
-    assert _hook(env, repo, "claude", "git status")[0] == "ask"
+    assert _hook(env, repo, "claude", "git stash list")[0] == "ask"
 
 
 # --- L8: under Codex, rules are ignored and every form denies ------------------------------------------------------
@@ -269,9 +273,9 @@ def test_l8_codex_denies_even_with_a_matching_free_rule(tmp_path):
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
-    d_codex, entry = _hook(env, repo, "codex", "git status")
+    d_codex, entry = _hook(env, repo, "codex", "git stash list")
     assert d_codex == "deny"
     assert "applied_rule" not in entry and "approved_by_rule" not in entry["reason_ids"]
 
@@ -284,9 +288,9 @@ def test_l9_an_unknown_or_oversized_mode_is_strict(tmp_path, mode_text):
     env, gate_dir = _gate_env(tmp_path, logs)
     repo = _repo(tmp_path)
     (gate_dir / "mode").write_text(mode_text, encoding="utf-8")
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free",
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free",
                            "state_digest": _digest(repo, env)}])
-    d_claude, entry = _hook(env, repo, "claude", "git status")
+    d_claude, entry = _hook(env, repo, "claude", "git stash list")
     assert d_claude == "ask" and entry["mode"] == "strict", mode_text
 
 
@@ -297,9 +301,9 @@ def test_l10_an_ask_rule_forces_a_question(tmp_path):
     repo = _repo(tmp_path)
     _set_mode(gate_dir, "with-approvals")
     digest = _digest(repo, env)
-    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git status", "effect": "free", "state_digest": digest},
-                          {"repo": _common(repo), "form": "git status", "effect": "ask", "state_digest": digest}])
-    d_claude, entry = _hook(env, repo, "claude", "git status")
+    _set_rules(gate_dir, [{"repo": _common(repo), "form": "git stash list", "effect": "free", "state_digest": digest},
+                          {"repo": _common(repo), "form": "git stash list", "effect": "ask", "state_digest": digest}])
+    d_claude, entry = _hook(env, repo, "claude", "git stash list")
     assert d_claude == "ask" and "applied_rule" not in entry
 
 
@@ -328,11 +332,11 @@ def test_state_digest_cli_outside_a_repository_reports_and_exits_1(tmp_path):
 
 # --- a path invocation or a global option is never a rule candidate ------------------------------------------------
 @pytest.mark.parametrize("command", [
-    "/usr/bin/git status",             # a program path, not a bare git
-    "git -c core.pager=less status",   # a per-command config option
-    "git -C . status",                 # a -C global option
-    "GIT_PAGER=less git status",       # a prefix assignment
-    "git status && git log",           # a chain
+    "/usr/bin/git stash list",             # a program path, not a bare git
+    "git -c core.pager=less stash list",   # a per-command config option
+    "git -C . stash list",                 # a -C global option
+    "GIT_PAGER=less git stash list",       # a prefix assignment
+    "git stash list && git log",           # a chain
 ])
 def test_a_non_plain_form_is_never_freed_by_a_rule(tmp_path, command):
     """Even a rule whose form is byte-identical to the command cannot free a non-plain form: the command must be

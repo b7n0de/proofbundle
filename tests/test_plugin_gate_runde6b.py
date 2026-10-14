@@ -10,7 +10,8 @@ nothing: every helper path below is a file that is never executed. Red against c
 
 Since review Runde 9 (owner choice B) no git form that acts on a repository is free: the cases that stayed
 free here now ask (`_not_free`), and the gate no longer reads the repository state for a git form. The write
-gate's cases are unchanged.
+gate's cases are unchanged. Since FIX-18 part B (class a, DECISIONS.md D34) a read form of its grammar is free under
+Claude Code after the read profile of its repository; each case that changed with it says so.
 """
 from __future__ import annotations
 
@@ -153,12 +154,27 @@ def test_s1_form_with_a_program_selecting_key_or_hook_is_not_measured(tmp_path, 
     assert "selects a program" in text or "hook" in text, text
 
 
-@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS if c not in ("git fetch origin", "git add a.txt")])
+#: The read forms of S1, free after the read profile since FIX-18 part B (class a, D34); the key above keeps each not
+#: free.
+S1_READ = ("git status --short", "git diff HEAD")
+
+
+@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS
+                                     if c not in ("git fetch origin", "git add a.txt") + S1_READ])
 def test_s1_form_in_a_repository_without_such_keys_or_hooks_is_not_free_either(tmp_path, command):
     """fetch left the list (R7-2); `git add a.txt` is free in such a repository since owner choice K-NW-2 B
-    (2026-10-08), after the state check, and its clean filter above keeps it not free."""
+    (2026-10-08), after the state check, and its clean filter above keeps it not free; the two read forms are free
+    there since class a (D34), see the next test."""
     repo = _repo(tmp_path)
     assert _not_free(command, repo), command
+
+
+@pytest.mark.parametrize("command", S1_READ)
+def test_s1_read_form_without_such_keys_or_hooks_is_free_after_the_read_profile(tmp_path, command):
+    """Class a (D34, owner answer 1 of 2026-10-14): in a repository without the fsmonitor or the diff driver of S1."""
+    outcome = gate.decide(command, str(_repo(tmp_path)), _deadline())
+    assert outcome is not None and outcome.decision == "pass", (command, outcome and outcome.text)
+    assert {v.reason_id for v in outcome.verdicts} == {"free_after_read_profile"}
 
 
 def test_git_add_without_such_keys_or_hooks_is_free_after_the_state_check(tmp_path):
@@ -221,16 +237,19 @@ def test_a_global_program_key_counts(tmp_path, monkeypatch):
 def test_a_free_form_after_a_directory_change_is_not_measured(tmp_path):
     repo = _repo(tmp_path)
     assert _decision("cd . && git status", repo)[0] == "ask"
-    # Review Runde 7, R7-4: only the first run of a chain acts in the state the gate reads, so the free form of a
-    # later run is NOT MEASURED; the first run stays free.
-    assert _decision("git status && git log --oneline -n 3", repo)[0] == "ask"
-    assert _not_free("git status; true", repo)   # review Runde 9: the first run is not free either
+    # Review Runde 7, R7-4: only the first run of a chain acts in the state the gate reads, so a later run is NOT
+    # MEASURED where a step before it may change that state. Since FIX-18 part B class c judges each step, and a read
+    # form of class a changes no state another step's answer read (D33, D34): two read forms in a chain are free.
+    assert _decision("git status && git log --oneline -n 3", repo)[0] == "pass"
+    assert _not_free("git stash list; true", repo)   # review Runde 9: a form outside class a is not free either
 
 
 @pytest.mark.parametrize("command", ["git merge side", "git pull", "git rebase side", "git cherry-pick side",
-                                     "git clone x y", "git gc", "git worktree list", "git verify-commit HEAD",
+                                     "git clone x y", "git gc", "git verify-commit HEAD",
                                      "git fetch origin", "git ls-remote origin"])   # the last two: R7-2
 def test_entries_whose_program_list_is_not_fully_justified_left_the_allow_list(tmp_path, command):
+    """`git worktree list` was on this list until FIX-18 part B; class a (D34) frees it as a fixed read form after
+    the read profile, measured to start nothing under any source (DESIGN_rueckfragen.md 3.1)."""
     repo = _repo(tmp_path)
     assert _decision(command, repo)[0] == "ask", command
 
@@ -332,23 +351,35 @@ def test_git_init_left_the_allow_list(tmp_path):
 
 
 @pytest.mark.parametrize("command", ["git rev-parse :a.txt", "git cat-file -p :a.txt", "git grep a",
-                                     "git log --oneline -n 1", "git check-attr diff a.txt",
-                                     "git check-ignore a.txt", "git ls-tree HEAD", "git show HEAD", "git branch",
+                                     "git check-attr diff a.txt", "git check-ignore a.txt",
                                      "git config --get user.name"])
 def test_a_fsmonitor_hook_counts_for_every_entry_because_any_index_read_queries_it(tmp_path, command):
     """read-cache.c post_read_index_from calls tweak_fsmonitor, which queries the hook (fsmonitor.c), and a
-    revision :<path> reads the index; the gate does not try to tell which entry reads the index."""
+    revision :<path> reads the index. Since FIX-18 part B class a (D34) tells the read forms that read the index from
+    those that do not by measurement: a form that walks the work tree counts fsmonitor, a word that names an index
+    entry keeps any form asked, and the forms below read no index (a/fsmonitor_index*.py)."""
     repo = _repo(tmp_path)
     _git(repo, "config", "core.fsmonitor", _helper(tmp_path))
     decision, text = _decision(command, repo)
     assert decision == "ask", (command, text)
-    assert _not_free(command, repo), text   # review Runde 9: asked as a git form, the key is not read
+    assert _not_free(command, repo), text
+
+
+@pytest.mark.parametrize("command", ["git log --oneline -n 1", "git ls-tree HEAD", "git show HEAD", "git branch"])
+def test_a_read_form_that_reads_no_index_is_free_beside_a_fsmonitor_hook(tmp_path, command):
+    """Measured with git 2.43.0 in throwaway repositories, with and without a `git status` before: these forms never
+    started the configured fsmonitor (a/fsmonitor_index.py, a/fsmonitor_index3.py); class a frees them (D34)."""
+    repo = _repo(tmp_path)
+    _git(repo, "config", "core.fsmonitor", _helper(tmp_path))
+    assert _decision(command, repo)[0] == "pass", command
 
 
 def test_the_built_in_fsmonitor_daemon_is_a_boolean_and_selects_no_configured_program(tmp_path):
+    """Class a (D34): `true` starts the built-in daemon for a form that walks the work tree, so git status asks;
+    git rev-parse HEAD reads no index and is free after the read profile."""
     repo = _repo(tmp_path)
     _git(repo, "config", "core.fsmonitor", "true")
-    assert _not_free("git rev-parse HEAD", repo)   # review Runde 9: no free form
+    assert _decision("git rev-parse HEAD", repo)[0] == "pass"
     assert _not_free("git status", repo)
 
 
@@ -364,12 +395,19 @@ def test_a_format_or_sort_value_that_verifies_signatures_is_not_measured(tmp_pat
     assert _decision(command, repo)[0] == "ask", command
 
 
-@pytest.mark.parametrize("command", ["git log --format=%h", "git log --pretty=oneline",
-                                     "git for-each-ref --format='%(refname)'", "git branch --sort=-committerdate",
-                                     "git tag -l --sort=version:refname"])
+@pytest.mark.parametrize("command", ["git tag -l --sort=version:refname"])
 def test_a_format_or_sort_value_without_a_signature_is_not_free_either(tmp_path, command):
+    """Not a form of class a: tag is not on its grammar."""
     repo = _repo(tmp_path)
     assert _not_free(command, repo), command
+
+
+@pytest.mark.parametrize("command", ["git log --format=%h", "git log --pretty=oneline",
+                                     "git for-each-ref --format='%(refname)'", "git branch --sort=-committerdate"])
+def test_a_format_or_sort_value_without_a_signature_is_free_after_the_read_profile(tmp_path, command):
+    """Class a (D34): the grammar takes these values, which read no signature; until FIX-18 part B they asked."""
+    repo = _repo(tmp_path)
+    assert _decision(command, repo)[0] == "pass", command
 
 
 @pytest.mark.parametrize("key, value, command", [
@@ -449,12 +487,23 @@ def test_a_program_selecting_variable_in_the_hooks_environment_counts_like_its_k
 
 @pytest.mark.parametrize("name, value, command", [
     ("GIT_EDITOR", "true", "git commit"), ("GIT_EDITOR", ":", "git commit"), ("PAGER", "cat", "git log"),
-    ("GIT_PAGER", "", "git log"), ("GIT_EXTERNAL_DIFF", "HELPER", "git status"), ("GIT_ASKPASS", "HELPER", "git log")])
+    ("GIT_PAGER", "", "git log"), ("GIT_EXTERNAL_DIFF", "HELPER", "git status")])
 def test_a_neutral_value_or_a_variable_the_entry_does_not_use_is_not_free_either(tmp_path, monkeypatch, name,
                                                                                    value, command):
+    """A pager variable counts for a read form by its presence (class a, owner answer 3), and the read profile does not
+    know GIT_EXTERNAL_DIFF to start nothing."""
     repo = _repo(tmp_path)
     monkeypatch.setenv(name, {"HELPER": _helper(tmp_path)}.get(value, value))
     assert _not_free(command, repo), (name, command)
+
+
+def test_an_askpass_helper_does_not_keep_a_read_form_asked(tmp_path, monkeypatch):
+    """Class a (D34): GIT_ASKPASS starts a program only for a transfer; a read form of the grammar makes none, and a
+    promisor remote, the one lazy fetch, keeps every read form asked (measured: core.askPass started nothing for any
+    read form, DESIGN_rueckfragen.md 3.1). Until FIX-18 part B this case asked."""
+    repo = _repo(tmp_path)
+    monkeypatch.setenv("GIT_ASKPASS", _helper(tmp_path))
+    assert _decision("git log", repo)[0] == "pass"
 
 
 def test_the_free_list_machinery_is_gone():
@@ -470,13 +519,22 @@ def test_the_free_list_machinery_is_gone():
 
 # --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
 
-@pytest.mark.parametrize("command", ["git commit", "git status", "git log --oneline -n 1"])   # fetch left (R7-2)
+@pytest.mark.parametrize("command", ["git commit", "git status"])   # fetch left (R7-2)
 def test_a_form_that_never_pushes_asks_with_or_without_the_ebene_2_pre_push_hook(tmp_path, command):
     """githooks(5): pre-push is called by git-push(1) only. Measured in Nachtrag 19b: with every githooks(5)
-    name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED."""
+    name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED. git status walks the work
+    tree, and class a counts any hook that is not a sample for such a form (D34)."""
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", "pre-push")
     assert _not_free(command, repo), command   # review Runde 9: every form asks, with the hook or without
+
+
+def test_a_read_form_that_does_not_walk_is_free_beside_the_ebene_2_pre_push_hook(tmp_path):
+    """Class a (D34): hooks count only for a form that walks the work tree; git log starts no hook (measured,
+    a/wahrheit_a.py). Until FIX-18 part B this case asked."""
+    repo = _repo(tmp_path)
+    _hook(repo / ".git" / "hooks", "pre-push")
+    assert _decision("git log --oneline -n 1", repo)[0] == "pass"
 
 
 @pytest.mark.parametrize("hook, command", [
@@ -492,17 +550,30 @@ def test_a_hook_githooks_names_for_the_entry_counts(tmp_path, hook, command):
 
 # --- the signing program alone starts nothing; what triggers signing or verification counts -----------------
 
-@pytest.mark.parametrize("command", ["git log", "git show HEAD", "git branch", "git tag -l", "git commit",
-                                     "git stash list"])
+def _signing_program_only(repo, tmp_path):
+    _git(repo, "config", "gpg.format", "ssh")
+    _git(repo, "config", "gpg.ssh.program", _helper(tmp_path))
+    _git(repo, "config", "gpg.program", _helper(tmp_path))
+
+
+@pytest.mark.parametrize("command", ["git tag -l", "git commit", "git stash list"])
 def test_a_form_with_only_a_configured_signing_program_is_not_free_either(tmp_path, command):
     """gpg.program and gpg.<format>.program choose which program signs or verifies; log and show verify only
     under show_signature (log-tree.c), stash never signs (builtin/stash.c). Measured in Nachtrag 19b: the
     shape of this cloud container (gpg.ssh.program set) made git log NOT MEASURED while it ran nothing."""
     repo = _repo(tmp_path)
-    _git(repo, "config", "gpg.format", "ssh")
-    _git(repo, "config", "gpg.ssh.program", _helper(tmp_path))
-    _git(repo, "config", "gpg.program", _helper(tmp_path))
+    _signing_program_only(repo, tmp_path)
     assert _not_free(command, repo), command   # review Runde 9: no free form
+
+
+@pytest.mark.parametrize("command", ["git log", "git show HEAD", "git branch"])
+def test_a_read_form_with_only_a_configured_signing_program_is_free_after_the_read_profile(tmp_path, command):
+    """Class a (D34): the signing settings are inert for the read forms, whose grammar and profile let none read a
+    signature (measured: gpg.program and an SSH signing set-up started nothing for them). Until FIX-18 part B these
+    cases asked."""
+    repo = _repo(tmp_path)
+    _signing_program_only(repo, tmp_path)
+    assert _decision(command, repo)[0] == "pass", command
 
 
 @pytest.mark.parametrize("key, command", [("commit.gpgsign", "git commit"), ("log.showsignature", "git log"),

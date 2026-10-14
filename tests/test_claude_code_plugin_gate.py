@@ -329,13 +329,20 @@ def test_a_gated_call_is_found_in_every_shell_form(command, expected):
 
 
 @pytest.mark.parametrize("command, label", [
-    ("git status", "git status"), ("git stash push", "git stash"), ("git log --grep push", "git log"),
+    ("git stash push", "git stash"), ("git log --grep push", "git log"),
     ("git config push.default simple", "git config"),
 ])
 def test_a_git_form_that_acts_on_a_repository_is_never_free(command, label):
-    """Review Runde 9, owner choice B: these four forms were left alone as local subcommands; every git form that
-    acts on a repository is NOT MEASURED now, whatever its words."""
+    """Review Runde 9, owner choice B: these forms were left alone as local subcommands; every git form that acts on
+    a repository is NOT MEASURED now, whatever its words. The fourth form of the review, `git status`, is a read form
+    of class a since FIX-18 part B (D34): see the next test."""
     assert gate.gated_calls(command) == [(label, gate.UNKNOWN, [gate._NOT_FREE])]
+
+
+def test_a_read_form_is_only_marked_for_the_read_profile():
+    """Class a (D34, owner answer 1 of 2026-10-14): the scan marks `git status` for the judge, which frees it only
+    after the read profile of its repository; the scan alone frees nothing."""
+    assert gate.gated_calls("git status") == [("git status", ".", [gate._READ_FREE])]
 
 
 @pytest.mark.parametrize("command", [
@@ -410,7 +417,8 @@ def test_a_malformed_declaration_is_refused(raw):
 def test_a_call_the_gate_does_not_know_gets_no_answer(shim, repo):
     assert run_gate(shim, repo, "ls -la && echo done") is None
     assert run_gate(shim, repo, "git --version") is None
-    assert decision(run_gate(shim, repo, "git status && ls")) == "ask"   # review Runde 9: no free git form
+    # review Runde 9: no git form outside class a (D34) is free, in a chain neither
+    assert decision(run_gate(shim, repo, "git stash list && ls")) == "ask"
 
 
 def test_declared_evidence_that_verifies_gets_no_permission_decision(shim, repo):

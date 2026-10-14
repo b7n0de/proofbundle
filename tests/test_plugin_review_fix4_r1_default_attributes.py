@@ -77,15 +77,17 @@ def test_the_digest_binds_the_default_attribute_file(default_attributes):
 
 
 def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, default_attributes):
+    """The form is `git stash list`, which asks without a rule; `git status` was the form until FIX-18 part B, and
+    class a (D34) frees it after the read profile without any rule."""
     repo, attrs = default_attributes
     env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
     n24._set_mode(gate_dir, "with-approvals")
-    n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git status", "effect": "free",
+    n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git stash list", "effect": "free",
                                "state_digest": n24._digest(repo, env)}])
-    decision, entry = n24._hook(env, repo, "claude", "git status")
+    decision, entry = n24._hook(env, repo, "claude", "git stash list")
     assert decision is None and "approved_by_rule" in entry["reason_ids"], entry
     attrs.write_text("a.txt review=two\n", encoding="utf-8")
-    decision, entry = n24._hook(env, repo, "claude", "git status")
+    decision, entry = n24._hook(env, repo, "claude", "git stash list")
     assert decision == "ask", entry
     assert "approved_by_rule" not in entry["reason_ids"] and "git_form_not_free" in entry["reason_ids"], entry
 
@@ -95,11 +97,11 @@ def test_codex_denies_before_and_after_the_change(tmp_path, default_attributes):
     repo, attrs = default_attributes
     env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
     n24._set_mode(gate_dir, "with-approvals")
-    n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git status", "effect": "free",
+    n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git stash list", "effect": "free",
                                "state_digest": n24._digest(repo, env)}])
-    before, _ = n24._hook(env, repo, "codex", "git status")
+    before, _ = n24._hook(env, repo, "codex", "git stash list")
     attrs.write_text("a.txt review=two\n", encoding="utf-8")
-    after, entry = n24._hook(env, repo, "codex", "git status")
+    after, entry = n24._hook(env, repo, "codex", "git stash list")
     assert before == "deny" and after == "deny", entry
     assert "approved_by_rule" not in entry["reason_ids"]
 

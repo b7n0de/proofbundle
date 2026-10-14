@@ -150,9 +150,11 @@ def test_a_structural_keyword_with_an_expansion_is_deliberately_not_measured(tmp
     _gated(_repo(tmp_path), tmp_path / "logs", command)
 
 
-@pytest.mark.parametrize("command", ["git status"])
+@pytest.mark.parametrize("command", ["git stash list"])
 def test_the_literal_controls_are_still_gated(tmp_path, command):
-    """The literal push has a control of its own below (owner choice 1 A)."""
+    """The literal push has a control of its own below (owner choice 1 A). Class a (D34) frees the literal `git status`
+    after the read profile, while every hidden spelling above stays NOT MEASURED (a word the shell builds is not the
+    word the gate reads), so the control is `git stash list`, a literal form outside class a."""
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason=None)
 
 

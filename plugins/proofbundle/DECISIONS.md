@@ -126,9 +126,10 @@ MEASURED. The remote itself is not read.
       asked under Claude Code and denied under Codex. Only the exact bare command text `git --version` is
       exempt from judgment as a git form, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms
       after a state check of their repository (`git add` and `git commit -m`, the subsection "two forms after
-      a state check" below). The separate push path remains. Under Claude Code it denies an evidenced failure
-      at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED
-      whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the
+      a state check" below), and, since the owner's answer 1 of 2026-10-14, under Claude Code the read forms of
+      class a after the read profile of their repository (D34). The separate push path remains. Under Claude
+      Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the
+      push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the
       destination's state is Level 2's, on git's own ref lines (review round 10, R10-5); a repository that declares
       nothing stays outside Level 1, as local inactivity with no decision, where the four conditions of owner choice
       1 A of 2026-10-11 hold (D5); under Codex every push
@@ -2236,5 +2237,70 @@ a hook. Under Codex asks 106 → 87 and nothing that was free asks or is denied.
 
 Limits, in plain words: the parser models bash 5.2 and was not measured under zsh; it sees the command, not the
 functions and aliases a host may load into its Bash tool before it; a write after a `cd` to a relative path is not
-judged until class e. The answers of the other classes (a, b, d, e, g) are unchanged: a read form such as `git status`
-in a chain still asks.
+judged until class e. The answers of the other classes (b, d, e, g) are unchanged by class c; class a (D34) frees a
+read form after its read profile, alone or as a step that class c judges on its own.
+
+## D34. A read form free after a read profile: class a of the ask load (FIX-18 part B, 2026-10-14)
+
+Owner answers 1 to 3 and 10 of 2026-10-14, equal to the reviewer's recommendations, and the owner's reading of answer
+1 of 2026-10-14, 17:5x Berlin: a read profile, built as a narrow new piece of the plugin and not taken over from the
+prototype; the git-lfs standard filter is not inert; the pipe of the Bash tool, and with it an inert pager, only for a
+bound host adapter; class a off under Codex. This reopens owner choice B of review Runde 9 (D3) for read forms only.
+
+Built: a read form is free under Claude Code when it is the whole command (or a step class c judges on its own, D33),
+headed by a bare `git` with at most one literal `-C`, every option before `--` on the grammar of its form
+(_READ_GRAMMAR, _read_form), no word before `--` one the shell may rewrite, no redirection, and the read profile of its
+repository (_read_profile_problem) finds nothing that starts a program for it. Reason id `free_after_read_profile`.
+- The forms: log, show, diff, rev-list, grep, status, ls-files, rev-parse, for-each-ref, branch as a listing,
+  ls-tree, show-ref, merge-base, describe, `worktree list` and `cat-file -t|-s|-e|-p <object>`. Not on the list: config
+  read forms (class g), shortlog (it reads standard input when that is no terminal) and every form that writes.
+- The grammar takes only options that print, select or order. Not on it: --ext-diff, --textconv, --output,
+  --show-signature, -L, --no-index, `-O`, `-f`, --recurse-submodules, --dirty, `status -v`, a --format or --pretty that
+  reads a signature (`%G…` with git's modifiers) or names a user format or a `%(…)` placeholder, a ref-filter atom
+  outside names, ids, dates, people and the subject, a --color other than `=never`, and `rev-parse
+  --show-superproject-working-tree`. An option takes its value as the next word only where git was measured to take
+  that word as the value even when it looks like an option (`log -n`, `grep -e -A -B -C -m`). A branch pattern counts
+  only with --list (without it a name creates a branch). A revision word or a `--opt=value` value before `--` that may
+  name an index entry (`:path`, `:0:path`, also after `^` or in a range) keeps any form asked: resolving it reads the
+  index, and reading the index queries fsmonitor for every form (measured for rev-parse, log, show, rev-list,
+  describe, ls-tree, merge-base, cat-file and a --points-at or --contains value; a path after `--` reads no index).
+- The profile reads what K-NW-2 B reads (the effective configuration with every include, the hook directory, the
+  hook's GIT_* names) and is an allow-list too: an unknown key, GIT_* name or hook keeps the ask. Not free for any form:
+  a promisor key, read by its presence (C-5); a pager key (core.pager, pager.*), and GIT_PAGER or PAGER, the two names
+  git reads to choose the pager, because no host adapter is bound (answer 3; review Runde 6, point 1: a
+  program-selecting variable counts like its key); log.showSignature, format.pretty, pretty.*, submodule.*, and every
+  diff.* key that is no display setting. A prefix assignment of the command counts as the hook's environment does
+  (`GIT_PAGER=cat git log` asks; `LC_ALL=C git log` does not), as the whole command and as a step of class c. Not
+  free for a form that walks the work tree (status, diff, grep, ls-files): a filter, the git-lfs standard filter
+  included (answer 2); fsmonitor that git does not read as false; any hook that is not a sample; a submodule
+  (a .gitmodules, or a gitlink in the index). The index is listed through the gate's own git path with fsmonitor and
+  hooks off, after the profile has found neither (Q18-2). The signing settings are inert for these forms: the grammar
+  and the profile let no form read a signature.
+- Under Codex a read form keeps the answer of D3 (answer 10). Inside a longer command, class c judges the read form
+  as a step of its own; a read form changes no state another step's answer reads (_sh_changes_state). A `git add`
+  before a form that walks the work tree counts as a step that changes the state that form's answer read: it may add
+  the gitlink of an embedded repository, and a later status or diff then starts that submodule's fsmonitor (measured:
+  `git add sub && git status` and `git add sub && git diff` started it, `git add sub`, `git add sub && git commit -m x`
+  and `git add sub && git log --oneline -1` did not).
+
+Measured with git 2.43.0, stdout a pipe, in throwaway repositories: fsmonitor, filters and the post-index-change hook
+start only for the forms that walk the work tree and for a word that names an index entry (18 of 18 such words); 47
+other forms and options of the grammar never started the configured fsmonitor, with or without a `git status` before
+(this replaces, for the read forms, the earlier reading that the gate does not try to tell which form reads the
+index); diff drivers for log, show and diff; a signature program only where a signature is read; a promisor remote
+for every form that reads a missing object; a pager only on a terminal.
+
+What it changes, measured on the plugin before and after (archive of FIX-18 part B, class a, against 6da239e4): asks
+89 → 55 in the declared repository with a clean configuration, 91 → 74 with the container configuration, over the
+four cells 358 → 256; no deny lost; the 318 runs of the harmful and done-check cases keep their required answer; in
+none of the 212 runs whose ground truth executes a gated call is the gate free where it was not; nothing that was free
+asks or is denied. Under Codex asks 87 → 87. The ground truth of class a, 33 sources by 42 read forms each run for
+real with stdout a pipe (1386 rows): 431 rows are free after, in none of them did the real run start a program; no row
+that was free asks; the gate itself started none of the programs it checks for.
+
+Limits, in plain words: the grammar and the allow-lists are those of git 2.43.0; a newer git with a new option or a new
+key keeps the ask until the list names it, but a new default behaviour of a listed form is not measured, and nor is
+which forms read the index in another git. LESS and LESSOPEN of the host's environment are not read, like PATH (D27):
+they act inside git's default pager, only on a terminal. Whether a real Claude Code host sets PAGER or GIT_PAGER for
+its hooks is not measured; where it does, class a frees nothing on that host. A form in a repository with a submodule
+that does not walk the work tree is judged without the submodule.

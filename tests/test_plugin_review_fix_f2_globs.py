@@ -227,9 +227,11 @@ def _hook(env: dict, repo: pathlib.Path, command: str) -> str | None:
     return answer.get("hookSpecificOutput", {}).get("permissionDecision")
 
 
-@pytest.mark.parametrize("form,frees", [("git log *", False), ("git log -- *", False), ("git log 'a*'", True),
-                                        ("git log", True)])
+@pytest.mark.parametrize("form,frees", [("git blame *", False), ("git blame -- *", False), ("git blame 'a*'", True),
+                                        ("git blame a.txt", True)])
 def test_a_rule_frees_no_form_with_a_word_the_shell_rewrites(tmp_path, repo, form, frees):
+    """The forms are blame forms, which ask without a rule. Until FIX-18 part B they were log forms; class a (D34) frees
+    `git log` and `git log -- *` (a glob after `--` is a path) after the read profile without any rule."""
     gate_dir = tmp_path / "gatehome" / ".config" / "proofbundle"
     gate_dir.mkdir(parents=True)
     env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(tmp_path / "logs"), "PLUGIN_DATA": str(tmp_path / "logs"),

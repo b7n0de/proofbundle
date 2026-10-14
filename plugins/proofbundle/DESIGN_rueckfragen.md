@@ -128,6 +128,24 @@ not taken over from the prototype. It frees a read form after a read profile of 
   file. Every git read the gate makes for this check, the submodule listing included, goes through its hardened git
   path, with fsmonitor and hooks off (Q18-2, section 6).
 
+**Built in the plugin (D34), and what the measurement copy of the prototype missed.** The plugin's read profile is
+written anew from these rules (owner answer 1, read again on 2026-10-14, 17:5x). Measured against real git in
+throwaway repositories: a signature is also read where a default format (`format.pretty`) or a named format
+(`pretty.<name>`) holds a `%G` placeholder; `git log -1` and `git show HEAD` then started the `gpg` on PATH. The
+measurement copy of the prototype counted `format.pretty` as inert and freed both forms; the plugin's profile does not
+know these keys and asks. No host adapter is bound in the plugin, so every pager key counts (answer 3).
+
+Three more holes, found while the plugin's profile was built and closed before its commit (each a test of its own):
+
+- A word that names an index entry (`git rev-parse :a.txt`, `git show :a.txt`, `git cat-file -p :a.txt`, a
+  `--points-at=:a.txt`) reads the index, and reading the index queries fsmonitor for a form that does not walk the
+  work tree too. Such a word keeps any form asked.
+- PAGER is the second name git reads to choose the pager, beside GIT_PAGER; it counts like core.pager, in the hook's
+  environment and as a prefix assignment of the command. Class c judged a step without its prefix assignments; it
+  now judges the step as written.
+- A `git add` of an embedded repository adds a gitlink, and a later `git status` or `git diff` in the same chain then
+  starts that submodule's fsmonitor. A `git add` counts as a state change before a form that walks the work tree.
+
 **Cost.** This reopens owner choice B of review Runde 9 for read forms. The removed free list was a deny-list with
 per-entry profiles. The read profile is an allow-list, like K-NW-2 B, and git itself reads booleans (`_git_false`).
 
