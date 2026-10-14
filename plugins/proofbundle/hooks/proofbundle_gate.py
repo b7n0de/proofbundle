@@ -5709,8 +5709,7 @@ def _read_mode(environ: dict) -> str:
     if directory is None:
         return "strict"
     try:
-        with open(os.path.join(directory, "mode"), "rb") as handle:
-            raw = handle.read(MAX_MODE_BYTES + 1)
+        raw = _read_regular(os.path.join(directory, "mode"), MAX_MODE_BYTES + 1, follow=True)   # R18-2 class
     except OSError:
         return "strict"
     if len(raw) > MAX_MODE_BYTES:
@@ -5728,8 +5727,7 @@ def _read_rules(environ: dict) -> list[dict]:
     if directory is None:
         return []
     try:
-        with open(os.path.join(directory, "rules.json"), "rb") as handle:
-            raw = handle.read(MAX_RULES_BYTES + 1)
+        raw = _read_regular(os.path.join(directory, "rules.json"), MAX_RULES_BYTES + 1, follow=True)   # R18-2 class
     except OSError:
         return []
     if len(raw) > MAX_RULES_BYTES:
@@ -5836,8 +5834,7 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
                 hooks.append([name, oct(stat.S_IMODE(info.st_mode)), "nonfile"])
                 continue
             try:
-                with open(full, "rb") as handle:
-                    content = handle.read(MAX_HOOK_BYTES + 1)
+                content = _read_regular(full, MAX_HOOK_BYTES + 1, follow=True)   # checked again at the descriptor
             except OSError:
                 return None
             if len(content) > MAX_HOOK_BYTES:
@@ -5863,8 +5860,7 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
         if not stat.S_ISREG(info.st_mode):
             return None
         try:
-            with open(path, "rb") as handle:
-                attrs.append([label, path, hashlib.sha256(handle.read()).hexdigest()])
+            attrs.append([label, path, hashlib.sha256(_read_regular(path, -1, follow=True)).hexdigest()])
         except OSError:
             return None
     env = sorted((name, value) for name, value in environ.items()
@@ -5971,8 +5967,7 @@ def _gate_files_stamp(environ: dict) -> str:
         path = os.path.join(directory, name)
         try:
             st = os.lstat(path)
-            with open(path, "rb") as handle:
-                digest = hashlib.sha256(handle.read(MAX_RULES_BYTES + 1)).hexdigest()[:16]
+            digest = hashlib.sha256(_read_regular(path, MAX_RULES_BYTES + 1, follow=True)).hexdigest()[:16]
             when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime))
             parts.append(f"{path} last changed {when} (sha256 {digest}…)")
         except OSError:
@@ -6750,8 +6745,16 @@ def write_log(entry: dict, host: str) -> str | None:
     try:
         if os.path.exists(path) and os.path.getsize(path) > MAX_LOG_BYTES:
             os.replace(path, path + ".1")
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+        # A FIFO with no reader is never waited on (R18-2 class): the open does not block, and an entry that is no
+        # regular file at the opened descriptor is not written to.
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
+                     | getattr(os, "O_CLOEXEC", 0), 0o644)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            os.write(fd, (json.dumps(entry, sort_keys=True) + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
     except OSError:
         return None
     return path
@@ -6872,8 +6875,7 @@ def working_state(repo: str, deadline: float) -> dict:
                 mode, data = b"120000", os.readlink(full)
             elif stat.S_ISREG(st.st_mode):
                 mode = b"100755" if st.st_mode & stat.S_IXUSR else b"100644"
-                with open(full, "rb") as handle:
-                    data = handle.read()
+                data = _read_regular(full, -1)   # checked again at the descriptor (R18-2 class)
             else:
                 state["problem"] = f"{shown} is neither a regular file nor a link in the working tree"
                 return state
@@ -7013,8 +7015,10 @@ def _receipt_bytes(path: str) -> bytes | None:
         raise GateError(f"the receipt {path} is not a regular file")
     if st.st_size > MAX_EVIDENCE_BYTES:
         raise GateError(f"the receipt {path} is larger than {MAX_EVIDENCE_BYTES} bytes")
-    with open(path, "rb") as handle:
-        return handle.read(MAX_EVIDENCE_BYTES + 1)
+    try:
+        return _read_regular(path, MAX_EVIDENCE_BYTES + 1)   # checked again at the descriptor (R18-2 class)
+    except _NotRegular as exc:
+        raise GateError(f"the receipt {path} is not a regular file") from exc
 
 
 def _signed_payload(content: bytes) -> bytes | None:
@@ -7415,9 +7419,7 @@ def _read_done_file(repo: str, name: str, kind: str) -> dict | None:
         st = os.lstat(path)
         if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_STATE_BYTES:
             return None
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(fd, "rb") as handle:
-            doc = strict_json(handle.read(MAX_STATE_BYTES + 1))
+        doc = strict_json(_read_regular(path, MAX_STATE_BYTES + 1))   # checked again at the descriptor
     except (OSError, ValueError):
         return None
     return doc if isinstance(doc, dict) and doc.get("schema") == DONE_FILES_SCHEMA.format(kind) else None
@@ -7986,8 +7988,10 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
         raise GateError("--key must be an absolute path outside the repository")
     declaration = os.path.join(repo, *DECLARATION.split("/"))
     if os.path.lexists(declaration):
-        with open(declaration, "rb") as handle:
-            raw = handle.read(MAX_DECLARATION_BYTES + 1)
+        try:
+            raw = _read_regular(declaration, MAX_DECLARATION_BYTES + 1, follow=True)   # R18-2 class
+        except _NotRegular as exc:
+            raise GateError(f"{DECLARATION} is not a regular file") from exc
         parse_declaration(raw)
         doc = strict_json(raw)
         if "done" in doc:
@@ -8278,8 +8282,7 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
                 return f"{shown} is a file in the commit but not a regular file in the working tree"
             if bool(st.st_mode & stat.S_IXUSR) != (mode == b"100755"):
                 return f"{shown} has another execute bit in the working tree than in the commit"
-            with open(full, "rb") as handle:
-                data = handle.read()
+            data = _read_regular(full, -1)   # checked again at the descriptor (R18-2 class)
         hasher = _BLOB_HASHES[len(oid)](b"blob %d\0" % len(data))
         hasher.update(data)
         if hasher.hexdigest() != oid:
@@ -8334,8 +8337,7 @@ def _junit_counts(path: str, suite_name: str) -> tuple[dict, str]:
     import xml.etree.ElementTree as ElementTree  # only this subcommand reads XML
 
     try:
-        with open(path, "rb") as handle:
-            data = handle.read(MAX_REPORT_BYTES + 1)
+        data = _read_regular(path, MAX_REPORT_BYTES + 1, follow=True)   # R18-2 class: a FIFO is never waited on
     except OSError as exc:
         raise GateError("the command wrote no JUnit XML report") from exc
     if len(data) > MAX_REPORT_BYTES:
@@ -8368,11 +8370,8 @@ def _junit_counts(path: str, suite_name: str) -> tuple[dict, str]:
 
 
 def _file_sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    """The sha256 of the regular file at `path`, a link followed; _NotRegular for any other entry (R18-2 class)."""
+    return hashlib.sha256(_read_regular(path, -1, follow=True)).hexdigest()
 
 
 def _now() -> str:
@@ -8661,8 +8660,10 @@ def install_pre_push(directory: str, deadline: float, environ: dict | None = Non
     if os.path.lexists(hook):
         ours = False
         if os.path.isfile(hook) and not os.path.islink(hook):
-            with open(hook, "rb") as handle:
-                lines = handle.read(4096).splitlines()
+            try:
+                lines = _read_regular(hook, 4096).splitlines()   # checked again at the descriptor (R18-2 class)
+            except _NotRegular:
+                lines = []
             ours = len(lines) > 1 and lines[1].startswith(PRE_PUSH_MARK.encode())
         if not ours:
             raise GateError(f"a pre-push hook that install-pre-push did not write exists at {hook}; it is left as it "
