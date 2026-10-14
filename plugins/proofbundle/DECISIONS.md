@@ -641,7 +641,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
        inherited GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR, which move git's view of the repository.
     2. Symbolic refs only HEAD and refs/remotes/<remote>/HEAD of a remote git lists, each naming directly a ref git
        lists that is no symbolic ref itself. Any other symbolic ref, a chain, and a name that only ends in HEAD are
-       asked.
+       asked. HEAD as an inventory reads it, a direct object or this symbolic form with the object git lists for its
+       ref, must be the HEAD condition b checked, in the inventory of the present refs and in the final one; a HEAD
+       read otherwise leaves the exception unapplied (review round 18 of 2026-10-14, R18-1: the HEAD read was checked
+       for its form and then dropped, so a HEAD moved to a declared commit during the reading was passed over).
     3. The ref store in the files format and in the normal form above.
     4. The whole inventory: local branches, tags, remote-tracking refs, the current refs/stash, every other ref git
        lists, and the root records above. A ref the store holds and git does not list, and any form the gate does not

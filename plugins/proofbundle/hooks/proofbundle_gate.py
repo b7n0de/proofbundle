@@ -4036,14 +4036,16 @@ def _working_tree_declares(repo: str) -> bool:
     return not _absent_in_working_tree(repo)
 
 
-def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, set[str] | str]:
+def _present_refs(repo: str, deadline: float,
+                  head_binding: list | None = None) -> tuple[dict[str, str] | None, set[str] | str]:
     """Every present ref of the repository with the object it names, as this worktree reads them, and the refs git calls
     broken; (None, why) where git does not list them whole, where the ref store is not in the form the gate reads
     (_off_form), or where a symbolic ref lies outside the narrow contract (_outside). git resolves every ref: its
     listing names the object of each, and the gate follows no chain of its own (owner choice of 2026-10-13, 17:0x
     Berlin, A and A, the narrow contract, points 2, 4 and 6; the external design review of that day at 101bd167
     measured git's answer right in each worktree and the gate's own rebuild of chains, worktree contexts and depths
-    wrong). The records git's listing leaves out are read from this worktree's git directory (_root_records)."""
+    wrong). The records git's listing leaves out are read from this worktree's git directory (_root_records); where
+    `head_binding` is a list, the HEAD binding that reading read is appended to it (review round 18, R18-1)."""
     listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)", deadline=deadline)
     if listing.returncode != 0:
         return None, "git cannot list this repository's refs, so the local records of the destination are not known"
@@ -4100,7 +4102,7 @@ def _present_refs(repo: str, deadline: float) -> tuple[dict[str, str] | None, se
     if why is not None:
         return None, why
     # Nor does git list FETCH_HEAD and the other root refs (the class of R13-1).
-    beside, why = _root_records(paths, present, symbolic)
+    beside, why = _root_records(paths, present, symbolic, head_binding)
     if beside is None:
         return None, why
     # Nor any further file of the git directory git resolves as a ref (owner choice of 2026-10-13, 20:0x, K16-1).
@@ -4346,13 +4348,16 @@ _ROOT_REF_OTHERS = frozenset({"AUTO_MERGE", "BISECT_EXPECTED_REV", "MERGE_AUTOST
 _FETCH_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})\t(?:not-for-merge)?\t[^\n]*")
 
 
-def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]) -> tuple[dict[str, str] | None, str]:
+def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str],
+                  head_binding: list | None = None) -> tuple[dict[str, str] | None, str]:
     """The records git's ref listing leaves out (review round 13 of 2026-10-13, the class of R13-1), as {name: object},
     from this worktree's git directory: FETCH_HEAD line by line, not-for-merge lines included, MERGE_HEAD with one
     object per line, and the other root refs (ORIG_HEAD and its kin), each read whole up to MAX_RECORD_BYTES and in the
     normal form (narrow contract, points 3 and 5). HEAD is no record here, condition b reads it; it is an object or a
     direct symbolic ref to a ref git lists that is no symbolic ref itself (point 2). Any other symbolic root record, any
-    other form and a symbolic link are asked."""
+    other form and a symbolic link are asked. The HEAD this reading read is not dropped after its form check (review
+    round 18 of 2026-10-14, R18-1): where `head_binding` is a list, (kind, value, object) is appended to it, the object
+    of a symbolic HEAD being the one git lists for its target in the same inventory."""
     folder = paths["gitdir"]
     unread = ("the records beside the repository's refs cannot be read whole, so a record of the destination may be "
               "unread")
@@ -4401,6 +4406,8 @@ def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]
             if name == "HEAD":
                 if kind == "symbolic" and (value not in present or value in symbolic):
                     return None, _outside("a symbolic ref whose target is not a ref git lists, named directly", name)
+                if head_binding is not None:
+                    head_binding.append((kind, value, present[value] if kind == "symbolic" else value))
                 continue
             if kind == "symbolic":
                 return None, _outside("a symbolic ref other than HEAD and refs/remotes/<remote>/HEAD", name)
@@ -4758,6 +4765,36 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
     return records, None
 
 
+def _head_binding(repo: str, head: str, deadline: float) -> tuple[tuple[str, str, str] | None, str]:
+    """HEAD as the gate checked it (review round 18 of 2026-10-14, R18-1): ("symbolic", <ref>, <object>) where git names
+    a ref for HEAD, ("object", <object>, <object>) for a detached HEAD, the object being `head`, the commit condition b
+    read; (None, why) where git gives no answer the gate can read."""
+    named = _git(repo, "symbolic-ref", "--quiet", "HEAD", deadline=deadline)
+    if named.returncode == 0:
+        lines = _git_lines(named.stdout)
+        if lines is None or len(lines) != 1 or not lines[0]:
+            return None, "git names HEAD's ref in a form the gate cannot read"
+        return ("symbolic", lines[0], head), ""
+    if named.returncode == 1 and not named.stdout:
+        return ("object", head, head), ""
+    return None, "git does not say whether HEAD names a ref"
+
+
+def _head_read_problem(read: list, checked: tuple[str, str, str]) -> str | None:
+    """Why HEAD as one inventory read it does not fit the HEAD the gate checked, or None (R18-1): a read value is never
+    dropped after its form check, and a contradiction leaves no finished measurement of absence."""
+    if len(read) != 1:
+        return ("the gate did not read HEAD exactly once in its inventory, so its reading is no finished measurement "
+                "that nothing is declared")
+    kind, value, obj = read[0]
+    if (kind, value, obj) == checked:
+        return None
+    shown = f"ref: {value} at {obj[:12]}" if kind == "symbolic" else obj[:12]
+    known = f"ref: {checked[1]} at {checked[2][:12]}" if checked[0] == "symbolic" else checked[2][:12]
+    return (f"HEAD named {shown} when the gate read the local refs, not {known}, the HEAD it checked, so HEAD changed "
+            "while the gate read it and its reading is no finished measurement that nothing is declared")
+
+
 def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources: list[str] | None,
                       deadline: float) -> tuple[Verdict | None, str | None]:
     """Owner choice 1 A of 2026-10-11 (D5 C of 2026-09-30): a repository that declares nothing stays outside Level 1.
@@ -4775,6 +4812,9 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         heads = _commit_trees(repo, [head], deadline, walk=False)
         if heads is None:
             return None, "git could not list the tree of HEAD"
+        checked, why = _head_binding(repo, head, deadline)
+        if checked is None:
+            return None, why
         if _declaration_at(repo, heads, deadline)[0] != "absent":
             return None, None
         if _working_tree_declares(repo):
@@ -4861,9 +4901,13 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         # Every present ref, not only those today's fetch rules name: a tag git followed, the refs of a remote whose
         # configuration is gone, of an earlier fetch rule or of a one-time fetch into a branch record the destination
         # as well, and which present ref did is not determinable here (review round 12 of 2026-10-13, R12-1).
-        present, broken = _present_refs(repo, deadline)
+        read_head: list = []
+        present, broken = _present_refs(repo, deadline, read_head)
         if present is None:
             return None, broken
+        why = _head_read_problem(read_head, checked)
+        if why is not None:
+            return None, why
         if broken:
             return None, f"the local ref {min(broken)} is a broken ref, and it may record the ref this push writes"
         if len(present) > MAX_HISTORY_COMMITS:
@@ -4885,9 +4929,13 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
                           "may record the ref this push writes")
         # A change between the reading of the refs and the reading of their objects leaves no finished measurement of
         # absence (narrow contract, point 7).
-        again, why = _present_refs(repo, deadline)
+        read_head = []
+        again, why = _present_refs(repo, deadline, read_head)
         if again is None:
             return None, why
+        head_why = _head_read_problem(read_head, checked)
+        if head_why is not None:
+            return None, head_why
         if again != present or why != broken:
             return None, ("the local refs changed while the gate read them, so its reading is no finished measurement "
                           "that nothing is declared")
