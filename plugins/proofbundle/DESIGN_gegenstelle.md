@@ -319,7 +319,9 @@ evidenced failure, ask otherwise), and the ask names the condition that failed.
 8. A bound Level 2 is installed: the pre-push hook at the hook path git uses for this repository is a regular file,
    executable, no link, byte for byte the wrapper `install-pre-push` writes, and the gate that wrapper finds at push
    time is this gate file, the file Level 1 runs, with this plugin version.
-9. Level 1 can write the hand-over record and the pointer (7.3).
+9. The git on PATH is byte for byte the `git` in the exec path it reports (adversarial lens of 2026-10-14, F1): only
+   git starts the pre-push hook, so a wrapper, a script or a shim earlier on PATH is no hand-over.
+10. Level 1 can write the hand-over record and the pointer (7.3).
 
 Then Level 1 makes no permission decision (D4 stays: the gate never answers allow, and the host's own permission
 flow decides) and names the hand-over in its message: what it checked, that the transport is approved, that git's

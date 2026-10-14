@@ -2207,7 +2207,9 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   declares only a done check passed it; no rules hint of owner choice 4 A, a comparison Level 1 could not make
   included; the approval mode is `with-approvals` (D25); the transport is approved (below); a bound Level 2 is
   installed: the pre-push hook git uses here is a regular, executable file, byte for byte the wrapper of
-  `install-pre-push`, and the gate it finds at push time is the gate file Level 1 runs. Then Level 1 writes the
+  `install-pre-push`, and the gate it finds at push time is the gate file Level 1 runs; the git on PATH is byte for
+  byte the `git` of the exec path it reports, since only git starts the pre-push hook (a wrapper that pushes with
+  `--no-verify` starts no Level 2; lens of 2026-10-14). Then Level 1 writes the
   hand-over and answers `handover`: a message with no permission decision. D4 stays: the gate never answers allow, and
   the host's own permission settings decide whether it asks. The log records the verdict `handover`, never a pass.
   Where a condition fails, the answer is the ask of D3 with "No hand-over to Level 2" and the condition named; where
@@ -2259,6 +2261,9 @@ Limits:
   MEASURED; where they differ, Level 2 refuses the hand-over. PATH is bound through the programs it selects (git, the
   interpreter), not as a string.
 - On a system without `/proc/<parent>/exe` the git program is bound through its exec path only.
+- Level 1 compares the git on PATH with the `git` in the exec path that program reports. A program that reports a
+  forged exec path holding a copy of itself is not caught (D27). Where git's exec path holds no `git`, or the git on
+  PATH is a shim (such as the one of macOS at /usr/bin/git, NOT MEASURED), the push stays an ask.
 - Two pushes from one worktree at the same moment share one pointer; the second Level 1 replaces the first's pointer,
   and the first push is refused, or runs standalone where its pointer was consumed already.
 - Consumed records stay in the gate directory as the trace of each hand-over; nothing removes them.

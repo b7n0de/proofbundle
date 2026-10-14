@@ -244,6 +244,26 @@ def test_a_hook_that_runs_another_plugin_version_is_no_bound_level_2(env, tmp_pa
     assert_asked_without_handover(answer, entry, "not this gate")
 
 
+def test_a_git_wrapper_earlier_on_path_is_no_hand_over(env, tmp_path):
+    """Lens 1, F1: a `git` earlier on PATH that pushes with --no-verify starts no Level 2, so it must keep the ask."""
+    r = _repo(tmp_path, env)
+    real = shutil.which("git")
+    wrapper = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git"
+    wrapper.write_text(f'#!/bin/sh\nfor a in "$@"; do [ "$a" = push ] && exec "{real}" "$@" --no-verify; done\n'
+                       f'exec "{real}" "$@"\n', encoding="utf-8")
+    wrapper.chmod(0o755)
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "is not byte for byte the git of its exec path")
+    assert not _pointer(r.path).exists() and _records(env) == []
+
+
+def test_a_link_to_the_real_git_earlier_on_path_is_handed_over(env, tmp_path):
+    r = _repo(tmp_path, env)
+    (pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git").symlink_to(os.path.realpath(shutil.which("git")))
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+
+
 @pytest.mark.parametrize("command, why", [("git push --force origin main", "the option --force"),
                                           ("git push origin +main", "")])
 def test_a_forced_update_is_no_hand_over(env, tmp_path, command, why):

@@ -6022,6 +6022,23 @@ def _bound_level2(hooks: str | None, deadline: float) -> tuple[dict | None, str]
     return {"hook": hook, "hook_sha256": hashlib.sha256(raw).hexdigest(), "gate": own, "gate_sha256": gate_sha256}, ""
 
 
+def _git_identity_problem(deadline: float) -> str | None:
+    """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
+    program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
+    and without Level 2 nothing judges a handed-over push. A wrapper or a script earlier on PATH, and a shim, differ.
+    This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught."""
+    git = shutil.which("git")
+    exec_path = _git_exec_path(deadline)
+    if git is None or exec_path is None:
+        return "git names no program on PATH or no exec path, so the gate cannot tell which git the push starts"
+    on_path, in_exec_path = os.path.realpath(git), os.path.join(exec_path, "git")
+    measured = _sha256_or_none(on_path)
+    if measured is None or measured != _sha256_or_none(in_exec_path):
+        return (f"the git on PATH ({on_path}) is not byte for byte the git of its exec path ({in_exec_path}), so the "
+                "gate cannot tell that the push starts git and its pre-push hook (a wrapper, a script or a shim)")
+    return None
+
+
 def _handover_binding(repo: str, remote: str, url: str, level2: dict, deadline: float, environ: dict) -> dict | None:
     """The binding Level 1 records and Level 2 recomputes (D33): git's exec path and the sha256 of the git program the
     gate runs, the hook and the gate, the plugin version, the interpreter, and the digests of the environment, the
@@ -6127,6 +6144,9 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
     level2, why = _bound_level2(paths["hooks"], deadline)
     if level2 is None:
         return f"no bound Level 2: {why}", True
+    why = _git_identity_problem(deadline)
+    if why is not None:
+        return why, False
     binding = _handover_binding(repo, remote, url, level2, deadline, environ)
     if binding is None:
         return "the binding of the hand-over (git, configuration, transport) cannot be read whole", False
