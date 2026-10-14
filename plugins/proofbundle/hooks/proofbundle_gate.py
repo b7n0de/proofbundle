@@ -3383,11 +3383,27 @@ def _shell_command(*words: str) -> str:
     return " ".join(shlex.quote(word) for word in words)
 
 
+#: The kinds of reason _dest_resolution gives (DECISIONS.md D33): the value does not name the destination, this
+#: repository records a candidate, or the default case, a candidate whose presence on the remote is not known here.
+#: Only the last may be handed over to Level 2; the other two stay asks.
+DEST_NOT_NAMED = "not_named"
+DEST_RECORDED_CANDIDATE = "recorded_candidate"
+DEST_OPEN_AT_REMOTE = "open_at_remote"
+
+
 def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                              deadline: float) -> tuple[str, str] | None:
-    """Why git push's resolution of the destination value `value` to exactly `dest` is not evidenced, with the next
-    step, for the answer (NOT MEASURED; review round 8 of 2026-10-10, R8-2, and round 9 of 2026-10-11, R9-1); None
-    only for a value git can match to no other ref.
+    """The reason and next step of _dest_resolution, for the answer, without its kind."""
+    found = _dest_resolution(repo, remote, value, dest, deadline)
+    return None if found is None else (found[1], found[2])
+
+
+def _dest_resolution(repo: str, remote: str, value: str, dest: str,
+                     deadline: float) -> tuple[str, str, str] | None:
+    """Why git push's resolution of the destination value `value` to exactly `dest` is not evidenced, as (kind, reason,
+    next step), for the answer (NOT MEASURED; review round 8 of 2026-10-10, R8-2, and round 9 of 2026-10-11, R9-1);
+    None only for a value git can match to no other ref. The kind is one of DEST_NOT_NAMED, DEST_RECORDED_CANDIDATE
+    and DEST_OPEN_AT_REMOTE, decided here and nowhere else (D33: only the last may be handed over).
 
     git looks the value up among every ref the remote advertises to the push, by the rules of _REV_PARSE_RULES: for
     the value refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and
@@ -3402,7 +3418,7 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
     review = "have a person review the push"
     candidates = _dest_candidates(value)
     if (dest, True) not in candidates:
-        return f"git push looks up {value} on the remote, which does not name {dest}", review
+        return DEST_NOT_NAMED, f"git push looks up {value} on the remote, which does not name {dest}", review
     others = [name for name, _strong in candidates if name != dest]
     if not others:
         return None
@@ -3427,10 +3443,12 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                          f"beside {dest}" if strength.get(name) else
                          f"git push matches {name} for {value} only weakly: a weak match counts only when no strong "
                          "match exists on the remote, whose current refs the gate does not read")
-                return (f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
+                return (DEST_RECORDED_CANDIDATE,
+                        f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
                         f"not know; {match}, and what the remote holds now is not known here", review)
     strong = [name for name, is_strong in candidates if is_strong and name != dest]
-    return (f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
+    return (DEST_OPEN_AT_REMOTE,
+            f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
             "them is not known here: the gate does not read the remote, and a ref this repository does not record "
             "is no evidence that the remote lacks it (D3)", review)
 
@@ -3475,8 +3493,15 @@ def _qualify_dest(value: str) -> str | None:
     return "refs/heads/" + value
 
 
+def _handover_drop(handover: dict | None) -> None:
+    """The push is no hand-over (D33): a step other than the default destination case left it open."""
+    if handover is not None:
+        handover["targets"] = []
+        handover["remote"] = None
+
+
 def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
-                         reasons: list | None = None) -> list[PushTarget] | None:
+                         reasons: list | None = None, handover: dict | None = None) -> list[PushTarget] | None:
     """The ref updates a `git push` performs, each with its locally known target state, or None when the
     gate cannot resolve them completely (DECISIONS.md, D3 option B; N1, N2, N3).
 
@@ -3536,7 +3561,7 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
     if remotes is None:
         return None  # git cannot read the remote configuration, and its push stops there as well
     if remote is None:  # a bare `git push`: the current branch to its chosen remote, same name
-        return _default_targets(repo, deadline, remotes, reasons=reasons)
+        return _default_targets(repo, deadline, remotes, reasons=reasons, handover=handover)
     if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
         return None
     try:
@@ -3545,39 +3570,60 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
     except GateError:
         return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     if not refspecs:
-        return _default_targets(repo, deadline, remotes, remote=remote, reasons=reasons)
+        return _default_targets(repo, deadline, remotes, remote=remote, reasons=reasons, handover=handover)
     targets = []
     for spec in refspecs:
-        spec = spec[1:] if spec.startswith("+") else spec
+        forced = spec.startswith("+")
+        spec = spec[1:] if forced else spec
         if "*" in spec or spec.startswith("^"):
+            _handover_drop(handover)
             return None
         src, sep, dst = spec.partition(":")
         if not sep:  # `name` pushes the ref `name` to the same ref on the remote
             dst = src
         dest = _qualify_dest(dst)
         if dest is None:
+            _handover_drop(handover)
             return None
         tracking = _tracking_ref(repo, remote, dest, deadline)
         if tracking is None:  # no uniquely mapped local target state: NOT MEASURED, no fallback (N1)
+            _handover_drop(handover)
             return None
         # The value git looks up on the remote: the destination as written, or for a refspec without `:` the source's
         # own full name (R8-2); neither its spelling nor the fetch mapping of dest shows that git resolves it to dest
         value = dst if sep else _source_full_name(repo, src, deadline)
         try:
-            problem = None if value is None else _dest_resolution_problem(repo, remote, value, dest, deadline)
+            found = None if value is None else _dest_resolution(repo, remote, value, dest, deadline)
         except GateError:
+            _handover_drop(handover)
             return None
-        if value is None or problem is not None:
-            if problem is not None:
-                _note_reason(reasons, *problem)
-            return None
+        if value is None or found is not None:
+            if found is not None:
+                _note_reason(reasons, found[1], found[2])
+            # D33: the one reason Level 1 may hand over is the default case; it is collected and the next refspec read,
+            # and the push stays unresolved for Level 1 whatever is collected. A deletion and a forced update are no
+            # hand-over.
+            commit = (_push_source(repo, src, deadline) if handover is not None and found is not None
+                      and found[0] == DEST_OPEN_AT_REMOTE and src != "" and not forced else None)
+            if commit is None:
+                _handover_drop(handover)
+                return None
+            handover["targets"].append(PushTarget(source=commit, dest=dest, tracking=tracking))
+            continue
         if src == "":  # `:dst` deletes the destination ref
             targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
             continue
         commit = _push_source(repo, src, deadline)
         if commit is None:
+            _handover_drop(handover)
             return None
         targets.append(PushTarget(source=commit, dest=dest, tracking=tracking))
+    if handover is not None and handover["targets"]:
+        if targets:
+            _handover_drop(handover)   # a refspec git could resolve beside one handed over: not the modelled case
+        else:
+            handover["remote"] = remote
+        return None
     return targets or None
 
 
@@ -3645,10 +3691,11 @@ def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) 
 
 
 def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None,
-                     reasons: list | None = None) -> list[PushTarget] | None:
+                     reasons: list | None = None, handover: dict | None = None) -> list[PushTarget] | None:
     """A push with no refspec: the branch git pushes (_default_push) to the remote git chooses, but only when that
     is faithful here. A configured remote.push, a pushurl, a mirror or push.followTags add updates the gate cannot
-    name, so those are NOT MEASURED."""
+    name, so those are NOT MEASURED. Where the one reason left open is the default destination case, `handover`
+    receives the target and the remote (D33)."""
     try:
         chosen = _default_push(repo, deadline, remotes, remote)
     except GateError:
@@ -3667,16 +3714,20 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
     if tracking is None:
         return None
     try:   # git sets up `<branch>:<dest>` with dest in full, and looks that value up on the remote (R8-2)
-        problem = _dest_resolution_problem(repo, remote, dest, dest, deadline)
+        found = _dest_resolution(repo, remote, dest, dest, deadline)
     except GateError:
         return None
-    if problem is not None:
-        _note_reason(reasons, *problem)
-        return None
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
-    if head.returncode != 0 or not head.stdout.strip():
+    source = head.stdout.decode().strip() if head.returncode == 0 and head.stdout.strip() else None
+    if found is not None:
+        _note_reason(reasons, found[1], found[2])
+        if handover is not None and found[0] == DEST_OPEN_AT_REMOTE and source is not None:
+            handover["targets"] = [PushTarget(source=source, dest=dest, tracking=tracking)]
+            handover["remote"] = remote
         return None
-    return [PushTarget(source=head.stdout.decode().strip(), dest=dest, tracking=tracking)]
+    if source is None:
+        return None
+    return [PushTarget(source=source, dest=dest, tracking=tracking)]
 
 
 def _newly_reachable(repo: str, source: str, tracking: str, deadline: float) -> list[str] | None:
