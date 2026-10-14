@@ -8430,7 +8430,9 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
     whole command, an approved rule, the bare `git --version` and the plain push form (_codex_plain_push), the one
     form Level 1 hands over to Level 2 (D35), keep the whole command's answer. A step is judged without a hand-over:
     only the whole command in the plain form is handed over, never a push as a step of a longer command, first or not
-    (owner choice of 2026-10-14, 19:3x, Nachtrag 4, rule 2), so a step writes no hand-over record either."""
+    (owner choice of 2026-10-14, 19:3x, Nachtrag 4, rule 2), so a step writes no hand-over record either. A step is
+    judged without the rules of N24 too: a rule frees only the whole command in its plain form, never a chain, a pipe
+    or a step of one (D25)."""
     environ = os.environ if environ is None else environ
     whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
     if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
@@ -8438,13 +8440,14 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
         return whole
     return _stepwise_outcome(command, cwd, deadline, host, environ, whole,
                              lambda text, directory: _decide_outcome_whole(text, directory, deadline, host, environ,
-                                                                           handover=False))
+                                                                           handover=False, rules=False))
 
 
 def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, environ,
-                          handover: bool = True) -> Outcome | None:
+                          handover: bool = True, rules: bool = True) -> Outcome | None:
     """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge.
-    With handover False (a step of class c) the command is not the plain push form for the hand-over (D35)."""
+    With handover False (a step of class c) the command is not the plain push form for the hand-over (D35); with rules
+    False (a step of class c) no rule of N24 applies, as a rule frees no step of a longer command (D25)."""
     calls = gated_calls(command)
     # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D35).
     # Under Claude Code it decides nothing else, so a step of class c is judged as no plain form there.
@@ -8452,7 +8455,7 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ) if calls else None
-    if host != "codex" and _read_mode(environ) == "with-approvals":
+    if host != "codex" and rules and _read_mode(environ) == "with-approvals":
         applied = _match_rule(command, cwd, deadline, environ)
         if applied is not None and applied[0] == "free":
             return _approved_outcome(applied[1])

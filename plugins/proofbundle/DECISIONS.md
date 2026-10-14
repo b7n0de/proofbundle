@@ -2221,6 +2221,9 @@ every simple command bash would execute, in order.
   level, after at most `cd` steps and without a redirection; under Codex never. Such a step is judged without the
   hand-over of D35, and the plain push form as the whole command keeps the whole command's answer: only that form is
   handed over to Level 2, never a push as a step, first or not (owner choice of 2026-10-14, 19:3x, Nachtrag 4, rule 2).
+- A step is judged without the rules of N24 (D25): a rule frees only the whole command in its plain form, never a step
+  of a chain or a pipe. Until 2026-10-14 (found during Nachtrag 4) a rule for `git stash list` freed that form as a step
+  of `git stash list; echo x` or `git stash list | cat`, and the log named no applied rule.
 - Every literal file a redirection or `tee` writes is judged like a file-tool write (decide_write, as under Claude
   Code): the configuration and the hooks of a repository ask (`write_to_repo_state`), the gate's own directory is
   denied (`write_to_gate_dir`). A relative target after a `cd` is not judged until class e resolves the directory.
