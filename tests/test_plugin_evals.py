@@ -695,11 +695,17 @@ def test_the_rules_change_case_changes_the_policy_and_its_counterpart_does_not(t
 
 # --- the push cases of the hand-over (DECISIONS.md D35, answer 3 of review round 18) ----------------------------------
 
+#: The transport program names of the caller's environment a hand-over refuses where set (D35): the positive cases
+#: leave them out, as a host whose agent pushes without them; test_a_caller_askpass_withholds_the_hand_over keeps one.
+_CALLER_TRANSPORT_PROGRAMS = re.compile(r"GIT_SSH\w*|\w*ASKPASS|GIT_PROXY_COMMAND")
+
+
 def _handover_env(tmp_path) -> dict:
     """_gate_env and a `python3` on PATH that is the interpreter's own program, so Level 1 (started as the host starts
     it, `python3 -I <gate>`) and the pre-push hook run the gate with the same interpreter, as D35 requires. The gate
-    needs only the standard library."""
-    env = _gate_env(tmp_path)
+    needs only the standard library. The caller's transport programs are left out (Nachtrag 4, finding 3: a GIT_ASKPASS
+    of the environment that runs the tests made the gate refuse the hand-over, rightly)."""
+    env = {k: v for k, v in _gate_env(tmp_path).items() if not _CALLER_TRANSPORT_PROGRAMS.fullmatch(k)}
     bin_dir = pathlib.Path(env["PATH"].split(os.pathsep)[0])
     (bin_dir / "python3").unlink(missing_ok=True)
     (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
@@ -766,6 +772,23 @@ def test_a_scaffold_without_the_hook_gives_no_positive_hand_over(tmp_path):
     answer, entry = _level1_push(env, workspace)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
     assert "no bound Level 2" in answer["systemMessage"] and entry["verdict"] == "ask"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+@pytest.mark.parametrize("approved, hook, why", [
+    ("", "", "GIT_ASKPASS names a program path the gate does not model"),
+    (None, "/usr/bin/true", "the transport is not approved")], ids=["empty-in-both", "set-after-the-approval"])
+def test_a_caller_askpass_withholds_the_hand_over(tmp_path, approved, hook, why):
+    """The positive case with a GIT_ASKPASS in the caller's environment: empty, as the environment that runs these tests
+    sets it, for the scaffold's approval and the hook alike (the gate does not model that program), or set only after
+    the approval (the approval does not bind it). The push asks and nothing is handed over (D35)."""
+    base_env = _handover_env(tmp_path)
+    workspace = _scaffolded(tmp_path, "repo-handover",
+                            base_env if approved is None else dict(base_env, GIT_ASKPASS=approved))
+    answer, entry = _level1_push(dict(base_env, GIT_ASKPASS=hook), workspace)
+    assert answer["hookSpecificOutput"].get("permissionDecision") == "ask" and entry["verdict"] == "ask", answer
+    assert "No hand-over to Level 2" in answer["systemMessage"] and why in answer["systemMessage"], answer
+    assert not (workspace / ".git" / "proofbundle-handover").exists()
 
 
 @pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
