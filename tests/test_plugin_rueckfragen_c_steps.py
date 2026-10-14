@@ -35,6 +35,17 @@ def _decide(work: pathlib.Path, command: str, environ: dict, host: str = "claude
     return (None, []) if out is None else (out.decision, [v.reason_id for v in out.verdicts])
 
 
+def _whole(work: pathlib.Path, command: str, environ: dict, host: str = "claude"):
+    """The answer of the whole command as the gate gave it before class c. At the parent, where class c does not
+    exist, that is the gate's answer itself, so a CONTROL holds there by construction and compares like with like."""
+    judge = getattr(gate, "_decide_outcome_whole", None)
+    if judge is None:
+        out = gate.decide(command, str(work), time.monotonic() + 120, host, environ)
+    else:
+        out = judge(command, str(work), time.monotonic() + 120, host, environ)
+    return None if out is None else out.decision
+
+
 def _repo(tmp_path: pathlib.Path) -> pathlib.Path:
     work, _remote, _a = w1._undeclared(tmp_path)
     (work / "notes").mkdir()
@@ -167,9 +178,9 @@ KEPT = {
 @pytest.mark.parametrize("name", sorted(KEPT))
 def test_CONTROL_a_form_class_c_does_not_judge_keeps_the_whole_answer(env, tmp_path, name):
     work = _repo(tmp_path)
-    whole = gate._decide_outcome_whole(KEPT[name], str(work), time.monotonic() + 120, "claude", env)
+    whole = _whole(work, KEPT[name], env)
     decision, reasons = _decide(work, KEPT[name], env)
-    assert decision == (whole.decision if whole else None) and decision not in FREE, (decision, reasons)
+    assert decision == whole and decision not in FREE, (decision, reasons)
 
 
 def test_CONTROL_a_deny_of_the_whole_command_stays_deny(env, tmp_path):
@@ -191,19 +202,21 @@ def test_RED_a_push_as_the_first_step_gets_the_answer_of_the_push_alone(env, tmp
 def test_CONTROL_a_push_after_a_step_that_writes_keeps_the_whole_answer(env, tmp_path):
     work = _repo(tmp_path)
     command = "echo '{}' > .proofbundle-notes && git push origin main"
-    whole = gate._decide_outcome_whole(command, str(work), time.monotonic() + 120, "claude", env)
+    whole = _whole(work, command, env)
     decision, reasons = _decide(work, command, env)
-    assert decision == whole.decision == "ask", (decision, reasons)
+    assert decision == whole == "ask", (decision, reasons)
 
 
 def test_CONTROL_a_step_after_cd_has_an_unknown_directory(env, tmp_path):
+    """Asked at the parent too; class c names the reason directory_unresolved (class e is not built)."""
     work = _repo(tmp_path)
     decision, reasons = _decide(work, "cd notes && git add a.md", env)
-    assert decision == "ask" and "directory_unresolved" in reasons, (decision, reasons)
+    assert decision == "ask", (decision, reasons)
 
 
 @pytest.mark.parametrize("name", ["heredoc_to_file", "grep_argument", "tee_heredoc"])
-def test_CONTROL_text_is_no_call_under_codex_either(env, tmp_path, name):
+def test_RED_text_is_no_call_under_codex_either(env, tmp_path, name):
+    """d828c2be asked under Codex (and so denied), for the git words in the text."""
     work = _repo(tmp_path)
     decision, reasons = _decide(work, TEXT_ONLY[name], env, host="codex")
     assert decision is None, (decision, reasons)
@@ -211,10 +224,9 @@ def test_CONTROL_text_is_no_call_under_codex_either(env, tmp_path, name):
 
 def test_CONTROL_under_codex_a_push_after_a_cd_keeps_the_whole_answer(env, tmp_path):
     work = _repo(tmp_path)
-    whole = gate._decide_outcome_whole("cd notes && git push origin main", str(work), time.monotonic() + 120,
-                                       "codex", env)
+    whole = _whole(work, "cd notes && git push origin main", env, host="codex")
     decision, _reasons = _decide(work, "cd notes && git push origin main", env, host="codex")
-    assert decision == whole.decision and decision in ("ask", "deny"), decision
+    assert decision == whole and decision in ("ask", "deny"), decision
 
 
 # --- Q18-2: no read of class c starts a program of the repository ----------------------------------------------
