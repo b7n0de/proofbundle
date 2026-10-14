@@ -642,9 +642,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     2. Symbolic refs only HEAD and refs/remotes/<remote>/HEAD of a remote git lists, each naming directly a ref git
        lists that is no symbolic ref itself. Any other symbolic ref, a chain, and a name that only ends in HEAD are
        asked. HEAD as an inventory reads it, a direct object or this symbolic form with the object git lists for its
-       ref, must be the HEAD condition b checked, in the inventory of the present refs and in the final one; a HEAD
-       read otherwise leaves the exception unapplied (review round 18 of 2026-10-14, R18-1: the HEAD read was checked
-       for its form and then dropped, so a HEAD moved to a declared commit during the reading was passed over).
+       ref, must be the HEAD condition b checked, in the first inventory that finds the destination's records, in the
+       inventory of the present refs and in the final one; a HEAD read otherwise leaves the exception unapplied (review
+       round 18 of 2026-10-14, R18-1: the HEAD read was checked for its form and then dropped, so a HEAD moved to a
+       declared commit during the reading was passed over; the first inventory, its class sibling, had dropped it too).
     3. The ref store in the files format and in the normal form above. An entry of the store, a root record, info/refs
        or a further file that is no regular file, a FIFO, a device or a socket, is asked and never waited on: each is
        opened without blocking and its type is checked at the opened descriptor before any byte is read (review round
@@ -661,7 +662,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
     7. Output that is not whole, a warning about a record left out, a missing object, a time or size limit passed
        (MAX_RECORD_BYTES, 16 MiB a file) leave the exception unapplied. The one known harmless output is git's hint on
        the emptied graft file, matched line by line; everything else on stderr is a warning. A change of the refs
-       between their reading and the reading of their objects leaves no finished measurement of absence.
+       between their reading and the reading of their objects leaves no finished measurement of absence. The first
+       inventory, which finds the destination's records, is one of these readings: its refs, records and broken refs
+       must be those of the inventory of the present refs, and what it read is not dropped after its form checks (the
+       class of R18-1: a ref or record that named a declared commit in the first inventory alone had been passed over).
     8. Conditions a to c, the other cases of this section and the Codex rules are unchanged.
     The price: a repository with more than one worktree, or with a symbolic ref beyond HEAD and a remote's HEAD, is
     asked; the case of more worktrees follows the milestone as its own extension.

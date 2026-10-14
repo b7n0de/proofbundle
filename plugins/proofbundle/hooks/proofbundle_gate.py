@@ -4749,13 +4749,16 @@ def _ref_trees(repo: str, refs: dict[str, str],
     return found, (min(pending), "depth") if pending else None
 
 
-def _destination_records(repo: str, remote: str | None, values: list[str],
-                         deadline: float) -> tuple[list[tuple[str, str, str]] | None, str | None]:
+def _destination_records(repo: str, remote: str | None, values: list[str], deadline: float,
+                         reading: dict | None = None) -> tuple[list[tuple[str, str, str]] | None, str | None]:
     """Every local ref that records a remote ref git push may write for one of `values`, as (local ref, remote ref,
     commit), or (None, why) where a record cannot be read. The remote refs are the candidates of each value
     (_dest_candidates), since the gate does not know which one git writes; the records are the local refs each
     remote's fetch rules map a candidate to, and refs/remotes/<remote>/<branch> for a branch candidate, for every
-    configured remote. A dangling or broken ref is no missing one; a missing record says nothing about the remote."""
+    configured remote. A dangling or broken ref is no missing one; a missing record says nothing about the remote.
+    Where `reading` is a dict, this inventory's present refs, broken refs and HEAD binding are kept in it under
+    "present", "broken" and "head", so the caller compares them with its own inventories instead of dropping what this
+    one read after its form checks (review round 18 of 2026-10-14, the class of R18-1)."""
     remotes = _remote_names(repo, deadline)
     rules = _fetch_rules(repo, deadline)
     if remotes is None or rules is None:
@@ -4783,9 +4786,11 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
                         local = None
                     if local is not None:
                         wanted.setdefault(local, name)
-    present, broken = _present_refs(repo, deadline)
+    present, broken = _present_refs(repo, deadline, None if reading is None else reading.setdefault("head", []))
     if present is None:
         return None, broken
+    if reading is not None:
+        reading["present"], reading["broken"] = present, broken
     records = []
     for local, name in sorted(wanted.items()):
         if local in broken:
@@ -4919,10 +4924,14 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         why = _narrow_range(repo, deadline)
         if why is not None:
             return None, why
-        records, why = _destination_records(repo, remote, [v for v in values if v is not None], deadline)
+        first: dict = {}
+        records, why = _destination_records(repo, remote, [v for v in values if v is not None], deadline, first)
         if records is None:
             return None, why
-        record_trees = _commit_trees(repo, list(dict.fromkeys(c for _l, _n, c in records)), deadline, walk=False)
+        why = _head_read_problem(first["head"], checked)   # the class of R18-1: the first inventory read HEAD too
+        if why is not None:
+            return None, why
+        record_trees =_commit_trees(repo, list(dict.fromkeys(c for _l, _n, c in records)), deadline, walk=False)
         if record_trees is None:
             return None, "git could not list the commits of the destination's local records"
         state, at = _declaration_at(repo, record_trees, deadline)
@@ -4972,7 +4981,9 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
         head_why = _head_read_problem(read_head, checked)
         if head_why is not None:
             return None, head_why
-        if again != present or why != broken:
+        # The first inventory is one of these readings: what it read and kept only in part is compared, not dropped
+        # (the class of R18-1, a ref or record that named a declared commit in it alone had been passed over).
+        if again != present or why != broken or first["present"] != present or first["broken"] != broken:
             return None, ("the local refs changed while the gate read them, so its reading is no finished measurement "
                           "that nothing is declared")
     except GateError as exc:
