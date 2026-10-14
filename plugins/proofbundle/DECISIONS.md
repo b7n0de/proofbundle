@@ -2233,11 +2233,14 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   `core.sshCommand`, `core.askPass` and `core.gitProxy` and of the sections ssh, credential, http and protocol, the
   transport environment names, git's exec path with the sha256 of its transport programs, and the ssh on PATH for an ssh
   URL; since the lens of 2026-10-14 (schema v2) also the file and sha256 of every program those configuration entries
-  and environment names start (the word after any leading assignment, one level) and of the remote helper git starts for
-  `remote.<remote>.vcs`, a `<x>::` URL or a scheme git does not carry itself, the ssh configuration files for an ssh
+  and environment names start (the program word of a plain command, one level), the ssh configuration files for an ssh
   URL, the configuration file of a path remote, and every origin as an absolute path. A person prints it with
   `proofbundle_gate.py transport-digest [--repo DIR] [--remote NAME]`. Any change of what it binds asks again, before
   the transport acts (G18-1: a receive program configured after the approval asks; approved in its turn, it runs).
+  A hand-over relies only on the transports and values the gate models (lens 3 of 2026-10-14): a path, the scp form of
+  ssh or a URL beginning with file://, ssh://, git+ssh://, ssh+git://, git:// or http(s):// as written, no
+  remote.<name>.vcs, and every program-naming value a plain command whose program resolves to a file. A remote helper,
+  shell syntax in a value or an unresolved program keeps the ask, and the answer names it.
 - Level 2 has two modes and says which ran. Without a pointer it runs standalone, as D24 described it; its pass and
   inactive texts say that git's destination names were not compared with an expected target (answer 6). With a pointer
   it consumes the hand-over first (pointer and record are renamed before they are read, so a hand-over is used at most

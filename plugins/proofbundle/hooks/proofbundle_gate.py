@@ -5832,9 +5832,9 @@ _TRANSPORT_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS"
 _TRANSPORT_SECTIONS = frozenset({"ssh", "credential", "http", "protocol"})
 _TRANSPORT_CORE_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
 _TRANSPORT_PROGRAMS = ("git-receive-pack", "git-remote-http", "git-remote-https")
-#: The configuration values and environment names that name a program the transport starts, one by one (the first word
-#: of a command; a credential helper by git's own rules, _credential_program). Their files are bound by sha256 (lens 1
-#: of 2026-10-14, F2: the names alone were bound, so a program rewritten after the approval ran unasked).
+#: The configuration values and environment names that name a program the transport starts, one by one (the program
+#: word of a plain command, a credential helper by git's own rules: _named_program). Their files are bound by sha256
+#: (lens 1 of 2026-10-14, F2: the names alone were bound, so a program rewritten after the approval ran unasked).
 _TRANSPORT_PROGRAM_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
 _TRANSPORT_PROGRAM_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND")
 #: v2 (lens 1 of 2026-10-14): the files of the named programs, the ssh configuration for an ssh URL, the own
@@ -5941,46 +5941,59 @@ def _program_file(word: str | None, base: str, exec_path: str, environ: dict) ->
     return [word, os.path.realpath(found), _sha256_or_none(found)]
 
 
-def _first_word(command: str | None) -> str | None:
-    """The program word of a command string as the shell splits it: the first word after any leading assignment
-    (`NAME=value program` runs program; adversarial lens 2 of 2026-10-14, F-C), or None where it cannot be split or
-    names no program. A wrapper such as `env program` is one level further and not followed (D33, limits)."""
-    try:
-        words = shlex.split(command or "")
-    except ValueError:
+#: A word of a program-naming value a hand-over relies on: no quote, expansion, glob, operator, redirection or space
+#: inside (adversarial lens 3 of 2026-10-14, F-K). The program word alone may begin with `~/`, which the shell expands.
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9_./@%+=:,-]+")
+#: Configuration keys and environment names whose value git runs as one program, with no shell (gitcredentials,
+#: git-config; lens 3, F-L): the whole value is the program.
+_UNSHELLED_PROGRAMS = frozenset({"core.askpass", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS"})
+#: The URL forms a hand-over models (D33): a path, the scp form of ssh, and these schemes, which git carries itself or
+#: with its own http helper. Every other form starts a remote helper (`<x>::<address>`, another scheme, an ext::
+#: command, remote.<name>.vcs), which keeps the ask (lens 3, F-J, F-M). The comparison keeps git's letter case.
+_HANDOVER_SCHEMES = ("file://", "ssh://", "git+ssh://", "ssh+git://", "git://", "http://", "https://")
+
+
+def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]:
+    """(the program word git or the shell starts for a program-naming value, why a hand-over cannot rely on it). git
+    runs the values of _UNSHELLED_PROGRAMS as one program path; every other value is a shell command, which must be
+    plain words (_PLAIN_WORD) separated by single spaces, its program the first word after any leading `NAME=value`.
+    A credential.helper names `git-credential-<word>` unless it is a `!command` or an absolute path. An empty
+    credential.helper resets the list and names no program. Anything the gate does not model this way is the reason."""
+    if value is None:
+        return None, f"{key} has no value"
+    name = key if key.startswith(("GIT_", "SSH_")) else key.lower()
+    helper = name.startswith("credential.") and name.endswith(".helper")
+    if helper and value == "":
+        return None, None
+    if name in _UNSHELLED_PROGRAMS:
+        if not _PLAIN_WORD.fullmatch(value):
+            return None, f"{key} names a program path the gate does not model ({value!r})"
+        return value, None
+    command = value[1:] if helper and value.startswith("!") else value
+    words = command.split(" ")
+    program_at = next((i for i, w in enumerate(words) if not _ASSIGNMENT.match(w)), None)
+    if program_at is None:
+        return None, f"{key} names no program ({value!r})"
+    for i, word in enumerate(words):
+        plain = word[2:] if i == program_at and word.startswith("~/") else word
+        if not _PLAIN_WORD.fullmatch(plain):
+            return None, (f"{key} is a shell command the gate does not model ({value!r}): a quote, an expansion, a "
+                          "glob, an operator or a redirection decides there which program runs")
+    program = words[program_at]
+    if helper and not value.startswith("!") and not os.path.isabs(program):
+        program = f"git-credential-{program}"
+    return program, None
+
+
+def _handover_url_problem(url: str, vcs: str | None) -> str | None:
+    """Why a hand-over does not model the transport git chooses for `url` (_HANDOVER_SCHEMES), or None."""
+    if vcs is not None:
+        return f"remote.<name>.vcs ({vcs!r}) starts a remote helper"
+    if "::" in url.split("/", 1)[0]:
+        return f"the URL {url!r} names a remote helper (`<transport>::<address>`)"
+    if url.startswith(_HANDOVER_SCHEMES) or "://" not in url:
         return None
-    return next((word for word in words if not _ASSIGNMENT.match(word)), None)
-
-
-#: The URL schemes git carries itself; every other `<scheme>://` URL starts the remote helper git-remote-<scheme>
-#: (gitremote-helpers; http, https, ftp and ftps are helpers too).
-_BUILTIN_SCHEMES = frozenset({"file", "git", "ssh", "git+ssh", "ssh+git"})
-
-
-def _remote_helper(url: str, vcs: str | None) -> str | None:
-    """The name of the remote helper git starts for `url` (gitremote-helpers): remote.<name>.vcs where set, else the
-    transport of a `<transport>::<address>` URL, else the scheme of a `<scheme>://` URL git does not carry itself; None
-    for a path, the scp form of ssh and the schemes of _BUILTIN_SCHEMES (adversarial lens 2 of 2026-10-14, F-C)."""
-    if vcs:
-        return vcs
-    found = re.match(r"([A-Za-z][A-Za-z0-9+.-]*)::", url)
-    if found:
-        return found.group(1)
-    found = re.match(r"([A-Za-z][A-Za-z0-9+.-]*)://", url)
-    return found.group(1).lower() if found and found.group(1).lower() not in _BUILTIN_SCHEMES else None
-
-
-def _credential_program(value: str | None) -> str | None:
-    """The program a credential.helper value starts, by git's rules (gitcredentials): `!command` is a shell command, an
-    absolute path is that program, anything else is the helper `git-credential-<word>`."""
-    if not value:
-        return None
-    if value.startswith("!"):
-        return _first_word(value[1:])
-    word = _first_word(value)
-    if word is None or os.path.isabs(word):
-        return word
-    return f"git-credential-{word}"
+    return f"the URL {url!r} has a scheme git hands to a remote helper"
 
 
 def _ssh_config_files() -> list[str]:
@@ -6004,21 +6017,25 @@ def _path_remote(url: str, toplevel: str) -> str | None:
     return os.path.realpath(os.path.join(toplevel, os.path.expanduser(url)))
 
 
-def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ: dict) -> str | None:
-    """The digest of what selects the programs, credentials and proxy of the transport to `remote` at `url` (D33,
+def _transport_parts(repo: str, remote: str, url: str, deadline: float,
+                     environ: dict) -> tuple[dict | None, list[str]]:
+    """(the document whose digest binds the transport, the reasons a hand-over cannot rely on it; lens 3 of 2026-10-14)
+    for what selects the programs, credentials and proxy of the transport to `remote` at `url` (D33,
     DESIGN_gegenstelle.md 7.4): the URL; every effective configuration entry of the remote, of a URL rewrite, of
     core.sshCommand, core.askPass and core.gitProxy and of the sections ssh, credential, http and protocol, with scope
     and origin (an origin file as an absolute path, so an approval does not depend on the worktree it was made in); the
     environment names of _TRANSPORT_ENV; git's exec path with the sha256 of its transport programs; the file and sha256
     of every program those entries and names start (one level: what that program reads or starts is not bound); the ssh
     on PATH and the ssh configuration files where the URL is an ssh URL; and the configuration file of a path remote,
-    whose own settings (core.alternateRefsCommand) run before Level 2. None where a part cannot be read."""
+    whose own settings (core.alternateRefsCommand) run before Level 2. A value the gate does not model as a plain
+    command (_named_program), a program it resolves to no file and a transport that starts a remote helper
+    (_handover_url_problem) are reasons. (None, []) where a part cannot be read."""
     entries, _why = _config_entries(repo, deadline)
     exec_path = _git_exec_path(deadline)
     toplevel, _unreadable = _work_tree(repo, deadline, "--path-format=absolute")
     if entries is None or exec_path is None or not toplevel:
-        return None
-    chosen, named, vcs = [], [], None
+        return None, []
+    chosen, named, problems, vcs = [], [], [], None
     for scope, origin, key, value in entries:
         section, _dot, rest = key.partition(".")
         subsection, _dot, variable = rest.rpartition(".")
@@ -6031,17 +6048,22 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
             chosen.append([scope, origin, key, value])
             if section == "remote" and variable == "vcs":
                 vcs = value
-            if key.lower() in _TRANSPORT_PROGRAM_KEYS or (section == "remote" and variable == "receivepack"):
-                named.append([key, _program_file(_first_word(value), toplevel, exec_path, environ)])
-            elif section == "credential" and variable == "helper":
-                named.append([key, _program_file(_credential_program(value), toplevel, exec_path, environ)])
-    for name in _TRANSPORT_PROGRAM_ENV:
-        if name in environ:
-            word = environ[name] if name in ("GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS") else _first_word(environ[name])
-            named.append([name, _program_file(word, toplevel, exec_path, environ)])
-    helper = _remote_helper(url, vcs)
-    if helper is not None:
-        named.append(["remote helper", _program_file(f"git-remote-{helper}", toplevel, exec_path, environ)])
+            if (key.lower() in _TRANSPORT_PROGRAM_KEYS or (section == "remote" and variable == "receivepack")
+                    or (section == "credential" and variable == "helper")):
+                named.append([key, value])
+    named.extend([name, environ[name]] for name in _TRANSPORT_PROGRAM_ENV if name in environ)
+    bound = []
+    for key, value in named:
+        program, why = _named_program(key, value)
+        found = _program_file(program, toplevel, exec_path, environ)
+        if why is None and program is not None and found[1] is None:
+            why = f"{key} names the program {program!r}, which the gate resolves to no file"
+        if why is not None:
+            problems.append(why)
+        bound.append([key, found])
+    url_problem = _handover_url_problem(url, vcs)
+    if url_problem is not None:
+        problems.append(url_problem)
     programs: dict = {name: _sha256_or_none(os.path.join(exec_path, name)) for name in _TRANSPORT_PROGRAMS}
     files: dict = {}
     if _ssh_url(url):
@@ -6052,10 +6074,15 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
     if local is not None:
         files = {path: _sha256_or_none(path) for path in (os.path.join(local, "config"),
                                                            os.path.join(local, ".git", "config"))}
-    return _canonical_digest({"schema": TRANSPORT_DIGEST_SCHEMA, "url": url, "configuration": chosen,
-                              "environment": [[n, environ[n]] for n in _TRANSPORT_ENV if n in environ],
-                              "exec_path": exec_path, "programs": programs, "named_programs": named,
-                              "files": files})
+    return {"schema": TRANSPORT_DIGEST_SCHEMA, "url": url, "configuration": chosen,
+            "environment": [[n, environ[n]] for n in _TRANSPORT_ENV if n in environ],
+            "exec_path": exec_path, "programs": programs, "named_programs": bound, "files": files}, problems
+
+
+def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ: dict) -> str | None:
+    """The digest of _transport_parts, or None where a part cannot be read."""
+    document, _problems = _transport_parts(repo, remote, url, deadline, environ)
+    return None if document is None else _canonical_digest(document)
 
 
 def _read_transports(environ: dict) -> list[dict]:
@@ -6304,9 +6331,13 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
     if not url_lines or len(url_lines) != 1 or not url_lines[0]:
         return f"git does not name one push URL of remote {remote}", False
     url = url_lines[0]
-    transport = _transport_digest(repo, remote, url, deadline, environ)
-    if transport is None:
+    document, problems = _transport_parts(repo, remote, url, deadline, environ)
+    if document is None:
         return "the transport configuration cannot be read whole", False
+    if problems:
+        return ("the transport is not one a hand-over models, so the programs it starts before Level 2 are not known "
+                "here: " + "; ".join(problems)), False
+    transport = _canonical_digest(document)
     common = os.path.realpath(paths["common"])
     approvals = os.path.join(gate_dir, TRANSPORTS_FILE)
     approved = [entry for entry in _read_transports(environ)
@@ -7605,10 +7636,13 @@ def transport_digest_command(argv: list[str]) -> int:
         if not lines or len(lines) != 1 or not lines[0]:
             print(f"transport-digest: git names no single push URL of remote {options['--remote']!r}", file=sys.stderr)
             return 1
-        digest = _transport_digest(options["--repo"], options["--remote"], lines[0], deadline, os.environ)
+        document, problems = _transport_parts(options["--repo"], options["--remote"], lines[0], deadline, os.environ)
+        digest = None if document is None else _canonical_digest(document)
     except GateError as exc:
         print(f"transport-digest: {exc}", file=sys.stderr)
         return 1
+    for problem in problems:
+        print(f"transport-digest: note: a hand-over does not rely on this transport: {problem}", file=sys.stderr)
     if digest is None:
         print("transport-digest: the transport configuration cannot be read whole, so there is no digest",
               file=sys.stderr)

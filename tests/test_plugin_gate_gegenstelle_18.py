@@ -760,33 +760,68 @@ def test_a_named_program_rewritten_after_the_approval_asks_again(env, tmp_path, 
     assert_asked_without_handover(answer, entry, "the transport is not approved")
 
 
-@pytest.mark.parametrize("kind", ["vcs", "scheme", "receivepack-assignment", "sshcommand-assignment"])
-def test_a_remote_helper_or_a_program_behind_an_assignment_rewritten_after_the_approval_asks_again(env, tmp_path, kind):
-    """Lens 2, F-C: git starts git-remote-<x> for remote.<name>.vcs and for a URL scheme it does not carry itself, and
-    the shell runs the program after leading assignments (`X=1 program`). Each is bound by its file."""
+@pytest.mark.parametrize("kind", ["receivepack-assignment", "sshcommand-assignment"])
+def test_a_program_behind_an_assignment_rewritten_after_the_approval_asks_again(env, tmp_path, kind):
+    """Lens 2, F-C: the shell runs the program after leading assignments (`X=1 program`); it is bound by its file."""
     r = _repo(tmp_path, env, approve=False)
-    if kind in ("vcs", "scheme"):
-        program = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git-remote-probe"
-        program.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-        if kind == "vcs":
-            base._git(r.path, "config", "remote.origin.vcs", "probe")
-        else:
-            base._git(r.path, "remote", "set-url", "origin", "probe://example.invalid/x.git")
-    else:
-        program = tmp_path / "program.sh"
-        program.write_text('#!/bin/sh\nexec git-receive-pack "$@"\n', encoding="utf-8")
-        if kind == "receivepack-assignment":
-            base._git(r.path, "config", "remote.origin.receivepack", f"FOO=1 {program}")
-        else:
-            base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
-            base._git(r.path, "config", "core.sshCommand", f"X=1 {program} -o BatchMode=yes")
+    program = tmp_path / "program.sh"
+    program.write_text('#!/bin/sh\nexec git-receive-pack "$@"\n', encoding="utf-8")
     program.chmod(0o755)
+    if kind == "receivepack-assignment":
+        base._git(r.path, "config", "remote.origin.receivepack", f"FOO=1 {program}")
+    else:
+        base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
+        base._git(r.path, "config", "core.sshCommand", f"X=1 {program} -o BatchMode=yes")
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert_handed_over(answer, entry)
     program.write_text(program.read_text(encoding="utf-8") + "# rewritten after the approval\n", encoding="utf-8")
     answer, entry = _level1(env, r.path)
     assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
+@pytest.mark.parametrize("url, vcs", [("probe://example.invalid/x.git", None), ("Probe://example.invalid/x.git", None),
+                                      ("SSH://example.invalid/x.git", None), ("9p://example.invalid/x.git", None),
+                                      ("9p::example.invalid/x.git", None), ("ext::sh -c true", None),
+                                      ("fd::0", None), (None, "probe")],
+                         ids=["scheme", "upper-case-scheme", "upper-case-ssh", "digit-scheme", "digit-transport",
+                              "ext", "fd", "vcs"])
+def test_a_transport_that_starts_a_remote_helper_is_no_hand_over(env, tmp_path, url, vcs):
+    """Lens 2 and 3, F-C, F-J, F-M: which remote helper git starts follows rules the gate would have to copy letter by
+    letter (case, leading digits, ext:: commands). A hand-over models only a path, the scp form of ssh and the schemes
+    file, ssh, git and http(s) as written; every other transport keeps the ask."""
+    r = _repo(tmp_path, env, approve=False)
+    program = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git-remote-probe"
+    program.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    program.chmod(0o755)
+    if url is not None:
+        base._git(r.path, "remote", "set-url", "origin", url)
+    if vcs is not None:
+        base._git(r.path, "config", "remote.origin.vcs", vcs)
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
+    assert "remote helper" in answer["systemMessage"] and not _pointer(r.path).exists()
+
+
+@pytest.mark.parametrize("key, value", [
+    ("remote.origin.receivepack", "$HOME/rp"), ("remote.origin.receivepack", "${HOME}/rp"),
+    ("remote.origin.receivepack", "$(echo rp)"), ("remote.origin.receivepack", "true; rp"),
+    ("remote.origin.receivepack", "rp{a,b}"), ("remote.origin.receivepack", "'rp' x"),
+    ("core.sshCommand", "ssh > /dev/null"), ("credential.helper", "!f() { true; }; f"),
+    ("core.askPass", "/tmp/a b/askpass"), ("remote.origin.receivepack", "no-such-program-zz"),
+], ids=["dollar", "brace-dollar", "substitution", "list", "brace", "quote", "redirection", "function",
+        "unshelled-space", "unresolved"])
+def test_a_program_value_the_gate_does_not_model_as_a_plain_command_is_no_hand_over(env, tmp_path, key, value):
+    """Lens 3, F-K and F-L: the shell decides which program `$HOME/rp`, `$(...)`, a list, a glob or a quote runs, and
+    git runs core.askPass whole without a shell. The digest bound none of these programs; a hand-over now asks."""
+    r = _repo(tmp_path, env, approve=False)
+    base._git(r.path, "config", key, value)
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
+    assert "the transport is not one a hand-over models" in answer["systemMessage"], answer
+    assert not _pointer(r.path).exists()
 
 
 def test_the_own_configuration_of_a_path_remote_is_bound(env, tmp_path):

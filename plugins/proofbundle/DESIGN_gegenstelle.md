@@ -375,9 +375,9 @@ transport digest.
   (F2, schema v2) also: the file and sha256 of every program that `core.sshCommand`, `core.askPass`, `core.gitProxy`,
   `remote.<remote>.receivepack`, a `credential.helper` (by git's rules: `!command`, an absolute path, else
   `git-credential-<name>`) and the environment names `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `SSH_ASKPASS` and
-  `GIT_PROXY_COMMAND` start (the first word after any leading assignment, looked up in the exec path and then on PATH),
-  and of the remote helper git starts (`git-remote-<x>` for `remote.<remote>.vcs`, a `<x>::<address>` URL and every URL
-  scheme git does not carry itself; lens 2 of 2026-10-14, F-C); for an ssh URL the ssh configuration files (the user's
+  `GIT_PROXY_COMMAND` start (the program word of a plain command after any leading assignment, looked up in the exec
+  path and then on PATH; `core.askPass`, `GIT_SSH` and the askpass names as one program path, as git runs them without
+  a shell); for an ssh URL the ssh configuration files (the user's
   file under the home the password database names, and /etc/ssh/ssh_config); for a path or file:// URL the configuration
   file of that repository, whose own settings run as this user before Level 2 (the lens measured a
   `core.alternateRefsCommand` there); and every origin file as an absolute path, so one approval holds in every worktree
@@ -386,11 +386,16 @@ transport digest.
   digest and an entry to copy. The gate never writes the file. Every hand-over names the file, when it last changed
   and its sha256, and says that the gate cannot tell who wrote it.
 - The approval authorizes the programs its digest binds; a change of what it binds changes the digest, and the next
-  Level 1 asks again before the transport acts. It binds one level: a wrapper word such as `env program` (the program
-  behind it), what a named program reads or starts in turn, an `Include` of the ssh configuration, an include of a path
-  remote's configuration and its hooks (which run after Level 2, on the receiving side) are not bound. A change between
-  Level 1 and the push acts before Level 2, which then refuses the hand-over (G18-1, within the 300 seconds of a
-  hand-over).
+  Level 1 asks again before the transport acts. A hand-over relies only on what the gate models (lens 3 of 2026-10-14,
+  F-J, F-K, F-L, F-M): a path, the scp form of ssh or a URL that begins with file://, ssh://, git+ssh://, ssh+git://,
+  git://, http:// or https:// as written, no remote.<name>.vcs; and every program-naming value a plain command, words of
+  letters, digits and `_./@%+=:,-` separated by single spaces, whose program resolves to a file. A remote helper
+  (another scheme in any letter case, a `<x>::` transport, ext:: and fd::), a quote, an expansion, a glob, an operator,
+  a redirection or a program the gate resolves to no file keeps the ask; `transport-digest` names the reason. It binds
+  one level: a wrapper word such as `env program` (the program behind it), what a named program reads or starts in turn,
+  an `Include` of the ssh configuration, an include of a path remote's configuration and its hooks (which run after
+  Level 2, on the receiving side) are not bound. A change between Level 1 and the push acts before Level 2, which then
+  refuses the hand-over (G18-1, within the 300 seconds of a hand-over).
 
 ### 7.5 What Level 2 checks
 
