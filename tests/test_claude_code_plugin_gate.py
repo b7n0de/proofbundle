@@ -348,11 +348,23 @@ def test_a_read_form_is_only_marked_for_the_read_profile():
 
 @pytest.mark.parametrize("command", [
     "git --version",
-    "gh pr view 3", "gh pr list", "gh release list", "npm publish", "ls -la",
+    "gh pr merge 3", "gh issue comment 1 --body x", "gh release delete v1", "npm publish", "ls -la",
     "echo 'git push'",   # Nachtrag 15: echo does not execute its argument, so it is not a gated call
 ])
 def test_a_call_the_gate_does_not_know_is_left_alone(command):
+    """A gh form that is neither gated nor a read form of class b is no call here (the safety net asks for it). The gh
+    read forms this test held until FIX-18 part B (`gh pr view 3`, `gh pr list`, `gh release list`) are class b since
+    D36: see the next test."""
     assert gate.gated_calls(command) == []
+
+
+@pytest.mark.parametrize("command, label", [
+    ("gh pr view 3", "gh pr view"), ("gh pr list", "gh pr list"), ("gh release list", "gh release list"),
+])
+def test_a_gh_read_form_is_only_marked_for_the_gh_profile(command, label):
+    """Class b (D36, owner answers 4 and 5 of 2026-10-14): the scan marks a gh read form for the judge, which frees it
+    only after the gh profile; the scan alone frees nothing."""
+    assert gate.gated_calls(command) == [(label, ".", [gate._GH_READ_FREE])]
 
 
 # --- the declaration ---------------------------------------------------------------------------------

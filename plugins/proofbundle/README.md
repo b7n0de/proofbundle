@@ -112,7 +112,11 @@ and every configuration key, hook and `GIT_*` setting it reads is one it knows t
 (D3), and, since the owner's answer 1 of 2026-10-14, under Claude Code a read form such as `git status`, `git log` or
 `git diff` whose options are on the gate's grammar, after a read profile of the repository finds no promisor remote,
 pager key, filter, fsmonitor, hook or submodule the form starts or reads and every key and `GIT_*` setting is one it
-knows (class a, D34); under Codex those forms still ask and are denied. The separate push path remains. Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; a repository that declares nothing stays outside Level 1, as local inactivity with no decision, where the four conditions of owner choice 1 A hold (D5); under Codex every push is NOT MEASURED because its execution context is unbound, and
+knows (class a, D34); under Codex those forms still ask and are denied. Since the owner's answers 4 and 5 of
+2026-10-14, under both hosts a gh read form such as `gh pr view 41`, `gh pr checks`, `gh run list` or `gh api` as a
+REST GET or a GraphQL query, whose options are on the gate's allow-list for gh 2.89.0, is free after a gh profile finds
+gh 2.89.0 on PATH and no pager, forced terminal, other host, Enterprise token or unix socket in the environment and
+gh's configuration (class b, D36). The separate push path remains. Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; a repository that declares nothing stays outside Level 1, as local inactivity with no decision, where the four conditions of owner choice 1 A hold (D5); under Codex every push is NOT MEASURED because its execution context is unbound, and
 the plain `git push` warns rather than being denied (owner choices Karte 5 A and K5-1 C, D12).
 git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
 maintenance, and a list of what frees a form did not close that class, so the free list, its option tables

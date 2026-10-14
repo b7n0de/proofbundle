@@ -109,7 +109,7 @@ def _gated(repo, logs_root, command, reason=None):
     r": $'x'; g\it push origin main",      # a backslash in the middle of the word
     r": $'x'; g'it' push origin main",     # single quotes in the middle of the word
     r'true # ; "git" push origin main',    # a double-quoted git in a comment (zsh changed-comment-char case)
-    r'"gh" pr list',                       # a double-quoted gh
+    r'"gh" pr merge 1',                    # a double-quoted gh (a form outside class b, D36)
     r'"gh" api --method POST /repos/o/r/issues -f title=x',
     r"gh api --method POST /repos/o/r/issues -f title=x",
 ])
@@ -119,10 +119,12 @@ def test_r12_1_quote_and_escape_spellings_are_not_measured(tmp_path, command):
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason="net_unmodeled_git")
 
 
-@pytest.mark.parametrize("command", ["gh pr list"])
+@pytest.mark.parametrize("command", ["gh pr merge 1"])
 def test_r12_1_literal_controls_are_gated(tmp_path, command):
     """The literal controls are gated the same way, so the fix removes a difference, it does not add one. The literal
-    push has a control of its own below (owner choice 1 A)."""
+    push has a control of its own below (owner choice 1 A). Class b (D36) frees the literal `gh pr list` and its quoted
+    spelling alike after the gh profile, as class a does `git status` and `"git" status`, so the hidden spelling above
+    and this control are `gh pr merge 1`, a form outside class b."""
     _gated(_repo(tmp_path), tmp_path / "logs", command)
 
 

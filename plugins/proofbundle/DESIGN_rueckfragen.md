@@ -202,7 +202,23 @@ For `gh api`:
 Every other gh form keeps today's answer. `attestation verify` keeps it too (answer 4). The allow-list applies only to
 a gh version the gate has checked; any other version keeps today's answer (answer 5).
 
-**Cost.** The allow-list is tied to gh's measured behaviour at 2.89.0, and the version check costs one gh start.
+**Built in the plugin (D36), and what the build measured beyond the proposal.** Three more measurements with gh
+2.89.0 against the stand-in, each now a rule with a test of its own:
+
+- A repository or a pull request in another spelling names its own host: `-R git@127.0.0.1:o/r`, `-R
+  https://127.0.0.1/o/r`, `gh repo view 127.0.0.1/o/r`, `GH_REPO=127.0.0.1/o/r` and a pull request or issue URL as the
+  argument all asked 127.0.0.1. -R and GH_REPO are taken only as OWNER/REPO, an argument only as a number.
+- gh's jq reads the environment: `--jq '$ENV.GH_TOKEN'` and `--jq 'env.GH_TOKEN'` printed the token. An expression that
+  spells `env` keeps the ask. `import`, `include` and `input_filename` read nothing; a Go template has no `env`.
+- A pager comes from gh's own sources only (GH_PAGER, the configuration, PAGER), never from git's core.pager; an empty
+  `pager:` in the configuration starts none, and GH_PAGER set empty overrides a configured one. As in class a, a pager
+  with a value counts (answer 3), in the environment and in config.yml and hosts.yml.
+
+A path of `gh api` written `HTTPS://host/x` is a full URL too; `//host/x` stayed on api.github.com, but the build
+refuses both. A GraphQL query is read by a small lexer of its own: one operation, a query, fragments beside it.
+
+**Cost.** The allow-list is tied to gh's measured behaviour at 2.89.0, and the version check costs one gh start per
+judgement (two for a command class c judges as a step).
 
 ### 3.3 Class c, compound commands, here-documents and strings
 

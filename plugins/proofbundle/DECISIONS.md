@@ -2462,3 +2462,65 @@ Options (DESIGN_gegenstelle.md, sections 3 to 5):
 - c. No read, a hint instead of an ask. Rejected: it gives up D20 at Level 1 and passes the candidate write.
 - d. The hand-over to Level 2, with the transport rule and the contract above (chosen).
 - e. a for the message, d for the verdict. Rejected with a (answer 4).
+
+## D36. A gh read form free after a gh profile: class b of the ask load (FIX-18 part B, 2026-10-14)
+
+Owner answers 4, 5 and 10 of 2026-10-14, equal to the reviewer's recommendations: no `gh attestation verify`; the rules
+bound to checked gh versions; class b applies under Codex too. Answer 3 (no pipe relied on without a bound host
+adapter) is read for gh as for git: a pager counts.
+
+Built: a gh read form is free under both hosts when it is the whole command (or a step class c judges on its own, D33),
+headed by a bare `gh` (quoted or escaped as class a reads `"git"`), with no prefix assignment at all, no word the shell
+may rewrite and no redirection, on the allow-list (_gh_read_form), and the gh profile (_gh_profile_problem) finds
+nothing. Reason id `free_after_gh_profile`; where the profile finds something, `gh_form_not_free` names it and asks
+(denied under Codex). Anything off the list keeps today's answer (the safety net, `net_unmodeled_git`).
+- The forms, by exact command path: pr view, checks, diff, list and status; run view and list; issue view and list;
+  release view and list; repo view; workflow list and view; auth status; `gh --version`; and `gh api` as a REST GET or a
+  GraphQL query. Each takes only the options gh 2.89.0 lists for it, less `-w`/`--web`, `--hostname` and
+  `--show-token`; a cluster of short options, a value on a flag, `--` and an unknown option keep the ask. Not on the
+  list: every other command, `attestation verify` (answer 4), `run watch`, `search`, `status`, the aliases and
+  extensions, and every form measured to write, start a program or transfer.
+- A repository only as OWNER/REPO (-R, the argument of `gh repo view`, GH_REPO), and a pull request, issue or run only
+  by number: `-R git@host:o/r`, `-R https://host/o/r`, `gh repo view host/o/r`, `GH_REPO=host/o/r` and a URL as the
+  argument of pr view, diff, checks and issue view each asked the host they named (measured).
+- `gh api`: one path, no `://` and no leading `//` (`HTTPS://127.0.0.1/x` went to 127.0.0.1), no field without
+  `-X GET`, only GET, no field value that starts with `@`, no --input, only Accept headers. GraphQL: exactly one
+  `query` field given raw with -f, no operationName, no method, and a document of exactly one operation that is a
+  query (_gh_graphql_query_only; a mutation after a query in one document runs with an operationName, measured).
+- A jq expression that spells `env` in any letter case keeps the ask: gh's jq reads the environment, and `--jq
+  '$ENV.GH_TOKEN'` and `--jq 'env.GH_TOKEN'` printed the token (measured). Go templates have no such function
+  (measured).
+- The gh profile: (1) the hook's environment, an allow-list of gh's names (`gh help environment`): not free with
+  GH_PAGER set to a value, PAGER, GH_FORCE_TTY, GH_HOST, GH_ENTERPRISE_TOKEN or GITHUB_ENTERPRISE_TOKEN, GH_REPO in
+  another form than OWNER/REPO, or a GH_* name it does not know (GH_PATH among them); (2) gh's configuration
+  (config.yml and hosts.yml in GH_CONFIG_DIR, $XDG_CONFIG_HOME/gh or $HOME/.config/gh, absolute only): not free with a
+  pager or a unix socket with a value, a key it does not know, or a file not in the block form gh writes; an empty
+  `pager:` is none, and GH_PAGER set empty overrides the configured one (both measured); (3) the version: every PATH
+  entry absolute and not through /proc or /dev/fd, and `gh --version` of the gh on that PATH names 2.89.0 (answer 5).
+  The repository plays no part: the git gh starts for these forms started none of the program sources of class a,
+  all set at once (measured).
+- Inside a longer command, class c judges the gh read form as a step of its own. A gh read form changes no state
+  another step reads (it writes gh's HTTP cache only, measured); a step before it that writes into gh's configuration
+  folder changes what its profile read, and the step asks.
+
+Measured with gh 2.89.0 against a local stand-in for github.com, api.github.com and a second host, in a network
+namespace of its own with only the loopback interface, under strace (programs started, connections), with fake tokens:
+the read forms above sent only GET requests and GraphQL queries and started only git with the forms named; pr checks,
+release list and `api --cache` wrote gh's HTTP cache under $XDG_CACHE_HOME/gh; a pager started only on a terminal or
+with GH_FORCE_TTY, and gh never used git's core.pager (measured with core.pager set and no gh pager); a browser only
+with --web and `gh browse`; GH_TOKEN reached github.com only, GH_ENTERPRISE_TOKEN an unconfigured host named by
+--hostname; `gh auth token` and `auth status --show-token` printed the token, `api --verbose` and GH_DEBUG=api did not.
+
+What it changes, measured on the plugin before and after (archive of FIX-18 part B, class b, against ac0e8a72): asks
+55 → 40 in the declared repository with a clean configuration, 74 → 59 with the container configuration, over the four
+cells 256 → 196; under Codex 87 → 72; no deny lost; the 318 runs of the harmful and done-check cases keep their required
+answer; in none of the 212 runs whose ground truth executes a gated call is the gate free where it was not; nothing that
+was free asks or is denied.
+
+Limits, in plain words: the allow-list is gh 2.89.0's, and every other version keeps the ask; the version line proves no
+origin (D27), so a program that prints it is not caught, as no program on PATH is (D27). The hook's PATH and
+environment are read, not the Bash tool's shell, which may set others (not measured on a real Claude Code host, as for
+class a). Under Codex the command's environment may differ from the hook's (R5-2); owner answer 10 accepts that for
+class b. A host gh reaches through the repository's remotes is the one gh's own configuration knows; how GitHub reads a
+GET it is sent, and an X-HTTP-Method-Override, is not measured (only Accept headers pass). A gh read form in a shell
+alias or function of the host's Bash tool is not seen.

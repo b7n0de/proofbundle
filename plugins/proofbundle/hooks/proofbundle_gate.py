@@ -451,9 +451,14 @@ _STATE_FREE = "\x00state-free"
 #: built). Under Claude Code the judge frees it only after the read profile of its repository (_read_profile_problem)
 #: finds nothing that starts a program for this form; under Codex it is the not-free answer of D3 (owner answer 10).
 _READ_FREE = "\x00read-free"
+#: Detail marker for a gh read form of class b (_gh_read_form) as the whole command, headed by a bare `gh` with no
+#: prefix assignment and no word the shell may rewrite (owner answers 4 and 5 of 2026-10-14). The judge frees it under
+#: both hosts only after the gh profile (_gh_profile_problem) finds nothing that makes it start a program, reach another
+#: host or print a token; otherwise it asks under Claude Code and is denied under Codex (DECISIONS.md D36).
+_GH_READ_FREE = "\x00gh-read-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
-_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_MAYBE_PUSH])
+_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_GH_READ_FREE], [_MAYBE_PUSH])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1362,6 +1367,470 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     return None
 
 
+# --- class b: gh read forms (DESIGN_rueckfragen.md 3.2, owner answers 4 and 5 of 2026-10-14, DECISIONS.md D36) --------
+
+#: The gh versions whose read forms the gate has measured: gh 2.89.0, against a local stand-in for github.com in a
+#: network namespace of its own (RÜCKFRAGEN-LAST part 1, and the three measurements of the class b build). Any other
+#: version keeps today's answer (owner answer 5): the allow-list below is gh's behaviour per command and option there.
+_GH_CHECKED_VERSIONS = frozenset({"2.89.0"})
+_GH_JSON_OPTIONS = {"-q": True, "--jq": True, "--json": True, "-t": True, "--template": True}
+_GH_REPO_OPTIONS = {"-R": True, "--repo": True}
+#: The read forms by exact command path, each with the options gh 2.89.0 lists for it (its help, FLAGS and INHERITED
+#: FLAGS), True where the option takes a value, less every option that opens a browser (`-w`/`--web`), names another
+#: host (`--hostname`) or prints the token (`--show-token`). In `gh auth status`, `-t` is --show-token and jq has no
+#: short form; in `gh run list`, `-w` is --workflow. Not on the list: every other gh command, `attestation verify`
+#: (owner answer 4: it reached the Sigstore TUF host and wrote a cache of it), and the forms measured to write, run or
+#: transfer.
+_GH_READ_OPTIONS: dict[tuple[str, str], dict[str, bool]] = {
+    ("pr", "view"): {"-c": False, "--comments": False, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("pr", "checks"): {"--fail-fast": False, "-i": True, "--interval": True, "--required": False, "--watch": False,
+                       **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("pr", "diff"): {"--color": True, "-e": True, "--exclude": True, "--name-only": False, "--patch": False,
+                     **_GH_REPO_OPTIONS, "--help": False},
+    ("pr", "list"): {"--app": True, "-a": True, "--assignee": True, "-A": True, "--author": True, "-B": True,
+                     "--base": True, "-d": False, "--draft": False, "-H": True, "--head": True, "-l": True,
+                     "--label": True, "-L": True, "--limit": True, "-S": True, "--search": True, "-s": True,
+                     "--state": True, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("pr", "status"): {"-c": False, "--conflict-status": False, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS,
+                       "--help": False},
+    ("run", "view"): {"-a": True, "--attempt": True, "--exit-status": False, "-j": True, "--job": True, "--log": False,
+                      "--log-failed": False, "-v": False, "--verbose": False, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS,
+                      "--help": False},
+    ("run", "list"): {"-a": False, "--all": False, "-b": True, "--branch": True, "-c": True, "--commit": True,
+                      "--created": True, "-e": True, "--event": True, "-L": True, "--limit": True, "-s": True,
+                      "--status": True, "-u": True, "--user": True, "-w": True, "--workflow": True,
+                      **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("issue", "view"): {"-c": False, "--comments": False, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("issue", "list"): {"--app": True, "-a": True, "--assignee": True, "-A": True, "--author": True, "-l": True,
+                        "--label": True, "-L": True, "--limit": True, "--mention": True, "-m": True,
+                        "--milestone": True, "-S": True, "--search": True, "-s": True, "--state": True,
+                        **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("release", "view"): {**_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("release", "list"): {"--exclude-drafts": False, "--exclude-pre-releases": False, "-L": True, "--limit": True,
+                          "-O": True, "--order": True, **_GH_JSON_OPTIONS, **_GH_REPO_OPTIONS, "--help": False},
+    ("repo", "view"): {"-b": True, "--branch": True, **_GH_JSON_OPTIONS, "--help": False},
+    ("workflow", "list"): {"-a": False, "--all": False, "-L": True, "--limit": True, **_GH_JSON_OPTIONS,
+                           **_GH_REPO_OPTIONS, "--help": False},
+    ("workflow", "view"): {"-r": True, "--ref": True, "-y": False, "--yaml": False, **_GH_REPO_OPTIONS,
+                           "--help": False},
+    ("auth", "status"): {"-a": False, "--active": False, "--jq": True, "--json": True, "--template": True,
+                         "--help": False},
+}
+#: The repository a read form may name, with -R, as the argument of `gh repo view` or in GH_REPO: OWNER/REPO, or for
+#: `gh repo view` the bare REPO. Any other spelling may name its own host (measured with gh 2.89.0: `-R
+#: git@127.0.0.1:o/r`, `-R https://127.0.0.1/o/r`, `gh repo view 127.0.0.1/o/r` and `GH_REPO=127.0.0.1/o/r` all asked
+#: 127.0.0.1 instead of github.com).
+_GH_OWNER_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+")
+_GH_NUMBER = re.compile(r"[0-9]+")
+#: The positional word a read form takes, at most one, of the grammar named; a form not named here takes none. A pull
+#: request, an issue or a run only by its number: a URL there names its own host (measured: `gh pr view
+#: https://127.0.0.1/o/r/pull/1`, `gh pr diff …`, `gh pr checks …` and `gh issue view …/issues/1` asked
+#: 127.0.0.1).
+_GH_READ_ARGS = {
+    ("pr", "view"): _GH_NUMBER, ("pr", "checks"): _GH_NUMBER, ("pr", "diff"): _GH_NUMBER, ("run", "view"): _GH_NUMBER,
+    ("issue", "view"): _GH_NUMBER, ("release", "view"): re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*"),
+    ("repo", "view"): re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9-]*/)?[A-Za-z0-9._-]+"),
+    ("workflow", "view"): re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*"),
+}
+#: The options of `gh api` a read may carry (gh 2.89.0 lists them), True where the option takes a value. Not on it:
+#: --hostname (another host) and --input (a body from a file or standard input). The values are judged in _gh_api_read.
+_GH_API_OPTIONS = {"--cache": True, "-F": True, "--field": True, "-f": True, "--raw-field": True, "-H": True,
+                   "--header": True, "-i": False, "--include": False, "-q": True, "--jq": True, "-X": True,
+                   "--method": True, "--paginate": False, "-p": True, "--preview": True, "--silent": False,
+                   "--slurp": False, "-t": True, "--template": True, "--verbose": False, "--help": False}
+#: A REST path of `gh api` as the gate reads it: no scheme (a path with `://` is a full URL to its own host, measured
+#: also for `HTTPS://127.0.0.1/x`), no leading `//`, and only these characters.
+_GH_API_PATH = re.compile(r"[A-Za-z0-9._~{}%:+,=&?/\[\]-]+")
+_GQL_NAME = re.compile(r"[_A-Za-z][_0-9A-Za-z]*")
+_GQL_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+
+
+def _gh_words(words: list[str], options: dict[str, bool]) -> tuple[list[str], list[tuple[str, str | None]]] | None:
+    """The positional words and the (option, value) pairs of a gh form, read as gh's flag parser reads them (a value
+    option takes the next word whatever it looks like, or the rest of its own word), or None for a word that is no
+    option of the form as written: an unknown option, a value on a flag, a cluster of short options, `--` or `-`."""
+    positional: list[str] = []
+    pairs: list[tuple[str, str | None]] = []
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if word in ("--", "-"):
+            return None
+        if word.startswith("--"):
+            name, eq, value = word.partition("=")
+            if name not in options or (eq and not options[name]):
+                return None
+            if options[name] and not eq:
+                if i + 1 >= len(words):
+                    return None
+                i += 1
+                value = words[i]
+            pairs.append((name, value if options[name] else None))
+        elif word.startswith("-"):
+            name, attached = word[:2], word[2:]
+            if name not in options or attached.startswith("=") or (attached and not options[name]):
+                return None
+            value = attached or None
+            if options[name] and not attached:
+                if i + 1 >= len(words):
+                    return None
+                i += 1
+                value = words[i]
+            pairs.append((name, value))
+        else:
+            positional.append(word)
+        i += 1
+    return positional, pairs
+
+
+def _gh_jq_reads_no_environment(expression: str) -> bool:
+    """Whether a jq expression of gh cannot read the process environment. gh's jq reads it through `$ENV` and `env`
+    (measured with gh 2.89.0: `--jq '$ENV.GH_TOKEN'` and `--jq 'env.GH_TOKEN'` printed the token), so an expression
+    that spells `env` in any letter case anywhere is refused; `import` and `include` loaded no module and
+    `input_filename` is not defined there (measured)."""
+    return "env" not in expression.lower()
+
+
+def _gh_graphql_query_only(document: str) -> bool:
+    """Whether a GraphQL document holds exactly one operation and that a query (a `query` or the `{…}` shorthand),
+    fragments beside it allowed. A document the lexer does not read (an open string, an unknown character, a
+    definition that is no operation or fragment) is no query: a mutation may follow a query in one document, and with
+    an operationName the server runs it (measured against the stand-in)."""
+    tokens: list[tuple[str, str]] = []
+    i, n = 0, len(document)
+    while i < n:
+        c = document[i]
+        if c in " \t\r\n,\ufeff":
+            i += 1
+        elif c == "#":
+            while i < n and document[i] not in "\r\n":
+                i += 1
+        elif document.startswith('"""', i):
+            j = i + 3
+            while True:
+                k = document.find('"""', j)
+                if k < 0:
+                    return False
+                if document[k - 1] == "\\":
+                    j = k + 3
+                    continue
+                break
+            tokens.append(("value", ""))
+            i = k + 3
+        elif c == '"':
+            j = i + 1
+            while j < n and document[j] != '"':
+                if document[j] in "\r\n":
+                    return False
+                j += 2 if document[j] == "\\" else 1
+            if j >= n:
+                return False
+            tokens.append(("value", ""))
+            i = j + 1
+        elif document.startswith("...", i):
+            tokens.append(("punct", "..."))
+            i += 3
+        elif c in "!$&()=:@[]{}|":
+            tokens.append(("punct", c))
+            i += 1
+        elif _GQL_NAME.match(document, i):
+            m = _GQL_NAME.match(document, i)
+            tokens.append(("name", m.group()))
+            i = m.end()
+        elif _GQL_NUMBER.match(document, i):
+            tokens.append(("value", ""))
+            i = _GQL_NUMBER.match(document, i).end()
+        else:
+            return False
+
+    def past(k: int, open_: str, close: str) -> int | None:
+        depth = 0
+        while k < len(tokens):
+            if tokens[k] == ("punct", open_):
+                depth += 1
+            elif tokens[k] == ("punct", close):
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+            k += 1
+        return None
+
+    operations, k = [], 0
+    while k < len(tokens):
+        if tokens[k] == ("punct", "{"):
+            operations.append("query")
+            k = past(k, "{", "}")
+        elif tokens[k][0] == "name" and tokens[k][1] in ("query", "mutation", "subscription", "fragment"):
+            kind, k = tokens[k][1], k + 1
+            while k is not None and k < len(tokens) and tokens[k] != ("punct", "{"):
+                k = past(k, "(", ")") if tokens[k] == ("punct", "(") else k + 1
+            if k is None or k >= len(tokens):
+                return False
+            k = past(k, "{", "}")
+            if kind != "fragment":
+                operations.append(kind)
+        else:
+            return False
+        if k is None:
+            return False
+    return operations == ["query"]
+
+
+def _gh_api_read(words: list[str]) -> bool:
+    """Whether `gh api <words>` only reads: a REST GET, or a GraphQL query (owner answer of 2026-10-14 to section 3.2).
+    REST: one path of _GH_API_PATH, no field without `-X GET` (a field makes the call a POST), only GET as the method,
+    no field value that starts with `@` (a local file or standard input sent out, measured even with -X GET), only
+    Accept headers (an X-HTTP-Method-Override reached the stand-in as a GET; how GitHub reads it is not measured).
+    GraphQL (the path `graphql`): no method, exactly one `query` field given raw with -f (a typed -F fills
+    `{owner}`, `{repo}` and `{branch}` into it), no operationName, and the document one query (_gh_graphql_query_only).
+    A jq expression may not read the environment (_gh_jq_reads_no_environment)."""
+    parsed = _gh_words(words, _GH_API_OPTIONS)
+    if parsed is None or len(parsed[0]) != 1:
+        return False
+    (path,), pairs = parsed
+    methods = [value for name, value in pairs if name in ("-X", "--method")]
+    fields = [(name, value) for name, value in pairs if name in ("-f", "--raw-field", "-F", "--field")]
+    for name, value in pairs:
+        if name in ("-H", "--header") and value.partition(":")[0].strip().lower() != "accept":
+            return False
+        if name in ("-q", "--jq") and not _gh_jq_reads_no_environment(value):
+            return False
+    for _name, value in fields:
+        key, eq, rest = value.partition("=")
+        if not key or not eq or rest.startswith("@"):
+            return False
+    if path == "graphql":
+        queries = [(name, value.partition("=")[2]) for name, value in fields if value.partition("=")[0] == "query"]
+        return (not methods and len(queries) == 1 and queries[0][0] in ("-f", "--raw-field")
+                and all(value.partition("=")[0] != "operationName" for _name, value in fields)
+                and _gh_graphql_query_only(queries[0][1]))
+    if "://" in path or path.startswith("//") or not _GH_API_PATH.fullmatch(path) or \
+            path.lstrip("/").split("/", 1)[0].split("?", 1)[0] == "graphql":
+        return False
+    if any(method != "GET" for method in methods):
+        return False
+    return not fields or bool(methods)
+
+
+def _gh_read_form(words: list[str]) -> str | None:
+    """The name of a class b read form (`gh pr view`, `gh api`, `gh --version`) when the words after a bare `gh` are
+    one, else None: the command path first and exact (_GH_READ_OPTIONS), then only the options gh 2.89.0 lists for it
+    less those that open a browser, name another host or print the token, at most one positional word of the form's
+    grammar (_GH_READ_ARGS), -R only as OWNER/REPO, and a jq expression that reads no environment."""
+    if words == ["--version"]:
+        return "gh --version"
+    if words[:1] == ["api"]:
+        return "gh api" if _gh_api_read(words[1:]) else None
+    path = tuple(words[:2])
+    options = _GH_READ_OPTIONS.get(path)
+    if options is None:
+        return None
+    parsed = _gh_words(words[2:], options)
+    if parsed is None:
+        return None
+    positional, pairs = parsed
+    grammar = _GH_READ_ARGS.get(path)
+    if len(positional) > (1 if grammar is not None else 0) or \
+            (positional and not grammar.fullmatch(positional[0])):
+        return None
+    for name, value in pairs:
+        if name in ("-R", "--repo") and not _GH_OWNER_REPO.fullmatch(value):
+            return None
+        if name in ("-q", "--jq") and not _gh_jq_reads_no_environment(value):
+            return None
+    return f"gh {path[0]} {path[1]}"
+
+
+#: gh's environment names (`gh help environment` of 2.89.0) the gh profile knows to change neither the host, nor the
+#: program gh starts, nor whether it prints a token: the tokens for github.com (measured: GH_TOKEN reached github.com
+#: only), the configuration folder (the profile reads it), the notifiers, prompts, colours and widths, the debug output
+#: (measured with GH_DEBUG=api: no token in the output), and the editor and the browser, which only the authoring and
+#: --web forms start (measured with both set in gh's configuration: no read form started either).
+_GH_ENV_INERT = frozenset({
+    "GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "GH_NO_UPDATE_NOTIFIER", "GH_NO_EXTENSION_UPDATE_NOTIFIER",
+    "GH_PROMPT_DISABLED", "GH_SPINNER_DISABLED", "GH_ACCESSIBLE_PROMPTER", "GH_ACCESSIBLE_COLORS", "GH_COLOR_LABELS",
+    "GH_MDWIDTH", "GH_DEBUG", "GH_EDITOR", "GH_BROWSER"})
+#: The keys of gh's configuration (`gh help config` of 2.89.0, and `version`, `aliases` and the legacy `hosts`), and
+#: those a host entry in hosts.yml may carry besides its configuration keys. Two of them name what a read form may
+#: start or reach: `pager` (on a terminal; owner answer 3 relies on no pipe) and `http_unix_socket`. An empty value
+#: names neither (measured: `pager:` and `pager: ""` started no pager on a terminal).
+_GH_CONFIG_KEYS = frozenset({"git_protocol", "editor", "prompt", "prefer_editor_prompt", "pager", "http_unix_socket",
+                             "browser", "color_labels", "accessible_colors", "accessible_prompter", "spinner"})
+_GH_HOST_KEYS = _GH_CONFIG_KEYS | {"users", "user", "oauth_token"}
+_GH_PROGRAM_KEYS = frozenset({"pager", "http_unix_socket"})
+_GH_YAML_LINE = re.compile(r"( *)([A-Za-z0-9_.-]+|\"[^\"\\]*\"|'[^']*'):(?: +(.*))?")
+_GH_CONFIG_MAX_BYTES = 1024 * 1024
+
+
+def _gh_env_problem(name: str, value: str) -> str | None:
+    """What an environment name does to a gh read form, or None where the gh profile knows it does nothing that
+    matters: a pager (GH_PAGER with a value, measured to override the configuration when empty; PAGER by its name, as
+    class a reads it), forced terminal output, another host (GH_HOST, GH_REPO in another form than OWNER/REPO), a token
+    for an Enterprise host, and any other GH_* name the profile does not know (GH_PATH among them)."""
+    if name == "GH_REPO":
+        return None if _GH_OWNER_REPO.fullmatch(value) else "GH_REPO in another form than OWNER/REPO, which may name " \
+                                                             "another host"
+    if name == "GH_PAGER":
+        return "a pager: GH_PAGER" if value else None
+    if name == "PAGER":
+        return "a pager: PAGER"
+    if name == "GH_FORCE_TTY":
+        return "GH_FORCE_TTY, under which gh starts its pager as on a terminal"
+    if name == "GH_HOST":
+        return "GH_HOST, which names another host"
+    if name in ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+        return f"{name}, a token gh sends to a host other than github.com"
+    if name.startswith("GH_") and name not in _GH_ENV_INERT:
+        return f"an environment setting the gh profile does not know: {name}"
+    return None
+
+
+def _gh_config_dir(environ: dict) -> str | None:
+    """The folder gh reads its configuration from, as gh 2.89.0 names it (GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else
+    $HOME/.config/gh); None where that is no absolute path, as a relative one is read from the directory the command
+    runs in."""
+    if environ.get("GH_CONFIG_DIR"):
+        folder = environ["GH_CONFIG_DIR"]
+    elif environ.get("XDG_CONFIG_HOME"):
+        folder = os.path.join(environ["XDG_CONFIG_HOME"], "gh")
+    elif environ.get("HOME"):
+        folder = os.path.join(environ["HOME"], ".config", "gh")
+    else:
+        return None
+    return folder if os.path.isabs(folder) else None
+
+
+def _gh_yaml_entries(text: str) -> list[tuple[tuple[str, ...], str]] | None:
+    """The (key path, value) pairs of a gh configuration file in the block form gh writes, or None for anything else:
+    a flow collection, an anchor, an alias, a tag, a block scalar, a list, a tab in the indentation, a document marker,
+    an open quote, or a line that is no `key: value`."""
+    entries: list[tuple[tuple[str, ...], str]] = []
+    stack: list[tuple[int, str]] = []
+    for raw in text.splitlines():
+        line, quote = [], None
+        for k, ch in enumerate(raw):
+            if quote is not None:
+                quote = None if ch == quote else quote
+            elif ch in "'\"":
+                quote = ch
+            elif ch == "#" and (k == 0 or raw[k - 1] in " \t"):
+                break
+            line.append(ch)
+        line = "".join(line).rstrip()
+        if not line.strip():
+            continue
+        m = _GH_YAML_LINE.fullmatch(line)
+        if m is None or quote is not None:
+            return None
+        indent, key, value = len(m.group(1)), m.group(2).strip("\"'"), (m.group(3) or "").strip()
+        if value[:1] in ("{", "[", "&", "*", "!", "|", ">", "%", "@", "`"):
+            return None
+        if value[:1] in ("'", '"'):
+            if len(value) < 2 or value[-1] != value[0] or value[0] in value[1:-1]:
+                return None
+            value = value[1:-1]
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        entries.append((tuple(k for _indent, k in stack) + (key,), value))
+        stack.append((indent, key))
+    return entries
+
+
+def _gh_config_problem(environ: dict) -> str | None:
+    """What gh's configuration files (config.yml and hosts.yml in _gh_config_dir) hold that a read form may start or
+    reach, or None: a pager or a unix socket with a value (a pager overridden by GH_PAGER set in the environment is
+    none, measured), a key the profile does not know, or a file it cannot read in the block form gh writes."""
+    folder = _gh_config_dir(environ)
+    if folder is None:
+        return ("the gate cannot tell where gh reads its configuration (no absolute GH_CONFIG_DIR, XDG_CONFIG_HOME "
+                "or HOME)")
+    for name in ("config.yml", "hosts.yml"):
+        path = os.path.join(folder, name)
+        if not os.path.lexists(path):
+            continue
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read(_GH_CONFIG_MAX_BYTES + 1)
+        except OSError as exc:
+            return f"gh's configuration file {path} cannot be read ({exc.strerror or exc})"
+        try:
+            entries = _gh_yaml_entries(data.decode("utf-8")) if len(data) <= _GH_CONFIG_MAX_BYTES else None
+        except UnicodeDecodeError:
+            entries = None
+        if entries is None:
+            return f"gh's configuration file {path} is not in the block form the gh profile reads"
+        for keys, value in entries:
+            if name == "config.yml" and keys[0] == "hosts":
+                keys = keys[1:]   # the legacy place of the host entries
+                if not keys:
+                    continue
+                where = "hosts.yml"
+            else:
+                where = name
+            if where == "config.yml":
+                if keys[0] == "aliases" or (keys == ("version",)):
+                    continue      # an alias acts only on a word that is no builtin command (measured for `api`)
+                known = len(keys) == 1 and keys[0] in _GH_CONFIG_KEYS
+            else:
+                known = (len(keys) == 1 or (len(keys) == 2 and keys[1] in _GH_HOST_KEYS)
+                         or (len(keys) == 3 and keys[1] == "users")
+                         or (len(keys) == 4 and keys[1] == "users" and keys[3] == "oauth_token"))
+            if not known:
+                return f"a key the gh profile does not know: {'.'.join(keys)} in {path}"
+            if keys[-1] in _GH_PROGRAM_KEYS and value and not (keys[-1] == "pager" and "GH_PAGER" in environ):
+                return f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {'.'.join(keys)} in {path}"
+    return None
+
+
+def _gh_version_problem(environ: dict, deadline: float) -> str | None:
+    """Why the gh the command starts is not shown to be a checked version (owner answer 5), or None: every PATH entry an
+    absolute path that does not depend on the process (as for the hand-over, D35), and `gh --version` of the gh on that
+    PATH names a version of _GH_CHECKED_VERSIONS. Measured with gh 2.89.0: `--version` sends nothing and starts nothing.
+    This shows a version, not an origin (D27): a program that prints the line is not caught."""
+    entries = environ.get("PATH", "").split(os.pathsep)
+    if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
+        return ("PATH holds an entry that is no absolute path (an empty entry is the working directory) or resolves "
+                "through /proc or /dev/fd, so the gh a name selects depends on the process")
+    gh = shutil.which("gh", path=environ.get("PATH", ""))
+    if gh is None:
+        return "gh names no program on PATH"
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    env = {"PATH": environ.get("PATH", ""), "LC_ALL": "C", "GH_NO_UPDATE_NOTIFIER": "1",
+           "GH_NO_EXTENSION_UPDATE_NOTIFIER": "1", "GH_PROMPT_DISABLED": "1"}
+    if environ.get("HOME"):
+        env["HOME"] = environ["HOME"]
+    try:
+        out = subprocess.run([gh, "--version"], capture_output=True, stdin=subprocess.DEVNULL, env=env, cwd="/",
+                             timeout=min(left, 10.0), check=False)
+    except subprocess.TimeoutExpired:
+        return f"{gh} --version did not answer in time"
+    except OSError as exc:
+        return f"{gh} --version could not be started ({exc.strerror or exc})"
+    first = out.stdout.decode("utf-8", "replace").splitlines()[:1]
+    m = re.match(r"gh version ([0-9]+\.[0-9]+\.[0-9]+) \(", first[0]) if first else None
+    if out.returncode != 0 or m is None:
+        return f"{gh} --version named no gh version"
+    if m.group(1) not in _GH_CHECKED_VERSIONS:
+        return f"the gh on PATH ({gh}) is version {m.group(1)}, whose read forms the gate has not measured"
+    return None
+
+
+def _gh_profile_problem(environ: dict, deadline: float) -> str | None:
+    """None when nothing around a gh read form makes it start a program, reach another host or print a token, else what
+    the gh profile found (class b, D36): the hook's environment (_gh_env_problem), gh's configuration
+    (_gh_config_problem) and the version of the gh on PATH (_gh_version_problem). The repository plays no part: the git
+    gh starts for these forms (remote -v, config --get-regexp, config push.default and remote.pushDefault,
+    symbolic-ref, rev-parse --symbolic-full-name) started none of the program sources of class a, all of them set at
+    once (measured)."""
+    for name in sorted(environ):
+        problem = _gh_env_problem(name, environ[name])
+        if problem is not None:
+            return f"{problem} in the hook's environment"
+    return _gh_config_problem(environ) or _gh_version_problem(environ, deadline)
+
+
 #: The default of _strict_git's free_base: the call is the whole command, headed by a bare `git` (from
 #: _resolve_single). Anything else passes UNKNOWN: a program path, a wrapper, a nested shell, a chain, a
 #: pipeline, a background job, a substitution or a later run of a chain (review Runde 7, R7-4; Runde 8, R8-5).
@@ -1586,7 +2055,11 @@ def _resolve_single(words: list[tuple], directory: str | None,
     if base == "gh":
         name = _gh_call(rest)
         if name is None:
-            return []
+            # Class b (D36): a read form as the whole command, headed by a bare `gh`, with no prefix assignment at all
+            # (not even a neutral one: the environment selects gh's host, pager and token) and no word the shell may
+            # rewrite. Anything else is no call here, and the safety net asks for it as before.
+            read = _gh_read_form(rest) if (bare and i == 0 and neutral_only and not any(rewritten)) else None
+            return [(read, directory, [_GH_READ_FREE])] if read is not None else []
         return [(name, directory if (bare and neutral_only and not any(rewritten)) else UNKNOWN, None)]
     # A program path (`./git`, `/opt/x/git`) names a program the gate does not know, so even `git --version` there
     # is NOT MEASURED (review Runde 7, R7-4; Runde 8, R8-5).
@@ -2240,9 +2713,9 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                          if c[2] == [_HOOKS_DISABLE]]
             if disabling:
                 return disabling
-        if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, class a)
+        if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], [_READ_FREE]) else (n, c, d)
-                     for n, c, d in calls]
+                     for n, c, d in calls if d != [_GH_READ_FREE]]
         if not _redirections_open_no_file(toks):
             # A redirection that opens a file runs before git does, the pre-push hook may be its target (R2-2): the
             # repository and target of a push or gh call are not resolved, so it is NOT MEASURED, never inactive.
@@ -8106,7 +8579,8 @@ def _sh_gated(step: _ShStep) -> bool:
     return sub == "push" or sub not in _GIT_LOCAL_SUBCOMMANDS
 
 
-def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None) -> bool:
+def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None,
+                      gh_config: str | None = None) -> bool:
     """Whether the step may change what the answer of the later step read: the configuration, the hooks, the
     evidence, the environment, the aliases or the programs a name selects, and for a read form that walks the work tree
     the gitlinks of the index (a `git add` of an embedded repository adds one, and `git status` or `git diff` then
@@ -8123,6 +8597,10 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
     if step.kind == "data":
         if targets and step.cwd is None:
             return True
+        if later is not None and later.kind == "gh" and any(
+                gh_config is None or _sh_path_within(t if os.path.isabs(t) else os.path.join(step.cwd, t), gh_config)
+                for t in targets):
+            return True     # gh's configuration, which the gh profile of the later step read (class b, D36)
         if step.head == "sort" and any(w.startswith(("-o", "--output")) for w in step.words[1:]):
             return True
         if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
@@ -8140,7 +8618,20 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
         read = sub_words[2:] if sub_words[:1] == ["-C"] else sub_words
         return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"]
                     or (bool(read) and _read_form(read[0], read[1:])))
+    if step.kind == "gh":
+        # a read form of class b writes gh's HTTP cache and nothing else (measured): no configuration, hook, evidence
+        # or environment another step's answer reads
+        return _gh_read_form(step.words[1:]) is None
     return True
+
+
+def _sh_path_within(path: str, folder: str) -> bool:
+    """Whether path names folder or a file in it, written or resolved (a link into the folder counts)."""
+    for a, b in ((os.path.normpath(path), os.path.normpath(folder)),
+                 (os.path.realpath(path), os.path.realpath(folder))):
+        if a == b or a.startswith(b.rstrip(os.sep) + os.sep):
+            return True
+    return False
 
 
 def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
@@ -8295,7 +8786,8 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                               "of `&&` and `;` (K-NW-2 B, D3)")
             released = True
         if answer is None or answer.decision in ("pass", "inactive"):
-            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s)]
+            gh_config = _gh_config_dir(os.environ if environ is None else environ) if s.kind == "gh" else None
+            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s, gh_config)]
             if changed:
                 verdicts.append(Verdict(
                     "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "
@@ -8332,8 +8824,9 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
-    judgment as a git form, besides K-NW-2 B's two forms after a state check (D3) and, under Claude Code, the read
-    forms of class a after a read profile (D34). The separate push path remains. Under Claude Code it denies an
+    judgment as a git form, besides K-NW-2 B's two forms after a state check (D3), under Claude Code the read forms of
+    class a after a read profile (D34), and under both hosts the gh read forms of class b after a gh profile (D36). The
+    separate push path remains. Under Claude Code it denies an
     evidenced failure at the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except
     the local inactivity of owner choice 1 A for a repository that declares nothing (_local_inactivity, D5); under
     Codex every push is NOT MEASURED because its execution context is unbound
@@ -8822,6 +9315,30 @@ def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Ver
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
+def _gh_read_free_verdict(name: str, deadline: float, environ: dict) -> Verdict:
+    """The verdict for a gh read form of class b: pass when the gh profile finds nothing that makes it start a program,
+    reach another host or print a token, else the ask of today with what it found (owner answers 4 and 5 of
+    2026-10-14, DESIGN_rueckfragen.md 3.2, DECISIONS.md D36)."""
+    try:
+        problem = _gh_profile_problem(environ, deadline)
+    except GateError as exc:
+        problem = f"the gh profile reached no result ({exc})"
+    if problem is None:
+        return Verdict("pass", f"proofbundle gate: {name} is free. It is a gh read form of the allow-list: it sends "
+                               "only GET requests and GraphQL queries to the host its repository names, every option "
+                               "is one the gate knows to open no browser, name no other host and print no token, and "
+                               "the gh profile found a checked gh version on PATH and no pager, forced terminal, other "
+                               "host, Enterprise token or unix socket in the environment and gh's configuration (class "
+                               "b, owner answers 4 and 5 of 2026-10-14; DECISIONS.md D36).", "free_after_gh_profile")
+    return Verdict(
+        "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the gh profile found {problem}. Such a "
+               "setting may make gh start a program, reach another host or print a token, which the gate does not "
+               "see (class b, owner answers 4 and 5 of 2026-10-14; DECISIONS.md D36).",
+        "gh_form_not_free", evidence=f"the gh program, configuration and environment {name} runs with",
+        failed=f"{name} may start a program, reach another host or print a token: {problem}",
+        next_step="have a person review the call, or run it yourself outside the agent")
+
+
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
            host: str = "claude", extra: list | None = None, plain_push: bool = False,
            environ: dict | None = None) -> Outcome:
@@ -8839,6 +9356,11 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             # a hook-disabling form denies whatever the directory is, so a `--no-verify` or a core.hooksPath
             # override inside a chain (where the directory is NOT MEASURED) still denies, not merely asks.
             verdicts.append(_evaluate_call(name, resolved, detail, deadline))
+            continue
+        if detail == [_GH_READ_FREE]:
+            # class b applies under both hosts (owner answer 10): the gh profile reads no repository, so the directory
+            # the Codex hook cannot bind plays no part in it (D36)
+            verdicts.append(_gh_read_free_verdict(name, deadline, os.environ if environ is None else environ))
             continue
         if host == "codex" and (name == "git push" or name.startswith("gh ")):
             # R5-2: under Codex the hook receives the session directory and the command text, not the
