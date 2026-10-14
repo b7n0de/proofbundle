@@ -231,6 +231,9 @@ MEASURED. The remote itself is not read.
   bytes, plugin version and runtime, and `--no-verify` or a change to any of them voids it; git runs the hook with the
   real ref lines, every ref is checked with its newly reachable commits, every failure stops the push and no verdict
   is inherited; and only a Level 2 that ran gives the verdict, so inactive or empty ref lines are no positive finding.
+  Built since 2026-10-14 with the transport rule and the contract of review round 18 (D33): a push whose one open
+  reason is the default destination case, whose transport a person approved and for which a bound Level 2 is
+  installed, is handed over with no permission decision; every other push asks as described here.
   A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. Every
   push value git parses is read before any step of the resolution, explicit or bare, whatever the case needs (review
   round 7 of 2026-10-10, R7-3; measured with git 2.43.0 and 2.51.1): `push.autoSetupRemote`, `push.followTags`,
@@ -498,7 +501,8 @@ or `diff.*` key defines, and those keys are refused.
 ## D4. What a pass does
 
 Chosen: no permission decision. The gate reports what it verified to the user and to the model, and
-the host's normal permission flow decides whether the call runs. The gate never answers `allow`.
+the host's normal permission flow decides whether the call runs. The gate never answers `allow`. A push handed over to
+Level 2 (D33) is answered the same way: no permission decision, and a message that names the hand-over.
 
 Options:
 - A. No decision on a pass (chosen).
@@ -1621,6 +1625,9 @@ Chosen (a prototype, measured in test fixtures only):
 - Since owner choice N2 C (2026-10-08) the hook also runs the done check at every pushed commit (D30), and under
   Codex it carries the push check, where Level 1 only warns (Karte 5 A with D, D12). It is installed only by
   `install-pre-push`, on the user's call (D24B).
+- Since D33 (2026-10-14) the hook has two modes and says which ran: standalone, as above, where the worktree holds no
+  hand-over of Level 1; and the hand-over mode, where it consumes the hand-over and refuses every push that is not
+  the one Level 1 handed over before the core judges it.
 
 Options:
 - A. A pre-push hook prototype, measured in tests, not installed (chosen).
@@ -1776,6 +1783,9 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
 - Logging (Punkt 5): each gate-log entry carries the `mode`, and when a rule acted, `applied_rule`
   (origin `rule`, the form, the effect, the state match). A human revokes an approval by editing the rule file;
   the gate re-reads it on every call. The click path, when it ships, logs origin `click`.
+- A transport approval of D33 (`transports.json` in the same directory, written by a person, read only by the gate)
+  acts only in `with-approvals` mode as well. It frees no push: it authorizes the transport of one remote at one URL,
+  and the push it allows to go without a question from the gate is judged by Level 2 against the hand-over.
 - A rule never frees a form the net reports NOT MEASURED (owner correction to Nachtrag 37, part of the Punkt-2
   class). `_rule_candidate` consults the net's single decision site (`_net_unresolved`/`_net_unmodeled`), so an
   approval is possible only for a form the net also positively understood, in `with-approvals` mode as in `strict`.
@@ -2173,3 +2183,93 @@ own with one literal absolute `-C`, for example `git -C /home/me/repo push origi
 A hint toward a form the gate cannot resolve causes an avoidable question. A hint toward a form it can resolve
 removes that reason for asking and allows the source checks to run. Any remaining reason to ask or deny still
 applies. The forms the gate resolves are unchanged.
+
+## D33. A push handed over to Level 2 (owner adoption of review round 18, 2026-10-14)
+
+Measured first (DESIGN_gegenstelle.md, version 1): Level 1 does not read the remote (D3), so since R9-1 every push asks
+at the destination check, a push with valid evidence included, and the eval `gate-push-verified` cannot pass. git's
+pre-push hook gets the ref git resolved and the remote's object id from the advertisement the push itself uses, and
+receive-pack's compare-and-swap refuses an update whose remote state changed while the hook ran. Review round 18 judged
+variant d (the hand-over) the right direction and the draft not yet sufficient: the transport starts before Level 2
+judges (G18-1), and the same source tip is not the same checked range (G18-2). The owner adopted every recommendation
+of the reviewer on 2026-10-14; DESIGN_gegenstelle.md, version 2, holds them with the contract built here.
+
+Chosen (variant d, with the transport rule and the hand-over contract):
+- Level 1 hands a push over at one place (`evaluate_push`, `_handover_offer`) and only where all of these hold: the
+  host is Claude Code; the call is a `git push` Level 1 reads in its strict form (no `gh`, MCP or `send-pack` route);
+  every target resolves up to the destination check and the one reason left open for each is the default case of
+  `_dest_resolution` (`DEST_OPEN_AT_REMOTE`; a value that does not name the destination, a recorded candidate, a
+  deletion, a forced update and every other reason are no hand-over); only the options `_HANDOVER_FLAGS` names (no
+  force, lease, dry run, signed push or push option); the evidence at every sent commit verified, or a commit that
+  declares only a done check passed it; no rules hint of owner choice 4 A, a comparison Level 1 could not make
+  included; the approval mode is `with-approvals` (D25); the transport is approved (below); a bound Level 2 is
+  installed: the pre-push hook git uses here is a regular, executable file, byte for byte the wrapper of
+  `install-pre-push`, and the gate it finds at push time is the gate file Level 1 runs. Then Level 1 writes the
+  hand-over and answers `handover`: a message with no permission decision. D4 stays: the gate never answers allow, and
+  the host's own permission settings decide whether it asks. The log records the verdict `handover`, never a pass.
+  Where a condition fails, the answer is the ask of D3 with "No hand-over to Level 2" and the condition named; where
+  only the bound Level 2 is missing, the next step names `install-pre-push` as a voluntary step (answer 5). The gate
+  installs nothing.
+- The channel: the record `<gate directory>/handover/<nonce>.json`, created exclusively with mode 0600, in the gate
+  directory of D25, which a file tool cannot write (decide_write denies it); and the pointer `proofbundle-handover` in
+  the per-worktree git directory, which Level 2 finds through git's own repository whatever its environment names. The
+  record holds the repository, worktree, git directory, remote, push URL, the push words, the expected updates (source
+  and full destination each), created and expires (300 seconds, `HANDOVER_TTL_SECONDS`) and the binding: git's exec
+  path and the sha256 of the git program, the hook and its sha256, the gate file and its sha256, the plugin version, the
+  interpreter (file, prefix and version), and the digests of the program-selecting environment (every `GIT_*` name but
+  `GIT_EXEC_PATH` and `GIT_PREFIX`, which git sets for a hook, measured with git 2.34.1; `HOME`, `XDG_CONFIG_HOME`, the
+  gate directory, the ssh agent and the proxy names), of the effective configuration and of the transport.
+- The transport approval: `<gate directory>/transports.json`, a JSON array a person writes and the gate only reads,
+  each entry exactly `{repo, remote, url, transport_digest}`, read as strictly as `rules.json`. The digest
+  (`_transport_digest`) binds the push URL, every configuration entry of the remote, of a URL rewrite, of
+  `core.sshCommand`, `core.askPass` and `core.gitProxy` and of the sections ssh, credential, http and protocol, the
+  transport environment names, git's exec path with the sha256 of its transport programs, and the ssh on PATH for an ssh
+  URL. A person prints it with `proofbundle_gate.py transport-digest [--repo DIR] [--remote NAME]`. Any change of what
+  it binds asks again, before the transport acts (G18-1: a receive program configured after the approval asks; approved
+  in its turn, it runs).
+- Level 2 has two modes and says which ran. Without a pointer it runs standalone, as D24 described it; its pass and
+  inactive texts say that git's destination names were not compared with an expected target (answer 6). With a pointer
+  it consumes the hand-over first (pointer and record are renamed before they are read, so a hand-over is used at most
+  once and every outcome consumes it), then refuses, with the reason `handover_refused` and exit 1, a missing,
+  unreadable, foreign, consumed or expired record, one written in the future, another repository, worktree or git
+  directory, another remote or push URL than the two arguments git gives the hook, and every difference of the
+  binding, each recomputed by Level 2 itself (the git program through `GIT_EXEC_PATH` and `/proc/<parent>/exe`). Then
+  the update set (`_handover_update_problem`): every ref line must be an expected update with its source; a line
+  twice, a deletion, another source, another destination (the candidate write is named with both names) or any other
+  update refuses. An expected update without a line is a no-op git left out (git runs the hook with no line for an
+  up-to-date ref, measured with git 2.34.1), named as not checked; no line at all is answered as "checked nothing and
+  claims no update". Then the core of D24 judges every actual target range as before: the evidence, the done check and
+  D20; a ref the remote does not have yet stays blocked (answer 2). A pass names the hand-over it checked and says that
+  a Level 2 pass is no successful remote update.
+
+What D3 keeps: Level 1 reads no remote. The consequence of R9-1 changes for the one case of this section; every other
+push asks as before.
+
+Limits:
+- The record proves no origin. A shell command can write the gate directory and the git directory (D27, F15-2): an
+  agent with a shell can write an approval, remove the pointer between the hand-over and the push (Level 2 then runs
+  standalone), or write a record of its own. A record grants nothing Level 2 does not check again; it only narrows what
+  Level 2 accepts. A local hook is an early warning, and the boundary stays the required CI check and the receiver
+  (D22, D24, D27). Every hand-over names the approval file, when it last changed and its sha256.
+- The binding compares what Level 1 measured in the host's hook environment with what Level 2 measures in the
+  environment of the shell the push runs in. Whether they carry the same values in a real Claude Code session is NOT
+  MEASURED; where they differ, Level 2 refuses the hand-over. PATH is bound through the programs it selects (git, the
+  interpreter), not as a string.
+- On a system without `/proc/<parent>/exe` the git program is bound through its exec path only.
+- Two pushes from one worktree at the same moment share one pointer; the second Level 1 replaces the first's pointer,
+  and the first push is refused, or runs standalone where its pointer was consumed already.
+- Consumed records stay in the gate directory as the trace of each hand-over; nothing removes them.
+- A symbolic link or another entry outside the narrow contract of D5 in the git directory leaves Level 1's local rules
+  comparison unmade, and that keeps the push an ask.
+- Measured with git 2.34.1 only; git 2.43.0, 2.51.1 and 2.56.0 are NOT MEASURED for this section.
+
+Measured (tests/test_plugin_gate_gegenstelle_18.py and tests/test_plugin_gate_destination_kind.py, 2026-10-14, git
+2.34.1, through git against local bare repositories): the catch cases of review round 18 named in DESIGN_gegenstelle.md
+section 7.1, each red before its rule and green after.
+
+Options (DESIGN_gegenstelle.md, sections 3 to 5):
+- a. A dry-run push before the decision. Rejected: it runs the transport before consent and binds nothing (answer 4).
+- b. `git ls-remote`. Rejected: another advertisement than the push's.
+- c. No read, a hint instead of an ask. Rejected: it gives up D20 at Level 1 and passes the candidate write.
+- d. The hand-over to Level 2, with the transport rule and the contract above (chosen).
+- e. a for the message, d for the verdict. Rejected with a (answer 4).

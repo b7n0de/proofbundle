@@ -163,6 +163,34 @@ a failed write or a failed name resolution and a probe of the gate's own confirm
 resolution, or a connection to an address-literal proxy), never from an environment name; otherwise the start
 failure keeps its generic text. Either way the push is denied (exit 1).
 
+**A push handed over to Level 2** (owner adoption of review round 18, D33). Level 1 does not read the remote, so a
+push asks at the destination check. Where you want such a push to need no question from the gate, you set up three
+things in the repository; the plugin does none of them:
+
+```sh
+python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+printf 'with-approvals\n' > <gate directory>/mode
+python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
+```
+
+The gate directory is `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else
+`~/.config/proofbundle`. The last command prints a digest and an entry; put the entry into `transports.json` there, a
+JSON array. It approves the transport of that remote at that URL, with the programs, credentials and proxy it uses,
+which start before Level 2 judges; any change of them asks again. Run it in the environment your agent's pushes run in.
+
+Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
+only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push
+or push option, and whose evidence rules match the local record of the destination, gets no question from the gate:
+Level 1 writes a one-time hand-over, valid for 300 seconds, and makes no permission decision, so your own permission
+settings for the host still apply. git's pre-push hook then checks the actual update against that hand-over. It refuses
+another destination than the one expected (such as `refs/heads/refs/heads/main` for `main`), an extra, duplicate or
+contradicting update, a changed environment, configuration, hook, gate or transport, and an expired or consumed
+hand-over, and it judges the evidence, the done check and the evidence rules at every commit the push sends. A new ref
+stays blocked. A Level 2 pass is not a successful remote update; git's own result is separate. Under Codex nothing
+changes. Without the hook the push asks as before, and the answer names `install-pre-push` as a voluntary step. A
+shell command can write the approval and the hand-over files, and the gate cannot tell who wrote them (D27), so the
+boundary stays the required CI check.
+
 **A push needs the done check at the pushed commit** (owner choice N2 C, D30). Where the pushed commit's
 declaration names a done check, Level 1 under Claude Code and Level 2 run the same check as at the end of a
 session, for the tree the push sends: every receipt must verify under the done policy of that commit, say that
@@ -183,7 +211,7 @@ measured.
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 | The evidence verifies, but the push changes the evidence rules against the remote's state of the ref, as git hands it to the pre-push hook (the declaration's items, a policy, a key, the done check or the done policy) | Level 2 asks under Claude Code and denies under Codex, with the change named: changes to the evidence rules need a review (D20). Level 1 names a difference against a local record of the destination only as a hint, a local comparison of two tips; the push stays NOT MEASURED there (owner choice 4 A, D20). |
 | The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks (D20). A fetch does not make a push measurable under Level 1 (D3). |
-| The evidence at the commits the push sends shows no failure, and the push names a destination: git push also looks that destination up among other refs of the remote (for `main` also refs/tags/refs/heads/main and refs/refs/heads/main), and two matches make git refuse the push | NOT MEASURED, and the call asks, for every push under Level 1: the gate does not read the remote, and no fetch rule shows that the remote lacks such a ref (D3). A person reviews the push. Level 2, where installed, runs on the ref lines git hands it, independent of this answer (D24). |
+| The evidence at the commits the push sends shows no failure, and the push names a destination: git push also looks that destination up among other refs of the remote (for `main` also refs/tags/refs/heads/main and refs/refs/heads/main), and two matches make git refuse the push | NOT MEASURED, and the call asks, for every push under Level 1: the gate does not read the remote, and no fetch rule shows that the remote lacks such a ref (D3). A person reviews the push. Level 2, where installed, runs on the ref lines git hands it, independent of this answer (D24). The one exception is a push handed over to Level 2 (D33, above): no permission decision, and the pre-push hook checks the actual update against the hand-over. |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
 It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
@@ -561,6 +589,13 @@ scaffold script and need Bash, so they run with:
 claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
   --allow-tools Bash "mcp__plugin_proofbundle_proofbundle__*"
 ```
+
+`gate-push-verified` seeds an existing `main` on the bare remote, a fast-forward with unchanged rules and an installed
+Level 2, and grades the hand-over of D33 and the moved remote; `gate-push-creation-blocked` keeps the empty remote as
+a creation that stays blocked. Their scaffold writes the approval mode and the transport approval only into a gate
+directory you give it: export `PROOFBUNDLE_GATE_DIR` as an empty folder of its own before the run, so the scaffold and
+the host's hook read the same one. Without it the scaffold approves nothing, writes no gate directory, and the push
+asks. Whether `claude plugin eval` hands that variable to the scaffold and to the hook is not measured.
 
 The three done cases seed a repository whose declaration names a done check and grade the Stop hook's own
 lines in the trace: `done-red-tests-block` and `done-receipt-other-tree-blocks` grade a block and no pass,
