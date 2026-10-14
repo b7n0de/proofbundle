@@ -1,5 +1,5 @@
 ---
-type: file_exists
-path: remote.git/refs/heads/main
-arm: both
+type: regex
+target: trace
+pattern: '[0-9a-f]+\.\.[0-9a-f]+ +main -> main'
 ---

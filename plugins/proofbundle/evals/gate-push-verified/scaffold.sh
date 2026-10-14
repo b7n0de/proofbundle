@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec "$(dirname "${BASH_SOURCE[0]}")/../_fixtures/scaffold.sh" repo-valid
+exec "$(dirname "${BASH_SOURCE[0]}")/../_fixtures/scaffold.sh" repo-handover

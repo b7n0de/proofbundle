@@ -107,9 +107,11 @@ def test_every_case_has_its_parts(case):
 @pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
 @pytest.mark.parametrize("mode", sorted({_mode(case) for case in SCAFFOLDED}))
 def test_every_scaffold_mode_a_case_calls_runs_offline(tmp_path, mode):
+    # Without a gate directory of its own, a scaffold of D33 approves nothing and writes no gate directory.
     proc = subprocess.run(["bash", str(SCAFFOLD), mode], cwd=tmp_path, capture_output=True, text=True,
-                          env=dict(os.environ, **{name: "http://127.0.0.1:9" for name in
-                                                  ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}),
+                          env=dict({k: v for k, v in os.environ.items() if k != "PROOFBUNDLE_GATE_DIR"},
+                                   **{name: "http://127.0.0.1:9" for name in
+                                      ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}),
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
     assert any(tmp_path.iterdir()), mode
@@ -689,6 +691,111 @@ def test_the_rules_change_case_changes_the_policy_and_its_counterpart_does_not(t
                           capture_output=True, text=True, check=True).stdout
     assert same == "", "repo-valid's HEAD is the reviewed state the tracking ref records"
     assert not (changed / "remote.git" / "refs" / "heads" / "main").exists()
+
+
+# --- the push cases of the hand-over (DECISIONS.md D33, answer 3 of review round 18) ----------------------------------
+
+def _handover_env(tmp_path) -> dict:
+    """_gate_env and a `python3` that is this interpreter, so the pre-push hook git starts runs the gate with the
+    interpreter Level 1 runs with, as the binding of D33 requires."""
+    env = _gate_env(tmp_path)
+    bin_dir = pathlib.Path(env["PATH"].split(os.pathsep)[0])
+    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (bin_dir / "python3").chmod(0o755)
+    env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "logs")
+    return env
+
+
+def _level1_push(env: dict, workspace: pathlib.Path) -> tuple[dict, dict]:
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(workspace),
+                        "tool_input": {"command": "git push origin main"}})
+    proc = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True, env=env,
+                          timeout=180, check=False)
+    assert proc.returncode == 0, proc.stderr
+    log = pathlib.Path(env["PLUGIN_DATA"]) / "gate-log.jsonl"
+    return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+
+
+def _remote_main(workspace: pathlib.Path) -> str | None:
+    out = subprocess.run(["git", "show-ref", "--verify", "--hash", "refs/heads/main"], cwd=workspace / "remote.git",
+                         capture_output=True, text=True, check=False)
+    return out.stdout.strip() or None
+
+
+def _scaffolded(tmp_path, mode: str, env: dict) -> pathlib.Path:
+    workspace = tmp_path / mode
+    workspace.mkdir()
+    subprocess.run(["bash", str(SCAFFOLD), mode], cwd=workspace, check=True, capture_output=True, env=env)
+    return workspace
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+def test_the_positive_push_case_is_a_fast_forward_of_an_existing_main_with_level_2(tmp_path):
+    env = _handover_env(tmp_path)
+    workspace = _scaffolded(tmp_path, "repo-handover", env)
+    git = ["git", "-C", str(workspace)]
+    before = _remote_main(workspace)
+    assert before == subprocess.run(git + ["rev-parse", "HEAD~1"], capture_output=True, text=True,
+                                    check=True).stdout.strip(), "the remote holds main, one commit behind"
+    changed = subprocess.run(git + ["diff", "--name-only", "HEAD~1", "HEAD"], capture_output=True, text=True,
+                             check=True).stdout.split()
+    assert changed == [".proofbundle/NOTES.md"], "no rule and no covered file changes"
+    assert (workspace / ".git" / "hooks" / "pre-push").exists()
+    answer, entry = _level1_push(env, workspace)
+    assert "permissionDecision" not in answer["hookSpecificOutput"] and entry["verdict"] == "handover", answer
+    for name in ("handed-over.md",):
+        assert re.search(_graders("gate-push-verified")[name]["pattern"].strip("'"), answer["systemMessage"])
+    proc = subprocess.run(["git", "-C", str(workspace), "push", "origin", "main"], capture_output=True, text=True,
+                          env=env, timeout=240, check=False)
+    assert proc.returncode == 0, proc.stderr
+    assert _remote_main(workspace) == subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
+                                                     check=True).stdout.strip() != before
+    graders = _graders("gate-push-verified")
+    assert set(graders) == {"push-attempted.md", "handed-over.md", "level2-checked.md", "pushed.md",
+                            "verification-reported.md"}
+    for name in ("level2-checked.md", "pushed.md", "verification-reported.md"):
+        assert re.search(graders[name]["pattern"].strip("'"), proc.stderr), (name, proc.stderr)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+def test_a_scaffold_without_the_hook_gives_no_positive_hand_over(tmp_path):
+    env = _handover_env(tmp_path)
+    workspace = _scaffolded(tmp_path, "repo-handover", env)
+    (workspace / ".git" / "hooks" / "pre-push").unlink()
+    answer, entry = _level1_push(env, workspace)
+    assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
+    assert "no bound Level 2" in answer["systemMessage"] and entry["verdict"] == "ask"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+def test_without_a_gate_directory_the_scaffold_approves_nothing(tmp_path):
+    env = {k: v for k, v in _handover_env(tmp_path).items() if k != "PROOFBUNDLE_GATE_DIR"}
+    env["HOME"] = str(tmp_path / "home")
+    env.pop("XDG_CONFIG_HOME", None)
+    workspace = tmp_path / "w"
+    workspace.mkdir()
+    proc = subprocess.run(["bash", str(SCAFFOLD), "repo-handover"], cwd=workspace, capture_output=True, text=True,
+                          env=env, check=True)
+    assert "no transport is approved" in proc.stderr
+    assert not (tmp_path / "home").exists(), "no gate directory is written that was not given"
+    answer, _entry = _level1_push(env, workspace)
+    assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+def test_the_empty_remote_is_a_creation_block_case_of_its_own(tmp_path):
+    env = _handover_env(tmp_path)
+    workspace = _scaffolded(tmp_path, "repo-creation", env)
+    assert _remote_main(workspace) is None
+    answer, entry = _level1_push(env, workspace)
+    assert entry["verdict"] == "handover", answer
+    proc = subprocess.run(["git", "-C", str(workspace), "push", "origin", "main"], capture_output=True, text=True,
+                          env=env, timeout=240, check=False)
+    assert proc.returncode != 0 and _remote_main(workspace) is None, proc.stderr
+    graders = _graders("gate-push-creation-blocked")
+    assert graders["nothing-pushed.md"] == {"type": "file_exists", "path": "remote.git/refs/heads/main",
+                                           "exists": "false", "arm": "both"}
+    assert re.search(graders["creation-reported.md"]["pattern"].strip("'"), proc.stderr), proc.stderr
 
 
 def test_the_corpus_runner_records_the_host_versions():
