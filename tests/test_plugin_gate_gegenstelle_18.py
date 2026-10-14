@@ -441,7 +441,8 @@ def test_the_candidate_alone_is_refused_by_level_2_with_both_names(env, tmp_path
     proc = _push(env, r.path)
     assert proc.returncode != 0, proc.stderr
     assert _remote(tmp_path, "refs/heads/refs/heads/main") == candidate and _remote(tmp_path) is None
-    assert "refs/heads/refs/heads/main where Level 1 expected refs/heads/main" in proc.stderr, proc.stderr
+    assert "refs/heads/refs/heads/main where the hand-over expects refs/heads/main" in proc.stderr, proc.stderr
+    assert "Level 1 expected" not in proc.stderr
 
 
 def test_a_new_ref_stays_blocked(env, tmp_path):
@@ -504,7 +505,7 @@ def _rewrite_record(env: dict, change) -> None:
     (lambda rec: rec.update(schema="proofbundle-plugin/handover/v0"), "not a hand-over of this plugin"),
     (lambda rec: rec.update(repo="/elsewhere"), "another repository"),
     (lambda rec: rec.update(url="/elsewhere/remote.git"), "the hand-over names remote"),
-    (lambda rec: rec["binding"].update(plugin_version="9.9.9"), "Level 1 measured 9.9.9"),
+    (lambda rec: rec["binding"].update(plugin_version="9.9.9"), "the hand-over records 9.9.9"),
     (lambda rec: rec["binding"].update(hook_sha256="0" * 64), "or its bytes changed"),
     (lambda rec: rec["binding"].update(gate_sha256="0" * 64), "or its bytes changed"),
     (lambda rec: rec["binding"].update(git_sha256="0" * 64), "git program"),
@@ -524,6 +525,7 @@ def test_an_invalid_hand_over_is_refused_and_consumed(env, tmp_path, change, why
     proc = _push(env, r.path)
     assert proc.returncode != 0 and _remote(tmp_path) == before, proc.stderr
     assert "Level 2 refuses the hand-over" in proc.stderr and why in proc.stderr, proc.stderr
+    assert "Level 1 measured" not in proc.stderr and "Level 1 wrote" not in proc.stderr, "the record proves no origin"
     assert not _pointer(r.path).exists()
     assert [p.name.endswith(".json.consumed") for p in _records(env)] == [True], "the record is consumed"
 
@@ -595,7 +597,8 @@ def test_another_value_of_those_names_is_bound(env, tmp_path, name, value):
     ([("refs/heads/main", "a" * 40, "refs/heads/main", "b" * 40)] * 2, "twice"),
     ([("refs/heads/main", "c" * 40, "refs/heads/main", "b" * 40)], "the hand-over names aaaaaaaaaaaa"),
     ([("refs/heads/main", "0" * 40, "refs/heads/main", "b" * 40)], "would delete"),
-    ([("refs/heads/main", "a" * 40, "refs/tags/refs/heads/main", "0" * 40)], "where Level 1 expected refs/heads/main"),
+    ([("refs/heads/main", "a" * 40, "refs/tags/refs/heads/main", "0" * 40)],
+     "where the hand-over expects refs/heads/main"),
     ([("refs/heads/x", "a" * 40, "refs/heads/x", "0" * 40)], "none of the updates the hand-over names"),
 ], ids=["twice", "contradicting", "deletion", "candidate", "other"])
 def test_duplicate_contradicting_and_foreign_lines_are_refused(lines, why):

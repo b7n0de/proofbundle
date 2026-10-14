@@ -6354,7 +6354,7 @@ def _take_handover(gitdir: str) -> tuple[dict | None, str | None, str]:
         return None, "the hand-over pointer is not of the form Level 1 writes", ""
     gate_dir = _gate_dir(os.environ)
     if gate_dir is None:
-        return None, "no gate directory is known to Level 2, so the record Level 1 wrote cannot be read", nonce
+        return None, "no gate directory is known to Level 2, so the record the pointer names cannot be read", nonce
     record_path = os.path.join(gate_dir, "handover", nonce + ".json")
     consumed = record_path + ".consumed"
     try:
@@ -6387,7 +6387,7 @@ def _handover_mismatch(repo: str, paths: dict, record: dict, remote: str | None,
     now = time.time()
     if now > record["expires"]:
         return (f"it expired at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(record['expires']))}, "
-                f"{HANDOVER_TTL_SECONDS} s after Level 1 wrote it")
+                f"{HANDOVER_TTL_SECONDS} s after the time it records as written")
     if record["created"] > now + 5:
         return "it was written in the future (the clock moved), so its age is not known"
     if (os.path.realpath(paths["common"]), os.path.realpath(repo), os.path.realpath(paths["gitdir"])) != \
@@ -6399,29 +6399,30 @@ def _handover_mismatch(repo: str, paths: dict, record: dict, remote: str | None,
     binding = record["binding"]
     exec_path = os.environ.get("GIT_EXEC_PATH")
     if not exec_path or os.path.realpath(exec_path) != binding["exec_path"]:
-        return (f"the git that runs this hook has the exec path {exec_path!r} (GIT_EXEC_PATH), and Level 1 measured "
-                f"{binding['exec_path']!r}")
+        return (f"the git that runs this hook has the exec path {exec_path!r} (GIT_EXEC_PATH), and the hand-over "
+                f"records {binding['exec_path']!r}")
     measurable, parent = _parent_git_sha256()
     if measurable and parent != binding["git_sha256"]:
-        return "the git program that started this hook is not the git program Level 1 measured (sha256 differs)"
+        return "the git program that started this hook is not the git program the hand-over records (sha256 differs)"
     hook = os.path.join(paths["hooks"] or "", "pre-push")
     if hook != binding["hook"] or _sha256_or_none(hook) != binding["hook_sha256"]:
-        return f"the pre-push hook {hook} is not the hook Level 1 measured ({binding['hook']}), or its bytes changed"
+        return (f"the pre-push hook {hook} is not the hook the hand-over records ({binding['hook']}), or its bytes "
+                "changed")
     own = os.path.realpath(__file__)
     if own != binding["gate"] or _sha256_or_none(own) != binding["gate_sha256"]:
-        return f"this gate {own} is not the gate file Level 1 measured ({binding['gate']}), or its bytes changed"
+        return f"this gate {own} is not the gate file the hand-over records ({binding['gate']}), or its bytes changed"
     if GATE_VERSION != binding["plugin_version"]:
-        return f"this gate is plugin version {GATE_VERSION}, and Level 1 measured {binding['plugin_version']}"
+        return f"this gate is plugin version {GATE_VERSION}, and the hand-over records {binding['plugin_version']}"
     if _interpreter_identity() != binding["interpreter"]:
-        return (f"this gate runs under {_interpreter_identity()}, and Level 1 measured the interpreter "
+        return (f"this gate runs under {_interpreter_identity()}, and the hand-over records the interpreter "
                 f"{binding['interpreter']}")
     if _environment_digest(os.environ) != binding["environment"]:
-        return ("the program-selecting environment of this push differs from the one Level 1 measured (a GIT_* name, "
-                "HOME, XDG_CONFIG_HOME, the gate directory, the ssh agent or a proxy)")
+        return ("the program-selecting environment of this push differs from the one the hand-over records (a GIT_* "
+                "name, HOME, XDG_CONFIG_HOME, the gate directory, the ssh agent or a proxy)")
     if _configuration_digest(repo, deadline) != binding["configuration"]:
-        return "the effective git configuration differs from the one Level 1 measured"
+        return "the effective git configuration differs from the one the hand-over records"
     if _transport_digest(repo, record["remote"], record["url"], deadline, os.environ) != binding["transport"]:
-        return "the transport configuration differs from the one Level 1 measured and a person approved"
+        return "the transport configuration differs from the one the hand-over records"
     return _handover_update_problem(record["updates"], lines)
 
 
@@ -6441,8 +6442,9 @@ def _handover_update_problem(updates: list[dict], lines: list) -> str | None:
         if remote_ref not in expected:
             meant = [dest for dest in expected if any(remote_ref == name for name, _s in _dest_candidates(dest))]
             if meant:
-                return (f"git would write {remote_ref} where Level 1 expected {meant[0]}: the remote holds no "
-                        f"{meant[0]}, and git resolved the destination to this other ref (the candidate write)")
+                return (f"git would write {remote_ref} where the hand-over expects {meant[0]}: git resolved the "
+                        f"destination to this other ref, as it does where the remote holds no {meant[0]} "
+                        "(the candidate write)")
             return f"git would write {remote_ref}, which is none of the updates the hand-over names"
         if expected[remote_ref] != local_sha:
             return (f"git would send {local_sha[:12]} to {remote_ref}, and the hand-over names "
