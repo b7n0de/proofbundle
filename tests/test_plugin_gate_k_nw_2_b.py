@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -118,7 +119,7 @@ def test_the_hook_answer_of_a_free_form_carries_no_permission_decision(tmp_path)
                  "tool_input": {"command": "git commit -m msg"}}
         proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=json.dumps(event),
                               capture_output=True, text=True, timeout=120,
-                              env={**os.environ, "PROOFBUNDLE_GATE_DIR": str(tmp_path / "gate")})
+                              env=plugin_env(PROOFBUNDLE_GATE_DIR=str(tmp_path / "gate")))
         answer = json.loads(proc.stdout)
         assert "permissionDecision" not in answer["hookSpecificOutput"], (host, answer)
         assert "is free" in answer["systemMessage"], answer
@@ -259,7 +260,7 @@ def test_commit_gpg_sign_on_keeps_git_commit_not_free(tmp_path, value):
     shutil.copy(program, bin_dir / "gpg")
     _change(repo)
     subprocess.run(["git", "-C", str(repo), "commit", "-q", "-am", "msg"], capture_output=True, timeout=60,
-                   env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+                   env=plugin_env(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"))
     assert marker.exists(), f"git does not start gpg for commit.gpgSign={value}; the case would be vacuous"
 
 
@@ -398,11 +399,11 @@ def test_a_human_rule_still_frees_a_form_the_state_check_refuses(tmp_path, monke
     gate_dir.mkdir()
     monkeypatch.setenv("PROOFBUNDLE_GATE_DIR", str(gate_dir))
     (gate_dir / "mode").write_text("with-approvals\n", encoding="utf-8")
-    digest = gate._bound_state_digest(str(repo), _deadline(), dict(os.environ))
+    digest = gate._bound_state_digest(str(repo), _deadline(), plugin_env())
     common = os.path.realpath(repo / ".git")
     (gate_dir / "rules.json").write_text(json.dumps([{"repo": common, "form": "git commit -m msg", "effect": "free",
                                                       "state_digest": digest}]), encoding="utf-8")
-    outcome = gate.decide("git commit -m msg", str(repo), _deadline(), environ=dict(os.environ))
+    outcome = gate.decide("git commit -m msg", str(repo), _deadline(), environ=plugin_env())
     assert outcome is not None and outcome.decision == "pass"
     assert outcome.applied_rule is not None
 

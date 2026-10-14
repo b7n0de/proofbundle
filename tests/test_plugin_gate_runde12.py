@@ -24,6 +24,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -79,7 +80,7 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
     a pass, an inactive gate or a call it does not gate) and the reason ids of its log line."""
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": command}})
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(logs), "PLUGIN_DATA": str(logs)}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(logs), PLUGIN_DATA=str(logs))
     proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=event, capture_output=True,
                           text=True, env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr
@@ -285,7 +286,7 @@ def _uv_stream_env(tmp_path: pathlib.Path, replies: list[str]) -> dict:
     stream.write_text("".join(line + "\n" for line in replies), encoding="utf-8")
     (bin_dir / "uv").write_text(f'#!/bin/sh\ncat > /dev/null\ncat "{stream}"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
-    env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_SYSTEM"] = os.devnull
     return env

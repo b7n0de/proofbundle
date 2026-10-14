@@ -52,6 +52,7 @@ import pytest
 import proofbundle
 from proofbundle.decision import emit_decision_receipt
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -185,7 +186,7 @@ def shim(tmp_path: pathlib.Path) -> dict:
     uv.write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     uv.chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return env
 
@@ -969,10 +970,10 @@ def test_the_hook_blocks_the_call_when_the_gate_cannot_run(tmp_path, repo):
     (entry,) = _hook_entries()
     event = json.dumps({"cwd": str(repo), "tool_input": {"command": "git --version"}})
     ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                        env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), check=False)
+                        env=plugin_env(CLAUDE_PLUGIN_ROOT=str(PLUGIN)), check=False)
     assert (ok.returncode, ok.stdout) == (0, "")
     missing = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                             env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
+                             env=plugin_env(CLAUDE_PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
     assert missing.returncode == 2
     assert "blocked" in missing.stderr
 
@@ -1188,7 +1189,7 @@ def test_a_command_that_moves_the_repository_is_resolved_or_not_measured(shim, t
     if expect == "ask":
         assert reason(answer).startswith("NOT MEASURED: ") and "cannot tell which repository" in reason(answer)
     subprocess.run(command, shell=True, cwd=str(tmp_path / cwd), check=True, capture_output=True,
-                   env=dict(os.environ, **{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
+                   env=plugin_env(**{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
                             **{k: "t@e" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")}))
     bad_head = subprocess.run(["git", "-C", str(bad), "rev-parse", "HEAD"], capture_output=True, text=True,
                               check=True).stdout.strip()
@@ -1229,7 +1230,7 @@ def test_config_assigned_in_the_command_is_not_measured(shim, tmp_path, command)
 
 def _exec_env() -> dict:
     """An environment that lets `git push` run in a test without a configured identity or a prompt."""
-    return dict(os.environ, GIT_TERMINAL_PROMPT="0",
+    return plugin_env(GIT_TERMINAL_PROMPT="0",
                 **{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
                 **{k: "t@e" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")})
 

@@ -25,6 +25,7 @@ import time
 import pytest
 
 import test_plugin_gate_n2c_push_done as base
+from _plugin_env import plugin_env
 
 gate = base.gate
 GATE = base.GATE
@@ -56,7 +57,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     # the two are the same interpreter (lens 3, F-I). The gate needs only the standard library.
     (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
     package_root = str(pathlib.Path(base.proofbundle.__file__).resolve().parent.parent)
-    clean = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    clean = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["PROOFBUNDLE_GATE_DIR"] = str(tmp_path / "gate-dir")
     clean["CLAUDE_PLUGIN_DATA"] = clean["PLUGIN_DATA"] = str(tmp_path / "logs")

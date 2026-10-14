@@ -23,6 +23,7 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
@@ -44,7 +45,7 @@ def _attr(repo: pathlib.Path) -> str:
 
 
 def _digest(repo: pathlib.Path) -> str | None:
-    return gate._bound_state_digest(str(repo), time.monotonic() + 30, dict(os.environ))
+    return gate._bound_state_digest(str(repo), time.monotonic() + 30, plugin_env())
 
 
 @pytest.fixture

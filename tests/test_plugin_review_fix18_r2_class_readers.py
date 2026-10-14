@@ -18,6 +18,7 @@ import sys
 import pytest
 
 import test_plugin_owner_choice1_undeclared_push as w1
+from _plugin_env import plugin_env
 
 pytestmark = w1.pytestmark
 env = w1.env
@@ -125,7 +126,7 @@ def test_RED_a_fifo_as_the_log_does_not_block_the_hook(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     os.mkfifo(data / gate.LOG_NAME)
-    environ = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    environ = plugin_env(without=("GIT_",))
     environ.update(CLAUDE_PLUGIN_DATA=str(data), PROOFBUNDLE_GATE_DIR=str(tmp_path / "gate-dir"))
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(work),
                         "tool_input": {"command": "git status"}})
@@ -149,7 +150,7 @@ def test_CONTROL_regular_files_read_as_before(tmp_path):
     stamp = _probe("stamp", work, str(folder))
     assert "mode last changed" in stamp and "rules.json last changed" in stamp, stamp
     data = tmp_path / "data"
-    environ = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    environ = plugin_env(without=("GIT_",))
     environ.update(CLAUDE_PLUGIN_DATA=str(data), PROOFBUNDLE_GATE_DIR=str(tmp_path / "other-gate-dir"))
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(work),
                         "tool_input": {"command": "git status"}})

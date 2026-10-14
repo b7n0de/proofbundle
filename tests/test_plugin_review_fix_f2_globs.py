@@ -33,6 +33,7 @@ import sys
 import time
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -234,8 +235,8 @@ def test_a_rule_frees_no_form_with_a_word_the_shell_rewrites(tmp_path, repo, for
     `git log` and `git log -- *` (a glob after `--` is a path) after the read profile without any rule."""
     gate_dir = tmp_path / "gatehome" / ".config" / "proofbundle"
     gate_dir.mkdir(parents=True)
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(tmp_path / "logs"), "PLUGIN_DATA": str(tmp_path / "logs"),
-           "PROOFBUNDLE_GATE_DIR": str(gate_dir)}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(tmp_path / "logs"), PLUGIN_DATA=str(tmp_path / "logs"),
+                     PROOFBUNDLE_GATE_DIR=str(gate_dir))
     (gate_dir / "mode").write_text("with-approvals\n", encoding="utf-8")
     common = os.path.realpath(subprocess.run(["git", "-C", str(repo), "rev-parse", "--path-format=absolute",
                                               "--git-common-dir"], capture_output=True, text=True,

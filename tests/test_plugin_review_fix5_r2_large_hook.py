@@ -20,6 +20,7 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
@@ -44,7 +45,7 @@ def _swap(hook: pathlib.Path) -> None:
 
 
 def _digest(repo: pathlib.Path) -> str | None:
-    return gate._bound_state_digest(str(repo), time.monotonic() + 60, dict(os.environ))
+    return gate._bound_state_digest(str(repo), time.monotonic() + 60, plugin_env())
 
 
 def _commit(repo: pathlib.Path) -> None:

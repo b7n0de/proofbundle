@@ -16,6 +16,7 @@ import sys
 import pytest
 
 import test_plugin_owner_choice1_undeclared_push as w1
+from _plugin_env import plugin_env
 
 pytestmark = w1.pytestmark
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -41,7 +42,7 @@ def _folder(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
 
 
 def _check(temp: pathlib.Path, parent: pathlib.Path) -> dict | str:
-    environ = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "PROOFBUNDLE_"))}
+    environ = plugin_env(without=("GIT_", "PROOFBUNDLE_"))
     environ.update(TMPDIR=str(temp), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
     proc = subprocess.Popen([sys.executable, "-c", PROBE, str(SERVER), str(parent / "work")], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, env=environ)

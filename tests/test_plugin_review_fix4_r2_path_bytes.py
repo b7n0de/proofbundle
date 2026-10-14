@@ -27,6 +27,7 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
@@ -67,7 +68,7 @@ def _rewrite(path: str, text: str) -> None:
 
 
 def _digest(repo: pathlib.Path | str) -> str | None:
-    return gate._bound_state_digest(str(repo), time.monotonic() + 30, dict(os.environ))
+    return gate._bound_state_digest(str(repo), time.monotonic() + 30, plugin_env())
 
 
 def test_git_reads_the_file_with_the_byte(ff_attributes):

@@ -31,6 +31,7 @@ import pytest
 import proofbundle
 from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -77,7 +78,7 @@ def _git_tree_of_working_state(repo: pathlib.Path) -> str:
     """git's own tree id of the working state (no filter is configured here): HEAD's files as they are now and
     every other file git does not ignore, outside the untracked evidence folder and bytecode caches."""
     index = repo.parent / "probe-index"
-    env = dict(os.environ, GIT_INDEX_FILE=str(index))
+    env = plugin_env(GIT_INDEX_FILE=str(index))
     _git(repo, "read-tree", "HEAD", env=env)
     _git(repo, "add", "-A", "--", ".", ":(exclude).proofbundle", ":(exclude,glob)**/__pycache__/**", env=env)
     tree = _git(repo, "write-tree", env=env)
@@ -135,7 +136,7 @@ def env(tmp_path: pathlib.Path) -> dict:
                                 f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    clean = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["PROOFBUNDLE_GATE_DIR"] = str(tmp_path / "gate-dir")
     clean.pop("CLAUDE_PLUGIN_DATA", None)
@@ -864,7 +865,7 @@ def test_securesystemslib_verifies_the_envelope_and_in_toto_attestation_reads_th
     assert done_statement(env, ordered, _key_file(keys, tmp_path), out).returncode == 0
     public = keys.signer.public_key().public_bytes_raw()
     keyid = json.loads(out.read_text())["signatures"][0]["keyid"]
-    clean = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+    clean = plugin_env(without=("PYTHONPATH", "PYTHONHOME"))
 
     def read(path: pathlib.Path, key_hex: str) -> dict:
         proc = subprocess.run([FOREIGN_INTOTO, "-I", "-c", _FOREIGN_READER, str(path), keyid, key_hex],

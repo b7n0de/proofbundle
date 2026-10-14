@@ -22,6 +22,7 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
@@ -53,7 +54,15 @@ def _attr(repo: pathlib.Path) -> str:
 
 
 def _digest(repo: pathlib.Path) -> str | None:
-    return gate._bound_state_digest(str(repo), time.monotonic() + 30, dict(os.environ))
+    return gate._bound_state_digest(str(repo), time.monotonic() + 30,
+                                    plugin_env(XDG_CONFIG_HOME=os.environ.get("XDG_CONFIG_HOME")))
+
+
+def _gate_env(tmp_path: pathlib.Path) -> tuple[dict, pathlib.Path]:
+    """n24's hook environment and the XDG_CONFIG_HOME this case set, so git in the hook reads the same attribute file
+    as git in this process."""
+    env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
+    return plugin_env(**env, XDG_CONFIG_HOME=os.environ.get("XDG_CONFIG_HOME")), gate_dir
 
 
 def test_git_reads_the_default_attribute_file(default_attributes):
@@ -80,7 +89,7 @@ def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, default_attrib
     """The form is `git stash list`, which asks without a rule; `git status` was the form until FIX-18 part B, and
     class a (D34) frees it after the read profile without any rule."""
     repo, attrs = default_attributes
-    env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
+    env, gate_dir = _gate_env(tmp_path)
     n24._set_mode(gate_dir, "with-approvals")
     n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git stash list", "effect": "free",
                                "state_digest": n24._digest(repo, env)}])
@@ -95,7 +104,7 @@ def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, default_attrib
 def test_codex_denies_before_and_after_the_change(tmp_path, default_attributes):
     """Control: under Codex no rule frees a form (D12/D16), so the answer is deny either side of the change."""
     repo, attrs = default_attributes
-    env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
+    env, gate_dir = _gate_env(tmp_path)
     n24._set_mode(gate_dir, "with-approvals")
     n24._set_rules(gate_dir, [{"repo": n24._common(repo), "form": "git stash list", "effect": "free",
                                "state_digest": n24._digest(repo, env)}])

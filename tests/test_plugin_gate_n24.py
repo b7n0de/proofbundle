@@ -27,6 +27,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -71,8 +72,7 @@ def _gate_env(tmp_path: pathlib.Path, logs: pathlib.Path) -> tuple[dict, pathlib
     """The host environment plus a user-wide gate directory the model cannot reach through the repository."""
     gate_dir = tmp_path / "gatehome" / ".config" / "proofbundle"
     gate_dir.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(logs), "PLUGIN_DATA": str(logs),
-           "PROOFBUNDLE_GATE_DIR": str(gate_dir)}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(logs), PLUGIN_DATA=str(logs), PROOFBUNDLE_GATE_DIR=str(gate_dir))
     return env, gate_dir
 
 

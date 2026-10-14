@@ -18,7 +18,6 @@ Properties checked:
 from __future__ import annotations
 
 import hashlib
-import os
 import pathlib
 import re
 import shutil
@@ -26,6 +25,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -78,7 +78,7 @@ def _recipe() -> str:
 
 def _by_recipe(repo: pathlib.Path, rev: str = "HEAD") -> str:
     proc = subprocess.run(["bash", "-c", _recipe(), "recipe", rev], cwd=repo, capture_output=True, text=True,
-                          check=False, env=dict(os.environ, LC_ALL="C"))
+                          check=False, env=plugin_env(LC_ALL="C"))
     assert proc.returncode == 0, proc.stderr
     return proc.stdout.strip()
 
@@ -190,5 +190,5 @@ def test_a_submodule_has_no_digest(tmp_path):
     with pytest.raises(gate.GateError, match="submodule|commit"):
         gate.tree_digest(str(repo), "HEAD")
     proc = subprocess.run(["bash", "-c", _recipe(), "recipe", "HEAD"], cwd=repo, capture_output=True, text=True,
-                          check=False, env=dict(os.environ, LC_ALL="C"))
+                          check=False, env=plugin_env(LC_ALL="C"))
     assert proc.returncode != 0, "the recipe must fail, not print a digest, for a submodule"

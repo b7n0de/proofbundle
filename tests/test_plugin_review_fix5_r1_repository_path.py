@@ -25,6 +25,7 @@ import pytest
 
 import test_plugin_done_check as dc
 import test_plugin_review_fix_f6_early_open as f6
+from _plugin_env import plugin_env
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -212,7 +213,7 @@ def test_done_init_writes_into_the_named_repository(env, tmp_path, suffix, neigh
 def _run_env(tmp_path: pathlib.Path) -> dict:
     import proofbundle
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    clean = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return clean
 

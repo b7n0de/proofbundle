@@ -36,6 +36,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -108,7 +109,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    clean = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     clean["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["RUN_EVIDENCE_SECRET"] = "s3cr3t-value-7f"

@@ -24,6 +24,7 @@ import pytest
 
 import test_claude_code_plugin_gate as cg
 import test_plugin_tree_digest as td
+from _plugin_env import plugin_env
 
 pytestmark = td.pytestmark
 _clean_git_config = cg._clean_git_config
@@ -85,7 +86,7 @@ def test_the_gate_gives_no_digest_for_a_tree_that_names_a_path_twice(tmp_path, s
 def test_the_readme_recipe_gives_no_digest_for_it_either(tmp_path, shape):
     repo, commit = _ambiguous(tmp_path, shape)
     proc = subprocess.run(["bash", "-c", td._recipe(), "recipe", commit], cwd=repo, capture_output=True, text=True,
-                          check=False, env=dict(os.environ, LC_ALL="C"))
+                          check=False, env=plugin_env(LC_ALL="C"))
     assert proc.returncode != 0 and proc.stdout == "" and TWICE in proc.stderr, proc
 
 
@@ -131,7 +132,7 @@ def cg_env() -> dict:
                                f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
     (folder / "uv").chmod(0o755)
     package_root = str(pathlib.Path(cg.proofbundle.__file__).resolve().parent.parent)
-    return dict(os.environ, PATH=os.pathsep.join([str(folder), os.environ.get("PATH", "")]),
+    return plugin_env(PATH=os.pathsep.join([str(folder), os.environ.get("PATH", "")]),
                 PYTHONPATH=os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p))
 
 

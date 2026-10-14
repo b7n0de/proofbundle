@@ -30,6 +30,7 @@ import pytest
 
 import test_plugin_gate_log as gl
 import test_plugin_review_fix10_r1_selftest_receiver as r1
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -88,7 +89,7 @@ def test_git_gives_a_local_receive_pack_no_configuration_from_the_environment(tm
     log = tmp_path / "hook.log"
     home = _home(tmp_path, f"[core]\n\thooksPath = {_reset_hooks(tmp_path / 'hk', log)}\n")
     before = r1._main(bare)
-    environ = {k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",))
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], capture_output=True, text=True,
                           env=dict(environ, HOME=str(home), GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
                                    GIT_CONFIG_VALUE_0=str(tmp_path / "missing")), timeout=60, check=False)
@@ -102,8 +103,7 @@ def test_git_config_reads_a_file_no_push_reads(tmp_path):
     work, bare = r1._pair(tmp_path)
     other, wrapper, log = r1._wrapper(tmp_path)
     home = _home(tmp_path, f'[remote "origin"]\n\treceivepack = {wrapper}\n')
-    environ = dict({k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}, HOME=str(home),
-                   GIT_CONFIG=os.devnull)
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",), HOME=str(home), GIT_CONFIG=os.devnull)
     asked = subprocess.run(["git", "-C", str(work), "config", "--get-all", "remote.origin.receivepack"],
                            capture_output=True, text=True, env=environ, timeout=60, check=False)
     assert (asked.returncode, asked.stdout) == (1, "")

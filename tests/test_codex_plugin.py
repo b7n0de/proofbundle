@@ -53,6 +53,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -233,7 +234,7 @@ def shim(tmp_path: pathlib.Path) -> dict:
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return env
 
@@ -448,10 +449,10 @@ def test_the_codex_hook_entry_blocks_when_the_gate_cannot_run(tmp_path):
     entry = _codex_hook()
     event = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "ls"}})
     ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                        env=dict(os.environ, PLUGIN_ROOT=str(PLUGIN)), check=False)
+                        env=plugin_env(PLUGIN_ROOT=str(PLUGIN)), check=False)
     assert (ok.returncode, ok.stdout) == (0, "")
     gone = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                          env=dict(os.environ, PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
+                          env=plugin_env(PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
     assert gone.returncode == 2
     assert gone.stderr.strip(), "Codex blocks on exit 2 only with a reason on stderr"
 

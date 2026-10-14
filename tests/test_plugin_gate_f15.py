@@ -5,7 +5,6 @@ longer claims that the model cannot set the mode."""
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -14,6 +13,7 @@ import time
 import pytest
 
 import proofbundle
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -76,7 +76,7 @@ def test_f15_4_a_known_level_is_still_read(monkeypatch):
 def test_f15_4_the_server_refuses_a_request_with_a_non_json_constant():
     proc = subprocess.run([sys.executable, "-I", str(SERVER)], input='{"jsonrpc":"2.0","id":NaN,"method":"ping"}\n',
                           capture_output=True, text=True, timeout=60, check=False,
-                          env=dict(os.environ, PYTHONPATH=str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)))
+                          env=plugin_env(PYTHONPATH=str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)))
     reply = json.loads(proc.stdout.splitlines()[0])
     assert reply["error"]["code"] == -32700
 

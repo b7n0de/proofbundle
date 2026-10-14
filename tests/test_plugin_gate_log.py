@@ -33,6 +33,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -74,8 +75,8 @@ def env(tmp_path: pathlib.Path) -> dict:
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA",
-                                                              "CLAUDE_CODE_SESSION_ID", "PROOFBUNDLE_PLUGIN_HOST")}
+    clean = plugin_env(without=("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID",
+                                "PROOFBUNDLE_PLUGIN_HOST"))
     clean["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return clean

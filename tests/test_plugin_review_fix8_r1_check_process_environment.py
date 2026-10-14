@@ -15,7 +15,6 @@ and none of the other settings of the gate's own reads (_read_env). Red against 
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -23,6 +22,7 @@ import sys
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _plugin_env import plugin_env
 
 GATE = n2c.GATE
 pytestmark = n2c.pytestmark
@@ -67,7 +67,7 @@ def _repo(path: pathlib.Path, test: str, top_value: str = "BAD\n") -> pathlib.Pa
 
 
 def _run_evidence(directory: pathlib.Path, out: pathlib.Path, cwd: pathlib.Path, **extra: str) -> tuple[int, dict]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    env = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     env.update(PYTHONDONTWRITEBYTECODE="1", **extra)
     argv = [sys.executable, "-I", str(GATE), "run-evidence", "--repo", str(directory), "--out", str(out), "--",
             sys.executable, "-m", "pytest", "-q", "-s", "tests/"]
@@ -83,7 +83,7 @@ def test_git_started_in_p_and_in_the_work_tree_reads_two_trees(tmp_path):
     """Non-vacuous: the relative value names P/repo started in P and P/repo/repo started in P/repo, where the test
     runs; the value the test demands lies only in the second."""
     repo = _repo(tmp_path / "repo", _TOPLEVEL_TEST)
-    env = dict(os.environ, GIT_DIR=str(repo / ".git"), GIT_WORK_TREE="repo")
+    env = plugin_env(GIT_DIR=str(repo / ".git"), GIT_WORK_TREE="repo")
     top = lambda cwd: subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True,  # noqa: E731
                                      text=True, env=env, timeout=60, check=True).stdout.strip()
     assert top(tmp_path) == str(repo)
@@ -136,7 +136,7 @@ def test_git_takes_a_relative_git_dir_against_the_directory_it_starts_in(tmp_pat
     """Non-vacuous: GIT_DIR=../.git with GIT_WORK_TREE=.. opens P/repo/.git started in P/repo/sub and P/.git started
     in P/repo, where the check process runs; only the second holds GOOD."""
     repo = _nested(tmp_path)
-    env = dict(os.environ, GIT_DIR="../.git", GIT_WORK_TREE="..")
+    env = plugin_env(GIT_DIR="../.git", GIT_WORK_TREE="..")
     show = lambda cwd: subprocess.run(["git", "show", "HEAD:value.txt"], cwd=cwd, capture_output=True,  # noqa: E731
                                       text=True, env=env, timeout=60, check=True).stdout
     assert show(repo / "sub") == "BAD\n"

@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -55,7 +56,7 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
     answer (None for no answer), the reason ids of its log line, and the answer itself."""
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": command}})
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(logs), "PLUGIN_DATA": str(logs)}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(logs), PLUGIN_DATA=str(logs))
     proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=event, capture_output=True,
                           text=True, env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr

@@ -41,6 +41,7 @@ import time
 import pytest
 
 import proofbundle
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EVALS = ROOT / "plugins" / "proofbundle" / "evals"
@@ -83,7 +84,7 @@ def _modes_the_scaffold_knows() -> set[str]:
 
 def _cli_env() -> dict:
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    return dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p))
+    return plugin_env(PYTHONPATH=os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p))
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -109,8 +110,8 @@ def test_every_case_has_its_parts(case):
 def test_every_scaffold_mode_a_case_calls_runs_offline(tmp_path, mode):
     # Without a gate directory of its own, a scaffold of D35 approves nothing and writes no gate directory.
     proc = subprocess.run(["bash", str(SCAFFOLD), mode], cwd=tmp_path, capture_output=True, text=True,
-                          env=dict({k: v for k, v in os.environ.items() if k != "PROOFBUNDLE_GATE_DIR"},
-                                   **{name: "http://127.0.0.1:9" for name in
+                          env=plugin_env(without=("PROOFBUNDLE_GATE_DIR",),
+                                         **{name: "http://127.0.0.1:9" for name in
                                       ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}),
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stderr
@@ -960,7 +961,7 @@ def test_running_the_tests_in_the_green_workspace_leaves_its_state(done_outputs,
     gate = _gate_module()
     workspace = done_outputs["done-receipt-current-tree-ends"][0]
     before = gate.working_state(str(workspace), time.monotonic() + 60)["worktree"]
-    env = {k: v for k, v in os.environ.items() if not k.startswith("PROOFBUNDLE")}
+    env = plugin_env(without=("PROOFBUNDLE",))
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:randomly"], cwd=workspace,
                           capture_output=True, text=True, env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr

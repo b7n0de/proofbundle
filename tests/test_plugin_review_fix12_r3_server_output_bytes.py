@@ -22,6 +22,7 @@ import sys
 import pytest
 
 import test_plugin_gate_log as gl
+from _plugin_env import plugin_env
 
 pytestmark = [gl.pytestmark, pytest.mark.skipif(sys.platform != "linux", reason="raw name bytes need Linux")]
 env = gl.env
@@ -81,7 +82,7 @@ def test_git_takes_the_folder_with_the_undecodable_byte(tmp_path):
     home, folder = _hooks_home(tmp_path, b"hk\xff")
     bare = tmp_path / "bare.git"
     subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
-    environ = dict({k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}, HOME=str(home))
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",), HOME=str(home))
     answer = subprocess.run(["git", "-C", str(bare), "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
                             capture_output=True, env=environ, check=True).stdout
     assert answer == folder + b"\n"

@@ -16,6 +16,7 @@ import subprocess
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _plugin_env import plugin_env
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -36,7 +37,7 @@ def test_git_says_something_for_an_absent_key_under_trace(tmp_path):
     """Non-vacuous: under GIT_TRACE git exits 1 for an absent key and writes its trace to stderr."""
     r = n2c.Repo(tmp_path)
     out = subprocess.run(["git", "-C", str(r.path), "config", "--get", "branch.main.nothing"], capture_output=True,
-                         env=dict(n2c.os.environ, GIT_TRACE="1"), timeout=60, check=False)
+                         env=plugin_env(GIT_TRACE="1"), timeout=60, check=False)
     assert out.returncode == 1 and out.stdout == b"" and b"trace: " in out.stderr, out
 
 

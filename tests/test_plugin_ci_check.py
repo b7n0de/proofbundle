@@ -33,6 +33,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -124,7 +125,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    clean = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return clean
 
@@ -347,7 +348,7 @@ def test_the_tag_containment_step_requires_a_release_tag(tmp_path):
 
     def run_step(ref: str) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=str(gate),
-                              env=dict(os.environ, GATE_REF=ref), capture_output=True, text=True)
+                              env=plugin_env(GATE_REF=ref), capture_output=True, text=True)
 
     contained = run_step(tagged)
     assert contained.returncode == 0 and "v6.2.0" in contained.stdout

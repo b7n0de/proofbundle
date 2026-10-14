@@ -24,6 +24,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -264,7 +265,7 @@ def test_under_codex_a_free_form_is_not_measured_because_the_directory_is_not_bo
 def _run(event: dict, host: str = "claude") -> dict:
     args = [sys.executable, "-I", str(GATE)] + (["--host", "codex"] if host == "codex" else [])
     out = subprocess.run(args, input=json.dumps(event), capture_output=True, text=True, timeout=120,
-                         env=dict(os.environ))
+                         env=plugin_env())
     return json.loads(out.stdout) if out.stdout.strip() else {}
 
 

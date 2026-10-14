@@ -26,6 +26,7 @@ import pytest
 
 import proofbundle
 import test_plugin_done_check as dc
+from _plugin_env import plugin_env
 
 gate = dc.gate
 GATE = dc.GATE
@@ -50,7 +51,7 @@ def env(tmp_path: pathlib.Path) -> dict:
                                 f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    clean = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    clean = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["PROOFBUNDLE_GATE_DIR"] = str(tmp_path / "gate-dir")
     clean["CLAUDE_PLUGIN_DATA"] = clean["PLUGIN_DATA"] = str(tmp_path / "logs")

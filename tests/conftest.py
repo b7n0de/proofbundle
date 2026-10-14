@@ -51,6 +51,10 @@ import pathlib
 
 import pytest
 
+# Nachtrag 6 to FIX-18 part B, point 1: a plugin test module runs without its caller's environment, see
+# tests/_plugin_env.py.
+from _plugin_env import withhold_caller_environment  # noqa: F401
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 # A git checkout always carries these; the sdist prunes/omits them (.github, the Rust tree, the spec
 # source). Their ABSENCE means we are running from a distributed artifact, not the repo.

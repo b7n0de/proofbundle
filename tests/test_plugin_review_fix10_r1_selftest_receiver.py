@@ -25,6 +25,7 @@ import subprocess
 import pytest
 
 import test_plugin_gate_log as gl
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -90,7 +91,7 @@ def test_git_takes_its_receive_program_from_git_exec_path(tmp_path):
     shutil.copy(wrapper, folder / "git-receive-pack")
     before = _main(bare)
     subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True, capture_output=True,
-                   env=dict(os.environ, GIT_EXEC_PATH=str(folder)))
+                   env=plugin_env(GIT_EXEC_PATH=str(folder)))
     assert _main(bare) == before and _main(other) and log.exists()
 
 
@@ -102,7 +103,7 @@ def test_git_hands_the_push_to_the_remote_helper_remote_vcs_names(tmp_path):
     (bin_dir / "git-remote-probe").write_text(f'#!/bin/sh\necho "$*" >> "{log}"\nexit 1\n', encoding="utf-8")
     (bin_dir / "git-remote-probe").chmod(0o755)
     subprocess.run(["git", "-C", str(work), "-c", "remote.origin.vcs=probe", "push", "-q", "origin", "main"],
-                   capture_output=True, env=dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"))
+                   capture_output=True, env=plugin_env(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"))
     assert log.exists()
 
 

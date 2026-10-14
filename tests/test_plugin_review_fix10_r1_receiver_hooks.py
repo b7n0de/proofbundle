@@ -17,7 +17,6 @@ is no choice of a receive program. Red against bf10fa6a.
 """
 from __future__ import annotations
 
-import os
 import pathlib
 import shutil
 import subprocess
@@ -26,6 +25,7 @@ import pytest
 
 import test_plugin_gate_log as gl
 import test_plugin_review_fix10_r1_selftest_receiver as r1
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -60,7 +60,7 @@ def test_git_runs_a_hook_the_configuration_names_and_a_post_receive_undoes_the_w
     folder = _hooks(tmp_path / "hk", {"post-receive": RESET.format(log=log)})
     home = _home(tmp_path, "../../hk" if relative else str(folder))
     before = r1._main(bare)
-    environ = {k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",))
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], capture_output=True, text=True,
                           env=dict(environ, HOME=str(home)), timeout=60, check=False)
     assert push.returncode == 0, push.stderr

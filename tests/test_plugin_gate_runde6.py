@@ -22,6 +22,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -273,7 +274,7 @@ def test_p5_a_rules_change_on_ebene_2_names_the_remote_state_git_reported(tmp_pa
 # --- R6-1: a gated MCP write is NOT MEASURED; ask under Claude, deny under Codex ----------------------
 
 def _clean_env() -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+    env = plugin_env(without=("GIT_CONFIG",))
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_SYSTEM"] = os.devnull
     env["PYTHONPATH"] = os.pathsep.join(

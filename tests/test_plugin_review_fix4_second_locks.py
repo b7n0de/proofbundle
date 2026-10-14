@@ -16,13 +16,14 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
 
 
 def _digest(directory: pathlib.Path | str) -> str | None:
-    return gate._bound_state_digest(str(directory), time.monotonic() + 30, dict(os.environ))
+    return gate._bound_state_digest(str(directory), time.monotonic() + 30, plugin_env())
 
 
 def _attr(directory: pathlib.Path | str) -> bytes:

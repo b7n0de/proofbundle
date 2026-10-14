@@ -24,6 +24,7 @@ import time
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _plugin_env import plugin_env
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 gate = n2c.gate
@@ -84,7 +85,7 @@ def _clear(tmp_path: pathlib.Path) -> None:
 
 
 def _decide(repo: pathlib.Path, command: str, host: str = "claude") -> tuple[str | None, list[str]]:
-    out = gate.decide(command, str(repo), time.monotonic() + 120, host, dict(os.environ))
+    out = gate.decide(command, str(repo), time.monotonic() + 120, host, plugin_env())
     return (None, []) if out is None else (out.decision, [v.reason_id for v in out.verdicts])
 
 
@@ -134,7 +135,7 @@ def test_FREE_one_literal_minus_C_names_the_repository(tmp_path):
 def test_KEEP_class_a_is_off_under_codex(tmp_path, command):
     """Owner answer 10: under Codex a read form keeps the answer of D3, denied by the host answer."""
     repo = _repo(tmp_path)
-    out = gate.decide(command, str(repo), time.monotonic() + 120, "codex", dict(os.environ))
+    out = gate.decide(command, str(repo), time.monotonic() + 120, "codex", plugin_env())
     assert out is not None and out.decision == "ask" and "git_form_not_free" in [v.reason_id for v in out.verdicts]
     assert gate.answer(out.decision, out.text, host="codex")["hookSpecificOutput"]["permissionDecision"] == "deny"
 
@@ -432,7 +433,7 @@ def test_KEEP_a_walking_read_form_after_git_add(tmp_path, command):
     assert _started(tmp_path) == [], "the gate started what it checks for"
     if "sub" in command:
         subprocess.run(["bash", "-c", command], cwd=repo, capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
-                       env=dict(os.environ))
+                       env=plugin_env())
         assert _started(tmp_path), "the real run started no program; the case would be vacuous"
 
 
@@ -442,7 +443,7 @@ def test_FREE_git_add_before_a_form_that_does_not_walk(tmp_path, command):
     _embedded(tmp_path, repo)
     assert _decide(repo, command)[0] == "pass"
     subprocess.run(["bash", "-c", command], cwd=repo, capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
-                   env=dict(os.environ))
+                   env=plugin_env())
     assert _started(tmp_path) == []
 
 
@@ -512,7 +513,7 @@ def test_TRUTH_no_free_read_form_starts_a_program(tmp_path, monkeypatch, source)
         decision, reasons = _decide(repo, command)
         assert _started(tmp_path) == [], (command, "the gate started", _started(tmp_path))
         subprocess.run(shlex.split(command), cwd=repo, capture_output=True, timeout=60, stdin=subprocess.DEVNULL,
-                       env=dict(os.environ))
+                       env=plugin_env())
         ran = _started(tmp_path)
         started_any += ran
         if decision in FREE:

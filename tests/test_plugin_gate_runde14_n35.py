@@ -26,6 +26,7 @@ import sys
 import time
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -66,8 +67,8 @@ def _repo(tmp_path):
 def _hook(repo, logs, host, command):
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": command}})
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(logs), "PLUGIN_DATA": str(logs),
-           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(logs), PLUGIN_DATA=str(logs), GIT_CONFIG_GLOBAL=os.devnull,
+                     GIT_CONFIG_SYSTEM=os.devnull)
     proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=event, capture_output=True,
                           text=True, env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr
@@ -174,7 +175,7 @@ def test_net_covers_every_git_bash_or_zsh_runs(tmp_path, command):
     """The reviewer's requirement: if bash or zsh runs git or gh as a command word of the text, the net must see
     it (a git/gh word) or report the command NOT MEASURED — never nothing. Overmatch the other way is allowed."""
     d = _stub_dir(tmp_path)
-    env = dict(os.environ, PATH=str(d) + os.pathsep + os.environ["PATH"])
+    env = plugin_env(PATH=str(d) + os.pathsep + os.environ["PATH"])
     ran = False
     for shell in (["bash", "-c"], ["/usr/bin/zsh", "-c"]):
         if subprocess.run([shell[0], "-c", "exit 0"], capture_output=True).returncode != 0:

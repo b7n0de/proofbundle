@@ -20,6 +20,7 @@ import time
 import pytest
 
 import test_plugin_gate_n24 as n24
+from _plugin_env import plugin_env
 
 gate = n24.gate
 _clean_git_config = n24._clean_git_config
@@ -56,14 +57,14 @@ def _bare(tmp_path: pathlib.Path, attributes: str) -> str:
 
 def test_a_relative_attribute_file_without_a_work_tree_leaves_the_digest_unknown(tmp_path):
     bare = _bare(tmp_path, "rel/attrs")
-    assert gate._bound_state_digest(bare, time.monotonic() + 30, dict(os.environ)) is None
+    assert gate._bound_state_digest(bare, time.monotonic() + 30, plugin_env()) is None
 
 
 def test_control_an_absolute_attribute_file_of_a_bare_repository_is_bound(tmp_path):
     attrs = tmp_path / "attrs"
     attrs.write_text("a review=one\n", encoding="utf-8")
     bare = _bare(tmp_path, str(attrs))
-    before = gate._bound_state_digest(bare, time.monotonic() + 30, dict(os.environ))
+    before = gate._bound_state_digest(bare, time.monotonic() + 30, plugin_env())
     attrs.write_text("a review=two\n", encoding="utf-8")
-    after = gate._bound_state_digest(bare, time.monotonic() + 30, dict(os.environ))
+    after = gate._bound_state_digest(bare, time.monotonic() + 30, plugin_env())
     assert before is not None and after is not None and before != after

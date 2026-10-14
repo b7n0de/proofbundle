@@ -13,7 +13,6 @@ GIT_NAMESPACE. The other cases are green there and here; they show which source 
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -24,6 +23,7 @@ import pytest
 import test_plugin_done_check as dc
 import test_plugin_gate_n2c_push_done as n2c
 import test_plugin_review_fix_f6_early_open as f6
+from _plugin_env import plugin_env
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -98,7 +98,7 @@ def test_the_state_digest_reads_the_configuration_git_reads(tmp_path, monkeypatc
     fake = tmp_path / "fake.cfg"
     fake.write_text("[user]\n\tname = x\n", encoding="utf-8")
     monkeypatch.setenv("GIT_CONFIG", str(fake))
-    digest = lambda: gate._bound_state_digest(str(repo), time.monotonic() + 60, dict(os.environ))  # noqa: E731
+    digest = lambda: gate._bound_state_digest(str(repo), time.monotonic() + 60, plugin_env())  # noqa: E731
     before = digest()
     subprocess.run(["git", "-C", str(repo), "config", "--file", str(repo / ".git" / "config"), "core.fsmonitor",
                     "marker-program"], check=True, timeout=60)

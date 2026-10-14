@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -95,7 +96,7 @@ def _repo(tmp_path: pathlib.Path, name: str = "r") -> pathlib.Path:
 # --- R8-1: run-evidence names the tree it tested -----------------------------------------------------------------
 
 def _run_evidence(repo: pathlib.Path, out: pathlib.Path, *command: str) -> tuple[int, dict]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    env = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     argv = [sys.executable, str(GATE), "run-evidence", "--repo", str(repo), "--out", str(out), "--",
             *(command or (sys.executable, "-m", "pytest", "-q", "tests/"))]
     proc = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=repo.parent, timeout=300, check=False)
@@ -165,7 +166,7 @@ def test_r8_1_neither_fsmonitor_nor_post_index_change_starts_while_the_tree_is_c
     assert not fsmonitor.exists(), "run-evidence started core.fsmonitor"
     assert not hook.exists(), "run-evidence started the post-index-change hook"
     subprocess.run(["git", "-C", str(repo), "add", "-A"], capture_output=True, check=False,
-                   env={**os.environ, "GIT_INDEX_FILE": str(tmp_path / "probe-index")})
+                   env=plugin_env(GIT_INDEX_FILE=str(tmp_path / "probe-index")))
     assert fsmonitor.exists() or hook.exists(), "neither marker is live for a plain git; the case would be vacuous"
 
 
@@ -272,7 +273,7 @@ def test_r8_6_a_padded_boolean_word_in_core_fsmonitor_is_a_command_and_asks(tmp_
     decision, text = _decision("git status --short", repo)
     assert decision == "ask", text
     assert not marker.exists(), "the gate started the fsmonitor command"
-    env = {**os.environ, "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}"}
+    env = plugin_env(PATH=f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
     subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False, env=env,
                    timeout=60)
     assert marker.exists(), f"git does not start the command ' {word} '; the case would be vacuous"
@@ -282,7 +283,7 @@ def _status_on_a_terminal(repo: pathlib.Path, bin_dir: pathlib.Path | None = Non
     """git status with its output on a local pseudo terminal, where git pages; bin_dir first on PATH."""
     master, slave = os.openpty()
     try:
-        env = {k: v for k, v in os.environ.items() if k != "GIT_PAGER_IN_USE"}
+        env = plugin_env(without=("GIT_PAGER_IN_USE",))
         if bin_dir is not None:
             env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
         subprocess.run(["git", "-C", str(repo), "status"], stdin=subprocess.DEVNULL, stdout=slave,

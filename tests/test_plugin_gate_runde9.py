@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import pytest
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -47,7 +48,7 @@ def _git(repo: pathlib.Path, *args: str, check: bool = True, env: dict | None = 
          stdin: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.org", *args],
                           check=check, capture_output=True, text=True, timeout=60, input=stdin,
-                          env=None if env is None else {**os.environ, **env})
+                          env=None if env is None else plugin_env(**env))
 
 
 def _repo(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -288,7 +289,7 @@ def test_the_everyday_read_forms_are_free_under_claude_code_after_the_read_profi
 # --- R9-1: every intermediate component of a committed path is a real directory ------------------------------------
 
 def _run_evidence(repo: pathlib.Path, out: pathlib.Path) -> tuple[int, dict]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    env = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     argv = [sys.executable, str(GATE), "run-evidence", "--repo", str(repo), "--out", str(out), "--",
             sys.executable, "-m", "pytest", "-q", "tests/"]
     proc = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=repo.parent, timeout=300, check=False)
@@ -337,7 +338,7 @@ def test_r9_1_a_committed_directory_replaced_by_a_link_gives_no_evidence(tmp_pat
     assert "pkg" in report["message"] and "symbolic link" in report["message"], report["message"]
     plain = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/"], cwd=repo,
                            capture_output=True, text=True, timeout=120, check=False,
-                           env={k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))})
+                           env=plugin_env(without=("PROOFBUNDLE_", "PYTEST_")))
     assert plain.returncode == 0, "the test does not pass on the linked tree; the case would be vacuous"
 
 
@@ -382,7 +383,7 @@ def signing_env(tmp_path: pathlib.Path) -> dict:
                                 f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    env = plugin_env(without=("PROOFBUNDLE_", "PYTEST_"))
     env["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
     env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     return env
@@ -504,7 +505,7 @@ def test_r9_4_a_hook_event_that_repeats_a_key_is_denied(tmp_path):
     event = ('{"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": ' + json.dumps(str(tmp_path))
              + ', "tool_input": {"command": "git push origin main", "command": "true"}}')
     proc = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True,
-                          timeout=120, check=False, env={**os.environ, "CLAUDE_PLUGIN_DATA": str(tmp_path)})
+                          timeout=120, check=False, env=plugin_env(CLAUDE_PLUGIN_DATA=str(tmp_path)))
     answer = json.loads(proc.stdout)["hookSpecificOutput"]
     assert answer["permissionDecision"] == "deny", answer
     assert "repeats the key 'command'" in answer["permissionDecisionReason"], answer

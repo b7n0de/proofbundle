@@ -31,6 +31,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
@@ -71,8 +72,8 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str,
           env_extra: dict | None = None) -> tuple[str | None, list[str]]:
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": command}})
-    env = {**os.environ, "CLAUDE_PLUGIN_DATA": str(logs), "PLUGIN_DATA": str(logs),
-           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+    env = plugin_env(CLAUDE_PLUGIN_DATA=str(logs), PLUGIN_DATA=str(logs), GIT_CONFIG_GLOBAL=os.devnull,
+                     GIT_CONFIG_SYSTEM=os.devnull)
     if env_extra:
         env.update(env_extra)
     proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=event, capture_output=True,
@@ -199,7 +200,7 @@ def test_k1_net_never_misses_a_git_bash_runs(command):
             p = pathlib.Path(d) / name
             p.write_text(f'#!/bin/sh\necho RAN:{name}\n', encoding="utf-8")
             p.chmod(0o755)
-        env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"])
+        env = plugin_env(PATH=d + os.pathsep + os.environ["PATH"])
         res = subprocess.run(["bash", "-c", command], capture_output=True, text=True, env=env, timeout=30)
         bash_ran_git = "RAN:git" in res.stdout or "RAN:gh" in res.stdout
     if bash_ran_git:
@@ -300,7 +301,7 @@ def _uv_stream_env(tmp_path: pathlib.Path, replies: list[str]) -> dict:
     stream.write_text("".join(line + "\n" for line in replies), encoding="utf-8")
     (bin_dir / "uv").write_text(f'#!/bin/sh\ncat > /dev/null\ncat "{stream}"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
-    env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_SYSTEM"] = os.devnull
     return env

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 import test_plugin_owner_choice1_undeclared_push as w1
+from _plugin_env import plugin_env
 
 pytestmark = w1.pytestmark
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -25,7 +26,7 @@ print(json.dumps({"readable": result.get("readable"), "note": result.get("note")
 
 
 def _status(data: pathlib.Path) -> dict | str:
-    environ = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "PROOFBUNDLE_"))}
+    environ = plugin_env(without=("GIT_", "PROOFBUNDLE_"))
     environ.update(CLAUDE_PLUGIN_DATA=str(data))
     environ.pop("PLUGIN_DATA", None)
     proc = subprocess.Popen([sys.executable, "-c", PROBE, str(SERVER)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,

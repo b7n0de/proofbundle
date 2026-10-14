@@ -15,6 +15,7 @@ import subprocess
 import pytest
 
 import test_plugin_gate_k_nw_2_b as knw
+from _plugin_env import plugin_env
 
 gate = knw.gate
 _clean_git_environment = knw._clean_git_environment
@@ -43,7 +44,7 @@ def test_git_starts_the_program_a_blank_padded_fsmonitor_value_names(tmp_path, v
     path, marker = _path_with(tmp_path, "no")
     knw._change(repo)
     subprocess.run(["git", "-C", str(repo), "add", "a.txt"], capture_output=True, timeout=60,
-                   env={**os.environ, "PATH": path})
+                   env=plugin_env(PATH=path))
     assert marker.exists(), f"git does not start `no` for core.fsmonitor={value!r}; the case would be vacuous"
 
 

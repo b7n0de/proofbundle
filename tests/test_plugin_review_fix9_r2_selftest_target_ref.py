@@ -14,7 +14,6 @@ namespace or a mapping only the host's shell carries) is a changed target, never
 """
 from __future__ import annotations
 
-import os
 import pathlib
 import shutil
 import subprocess
@@ -22,6 +21,7 @@ import subprocess
 import pytest
 
 import test_plugin_gate_log as gl
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -58,7 +58,7 @@ def test_git_writes_a_namespaced_push_under_refs_namespaces_and_leaves_main(tmp_
     head = subprocess.run(["git", "-C", str(work), "rev-parse", "HEAD"], capture_output=True, text=True,
                           check=True).stdout.strip()
     subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True, capture_output=True,
-                   env=dict(os.environ, GIT_NAMESPACE="selftest-ns"))
+                   env=plugin_env(GIT_NAMESPACE="selftest-ns"))
     after = _refs(bare)
     assert after["refs/heads/main"] == before["refs/heads/main"]
     assert after["refs/namespaces/selftest-ns/refs/heads/main"] == head

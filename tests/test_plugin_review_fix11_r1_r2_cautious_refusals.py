@@ -22,6 +22,7 @@ import test_plugin_gate_log as gl
 import test_plugin_review_fix10_r1_selftest_receiver as r1
 import test_plugin_review_fix11_r1_receiver_environment as e1
 import test_plugin_review_fix11_r2_hooks_path_text as e2
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -36,7 +37,7 @@ def test_git_gives_a_local_receive_pack_no_hooks_folder_from_the_environment(tmp
     hooks = e1._reset_hooks(tmp_path / "hk", log)
     before = r1._main(bare)
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], capture_output=True, text=True,
-                          env=dict(os.environ, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
+                          env=plugin_env(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
                                    GIT_CONFIG_VALUE_0=str(hooks)), timeout=60, check=False)
     assert push.returncode == 0, push.stderr
     assert r1._main(bare) != before and not log.exists()
@@ -56,7 +57,7 @@ def test_git_names_a_hooks_folder_with_a_line_break_over_two_lines(tmp_path):
     folder = tmp_path / "hk\nx"
     folder.mkdir()
     home = e2._quoted_home(tmp_path, folder)
-    environ = {k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",))
     answer = subprocess.run(["git", "-C", str(bare), "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
                             capture_output=True, env=dict(environ, HOME=str(home)), timeout=60, check=True).stdout
     assert answer == os.fsencode(folder) + b"\n" and answer.count(b"\n") == 2

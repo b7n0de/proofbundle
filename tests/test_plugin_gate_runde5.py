@@ -28,6 +28,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -294,7 +295,7 @@ def test_codex_a_good_repo_push_is_not_measured_and_warns(tmp_path):
 # --- subprocess helpers ------------------------------------------------------------------------------
 
 def _clean_env() -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+    env = plugin_env(without=("GIT_CONFIG",))
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_SYSTEM"] = os.devnull
     env["PYTHONPATH"] = os.pathsep.join(

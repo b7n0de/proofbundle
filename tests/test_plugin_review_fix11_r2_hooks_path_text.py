@@ -12,7 +12,6 @@ chain where prepare hands out the command. Red against 0d69f996.
 """
 from __future__ import annotations
 
-import os
 import pathlib
 import subprocess
 
@@ -21,6 +20,7 @@ import pytest
 import test_plugin_gate_log as gl
 import test_plugin_review_fix10_r1_selftest_receiver as r1
 import test_plugin_review_fix11_r1_receiver_environment as e1
+from _plugin_env import plugin_env
 
 pytestmark = gl.pytestmark
 env = gl.env
@@ -40,7 +40,7 @@ def test_git_takes_the_hooks_folder_with_its_trailing_blank(tmp_path, tail):
     log = tmp_path / "hook.log"
     home = _quoted_home(tmp_path, e1._reset_hooks(tmp_path / f"hk{tail}", log))
     before = r1._main(bare)
-    environ = {k: v for k, v in os.environ.items() if k != "GIT_CONFIG_GLOBAL"}
+    environ = plugin_env(without=("GIT_CONFIG_GLOBAL",))
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], capture_output=True, text=True,
                           env=dict(environ, HOME=str(home)), timeout=60, check=False)
     assert push.returncode == 0, push.stderr

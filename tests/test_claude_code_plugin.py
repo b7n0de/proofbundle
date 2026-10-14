@@ -39,6 +39,7 @@ import sys
 import pytest
 
 import proofbundle
+from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -62,7 +63,7 @@ def _frontmatter(text: str) -> dict[str, str]:
 
 class _Server:
     def __init__(self, cwd: pathlib.Path, data: pathlib.Path):
-        env = dict(os.environ, CLAUDE_PLUGIN_DATA=str(data))
+        env = plugin_env(CLAUDE_PLUGIN_DATA=str(data))
         # The server runs from a temporary directory, where a relative PYTHONPATH would resolve to
         # nothing and the child could import some other installed proofbundle. Put the package this
         # test imported first, so the server is measured against the code under test.
