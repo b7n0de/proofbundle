@@ -284,6 +284,21 @@ def test_a_git_wrapper_earlier_on_path_is_no_hand_over(env, tmp_path):
     assert not _pointer(r.path).exists() and _records(env) == []
 
 
+@pytest.mark.parametrize("entry", ["zzbin", ""])
+def test_a_path_entry_that_is_no_absolute_path_is_no_hand_over(env, tmp_path, entry):
+    """Lens 2, F-A: a relative or empty PATH entry resolves against the directory a process runs in. The hook runs
+    elsewhere than the shell, so the gate found the real git while the shell ran a wrapper from the repository."""
+    r = _repo(tmp_path, env)
+    real = shutil.which("git")
+    wrapper = r.path / (entry or ".") / "git"
+    wrapper.parent.mkdir(exist_ok=True)
+    wrapper.write_text(f'#!/bin/sh\nexec "{real}" "$@" --no-verify\n', encoding="utf-8")
+    wrapper.chmod(0o755)
+    answer, entry_log = _level1(dict(env, PATH=entry + os.pathsep + env["PATH"]), r.path)
+    assert_asked_without_handover(answer, entry_log, "PATH holds an entry that is no absolute path")
+    assert not _pointer(r.path).exists()
+
+
 def test_a_link_to_the_real_git_earlier_on_path_is_handed_over(env, tmp_path):
     r = _repo(tmp_path, env)
     (pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git").symlink_to(os.path.realpath(shutil.which("git")))

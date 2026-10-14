@@ -2210,7 +2210,8 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   installed: the pre-push hook git uses here is a regular, executable file, byte for byte the wrapper of
   `install-pre-push`, and the gate it finds at push time is the gate file Level 1 runs; the git on PATH is byte for
   byte the `git` of the exec path it reports, since only git starts the pre-push hook (a wrapper that pushes with
-  `--no-verify` starts no Level 2; lens of 2026-10-14). Then Level 1 writes the
+  `--no-verify` starts no Level 2; lens of 2026-10-14), and PATH holds only absolute entries (a relative or empty
+  entry resolves against the directory a process runs in; lens 2). Then Level 1 writes the
   hand-over and answers `handover`: a message with no permission decision. D4 stays: the gate never answers allow, and
   the host's own permission settings decide whether it asks. The log records the verdict `handover`, never a pass.
   Where a condition fails, the answer is the ask of D3 with "No hand-over to Level 2" and the condition named; where

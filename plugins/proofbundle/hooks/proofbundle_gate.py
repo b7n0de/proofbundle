@@ -6154,7 +6154,12 @@ def _git_identity_problem(deadline: float) -> str | None:
     """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
     program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
     and without Level 2 nothing judges a handed-over push. A wrapper or a script earlier on PATH, and a shim, differ.
-    This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught."""
+    This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught.
+    A PATH entry that is no absolute path (an empty one is the working directory) makes every lookup depend on the
+    directory it runs in, and the shell's is not the gate's (adversarial lens 2 of 2026-10-14, F-A): no hand-over."""
+    if any(not os.path.isabs(entry) for entry in os.environ.get("PATH", "").split(os.pathsep)):
+        return ("PATH holds an entry that is no absolute path (an empty entry is the working directory), so the program "
+                "a name selects depends on the directory the shell runs in, which is not the one the gate runs in")
     git = shutil.which("git")
     exec_path = _git_exec_path(deadline)
     if git is None or exec_path is None:
