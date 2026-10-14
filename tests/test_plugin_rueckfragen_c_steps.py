@@ -113,6 +113,7 @@ CHAIN_ASK = {
     "background": "git add notes/a.md & git commit -m x",                               # rule 2, background
     "cd": "cd notes && git add a.md",                                                   # rule 2, directory change
     "cd_in_chain": "cd notes && git add a.md && git commit -m x",
+    "cd_after": "git add notes/a.md && git commit -m x && cd notes",
     "alias": "alias x=true; git add notes/a.md && git commit -m x",                     # rule 2, alias
     "eval": "eval true && git add notes/a.md && git commit -m x",                       # rule 2, eval
     "eval_after": "git add notes/a.md && git commit -m x && eval true",
