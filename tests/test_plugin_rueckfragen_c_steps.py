@@ -107,6 +107,15 @@ def test_RED_code_that_names_git_asks_at_least(env, tmp_path, name):
     assert decision in ("ask", "deny") and "code_names_git" in reasons, (decision, reasons)
 
 
+@pytest.mark.parametrize("command", ["mytool 'git push origin main'", "deploy-helper --run 'gh pr create --fill'"])
+def test_CONTROL_a_program_the_gate_does_not_know_with_git_text_stays_asked(env, tmp_path, command):
+    """Owner answer 9: an unknown program may run the text it is given; asked at d828c2be (the net), asked here
+    (code_names_git), never free although no step of it is a git step."""
+    work = _repo(tmp_path)
+    decision, reasons = _decide(work, command, env)
+    assert decision in ("ask", "deny"), (decision, reasons)
+
+
 def test_CONTROL_the_heredoc_python_form_of_q18_1_stays_asked(env, tmp_path):
     """The form the prototype of Fassung 1 freed: asked at d828c2be, asked here (no inert-Python rule)."""
     work = _repo(tmp_path)
