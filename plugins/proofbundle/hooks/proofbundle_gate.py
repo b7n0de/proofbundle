@@ -8032,14 +8032,20 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     policy_file = os.path.join(repo, *DONE_POLICY.split("/"))
     if os.path.lexists(policy_file):
         raise GateError(f"{DONE_POLICY} exists already; remove it or set the done check up by hand")
+    # Read before anything is written, and never waited on (the class of R18-2: a FIFO as .gitignore had blocked
+    # done-init after it had written the policy and the declaration).
+    ignore = os.path.join(repo, ".proofbundle", ".gitignore")
+    try:
+        existing = (_read_regular(ignore, -1, follow=True).decode("utf-8").splitlines()
+                    if os.path.lexists(ignore) else [])
+    except _NotRegular as exc:
+        raise GateError(".proofbundle/.gitignore is not a regular file") from exc
     os.makedirs(os.path.dirname(declaration), exist_ok=True)
     with open(policy_file, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(policy, indent=2) + "\n")
     with open(declaration, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(doc, indent=2) + "\n")
-    ignore = os.path.join(repo, ".proofbundle", ".gitignore")
-    existing = open(ignore, encoding="utf-8").read().splitlines() if os.path.lexists(ignore) else []
-    missing = [name.split("/", 1)[1] for name in (DONE_RECEIPT, *DONE_OWN_FILES) if name.split("/", 1)[1] not in existing]
+    missing =[name.split("/", 1)[1] for name in (DONE_RECEIPT, *DONE_OWN_FILES) if name.split("/", 1)[1] not in existing]
     missing += [] if "receipts/" in existing else ["receipts/"]
     if missing:
         with open(ignore, "a", encoding="utf-8") as handle:
