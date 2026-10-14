@@ -645,7 +645,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
        ref, must be the HEAD condition b checked, in the inventory of the present refs and in the final one; a HEAD
        read otherwise leaves the exception unapplied (review round 18 of 2026-10-14, R18-1: the HEAD read was checked
        for its form and then dropped, so a HEAD moved to a declared commit during the reading was passed over).
-    3. The ref store in the files format and in the normal form above.
+    3. The ref store in the files format and in the normal form above. An entry of the store, a root record, info/refs
+       or a further file that is no regular file, a FIFO, a device or a socket, is asked and never waited on: each is
+       opened without blocking and its type is checked at the opened descriptor before any byte is read (review round
+       18 of 2026-10-14, R18-2: info/refs as a FIFO with no writer had blocked the reading of the root records).
     4. The whole inventory: local branches, tags, remote-tracking refs, the current refs/stash, every other ref git
        lists, and the root records above. A ref the store holds and git does not list, and any form the gate does not
        know, are asked, never read as absent; git's listing is read whole, each line with its fields and the output

@@ -4207,11 +4207,34 @@ def _no_link(path: str) -> bool:
         return False
 
 
+class _NotRegular(OSError):
+    """An entry that is no regular file (a FIFO, a device, a socket, a folder), found at the opened descriptor."""
+
+
+def _read_regular(path: str, limit: int, follow: bool = False) -> bytes:
+    """Up to `limit` bytes of the regular file at `path` (review round 18 of 2026-10-14, R18-2). The file is opened
+    without blocking and its type is checked at the opened descriptor before anything is read, so a FIFO with no writer,
+    a device or a socket is never waited on: it raises _NotRegular, an OSError. A symbolic link is refused (the open
+    fails) unless `follow`. OSError as open raises it."""
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    if not follow:
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise _NotRegular(errno.EINVAL, "not a regular file", path)
+        handle = os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
+        return handle.read(limit)
+
+
 def _record_bytes(path: str) -> bytes | None:
     """The bytes of one file of the ref store, None where it holds more than MAX_RECORD_BYTES; OSError as open raises
-    it."""
-    with open(path, "rb") as handle:
-        raw = handle.read(MAX_RECORD_BYTES + 1)
+    it, _NotRegular for an entry that is no regular file, checked at the descriptor before any read (R18-2)."""
+    raw = _read_regular(path, MAX_RECORD_BYTES + 1)
     return None if len(raw) > MAX_RECORD_BYTES else raw
 
 
@@ -4263,7 +4286,10 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
                     names.add(ref)
                     if not _ref_name_ok(ref):
                         continue   # a name git does not list stays one the listing must name (_present_refs)
-                    raw = _record_bytes(path)
+                    try:
+                        raw = _record_bytes(path)
+                    except _NotRegular:
+                        return None, _off_form("an entry that is no regular file", ref)   # R18-2
                     if raw is None:
                         return None, _too_large(ref)
                     held = _ref_file(raw)
@@ -4274,7 +4300,10 @@ def _stored_refs(repo: str, paths: dict, deadline: float) -> tuple[dict | None, 
         packed_path = os.path.join(paths["common"], "packed-refs")
         if not _no_link(packed_path):
             return None, _off_form("a symbolic link", "packed-refs")
-        packed = _record_bytes(packed_path)
+        try:
+            packed = _record_bytes(packed_path)
+        except _NotRegular:
+            return None, _off_form("an entry that is no regular file", "packed-refs")   # R18-2
         if packed is None:
             return None, _too_large("packed-refs")
     except FileNotFoundError as exc:
@@ -4370,7 +4399,10 @@ def _root_records(paths: dict, present: dict[str, str], symbolic: dict[str, str]
             path = os.path.join(folder, name)
             if not _no_link(path):
                 return None, _off_form("a symbolic link", name)   # R16-2
-            raw = _record_bytes(path)
+            try:
+                raw = _record_bytes(path)
+            except _NotRegular:
+                return None, _off_form("an entry that is no regular file", name)   # R18-2: a FIFO is never waited on
             if raw is None:
                 return None, _too_large(name)
             if name == "FETCH_HEAD":
@@ -4589,8 +4621,10 @@ def _further_records(repo: str, paths: dict, present: dict[str, str], symbolic: 
                     whole = _record_bytes(path)
                     if whole is not None and _valid_reflog(whole):
                         continue   # historical reflog data (owner choice of 2026-10-13, 21:4x)
-                with open(path, "rb") as handle:
-                    head = handle.read(_FURTHER_HEAD + 1)
+                try:
+                    head = _read_regular(path, _FURTHER_HEAD + 1)   # R18-2: the type checked at the descriptor too
+                except _NotRegular:
+                    return None, _further("an entry that is no regular file", rel)
                 kind, value = _ref_file(head) if len(head) <= _FURTHER_HEAD else ("off", None)
                 like = bool(_RECORD_LIKE.match(head))
                 if not _further_name_ok(rel):
@@ -4633,9 +4667,11 @@ def _further_records(repo: str, paths: dict, present: dict[str, str], symbolic: 
                     return None, _further("a record form git does not resolve", rel)
             else:
                 return None, _further("an answer of git the gate cannot read", rel)
-            with open(path, "rb") as handle:
-                if handle.read(_FURTHER_HEAD + 1) != head:
+            try:
+                if _read_regular(path, _FURTHER_HEAD + 1) != head:
                     return None, _further("a file that changed while the gate read it", rel)
+            except _NotRegular:
+                return None, _further("an entry that is no regular file", rel)
     except OSError:
         return None, ("the git directory cannot be read whole, so a record of the destination may be unread")
     return found, ""
