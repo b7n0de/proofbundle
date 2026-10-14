@@ -300,6 +300,18 @@ def test_falsified_evidence_is_denied_and_nothing_is_handed_over(env, tmp_path):
     assert not _pointer(r.path).exists()
 
 
+def test_missing_evidence_is_denied_and_nothing_is_handed_over(env, tmp_path):
+    """The declared bundle is gone from the commit the push sends: an evidenced failure, a deny, no hand-over."""
+    r = _repo(tmp_path, env)
+    base._git(r.path, "rm", "-q", "--cached", ".proofbundle/b.json")
+    (r.path / ".proofbundle" / "b.json").unlink()
+    base._git(r.path, "commit", "-q", "--amend", "--no-edit")
+    base._receipt(r.path, r.signer)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "deny" and entry["reason_ids"] == ["missing_file"], answer
+    assert not _pointer(r.path).exists() and _records(env) == []
+
+
 def test_a_push_that_declares_only_a_done_check_is_handed_over_where_the_check_passes(env, tmp_path):
     """The user path of D26 and D28: no evidence item, a done check at the sent commit that passes."""
     r = base.Repo(tmp_path)
