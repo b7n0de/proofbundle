@@ -8427,21 +8427,28 @@ def _name_narrower_spelling(outcome: Outcome, command: str, cwd: str, deadline: 
 def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ: dict | None) -> Outcome | None:
     """decide() without the hint of _name_narrower_spelling: the answer of the whole command (_decide_outcome_whole),
     then class c, which judges the command step by step (_stepwise_outcome, DESIGN_rueckfragen.md 3.3). A deny of the
-    whole command, an approved rule and the bare `git --version` keep the whole command's answer."""
+    whole command, an approved rule, the bare `git --version` and the plain push form (_codex_plain_push), the one
+    form Level 1 hands over to Level 2 (D35), keep the whole command's answer. A step is judged without a hand-over:
+    only the whole command in the plain form is handed over, never a push as a step of a longer command, first or not
+    (owner choice of 2026-10-14, 19:3x, Nachtrag 4, rule 2), so a step writes no hand-over record either."""
     environ = os.environ if environ is None else environ
     whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
     if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
-            _BARE_VERSION.fullmatch(command):
+            _BARE_VERSION.fullmatch(command) or _codex_plain_push(command):
         return whole
     return _stepwise_outcome(command, cwd, deadline, host, environ, whole,
-                             lambda text, directory: _decide_outcome_whole(text, directory, deadline, host, environ))
+                             lambda text, directory: _decide_outcome_whole(text, directory, deadline, host, environ,
+                                                                           handover=False))
 
 
-def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, environ) -> Outcome | None:
-    """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge."""
+def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, environ,
+                          handover: bool = True) -> Outcome | None:
+    """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge.
+    With handover False (a step of class c) the command is not the plain push form for the hand-over (D35)."""
     calls = gated_calls(command)
     # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D35).
-    plain = _codex_plain_push(command)
+    # Under Claude Code it decides nothing else, so a step of class c is judged as no plain form there.
+    plain = _codex_plain_push(command) and (handover or host == "codex")
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ) if calls else None
