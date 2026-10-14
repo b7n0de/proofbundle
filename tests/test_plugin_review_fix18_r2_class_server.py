@@ -12,7 +12,8 @@ import sys
 import test_plugin_owner_choice1_undeclared_push as w1
 
 pytestmark = w1.pytestmark
-SERVER = pathlib.Path(w1.gate.__file__).resolve().parents[1] / "server" / "proofbundle_mcp.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SERVER = ROOT / "plugins" / "proofbundle" / "server" / "proofbundle_mcp.py"
 WAIT = 5.0
 PROBE = r'''
 import importlib.util, json, sys
