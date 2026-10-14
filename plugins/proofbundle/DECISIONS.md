@@ -402,7 +402,8 @@ repository's state finds no configuration that starts a program for them: no fil
 signature program, and no include onto one of them.
 
 What is free. Exactly two forms, each as the whole command headed by a bare `git` with no global option, no
-redirection, no chain and no unvetted prefix assignment (the conditions of the bare `git --version` above):
+redirection, no chain and no unvetted prefix assignment (the conditions of the bare `git --version` above); since the
+owner's choice of 2026-10-14, 16:2x Berlin, also as steps of a plain chain of `&&` and `;` (D33):
 - `git add` with pathspecs and only `-A`, `--all`, `-u`, `--update` and `--`;
 - `git commit` with at least one message (`-m`, `--message`, a cluster of `a`, `q` and `m` such as `-am`), and only
   `-a`, `--all`, `-q`, `--quiet`, `--` and pathspecs.
@@ -2193,8 +2194,15 @@ every simple command bash would execute, in order.
 - Every git and gh step gets the gate's answer for that step alone, as a command of its own in its directory with its
   redirections. Without class e a `cd` leaves the directory unknown: a git or gh step after it keeps the answer of the
   whole command, with the form that answer names (the D32 push form).
-- K-NW-2 B's `git add` and `git commit -m` stay free only as the whole command (D3): in a longer command a step whose
-  own answer is that state check keeps the whole command's answer, which names the two forms.
+- K-NW-2 B's `git add` and `git commit -m` are free as the whole command (D3) and, by the owner's choice of 2026-10-14,
+  16:2x Berlin (A, Nachtrag 2 to FIX-18 part B), as steps of a plain chain: simple commands joined only by `&&` or `;`
+  on one line, with no pipe, `||`, background job, subshell, group, substitution, redirection, here-document,
+  assignment, alias, eval or other carrier of code, function, directory change, negation or comment
+  (_sh_plain_chain). Every step is judged as the same command alone and the strictest step decides; a step whose own
+  answer is free still asks after a step that may change the state; a push keeps its own check and is judged on its
+  own only as the first step. A plain chain that is not free keeps the whole command's answer where that is as strict.
+  In any other longer command a step whose own answer is the state check keeps the whole command's answer, which names
+  the two forms. This replaces K-NW-2 B's "whole command only" for the plain chain.
 - A step whose own answer is free (a push's local inactivity) asks (`step_after_state_change`) where a step before it
   or beside it may change the configuration, the hooks, the evidence or the environment: an unknown program, a carrier
   of code, an assignment that is not neutral, `printf -v`, or a write to a file the write gate protects.

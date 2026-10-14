@@ -361,12 +361,14 @@ def test_an_environment_name_the_check_does_not_know_keeps_the_forms_not_free(tm
                                      "git commit --trailer x=y -m x", "git commit --no-verify -m x", "git add -p",
                                      "git add -i", "git add -e", "git add --renormalize .", "git add -",
                                      "git -C . add a.txt", "git -c core.fsmonitor=false add a.txt", "FOO=1 git add a.txt",
-                                     "git add a.txt > out", "git commit -m x 2>&1", "git add . && git commit -m x",
+                                     "git add a.txt > out", "git commit -m x 2>&1", "git add . || git commit -m x",
                                      "git add a.txt; git status", "cd . && git add a.txt", "env git add a.txt",
                                      "./git add a.txt", "git add $(echo a.txt)"])
 def test_every_other_form_stays_not_free(tmp_path, command):
     """Options that start an editor, a signer, a diff or a trailer command, a global option, an unvetted assignment, a
-    redirection, a chain, a wrapper, a path to another git and an expansion leave the form as it was before K-NW-2 B."""
+    redirection, a chain other than the plain one of Nachtrag 2 (owner choice of 2026-10-14, 16:2x: `git add . && git
+    commit -m x` is free now, its `||` form stands in), a wrapper, a path to another git and an expansion leave the form
+    as it was before K-NW-2 B."""
     repo = _repo(tmp_path)
     claude = gate.decide(command, str(repo), _deadline())
     codex = gate.decide(command, str(repo), _deadline(), host="codex")
@@ -405,7 +407,7 @@ def test_a_human_rule_still_frees_a_form_the_state_check_refuses(tmp_path, monke
     assert outcome.applied_rule is not None
 
 
-@pytest.mark.parametrize("command", ["git add . && git commit -m x", "sed -i s/a/b/ a.txt && git add a.txt",
+@pytest.mark.parametrize("command", ["git add . || git commit -m x", "sed -i s/a/b/ a.txt && git add a.txt",
                                      "git commit -S -m x", "git add -p", "cd . && git commit -m x"])
 def test_a_refused_add_or_commit_form_names_the_two_free_forms(tmp_path, command):
     """Measured in a Claude Code run on 2026-10-08: an agent that chained its edit, `git add` and `git commit` read

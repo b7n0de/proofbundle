@@ -99,8 +99,9 @@ working directory and checks the commits it sends, while `cd <repo> && git push 
 and the answer to such a push names this form (D32; under Codex the plain `git push …` in the session's directory,
 D12). A command the gate can parse is then judged step by step (class c, D33): a here-document, an argument of a
 data command and a comment without git or gh are text, every git and gh step gets the answer it gets on its own, a step whose own
-answer is free asks after a step that may change the state, `git add` and `git commit -m` stay free only as the whole
-command, a step after a `cd` keeps the answer above, a push stays its own only as the first step, a Bash write
+answer is free asks after a step that may change the state, `git add` and `git commit -m` are free as the whole
+command or as steps of a plain chain of `&&` and `;` (owner choice of 2026-10-14, D33), a step after a `cd` keeps the
+answer above, a push stays its own only as the first step, a Bash write
 into the configuration or a hook asks like a file-tool write, and code that names git or gh asks at least; every form
 the parser does not model keeps the answer above. **The former free list for local git commands has been removed** (review Runde 9, owner
 choice B, 2026-10-03; D3; wording of review Runde 10, R10-3). Those forms are NOT MEASURED, asked under
@@ -462,7 +463,7 @@ trusts. It states what the done check verified, not that the tests test anything
   select or rewrite tests are not seen. The one-check form binds no selection at all (measured with `-k` on
   2026-10-08).
 - The `PreToolUse` gate frees only the plain `git add` and `git commit -m` after its state check (D3, owner choice
-  K-NW-2 B). In a repository with a filter, a hook the form runs, fsmonitor, a signature program, or a key, hook or
+  K-NW-2 B), on their own or as steps of a plain chain of `&&` and `;` (D33). In a repository with a filter, a hook the form runs, fsmonitor, a signature program, or a key, hook or
   `GIT_*` name the check does not know, it asks (Claude Code) or denies (Codex), and in a run without a person the
   agent cannot commit there; the done check can then only pass on an uncommitted state. Under Codex the check reads
   the session directory, because the hook is not told where a command runs. A word the shell may rewrite before the

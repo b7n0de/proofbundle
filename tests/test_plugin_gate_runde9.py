@@ -237,11 +237,13 @@ def test_git_version_in_any_other_spelling_is_not_free(tmp_path, command):
 
 
 #: The 19 everyday forms of the Nachtrag 19b measurement less `git add a.txt` and `git commit -m msg`, which owner
-#: choice K-NW-2 B (2026-10-08) frees after the state check of a clean repository (the test after this one).
+#: choice K-NW-2 B (2026-10-08) frees after the state check of a clean repository (the test after this one). Since the
+#: owner choice of 2026-10-14, 16:2x (Nachtrag 2 to FIX-18 part B) `git add -A && git commit -m msg` is free as a plain
+#: chain too; its `||` form stands in for it.
 _EVERYDAY = ["git status", "git diff", "git log --oneline -n 3", "git show HEAD", "git commit",
              "git checkout side", "git switch -c topic", "git fetch origin", "git branch -a",
              "git stash list", "git blame a.txt", "git restore a.txt", "git tag -l", "git rev-parse HEAD",
-             "cd . && git status", "git status && git log --oneline -n 1", "git add -A && git commit -m msg"]
+             "cd . && git status", "git status && git log --oneline -n 1", "git add -A || git commit -m msg"]
 
 
 @pytest.mark.parametrize("command", ["git add a.txt", "git commit -m msg"])

@@ -74,15 +74,105 @@ def test_RED_text_that_names_git_or_gh_is_no_call(env, tmp_path, name):
     assert decision is None, (decision, reasons)
 
 
-@pytest.mark.parametrize("command", ["git add notes/a.md && git commit -m 'notes'",
-                                     "echo hi > notes/c.md && git add notes/c.md && git commit -m c"])
-def test_SUITE_add_and_commit_in_a_chain_keep_the_whole_answer(env, tmp_path, command):
-    """K-NW-2 B frees `git add` and `git commit -m` only as the whole command (D3); class c keeps the answer of the
-    chain, which names the two forms (suite of b6e46962, test_plugin_gate_k_nw_2_b.py)."""
+@pytest.mark.parametrize("command", ["echo hi > notes/c.md && git add notes/c.md && git commit -m c",
+                                     "git add notes/a.md || git commit -m 'notes'"])
+def test_SUITE_add_and_commit_outside_a_plain_chain_keep_the_whole_answer(env, tmp_path, command):
+    """K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and in a plain chain (Nachtrag 2); any
+    other longer command keeps the chain's answer, which names the two forms (suite of b6e46962)."""
     work = _repo(tmp_path)
     decision, reasons = _decide(work, command, env)
     assert decision == _whole(work, command, env) == "ask" and set(reasons) == {"git_form_not_free"}, (decision,
                                                                                                         reasons)
+
+
+# --- Nachtrag 2: the owner's choice of 2026-10-14 16:2x (A), add and commit in a plain chain -----------------------
+# CHAIN_FREE: ask at 803182aa (the parent of this rule), free here. CHAIN_ASK and CHAIN_DENY: not free at 803182aa and
+# here; each names the rule of the owner's choice it guards, and the mutant of that rule frees it.
+
+CHAIN_FREE = {
+    "and": 'git add notes/a.md && git commit -m "x"',
+    "semicolon": 'git add notes/a.md; git commit -m "x"',
+    "data_before": 'echo hi && git add notes/a.md && git commit -m "x"',
+}
+CHAIN_ASK = {
+    "push_after": 'git add notes/a.md && git commit -m "x" && git push origin main',    # rule 4
+    "pipe_into_sh": "git add notes/a.md | sh",                                          # rule 2, pipe
+    "pipe_beside": "git add notes/a.md | cat && git commit -m x",                       # rule 2, pipe
+    "or": "git add notes/a.md || git commit -m x",                                      # rule 1, only && and ;
+    "subshell": "(git add notes/a.md && git commit -m x)",                              # rule 2, subshell
+    "group": "{ git add notes/a.md && git commit -m x; }",                              # rule 2, group
+    "substitution_in_git": 'git add notes/a.md && git commit -m "$(cat f)"',            # rule 2, substitution
+    "substitution_beside": 'echo "$(echo hi)" && git add notes/a.md && git commit -m x',
+    "backtick_beside": "echo `echo hi` && git add notes/a.md && git commit -m x",
+    "redirect_git": "git add notes/a.md > /tmp/x && git commit -m x",                   # rule 2, redirection
+    "redirect_beside": "echo hi > notes/b.md && git add notes/b.md && git commit -m x",
+    "heredoc_beside": "cat > notes/b.md <<'EOF'\nhi\nEOF\ngit add notes/b.md && git commit -m x",
+    "prefix_assignment": "X=1 git add notes/a.md && git commit -m x",                   # rule 2, assignment
+    "neutral_prefix": "LC_ALL=C git add notes/a.md && git commit -m x",
+    "assignment_between": "git add notes/a.md && LC_ALL=C; git commit -m x",
+    "background": "git add notes/a.md & git commit -m x",                               # rule 2, background
+    "cd": "cd notes && git add a.md",                                                   # rule 2, directory change
+    "cd_in_chain": "cd notes && git add a.md && git commit -m x",
+    "alias": "alias x=true; git add notes/a.md && git commit -m x",                     # rule 2, alias
+    "eval": "eval true && git add notes/a.md && git commit -m x",                       # rule 2, eval
+    "eval_after": "git add notes/a.md && git commit -m x && eval true",
+    "alias_after": "git add notes/a.md; git commit -m x; alias x=true",
+    "glob_beside": "echo notes/*.md && git add notes/a.md && git commit -m x",           # rule 3, a word the shell rewrites
+    "newline": "git add notes/a.md\ngit commit -m x",                                   # rule 3, not this form
+    "negation": "! git add notes/a.md && git commit -m x",
+    "comment": "git add notes/a.md && git commit -m x # note",
+    "unknown_before": "cp notes/a.md .git/hooks/pre-commit && git add notes/a.md && git commit -m x",
+    "incident_echo_sh": "echo 'git push' | sh",                                         # Vorfall 12:52Z
+    "incident_log_sh": "git log --format=%s | sh",
+}
+CHAIN_DENY = {
+    "hooks_off_step": "git add notes/a.md && git -c core.hooksPath=/dev/null commit -m x",
+    "hooks_off_first": "git -c core.hooksPath=/dev/null add notes/a.md; git commit -m x",
+}
+
+
+@pytest.mark.parametrize("name", CHAIN_FREE)
+@pytest.mark.parametrize("host", ["claude", "codex"])
+def test_CHAIN_FREE_add_and_commit_in_a_plain_chain(env, tmp_path, name, host):
+    """Rule 1: every step is judged as the same command alone, and the strictest step decides; here every step is
+    free on its own (K-NW-2 B's state check of a clean repository, `echo` not gated)."""
+    work = _repo(tmp_path)
+    decision, reasons = _decide(work, CHAIN_FREE[name], env, host=host)
+    assert decision == "pass" and set(reasons) == {"free_after_state_check"}, (decision, reasons)
+
+
+@pytest.mark.parametrize("name", CHAIN_ASK)
+def test_CHAIN_ASK_every_other_form_is_not_free(env, tmp_path, name):
+    work = _repo(tmp_path)
+    decision, reasons = _decide(work, CHAIN_ASK[name], env)
+    assert decision in ("ask", "deny"), (name, decision, reasons)
+
+
+@pytest.mark.parametrize("name", CHAIN_DENY)
+def test_CHAIN_DENY_a_step_that_denies_alone_denies_the_chain(env, tmp_path, name):
+    work = _repo(tmp_path)
+    decision, reasons = _decide(work, CHAIN_DENY[name], env)
+    assert decision == "deny" and "hooks_disabled" in reasons, (decision, reasons)
+
+
+def test_CHAIN_ASK_the_strictest_step_decides(env, tmp_path):
+    """A commit that asks alone (a pre-commit hook) makes the plain chain ask: no step is freer for its neighbours."""
+    work = _repo(tmp_path)
+    hook = work / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    hook.chmod(0o755)
+    alone = _decide(work, 'git commit -m "x"', env)
+    decision, reasons = _decide(work, 'git add notes/a.md && git commit -m "x"', env)
+    assert alone[0] == "ask" and decision == "ask" and "git_form_not_free" in reasons, (alone, decision, reasons)
+
+
+def test_CHAIN_ASK_a_push_after_a_commit_keeps_the_whole_answer(env, tmp_path):
+    """Rule 4: the push keeps its own check, and after a commit that check, made before the commit runs, would read a
+    HEAD the push does not send; the chain keeps the whole answer, never freer than the push alone."""
+    work = _repo(tmp_path)
+    command = CHAIN_ASK["push_after"]
+    decision, reasons = _decide(work, command, env)
+    assert decision == _whole(work, command, env) == "ask" and "directory_unresolved" in reasons, (decision, reasons)
 
 
 # --- the suite of b6e46962: a step is judged on its own only where the whole command would be read the same ----

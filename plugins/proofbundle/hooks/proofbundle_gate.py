@@ -6768,7 +6768,8 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
     git and gh step gets the gate's answer for that step alone in its directory, and a step that would be free asks
     where a step before it or beside it may change the state that answer read (_sh_changes_state). Also kept: a word
     the gate reads as one the shell may rewrite (_shell_rewrites), a step after a `cd` (its directory is unknown until
-    class e), and K-NW-2 B's two forms in a longer command (free only as the whole command, D3)."""
+    class e), and K-NW-2 B's two forms in a longer command that is not a plain chain of `&&` and `;` (D3; the owner's
+    choice of 2026-10-14, 16:2x, Nachtrag 2: _sh_plain_chain)."""
     try:
         try:
             tree = _sh_parse(command)
@@ -6781,7 +6782,8 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
             _sh_walk(tree, cwd, steps)
         except _ShUnmodeled as exc:
             raise _ShKeep(f"not modelled: {exc}") from exc
-        return _sh_judge(steps, cwd, deadline, host, environ, whole, judge_whole)
+        return _sh_judge(steps, cwd, deadline, host, environ, whole, judge_whole,
+                         plain_chain=_sh_plain_chain(command, tree, steps))
     except _ShKeep as keep:
         if keep.floor == "ask" and (whole is None or whole.decision not in ("ask", "deny")):
             verdict = Verdict(
@@ -6794,8 +6796,43 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
         return whole
 
 
+def _sh_plain_chain(command: str, tree: _ShList, steps: list) -> bool:
+    """Whether the command is a chain in which K-NW-2 B's two forms may be free step by step (owner choice of
+    2026-10-14, 16:2x Berlin, A, Nachtrag 2 to FIX-18 part B): simple commands joined only by `&&` or `;` on one line,
+    each with literal words and no assignment, redirection, here-document or substitution, at the top level, with no
+    directory change, no carrier of code (alias, eval, a shell, …), no negation and no comment. Read twice, by the class
+    c parser (assignments, words, the kind of each step) and by the gate's own lexer (_lex: operators, redirections,
+    substitutions, a negation), each part at one place; anything else is not this form, and the chain keeps the answer
+    of the whole command (rules 2 and 3 of the owner's choice)."""
+    if "\n" in command.strip():
+        return False                                                  # one line: a newline is no `;` of this form
+    if _drop_comments(command).strip() != command.strip():
+        return False                                                  # no comment
+    toks = _lex(command)
+    if toks is None:
+        return False
+    if any(t[0] == "op" and t[1] not in ("&&", ";") for t in toks):
+        return False                       # no pipe, `||`, `&`, subshell, group or here-document (`<<` is an operator)
+    if any(t[0] == "redir" for t in toks):
+        return False                                                  # no redirection
+    if any(t[0] == "word" and t[2] for t in toks):
+        return False                                                  # no parameter or command substitution
+    if any(t[0] == "word" and t[3] == "!" and (k == 0 or toks[k - 1][0] == "op") for k, t in enumerate(toks)):
+        return False                                                  # no negation
+    if any(s.kind == "assign" or s.cmd.assigns for s in steps):
+        return False                                                  # no assignment before or between the steps
+    if any(not w.literal for s in steps for w in s.cmd.words):
+        return False                                                  # every word as the gate reads it
+    if any(s.kind == "cd" for s in steps):
+        return False                                                  # no directory change
+    if any(s.kind not in ("git", "data", "other", "cd", "assign") for s in steps):
+        return False                                                  # no carrier of code (alias, eval, a shell, …)
+    return True
+
+
 def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
-              judge_whole) -> Outcome | None:
+              judge_whole, plain_chain: bool = False) -> Outcome | None:
+    released = False   # a K-NW-2 B step left free in a plain chain (Nachtrag 2)
     verdicts: list = []
     protected: set = set()
     for s in steps:
@@ -6860,9 +6897,13 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
         answer = judge_whole(_sh_step_text(s), s.cwd)
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
                                                          for v in answer.verdicts):
-            # K-NW-2 B frees `git add` and `git commit -m` only as the whole command (D3), and its refusal names those
-            # two forms (suite of b6e46962: `git add . && git commit -m x` had become free)
-            raise _ShKeep("`git add` and `git commit -m` are free only as the whole command (K-NW-2 B, D3)")
+            # K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and, since the owner's choice of
+            # 2026-10-14 16:2x (Nachtrag 2), as steps of a plain chain (_sh_plain_chain); in any other longer command
+            # the whole command's answer stands and names the two forms (suite of b6e46962)
+            if not plain_chain:
+                raise _ShKeep("`git add` and `git commit -m` are free only as the whole command or in a plain chain "
+                              "of `&&` and `;` (K-NW-2 B, D3)")
+            released = True
         if answer is None or answer.decision in ("pass", "inactive"):
             changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected)]
             if changed:
@@ -6881,9 +6922,18 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
     for decision in ("deny", "ask", "warn"):
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
+            if released and whole is not None and _SH_STRICTNESS.index(whole.decision) <= \
+                    _SH_STRICTNESS.index(decision):
+                # a plain chain that is not free keeps the whole command's answer where that is as strict: its reason
+                # and the two forms it names stay what they were before Nachtrag 2
+                return whole
             return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
     combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
+
+
+#: The decisions from the strictest to the freest, for comparing two answers to one command.
+_SH_STRICTNESS = ("deny", "ask", "warn", "pass", "inactive")
 
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
@@ -7308,9 +7358,10 @@ def _push_form_hint(host: str) -> str:
             "before the push stays unresolved and is asked")
 
 
-_FREE_FORMS_HINT = ("run `git add <paths>` and then `git commit -m <message>`, each as a whole command of its own with no "
-                    "chain, wrapper, redirection or other option: the gate frees exactly these two forms after a state "
-                    "check of the repository (DECISIONS.md D3); otherwise have a person review the call")
+_FREE_FORMS_HINT = ("run `git add <paths>` and then `git commit -m <message>`, each as a whole command of its own or as "
+                    "steps of one chain joined only by `&&` or `;`, with no wrapper, redirection, assignment, "
+                    "substitution or other option: the gate frees exactly these two forms after a state check of the "
+                    "repository (DECISIONS.md D3, D33); otherwise have a person review the call")
 
 
 def _state_free_verdict(name: str, directory: str | None, deadline: float, host: str) -> Verdict:

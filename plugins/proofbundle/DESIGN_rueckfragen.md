@@ -448,10 +448,12 @@ Under Codex a, d and e stay off (answer 10).
 - the sentence "the former free list has been removed" no longer holds for read forms, which are free under the read
   profile.
 
-Owner choice B of Runde 9 stands for every other local form. K-NW-2 B (add and commit -m) is unchanged: its two forms
-are free only as the whole command, and a chain with them keeps the chain's answer, which names the two forms. Judging
-them step by step in a chain is an open owner question (the plugin suite at b6e46962 showed that the build had done so
-against D3).
+Owner choice B of Runde 9 stands for every other local form. K-NW-2 B (add and commit -m) frees its two forms as the
+whole command and, by the owner's choice of 2026-10-14, 16:2x Berlin (A, Nachtrag 2), as steps of a plain chain:
+simple commands joined only by `&&` or `;`, each judged as the same command alone, the strictest step deciding. Pipes,
+`||`, background jobs, subshells and groups, substitutions, redirections, here-documents, assignments, alias, eval,
+functions and a directory change in the chain keep the chain's answer, which names the two forms; so does anything
+the parser does not recognise as exactly this form. A push in the chain keeps its own check.
 
 **D5.** D5 C extends from the push (owner choice 1 A, unchanged) to local forms: inactive where the repository surely
 declares nothing, as in 3.4. The push keeps its four conditions.
