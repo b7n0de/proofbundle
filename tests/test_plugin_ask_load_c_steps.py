@@ -1,4 +1,4 @@
-"""Class c of the ask load (FIX-18 part B, DESIGN_rueckfragen.md 3.3 and 4): a command judged step by step.
+"""Class c of the ask load (FIX-18 part B, DESIGN_ask_load.md 3.3 and 4): a command judged step by step.
 
 The gate parses a command as bash 5.2 does for the forms it models, walks every simple command bash would execute,
 and judges each git and gh step on its own; text in a here-document, an argument of a data command or a comment is no
@@ -311,7 +311,7 @@ def test_CONTROL_a_form_class_c_does_not_judge_keeps_the_whole_answer(env, tmp_p
 
 
 def test_CONTROL_a_deny_of_the_whole_command_stays_deny(env, tmp_path):
-    """Text only, and still denied: the hook-disabling words in a here-document (DESIGN_rueckfragen.md 6)."""
+    """Text only, and still denied: the hook-disabling words in a here-document (DESIGN_ask_load.md 6)."""
     work = _repo(tmp_path)
     decision, reasons = _decide(work, "cat <<'EOF' > notes/n.md\ngit push --no-verify\nEOF", env)
     assert decision == "deny" and "hooks_disabled" in reasons, (decision, reasons)

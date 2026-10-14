@@ -304,7 +304,7 @@ Possible transfers and gh calls keep today's answer.
 
 ### 3.6 Class f, push destination (Gegenstelle)
 
-Variants a to d with their measurements are in `gegenstelle/DESIGN_gegenstelle.md`. The owner chose on 2026-10-14 to
+Variants a to d with their measurements are in `gegenstelle/DESIGN_push_destination.md`. The owner chose on 2026-10-14 to
 drive both weaknesses in parallel: the push destination is built on its own branch, with its own draft. This draft and
 its build do not touch the hand-over from Level 1 to Level 2; a change that touches it is named in the delivery's
 report.

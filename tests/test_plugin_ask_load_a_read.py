@@ -1,4 +1,4 @@
-"""Class a of the ask load (FIX-18 part B, DESIGN_rueckfragen.md 3.1, D34): a read form is free after a read profile.
+"""Class a of the ask load (FIX-18 part B, DESIGN_ask_load.md 3.1, D34): a read form is free after a read profile.
 
 The owner's answers of 2026-10-14 (equal to the reviewer's recommendations): a read profile only as a narrow piece
 newly built for the plugin (answer 1); the git-lfs standard filter is not inert (answer 2); the pipe of the Bash tool

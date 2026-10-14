@@ -1,4 +1,4 @@
-"""Class b of the ask load (FIX-18 part B, DESIGN_rueckfragen.md 3.2, D36): a gh read form is free after a gh profile.
+"""Class b of the ask load (FIX-18 part B, DESIGN_ask_load.md 3.2, D36): a gh read form is free after a gh profile.
 
 The owner's answers of 2026-10-14 (equal to the reviewer's recommendations): no `gh attestation verify` (answer 4); the
 rules bound to checked gh versions (answer 5); class b applies under Codex too (answer 10); and, as for class a, a pager

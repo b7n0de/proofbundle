@@ -1,5 +1,5 @@
 """The hand-over of a push from Level 1 to Level 2 (owner adoption of review round 18, DECISIONS.md D35,
-plugins/proofbundle/DESIGN_gegenstelle.md section 7).
+plugins/proofbundle/DESIGN_push_destination.md section 7).
 
 Level 1 does not read the remote, so since R9-1 every push asks at the destination check. A push whose one open reason
 is the default destination case, whose source evidence is valid, whose transport a person approved and for which a bound

@@ -1028,7 +1028,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     return None
 
 
-# --- class a of the ask load: a read profile for read forms (FIX-18 part B, DESIGN_rueckfragen.md 3.1, D34) ----------
+# --- class a of the ask load: a read profile for read forms (FIX-18 part B, DESIGN_ask_load.md 3.1, D34) ----------
 #
 # Owner answers 1 to 3 and 10 of 2026-10-14: a read form is free under Claude Code when its options are all on the
 # grammar below and the read profile of its repository finds nothing that starts a program for it. The grammar and the
@@ -1367,7 +1367,7 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     return None
 
 
-# --- class b: gh read forms (DESIGN_rueckfragen.md 3.2, owner answers 4 and 5 of 2026-10-14, DECISIONS.md D36) --------
+# --- class b: gh read forms (DESIGN_ask_load.md 3.2, owner answers 4 and 5 of 2026-10-14, DECISIONS.md D36) --------
 
 #: The gh versions whose read forms the gate has measured: gh 2.89.0, against a local stand-in for github.com in a
 #: network namespace of its own (RÜCKFRAGEN-LAST part 1, and the three measurements of the class b build). Any other
@@ -6618,7 +6618,7 @@ def _sandbox_verdict(repo: str, commit: str, exc: VerifierCannotStart) -> Verdic
 # person approved the push's transport and a bound Level 2 is installed, Level 1 hands the push over instead: it writes
 # the expected order into a one-time record and answers with no permission decision (D4 stays), and git's pre-push hook
 # judges the actual update against that order. The record proves no origin and grants nothing Level 2 does not check
-# again itself; it only narrows what Level 2 accepts (DESIGN_gegenstelle.md, section 7).
+# again itself; it only narrows what Level 2 accepts (DESIGN_push_destination.md, section 7).
 
 HANDOVER_SCHEMA = "proofbundle-plugin/handover/v1"
 HANDOVER_POINTER_SCHEMA = "proofbundle-plugin/handover-pointer/v1"
@@ -6656,7 +6656,7 @@ _HOST_SHELL_INERT = {"GIT_EDITOR": frozenset({"true", ":"}), "GIT_OPTIONAL_LOCKS
 _BINDING_ENV = frozenset({"HOME", "XDG_CONFIG_HOME", "PROOFBUNDLE_GATE_DIR", "SSH_AUTH_SOCK", "SSH_ASKPASS",
                           "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy",
                           "NO_PROXY", "no_proxy"})
-#: What the transport digest reads besides the configuration (DESIGN_gegenstelle.md, 7.4).
+#: What the transport digest reads besides the configuration (DESIGN_push_destination.md, 7.4).
 _TRANSPORT_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_AUTH_SOCK",
                   "GIT_PROXY_COMMAND", "GIT_ALLOW_PROTOCOL", "GIT_PROTOCOL_FROM_USER", "http_proxy", "https_proxy",
                   "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy")
@@ -6915,7 +6915,7 @@ def _transport_parts(repo: str, remote: str, url: str, deadline: float,
                      environ: dict) -> tuple[dict | None, list[str]]:
     """(the document whose digest binds the transport, the reasons a hand-over cannot rely on it; lens 3 of 2026-10-14)
     for what selects the programs, credentials and proxy of the transport to `remote` at `url` (D35,
-    DESIGN_gegenstelle.md 7.4): the URL; every effective configuration entry of the remote, of a URL rewrite, of
+    DESIGN_push_destination.md 7.4): the URL; every effective configuration entry of the remote, of a URL rewrite, of
     core.sshCommand, core.askPass and core.gitProxy and of the sections ssh, credential, http and protocol, with scope
     and origin (an origin file as an absolute path, so an approval does not depend on the worktree it was made in); the
     environment names of _TRANSPORT_ENV; git's exec path with the sha256 of its transport programs; the file and sha256
@@ -7235,7 +7235,7 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
                     sources: list[str], outcomes: dict, hints: list, note: str | None, reads: list, deadline: float,
                     environ: dict | None, plain_push: bool = False) -> tuple[Verdict | str | None, bool]:
     """The hand-over of D35, decided here and nowhere else: (the `handover` verdict, False) where every condition of
-    DESIGN_gegenstelle.md 7.2 holds and the record is written; (why not, missing_level2) where the push is a candidate
+    DESIGN_push_destination.md 7.2 holds and the record is written; (why not, missing_level2) where the push is a candidate
     and one condition fails, missing_level2 True where only the bound Level 2 is missing; (None, False) where the push is
     no candidate at all (another open reason, a gh call, a repository that declares nothing)."""
     environ = os.environ if environ is None else environ
@@ -7413,7 +7413,7 @@ def _parent_git_sha256() -> tuple[bool, str | None]:
 
 def _handover_mismatch(repo: str, paths: dict, record: dict, remote: str | None, url: str | None, lines: list,
                        deadline: float) -> str | None:
-    """Why the push git runs is not the push Level 1 handed over (DESIGN_gegenstelle.md 7.5, steps 2 to 4), or None."""
+    """Why the push git runs is not the push Level 1 handed over (DESIGN_push_destination.md 7.5, steps 2 to 4), or None."""
     now = time.time()
     if now > record["expires"]:
         return (f"it expired at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(record['expires']))}, "
@@ -7901,7 +7901,7 @@ def _push_options_rewritten(words: list[tuple]) -> bool:
     return False
 
 
-# --- class c of the ask load: a command judged step by step (FIX-18 part B, DESIGN_rueckfragen.md 3.3 and 4) --------
+# --- class c of the ask load: a command judged step by step (FIX-18 part B, DESIGN_ask_load.md 3.3 and 4) --------
 #
 # The gate's scan and its safety net read the whole command text and ask for every git or gh word they cannot place,
 # also for a word that is only text: a here-document written to a file, an argument of grep, a string of Python.
@@ -8636,7 +8636,7 @@ def _sh_path_within(path: str, folder: str) -> bool:
 
 def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
                       judge_whole) -> Outcome | None:
-    """Class c (DESIGN_rueckfragen.md 3.3, owner answers 6 and 9 of 2026-10-14): the answer from the command's steps,
+    """Class c (DESIGN_ask_load.md 3.3, owner answers 6 and 9 of 2026-10-14): the answer from the command's steps,
     or the whole command's answer `whole` where class c keeps it.
 
     Kept, with the reason in _ShKeep: a form the parser does not model; a command word the shell builds, or git or gh
@@ -8670,7 +8670,7 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
             verdict = Verdict(
                 "ask", f"NOT MEASURED: {keep}. A program that runs text as code, or one the gate does not know, may "
                        "start git or gh from that text, and the gate does not read code (owner answers 6 and 9 of "
-                       "2026-10-14, DESIGN_rueckfragen.md 3.3).",
+                       "2026-10-14, DESIGN_ask_load.md 3.3).",
                 "code_names_git", evidence="none, the gate reads no code",
                 failed=str(keep), next_step="run the git or gh call as its own command, or have a person review it")
             return Outcome("ask", verdict.text(), list(whole.verdicts if whole else []) + [verdict])
@@ -8769,7 +8769,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 continue
             verdicts.append(Verdict(
                 "ask", f"NOT MEASURED: the gate cannot tell which repository {s.head} acts on after a directory "
-                       "change (class e of DESIGN_rueckfragen.md is not built).",
+                       "change (class e of DESIGN_ask_load.md is not built).",
                 "directory_unresolved", evidence=f"unknown, the repository {s.head} acts on",
                 failed="the gate cannot resolve the directory",
                 next_step="run the call as one command of its own with literal words, for git as "
@@ -8792,7 +8792,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 verdicts.append(Verdict(
                     "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "
                            f"it ({changed[0].head or 'an assignment'}) may change the configuration, hooks, evidence or "
-                           "environment that answer read (DESIGN_rueckfragen.md 3.3).",
+                           "environment that answer read (DESIGN_ask_load.md 3.3).",
                     "step_after_state_change", evidence="the state the step's own answer read",
                     failed=f"{changed[0].head or 'an assignment'} runs before or beside {s.head} and may change it",
                     next_step="run the git or gh call as its own command, or have a person review it"))
@@ -8919,7 +8919,7 @@ def _name_narrower_spelling(outcome: Outcome, command: str, cwd: str, deadline: 
 
 def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ: dict | None) -> Outcome | None:
     """decide() without the hint of _name_narrower_spelling: the answer of the whole command (_decide_outcome_whole),
-    then class c, which judges the command step by step (_stepwise_outcome, DESIGN_rueckfragen.md 3.3). A deny of the
+    then class c, which judges the command step by step (_stepwise_outcome, DESIGN_ask_load.md 3.3). A deny of the
     whole command, an approved rule, the bare `git --version` and the plain push form (_codex_plain_push), the one
     form Level 1 hands over to Level 2 (D35), keep the whole command's answer. A step is judged without a hand-over:
     only the whole command in the plain form is handed over, never a push as a step of a longer command, first or not
@@ -9293,7 +9293,7 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
 def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Verdict:
     """The verdict for a read form of class a under Claude Code: pass when the read profile of its repository finds
     nothing that starts a program for it, else the not-free answer of D3 with the source it found (owner answers 1 to
-    3 of 2026-10-14, DESIGN_rueckfragen.md 3.1). Under Codex the judge never asks for it (owner answer 10)."""
+    3 of 2026-10-14, DESIGN_ask_load.md 3.1). Under Codex the judge never asks for it (owner answer 10)."""
     try:
         problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline) if directory is not UNKNOWN
                    else "the gate cannot tell which repository the call acts on")
@@ -9318,7 +9318,7 @@ def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Ver
 def _gh_read_free_verdict(name: str, deadline: float, environ: dict) -> Verdict:
     """The verdict for a gh read form of class b: pass when the gh profile finds nothing that makes it start a program,
     reach another host or print a token, else the ask of today with what it found (owner answers 4 and 5 of
-    2026-10-14, DESIGN_rueckfragen.md 3.2, DECISIONS.md D36)."""
+    2026-10-14, DESIGN_ask_load.md 3.2, DECISIONS.md D36)."""
     try:
         problem = _gh_profile_problem(environ, deadline)
     except GateError as exc:

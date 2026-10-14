@@ -2188,11 +2188,11 @@ applies. The forms the gate resolves are unchanged.
 
 ## D33. A command judged step by step: class c of the ask load (FIX-18 part B, 2026-10-14)
 
-Measured on the synthetic corpus of DESIGN_rueckfragen.md (276 commands rebuilt to the observer's counts of
+Measured on the synthetic corpus of DESIGN_ask_load.md (276 commands rebuilt to the observer's counts of
 2026-10-13): the gate asked for 108 of them in a declared repository, and for 26 of those bash runs no git and no gh at
 all. Here-documents written to files, text piped to wc or grep and comments named git or gh, and the safety net (D3,
 review Runde 12) counts every git or gh word in the whole text. The owner's answers of 2026-10-14 (equal to the
-reviewer's recommendations) and Nachtrag 1 of FIX-18 order the classes of DESIGN_rueckfragen.md by their benefit; class
+reviewer's recommendations) and Nachtrag 1 of FIX-18 order the classes of DESIGN_ask_load.md by their benefit; class
 c comes first, because no other class acts without it.
 
 Built (class c): after the answer of the whole command, the gate parses the command as bash 5.2 does for the forms it
@@ -2322,13 +2322,13 @@ that does not walk the work tree is judged without the submodule.
 
 ## D35. A push handed over to Level 2 (owner adoption of review round 18, 2026-10-14)
 
-Measured first (DESIGN_gegenstelle.md, version 1): Level 1 does not read the remote (D3), so since R9-1 every push asks
+Measured first (DESIGN_push_destination.md, version 1): Level 1 does not read the remote (D3), so since R9-1 every push asks
 at the destination check, a push with valid evidence included, and the eval `gate-push-verified` cannot pass. git's
 pre-push hook gets the ref git resolved and the remote's object id from the advertisement the push itself uses, and
 receive-pack's compare-and-swap refuses an update whose remote state changed while the hook ran. Review round 18 judged
 variant d (the hand-over) the right direction and the draft not yet sufficient: the transport starts before Level 2
 judges (G18-1), and the same source tip is not the same checked range (G18-2). The owner adopted every recommendation
-of the reviewer on 2026-10-14; DESIGN_gegenstelle.md, version 2, holds them with the contract built here.
+of the reviewer on 2026-10-14; DESIGN_push_destination.md, version 2, holds them with the contract built here.
 
 Chosen (variant d, with the transport rule and the hand-over contract):
 - Level 1 hands a push over at one place (`evaluate_push`, `_handover_offer`) and only where all of these hold: the
@@ -2406,7 +2406,7 @@ step; in every longer command class c judges a push step without a hand-over (`_
 False), so a step neither gets a hand-over nor writes a record. Measured: `git push origin main; echo done`, `git push
 origin main && echo done`, `"git" push origin main` and `\git push origin main` got the hand-over through the step at
 the plain merge and ask without one after; `git add a && git commit -m x && git push origin main` and `LANG=C git push
-origin main` ask without one on both sides (tests/test_plugin_zusammenfuehrung_n4_handover.py).
+origin main` ask without one on both sides (tests/test_plugin_merge_n4_handover.py).
 
 Limits:
 - The record proves no origin. A shell command can write the gate directory and the git directory (D27, F15-2): an
@@ -2450,13 +2450,13 @@ Limits:
   comparison unmade, and that keeps the push an ask.
 - Measured with git 2.34.1 only; git 2.43.0, 2.51.1 and 2.56.0 are NOT MEASURED for this section.
 
-Measured (tests/test_plugin_gate_gegenstelle_18.py and tests/test_plugin_gate_destination_kind.py, 2026-10-14, git
-2.34.1, through git against local bare repositories): the catch cases of review round 18 named in DESIGN_gegenstelle.md
+Measured (tests/test_plugin_gate_push_destination_18.py and tests/test_plugin_gate_destination_kind.py, 2026-10-14, git
+2.34.1, through git against local bare repositories): the catch cases of review round 18 named in DESIGN_push_destination.md
 section 7.1, each with a test. The tests of a new rule are red before it and green after; the tests of a behaviour
 that existed before (the deny paths of false or missing evidence and a false done check, Codex, an abort) are controls,
 green on both sides, and hold that the hand-over does not weaken it.
 
-Options (DESIGN_gegenstelle.md, sections 3 to 5):
+Options (DESIGN_push_destination.md, sections 3 to 5):
 - a. A dry-run push before the decision. Rejected: it runs the transport before consent and binds nothing (answer 4).
 - b. `git ls-remote`. Rejected: another advertisement than the push's.
 - c. No read, a hint instead of an ask. Rejected: it gives up D20 at Level 1 and passes the candidate write.

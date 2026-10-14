@@ -1,4 +1,4 @@
-"""The kind of an open destination reason is decided at one place (DECISIONS.md D35, DESIGN_gegenstelle.md 7.2).
+"""The kind of an open destination reason is decided at one place (DECISIONS.md D35, DESIGN_push_destination.md 7.2).
 
 `_dest_resolution` gives every reason the destination check of R8-2 and R9-1 names together with its kind: the value
 does not name the destination, this repository records a candidate, or the default case, a candidate whose presence on

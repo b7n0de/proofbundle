@@ -250,7 +250,7 @@ def test_a_free_form_after_a_directory_change_is_not_measured(tmp_path):
                                      "git fetch origin", "git ls-remote origin"])   # the last two: R7-2
 def test_entries_whose_program_list_is_not_fully_justified_left_the_allow_list(tmp_path, command):
     """`git worktree list` was on this list until FIX-18 part B; class a (D34) frees it as a fixed read form after
-    the read profile, measured to start nothing under any source (DESIGN_rueckfragen.md 3.1)."""
+    the read profile, measured to start nothing under any source (DESIGN_ask_load.md 3.1)."""
     repo = _repo(tmp_path)
     assert _decision(command, repo)[0] == "ask", command
 
@@ -501,7 +501,7 @@ def test_a_neutral_value_or_a_variable_the_entry_does_not_use_is_not_free_either
 def test_an_askpass_helper_does_not_keep_a_read_form_asked(tmp_path, monkeypatch):
     """Class a (D34): GIT_ASKPASS starts a program only for a transfer; a read form of the grammar makes none, and a
     promisor remote, the one lazy fetch, keeps every read form asked (measured: core.askPass started nothing for any
-    read form, DESIGN_rueckfragen.md 3.1). Until FIX-18 part B this case asked."""
+    read form, DESIGN_ask_load.md 3.1). Until FIX-18 part B this case asked."""
     repo = _repo(tmp_path)
     monkeypatch.setenv("GIT_ASKPASS", _helper(tmp_path))
     assert _decision("git log", repo)[0] == "pass"
@@ -530,7 +530,7 @@ def test_a_form_that_never_pushes_asks_with_or_without_the_ebene_2_pre_push_hook
     assert _not_free(command, repo), command   # review Runde 9: every form asks, with the hook or without
 
 
-def test_a_read_form_that_does_not_walk_is_free_beside_the_ebene_2_pre_push_hook(tmp_path):
+def test_a_read_form_that_does_not_walk_is_free_beside_the_level_2_pre_push_hook(tmp_path):
     """Class a (D34): hooks count only for a form that walks the work tree; git log starts no hook (measured,
     a/wahrheit_a.py). Until FIX-18 part B this case asked."""
     repo = _repo(tmp_path)

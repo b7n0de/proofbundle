@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-import test_plugin_gate_gegenstelle_18 as g18
+import test_plugin_gate_push_destination_18 as g18
 
 pytestmark = g18.pytestmark
 _clean_git_environment = g18._clean_git_environment
