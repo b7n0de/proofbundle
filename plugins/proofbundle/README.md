@@ -97,7 +97,11 @@ run by a path. The form to push in is therefore `git -C <absolute path> push <re
 `git -C /home/me/repo push origin HEAD:refs/heads/topic`, as a command of its own: the gate resolves it from any
 working directory and checks the commits it sends, while `cd <repo> && git push …` stays unresolved and is asked,
 and the answer to such a push names this form (D32; under Codex the plain `git push …` in the session's directory,
-D12). **The former free list for local git commands has been removed** (review Runde 9, owner
+D12). A command the gate can parse is then judged step by step (class c, D33): a here-document, an argument of a
+data command and a comment without git or gh are text, every git and gh step gets the answer it gets on its own, a step whose own
+answer is free asks after a step that may change the state, a push stays its own only as the first step, a Bash write
+into the configuration or a hook asks like a file-tool write, and code that names git or gh asks at least; every form
+the parser does not model keeps the answer above. **The former free list for local git commands has been removed** (review Runde 9, owner
 choice B, 2026-10-03; D3; wording of review Runde 10, R10-3). Those forms are NOT MEASURED, asked under
 Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
 judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain `git add` and `git commit -m`

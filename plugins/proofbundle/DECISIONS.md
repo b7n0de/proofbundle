@@ -2173,3 +2173,58 @@ own with one literal absolute `-C`, for example `git -C /home/me/repo push origi
 A hint toward a form the gate cannot resolve causes an avoidable question. A hint toward a form it can resolve
 removes that reason for asking and allows the source checks to run. Any remaining reason to ask or deny still
 applies. The forms the gate resolves are unchanged.
+
+## D33. A command judged step by step: class c of the ask load (FIX-18 part B, 2026-10-14)
+
+Measured on the synthetic corpus of DESIGN_rueckfragen.md (276 commands rebuilt to the observer's counts of
+2026-10-13): the gate asked for 108 of them in a declared repository, and for 26 of those bash runs no git and no gh at
+all. Here-documents written to files, text piped to wc or grep and comments named git or gh, and the safety net (D3,
+review Runde 12) counts every git or gh word in the whole text. The owner's answers of 2026-10-14 (equal to the
+reviewer's recommendations) and Nachtrag 1 of FIX-18 order the classes of DESIGN_rueckfragen.md by their benefit; class
+c comes first, because no other class acts without it.
+
+Built (class c): after the answer of the whole command, the gate parses the command as bash 5.2 does for the forms it
+models (lists, `&&`/`||` chains, pipelines, subshells and groups whose redirections open no file, simple commands with
+assignments and redirections, here-documents, and command, process, parameter and arithmetic substitutions) and walks
+every simple command bash would execute, in order.
+- A here-document body, an argument of a known data command (echo, printf, cat, grep, wc, sed and awk with a script
+  that runs nothing, find without -exec, tee and their kin) and a comment are text, not calls. A comment that names git
+  or gh keeps the whole answer: zsh with changed histchars runs it (review Runde 11, R11-2).
+- Every git and gh step gets the gate's answer for that step alone, as a command of its own in its directory with its
+  redirections. Without class e a `cd` leaves the directory unknown: a git or gh step after it asks
+  (`directory_unresolved`), and keeps a deny it has on its own.
+- A step whose own answer is free (K-NW-2 B's `git add` and `git commit -m`, a push's local inactivity) asks
+  (`step_after_state_change`) where a step before it or beside it may change the configuration, the hooks, the
+  evidence or the environment: an unknown program, a carrier of code, an assignment that is not neutral, `printf -v`,
+  or a write to a file the write gate protects. K-NW-2 B thus holds in a chain only where no earlier step may change
+  state (DESIGN_rueckfragen.md 8).
+- A push, a gated gh call or a possible transfer is judged on its own only as the first executed step, at the top
+  level, after at most `cd` steps and without a redirection; under Codex never.
+- Every literal file a redirection or `tee` writes is judged like a file-tool write (decide_write, as under Claude
+  Code): the configuration and the hooks of a repository ask (`write_to_repo_state`), the gate's own directory is
+  denied (`write_to_gate_dir`). A relative target after a `cd` is not judged until class e resolves the directory.
+- An interpreter or another carrier of code (a shell, `eval`, `source`, `xargs`, `env`, `alias`, `trap`, `export`, a
+  script by path, …), or a program the gate does not know, whose text names git or gh asks at least
+  (`code_names_git`): there is no inert-Python rule (owner answer 6, review finding Q18-1; answer 9). The same holds for
+  a carrier that reads a git or gh step's output, and for git or gh text anywhere beside a step that runs code.
+
+Kept, with the answer of the whole command: a deny of the whole command; an approved rule (N24); the bare
+`git --version`; every form the parser does not model (shell keywords, functions, background jobs, ANSI-C and locale
+quotes, a here-document inside a substitution, a named file descriptor, a redirection that opens a file on a subshell or
+group, a parameter expansion with a quote or a substitution inside, a backtick with a backslash inside, deep nesting);
+a command word the shell builds (`$(echo git) push`, `$X push`) or git and gh in another letter case; a carrier of code
+or a program the gate does not know with a word the shell may rewrite (`sudo gi* status`, R14-1); a `git --version`
+step in a longer command (D3 frees only the exact bare text); a git or gh step with an expansion or a prefix assignment
+that is not neutral; a gated step that is not first.
+
+What it changes, measured on the plugin before and after (archive of FIX-18 part B, class c): asks 108 → 89 in the
+declared repository with a clean configuration, over the four cells (declared and undeclared, clean and container
+configuration) 432 → 358; no deny lost; the 318 runs of the harmful and done-check cases keep their required answer;
+in none of the 212 runs whose ground truth executes a gated call is the gate free where it was not. Five runs that
+were free now ask: two inline programs that name git, awk with system, and two Bash writes into the configuration and
+a hook. Under Codex asks 106 → 87 and nothing that was free asks or is denied.
+
+Limits, in plain words: the parser models bash 5.2 and was not measured under zsh; it sees the command, not the
+functions and aliases a host may load into its Bash tool before it; a write after a `cd` to a relative path is not
+judged until class e. The answers of the other classes (a, b, d, e, g) are unchanged: a read form such as `git status`
+in a chain still asks.

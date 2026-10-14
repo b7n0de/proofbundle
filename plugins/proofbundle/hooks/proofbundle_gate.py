@@ -6053,6 +6053,825 @@ def _push_options_rewritten(words: list[tuple]) -> bool:
     return False
 
 
+# --- class c of the ask load: a command judged step by step (FIX-18 part B, DESIGN_rueckfragen.md 3.3 and 4) --------
+#
+# The gate's scan and its safety net read the whole command text and ask for every git or gh word they cannot place,
+# also for a word that is only text: a here-document written to a file, an argument of grep, a string of Python.
+# Class c parses the command as bash 5.2 does for the forms below, walks every simple command it would execute, in
+# order, and judges each git and gh step on its own, with the gate's answer for that step alone. Text is no call. Every
+# form the parser does not model, and every case listed in _stepwise_outcome, keeps the answer of the whole command.
+# The rules of the owner's answers of 2026-10-14: no inert-Python rule (answer 6, review finding Q18-1); an
+# interpreter, or a program the gate does not know, whose words name git or gh asks at least, and every literal
+# redirection or tee target is judged as a file-tool write (answer 9). Classes a, b, d, e and g are not part of this.
+
+
+class _ShUnmodeled(Exception):
+    """A shell form class c does not model; the whole command keeps the gate's answer of today."""
+
+
+_SH_KEYWORDS = frozenset({"if", "then", "else", "elif", "fi", "do", "done", "case", "esac", "while", "until", "for",
+                          "select", "function", "[[", "]]", "((", "))", "coproc", "time", "{", "}", "!"})
+_SH_META = frozenset(" \t\n;&|()<>")
+_SH_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=")
+_SH_FD_NAME = re.compile(r"^\{[A-Za-z_][A-Za-z0-9_]*\}$")
+_SH_REDIR = re.compile(r"(\d*)(<<<|<<-|<<|&>>|&>|>>|>&|>\||<>|<&|>|<)")
+_SH_MAX_DEPTH = 8
+_SH_MAX_STEPS = 256
+
+
+class _ShSub:
+    """A substitution in a word: kind "cmd" ($( ) or a backtick), "proc" (<( ) or >( )), "param" ($x, ${x}) or
+    "arith" ($(( )))."""
+    __slots__ = ("kind", "text", "tree")
+
+    def __init__(self, kind: str, text: str, tree=None):
+        self.kind, self.text, self.tree = kind, text, tree
+
+
+class _ShWord:
+    """A word: its text as written, its value after quote removal (expansions kept as written), its substitutions,
+    whether a quote occurs, and whether the shell may rewrite it (an unquoted glob, brace or tilde, or a substitution).
+    It is literal when it has neither."""
+    __slots__ = ("raw", "value", "subs", "quoted", "rewrite")
+
+    def __init__(self, raw: str, value: str, subs: list, quoted: bool, rewrite: bool):
+        self.raw, self.value, self.subs, self.quoted, self.rewrite = raw, value, subs, quoted, rewrite
+
+    @property
+    def literal(self) -> bool:
+        return not self.subs and not self.rewrite
+
+
+class _ShHeredoc:
+    __slots__ = ("op", "delim", "quoted", "body", "subs")
+
+    def __init__(self, op: str, delim: str, quoted: bool):
+        self.op, self.delim, self.quoted, self.body, self.subs = op, delim, quoted, "", []
+
+
+class _ShRedir:
+    __slots__ = ("op", "fd", "target")
+
+    def __init__(self, op: str, fd: str, target):
+        self.op, self.fd, self.target = op, fd, target
+
+
+class _ShSimple:
+    __slots__ = ("assigns", "words", "redirs")
+
+    def __init__(self, assigns: list, words: list, redirs: list):
+        self.assigns, self.words, self.redirs = assigns, words, redirs
+
+
+class _ShCompound:
+    __slots__ = ("kind", "body")
+
+    def __init__(self, kind: str, body):
+        self.kind, self.body = kind, body
+
+
+class _ShList:
+    """Lists of and-or chains; each chain is (pipelines, operators), each pipeline a list of commands."""
+    __slots__ = ("items",)
+
+    def __init__(self, items: list):
+        self.items = items
+
+
+class _ShParser:
+    """A parser for the bash forms class c models: lists, `&&` and `||` chains, pipelines, subshells and groups
+    whose redirections open no file, simple commands with assignments and redirections, here-documents with their
+    bodies, and command, process, parameter and arithmetic substitutions in words. Anything else raises _ShUnmodeled:
+    a comment that names git or gh (zsh with changed histchars runs it, R11-2), shell keywords, functions, background
+    jobs, `;;`, a here-document inside a substitution, ANSI-C and locale quotes,
+    a named file descriptor, a redirection on a subshell or group that opens a file, a parameter expansion with a quote
+    or a substitution inside, a backtick with a backslash inside, and more than _SH_MAX_DEPTH levels of
+    substitution."""
+
+    def __init__(self, text: str, depth: int = 0, allow_heredoc: bool = True):
+        if depth > _SH_MAX_DEPTH:
+            raise _ShUnmodeled("substitutions nested too deep")
+        self.s, self.i, self.depth, self.pending, self.allow_heredoc = text, 0, depth, [], allow_heredoc
+
+    def peek(self, k: int = 0) -> str:
+        j = self.i + k
+        return self.s[j] if j < len(self.s) else ""
+
+    def skip_blanks(self) -> None:
+        while True:
+            c = self.peek()
+            if c in (" ", "\t"):
+                self.i += 1
+            elif self.s.startswith("\\\n", self.i):
+                self.i += 2
+            elif c == "#" and (self.i == 0 or self.s[self.i - 1] in " \t\n;&|()"):
+                start = self.i
+                while self.peek() not in ("", "\n"):
+                    self.i += 1
+                if _SH_GIT_TEXT.search(self.s[start:self.i]):
+                    # zsh with changed histchars runs the text after `#` (review Runde 11, R11-2)
+                    raise _ShUnmodeled("a comment that names git or gh")
+            else:
+                return
+
+    def newline(self) -> None:
+        """One newline, then the bodies of every pending here-document."""
+        self.i += 1
+        while self.pending:
+            doc = self.pending.pop(0)
+            lines = []
+            while True:
+                if self.i >= len(self.s):
+                    raise _ShUnmodeled(f"here-document {doc.delim!r} not closed")
+                j = self.s.find("\n", self.i)
+                line = self.s[self.i:] if j < 0 else self.s[self.i:j]
+                self.i = len(self.s) if j < 0 else j + 1
+                check = line.lstrip("\t") if doc.op == "<<-" else line
+                if check == doc.delim:
+                    break
+                lines.append(check)
+            doc.body = "\n".join(lines) + ("\n" if lines else "")
+            if not doc.quoted:
+                doc.subs = _sh_scan_expansions(doc.body, self.depth)
+
+    def at_op(self) -> str | None:
+        for op in ("&&", "||", ";;", "|&", ";", "&", "|", "(", ")", "\n"):
+            if self.s.startswith(op, self.i):
+                return op
+        return None
+
+    def redir_op(self):
+        m = _SH_REDIR.match(self.s, self.i)
+        if not m:
+            return None
+        if m.group(2) in ("<", ">") and self.s.startswith("(", m.end()):
+            return None   # a process substitution, which is a word
+        return m
+
+    def word(self) -> _ShWord | None:
+        start, buf, subs, quoted, rewrite = self.i, [], [], False, False
+        while self.i < len(self.s):
+            c = self.s[self.i]
+            if c in _SH_META:
+                if c in "<>" and self.s.startswith("(", self.i + 1):
+                    end = _sh_match_paren(self.s, self.i + 2)
+                    inner = self.s[self.i + 2:end]
+                    subs.append(_ShSub("proc", inner, _sh_parse(inner, self.depth + 1, allow_heredoc=False)))
+                    buf.append(self.s[self.i:end + 1])
+                    self.i, rewrite = end + 1, True
+                    continue
+                break
+            if c == "'":
+                j = self.s.find("'", self.i + 1)
+                if j < 0:
+                    raise _ShUnmodeled("an unclosed single quote")
+                buf.append(self.s[self.i + 1:j])
+                self.i, quoted = j + 1, True
+            elif c == '"':
+                self.i += 1
+                quoted = True
+                while True:
+                    if self.i >= len(self.s):
+                        raise _ShUnmodeled("an unclosed double quote")
+                    d = self.s[self.i]
+                    if d == '"':
+                        self.i += 1
+                        break
+                    if d == "\\" and self.peek(1) in ('"', "\\", "$", "`", "\n"):
+                        if self.peek(1) != "\n":
+                            buf.append(self.peek(1))
+                        self.i += 2
+                        continue
+                    if d in ("$", "`"):
+                        sub, end = _sh_expansion_at(self.s, self.i, self.depth)
+                        if sub is not None:
+                            subs.append(sub)
+                            buf.append(self.s[self.i:end])
+                            self.i = end
+                            continue
+                    buf.append(d)
+                    self.i += 1
+            elif c == "\\":
+                if self.i + 1 >= len(self.s):
+                    raise _ShUnmodeled("a backslash at the end")
+                if self.s[self.i + 1] != "\n":
+                    buf.append(self.s[self.i + 1])
+                self.i += 2
+                quoted = True
+            elif c in ("$", "`"):
+                sub, end = _sh_expansion_at(self.s, self.i, self.depth)
+                if sub is None:
+                    buf.append(c)
+                    self.i += 1
+                else:
+                    subs.append(sub)
+                    buf.append(self.s[self.i:end])
+                    self.i, rewrite = end, True
+            else:
+                if c in "*?[{~":
+                    rewrite = True   # a glob, a brace or a tilde: the shell may change the word
+                buf.append(c)
+                self.i += 1
+        if self.i == start:
+            return None
+        return _ShWord(self.s[start:self.i], "".join(buf), subs, quoted, rewrite)
+
+    def parse_list(self, closer: str = "") -> _ShList:
+        items = []
+        while True:
+            self.skip_blanks()
+            while self.peek() == "\n":
+                self.newline()
+                self.skip_blanks()
+            if self.peek() == closer or (closer == "}" and self.peek() == "}") or self.peek() == "":
+                break
+            items.append(self.parse_and_or())
+            self.skip_blanks()
+            op = self.at_op()
+            if op == "\n":
+                self.newline()
+            elif op == ";":
+                self.i += 1
+            elif op == "&":
+                raise _ShUnmodeled("a background job")
+            elif op == ";;":
+                raise _ShUnmodeled("a case branch")
+            else:
+                break
+        return _ShList(items)
+
+    def parse_and_or(self) -> tuple:
+        pipes, ops = [self.parse_pipeline()], []
+        while True:
+            self.skip_blanks()
+            op = self.at_op()
+            if op not in ("&&", "||"):
+                return pipes, ops
+            self.i += 2
+            self.skip_blanks()
+            while self.peek() == "\n":
+                self.newline()
+                self.skip_blanks()
+            ops.append(op)
+            pipes.append(self.parse_pipeline())
+
+    def parse_pipeline(self) -> list:
+        self.skip_blanks()
+        if self.peek() == "!" and self.peek(1) in (" ", "\t"):
+            self.i += 1      # a negation changes the status, not what runs
+        cmds = [self.parse_command()]
+        while True:
+            self.skip_blanks()
+            op = self.at_op()
+            if op not in ("|", "|&"):
+                return cmds
+            self.i += len(op)
+            self.skip_blanks()
+            while self.peek() == "\n":
+                self.newline()
+                self.skip_blanks()
+            cmds.append(self.parse_command())
+
+    def parse_redirs(self, redirs: list) -> None:
+        while True:
+            self.skip_blanks()
+            m = self.redir_op()
+            if not m:
+                return
+            fd, op = m.group(1), m.group(2)
+            self.i = m.end()
+            self.skip_blanks()
+            if op in ("<<", "<<-"):
+                if not self.allow_heredoc:
+                    raise _ShUnmodeled("a here-document inside a substitution")
+                w = self.word()
+                if w is None or w.subs:
+                    raise _ShUnmodeled("a here-document without a plain delimiter")
+                doc = _ShHeredoc(op, w.value, w.quoted)
+                self.pending.append(doc)
+                redirs.append(_ShRedir(op, fd, doc))
+            else:
+                w = self.word()
+                if w is None:
+                    raise _ShUnmodeled("a redirection without a target")
+                redirs.append(_ShRedir(op, fd, w))
+
+    def parse_command(self):
+        self.skip_blanks()
+        if self.peek() == "(":
+            if self.peek(1) == "(":
+                raise _ShUnmodeled("an arithmetic command")
+            self.i += 1
+            body = self.parse_list(closer=")")
+            if self.peek() != ")":
+                raise _ShUnmodeled("an unclosed subshell")
+            self.i += 1
+            self.compound_end()
+            return _ShCompound("subshell", body)
+        if self.peek() == "{" and self.peek(1) in (" ", "\t", "\n"):
+            self.i += 1
+            body = self.parse_list(closer="}")
+            if self.peek() != "}":
+                raise _ShUnmodeled("an unclosed group")
+            self.i += 1
+            self.compound_end()
+            return _ShCompound("group", body)
+        assigns, words, redirs = [], [], []
+        while True:
+            self.skip_blanks()
+            if self.redir_op():
+                self.parse_redirs(redirs)
+                continue
+            op = self.at_op()
+            if op is not None:
+                if op == "(":
+                    raise _ShUnmodeled("a function definition or an array")
+                break
+            if self.peek() == "}" and not words and not assigns:
+                break
+            w = self.word()
+            if w is None:
+                break
+            if _SH_FD_NAME.match(w.raw) and self.peek() in ("<", ">"):
+                raise _ShUnmodeled("a named file descriptor")
+            if not words and _SH_ASSIGN.match(w.raw):
+                assigns.append(w)
+                continue
+            if not words and w.raw in _SH_KEYWORDS:
+                raise _ShUnmodeled(f"the shell keyword {w.raw}")
+            words.append(w)
+        if not (assigns or words or redirs):
+            raise _ShUnmodeled("an empty command")
+        return _ShSimple(assigns, words, redirs)
+
+    def compound_end(self) -> None:
+        """A subshell or group ends the command. A redirection on it is modelled only where it opens no file: to
+        /dev/null or a duplication of a descriptor. Any other redirection, and a word after it, is not modelled."""
+        redirs: list = []
+        self.parse_redirs(redirs)
+        for r in redirs:
+            if isinstance(r.target, _ShHeredoc) or not r.target.literal or not (
+                    r.target.value == "/dev/null" or (r.op in (">&", "<&") and
+                                                      (r.target.value.isdigit() or r.target.value == "-"))):
+                raise _ShUnmodeled("a redirection on a subshell or group that opens a file")
+        self.skip_blanks()
+        if self.peek() and self.peek() not in ";&|)}\n":
+            raise _ShUnmodeled("a word after a subshell or group")
+
+
+def _sh_match_paren(s: str, i: int) -> int:
+    """The index of the `)` that closes a `(` whose content starts at i; quotes and nested parentheses respected."""
+    depth = 1
+    while i < len(s):
+        c = s[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "'":
+            j = s.find("'", i + 1)
+            if j < 0:
+                raise _ShUnmodeled("an unclosed quote in a substitution")
+            i = j + 1
+            continue
+        if c == '"':
+            i += 1
+            while i < len(s) and s[i] != '"':
+                if s[i] == "\\":
+                    i += 1
+                elif s.startswith("$(", i):
+                    i = _sh_match_paren(s, i + 2)
+                i += 1
+            i += 1
+            continue
+        if s.startswith("<<", i) and not s.startswith("<<<", i):
+            raise _ShUnmodeled("a here-document inside a substitution")
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    raise _ShUnmodeled("an unclosed substitution")
+
+
+def _sh_expansion_at(s: str, i: int, depth: int):
+    """The expansion that starts at s[i] (`$` or a backtick) as (_ShSub, end), or (None, i) for a lone `$`."""
+    if s[i] == "`":
+        j = i + 1
+        while j < len(s) and s[j] != "`":
+            if s[j] == "\\":
+                raise _ShUnmodeled("a backslash inside a backtick")
+            j += 1
+        if j >= len(s):
+            raise _ShUnmodeled("an unclosed backtick")
+        inner = s[i + 1:j]
+        return _ShSub("cmd", inner, _sh_parse(inner, depth + 1, allow_heredoc=False)), j + 1
+    if s.startswith("$((", i):
+        end = _sh_match_paren(s, i + 3)
+        if not s.startswith(")", end + 1):
+            raise _ShUnmodeled("an arithmetic expansion")
+        inner = s[i + 3:end]
+        if "$(" in inner or "`" in inner or "[" in inner:
+            raise _ShUnmodeled("a substitution or an index inside an arithmetic expansion")
+        return _ShSub("arith", inner), end + 2
+    if s.startswith("$(", i):
+        end = _sh_match_paren(s, i + 2)
+        inner = s[i + 2:end]
+        return _ShSub("cmd", inner, _sh_parse(inner, depth + 1, allow_heredoc=False)), end + 1
+    if s.startswith("${", i):
+        j = s.find("}", i)
+        if j < 0:
+            raise _ShUnmodeled("an unclosed parameter")
+        inner = s[i + 2:j]
+        if any(ch in inner for ch in "$`'\"\\{[") or "(" in inner:
+            raise _ShUnmodeled("a parameter expansion with a quote, a substitution or an index inside")
+        return _ShSub("param", inner), j + 1
+    m = re.match(r"\$([A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])", s[i:])
+    if m:
+        return _ShSub("param", m.group(1)), i + m.end()
+    if s.startswith("$'", i) or s.startswith('$"', i):
+        raise _ShUnmodeled("an ANSI-C or locale quote")
+    return None, i
+
+
+def _sh_scan_expansions(body: str, depth: int) -> list:
+    """The expansions of an unquoted here-document body (no quote removal applies there)."""
+    subs, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c in ("$", "`"):
+            sub, end = _sh_expansion_at(body, i, depth)
+            if sub is not None:
+                subs.append(sub)
+                i = end
+                continue
+        i += 1
+    return subs
+
+
+def _sh_parse(text: str, depth: int = 0, allow_heredoc: bool = True) -> _ShList:
+    p = _ShParser(text, depth, allow_heredoc)
+    tree = p.parse_list()
+    p.skip_blanks()
+    if p.i < len(p.s):
+        raise _ShUnmodeled(f"text left over at {p.i}")
+    if p.pending:
+        raise _ShUnmodeled("a here-document without a body")
+    return tree
+
+
+#: git or gh as a word, in any letter case, and the git-<name> programs: text that may name a call.
+_SH_GIT_TEXT = re.compile(r"(?<![\w.-])(git|gh)(?![\w.-])|(?<![\w.-])git-[a-z]", re.IGNORECASE)
+#: Data commands: they read their arguments and input as data and start no program, with the limits of _sh_kind.
+_SH_DATA = frozenset({"echo", "printf", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq",
+                      "cut", "tr", "nl", "column", "jq", "fold", "fmt", "rev", "tac", "true", "false", "test", "[",
+                      "ls", "pwd", "basename", "dirname", "realpath", "readlink", "stat", "date", "sleep", "seq", "expr",
+                      "comm", "join", "paste", "sha256sum", "sha1sum", "sha512sum", "md5sum", "cmp", "diff", "du", "df",
+                      "id", "whoami", "uname", "printenv", "which", "type", ":", "sed", "awk", "find", "tee"})
+#: Carriers of code: shells, wrappers that start the program their words name, interpreters, and the builtins that set
+#: code, aliases, functions, traps, options or variables for later steps.
+_SH_CARRIERS = frozenset({
+    "bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", "eval", "source", ".", "exec",
+    "env", "command", "builtin", "nohup", "timeout", "nice", "ionice", "stdbuf", "xargs", "parallel", "sudo", "su",
+    "doas", "ssh", "watch", "script", "setsid", "flock", "unshare", "strace", "ltrace", "chroot", "runuser", "nsenter",
+    "firejail", "make", "npx", "uvx", "pipx", "uv", "poetry", "pipenv", "npm", "yarn", "pnpm", "go", "cargo", "java",
+    "dotnet", "osascript", "Rscript",
+    "trap", "alias", "unalias", "shopt", "set", "enable", "hash", "declare", "typeset", "local", "readonly", "export",
+    "unset", "let", "mapfile", "readarray", "read", "complete"})
+_SH_INTERPRETER = re.compile(r"^(python|pypy|perl|ruby|node|deno|bun|php|lua|luajit|tclsh|wish|pwsh|gawk|mawk|nawk)"
+                             r"[0-9.]*$")
+_SH_SAFE_SED = re.compile(r"^((\d+|\$)(,(\d+|\$))?[pdq=]|/[^/]*/[pd]|s(.)((?!\5).)*\5((?!\5).)*\5[gpI0-9]*)"
+                          r"(;\s*((\d+|\$)(,(\d+|\$))?[pdq=]|/[^/]*/[pd]))*$")
+_SH_SAFE_AWK = re.compile(r"^\s*([A-Za-z0-9_$!=<>&|.\"' /^\\-]*)?\s*\{\s*print(f)?\b[^|>;]*\}\s*$"
+                          r"|^\s*NR\s*[<>=!]=?\s*\d+\s*$")
+
+
+class _ShStep:
+    """One simple command as bash would execute it: its words, the directory it runs in (None where unknown),
+    whether it stands alone at the top level, the size of its pipeline, and the steps that run before it or beside it
+    in its pipeline."""
+
+    def __init__(self, cmd: _ShSimple, cwd: str | None, top_level: bool, pipeline_size: int, before: list):
+        self.cmd, self.cwd, self.top_level, self.pipeline_size, self.before = cmd, cwd, top_level, pipeline_size, before
+        self.words = [w.value for w in cmd.words]
+        self.head = os.path.basename(self.words[0]) if self.words else ""
+        self.kind = _sh_kind(self)
+
+    def code_text(self) -> str:
+        """Every text the step carries: its words, its assignments and the bodies and strings it reads."""
+        parts = [w.value for w in self.cmd.assigns] + self.words
+        for r in self.cmd.redirs:
+            parts.append(r.target.body if isinstance(r.target, _ShHeredoc) else r.target.value)
+        return "\n".join(parts)
+
+    def write_targets(self) -> tuple[list[str], bool]:
+        """(the literal files the step's output redirections and tee open for writing, whether any target is not
+        literal). Duplications of a descriptor and /dev/null open no file."""
+        targets, unknown = [], False
+        for r in self.cmd.redirs:
+            if isinstance(r.target, _ShHeredoc) or r.op in ("<", "<<<", "<&"):
+                continue
+            t = r.target
+            if r.op in (">&",) and (t.value.isdigit() or t.value == "-"):
+                continue
+            if t.value == "/dev/null" and t.literal:
+                continue
+            if t.literal:
+                targets.append(t.value)
+            else:
+                unknown = True
+        if self.head == "tee":
+            for w in self.cmd.words[1:]:
+                if w.value.startswith("-"):
+                    continue
+                if w.literal:
+                    targets.append(w.value)
+                else:
+                    unknown = True
+        return targets, unknown
+
+
+def _sh_kind(step: _ShStep) -> str:
+    """git, gh, git-x (a git-<name> program), cd, assign (assignments only), carrier, data or other."""
+    if not step.words:
+        return "assign"
+    first = step.cmd.words[0]
+    h = step.head
+    if h in ("git", "gh"):
+        return h
+    if h.startswith("git-"):
+        return "git-x"
+    if not first.literal or _SH_GIT_TEXT.fullmatch(h.split("/")[-1]) or h.lower().startswith("git-"):
+        return "unresolved"   # a command word the shell builds, or git or gh in another letter case
+    args = step.words[1:]
+    if h in ("cd", "pushd", "popd"):
+        return "cd"
+    if "/" in step.words[0] or h in _SH_CARRIERS or _SH_INTERPRETER.match(h):
+        return "carrier"
+    if h == "sed":
+        return "data" if _sh_sed_safe(args) else "carrier"
+    if h == "awk":
+        programs = [a for a in args if not a.startswith("-")]
+        if any(a.startswith("-") for a in args) or not programs:
+            return "carrier"
+        return "data" if _SH_SAFE_AWK.match(programs[0]) and not re.search(r"system|getline|\|", programs[0]) \
+            else "carrier"
+    if h == "find" and any(a in ("-exec", "-execdir", "-ok", "-okdir", "-delete") or a.startswith(("-fprint", "-fls"))
+                           for a in args):
+        return "carrier"
+    if h == "sort" and any(a.startswith("--compress-program") for a in args):
+        return "carrier"
+    if h == "rg" and any(a.startswith(("--pre", "--search-zip")) or a == "-z" for a in args):
+        return "carrier"
+    if h == "printf" and any(a == "-v" or a.startswith("-v") for a in args[:1]):
+        return "other"     # printf -v sets a variable, which may be exported
+    if h in _SH_DATA:
+        return "data"
+    return "other"
+
+
+def _sh_sed_safe(args: list[str]) -> bool:
+    if any(a in ("-i", "--in-place") or a.startswith(("-i", "--in-place=")) for a in args):
+        return False
+    scripts, i = [], 0
+    while i < len(args):
+        if args[i] == "-e" and i + 1 < len(args):
+            scripts.append(args[i + 1])
+            i += 2
+        elif args[i] in ("-n", "-E", "-r", "--quiet", "-u"):
+            i += 1
+        elif args[i].startswith("-"):
+            return False
+        else:
+            if not scripts:
+                scripts.append(args[i])
+            i += 1
+    return bool(scripts) and all(_SH_SAFE_SED.match(s) for s in scripts)
+
+
+def _sh_walk(tree: _ShList, cwd: str | None, out: list, top_level: bool = True) -> None:
+    """Append a _ShStep for every simple command of the list in execution order. Without class e a `cd` leaves the
+    directory unknown for every step after it."""
+    for pipes, ops in tree.items:
+        for j, cmds in enumerate(pipes):
+            size, start = len(cmds), len(out)
+            for c in cmds:
+                if isinstance(c, _ShCompound):
+                    _sh_walk(c.body, cwd, out, top_level and c.kind == "group" and size == 1)
+                    continue
+                for w in c.assigns + c.words:
+                    _sh_walk_subs(w.subs, cwd, out)
+                for r in c.redirs:
+                    _sh_walk_subs(r.target.subs, cwd, out)
+                out.append(_ShStep(c, cwd, top_level and size == 1, size, list(out)))
+                if len(out) > _SH_MAX_STEPS:
+                    raise _ShUnmodeled("more steps than the gate reads one by one")
+            group = out[start:]
+            for s in group:   # the commands of a pipeline run at the same time
+                s.before = s.before + [t for t in group if t is not s]
+            if any(s.kind == "cd" for s in group):
+                cwd = None
+
+
+def _sh_walk_subs(subs: list, cwd: str | None, out: list) -> None:
+    for s in subs:
+        if s.kind in ("cmd", "proc"):
+            _sh_walk(s.tree, cwd, out, top_level=False)
+
+
+class _ShKeep(Exception):
+    """The whole command keeps the gate's answer of today; with floor "ask", raised to at least ask."""
+
+    def __init__(self, why: str, floor: str | None = None):
+        super().__init__(why)
+        self.floor = floor
+
+
+def _sh_step_text(step: _ShStep) -> str:
+    """The step as a command of its own: its words and its redirections, each word quoted. A here-document or a
+    here-string is input and is left out, so text in it is no call."""
+    parts = [shlex.quote(w) for w in step.words]
+    for r in step.cmd.redirs:
+        if isinstance(r.target, _ShHeredoc) or r.op == "<<<":
+            continue
+        value = r.target.value
+        parts.append(f"{r.fd}{r.op}{value}" if r.op in (">&", "<&") and (value.isdigit() or value == "-")
+                     else f"{r.fd}{r.op} {shlex.quote(value)}")
+    return " ".join(parts)
+
+
+def _sh_gated(step: _ShStep) -> bool:
+    """A push, a gated gh call, a possible transfer, or a git form with a global option other than a literal -C or
+    --no-pager: judged on its own only as the first executed step after at most `cd` steps."""
+    if step.kind == "git-x":
+        return True
+    if step.kind == "gh":
+        return _gh_call(step.words[1:]) is not None
+    words, i = step.words[1:], 0
+    while i < len(words) and words[i].startswith("-"):
+        if words[i] == "-C" and i + 1 < len(words):
+            i += 2
+            continue
+        if words[i] == "--no-pager":
+            i += 1
+            continue
+        return True
+    sub = words[i] if i < len(words) else None
+    return sub == "push" or sub not in _GIT_LOCAL_SUBCOMMANDS
+
+
+def _sh_changes_state(step: _ShStep, protected: bool) -> bool:
+    """Whether the step may change what a later step's answer read: the configuration, the hooks, the evidence, the
+    environment, the aliases or the programs a name selects. A data command that writes no file, or only literal files
+    that are no configuration, hook or gate file, a `cd`, and the git forms the gate frees by themselves do not."""
+    targets, unknown = step.write_targets()
+    if unknown or protected:
+        return True
+    if step.kind == "cd":
+        return False
+    if step.kind == "assign":
+        return not all(_assignment_neutral(w.value) for w in step.cmd.assigns)
+    if step.kind == "data":
+        if targets and step.cwd is None:
+            return True
+        if step.head == "sort" and any(w.startswith(("-o", "--output")) for w in step.words[1:]):
+            return True
+        if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
+            return True
+        return bool(step.cmd.assigns) and not all(_assignment_neutral(w.value) for w in step.cmd.assigns)
+    if step.kind == "git":
+        sub_words = step.words[1:]
+        return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"])
+    return True
+
+
+def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
+                      judge_whole) -> Outcome | None:
+    """Class c (DESIGN_rueckfragen.md 3.3, owner answers 6 and 9 of 2026-10-14): the answer from the command's steps,
+    or the whole command's answer `whole` where class c keeps it.
+
+    Kept, with the reason in _ShKeep: a form the parser does not model; a command word the shell builds, or git or gh
+    in another letter case; a carrier of code or a program the gate does not know with a word the shell may rewrite
+    (`sudo gi* status`, review Runde 14, R14-1); a `git --version` step, which is free only as the exact whole command (D3); a git or gh
+    step with an expansion or a prefix assignment that is not neutral; a gated step (_sh_gated) that is not the first executed step at the top level after at most `cd` steps, or has a
+    redirection, and every gated step under Codex. Kept and raised to at least ask: a carrier of code, or a program
+    the gate does not know, whose text names git or gh; a carrier of code that reads a git or gh step's output; git or
+    gh text anywhere beside a step that runs code (a value assigned and then run by eval). Otherwise every literal file a step writes is judged like a file-tool write (decide_write), every
+    git and gh step gets the gate's answer for that step alone in its directory, and a step that would be free asks
+    where a step before it or beside it may change the state that answer read (_sh_changes_state)."""
+    try:
+        try:
+            tree = _sh_parse(command)
+        except RecursionError as exc:
+            raise _ShKeep("substitutions nested too deep") from exc
+        except _ShUnmodeled as exc:
+            raise _ShKeep(f"not modelled: {exc}") from exc
+        steps: list[_ShStep] = []
+        try:
+            _sh_walk(tree, cwd, steps)
+        except _ShUnmodeled as exc:
+            raise _ShKeep(f"not modelled: {exc}") from exc
+        return _sh_judge(steps, cwd, deadline, host, environ, whole, judge_whole)
+    except _ShKeep as keep:
+        if keep.floor == "ask" and (whole is None or whole.decision not in ("ask", "deny")):
+            verdict = Verdict(
+                "ask", f"NOT MEASURED: {keep}. A program that runs text as code, or one the gate does not know, may "
+                       "start git or gh from that text, and the gate does not read code (owner answers 6 and 9 of "
+                       "2026-10-14, DESIGN_rueckfragen.md 3.3).",
+                "code_names_git", evidence="none, the gate reads no code",
+                failed=str(keep), next_step="run the git or gh call as its own command, or have a person review it")
+            return Outcome("ask", verdict.text(), list(whole.verdicts if whole else []) + [verdict])
+        return whole
+
+
+def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
+              judge_whole) -> Outcome | None:
+    verdicts: list = []
+    protected: set = set()
+    for s in steps:
+        if s.kind == "unresolved":
+            raise _ShKeep(f"the command word {s.cmd.words[0].raw!r} is built by the shell or names git or gh in "
+                          "another letter case")
+        if s.kind in ("carrier", "other") and not all(w.literal for w in s.cmd.words):
+            # a wrapper's program position may hold a word the shell turns into git (`sudo gi* status`, R14-1)
+            named = any(_SH_GIT_TEXT.search(t.code_text()) for t in steps)
+            raise _ShKeep(f"{s.head} has a word the shell may rewrite, and it may start the program that word names",
+                          "ask" if named else None)
+    for s in steps:
+        targets, _unknown = s.write_targets()
+        for t in targets:
+            if s.cwd is None and not os.path.isabs(t):
+                continue   # the directory is unknown; the write keeps today's answer (not judged), named in D33
+            base = s.cwd if s.cwd is not None else cwd
+            written = decide_write("Write", {"file_path": os.path.join(base, t)}, base, deadline, "claude", environ)
+            if written is not None:
+                protected.add(id(s))
+                verdicts.extend(written.verdicts)
+    carriers = [s for s in steps if s.kind == "carrier"]
+    for s in steps:
+        if s.kind in ("carrier", "other") and _SH_GIT_TEXT.search(s.code_text()):
+            raise _ShKeep(f"{s.head} carries text that names git or gh", "ask")
+        if s.kind == "carrier" and s.pipeline_size > 1 and any(
+                t.kind in ("git", "gh", "git-x") for t in s.before[len(s.before) - s.pipeline_size + 1:]):
+            raise _ShKeep(f"{s.head} reads the output of a git or gh step", "ask")
+    data_text = any(_SH_GIT_TEXT.search(s.code_text() if s.kind not in ("git", "gh", "git-x") else
+                                        "\n".join(r.target.body for r in s.cmd.redirs
+                                                  if isinstance(r.target, _ShHeredoc)))
+                    for s in steps)
+    if carriers and data_text:
+        raise _ShKeep("git or gh text beside a step that runs code", "ask")
+    for s in steps:
+        if s.kind not in ("git", "gh", "git-x"):
+            continue
+        if s.words == ["git", "--version"]:
+            raise _ShKeep("`git --version` is free only as the exact whole command (D3)")
+        if not all(w.literal for w in s.cmd.words) or not all(_assignment_neutral(w.value) for w in s.cmd.assigns):
+            raise _ShKeep(f"a {s.head} step with an expansion or a prefix assignment")
+        if any(not isinstance(r.target, _ShHeredoc) and not r.target.literal for r in s.cmd.redirs):
+            raise _ShKeep(f"a {s.head} step with a redirection the shell builds")
+        if _sh_gated(s):
+            if host == "codex" or not s.top_level or s.cmd.redirs or any(t.kind != "cd" for t in s.before):
+                raise _ShKeep(f"the gated step {_sh_step_text(s)} is not the first step on its own")
+        answer = judge_whole(_sh_step_text(s), s.cwd if s.cwd is not None else cwd)
+        if s.cwd is None:
+            if answer is not None and answer.decision == "deny":
+                verdicts.extend(answer.verdicts)
+                continue
+            verdicts.append(Verdict(
+                "ask", f"NOT MEASURED: the gate cannot tell which repository {s.head} acts on after a directory "
+                       "change (class e of DESIGN_rueckfragen.md is not built).",
+                "directory_unresolved", evidence=f"unknown, the repository {s.head} acts on",
+                failed="the gate cannot resolve the directory",
+                next_step="run the call as one command of its own with literal words, for git as "
+                          "`git -C <absolute path> …`"))
+            continue
+        if answer is None or answer.decision in ("pass", "inactive"):
+            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected)]
+            if changed:
+                verdicts.append(Verdict(
+                    "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "
+                           f"it ({changed[0].head or 'an assignment'}) may change the configuration, hooks, evidence or "
+                           "environment that answer read (DESIGN_rueckfragen.md 3.3).",
+                    "step_after_state_change", evidence="the state the step's own answer read",
+                    failed=f"{changed[0].head or 'an assignment'} runs before or beside {s.head} and may change it",
+                    next_step="run the git or gh call as its own command, or have a person review it"))
+                continue
+        if answer is not None:
+            verdicts.extend(answer.verdicts)
+    if not verdicts:
+        return None
+    for decision in ("deny", "ask", "warn"):
+        chosen = [v for v in verdicts if v.decision == decision]
+        if chosen:
+            return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
+    combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
+    return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
+
+
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
@@ -6151,8 +6970,20 @@ def _name_narrower_spelling(outcome: Outcome, command: str, cwd: str, deadline: 
 
 
 def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ: dict | None) -> Outcome | None:
-    """decide() without the hint of _name_narrower_spelling."""
+    """decide() without the hint of _name_narrower_spelling: the answer of the whole command (_decide_outcome_whole),
+    then class c, which judges the command step by step (_stepwise_outcome, DESIGN_rueckfragen.md 3.3). A deny of the
+    whole command, an approved rule and the bare `git --version` keep the whole command's answer."""
     environ = os.environ if environ is None else environ
+    whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
+    if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
+            _BARE_VERSION.fullmatch(command):
+        return whole
+    return _stepwise_outcome(command, cwd, deadline, host, environ, whole,
+                             lambda text, directory: _decide_outcome_whole(text, directory, deadline, host, environ))
+
+
+def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, environ) -> Outcome | None:
+    """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge."""
     calls = gated_calls(command)
     plain = host == "codex" and _codex_plain_push(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])

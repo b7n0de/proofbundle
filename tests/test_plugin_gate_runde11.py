@@ -229,9 +229,11 @@ def test_net_leaves_the_bare_version_free_and_non_git_commands_alone(tmp_path):
     for host in ("claude", "codex"):
         assert gate.decide("git --version", str(repo), gate.time.monotonic() + 30, host=host) is None, host
         assert gate.decide("ls -la", str(repo), gate.time.monotonic() + 30, host=host) is None, host
-        # `echo 'git push'` is no longer free: under the Runde-12 normal form the quote is removed and git is a
-        # command word, so it is NOT MEASURED (ask under Claude, deny under Codex). See test_plugin_gate_runde12.
-        assert gate.decide("echo 'git push'", str(repo), gate.time.monotonic() + 30, host=host) is not None, host
+        # `echo 'git push'` was NOT MEASURED under the Runde-12 normal form, which removes the quote and reads git as a
+        # command word. Since class c (FIX-18 part B, D33) the gate parses the command: the quoted argument of a data
+        # command is text and runs nothing, so the command is free; code that names git still is not.
+        assert gate.decide("echo 'git push'", str(repo), gate.time.monotonic() + 30, host=host) is None, host
+        assert gate.decide("sh -c 'git push'", str(repo), gate.time.monotonic() + 30, host=host) is not None, host
 
 
 # --- R10-1-C..F: the four comment-strip bounds -------------------------------------------------------------------
