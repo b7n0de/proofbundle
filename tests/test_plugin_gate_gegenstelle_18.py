@@ -846,9 +846,10 @@ def test_a_transport_that_starts_a_remote_helper_is_no_hand_over(env, tmp_path, 
     ("remote.origin.receivepack", "$(echo rp)"), ("remote.origin.receivepack", "true; rp"),
     ("remote.origin.receivepack", "rp{a,b}"), ("remote.origin.receivepack", "'rp' x"),
     ("core.sshCommand", "ssh > /dev/null"), ("credential.helper", "!f() { true; }; f"),
-    ("core.askPass", "/tmp/a b/askpass"), ("remote.origin.receivepack", "no-such-program-zz"),
+    ("core.askPass", "/tmp/a b/askpass"), ("core.askPass", "/bin/true --x"),
+    ("remote.origin.receivepack", "no-such-program-zz"),
 ], ids=["dollar", "brace-dollar", "substitution", "list", "brace", "quote", "redirection", "function",
-        "unshelled-space", "unresolved"])
+        "unshelled-space", "unshelled-argument", "unresolved"])
 def test_a_program_value_the_gate_does_not_model_as_a_plain_command_is_no_hand_over(env, tmp_path, key, value):
     """Lens 3, F-K and F-L: the shell decides which program `$HOME/rp`, `$(...)`, a list, a glob or a quote runs, and
     git runs core.askPass whole without a shell. The digest bound none of these programs; a hand-over now asks."""
