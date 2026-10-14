@@ -179,8 +179,8 @@ JSON array. It approves the transport of that remote at that URL, with the progr
 which start before Level 2 judges. A change of that configuration, of those environment names or of a program file they
 name asks again at the next push; the program behind a wrapper word such as `env`, what such a program reads or starts
 in turn, and an `Include` of the ssh configuration are not bound (D33). A remote helper transport, and a configured
-command with shell syntax or a program the gate resolves to no file, keep the ask; the command above names the reason.
-Run it in the environment your agent's pushes run in.
+command with shell syntax or a program the gate resolves to no file it can hash, keep the ask; the command above names
+the reason. Run it in the environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push or

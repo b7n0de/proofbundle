@@ -393,11 +393,11 @@ transport digest.
   git://, http:// or https:// as written, no remote.<name>.vcs; and every program-naming value a plain command, words of
   letters, digits and `_./@%+=:,-` separated by single spaces, whose program resolves to a file. A remote helper
   (another scheme in any letter case, a `<x>::` transport, ext:: and fd::), a quote, an expansion, a glob, an operator,
-  a redirection or a program the gate resolves to no file keeps the ask; `transport-digest` names the reason. It binds
-  one level: a wrapper word such as `env program` (the program behind it), what a named program reads or starts in turn,
-  an `Include` of the ssh configuration, an include of a path remote's configuration and its hooks (which run after
-  Level 2, on the receiving side) are not bound. A change between Level 1 and the push acts before Level 2, which then
-  refuses the hand-over (G18-1, within the 300 seconds of a hand-over).
+  a redirection or a program the gate resolves to no file it can hash keeps the ask; `transport-digest` names the
+  reason. It binds one level: a wrapper word such as `env program` (the program behind it), what a named program reads
+  or starts in turn, an `Include` of the ssh configuration, an include of a path remote's configuration and its hooks
+  (which run after Level 2, on the receiving side) are not bound. A change between Level 1 and the push acts before
+  Level 2, which then refuses the hand-over (G18-1, within the 300 seconds of a hand-over).
 
 ### 7.5 What Level 2 checks
 

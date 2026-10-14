@@ -13,6 +13,7 @@ a later server error; and the transport that is not approved asks before its eff
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -958,3 +959,26 @@ def test_a_transport_approval_with_an_unusable_repository_path_approves_nothing(
     path.write_text(json.dumps(entries), encoding="utf-8")
     answer, entry = _level1(env, r.path)
     assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
+def test_a_named_program_larger_than_the_gate_hashes_is_no_hand_over(env, tmp_path, monkeypatch):
+    """Lens 3, F-O: a sparse program file of several GiB was read whole, and Level 1 ended in MemoryError (deny,
+    internal_error). It is now hashed in blocks up to MAX_BOUND_FILE_BYTES and beyond that binds as unreadable."""
+    big = tmp_path / "big.sh"
+    with open(big, "wb") as handle:
+        handle.write(b"#!/bin/sh\n")
+        handle.truncate(512 * 1024 * 1024 + 1)   # MAX_BOUND_FILE_BYTES + 1, a literal for the parent
+    big.chmod(0o755)
+    assert gate._sha256_or_none(str(big)) is None
+    r = _repo(tmp_path, env, approve=False)
+    base._git(r.path, "config", "remote.origin.receivepack", str(big))
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert entry["reason_ids"] != ["internal_error"] and _decision(answer) == "ask", answer
+    assert "resolves to no file" in answer["systemMessage"] or "not one a hand-over models" in answer["systemMessage"]
+
+
+def test_hashing_in_blocks_gives_the_sha256_of_the_whole_file(tmp_path):
+    data = os.urandom(3 * (1 << 20) + 17)
+    (tmp_path / "f").write_bytes(data)
+    assert gate._sha256_or_none(str(tmp_path / "f")) == hashlib.sha256(data).hexdigest()

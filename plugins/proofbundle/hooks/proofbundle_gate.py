@@ -5867,14 +5867,36 @@ def _canonical_digest(document: object) -> str:
                           .encode("utf-8", "surrogateescape")).hexdigest()
 
 
+#: The largest file the binding hashes (adversarial lens 3 of 2026-10-14, F-O: a sparse file of several GiB named as a
+#: program was read whole and raised MemoryError). A larger file binds as unreadable, which keeps the ask.
+MAX_BOUND_FILE_BYTES = 512 * 1024 * 1024
+
+
 def _sha256_or_none(path: str | None) -> str | None:
-    """sha256 of the regular file at path, a link followed; None where there is none or it cannot be read."""
+    """sha256 of the regular file at path, a link followed, hashed in blocks; None where there is none, it cannot be
+    read, or it holds more than MAX_BOUND_FILE_BYTES. Opened as _read_regular opens: without blocking, its type checked
+    at the descriptor before any read."""
     if not path:
         return None
     try:
-        return hashlib.sha256(_read_regular(path, -1, follow=True)).hexdigest()
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
     except OSError:
         return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BOUND_FILE_BYTES:
+            return None
+        digest, total = hashlib.sha256(), 0
+        while block := os.read(fd, 1 << 20):
+            total += len(block)
+            if total > MAX_BOUND_FILE_BYTES:
+                return None
+            digest.update(block)
+        return digest.hexdigest()
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
 
 
 def _git_exec_path(deadline: float) -> str | None:
@@ -6056,8 +6078,8 @@ def _transport_parts(repo: str, remote: str, url: str, deadline: float,
     for key, value in named:
         program, why = _named_program(key, value)
         found = _program_file(program, toplevel, exec_path, environ)
-        if why is None and program is not None and found[1] is None:
-            why = f"{key} names the program {program!r}, which the gate resolves to no file"
+        if why is None and program is not None and (found[1] is None or found[2] is None):
+            why = f"{key} names the program {program!r}, which the gate resolves to no file it can hash"
         if why is not None:
             problems.append(why)
         bound.append([key, found])
