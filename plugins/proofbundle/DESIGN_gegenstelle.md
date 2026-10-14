@@ -440,9 +440,11 @@ Measured with a script of its own through real pushes to local bare repositories
 - git 2.43.0 and 2.51.1 for this version; they are not installed on the build machine. git 2.56.0 where it is built.
 - The environment of the host's hook (Level 1) itself. Measured in a real Claude Code session of 2026-10-14 were the
   host process (no `GIT_*` name) and the Bash tool's shell (`GIT_EDITOR=true`, `GIT_OPTIONAL_LOCKS=0`), which the
-  binding now leaves out with exactly these values (`_HOST_SHELL_INERT`). Where a shell profile exports another name
-  the binding reads, Level 2 refuses the hand-over (fail closed); where it exports a name that selects a transport
-  program, that program acts before Level 2 refuses, since Level 1 measured the hook's environment, not the shell's.
+  binding now leaves out with exactly these values (`_HOST_SHELL_INERT`); PATH was equal in both. Where a shell
+  profile exports another name the binding reads, Level 2 refuses the hand-over (fail closed); where it exports a name
+  that selects a transport program, that program acts before Level 2 refuses; where it turns the hook off
+  (`GIT_CONFIG_COUNT` with `core.hooksPath`) or orders PATH so that another git runs, no Level 2 runs at all (lens 2,
+  F-F and F-G). Level 1 measures the hook's environment, not the shell's.
 - A real ssh server and client, hosted remotes (GitHub, GitLab), real network round trips.
 - Claude Code's `updatedInput` (a rewritten command) as a binding.
 - `claude -p` and `codex exec`: what an ask does in a session without a person.

@@ -2266,11 +2266,14 @@ Limits:
   environment of the shell the push runs in. Measured in a real Claude Code session of 2026-10-14 (the host process
   and the Bash tool's shell; the hook's own environment NOT MEASURED): the shell carries `GIT_EDITOR=true` and
   `GIT_OPTIONAL_LOCKS=0`, the host process neither. Bound, they refused every hand-over; with exactly these values the
-  binding leaves them out (`_HOST_SHELL_INERT`), any other value is bound. Where a shell profile exports another name
-  the binding reads, Level 2 refuses the hand-over; where that name selects a transport program, the program acts
-  before Level 2 refuses (Level 1 reads the hook's environment, not the shell's; the gap of G18-1 from the side of the
-  environment). PATH is bound through the programs it selects (git, the interpreter), not as a string. The ssh agent
-  socket (`SSH_AUTH_SOCK`) is bound as a value, so an approval asks again after a new login.
+  binding leaves them out (`_HOST_SHELL_INERT`), any other value is bound. In the same session PATH was equal in both
+  (same entries, same order, none relative), and no other `GIT_*`, ssh or proxy name differed. Level 1 reads the
+  hook's environment, not the shell's, and that gap stays (the gap of G18-1 from the side of the environment): where
+  a shell profile exports another name the binding reads, Level 2 refuses the hand-over; where that name selects a
+  transport program, the program acts before Level 2 refuses; where it turns the hook off (`GIT_CONFIG_COUNT` with
+  `core.hooksPath`) or a PATH the shell orders differently selects another git, no Level 2 runs at all (lens 2 of
+  2026-10-14, F-F and F-G). PATH is bound through the programs it selects (git, the interpreter), not as a string.
+  The ssh agent socket (`SSH_AUTH_SOCK`) is bound as a value, so an approval asks again after a new login.
 - On a system without `/proc/<parent>/exe` the git program is bound through its exec path only.
 - Level 1 compares the git on PATH with the `git` in the exec path that program reports. A program that reports a
   forged exec path holding a copy of itself is not caught (D27). Where git's exec path holds no `git`, or the git on
