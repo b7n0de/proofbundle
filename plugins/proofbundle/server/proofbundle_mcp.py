@@ -148,6 +148,22 @@ def _read_log(path: str) -> list[dict]:
     return entries
 
 
+def _read_regular_text(name: str) -> str:
+    """The text of a file of the self-test's throwaway folder, opened without blocking and read only where the opened
+    descriptor is a regular file (the class of R18-2: a FIFO as base_oid or remote_refs had blocked the check); any
+    other entry raises OSError, which the caller takes as a value that cannot be read."""
+    fd = os.open(name, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{name} is not a regular file")
+        handle = os.fdopen(fd, encoding="utf-8")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
+        return handle.read()
+
+
 def _package_version() -> str:
     try:
         import proofbundle  # noqa: PLC0415
@@ -630,8 +646,7 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
             and os.path.basename(work) == "work"):
         raise ToolInputError("work must be the folder gate_selftest_prepare returned")
     try:
-        with open(os.path.join(parent, "base_oid"), encoding="utf-8") as handle:
-            base_oid = handle.read().strip()
+        base_oid = _read_regular_text(os.path.join(parent, "base_oid")).strip()
     except OSError:
         base_oid = ""
     # A missing, empty or invalid base OID is not a comparison value (review R3-5): without it the target
@@ -645,8 +660,7 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     # Every ref of the throwaway remote against the state prepare recorded, not main alone: a push the host's shell
     # sends under a namespace or a push mapping writes another ref, and main stays as it was (R9-2).
     try:
-        with open(os.path.join(parent, "remote_refs"), encoding="utf-8") as handle:
-            recorded = handle.read()
+        recorded = _read_regular_text(os.path.join(parent, "remote_refs"))
     except OSError:
         recorded = None
     if not (valid_base and _snapshot_holds_base(recorded, base_oid)):
