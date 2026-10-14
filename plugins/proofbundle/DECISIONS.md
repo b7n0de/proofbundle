@@ -2271,17 +2271,18 @@ Limits:
   Level 2 accepts. A local hook is an early warning, and the boundary stays the required CI check and the receiver
   (D22, D24, D27). Every hand-over names the approval file, when it last changed and its sha256.
 - The binding compares what Level 1 measured in the host's hook environment with what Level 2 measures in the
-  environment of the shell the push runs in. Measured in a real Claude Code session of 2026-10-14 (the host process
-  and the Bash tool's shell; the hook's own environment NOT MEASURED): the shell carries `GIT_EDITOR=true` and
-  `GIT_OPTIONAL_LOCKS=0`, the host process neither. Bound, they refused every hand-over; with exactly these values the
-  binding leaves them out (`_HOST_SHELL_INERT`), any other value is bound. In the same session PATH was equal in both
-  (same entries, same order, none relative), and no other `GIT_*`, ssh or proxy name differed. Level 1 reads the
-  hook's environment, not the shell's, and that gap stays (the gap of G18-1 from the side of the environment): where
-  a shell profile exports another name the binding reads, Level 2 refuses the hand-over; where that name selects a
+  environment of the shell the push runs in. Measured in a real Claude Code session of 2026-10-14 (the host process and
+  the Bash tool's shell; the hook's own environment NOT MEASURED): the shell carries `GIT_EDITOR=true` and
+  `GIT_OPTIONAL_LOCKS=0`, the host process neither. Bound, they would refuse every hand-over wherever the hook's
+  environment is the host process's; the binding now leaves them out with an inert value (`_HOST_SHELL_INERT`:
+  `GIT_EDITOR` true or `:`, `GIT_OPTIONAL_LOCKS` 0 or 1), and any other value is bound. In the same session PATH was
+  equal in both (same entries, same order, none relative), and no other `GIT_*`, ssh or proxy name differed. Level 1
+  reads the hook's environment, not the shell's, and that gap stays (the gap of G18-1 from the side of the environment):
+  where a shell profile exports another name the binding reads, Level 2 refuses the hand-over; where that name selects a
   transport program, the program acts before Level 2 refuses; where it turns the hook off (`GIT_CONFIG_COUNT` with
   `core.hooksPath`) or a PATH the shell orders differently selects another git, no Level 2 runs at all (lens 2 of
-  2026-10-14, F-F and F-G). PATH is bound through the programs it selects (git, the interpreter), not as a string.
-  The ssh agent socket (`SSH_AUTH_SOCK`) is bound as a value, so an approval asks again after a new login.
+  2026-10-14, F-F and F-G). PATH is bound through the programs it selects (git, the interpreter), not as a string. The
+  ssh agent socket (`SSH_AUTH_SOCK`) is bound as a value, so an approval asks again after a new login.
 - On a system without `/proc/<parent>/exe` the git program is bound through its exec path only.
 - Code in the site-packages of the interpreter (a `.pth` file, `sitecustomize`) runs in Level 1 too, which the host
   starts with `python3 -I`, and can change any answer; writing it is the class of D27 (lens 4).
