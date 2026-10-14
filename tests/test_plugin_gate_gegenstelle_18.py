@@ -983,3 +983,14 @@ def test_hashing_in_blocks_gives_the_sha256_of_the_whole_file(tmp_path):
     data = os.urandom(3 * (1 << 20) + 17)
     (tmp_path / "f").write_bytes(data)
     assert gate._sha256_or_none(str(tmp_path / "f")) == hashlib.sha256(data).hexdigest()
+
+
+def test_a_file_over_the_cap_is_refused_at_its_size_before_a_block_is_read(tmp_path, monkeypatch):
+    """The size at the descriptor decides first, so a sparse file of several GiB is not read up to the cap."""
+    big = tmp_path / "big"
+    with open(big, "wb") as handle:
+        handle.truncate(512 * 1024 * 1024 + 1)   # MAX_BOUND_FILE_BYTES + 1, a literal for the parent
+    reads = []
+    real_read = os.read
+    monkeypatch.setattr(gate.os, "read", lambda fd, n: reads.append(n) or real_read(fd, n))
+    assert gate._sha256_or_none(str(big)) is None and reads == []
