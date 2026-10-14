@@ -5828,7 +5828,15 @@ _TRANSPORT_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS"
 _TRANSPORT_SECTIONS = frozenset({"ssh", "credential", "http", "protocol"})
 _TRANSPORT_CORE_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
 _TRANSPORT_PROGRAMS = ("git-receive-pack", "git-remote-http", "git-remote-https")
-TRANSPORT_DIGEST_SCHEMA = "proofbundle-plugin/transport/v1"
+#: The configuration values and environment names that name a program the transport starts, one by one (the first word
+#: of a command; a credential helper by git's own rules, _credential_program). Their files are bound by sha256 (lens 1
+#: of 2026-10-14, F2: the names alone were bound, so a program rewritten after the approval ran unasked).
+_TRANSPORT_PROGRAM_KEYS = frozenset({"core.sshcommand", "core.askpass", "core.gitproxy"})
+_TRANSPORT_PROGRAM_ENV = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND")
+#: v2 (lens 1 of 2026-10-14): the files of the named programs, the ssh configuration for an ssh URL, the own
+#: configuration of a path remote, and configuration origins as absolute paths. No v2 digest equals one of v1, so an
+#: approval written before asks once.
+TRANSPORT_DIGEST_SCHEMA = "proofbundle-plugin/transport/v2"
 TRANSPORTS_FILE = "transports.json"
 MAX_TRANSPORTS = 256
 _TRANSPORT_ENTRY_KEYS = frozenset({"repo", "remote", "url", "transport_digest"})
@@ -5899,17 +5907,80 @@ def _ssh_url(url: str) -> bool:
     return ":" in url.split("/", 1)[0]
 
 
+def _program_file(word: str | None, base: str, exec_path: str, environ: dict) -> list:
+    """[the program word, the file it resolves to, its sha256] for the first word of a command: a word with a slash is a
+    path (relative to base), any other is looked up in git's exec path and then on PATH, as git runs its dashed
+    programs. [word, None, None] where it names no file, a shell builtin or a function for instance."""
+    if not word:
+        return [word, None, None]
+    if "/" in word:
+        found = os.path.join(base, os.path.expanduser(word))
+    else:
+        found = (os.path.join(exec_path, word) if os.path.isfile(os.path.join(exec_path, word))
+                 else shutil.which(word, path=environ.get("PATH")))
+    if not found:
+        return [word, None, None]
+    return [word, os.path.realpath(found), _sha256_or_none(found)]
+
+
+def _first_word(command: str | None) -> str | None:
+    """The first word of a command string as the shell splits it, or None where it cannot be split."""
+    try:
+        words = shlex.split(command or "")
+    except ValueError:
+        return None
+    return words[0] if words else None
+
+
+def _credential_program(value: str | None) -> str | None:
+    """The program a credential.helper value starts, by git's rules (gitcredentials): `!command` is a shell command, an
+    absolute path is that program, anything else is the helper `git-credential-<word>`."""
+    if not value:
+        return None
+    if value.startswith("!"):
+        return _first_word(value[1:])
+    word = _first_word(value)
+    if word is None or os.path.isabs(word):
+        return word
+    return f"git-credential-{word}"
+
+
+def _ssh_config_files() -> list[str]:
+    """The ssh client configuration files ssh reads (its user file under the home the password database names, not
+    $HOME, and the system file). An Include inside them is not followed (D33, limits)."""
+    files = ["/etc/ssh/ssh_config"]
+    try:
+        import pwd
+        files.insert(0, os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".ssh", "config"))
+    except (ImportError, KeyError):
+        pass
+    return files
+
+
+def _path_remote(url: str, toplevel: str) -> str | None:
+    """The local repository a path URL or a file:// URL names, absolute, or None for any other URL."""
+    if url.startswith("file://"):
+        return urllib.parse.unquote(urllib.parse.urlsplit(url).path) or None
+    if "://" in url or _ssh_url(url):
+        return None
+    return os.path.realpath(os.path.join(toplevel, os.path.expanduser(url)))
+
+
 def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ: dict) -> str | None:
     """The digest of what selects the programs, credentials and proxy of the transport to `remote` at `url` (D33,
     DESIGN_gegenstelle.md 7.4): the URL; every effective configuration entry of the remote, of a URL rewrite, of
     core.sshCommand, core.askPass and core.gitProxy and of the sections ssh, credential, http and protocol, with scope
-    and origin; the environment names of _TRANSPORT_ENV; git's exec path with the sha256 of its transport programs; and
-    the ssh on PATH where the URL is an ssh URL. None where a part cannot be read."""
+    and origin (an origin file as an absolute path, so an approval does not depend on the worktree it was made in); the
+    environment names of _TRANSPORT_ENV; git's exec path with the sha256 of its transport programs; the file and sha256
+    of every program those entries and names start (one level: what that program reads or starts is not bound); the ssh
+    on PATH and the ssh configuration files where the URL is an ssh URL; and the configuration file of a path remote,
+    whose own settings (core.alternateRefsCommand) run before Level 2. None where a part cannot be read."""
     entries, _why = _config_entries(repo, deadline)
     exec_path = _git_exec_path(deadline)
-    if entries is None or exec_path is None:
+    toplevel, _unreadable = _work_tree(repo, deadline, "--path-format=absolute")
+    if entries is None or exec_path is None or not toplevel:
         return None
-    chosen = []
+    chosen, named = [], []
     for scope, origin, key, value in entries:
         section, _dot, rest = key.partition(".")
         subsection, _dot, variable = rest.rpartition(".")
@@ -5917,14 +5988,31 @@ def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ
         if ((section == "remote" and subsection == remote)
                 or (section == "url" and variable in ("insteadof", "pushinsteadof"))
                 or key.lower() in _TRANSPORT_CORE_KEYS or section in _TRANSPORT_SECTIONS):
+            if origin.startswith("file:") and not os.path.isabs(origin[5:]):
+                origin = "file:" + os.path.realpath(os.path.join(toplevel, origin[5:]))
             chosen.append([scope, origin, key, value])
+            if key.lower() in _TRANSPORT_PROGRAM_KEYS or (section == "remote" and variable == "receivepack"):
+                named.append([key, _program_file(_first_word(value), toplevel, exec_path, environ)])
+            elif section == "credential" and variable == "helper":
+                named.append([key, _program_file(_credential_program(value), toplevel, exec_path, environ)])
+    for name in _TRANSPORT_PROGRAM_ENV:
+        if name in environ:
+            word = environ[name] if name in ("GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS") else _first_word(environ[name])
+            named.append([name, _program_file(word, toplevel, exec_path, environ)])
     programs: dict = {name: _sha256_or_none(os.path.join(exec_path, name)) for name in _TRANSPORT_PROGRAMS}
+    files: dict = {}
     if _ssh_url(url):
         ssh = shutil.which("ssh", path=environ.get("PATH"))
         programs["ssh"] = [os.path.realpath(ssh), _sha256_or_none(ssh)] if ssh else None
+        files = {path: _sha256_or_none(path) for path in _ssh_config_files()}
+    local = _path_remote(url, toplevel)
+    if local is not None:
+        files = {path: _sha256_or_none(path) for path in (os.path.join(local, "config"),
+                                                           os.path.join(local, ".git", "config"))}
     return _canonical_digest({"schema": TRANSPORT_DIGEST_SCHEMA, "url": url, "configuration": chosen,
                               "environment": [[n, environ[n]] for n in _TRANSPORT_ENV if n in environ],
-                              "exec_path": exec_path, "programs": programs})
+                              "exec_path": exec_path, "programs": programs, "named_programs": named,
+                              "files": files})
 
 
 def _read_transports(environ: dict) -> list[dict]:

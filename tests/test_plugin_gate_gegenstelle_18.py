@@ -673,3 +673,71 @@ def test_a_file_tool_cannot_write_an_approval_or_a_hand_over(env, tmp_path, monk
         target = os.path.join(env["PROOFBUNDLE_GATE_DIR"], name)
         outcome = gate.decide_write("Write", {"file_path": target}, str(tmp_path), time.monotonic() + 30)
         assert outcome is not None and outcome.decision == "deny", name
+
+
+# --- 6. what the transport approval binds (adversarial lens 1 of 2026-10-14, F2) -------------------------------------
+
+def _digest(env: dict, repo: pathlib.Path) -> str:
+    proc = subprocess.run([sys.executable, "-I", str(GATE), "transport-digest", "--repo", str(repo)],
+                          capture_output=True, text=True, env=env, timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.partition("\n")[0]
+
+
+@pytest.mark.parametrize("kind", ["receivepack", "sshcommand", "askpass", "credential-path", "credential-name",
+                                  "environment"])
+def test_a_named_program_rewritten_after_the_approval_asks_again(env, tmp_path, kind):
+    """The approval binds the file of every program the transport configuration or environment names, not only the
+    name: a program rewritten after a person approved it asks again, before it runs."""
+    r = _repo(tmp_path, env, approve=False)
+    program = (pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "git-credential-probe" if kind == "credential-name"
+               else tmp_path / "program.sh")
+    program.write_text('#!/bin/sh\nexec git-receive-pack "$@"\n' if kind == "receivepack" else "#!/bin/sh\nexit 0\n",
+                       encoding="utf-8")
+    program.chmod(0o755)
+    run_env = dict(env)
+    if kind == "environment":
+        run_env["GIT_SSH_COMMAND"] = f"{program} -o BatchMode=yes"
+    else:
+        key, value = {"receivepack": ("remote.origin.receivepack", str(program)),
+                      "sshcommand": ("core.sshCommand", f"{program} -o BatchMode=yes"),
+                      "askpass": ("core.askPass", str(program)), "credential-path": ("credential.helper", str(program)),
+                      "credential-name": ("credential.helper", "probe")}[kind]
+        base._git(r.path, "config", key, value)
+    _approve(run_env, r.path)
+    answer, entry = _level1(run_env, r.path)
+    assert_handed_over(answer, entry)
+    program.write_text(program.read_text(encoding="utf-8") + "# rewritten after the approval\n", encoding="utf-8")
+    answer, entry = _level1(run_env, r.path)
+    assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
+def test_the_own_configuration_of_a_path_remote_is_bound(env, tmp_path):
+    """A path remote's receive-pack runs with that repository's own configuration, as this user: a
+    core.alternateRefsCommand there runs before Level 2 (measured by the lens), so its configuration file is bound."""
+    r = _repo(tmp_path, env)
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+    base._git(tmp_path / "remote.git", "config", "core.alternateRefsCommand", "true")
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "the transport is not approved")
+
+
+def test_the_ssh_configuration_is_bound_for_an_ssh_url(env, tmp_path, monkeypatch):
+    r = _repo(tmp_path, env, approve=False)
+    config = tmp_path / "ssh_config"
+    config.write_text("Host *\n  BatchMode yes\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "_ssh_config_files", lambda: [str(config)], raising=False)
+    deadline = time.monotonic() + 60
+    before = gate._transport_digest(str(r.path), "origin", "ssh://example.invalid/x.git", deadline, env)
+    config.write_text("Host *\n  ProxyCommand /bin/false\n", encoding="utf-8")
+    assert gate._transport_digest(str(r.path), "origin", "ssh://example.invalid/x.git", deadline, env) != before
+
+
+def test_an_approval_made_in_the_main_worktree_holds_in_a_linked_worktree(env, tmp_path):
+    """git names the repository's configuration file relative to one worktree and absolute from another; the digest
+    reads it as an absolute path, so one approval holds for every worktree of the repository."""
+    r = _repo(tmp_path, env, approve=False)
+    linked = tmp_path / "linked"
+    base._git(r.path, "worktree", "add", "-q", "--detach", str(linked))
+    assert _digest(env, r.path) == _digest(env, linked)

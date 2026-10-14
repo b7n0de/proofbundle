@@ -176,7 +176,9 @@ python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --re
 The gate directory is `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else
 `~/.config/proofbundle`. The last command prints a digest and an entry; put the entry into `transports.json` there, a
 JSON array. It approves the transport of that remote at that URL, with the programs, credentials and proxy it uses,
-which start before Level 2 judges; any change of them asks again. Run it in the environment your agent's pushes run in.
+which start before Level 2 judges. A change of that configuration, of those environment names or of a program file
+they name asks again at the next push; what such a program reads or starts in turn, and an `Include` of the ssh
+configuration, are not bound (D33). Run it in the environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push
