@@ -741,3 +741,46 @@ def test_an_approval_made_in_the_main_worktree_holds_in_a_linked_worktree(env, t
     linked = tmp_path / "linked"
     base._git(r.path, "worktree", "add", "-q", "--detach", str(linked))
     assert _digest(env, r.path) == _digest(env, linked)
+
+
+# --- 7. what Level 2 claims, and readers of nested JSON (adversarial lens 1 of 2026-10-14, F6 and F7) -----------------
+
+def test_a_pointer_no_level_1_wrote_is_not_called_a_hand_over_of_level_1(env, tmp_path):
+    """The gate cannot tell who wrote a pointer (D27), so the refusal names the pointer, not Level 1 as its author."""
+    r = _repo(tmp_path, env)
+    _pointer(r.path).write_text(json.dumps({"schema": POINTER_SCHEMA, "nonce": "0" * 32}), encoding="utf-8")
+    proc = _push(env, r.path)
+    assert proc.returncode != 0 and "Level 2 refuses the hand-over" in proc.stderr, proc.stderr
+    assert "Level 1 handed this push over" not in proc.stderr and "who wrote it is not known" in proc.stderr
+
+
+def test_a_no_op_claims_no_cause_it_did_not_measure(env, tmp_path):
+    r = _repo(tmp_path, env)
+    assert _push(env, r.path).returncode == 0          # the remote holds the commit now (standalone mode)
+    answer, entry = _level1(env, r.path)
+    assert_handed_over(answer, entry)
+    proc = _push(env, r.path)
+    assert "checked nothing and claims no update" in proc.stderr, proc.stderr
+    assert "remote already holds" not in proc.stderr and "whether that is why was not checked" in proc.stderr
+
+
+@pytest.mark.parametrize("which", ["pointer", "record"])
+def test_a_deeply_nested_pointer_or_record_is_refused_with_a_verdict(env, tmp_path, which):
+    r = _repo(tmp_path, env)
+    _level1(env, r.path)
+    nested = "[" * 3000 + "]" * 3000
+    if which == "pointer":
+        _pointer(r.path).write_text(nested, encoding="utf-8")
+    else:
+        _records(env)[0].write_text(nested, encoding="utf-8")
+    proc = _push(env, r.path)
+    assert proc.returncode != 0 and "Level 2 refuses the hand-over" in proc.stderr, proc.stderr
+    assert "Traceback" not in proc.stderr and "RecursionError" not in proc.stderr
+
+
+def test_a_deeply_nested_transport_approval_approves_nothing(env, tmp_path):
+    r = _repo(tmp_path, env)
+    (pathlib.Path(env["PROOFBUNDLE_GATE_DIR"]) / gate.TRANSPORTS_FILE).write_text("[" * 3000 + "]" * 3000,
+                                                                                    encoding="utf-8")
+    answer, entry = _level1(env, r.path)
+    assert_asked_without_handover(answer, entry, "the transport is not approved")

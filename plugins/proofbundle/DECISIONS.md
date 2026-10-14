@@ -2275,6 +2275,8 @@ Limits:
 - Two pushes from one worktree at the same moment share one pointer; the second Level 1 replaces the first's pointer,
   and the first push is refused, or runs standalone where its pointer was consumed already.
 - Consumed records stay in the gate directory as the trace of each hand-over; nothing removes them.
+- A pointer whose push never ran (a person declined it, or the command stopped before git) refuses the next push of
+  that worktree once, as expired or as another update, and that push consumes it.
 - The transport digest binds one level of programs: what a named program reads or starts in turn, an `Include` of
   the ssh configuration, an include of a path remote's configuration and that repository's hooks are not bound, and a
   change between Level 1 and the push acts before Level 2 refuses the hand-over. An approval written under schema v1

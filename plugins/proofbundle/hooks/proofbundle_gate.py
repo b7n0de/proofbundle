@@ -5725,7 +5725,7 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float, remote
     gitdir = _git_value(named.stdout) if named.returncode == 0 else None
     if gitdir is None or not os.path.isabs(gitdir):
         return Verdict("deny", "proofbundle gate (pre-push): git does not name this repository's git directory as one "
-                               "absolute path, so whether Level 1 handed this push over is not known. The push is "
+                               "absolute path, so whether a hand-over pointer is present is not known. The push is "
                                "denied.", "git_directory_unread", evidence="the git directory of the repository",
                        failed="git does not name the git directory", next_step="have a person review the push",
                        repo=repo, head=head_commit)
@@ -5751,9 +5751,11 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float, remote
     if not targets:
         if record is not None:   # a no-op: git ran the hook with no ref line (measured with git 2.34.1)
             return Verdict("inactive", f"NOT MEASURED: the pre-push hook received no ref to push, so it checked nothing "
-                                       f"and claims no update. Hand-over {record['nonce']} of Level 1 named "
-                                       f"{len(record['updates'])} update(s); git left them out, as it does for a ref the "
-                                       "remote already holds (a no-op). The hand-over is consumed.", "handover_no_update",
+                                       f"and claims no update. The pointer names hand-over {record['nonce']}, which "
+                                       f"names {len(record['updates'])} update(s); git gave a line for none of them. git "
+                                       "does that for a no-op, a ref the remote reports at the commit it would send "
+                                       "(measured with git 2.34.1); whether that is why was not checked. The hand-over "
+                                       "is consumed.", "handover_no_update",
                            repo=repo, head=head_commit)
         return _with_mode(Verdict("inactive", "NOT MEASURED: the pre-push hook received no ref to push.",
                                   "nothing_declared", repo=repo, head=head_commit), None, lines)
@@ -6029,7 +6031,7 @@ def _read_transports(environ: dict) -> list[dict]:
         return []
     try:
         data = strict_json(raw)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         return []
     if not isinstance(data, list) or len(data) > MAX_TRANSPORTS:
         return []
@@ -6344,7 +6346,7 @@ def _take_handover(gitdir: str) -> tuple[dict | None, str | None, str]:
         raw = _read_regular(taken, 4096)
         os.unlink(taken)
         pointed = strict_json(raw)
-    except (OSError, ValueError, UnicodeDecodeError):
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):   # RecursionError: a nesting deeper than json reads
         return None, "the hand-over pointer is no regular file Level 2 can read", ""
     nonce = pointed.get("nonce") if isinstance(pointed, dict) else None
     if (not isinstance(pointed, dict) or set(pointed) != {"schema", "nonce"} or pointed["schema"] != HANDOVER_POINTER_SCHEMA
@@ -6365,7 +6367,7 @@ def _take_handover(gitdir: str) -> tuple[dict | None, str | None, str]:
     try:
         raw = _read_regular(consumed, MAX_HANDOVER_BYTES + 1)
         record = strict_json(raw) if len(raw) <= MAX_HANDOVER_BYTES else None
-    except (OSError, ValueError, UnicodeDecodeError):
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
         return None, f"the record {record_path} is no regular file of strict JSON", nonce
     why = _handover_form(record, nonce)
     return (None, why, nonce) if why is not None else (record, None, nonce)
@@ -6451,10 +6453,11 @@ def _handover_update_problem(updates: list[dict], lines: list) -> str | None:
 def _handover_refused(repo: str, head: str, nonce: str, why: str) -> Verdict:
     """Level 2 refuses a hand-over (D33): the push is denied (exit 1), and the next push asks Level 1 anew."""
     named = f"hand-over {nonce}" if nonce else "a hand-over"
-    return Verdict("deny", f"proofbundle gate (pre-push): Level 1 handed this push over ({named}), and Level 2 refuses "
-                           f"the hand-over: {why.rstrip('.')}. The push is not the push Level 1 handed over, so it is "
-                           "denied, and the hand-over is consumed.", "handover_refused",
-                   evidence="the hand-over record of Level 1 and git's ref lines", failed=why,
+    return Verdict("deny", f"proofbundle gate (pre-push): this worktree holds a hand-over pointer ({named}; who wrote it "
+                           f"is not known, D27), and Level 2 refuses the hand-over: {why.rstrip('.')}. The push is not "
+                           "the push that hand-over names, so it is denied, and the hand-over is consumed.",
+                   "handover_refused",
+                   evidence="the hand-over record the pointer names and git's ref lines", failed=why,
                    next_step="run the push again as one command of its own so that Level 1 decides anew, or have a "
                              "person review the push", repo=repo, head=head)
 
@@ -6470,10 +6473,11 @@ def _with_mode(verdict: Verdict, record: dict | None, lines: list) -> Verdict:
     else:
         sent = {remote_ref for _l, _s, remote_ref, _r in lines}
         left_out = [u["dest"] for u in record["updates"] if u["dest"] not in sent]
-        note = (f" Level 2 checked the update set of hand-over {record['nonce']} from Level 1, and git's destinations "
-                "are the ones Level 1 expected."
-                + (f" git left out {', '.join(left_out)}, as it does for a ref the remote already holds (a no-op); "
-                   "that update was not checked." if left_out else "")
+        note = (f" Level 2 checked the update set of hand-over {record['nonce']} (the record the pointer names; who "
+                "wrote it is not known, D27), and git's destinations are the ones it expects."
+                + (f" git gave no line for {', '.join(left_out)}, as it does for a no-op (a ref the remote reports at "
+                   "the commit it would send, measured with git 2.34.1); that update was not checked, and neither was "
+                   "why git left it out." if left_out else "")
                 + " A Level 2 pass is no successful remote update: git's own end result is separate.")
     return Verdict(verdict.decision, verdict.detail.rstrip() + note, verdict.reason_id, evidence=verdict.evidence,
                    failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests, repo=verdict.repo,

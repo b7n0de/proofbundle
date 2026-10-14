@@ -341,9 +341,11 @@ pre-push hook gives the verdict on the actual update, and the record. The log re
   repository, holding the nonce and the record's schema. It replaces an earlier pointer of the same worktree, so at
   most one hand-over is live per worktree. The pointer is found by git's own repository, not through the
   environment, so a Level 2 that runs under another gate directory still sees that a hand-over was given.
-- Consumption: Level 2 renames the pointer and the record to `<name>.consumed-<nonce>` before it judges; whoever
-  renames first owns the hand-over, so it is used at most once. Every outcome consumes it: a pass, a block, a
-  refusal of the hand-over itself.
+- Consumption: Level 2 renames the pointer to `proofbundle-handover.consumed`, reads and removes it, and renames the
+  record to `<nonce>.json.consumed` before it reads it; whoever renames first owns the hand-over, so it is used at
+  most once. Every outcome consumes it: a pass, a block, a refusal of the hand-over itself. A pointer or record nested
+  deeper than the JSON reader goes is refused like any unreadable one (lens of 2026-10-14, F6). Level 2 names the
+  pointer and the record it found, never Level 1 as their author (F7).
 - Validity: 300 seconds from the moment Level 1 wrote it (`HANDOVER_TTL_SECONDS`).
 
 The record's fields: schema, nonce (128 random bits), created and expires (seconds since the epoch), repository (the
