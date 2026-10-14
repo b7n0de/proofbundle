@@ -321,12 +321,13 @@ evidenced failure, ask otherwise), and the ask names the condition that failed.
 8. A bound Level 2 is installed: the pre-push hook at the hook path git uses for this repository is a regular file,
    executable, no link, byte for byte the wrapper `install-pre-push` writes, and the gate that wrapper finds at push
    time is this gate file, the file Level 1 runs, with this plugin version.
-9. The git on PATH is byte for byte the `git` in the exec path it reports (adversarial lens of 2026-10-14, F1): only
-   git starts the pre-push hook, so a wrapper, a script or a shim earlier on PATH is no hand-over. PATH holds only
-   absolute entries: a relative or empty one resolves against the directory a process runs in, and the shell's is not
-   the gate's (lens 2 of 2026-10-14, F-A), and none that resolves through /proc or /dev/fd, directly or behind a link
-   (lens 3, F-H). The python3 on PATH, which the pre-push wrapper starts, is byte for byte the interpreter Level 1 runs
-   under, as the host starts it from PATH too (lens 3, F-I: a shim there ends the hook with no Level 2).
+9. The git on PATH is byte for byte the `git` in the exec path it reports (adversarial lens of 2026-10-14, F1): only git
+   starts the pre-push hook, so a wrapper, a script or a shim earlier on PATH is no hand-over. PATH holds only absolute
+   entries: a relative or empty one resolves against the directory a process runs in, and the shell's is not the gate's
+   (lens 2 of 2026-10-14, F-A), and none that resolves through /proc or /dev/fd, directly or behind a link (lens 3,
+   F-H), resolved component by component however it is spelled (lens 4). The python3 on PATH, which the pre-push wrapper
+   starts, is byte for byte the interpreter Level 1 runs under, as the host starts it from PATH too (lens 3, F-I: a shim
+   there ends the hook with no Level 2).
 10. Level 1 can write the hand-over record and the pointer (7.3).
 
 Then Level 1 makes no permission decision (D4 stays: the gate never answers allow, and the host's own permission
@@ -391,13 +392,17 @@ transport digest.
   Level 1 asks again before the transport acts. A hand-over relies only on what the gate models (lens 3 of 2026-10-14,
   F-J, F-K, F-L, F-M): a path, the scp form of ssh or a URL that begins with file://, ssh://, git+ssh://, ssh+git://,
   git://, http:// or https:// as written, no remote.<name>.vcs; and every program-naming value a plain command, words of
-  letters, digits and `_./@%+=:,-` separated by single spaces, whose program resolves to a file. A remote helper
-  (another scheme in any letter case, a `<x>::` transport, ext:: and fd::), a quote, an expansion, a glob, an operator,
-  a redirection or a program the gate resolves to no file it can hash keeps the ask; `transport-digest` names the
-  reason. It binds one level: a wrapper word such as `env program` (the program behind it), what a named program reads
-  or starts in turn, an `Include` of the ssh configuration, an include of a path remote's configuration and its hooks
-  (which run after Level 2, on the receiving side) are not bound. A change between Level 1 and the push acts before
-  Level 2, which then refuses the hand-over (G18-1, within the 300 seconds of a hand-over).
+  letters, digits and `_./@%+=:,-` separated by single spaces, with no `NAME=value` in front of the program (it can set
+  PATH or LD_PRELOAD for it), whose program resolves to a file it can hash and lies under no /proc or /dev/fd; a path
+  remote only where git opens `<path>/.git` or `<path>` as a plain git directory (not by a `.git` suffix, a git file or
+  as a linked worktree), a file URL only as `file:///<path>` without `#`, `?`, `%` or brackets; and every file the
+  digest binds hashes or is absent (lens 4 of 2026-10-14). A remote helper (another scheme in any letter case, a `<x>::`
+  transport, ext:: and fd::), a quote, an expansion, a glob, an operator, a redirection or a program the gate resolves
+  to no file it can hash keeps the ask; `transport-digest` names the reason. It binds one level: a wrapper word such as
+  `env program` (the program behind it), what a named program reads or starts in turn, an `Include` of the ssh
+  configuration, an include of a path remote's configuration and its hooks (which run after Level 2, on the receiving
+  side) are not bound. A change between Level 1 and the push acts before Level 2, which then refuses the hand-over
+  (G18-1, within the 300 seconds of a hand-over).
 
 ### 7.5 What Level 2 checks
 

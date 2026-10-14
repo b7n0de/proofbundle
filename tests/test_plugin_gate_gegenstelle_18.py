@@ -797,24 +797,25 @@ def test_a_named_program_rewritten_after_the_approval_asks_again(env, tmp_path, 
     assert_asked_without_handover(answer, entry, "the transport is not approved")
 
 
-@pytest.mark.parametrize("kind", ["receivepack-assignment", "sshcommand-assignment"])
-def test_a_program_behind_an_assignment_rewritten_after_the_approval_asks_again(env, tmp_path, kind):
-    """Lens 2, F-C: the shell runs the program after leading assignments (`X=1 program`); it is bound by its file."""
+@pytest.mark.parametrize("key, value", [("remote.origin.receivepack", "FOO=1 {program}"),
+                                        ("core.sshCommand", "PATH={tmp} {program} -o BatchMode=yes"),
+                                        ("core.sshCommand", "LD_PRELOAD={tmp}/x.so {program}"),
+                                        ("credential.helper", "FOO=1 {program}")],
+                         ids=["receivepack", "sshcommand-path", "sshcommand-preload", "credential-helper"])
+def test_an_assignment_in_front_of_the_program_is_no_hand_over(env, tmp_path, key, value):
+    """Lens 4, F1 and F6: an assignment in front of the program can set PATH or LD_PRELOAD for it, and git runs the
+    credential helper `FOO=1 x` as `git credential-FOO=1`; either runs another file than the one the digest binds."""
     r = _repo(tmp_path, env, approve=False)
     program = tmp_path / "program.sh"
     program.write_text('#!/bin/sh\nexec git-receive-pack "$@"\n', encoding="utf-8")
     program.chmod(0o755)
-    if kind == "receivepack-assignment":
-        base._git(r.path, "config", "remote.origin.receivepack", f"FOO=1 {program}")
-    else:
+    if key == "core.sshCommand":
         base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
-        base._git(r.path, "config", "core.sshCommand", f"X=1 {program} -o BatchMode=yes")
+    base._git(r.path, "config", key, value.format(program=program, tmp=tmp_path))
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
-    assert_handed_over(answer, entry)
-    program.write_text(program.read_text(encoding="utf-8") + "# rewritten after the approval\n", encoding="utf-8")
-    answer, entry = _level1(env, r.path)
-    assert_asked_without_handover(answer, entry, "the transport is not approved")
+    assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
+    assert "sets an environment name in front of its program" in answer["systemMessage"], answer
 
 
 @pytest.mark.parametrize("url, vcs", [("probe://example.invalid/x.git", None), ("Probe://example.invalid/x.git", None),
@@ -994,3 +995,83 @@ def test_a_file_over_the_cap_is_refused_at_its_size_before_a_block_is_read(tmp_p
     real_read = os.read
     monkeypatch.setattr(gate.os, "read", lambda fd, n: reads.append(n) or real_read(fd, n))
     assert gate._sha256_or_none(str(big)) is None and reads == []
+
+
+@pytest.mark.parametrize("entry", ["//proc/self/cwd/zzbin", "{tmp}/here/../zzbin", "{tmp}/here/zzbin"],
+                         ids=["double-slash", "link-then-dotdot", "link"])
+def test_a_path_entry_through_proc_is_caught_however_it_is_spelled(env, tmp_path, entry):
+    """Lens 4, F4: `//proc/...` kept its two slashes through a lexical normalization, and `<link>/..` was collapsed
+    before the link was read. The entry is now resolved component by component, as the kernel does."""
+    (tmp_path / "here").symlink_to("/proc/self/cwd")
+    r = _repo(tmp_path, env)
+    answer, entry_log = _level1(dict(env, PATH=entry.format(tmp=tmp_path) + os.pathsep + env["PATH"]), r.path)
+    assert_asked_without_handover(answer, entry_log, "resolves through /proc or /dev/fd")
+
+
+def test_a_program_path_under_proc_is_no_hand_over(env, tmp_path):
+    """Lens 4, F7: `/proc/self/cwd/rp` is a plain word; the gate hashed the file in its own directory, git ran the one
+    in the repository."""
+    r = _repo(tmp_path, env, approve=False)
+    base._git(r.path, "config", "remote.origin.receivepack", "/proc/self/cwd/rp")
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "ask" and "names a program under /proc or /dev/fd" in answer["systemMessage"], answer
+
+
+@pytest.mark.parametrize("form", ["suffix", "gitfile", "fragment", "query", "percent"])
+def test_a_path_remote_git_opens_by_another_name_is_no_hand_over(env, tmp_path, form):
+    """Lens 4, F2: git also opens `<path>.git`, follows a git file, and takes `#x` or `?x` of a file URL literally; the
+    gate hashed the configuration of another directory than the one git pushed into."""
+    r = _repo(tmp_path, env, approve=False)
+    remote = tmp_path / "remote.git"
+    if form == "suffix":
+        url = str(tmp_path / "remote")
+    elif form == "gitfile":
+        holder = tmp_path / "holder"
+        holder.mkdir()
+        (holder / ".git").write_text(f"gitdir: {remote}\n", encoding="utf-8")
+        url = str(holder)
+    else:
+        literal = {"fragment": "remote.git#x", "query": "remote.git?x", "percent": "remote%2egit"}[form]
+        url = f"file://{tmp_path}/{literal}"
+    base._git(r.path, "remote", "set-url", "origin", url)
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
+    assert "No hand-over to Level 2" in answer["systemMessage"], answer
+
+
+def test_an_ssh_program_the_gate_cannot_hash_is_no_hand_over(env, tmp_path):
+    """Lens 4, F5: only named programs were checked for a missing hash; the ssh on PATH and the configuration files
+    bound as no hash, so a change of them did not change the digest."""
+    r = _repo(tmp_path, env, approve=False)
+    ssh = pathlib.Path(env["PATH"].split(os.pathsep)[0]) / "ssh"
+    with open(ssh, "wb") as handle:
+        handle.write(b"#!/bin/sh\nexit 1\n")
+        handle.truncate(512 * 1024 * 1024 + 1)   # MAX_BOUND_FILE_BYTES + 1, a literal for the parent
+    ssh.chmod(0o755)
+    base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
+    _approve(env, r.path)
+    answer, entry = _level1(env, r.path)
+    assert _decision(answer) == "ask" and "cannot hash" in answer["systemMessage"], answer
+
+
+@pytest.mark.parametrize("url", ["file:///x%00y.git", "file://[/x.git", "file://\uff21/x.git"],
+                         ids=["percent-nul", "bracket", "nfkc-host"])
+def test_a_url_the_filesystem_calls_refuse_asks_and_raises_nothing(env, tmp_path, url):
+    """Lens 4, F8: such a URL raised in the gate's URL and file handling, and with approvals on, Level 1 answered
+    deny/internal_error where the base gate asked."""
+    r = _repo(tmp_path, env)
+    base._git(r.path, "remote", "set-url", "origin", url)
+    answer, entry = _level1(env, r.path)
+    assert entry["reason_ids"] != ["internal_error"] and _decision(answer) == "ask", answer
+
+
+def test_python3_and_the_gate_both_unhashable_is_no_hand_over(env, tmp_path, monkeypatch):
+    """Lens 4, F3: a venv python padded past the cap hashed as None on both sides, and None equalled None."""
+    monkeypatch.setattr(gate.sys, "executable", str(tmp_path))
+    real_which = shutil.which
+    monkeypatch.setattr(gate.shutil, "which",
+                        lambda name, path=None: str(tmp_path) if name == "python3" else real_which(name, path=path))
+    why = gate._git_identity_problem(time.monotonic() + 60)
+    assert why is not None and "python3" in why

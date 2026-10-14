@@ -5880,7 +5880,7 @@ def _sha256_or_none(path: str | None) -> str | None:
         return None
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
-    except OSError:
+    except (OSError, ValueError):
         return None
     try:
         info = os.fstat(fd)
@@ -5978,9 +5978,11 @@ _HANDOVER_SCHEMES = ("file://", "ssh://", "git+ssh://", "ssh+git://", "git://", 
 def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]:
     """(the program word git or the shell starts for a program-naming value, why a hand-over cannot rely on it). git
     runs the values of _UNSHELLED_PROGRAMS as one program path; every other value is a shell command, which must be
-    plain words (_PLAIN_WORD) separated by single spaces, its program the first word after any leading `NAME=value`.
-    A credential.helper names `git-credential-<word>` unless it is a `!command` or an absolute path. An empty
-    credential.helper resets the list and names no program. Anything the gate does not model this way is the reason."""
+    plain words (_PLAIN_WORD) separated by single spaces, its program the first word. A leading `NAME=value` keeps
+    the ask: it can set PATH or LD_PRELOAD for the program and so choose another file than the one bound (lens 4 of
+    2026-10-14). A credential.helper names `git-credential-<word>` unless it is a `!command` or an absolute path. An
+    empty credential.helper resets the list and names no program. Anything the gate does not model this way is the
+    reason."""
     if value is None:
         return None, f"{key} has no value"
     name = key if key.startswith(("GIT_", "SSH_")) else key.lower()
@@ -5990,12 +5992,16 @@ def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]
     if name in _UNSHELLED_PROGRAMS:
         if not _PLAIN_WORD.fullmatch(value):
             return None, f"{key} names a program path the gate does not model ({value!r})"
+        if value.startswith("/") and _process_dependent(value):
+            return None, (f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves "
+                          "for itself")
         return value, None
     command = value[1:] if helper and value.startswith("!") else value
     words = command.split(" ")
-    program_at = next((i for i, w in enumerate(words) if not _ASSIGNMENT.match(w)), None)
-    if program_at is None:
-        return None, f"{key} names no program ({value!r})"
+    program_at = 0
+    if _ASSIGNMENT.match(words[0]):
+        return None, (f"{key} sets an environment name in front of its program ({value!r}), which can choose another "
+                      "program or library than the one the gate binds")
     for i, word in enumerate(words):
         plain = word[2:] if i == program_at and word.startswith("~/") else word
         if not _PLAIN_WORD.fullmatch(plain):
@@ -6004,6 +6010,8 @@ def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]
     program = words[program_at]
     if helper and not value.startswith("!") and not os.path.isabs(program):
         program = f"git-credential-{program}"
+    if program.startswith(("/", "~/")) and _process_dependent(os.path.expanduser(program)):
+        return None, f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves for itself"
     return program, None
 
 
@@ -6030,13 +6038,46 @@ def _ssh_config_files() -> list[str]:
     return files
 
 
-def _path_remote(url: str, toplevel: str) -> str | None:
-    """The local repository a path URL or a file:// URL names, absolute, or None for any other URL."""
+def _local_remote(url: str, toplevel: str) -> tuple[str | None, str | None]:
+    """(the git directory git's local transport opens for a path or file:// URL, why a hand-over does not model it);
+    (None, None) for any other URL. git tries `<path>/.git`, `<path>`, `<path>.git/.git` and `<path>.git` in turn and
+    follows a git file (lens 4 of 2026-10-14, F2); a hand-over models only the first two as plain directories: a
+    `<path>/.git` that is a directory with a config file, or else `<path>` itself as one, neither a linked worktree's
+    git directory (commondir). A file URL must be `file:///<path>` with no `#`, `?`, `%` or bracket, which git takes
+    literally while URL parsers do not."""
     if url.startswith("file://"):
-        return urllib.parse.unquote(urllib.parse.urlsplit(url).path) or None
-    if "://" in url or _ssh_url(url):
-        return None
-    return os.path.realpath(os.path.join(toplevel, os.path.expanduser(url)))
+        path = url[len("file://"):]
+        if not path.startswith("/") or any(c in path for c in "#?%[]\0"):
+            return None, f"the file URL {url!r} is not of the plain form file:///<path> a hand-over models"
+    elif "://" in url or _ssh_url(url):
+        return None, None
+    elif "\0" in url:
+        return None, "the URL holds a NUL"
+    else:
+        path = os.path.join(toplevel, os.path.expanduser(url))
+    dotgit = os.path.join(path, ".git")
+    gitdir = path
+    if os.path.lexists(dotgit):
+        if os.path.islink(dotgit) or not os.path.isdir(dotgit):
+            return None, f"{dotgit} is a git file or a link, and git follows it to a directory the gate does not model"
+        gitdir = dotgit
+    if not (os.path.isfile(os.path.join(gitdir, "config")) and os.path.lexists(os.path.join(gitdir, "HEAD"))):
+        return None, (f"{path} is no git directory git opens as it is; git would try {path}.git and other names "
+                      "next, which a hand-over does not model")
+    if os.path.lexists(os.path.join(gitdir, "commondir")):
+        return None, f"{gitdir} is a linked worktree's git directory, whose configuration lives elsewhere"
+    return os.path.realpath(gitdir), None
+
+
+def _file_binding(path: str, problems: list[str]) -> str | None:
+    """"absent" for a file that does not exist, else its sha256; a file that exists and cannot be hashed (too large,
+    unreadable, no regular file) is a reason a hand-over cannot rely on it (lens 4 of 2026-10-14, F5)."""
+    if not os.path.lexists(path):
+        return "absent"
+    digest = _sha256_or_none(path)
+    if digest is None:
+        problems.append(f"the gate cannot hash {path}, so a change of it would not change the digest")
+    return digest
 
 
 def _transport_parts(repo: str, remote: str, url: str, deadline: float,
@@ -6086,24 +6127,36 @@ def _transport_parts(repo: str, remote: str, url: str, deadline: float,
     url_problem = _handover_url_problem(url, vcs)
     if url_problem is not None:
         problems.append(url_problem)
-    programs: dict = {name: _sha256_or_none(os.path.join(exec_path, name)) for name in _TRANSPORT_PROGRAMS}
+    programs: dict = {name: _file_binding(os.path.join(exec_path, name), problems) for name in _TRANSPORT_PROGRAMS}
     files: dict = {}
     if _ssh_url(url):
         ssh = shutil.which("ssh", path=environ.get("PATH"))
-        programs["ssh"] = [os.path.realpath(ssh), _sha256_or_none(ssh)] if ssh else None
-        files = {path: _sha256_or_none(path) for path in _ssh_config_files()}
-    local = _path_remote(url, toplevel)
+        programs["ssh"] = [os.path.realpath(ssh), _file_binding(ssh, problems)] if ssh else None
+        files = {path: _file_binding(path, problems) for path in _ssh_config_files()}
+    local, local_problem = _local_remote(url, toplevel)
+    if local_problem is not None:
+        problems.append(local_problem)
     if local is not None:
-        files = {path: _sha256_or_none(path) for path in (os.path.join(local, "config"),
-                                                           os.path.join(local, ".git", "config"))}
+        files = {path: _file_binding(path, problems) for path in (os.path.join(local, "config"),
+                                                                   os.path.join(local, "config.worktree"))}
     return {"schema": TRANSPORT_DIGEST_SCHEMA, "url": url, "configuration": chosen,
             "environment": [[n, environ[n]] for n in _TRANSPORT_ENV if n in environ],
             "exec_path": exec_path, "programs": programs, "named_programs": bound, "files": files}, problems
 
 
+def _transport_parts_or_unread(repo: str, remote: str, url: str, deadline: float,
+                               environ: dict) -> tuple[dict | None, list[str]]:
+    """_transport_parts, with a value the filesystem calls refuse (a NUL, an unencodable name: ValueError,
+    UnicodeError) or an OSError read as a transport that cannot be read whole (lens 4 of 2026-10-14, F8)."""
+    try:
+        return _transport_parts(repo, remote, url, deadline, environ)
+    except (OSError, ValueError, UnicodeError):
+        return None, []
+
+
 def _transport_digest(repo: str, remote: str, url: str, deadline: float, environ: dict) -> str | None:
     """The digest of _transport_parts, or None where a part cannot be read."""
-    document, _problems = _transport_parts(repo, remote, url, deadline, environ)
+    document, _problems = _transport_parts_or_unread(repo, remote, url, deadline, environ)
     return None if document is None else _canonical_digest(document)
 
 
@@ -6246,22 +6299,34 @@ _PROCESS_DEPENDENT = ("/proc/", "/dev/fd/", "/dev/stdin", "/dev/stdout", "/dev/s
 
 
 def _process_dependent(entry: str) -> bool:
-    """Whether the PATH entry resolves through a process-dependent place (_PROCESS_DEPENDENT), directly or through a
-    symbolic link on its way. os.path.realpath would follow /proc/self/cwd to this process's own directory and hide it,
-    so the links are followed here one by one (at most 40)."""
-    path = os.path.normpath(entry)
-    for _hop in range(40):
-        if (path + "/").startswith(_PROCESS_DEPENDENT):
+    """Whether the absolute path `entry` resolves through a process-dependent place (_PROCESS_DEPENDENT), directly or
+    through a symbolic link on its way. It is resolved component by component as the kernel does: a link is replaced by
+    its target before a following `..` applies, and leading slashes count as one (lens 4 of 2026-10-14: `//proc/...`
+    and `<link to /proc/self/cwd>/../bin` passed a lexical normalization). os.path.realpath would follow /proc/self/cwd
+    to this process's own directory and hide it, so links are read, not followed (at most 40)."""
+    queue, current, hops = [part for part in entry.split("/") if part not in ("", ".")], "/", 0
+    while queue:
+        part = queue.pop(0)
+        if part == "..":
+            current = os.path.dirname(current) or "/"
+            continue
+        candidate = os.path.join(current, part)
+        if (candidate + "/").startswith(_PROCESS_DEPENDENT):
             return True
-        head = ""
-        for part in path.split("/")[1:]:
-            head = f"{head}/{part}"
-            if os.path.islink(head):
-                path = os.path.normpath(os.path.join(os.path.dirname(head), os.readlink(head)) + path[len(head):])
-                break
-        else:
-            return False
-    return True
+        if os.path.islink(candidate):
+            hops += 1
+            try:
+                target = os.readlink(candidate)
+            except OSError:
+                return True
+            if hops > 40:
+                return True
+            if target.startswith("/"):
+                current = "/"
+            queue = [part for part in target.split("/") if part not in ("", ".")] + queue
+            continue
+        current = candidate
+    return (current + "/").startswith(_PROCESS_DEPENDENT)
 
 
 def _git_identity_problem(deadline: float) -> str | None:
@@ -6288,7 +6353,8 @@ def _git_identity_problem(deadline: float) -> str | None:
     # The pre-push wrapper starts `python3 -I <gate>` from PATH (D24B); a shim there can end the hook before Level 2
     # runs (lens 3, F-I). The host starts this gate the same way (hooks.json), so the two must be the same program.
     python, own = shutil.which("python3"), os.path.realpath(sys.executable)
-    if python is None or _sha256_or_none(os.path.realpath(python)) != _sha256_or_none(own):
+    measured = _sha256_or_none(os.path.realpath(python)) if python else None
+    if measured is None or measured != _sha256_or_none(own):
         return (f"the python3 on PATH ({os.path.realpath(python) if python else 'none'}), which the pre-push hook "
                 f"starts, is not byte for byte the interpreter this gate runs under ({own}), so the gate cannot tell "
                 "that the hook reaches Level 2 (a shim, a script or another interpreter)")
@@ -6386,7 +6452,7 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
     if not url_lines or len(url_lines) != 1 or not url_lines[0]:
         return f"git does not name one push URL of remote {remote}", False
     url = url_lines[0]
-    document, problems = _transport_parts(repo, remote, url, deadline, environ)
+    document, problems = _transport_parts_or_unread(repo, remote, url, deadline, environ)
     if document is None:
         return "the transport configuration cannot be read whole", False
     if problems:
@@ -7691,7 +7757,8 @@ def transport_digest_command(argv: list[str]) -> int:
         if not lines or len(lines) != 1 or not lines[0]:
             print(f"transport-digest: git names no single push URL of remote {options['--remote']!r}", file=sys.stderr)
             return 1
-        document, problems = _transport_parts(options["--repo"], options["--remote"], lines[0], deadline, os.environ)
+        document, problems = _transport_parts_or_unread(options["--repo"], options["--remote"], lines[0], deadline,
+                                                        os.environ)
         digest = None if document is None else _canonical_digest(document)
     except GateError as exc:
         print(f"transport-digest: {exc}", file=sys.stderr)

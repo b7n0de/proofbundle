@@ -178,9 +178,10 @@ The gate directory is `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_H
 JSON array. It approves the transport of that remote at that URL, with the programs, credentials and proxy it uses,
 which start before Level 2 judges. A change of that configuration, of those environment names or of a program file they
 name asks again at the next push; the program behind a wrapper word such as `env`, what such a program reads or starts
-in turn, and an `Include` of the ssh configuration are not bound (D33). A remote helper transport, and a configured
-command with shell syntax or a program the gate resolves to no file it can hash, keep the ask; the command above names
-the reason. Run it in the environment your agent's pushes run in.
+in turn, and an `Include` of the ssh configuration are not bound (D33). A remote helper transport, a path remote git
+reaches only by another name (a `.git` suffix, a git file), a configured command with shell syntax or an assignment in
+front of its program, and a program the gate resolves to no file it can hash keep the ask; the command above names the
+reason. Run it in the environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push or

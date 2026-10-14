@@ -2241,9 +2241,11 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   the transport acts (G18-1: a receive program configured after the approval asks; approved in its turn, it runs).
   A hand-over relies only on the transports and values the gate models (lens 3 of 2026-10-14): a path, the scp form of
   ssh or a URL beginning with file://, ssh://, git+ssh://, ssh+git://, git:// or http(s):// as written, no
-  remote.<name>.vcs, and every program-naming value a plain command whose program resolves to a file it hashes (up to
-  `MAX_BOUND_FILE_BYTES`, 512 MiB, read in blocks; lens 3, F-O). A remote helper, shell syntax in a value or an
-  unresolved program keeps the ask, and the answer names it.
+  remote.<name>.vcs, every program-naming value a plain command with no assignment in front of its program, whose
+  program lies under no /proc or /dev/fd and resolves to a file it hashes (up to `MAX_BOUND_FILE_BYTES`, 512 MiB, read
+  in blocks; lens 3, F-O). A path remote counts only where git opens `<path>/.git` or `<path>` as a plain git directory,
+  a file URL only as `file:///<path>` without `#`, `?`, `%` or brackets, and every bound file hashes or is absent (lens
+  4). A remote helper, shell syntax in a value or an unresolved program keeps the ask, and the answer names it.
 - Level 2 has two modes and says which ran. Without a pointer it runs standalone, as D24 described it; its pass and
   inactive texts say that git's destination names were not compared with an expected target (answer 6). With a pointer
   it consumes the hand-over first (pointer and record are renamed before they are read, so a hand-over is used at most
@@ -2281,6 +2283,8 @@ Limits:
   2026-10-14, F-F and F-G). PATH is bound through the programs it selects (git, the interpreter), not as a string.
   The ssh agent socket (`SSH_AUTH_SOCK`) is bound as a value, so an approval asks again after a new login.
 - On a system without `/proc/<parent>/exe` the git program is bound through its exec path only.
+- Code in the site-packages of the interpreter (a `.pth` file, `sitecustomize`) runs in Level 1 too, which the host
+  starts with `python3 -I`, and can change any answer; writing it is the class of D27 (lens 4).
 - Level 1 checks git and python3 on PATH when it answers. A wrapper written there after that answer, within the 300
   seconds of a hand-over, runs instead and starts no Level 2 (lens 3, F-I2; the class of D27). A `uv` shim forges the
   verifier for Level 1 and Level 2 alike; that is older than this section and not changed here. A python3 that is a
