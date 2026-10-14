@@ -18,6 +18,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -119,10 +120,22 @@ def _no_constant(name: str) -> object:
 
 
 def _read_log(path: str) -> list[dict]:
+    """The entries of the gate's log and its previous file. Each is opened without blocking and read only where the
+    opened descriptor is a regular file (review round 18 of 2026-10-14, the class of R18-2: a FIFO with no writer as
+    the log had blocked the tool); any other entry raises OSError, which the callers name as a log that cannot be
+    read."""
     entries = []
     for name in (path + ".1", path):
         try:
-            with open(name, encoding="utf-8") as handle:
+            fd = os.open(name, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise OSError(f"{name} is not a regular file")
+                handle = os.fdopen(fd, encoding="utf-8")
+            except BaseException:
+                os.close(fd)
+                raise
+            with handle:
                 for line in handle:
                     try:
                         entry = json.loads(line, parse_constant=_no_constant)
