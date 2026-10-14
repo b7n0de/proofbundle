@@ -2224,7 +2224,8 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   and full destination each), created and expires (300 seconds, `HANDOVER_TTL_SECONDS`) and the binding: git's exec
   path and the sha256 of the git program, the hook and its sha256, the gate file and its sha256, the plugin version, the
   interpreter (file, prefix and version), and the digests of the program-selecting environment (every `GIT_*` name but
-  `GIT_EXEC_PATH` and `GIT_PREFIX`, which git sets for a hook, measured with git 2.34.1; `HOME`, `XDG_CONFIG_HOME`, the
+  `GIT_EXEC_PATH`, `GIT_PREFIX` and `GIT_DIR`, which git sets for a hook, measured with git 2.34.1, the last in a
+  linked worktree, whose repository the git directory binds; `HOME`, `XDG_CONFIG_HOME`, the
   gate directory, the ssh agent and the proxy names), of the effective configuration and of the transport.
 - The transport approval: `<gate directory>/transports.json`, a JSON array a person writes and the gate only reads,
   each entry exactly `{repo, remote, url, transport_digest}`, read as strictly as `rules.json`. The digest

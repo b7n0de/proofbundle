@@ -5807,10 +5807,12 @@ _BINDING_KEYS = frozenset({"exec_path", "git_sha256", "hook", "hook_sha256", "ga
 _HANDOVER_FLAGS = frozenset({"-q", "--quiet", "-v", "--verbose", "--progress", "--no-progress", "--porcelain", "-u",
                              "--set-upstream", "--atomic", "--no-atomic", "--verify", "--thin", "--no-thin", "-4",
                              "--ipv4", "-6", "--ipv6"})
-#: The names git sets for a hook it starts (measured with git 2.34.1: GIT_EXEC_PATH and GIT_PREFIX; a `-c` of the
-#: command reaches the hook as GIT_CONFIG_PARAMETERS, and a hand-over push never carries one). The binding compares
-#: git's exec path on its own and leaves these two out of the environment it compares.
-_SET_BY_GIT_FOR_HOOKS = frozenset({"GIT_EXEC_PATH", "GIT_PREFIX"})
+#: The names git sets for a hook it starts (measured with git 2.34.1: GIT_EXEC_PATH and GIT_PREFIX everywhere, and
+#: GIT_DIR in a linked worktree and in a repository with a separate git directory, adversarial lens 2 of 2026-10-14,
+#: F-B; a `-c` of the command reaches the hook as GIT_CONFIG_PARAMETERS, and a hand-over push never carries one). The
+#: binding compares git's exec path on its own, and the repository, worktree and git directory git names in the hook
+#: (which follow GIT_DIR) against the record, so it leaves these three out of the environment it compares.
+_SET_BY_GIT_FOR_HOOKS = frozenset({"GIT_EXEC_PATH", "GIT_PREFIX", "GIT_DIR"})
 #: Names the Bash tool of Claude Code sets in the shell a push runs in, with these values, and the host process does not
 #: carry (measured in a session of 2026-10-14 by the adversarial lens and again by the builder: the host process held no
 #: GIT_* name, the Bash tool's shell GIT_EDITOR=true and GIT_OPTIONAL_LOCKS=0). Bound, every hand-over of a real session

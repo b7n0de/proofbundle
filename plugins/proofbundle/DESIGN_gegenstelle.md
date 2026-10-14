@@ -422,7 +422,8 @@ the hook; nothing was checked", never as a checked update.
 Measured with a script of its own through real pushes to local bare repositories (delivered with the report):
 - git hands the hook the remote's name and the effective push URL as its two arguments, a `pushurl` and an
   `insteadOf` rewrite applied.
-- git puts its exec path first on PATH and sets `GIT_EXEC_PATH` and `GIT_PREFIX` for the hook; a `-c` of the command
+- git puts its exec path first on PATH and sets `GIT_EXEC_PATH` and `GIT_PREFIX` for the hook, and `GIT_DIR` in a
+  linked worktree and in a repository with a separate git directory (measured by lens 2); a `-c` of the command
   reaches it as `GIT_CONFIG_PARAMETERS`. The hook's parent process is the git program (`/proc/<parent>/exe`).
 - A push of an up-to-date ref ("Everything up-to-date") runs the hook with no ref line.
 - G18-1 reproduced: with `remote.origin.receivepack` set to a program that writes a marker and starts the real

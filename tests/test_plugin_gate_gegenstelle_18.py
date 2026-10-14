@@ -600,6 +600,36 @@ def test_the_names_the_bash_tool_sets_do_not_refuse_the_hand_over(env, tmp_path)
     assert "checked the update set of hand-over" in proc.stderr
 
 
+def test_a_hand_over_in_a_linked_worktree_reaches_the_remote(env, tmp_path):
+    """Lens 2, F-B: git sets GIT_DIR for the hook in a linked worktree. Bound as an environment name it refused every
+    hand-over there; the repository it selects is compared through the git directory instead."""
+    r = _repo(tmp_path, env)
+    linked = tmp_path / "linked"
+    base._git(r.path, "worktree", "add", "-q", "--detach", str(linked))
+    base._receipt(linked, r.signer)
+    answer, entry = _level1(env, linked, command="git push origin HEAD:main")
+    assert_handed_over(answer, entry)
+    proc = subprocess.run(["git", "push", "origin", "HEAD:main"], cwd=str(linked), capture_output=True, text=True,
+                          env=env, timeout=240, check=False)
+    assert proc.returncode == 0 and _remote(tmp_path) == base._rev(linked, "HEAD"), proc.stderr
+    assert "checked the update set of hand-over" in proc.stderr
+
+
+def test_a_record_of_the_main_worktree_does_not_pass_in_a_linked_worktree(env, tmp_path):
+    """The git directory, not the GIT_DIR name, binds the worktree: the main worktree's hand-over refuses there."""
+    r = _repo(tmp_path, env)
+    linked = tmp_path / "linked"
+    base._git(r.path, "worktree", "add", "-q", "--detach", str(linked))
+    base._receipt(linked, r.signer)
+    _level1(env, r.path)
+    pointer = _pointer(r.path)
+    (pathlib.Path(base._git(linked, "rev-parse", "--absolute-git-dir").stdout.strip()) / gate.HANDOVER_POINTER) \
+        .write_bytes(pointer.read_bytes())
+    proc = subprocess.run(["git", "push", "origin", "HEAD:main"], cwd=str(linked), capture_output=True, text=True,
+                          env=env, timeout=240, check=False)
+    assert proc.returncode != 0 and "another repository, worktree or git directory" in proc.stderr, proc.stderr
+
+
 @pytest.mark.parametrize("name, value", [("GIT_EDITOR", "vim"), ("GIT_OPTIONAL_LOCKS", "x")])
 def test_another_value_of_those_names_is_bound(env, tmp_path, name, value):
     r = _repo(tmp_path, env)
