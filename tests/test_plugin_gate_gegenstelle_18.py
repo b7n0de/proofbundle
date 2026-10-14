@@ -253,6 +253,34 @@ def test_a_forced_update_is_no_hand_over(env, tmp_path, command, why):
     assert why in answer["systemMessage"] and not _pointer(r.path).exists()
 
 
+@pytest.mark.parametrize("command", ["GIT_TERMINAL_PROMPT=0 git push origin main", "LANG=C git push origin main",
+                                     "git-push origin main", '"git" push origin main', "\\git push origin main",
+                                     "git -C . push origin main", "git push origin main > push.log"])
+def test_only_the_plain_push_form_is_handed_over(env, tmp_path, command):
+    """The binding measures the git a plain `git push` starts in the hook's environment. A prefix assignment runs that
+    git in another environment (Level 2 would refuse the hand-over after Level 1 announced it), and a dashed, quoted or
+    escaped command word, a global option or a redirection into a file is another form: each stays an ask."""
+    r = _repo(tmp_path, env)
+    answer, entry = _level1(env, r.path, command=command)
+    assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
+    assert "No hand-over to Level 2" in answer["systemMessage"] or "hands this push over" not in answer["systemMessage"]
+    assert not _pointer(r.path).exists() and _records(env) == []
+
+
+def test_a_prefix_assignment_is_named_as_the_reason(env, tmp_path):
+    r = _repo(tmp_path, env)
+    answer, entry = _level1(env, r.path, command="GIT_TERMINAL_PROMPT=0 git push origin main")
+    assert_asked_without_handover(answer, entry, "the command is not the plain form `git push …`")
+
+
+@pytest.mark.parametrize("command", ["git push origin main < /dev/null", "git push origin main 2>&1",
+                                     "git push -q origin main"])
+def test_a_plain_form_with_a_redirection_that_opens_no_file_is_handed_over(env, tmp_path, command):
+    r = _repo(tmp_path, env)
+    answer, entry = _level1(env, r.path, command=command)
+    assert_handed_over(answer, entry)
+
+
 def test_a_gh_call_is_no_hand_over(env, tmp_path):
     r = _repo(tmp_path, env)
     answer, _entry = _level1(env, r.path, command="gh pr create --fill")

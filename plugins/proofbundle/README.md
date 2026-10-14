@@ -180,7 +180,9 @@ which start before Level 2 judges; any change of them asks again. Run it in the 
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push
-or push option, and whose evidence rules match the local record of the destination, gets no question from the gate:
+or push option, and whose evidence rules match the local record of the destination, gets no question from the gate,
+when the command is the plain `git push …` on its own (no prefix assignment such as `LANG=C git push`, no chain, no
+`git -C`, no `git-push`, no redirection into a file):
 Level 1 writes a one-time hand-over, valid for 300 seconds, and makes no permission decision, so your own permission
 settings for the host still apply. git's pre-push hook then checks the actual update against that hand-over. It refuses
 another destination than the one expected (such as `refs/heads/refs/heads/main` for `main`), an extra, duplicate or

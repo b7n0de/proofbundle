@@ -2196,8 +2196,11 @@ of the reviewer on 2026-10-14; DESIGN_gegenstelle.md, version 2, holds them with
 
 Chosen (variant d, with the transport rule and the hand-over contract):
 - Level 1 hands a push over at one place (`evaluate_push`, `_handover_offer`) and only where all of these hold: the
-  host is Claude Code; the call is a `git push` Level 1 reads in its strict form (no `gh`, MCP or `send-pack` route);
-  every target resolves up to the destination check and the one reason left open for each is the default case of
+  host is Claude Code; the call is a `git push` Level 1 reads in its strict form (no `gh`, MCP or `send-pack` route)
+  and the whole command is the plain push form of `_codex_plain_push` (no prefix assignment, chain, wrapper, global
+  option, other git path, expansion, redirection that opens a file or option word the shell may rewrite: an adversarial
+  lens of 2026-10-14 found that a prefix assignment ran git in another environment, so Level 2 refused a hand-over
+  Level 1 had announced, and that a dashed `git-push` runs whatever program PATH names); every target resolves up to the destination check and the one reason left open for each is the default case of
   `_dest_resolution` (`DEST_OPEN_AT_REMOTE`; a value that does not name the destination, a recorded candidate, a
   deletion, a forced update and every other reason are no hand-over); only the options `_HANDOVER_FLAGS` names (no
   force, lease, dry run, signed push or push option); the evidence at every sent commit verified, or a commit that
@@ -2265,7 +2268,9 @@ Limits:
 
 Measured (tests/test_plugin_gate_gegenstelle_18.py and tests/test_plugin_gate_destination_kind.py, 2026-10-14, git
 2.34.1, through git against local bare repositories): the catch cases of review round 18 named in DESIGN_gegenstelle.md
-section 7.1, each red before its rule and green after.
+section 7.1, each with a test. The tests of a new rule are red before it and green after; the tests of a behaviour
+that existed before (the deny paths of false or missing evidence and a false done check, Codex, an abort) are controls,
+green on both sides, and hold that the hand-over does not weaken it.
 
 Options (DESIGN_gegenstelle.md, sections 3 to 5):
 - a. A dry-run push before the decision. Rejected: it runs the transport before consent and binds nothing (answer 4).

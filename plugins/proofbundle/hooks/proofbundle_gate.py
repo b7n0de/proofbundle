@@ -5301,7 +5301,7 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
 # --- a push, resolved to its targets and the commits it sends (DECISIONS.md, D3 option B, D20) --------
 
 def evaluate_push(directory: str, push_args: list[str] | None, deadline: float,
-                  environ: dict | None = None) -> Verdict:
+                  environ: dict | None = None, plain_push: bool = False) -> Verdict:
     """The Level 1 verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
     branch to its upstream). Since review round 9 of 2026-10-11 (R9-1) every push whose earlier steps resolve ends
     NOT MEASURED at the destination check, because git resolves the destination against refs of the remote the gate
@@ -5312,7 +5312,8 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float,
 
     The one place Level 1 hands a push over to Level 2 (owner adoption of review round 18, DECISIONS.md D33) is here,
     after every check above: only where the one reason left open is the default destination case, the source evidence
-    is valid, the transport is approved and a bound Level 2 is installed (_handover_offer). Then the verdict is
+    is valid, the transport is approved, a bound Level 2 is installed and the command is the plain push form
+    (`plain_push`, _codex_plain_push) (_handover_offer). Then the verdict is
     `handover`, which carries no permission decision; otherwise the answer is the ask it was, naming why."""
     repo, unreadable = _work_tree(directory, deadline)
     if unreadable:
@@ -5388,7 +5389,7 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float,
                 told = f"{told.rstrip('.')}. " + " ".join(hints)
             # D33: the one place Level 1 hands a push over. Where it does not, the ask says why.
             offer, missing_level2 = _handover_offer(repo, head_commit, push_args, handover, sources, outcomes, hints,
-                                                    note, reads, deadline, environ)
+                                                    note, reads, deadline, environ, plain_push)
             if isinstance(offer, Verdict):
                 return offer
             if offer is not None:
@@ -6062,7 +6063,7 @@ def _write_handover(gate_dir: str, gitdir: str, record: dict) -> str:
 
 def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, handover: dict | None,
                     sources: list[str], outcomes: dict, hints: list, note: str | None, reads: list, deadline: float,
-                    environ: dict | None) -> tuple[Verdict | str | None, bool]:
+                    environ: dict | None, plain_push: bool = False) -> tuple[Verdict | str | None, bool]:
     """The hand-over of D33, decided here and nowhere else: (the `handover` verdict, False) where every condition of
     DESIGN_gegenstelle.md 7.2 holds and the record is written; (why not, missing_level2) where the push is a candidate
     and one condition fails, missing_level2 True where only the bound Level 2 is missing; (None, False) where the push is
@@ -6071,6 +6072,13 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
     if handover is None or push_args is None or not handover["targets"] or handover["remote"] is None or note is not None:
         return None, False
     targets, remote = handover["targets"], handover["remote"]
+    if not plain_push:
+        # The binding measures the git a plain `git push` starts in the hook's own environment. A prefix assignment,
+        # an `env` carrier, a quoted or dashed command word (`git-push` is whatever program PATH names), a global
+        # option or a chain runs another program or the same git in another environment than the one Level 1 read.
+        return ("the command is not the plain form `git push …`: one simple command headed by a bare `git`, with no "
+                "prefix assignment, chain, wrapper, global option, other git path, expansion, a redirection that opens "
+                "a file, or an option word the shell may rewrite (the form _codex_plain_push names)"), False
     for word in push_args:
         if word == "--":
             break
@@ -6808,7 +6816,8 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
     """decide() without the hint of _name_narrower_spelling."""
     environ = os.environ if environ is None else environ
     calls = gated_calls(command)
-    plain = host == "codex" and _codex_plain_push(command)
+    # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D33).
+    plain = _codex_plain_push(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ) if calls else None
@@ -7079,11 +7088,12 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
 
 
 def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float,
-                   environ: dict | None = None) -> Verdict:
+                   environ: dict | None = None, plain_push: bool = False) -> Verdict:
     """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
     `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
     remote target the gate cannot read, is judged at HEAD with no range comparison. `environ` reaches the push path,
-    which reads the approval mode and the gate directory from it (D33)."""
+    which reads the approval mode and the gate directory from it (D33); `plain_push` says whether the whole command is
+    the plain push form (_codex_plain_push), the only form Level 1 hands over."""
     if detail and detail[0] == _HOOKS_DISABLE:
         return Verdict("deny", f"the command would turn off the gate's check of the real push, so it is denied.",
                        "hooks_disabled",
@@ -7092,7 +7102,7 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
                               "(--no-verify, or a core.hooksPath override)",
                        next_step="push without --no-verify and without setting core.hooksPath, or obtain a human review")
     if name == "git push":
-        return evaluate_push(directory, detail, deadline, environ)
+        return evaluate_push(directory, detail, deadline, environ, plain_push)
     if name.startswith("gh "):
         return evaluate_push(directory, detail, deadline)
     return evaluate_repository(directory, deadline)
@@ -7259,7 +7269,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                                "a `cd`, a `pushd` or any chain before it stays unresolved")))
             continue
         try:
-            verdicts.append(_evaluate_call(name, resolved, detail, deadline, environ))
+            verdicts.append(_evaluate_call(name, resolved, detail, deadline, environ, plain_push))
         except GateError as exc:
             verdicts.append(Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached "
                                             "no verdict.", "gate_error",

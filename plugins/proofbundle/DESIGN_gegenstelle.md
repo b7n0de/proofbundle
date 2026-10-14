@@ -299,7 +299,12 @@ today, and only where all of the following hold. Where one does not, the answer 
 evidenced failure, ask otherwise), and the ask names the condition that failed.
 
 1. The host is Claude Code. Under Codex nothing changes (answer 6): the plain `git push` warns as before.
-2. The call is a `git push` Level 1 reads in its strict form. `gh` calls, MCP tools and `send-pack` are no hand-over.
+2. The call is a `git push` Level 1 reads in its strict form, and the whole command is the plain push form
+   (`_codex_plain_push`, the form that warns under Codex): one simple command headed by a bare `git`, no prefix
+   assignment, chain, wrapper, global option, other git path, expansion, redirection that opens a file or option word
+   the shell may rewrite. The binding measures the git a plain `git push` starts in the hook's environment; a prefix
+   assignment runs it in another environment, and a dashed, quoted or escaped command word may run another program
+   (adversarial lens of 2026-10-14). `gh` calls, MCP tools and `send-pack` are no hand-over.
 3. Every target of the push resolves up to the destination check, and the one reason left open for each is the
    default case of `_dest_resolution_problem` ("whether the remote holds one of them is not known here"). A value that
    does not name the destination, a recorded candidate, a deletion, an unresolved source and every other open
