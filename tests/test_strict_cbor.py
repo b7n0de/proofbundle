@@ -113,13 +113,33 @@ def test_bytes_after_the_value_name_their_count_and_offset():
 @pytest.mark.parametrize("hx, pair", [
     ("a201416af93c00416b", "1 and 1.0"),
     ("a2f5416a01416b", "true and 1"),
-    ("a2f90000416af98000416b", "0.0 and -0.0"),
 ])
 def test_distinct_data_items_that_would_be_one_dict_key_are_refused(hx, pair):
     """Two different data items that Python treats as one dict key: keeping one would be the silent merge."""
     with pytest.raises(CborInvalid) as exc:
         loads_strict_cbor(bytes.fromhex(hx))
     assert "collide as one dict key" in exc.value.reason, pair
+
+
+@pytest.mark.parametrize("hx", ["a2f90000416af98000416b", "a2fb000000000000000001f9800002", "a2f93c0001fa3f80000002"])
+def test_numerically_equal_floats_are_one_key(hx):
+    """RFC 8949 Section 5.6.1: numeric values are distinct unless numerically equal, and -0.0 is equal to 0.0."""
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(bytes.fromhex(hx))
+    assert exc.value.reason.startswith("duplicate map key")
+
+
+@pytest.mark.parametrize("hx", ["a1f97e0001", "a2f97e0001f9fe0002", "a2f97e0101fa7fc0200002", "a1fb7ff800000000000101"])
+def test_a_nan_as_map_key_is_refused_not_compared(hx):
+    """NaN keys are equal when their significands are (RFC 8949 Section 5.6.1). A decoded half-precision NaN does not keep
+    its significand, so comparing would say equal where the RFC says distinct and the reverse; the key is refused."""
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(bytes.fromhex(hx))
+    assert exc.value.reason == "a NaN as map key, which this reader does not represent"
+
+
+def test_control_a_nan_as_value_is_read():
+    assert math.isnan(loads_strict_cbor(bytes.fromhex("a101f97e00"))[1])
 
 
 def test_control_distinct_keys_without_a_collision_both_stay():
@@ -249,6 +269,7 @@ def test_the_same_simple_value_twice_is_a_duplicate_key(hx):
 
 @pytest.mark.parametrize("hx, strict_reason, cbor_min_words", [
     ("4561", "string runs past the end of the input", "runs past the end of the input"),
+    ("4261", "string runs past the end of the input", "runs past the end of the input"),
     ("7f6461626364", "input ends inside an indefinite string", "input ends inside an indefinite string"),
     ("19ff", "input ends inside a head", "input ends inside the head"),
     ("830102", "array declares more elements than bytes remain", "declares more elements than bytes remain"),
@@ -272,6 +293,20 @@ def test_a_cut_item_is_refused_where_it_is_cut_not_by_the_end_check(hx, strict_r
 def test_cbor_min_names_a_break_alone_and_a_key_it_does_not_represent(hx, words):
     with pytest.raises(ValueError, match=words):
         CBOR_MIN.lade(bytes.fromhex(hx), 0)
+
+
+def test_the_package_checker_never_lets_cbor2_merge_two_pairs_into_one():
+    """cbor2 builds one dict key from two pairs whose keys are equal in Python, and which keys those are depends on the
+    version: under cbor2 5.9.0 the simple value 5 equals the array [5], under 6.1.4 it does not (measured 2026-10-15).
+    The checker must either refuse such a map or get back a map with as many entries as it has pairs."""
+    cbor2 = pytest.importorskip("cbor2")
+    for hx in ("a2e501810502", "a201416af93c00416b", "a2f5416a01416b", "a2f90000416af98000416b", "a2014161024162"):
+        data = bytes.fromhex(hx)
+        try:
+            _PACKAGE.item_end(data, 0)
+        except _PACKAGE.Malformed:
+            continue
+        assert len(cbor2.loads(data)) == 2, hx
 
 
 def test_one_item_from_an_offset_and_its_end():

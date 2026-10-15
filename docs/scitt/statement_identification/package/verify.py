@@ -75,9 +75,11 @@ def read_hex(name: str) -> bytes:
 
 
 def item_end(data: bytes, pos: int, depth: int = 0) -> int:
-    """Where the CBOR item at ``pos`` ends. Raises Malformed on truncation or a duplicate map key."""
+    """Where the CBOR item at ``pos`` ends. Raises Malformed on truncation, a duplicate map key, or a map that cbor2
+    reads with fewer entries than it has pairs."""
     if depth > 16 or pos >= len(data):
         raise Malformed("truncated or nested too deeply")
+    start = pos
     major, info, pos = data[pos] >> 5, data[pos] & 31, pos + 1
     if info < 24:
         arg = info
@@ -106,23 +108,25 @@ def item_end(data: bytes, pos: int, depth: int = 0) -> int:
         if pos + arg > len(data):
             raise Malformed("truncated")
         return pos + arg
-    seen, keys, count = set(), [], 0
+    seen, count = set(), 0
     while (data[pos:pos + 1] != b"\xff") if arg is None else (count < arg):
         if major == 5:
             key_end = item_end(data, pos, depth + 1)
             key = cbor2.loads(data[pos:key_end])
-            marker = (type(key).__name__, repr(key))
-            if marker in seen:
+            if (type(key).__name__, repr(key)) in seen:
                 raise Malformed(f"duplicate map key {key!r}")
-            if any(key == k for k in keys):
-                # 1 and 1.0, true and 1, 0.0 and -0.0: distinct data items (their markers differ), but cbor2 builds
-                # one dict key from them and keeps the last value without a word.
-                raise Malformed(f"map key {key!r} and an earlier key are one dict key")
-            seen.add(marker)
-            keys.append(key)
+            seen.add((type(key).__name__, repr(key)))
             pos = key_end
         pos, count = item_end(data, pos, depth + 1), count + 1
-    return pos + (arg is None)
+    end = pos + (arg is None)
+    if major == 5:
+        # cbor2 builds one dict key from two pairs whose keys are equal in Python: 1 and 1.0, true and 1, 0.0 and -0.0,
+        # and under cbor2 5.9.0 also a simple value n and the array [n]. Which keys are equal depends on the version,
+        # so the entries of the map cbor2 returns are counted against its pairs instead of comparing keys here.
+        entries = len(cbor2.loads(data[start:end]))
+        if entries != count:
+            raise Malformed(f"the map at byte {start} has {count} pairs and cbor2 reads {entries} entries from it")
+    return end
 
 
 def open_sign1(raw: bytes):

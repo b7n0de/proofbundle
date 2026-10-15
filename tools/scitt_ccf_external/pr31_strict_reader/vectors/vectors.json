@@ -1,4 +1,20 @@
 {
+ "curve_p256_es256": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "keys": "keys_p256_p521.cbor",
+  "receipt_sha256": "ec243b357cada8d31708f7bcbe7c6e42c1ee8820169605432a2ac3bab22a8d4c",
+  "statement": null,
+  "strict": "PASS",
+  "strict_line": "PASS 9a880cca91e52df2d41a0e9c9bc52cedee449485b082773627093fe9cb909043"
+ },
+ "curve_p521_es512": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "keys": "keys_p256_p521.cbor",
+  "receipt_sha256": "5c390cc871ec41b500c518956d676582ed3e9a388eae805b01ad6aca5d5b94d6",
+  "statement": null,
+  "strict": "PASS",
+  "strict_line": "PASS 9a880cca91e52df2d41a0e9c9bc52cedee449485b082773627093fe9cb909043"
+ },
  "dup_leaf_first": {
   "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
   "first_wins": "PASS",
@@ -70,6 +86,13 @@
   "strict": "FAIL",
   "strict_line": "FAIL digest_mismatch"
  },
+ "evidence_1_byte": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "e4fdbc73a319757e25c00bed15b0c2fd5c98699d6805ff969de6a039a13f944c",
+  "statement": null,
+  "strict": "PASS",
+  "strict_line": "PASS 667baa34701a898e7f3449f6088a171ef17af6e2b54828c443dab065909af958"
+ },
  "evidence_512_two_byte_characters": {
   "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
   "receipt_sha256": "b54d08f65b51aff535644d90bba5b0976768882ca141f7b4ba5e632f174f963d",
@@ -113,6 +136,30 @@
   "strict_line": "FAIL struct",
   "twin": "vdp_twin"
  },
+ "form_leaf_a_map": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "a777c0be4287d211ab88725c48587ab9afaf897454048c8d54e3d180ab9773ed",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL leaf",
+  "twin": "vdp_twin"
+ },
+ "form_leaf_of_four": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "878081415a6a87c06c2fb2f8f31f33ce3f372c774b752095b38db58b07885504",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL leaf",
+  "twin": "vdp_twin"
+ },
+ "form_leaf_of_two": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "9ad607a13fb72977d30ddffd4f5369822ec46e9e1bd193e7a194969701230e20",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL leaf",
+  "twin": "vdp_twin"
+ },
  "form_proof_not_a_map": {
   "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
   "receipt_sha256": "269b1b434b403b12327ca9acdb03b5215f4580425fee73966e05f7b5ec006f28",
@@ -120,6 +167,13 @@
   "strict": "FAIL",
   "strict_line": "FAIL vdp_map",
   "twin": "vdp_twin"
+ },
+ "form_protected_header_over_255_bytes": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "47a001617e3dd4489e766e1e4b1e96286705b0318658937b339a02fe49d62c01",
+  "statement": null,
+  "strict": "PASS",
+  "strict_line": "PASS 9a880cca91e52df2d41a0e9c9bc52cedee449485b082773627093fe9cb909043"
  },
  "form_protected_not_a_map": {
   "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
@@ -143,6 +197,14 @@
   "statement": null,
   "strict": "FAIL",
   "strict_line": "FAIL struct",
+  "twin": "vdp_twin"
+ },
+ "form_vdp_missing": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "f1c41ba5272c6755ae5f6fb2eca326cd0fd525f764e2aa2ea40903ed0ca2b917",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL vdp",
   "twin": "vdp_twin"
  },
  "form_vdp_without_inclusion": {
@@ -222,6 +284,21 @@
   "statement": null,
   "strict": "FAIL",
   "strict_line": "FAIL vdp_key",
+  "twin": "vdp_twin"
+ },
+ "roots_differ_signed_for_the_second": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "627bce15377c27b98bfff54e7c4ca34192fb36df8924530bc4f7b61720397be9",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL roots"
+ },
+ "signature_padded": {
+  "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+  "receipt_sha256": "b3785860d6b35c7be5c9261926a43735cb4680dc9ca493c555111042077c9fd9",
+  "statement": null,
+  "strict": "FAIL",
+  "strict_line": "FAIL signature",
   "twin": "vdp_twin"
  },
  "vdp_duplicate_key": {

@@ -129,7 +129,13 @@ def read_keys(raw: bytes) -> list:
         if not (isinstance(x, bytes) and isinstance(y, bytes)):
             raise Fail("keys")
         numbers = ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"), CURVES[k[-1]]())
-        out.append((k.get(2), numbers.public_key()))
+        try:
+            public = numbers.public_key()
+        except ValueError as exc:
+            # A point that is not on the named curve, or coordinates out of range: the key set is refused, never an
+            # exception out of verdict().
+            raise Fail("keys") from exc
+        out.append((k.get(2), public))
     return out
 
 
@@ -220,8 +226,15 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
         candidates = [k for i, k in keys if i is not None and i == kid]
     else:
         candidates = [k for _, k in keys]
-    n = len(signature) // 2
     for k in candidates:
+        # RFC 9053 Section 2.1: r and s are each written in exactly the byte length of the curve's order, so a signature
+        # with leading zero bytes or of any other length is refused, not split in half.
+        curve = getattr(k, "curve", None)
+        if curve is None:
+            continue                      # a certificate with a key that is not an EC key verifies nothing here
+        n = (curve.key_size + 7) // 8
+        if len(signature) != 2 * n:
+            continue
         try:
             der = utils.encode_dss_signature(int.from_bytes(signature[:n], "big"), int.from_bytes(signature[n:], "big"))
             k.verify(der, tbs, ec.ECDSA(ALGS[alg]()))
@@ -263,7 +276,13 @@ def main(argv=None) -> int:
     except OSError as exc:
         print(f"reader.py: cannot read an input file: {exc}", file=sys.stderr)
         return 2
-    print(verdict(receipt_raw, keys_raw, statement_raw=statement_raw, digest=digest))
+    line = verdict(receipt_raw, keys_raw, statement_raw=statement_raw, digest=digest)
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        # A reason can quote a text key of the input; an output stream that cannot encode it gets the line as UTF-8.
+        sys.stdout.flush()
+        sys.stdout.buffer.write((line + "\n").encode("utf-8"))
     return 0
 
 

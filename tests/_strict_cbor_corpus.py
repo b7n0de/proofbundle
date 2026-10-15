@@ -27,6 +27,9 @@ VALID = {
     "negative": ("20", -1),
     "simple_values": ("83f4f5f6", [False, True, None]),
     "map_false_and_true_keys": ("a2f401f502", {False: 1, True: 2}),
+    "map_bytes_key": ("a1410100", {b"\x01": 0}),
+    "map_indefinite": ("bf0102ff", {1: 2}),
+    "bytes_indefinite_chunks_not_utf8": ("5f41ff42ffffff", b"\xff\xff\xff"),
 }
 
 #: name -> hex
@@ -48,17 +51,34 @@ INVALID = {
     # Distinct data items that are one Python dict key: a reader that builds a dict keeps one of them in silence.
     "keys_1_and_1_0_collide": "a201416af93c00416b",
     "keys_true_and_1_collide": "a2f5416a01416b",
-    "keys_0_0_and_minus_0_0_collide": "a2f90000416af98000416b",
+    # RFC 8949 Section 5.6.1: -0.0 is equal to 0.0, so these are one key twice.
+    "duplicate_key_0_0_and_minus_0_0": "a2f90000416af98000416b",
     "indefinite_length_major_0": "1f",
+    "indefinite_length_major_1": "3f",
+    "indefinite_length_major_6": "df00",
     "break_alone": "ff",
     "additional_info_28": "1c",
+    # RFC 8949 Appendix F.1: additional information 28 to 30 is reserved on every major type.
+    "additional_info_28_major_1": "3c",
+    "additional_info_29_major_2": "5d",
+    "additional_info_30_major_3": "7e",
+    "additional_info_28_major_4": "9c",
+    "additional_info_29_major_5": "bd",
+    "additional_info_30_major_6": "de",
+    "additional_info_28_major_7": "fc",
     "simple_value_two_byte_below_32": "f814",
+    "simple_value_two_byte_31": "f81f",
     "string_too_short": "4561",
     "array_too_short": "830102",
     "map_too_short": "a201",
     "head_too_short": "19ff",
     "chunk_of_wrong_type": "7f4161ff",
     "indefinite_without_break": "9f01",
+    "indefinite_map_without_break": "bf01",
+    "indefinite_map_cut_at_its_head": "bf",
     "empty_input": "",
     "too_deep": "81" * 70 + "00",
+    "too_deep_indefinite_arrays": "9f" * 70 + "00" + "ff" * 70,
+    "too_deep_map_values": "a100" * 70 + "00",
+    "too_deep_tags": "c1" * 70 + "00",
 }

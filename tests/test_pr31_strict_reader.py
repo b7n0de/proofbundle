@@ -48,15 +48,15 @@ def _probe(name: str, reader=READER) -> str:
 def _vector(name: str, reader=READER) -> str:
     entry = VECTORS[name]
     receipt = (HERE / "vectors" / f"{name}.cose").read_bytes()
-    keys = (HERE / "vectors" / "keys.cbor").read_bytes()
+    keys = (HERE / "vectors" / entry.get("keys", "keys.cbor")).read_bytes()
     if entry.get("statement"):
         return reader.verdict(receipt, keys, statement_raw=(HERE / "vectors" / entry["statement"]).read_bytes())
     return reader.verdict(receipt, keys, digest=bytes.fromhex(entry["data_hash_hex"]))
 
 
-def test_the_files_carry_24_probes_and_32_vectors():
+def test_the_files_carry_24_probes_and_42_vectors():
     assert len(PROBES["probes"]) == 24
-    assert len(VECTORS) == 32
+    assert len(VECTORS) == 42
 
 
 @pytest.mark.parametrize("name", sorted(PROBES["probes"]))
@@ -84,6 +84,7 @@ def test_the_vectors_in_the_tree_are_those_the_generator_writes(tmp_path):
     ("plus_empty_consistency_array", "FAIL vdp_empty"),
     ("bytes_after_the_proof", "FAIL cbor_proof: 1 byte(s) after the data item"),
     ("evidence_invalid_utf8", "FAIL cbor_proof: text string is not valid UTF-8"),
+    ("two_proofs_different_roots", "FAIL roots"),
 ])
 def test_the_probes_of_pull_request_31_are_refused_for_their_reason(name, reason):
     assert _probe(name) == reason
@@ -173,12 +174,14 @@ def test_a_key_set_of_another_form_is_a_fail_line_not_an_exception(keys, line):
     assert READER.verdict(receipt, keys, digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"])) == line
 
 
-def _keyset(kty: bytes = b"\x02", crv: bytes = b"\x02", kty_label: bytes = b"\x01", crv_label: bytes = b"\x20") -> bytes:
-    """The test key set of make_vectors.py with one label or value written as another data item."""
+def _keyset(kty: bytes = b"\x02", crv: bytes = b"\x02", kty_label: bytes = b"\x01", crv_label: bytes = b"\x20",
+            x: bytes | None = None, y: bytes | None = None) -> bytes:
+    """The test key set of make_vectors.py with one label, value or coordinate written as another data item."""
     pn = GEN.SK.public_key().public_numbers()
+    x = pn.x.to_bytes(48, "big") if x is None else x
+    y = pn.y.to_bytes(48, "big") if y is None else y
     return GEN.arr([GEN.cmap([(kty_label, kty), (GEN.uint(2), GEN.bs(GEN.KID)), (crv_label, crv),
-                              (GEN.uint(-2), GEN.bs(pn.x.to_bytes(48, "big"))),
-                              (GEN.uint(-3), GEN.bs(pn.y.to_bytes(48, "big")))])])
+                              (GEN.uint(-2), GEN.bs(x)), (GEN.uint(-3), GEN.bs(y))])])
 
 
 @pytest.mark.parametrize("keys, line", [
@@ -187,6 +190,9 @@ def _keyset(kty: bytes = b"\x02", crv: bytes = b"\x02", kty_label: bytes = b"\x0
     (_keyset(crv=b"\xf9\x40\x00"), "FAIL keys"),
     (_keyset(kty_label=b"\xf5"), "FAIL keys"),
     (_keyset(crv_label=b"\xf9\xbc\x00"), "FAIL keys"),
+    (_keyset(y=b"\x01" * 48), "FAIL keys"),
+    (_keyset(x=b"", y=b""), "FAIL keys"),
+    (_keyset(x=b"\x00" * 48, y=b"\x00" * 48), "FAIL keys"),
 ])
 def test_a_key_whose_type_or_curve_is_not_an_integer_is_refused(keys, line):
     """A complete key, so the only difference is the data item: 2.0 for the key type EC2 or the curve P-384, true for
@@ -194,6 +200,38 @@ def test_a_key_whose_type_or_curve_is_not_an_integer_is_refused(keys, line):
     receipt = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
     got = READER.verdict(receipt, keys, digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"]))
     assert got == (line or VECTORS["vdp_twin"]["strict_line"])
+
+
+def test_the_command_line_runs_as_a_script_as_the_readme_shows(tmp_path):
+    """The README runs reader.py as a script from the repository root, which puts src on the path itself."""
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    receipt, keys = HERE / "vectors" / "vdp_twin.cose", HERE / "vectors" / "keys.cbor"
+    r = subprocess.run([sys.executable, str(HERE / "reader.py"), str(receipt), str(keys), "--digest",
+                        VECTORS["vdp_twin"]["data_hash_hex"]], capture_output=True, text=True, cwd=tmp_path,
+                       env={"PATH": "/usr/bin:/bin"}, timeout=120)
+    assert (r.returncode, r.stdout.strip()) == (0, VECTORS["vdp_twin"]["strict_line"]), r.stderr[-400:]
+    stmt = HERE / "vectors" / "statement.cose"
+    r = subprocess.run([sys.executable, str(HERE / "reader.py"), str(HERE / "vectors" / "empty_map_a0.cose"), str(keys),
+                        "--statement", str(stmt)], capture_output=True, text=True, cwd=tmp_path,
+                       env={"PATH": "/usr/bin:/bin"}, timeout=120)
+    assert (r.returncode, r.stdout.strip()) == (0, VECTORS["empty_map_a0"]["strict_line"]), r.stderr[-400:]
+
+
+def test_a_reason_that_quotes_a_text_key_reaches_an_ascii_stream(tmp_path):
+    """A duplicate text key appears in the reason; an output stream that cannot encode it still gets one line."""
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    dup = GEN.proof([(GEN.ts("\u00e9".encode()), GEN.uint(1)), (GEN.ts("\u00e9".encode()), GEN.uint(2))])
+    rec = tmp_path / "dup_text_key.cose"
+    rec.write_bytes(GEN.receipt([GEN.inclusion(dup)], GEN.root()))
+    r = subprocess.run([sys.executable, str(HERE / "reader.py"), str(rec), str(HERE / "vectors" / "keys.cbor"),
+                        "--digest", VECTORS["vdp_twin"]["data_hash_hex"]], capture_output=True, cwd=tmp_path,
+                       env={"PATH": "/usr/bin:/bin", "PYTHONIOENCODING": "ascii"}, timeout=120)
+    assert r.returncode == 0, r.stderr[-400:]
+    assert r.stdout.decode("utf-8").strip() == "FAIL cbor_proof: duplicate map key '\u00e9'"
 
 
 def test_the_command_line_prints_the_line_and_exits_2_when_a_file_cannot_be_read(tmp_path, capsys):

@@ -18,9 +18,9 @@ WHAT IT REFUSES, each with a reason and the offset where it was decided (:class:
 * input that is not valid (RFC 8949 Section 5.3.1): a duplicate map key at any depth, a text string that is not
   valid UTF-8, and a chunk of an indefinite text string that is not valid UTF-8 on its own (Section 3.2.3: the
   bytes of one code point cannot be spread between chunks);
-* bytes before or after the one data item (``loads``), so a caller never reads a prefix;
+* bytes after the one data item (``loads_strict_cbor``), so a caller never reads a prefix;
 * input over the byte, depth or width budget (the width budget counts array elements, map pairs and the chunks of
-  indefinite strings), and a map key this reader cannot represent (an array, a map or a tag as key).
+  indefinite strings), and a map key this reader cannot represent (an array, a map, a tag or a NaN as key).
 
 WHAT IT ACCEPTS that a profile may still refuse: heads that are not in their shortest form and indefinite
 lengths. Both are valid CBOR under Section 5.3.1; requiring the preferred or deterministic encoding (Section 4.2)
@@ -33,10 +33,11 @@ map as a ``frozendict``, where cbor2 5 returned a ``list`` and a ``dict``; a rea
 ``isinstance(x, list)`` or ``isinstance(x, dict)`` behind cbor2 failed silently on the new version (measured on
 2026-10-14 and 2026-10-15 with cbor2 5.9.0 and 6.1.4). Nothing here depends on cbor2.
 
-Duplicate keys are compared as CBOR data items, not as bytes: ``0x01`` and ``0x18 0x01`` are the same key, the
-integer 1 and the float 1.0 are not, and neither are ``true`` and 1. Two keys that are different data items but
-one Python dict key (1 and 1.0, ``true`` and 1, 0.0 and -0.0) are refused too: a dict cannot keep both, and
-keeping one would be the silent merge.
+Duplicate keys are compared as CBOR data items, not as bytes (RFC 8949 Section 5.6.1): ``0x01`` and ``0x18 0x01`` are
+the same key, and so are 0.0 and -0.0; the integer 1 and the float 1.0 are not, and neither are ``true`` and 1. Two keys
+that are different data items but one Python dict key (1 and 1.0, ``true`` and 1) are refused too: a dict cannot keep
+both, and keeping one would be the silent merge. NaN keys are equal when their significands are; a decoded float does
+not keep the significand of a half-precision NaN, so a NaN as key is refused instead of compared.
 """
 from __future__ import annotations
 
@@ -99,8 +100,11 @@ def _key_marker(key: Any, offset: int):
     if typ is str:
         return ("text", key)
     if typ is float:
-        # Same value, same key; -0.0 and 0.0 are different values, and a NaN compares by its bits.
-        return ("float", struct.pack(">d", key)) if not math.isnan(key) else ("float", "nan", struct.pack(">d", key))
+        # Numerically equal floats are one key (RFC 8949 Section 5.6.1), so -0.0 and 0.0 are a duplicate: adding 0.0
+        # turns -0.0 into 0.0 and leaves every other value as it is. A NaN key is refused, see the module docstring.
+        if math.isnan(key):
+            raise CborInvalid("a NaN as map key, which this reader does not represent", offset)
+        return ("float", struct.pack(">d", key + 0.0))
     if typ is Simple:
         return ("simple", key.value)
     raise CborInvalid("map key is an array, a map or a tag, which this reader does not represent", offset)
