@@ -8499,11 +8499,33 @@ def _sh_kind(step: _ShStep) -> str:
         return "carrier"
     if h == "rg" and any(a.startswith(("--pre", "--search-zip")) or a == "-z" for a in args):
         return "carrier"
-    if h == "printf" and any(a == "-v" or a.startswith("-v") for a in args[:1]):
-        return "other"     # printf -v sets a variable, which may be exported
+    if h == "printf" and _sh_printf_sets_variable(step):
+        return "other"     # printf -v or a %n conversion sets a variable, which may be exported (R20-1)
     if h in _SH_DATA:
         return "data"
     return "other"
+
+
+#: A printf conversion that assigns the number of characters written so far to the variable its argument names, with any
+#: flags, width, precision and length modifier before the `n` (R20-1 of review round 20; measured with bash 5.2.21:
+#: `printf '%n' PATH`, `printf '%s%n' ab PATH` and `printf -- '%n' PATH` set PATH). `%%` is a literal percent sign.
+_SH_PRINTF_ASSIGNS = re.compile(r"%[^A-Za-z%]*[hlLqjzt]*n")
+
+
+def _sh_printf_sets_variable(step: _ShStep) -> bool:
+    """Whether the printf step may set a shell variable, which a later step's program lookup or git reads: `-v` names
+    one, a %n conversion of the format assigns one (bash reuses the format for further arguments), and an option word
+    or a format word the shell builds is not modelled, so it counts as setting one."""
+    words = step.cmd.words[1:]
+    if words and words[0].value == "--":
+        words = words[1:]
+    elif words and words[0].value.startswith("-") and words[0].value != "-":
+        return True
+    if not words:
+        return False
+    if not words[0].literal:
+        return True
+    return bool(_SH_PRINTF_ASSIGNS.search(words[0].value.replace("%%", "")))
 
 
 def _sh_sed_safe(args: list[str]) -> bool:

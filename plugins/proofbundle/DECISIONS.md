@@ -2216,7 +2216,10 @@ every simple command bash would execute, in order.
   the two forms. This replaces K-NW-2 B's "whole command only" for the plain chain.
 - A step whose own answer is free (a push's local inactivity) asks (`step_after_state_change`) where a step before it
   or beside it may change the configuration, the hooks, the evidence or the environment: an unknown program, a carrier
-  of code, an assignment that is not neutral, `printf -v`, or a write to a file the write gate protects.
+  of code, an assignment that is not neutral, a printf that sets a variable (`-v`, or a `%n` conversion of its format,
+  which assigns the number of characters written so far: `printf '%n' PATH` sets PATH to 0, R20-1 of review round 20,
+  measured with bash 5.2.21; an option or a format word the shell builds counts as setting one), or a write to a file
+  the write gate protects.
 - A push, a gated gh call or a possible transfer is judged on its own only as the first executed step, at the top
   level, after at most `cd` steps and without a redirection; under Codex never. Such a step is judged without the
   hand-over of D35, and the plain push form as the whole command keeps the whole command's answer: only that form is
