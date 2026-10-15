@@ -247,6 +247,33 @@ def test_the_same_simple_value_twice_is_a_duplicate_key(hx):
     assert exc.value.reason.startswith("duplicate map key")
 
 
+@pytest.mark.parametrize("hx, strict_reason, cbor_min_words", [
+    ("4561", "string runs past the end of the input", "runs past the end of the input"),
+    ("7f6461626364", "input ends inside an indefinite string", "input ends inside an indefinite string"),
+    ("19ff", "input ends inside a head", "input ends inside the head"),
+    ("830102", "array declares more elements than bytes remain", "declares more elements than bytes remain"),
+    ("a201", "map declares more pairs than bytes remain", "declares more pairs than bytes remain"),
+])
+def test_a_cut_item_is_refused_where_it_is_cut_not_by_the_end_check(hx, strict_reason, cbor_min_words):
+    """Read one item WITHOUT the end check: each cut must be refused by its own rule. Through loads_strict_cbor a
+    missing rule would still end red, through the end check with the wrong reason, so the corpus alone cannot tell."""
+    with pytest.raises(CborInvalid) as exc:
+        load_item_strict(bytes.fromhex(hx))
+    assert exc.value.reason == strict_reason
+    with pytest.raises(ValueError, match=cbor_min_words):
+        CBOR_MIN.lade(bytes.fromhex(hx), 0)
+
+
+@pytest.mark.parametrize("hx, words", [
+    ("ff", "outside an indefinite container"),
+    ("a1c00101", "is not an integer, a text string or a byte string"),
+    ("a1810101", "is not an integer, a text string or a byte string"),
+])
+def test_cbor_min_names_a_break_alone_and_a_key_it_does_not_represent(hx, words):
+    with pytest.raises(ValueError, match=words):
+        CBOR_MIN.lade(bytes.fromhex(hx), 0)
+
+
 def test_one_item_from_an_offset_and_its_end():
     data = bytes.fromhex("01" + "a1014161" + "02")
     assert load_item_strict(data, 1) == ({1: b"a"}, 5)
