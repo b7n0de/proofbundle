@@ -5,6 +5,7 @@ evidential bytes in the scope below refuses duplicate keys, invalid encoding and
 test finds a new decode site that bypasses the strict helpers. Readers outside that scope are named at the end.
 
 WHAT IT READS. The Python source under ``src/``, ``plugins/``, ``tools/`` and ``docs/scitt/``, parsed with ``ast``.
+``plugins/`` is not in the tree yet (``NOT_YET_IN_THE_TREE``).
 
 A DECODE REFERENCE, BY A POSITIVE LIST. ``NOT_DECODING`` names the members of ``json`` and ``cbor2`` that do not
 decode (the encoders, the tag and simple-value types, the error classes). Every other reference to either library
@@ -19,7 +20,13 @@ module defines and does not rebind; a name alone, a lambda or an imported hook i
 WHAT IT REQUIRES. Every other reference is in ``EXCEPTIONS`` with the exact number per file and a reason outside a
 verify path. A new reference turns this red, and so does one that went away, so the list never outlives what it
 describes. Each function defined under a name in ``STRICT_HOOKS`` is run on duplicate member names, adjacent and not,
-and must refuse each, and an ``assert`` in its body does not count, because ``python -O`` removes it.
+and must refuse each, and an ``assert`` in its body does not count, because ``python -O`` removes it. Where those
+functions are defined is listed in ``STRICT_HOOK_SITES``, by the same rule.
+
+TWO TREES. These tests run in a checkout and in the extracted sdist, which ships only part of the scope
+(``IN_THE_PACKAGE``). Each listed path is judged on its own: present, it is measured; absent from a checkout, or absent
+from a distribution whose MANIFEST.in promises it, it fails; absent from a distribution that does not promise it, it
+is NOT MEASURED, as one skip that names it.
 
 THE CBOR2 6 CLASS. Under a tag, at any depth, cbor2 6 returns an array as a tuple and a map as a frozendict, where
 cbor2 5 returned a list and a dict (measured with 5.9.0 and 6.1.4; without a tag both return list and dict). A
@@ -73,17 +80,123 @@ def _im_checkout() -> bool:
     return running_in_repo_checkout()
 
 
-# THE SUBJECT OF THE TREE-WIDE TESTS IS NOT SHIPPED. Measured on 2026-10-15 in the hermetic cleanroom of pull request
-# 352, which runs the shipped suite from the extracted sdist: tools/, docs/scitt/ and interop/ are not in the
-# distribution, so the listed exceptions had no reference left, one strict hook was found instead of three, and
-# interop/ did not exist. In that tree the counts would measure part of the repository and call it the whole. Only these
-# tests are skipped there; the tests on planted sources and on a planted tree run everywhere.
-_NUR_IM_CHECKOUT = pytest.mark.skipif(
-    not _im_checkout(), reason="NOT MEASURED: the guard counts the repository's tree, and an extracted sdist ships "
-                               "only part of it")
+# TWO TREES, AND EACH LISTED PATH SAYS WHICH ONE IT IS IN (review round 21, R21-2). Measured on 2026-10-15 in the
+# hermetic cleanroom of pull request 352, which runs the shipped suite from the extracted sdist: tools/, docs/scitt/
+# and interop/ are not in the distribution, so the listed exceptions had no reference left, one strict hook was found
+# instead of three, and interop/ did not exist. A count over that tree measured part of the repository and called it
+# the whole. Skipping the tree-wide tests there, the first fix, measured nothing at all, the shipped part included.
+#
+# So a path is judged by where it is missing:
+#   present                                          measured, in both trees;
+#   absent from a checkout                           FAIL, a path the guard lists went away;
+#   absent from a distribution that promises it      FAIL, the distribution lost it;
+#   absent from a distribution that does not         NOT MEASURED, one skip that names the path.
+# Whether a distribution promises a path is read from its MANIFEST.in the way conftest reads it for the derived skip
+# set (`_manifest_verspricht`, `_manifest_zeilen`), the one reader of the template under tests/. No readable template
+# is no basis, and no basis stays loud.
+
+#: What the distribution carries of the directories this guard names: src/ through the package discovery of
+#: pyproject.toml, scripts/ through its explicit list in MANIFEST.in, conformance/ and examples/ through `graft`.
+#: Held against MANIFEST.in in both trees, so a change of the packaging shows here.
+IN_THE_PACKAGE = {"src", "scripts", "conformance", "examples"}
+
+#: A root this guard reads that is not in the tree yet, with the reason. It is NOT MEASURED until it lands, and the
+#: day it lands its entry turns red, so the list never outlives what it describes. Found by the presence test below:
+#: before it, a root that did not exist was passed over in silence.
+NOT_YET_IN_THE_TREE = {
+    "plugins": "it comes with the plugin line (branch claude/codex-plugin); main at 94741b79 has no plugins/",
+}
+
+
+def _conftest():
+    try:
+        import conftest  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    return conftest
+
+
+def _promised(rel: str, repo: Path = REPO, directory: bool = False) -> bool | None:
+    """Does the distribution at ``repo`` promise this file, or a file under this directory? None: no basis to say.
+
+    A file is asked of conftest's ``_manifest_verspricht``. A directory is promised by a positive line that names a
+    path under it (``include``, ``graft``, ``recursive-include``), by a ``graft`` or ``recursive-include`` of a
+    directory above it, by any ``global-include``, and by a ``where`` of the package discovery at or under it."""
+    c = _conftest()
+    if c is None:
+        return None
+    try:
+        text = (repo / "MANIFEST.in").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not directory:
+        return c._manifest_verspricht(rel, repo)
+    parts = c._segmente(rel)
+
+    def related(name: str, above_counts: bool) -> bool:
+        seg = c._segmente(name)
+        return seg[:len(parts)] == parts or (above_counts and parts[:len(seg)] == seg)
+
+    for line in c._manifest_zeilen(text):
+        command, *args = line.split()
+        if command == "global-include":
+            return True
+        if command == "include" and any(related(a, False) for a in args):
+            return True
+        if command in ("graft", "recursive-include") and args and related(args[0], True):
+            return True
+    konf = c._paketkonfiguration(repo) or {}
+    packages = konf.get("packages")
+    find = packages.get("find") if isinstance(packages, dict) else None
+    where = find.get("where", ["."]) if isinstance(find, dict) else []
+    return any(isinstance(w, str) and related(w, True) for w in (where if isinstance(where, list) else []))
+
+
+def _absent(rel: str, *, repo: Path = REPO, in_checkout: bool | None = None, directory: bool = False) -> tuple:
+    """("FAIL", why) or ("NOT MEASURED", why) for a listed path that is absent from ``repo``."""
+    if in_checkout is None:
+        in_checkout = _im_checkout()
+    if in_checkout:
+        return "FAIL", f"{rel} is absent from the checkout: a path this guard lists went away"
+    promised = _promised(rel, repo, directory)
+    if promised is None:
+        return "FAIL", (f"{rel} is absent and this tree has no readable MANIFEST.in to tell a pruned path from a "
+                        "lost one")
+    if promised:
+        return "FAIL", f"{rel} is absent although MANIFEST.in promises it: the distribution lost it"
+    return "NOT MEASURED", f"{rel} is not shipped, MANIFEST.in does not promise it, so this tree cannot measure it"
+
+
+def _directory_present_or_skip(top: str, *, repo: Path = REPO, in_checkout: bool | None = None,
+                               not_yet: Mapping = NOT_YET_IN_THE_TREE) -> None:
+    """A directory this guard names: one not in the tree yet is NOT MEASURED and fails once it is there, every
+    other one is judged as any listed path."""
+    if top in not_yet:
+        if (repo / top).exists():
+            pytest.fail(f"{top}/ is in the tree now: remove it from NOT_YET_IN_THE_TREE")
+        pytest.skip(f"NOT MEASURED: {top}/ is not in this tree yet, {not_yet[top]}")
+    _present_or_skip(top, repo=repo, in_checkout=in_checkout, directory=True)
+
+
+def _present_or_skip(rel: str, *, repo: Path = REPO, in_checkout: bool | None = None,
+                     directory: bool = False) -> None:
+    path = repo / rel
+    if path.is_dir() if directory else path.is_file():
+        return
+    verdict, why = _absent(rel, repo=repo, in_checkout=in_checkout, directory=directory)
+    if verdict == "FAIL":
+        pytest.fail(why)
+    pytest.skip(f"NOT MEASURED: {why}")
 
 #: json hooks that refuse a duplicate member name; every function defined under one of these names is run below.
 STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members"}
+
+#: path -> number of functions defined there under a name of STRICT_HOOKS
+STRICT_HOOK_SITES = {
+    "src/proofbundle/_strict_json.py": 1,
+    "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
+    "docs/scitt/statement_identification/package/verify.py": 1,
+}
 
 #: The members of each library that do not decode. Everything else the library has is a decode reference.
 NOT_DECODING = {
@@ -316,6 +429,10 @@ def container_checks(source: str) -> list:
     return sorted(set(out))
 
 
+def _unlisted_hook_sites(hooks: list, sites: Mapping = STRICT_HOOK_SITES) -> list:
+    return sorted({rel for rel, _ in hooks} - set(sites))
+
+
 def _hook_definitions(source: str) -> list:
     return [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef) and n.name in STRICT_HOOKS]
 
@@ -370,35 +487,136 @@ def _measure(repo=REPO):
     return found, type_findings, hooks
 
 
-@_NUR_IM_CHECKOUT
-def test_every_lax_decode_reference_is_named_and_counted():
+@pytest.mark.parametrize("top", ROOTS + OUTSIDE)
+def test_each_directory_the_guard_names_is_present_or_not_shipped(top):
+    """In a checkout every root and every directory named outside the scope exists. In a distribution each one
+    exists exactly when MANIFEST.in promises it; one it does not promise is NOT MEASURED, by name."""
+    _directory_present_or_skip(top)
+
+
+@pytest.mark.parametrize("top", ROOTS + OUTSIDE)
+def test_in_the_package_states_what_the_distribution_promises(top):
+    assert _promised(top, directory=True) is (top in IN_THE_PACKAGE), top
+
+
+def test_no_lax_decode_reference_without_a_named_reason():
     found, _, _ = _measure()
     assert found, "the guard found no decode reference at all, so it measured nothing"
     new = {rel: s for rel, s in found.items() if rel not in EXCEPTIONS}
-    wrong = {rel: (len(s), EXCEPTIONS[rel][0]) for rel, s in found.items()
-             if rel in EXCEPTIONS and len(s) != EXCEPTIONS[rel][0]}
-    gone = sorted(set(EXCEPTIONS) - set(found))
     assert not new, f"lax decode references without a named reason, use a strict helper: {new}"
-    assert not wrong, f"the number of lax references changed, (found, listed): {wrong}"
-    assert not gone, f"listed exceptions with no reference left, remove them from EXCEPTIONS: {gone}"
 
 
-@_NUR_IM_CHECKOUT
+@pytest.mark.parametrize("rel", sorted(EXCEPTIONS))
+def test_every_listed_exception_has_exactly_its_count(rel):
+    _present_or_skip(rel)
+    found, listed = len(sites((REPO / rel).read_text(encoding="utf-8"))), EXCEPTIONS[rel][0]
+    assert found == listed, (f"the number of lax references in {rel} changed, (found, listed): ({found}, {listed}); "
+                             "a file with none left is removed from EXCEPTIONS")
+
+
 def test_behind_cbor2_every_container_check_holds_under_cbor2_5_and_6():
     _, type_findings, _ = _measure()
     assert not type_findings, ("list or dict behind cbor2 outside a call, an annotation and an isinstance with "
                                f"tuple or Mapping (cbor2 6 returns tuples and frozendicts under a tag): {type_findings}")
 
 
-@_NUR_IM_CHECKOUT
 def test_every_strict_hook_defined_in_the_scope_refuses_a_duplicate_member_name():
     _, _, hooks = _measure()
-    assert len(hooks) >= 3, f"the guard found {len(hooks)} strict hook definitions, so it measured too little"
+    assert hooks, "the guard found no strict hook definition at all, so it measured nothing"
+    unlisted = _unlisted_hook_sites(hooks)
+    assert not unlisted, f"strict hooks defined outside STRICT_HOOK_SITES, add them there: {unlisted}"
     for rel, node in hooks:
         refuses, result, uses_assert = hook_refuses_a_duplicate(node, rel)
         assert refuses, f"{rel}:{node.lineno} {node.name} does not refuse every duplicate member name"
         assert not uses_assert, f"{rel}:{node.lineno} {node.name} refuses with assert, which python -O removes"
         assert isinstance(result, Mapping) and dict(result) == dict(UNIQUE_PROBE), f"{rel}:{node.lineno} {node.name}"
+
+
+@pytest.mark.parametrize("rel", sorted(STRICT_HOOK_SITES))
+def test_every_listed_strict_hook_is_defined_where_it_is_listed(rel):
+    _present_or_skip(rel)
+    found = len(_hook_definitions((REPO / rel).read_text(encoding="utf-8")))
+    listed = STRICT_HOOK_SITES[rel]
+    assert found == listed, f"{rel} defines {found} strict hooks, STRICT_HOOK_SITES lists {listed}"
+
+
+_PYPROJECT = '[project]\nname = "planted"\n\n[tool.setuptools.packages.find]\nwhere = ["src"]\n'
+
+
+@pytest.mark.parametrize("in_checkout, manifest, rel, directory, verdict", [
+    # The full source tree: an absent path is a failure, whatever the template says.
+    (True, "prune tools\n", "tools/a.py", False, "FAIL"),
+    (True, "prune interop\n", "interop", True, "FAIL"),
+    # A distribution: a path its template promises and that is absent was lost.
+    (False, "graft tools\n", "tools/a.py", False, "FAIL"),
+    (False, "include scripts/a.py\n", "scripts/a.py", False, "FAIL"),
+    (False, "include scripts/a.py\n", "scripts", True, "FAIL"),
+    (False, "graft docs\n", "docs/scitt", True, "FAIL"),
+    (False, "recursive-include docs *.md\n", "docs/scitt", True, "FAIL"),
+    (False, "global-include *.py\n", "plugins", True, "FAIL"),
+    (False, "", "src/pkg/a.py", False, "FAIL"),
+    (False, "", "src", True, "FAIL"),
+    # ... and a path it does not promise is not shipped.
+    (False, "prune tools\n", "tools/a.py", False, "NOT MEASURED"),
+    (False, "include scripts/a.py\n", "scripts/b.py", False, "NOT MEASURED"),
+    (False, "graft docs/readiness_pack\n", "docs/scitt", True, "NOT MEASURED"),
+    (False, "include docs/x.md\n", "docs/scitt", True, "NOT MEASURED"),
+    (False, "prune interop\n", "interop", True, "NOT MEASURED"),
+    # Without a template there is no basis, and no basis stays loud.
+    (False, None, "tools/a.py", False, "FAIL"),
+    (False, None, "interop", True, "FAIL"),
+])
+def test_both_trees_an_absent_path_is_judged_by_where_it_is_missing(tmp_path, in_checkout, manifest, rel,
+                                                                    directory, verdict):
+    """The rule of the two trees on planted trees, so that both ways run in either tree: a path that really went
+    away from the full source tree still fails, and only a path the distribution never promised is NOT MEASURED."""
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    if manifest is not None:
+        (tmp_path / "MANIFEST.in").write_text(manifest, encoding="utf-8")
+    assert _absent(rel, repo=tmp_path, in_checkout=in_checkout, directory=directory)[0] == verdict
+
+
+def _outcome(call) -> str:
+    """MEASURED, FAIL or SKIP with the message. A skip is caught here as a value: raised out of a test, it would
+    turn that test into a skip, and a helper that skips where it should fail would pass unseen (measured with the
+    mutant that drops the fail branch of _present_or_skip)."""
+    try:
+        call()
+    except pytest.fail.Exception as exc:
+        return f"FAIL {exc}"
+    except pytest.skip.Exception as exc:
+        return f"SKIP {exc}"
+    return "MEASURED"
+
+
+def test_both_trees_a_present_path_is_measured_and_an_absent_one_is_failed_or_skipped(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    (tmp_path / "MANIFEST.in").write_text("include scripts/a.py\n", encoding="utf-8")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "a.py").write_text("", encoding="utf-8")
+    got = [_outcome(lambda: _present_or_skip("tools/a.py", repo=tmp_path, in_checkout=False)),
+           _outcome(lambda: _present_or_skip("tools", repo=tmp_path, in_checkout=False, directory=True)),
+           _outcome(lambda: _present_or_skip("scripts/a.py", repo=tmp_path, in_checkout=False)),
+           _outcome(lambda: _present_or_skip("interop", repo=tmp_path, in_checkout=False, directory=True)),
+           _outcome(lambda: _present_or_skip("interop", repo=tmp_path, in_checkout=True, directory=True))]
+    assert got[:2] == ["MEASURED", "MEASURED"]
+    assert got[2].startswith("FAIL ") and "promises it" in got[2], got[2]
+    assert got[3].startswith("SKIP NOT MEASURED: interop is not shipped"), got[3]
+    assert got[4].startswith("FAIL ") and "went away" in got[4], got[4]
+
+
+@pytest.mark.parametrize("in_checkout", [True, False])
+def test_a_root_not_in_the_tree_yet_is_not_measured_and_fails_once_it_lands(tmp_path, in_checkout):
+    not_yet = {"plugins": "planted reason"}
+    before = _outcome(lambda: _directory_present_or_skip("plugins", repo=tmp_path, in_checkout=in_checkout,
+                                                         not_yet=not_yet))
+    (tmp_path / "plugins").mkdir()
+    after = _outcome(lambda: _directory_present_or_skip("plugins", repo=tmp_path, in_checkout=in_checkout,
+                                                        not_yet=not_yet))
+    other = _outcome(lambda: _directory_present_or_skip("tools", repo=tmp_path, in_checkout=True, not_yet=not_yet))
+    assert before == "SKIP NOT MEASURED: plugins/ is not in this tree yet, planted reason", before
+    assert after.startswith("FAIL ") and "remove it from NOT_YET_IN_THE_TREE" in after, after
+    assert other.startswith("FAIL ") and "went away" in other, other
 
 
 def test_counter_probe_the_three_measurements_reach_a_planted_tree(tmp_path):
@@ -411,6 +629,8 @@ def test_counter_probe_the_three_measurements_reach_a_planted_tree(tmp_path):
     assert found == {"src/planted.py": [(3, "json.loads")]}
     assert type_findings == {"src/planted.py": [4]}
     assert [(rel, n.name) for rel, n in hooks] == [("src/planted.py", "_reject_duplicate_keys")]
+    assert _unlisted_hook_sites(hooks) == ["src/planted.py"]
+    assert _unlisted_hook_sites(hooks, {"src/planted.py": 1}) == []
     assert hook_refuses_a_duplicate(hooks[0][1], "planted")[0] is False
 
 
@@ -535,10 +755,9 @@ def test_counter_probe_a_hook_is_judged_by_what_it_does_not_by_its_name(source, 
     assert (got_refuses, got_assert) == (refuses, uses_assert)
 
 
-@_NUR_IM_CHECKOUT
-def test_the_docstring_names_the_directories_outside_the_scope_that_exist():
-    """The scope statement above is held: each directory it names as outside exists, and none of them is a root."""
+def test_the_docstring_names_the_directories_outside_the_scope():
+    """The scope statement above is held: it names each directory of OUTSIDE, and none of them is a root. That each
+    exists where it should is held by test_each_directory_the_guard_names_is_present_or_not_shipped."""
     for top in OUTSIDE:
         assert f"``{top}/``" in __doc__, top
-        assert (REPO / top).is_dir(), top
         assert top not in ROOTS
