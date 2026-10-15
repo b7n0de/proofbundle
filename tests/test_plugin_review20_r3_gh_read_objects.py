@@ -18,6 +18,7 @@ import shlex
 import pytest
 
 import test_plugin_ask_load_b_gh as b
+from _plugin_env import plugin_env
 
 pytestmark = b.pytestmark
 _clean = b._clean
@@ -52,7 +53,7 @@ def test_R20_3_a_write_to_the_file_a_link_names_keeps_the_gh_step_from_being_fre
     # the step changes exactly the file the profile reads: run alone, the profile then finds the pager
     with open(outside, "a", encoding="utf-8") as handle:
         handle.write(APPEND[name] + "\n")
-    assert b.gate._gh_config_problem(dict(os.environ)) is not None
+    assert b.gate._gh_config_problem(plugin_env()) is not None
 
 
 @pytest.mark.parametrize("host", ["claude", "codex"])
