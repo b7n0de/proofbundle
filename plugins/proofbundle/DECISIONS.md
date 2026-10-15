@@ -2531,3 +2531,73 @@ class a). Under Codex the command's environment may differ from the hook's (R5-2
 class b. A host gh reaches through the repository's remotes is the one gh's own configuration knows; how GitHub reads a
 GET it is sent, and an X-HTTP-Method-Override, is not measured (only Accept headers pass). A gh read form in a shell
 alias or function of the host's Bash tool is not seen.
+
+## D37. Codex 0.162.1: a patch without an environment line, and class a under Codex (Nachtrag 9, 2026-10-15)
+
+Milestone run 2 (Codex CLI 0.162.1, plugin d828c2be) had three calls denied: the chain `git status && git branch &&
+git remote -v` (git_form_not_free, directory_unresolved), `git -C <absolute path> status` (git_form_not_free), and an
+apply_patch on a file under src/ without `*** Environment ID:` (codex_write_unbound). Owner choice C (card
+OA-ea10af584e): measure both at the Codex 0.162.1 source and build only what it shows. Nothing is built; the gate is
+unchanged.
+
+MEASURED, read from the Codex source at tag rust-v0.162.1 (commit 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d), not run.
+Paths are under codex-rs/.
+- What the hook gets. Its stdin carries session_id, turn_id, agent_id and agent_type for a subagent,
+  transcript_path, cwd, hook_event_name, model, permission_mode, tool_name, tool_input and tool_use_id
+  (hooks/src/schema.rs lines 278-296): no environment id, no list of the turn's environments, no Codex version. The
+  hook process gets the Codex process environment as it stood when the session's hooks were built
+  (hooks/src/registry.rs line 79), then the handler's own values, for a plugin PLUGIN_ROOT, CLAUDE_PLUGIN_ROOT,
+  PLUGIN_DATA and CLAUDE_PLUGIN_DATA (hooks/src/engine/discovery.rs lines 262-270). CODEX_VERSION is put into a shell
+  tool's environment only (core/src/exec_env.rs lines 38-48).
+- The hook's cwd (core/src/hook_runtime.rs lines 247-253, core/src/environment_selection.rs lines 1196-1215): the cwd
+  of the first ready local environment of the turn, or the selection cwd of a starting `local`, else the turn's cwd.
+- A patch without an environment line (core/src/tools/handlers/mod.rs lines 172-173): the first ready environment of
+  the turn, in its order (core/src/environment_selection.rs lines 1113-1120 and 1158-1160). The patch is verified and
+  applied in that environment's filesystem against its selection cwd (core/src/tools/handlers/apply_patch.rs lines
+  330-346, core/src/session/turn_context.rs lines 209-211). Hook and handler run on the same invocation, so on the
+  same snapshot of the turn's environments (core/src/tools/registry.rs lines 609-615).
+- So the hook's cwd is the directory the patch acts in exactly when the first ready environment of the turn is the
+  local one. That holds in the default form: no CODEX_EXEC_SERVER_URL, no environments.toml in CODEX_HOME, no
+  environment a client adds or selects. The turn then has `local` only (exec-server/src/environment_provider.rs lines
+  77-108), and the apply_patch tool does not take an environment line (core/src/tools/spec_plan.rs lines 1344-1346,
+  apply_patch.rs lines 575-587). It does not hold when the first ready environment is a remote one: with
+  CODEX_EXEC_SERVER_URL set the turn has `remote` only and the hook's cwd is the turn's on the host (hook_runtime.rs
+  line 249, "Hooks run on the host"), by default the same path text on another machine; with environments.toml, or a
+  client that puts another environment first (exec-server/src/environment.rs lines 373-390; thread/start and
+  turn/start `environments`, environment/add); and in a turn whose local environment is not ready while another one
+  is.
+- Neither the version nor the form reaches the hook. No field names them; the environment the hook inherits is the
+  Codex process's, which a client's thread/start, turn/start or environment/add does not change; and `codex --version`
+  of a codex on the hook's PATH names a program on PATH, not the one that started the hook. The gh pin of D36 checks
+  the program the command itself starts; the caller here is not found through PATH.
+- exec_command, which the hook sees as Bash: tool_input is `{"command": cmd}` only
+  (core/src/tools/handlers/unified_exec/exec_command.rs lines 514-525). Not given to the hook: environment_id, workdir
+  (joined to the environment's cwd, lines 186-201), shell, login, sandbox_permissions and additional_permissions
+  (core/src/tools/handlers/unified_exec.rs lines 28-61). The command's environment is built for the command: the shell
+  environment policy over the Codex process environment (inherit all by default, protocol/src/config_types.rs lines
+  261-272, its `set` applied), values Codex sets (PAGER, GIT_PAGER and GH_PAGER `cat` among them,
+  core/src/unified_exec/process_manager.rs lines 93-104 and 1443-1460), and, with shell_snapshot on by default
+  (features/src/lib.rs lines 1059-1063), every export of the user's login shell, replayed before the command, after
+  which only the policy's `set` and Codex's own runtime names are exported again
+  (shell-command/src/shell_snapshot_exports.rs, core/src/tools/runtimes/mod.rs lines 351-372).
+
+Class a under Codex. Under Claude Code class a (D34) reads the directory from the hook's cwd and at most one literal
+`-C`, the GIT_* names, the pager and the configuration's includes from the hook's own environment, on the machine the
+hook runs on. Under Codex 0.162.1 the hook input lacks the execution environment of the call (every form), the workdir
+(a form without an absolute `-C`) and the command's environment (the policy's `set`, the login shell's exports).
+`git -C <absolute path> status` names its directory in its text; it lacks the environment it runs in and the
+environment variables git sees. `git remote`, a step of the chain, is no read form of class a under either host. Class a
+stays off under Codex (owner answer 10); a patch without an environment line stays codex_write_unbound.
+
+Not built (Nachtrag 9, point 5): the gate cannot tell the default form or the version from what it sees, so reading
+such a patch as bound to cwd would reach every form and version, which is wider than shown. Owner question N9-1 is
+open.
+
+Siblings. A shell command `apply_patch <<'EOF' …` is applied by Codex itself in the environment's cwd joined with the
+workdir (exec_command.rs lines 372-384); the gate sees a Bash call without a git or gh word and does not judge it (D8),
+as for any shell write (D27). Class b under Codex (D36) reads the gh profile from the hook's environment, while the
+command's environment carries the policy's `set` and the login shell's exports; answer 10 accepted that the two may
+differ, and the lines above are the path by which they do. Not changed here.
+
+Corpus rows of the three forms, a harmful counterpart and controls: measured on 62dcc7b0 and on this commit, under both
+hosts, with the same answers (archive of Nachtrag 9).
