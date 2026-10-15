@@ -1,8 +1,8 @@
 """The guard of the strict decoding class: no new lax JSON or CBOR decode site without a named reason.
 
 The strict decoding rule of this repository, stated here (since 2026-10-14): every reader of checked, signed or
-evidential bytes refuses duplicate keys, invalid encoding and bytes after the value, and a contract test finds a new
-decode site that bypasses the strict helpers.
+evidential bytes in the scope below refuses duplicate keys, invalid encoding and bytes after the value, and a contract
+test finds a new decode site that bypasses the strict helpers. Readers outside that scope are named at the end.
 
 WHAT IT READS. The Python source under ``src/``, ``plugins/``, ``tools/`` and ``docs/scitt/``, parsed with ``ast``.
 

@@ -1,4 +1,4 @@
-"""The strict reader of tools/scitt_ccf_external/pr31_strict_reader on all 36 receipts next to it.
+"""The strict reader of tools/scitt_ccf_external/pr31_strict_reader on all 66 receipts next to it.
 
 Pull request 31 to the CCF receipt profile requires a Verifier to reject a proof that is not valid CBOR, in particular
 one whose map has a duplicate key (commits eb01db3f and 820c5e4e), and a receipt whose vdp map is not valid CBOR or
@@ -70,8 +70,22 @@ def test_every_vector_gets_its_whole_strict_line(name):
     assert VECTORS[name]["strict_line"].split()[0] == VECTORS[name]["strict"]
 
 
+def _signs_deterministically() -> bool:
+    from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+
+    try:
+        ec.ECDSA(hashes.SHA256(), deterministic_signing=True)
+    except TypeError:
+        return False
+    return True
+
+
 def test_the_vectors_in_the_tree_are_those_the_generator_writes(tmp_path):
-    """make_vectors.py is deterministic (RFC 6979), so the files can be checked, not trusted."""
+    """make_vectors.py is deterministic (RFC 6979), so the files can be checked, not trusted. Deterministic ECDSA came
+    with cryptography 43.0.0; under the declared floor 42 no run can write the vectors, and the test says so."""
+    if not _signs_deterministically():
+        pytest.skip("NOT MEASURED: this cryptography has no deterministic ECDSA (added in 43.0.0)")
     GEN.main(["make_vectors.py", str(tmp_path)])
     written = sorted(p.name for p in tmp_path.iterdir())
     assert written == sorted(p.name for p in (HERE / "vectors").iterdir())
@@ -132,6 +146,22 @@ def test_counter_probe_with_labels_read_as_python_values_the_label_cases_pass(mo
         assert _vector(name) == VECTORS["vdp_twin"]["strict_line"], name
 
 
+@pytest.mark.parametrize("major, n, head", [
+    (0, 0, "00"), (0, 23, "17"), (0, 24, "1818"), (0, 255, "18ff"), (0, 256, "190100"), (0, 65535, "19ffff"),
+    (0, 65536, "1a00010000"), (0, 2**32 - 1, "1affffffff"), (0, 2**32, "1b0000000100000000"),
+    (0, 2**64 - 1, "1bffffffffffffffff"), (2, 24, "5818"), (3, 10, "6a"), (4, 4, "84"),
+])
+def test_the_signed_structure_writes_every_head_width(major, n, head):
+    """RFC 8949 Section 3: an argument below 24 sits in the initial byte, larger ones follow in one, two, four or eight
+    bytes. The table is written from the RFC, not from a run; a protected header of 24 or of 65 536 bytes needs them."""
+    assert READER._head(major, n) == bytes.fromhex(head)
+
+
+def test_an_argument_beyond_64_bits_has_no_head():
+    with pytest.raises(ValueError):
+        READER._head(0, 2**64)
+
+
 def _statement(tag: bytes, array_head: bytes, unprotected: bytes) -> tuple:
     prot = GEN.bs(GEN.cmap([(GEN.uint(1), GEN.uint(-7))]))
     payload, signature = GEN.bs(b"payload"), GEN.bs(b"\x00" * 64)
@@ -175,13 +205,15 @@ def test_a_key_set_of_another_form_is_a_fail_line_not_an_exception(keys, line):
 
 
 def _keyset(kty: bytes = b"\x02", crv: bytes = b"\x02", kty_label: bytes = b"\x01", crv_label: bytes = b"\x20",
-            x: bytes | None = None, y: bytes | None = None) -> bytes:
+            x: bytes | None = None, y: bytes | None = None, kid: bool = True, x_item: bytes | None = None,
+            y_item: bytes | None = None) -> bytes:
     """The test key set of make_vectors.py with one label, value or coordinate written as another data item."""
     pn = GEN.SK.public_key().public_numbers()
     x = pn.x.to_bytes(48, "big") if x is None else x
     y = pn.y.to_bytes(48, "big") if y is None else y
-    return GEN.arr([GEN.cmap([(kty_label, kty), (GEN.uint(2), GEN.bs(GEN.KID)), (crv_label, crv),
-                              (GEN.uint(-2), GEN.bs(x)), (GEN.uint(-3), GEN.bs(y))])])
+    return GEN.arr([GEN.cmap([(kty_label, kty)] + ([(GEN.uint(2), GEN.bs(GEN.KID))] if kid else [])
+                             + [(crv_label, crv), (GEN.uint(-2), x_item or GEN.bs(x)),
+                                (GEN.uint(-3), y_item or GEN.bs(y))])])
 
 
 @pytest.mark.parametrize("keys, line", [
@@ -193,12 +225,31 @@ def _keyset(kty: bytes = b"\x02", crv: bytes = b"\x02", kty_label: bytes = b"\x0
     (_keyset(y=b"\x01" * 48), "FAIL keys"),
     (_keyset(x=b"", y=b""), "FAIL keys"),
     (_keyset(x=b"\x00" * 48, y=b"\x00" * 48), "FAIL keys"),
+    (_keyset(x_item=GEN.ts(b"x")), "FAIL keys"),
+    (_keyset(y_item=GEN.uint(5)), "FAIL keys"),
+    (_keyset(kid=False), None),
 ])
 def test_a_key_whose_type_or_curve_is_not_an_integer_is_refused(keys, line):
     """A complete key, so the only difference is the data item: 2.0 for the key type EC2 or the curve P-384, true for
-    the label 1, -1.0 for the label -1. The first row is the control and verifies."""
+    the label 1, -1.0 for the label -1, a text or an integer for a coordinate. The first row is the control and
+    verifies; a key without kid verifies too, because the receipt's kid selects among keys only where keys carry one."""
     receipt = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
     got = READER.verdict(receipt, keys, digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"]))
+    assert got == (line or VECTORS["vdp_twin"]["strict_line"])
+
+
+@pytest.mark.parametrize("zeros, line", [(0, None), (1, "FAIL signature"), (2, "FAIL signature")])
+def test_a_signature_longer_than_the_curve_is_refused_where_r_and_s_still_read_right(zeros, line):
+    """RFC 9053 Section 2.1 fixes the length of r and of s. Zero bytes between r and s leave both numbers intact when
+    the signature is cut at the length of the curve, so only the length check refuses these receipts; signature_padded,
+    with a zero byte in front of each, would fail on its numbers as well. No key is needed: the bytes of vdp_twin are
+    rewritten, and zeros=0 is the control that rewrites them unchanged."""
+    raw = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
+    assert raw[-98:-96] == b"\x58\x60"
+    sig = raw[-96:]
+    longer = raw[:-98] + GEN.bs(sig[:48] + b"\x00" * zeros + sig[48:])
+    got = READER.verdict(longer, (HERE / "vectors" / "keys.cbor").read_bytes(),
+                         digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"]))
     assert got == (line or VECTORS["vdp_twin"]["strict_line"])
 
 
@@ -225,8 +276,10 @@ def test_a_reason_that_quotes_a_text_key_reaches_an_ascii_stream(tmp_path):
     import sys  # noqa: PLC0415
 
     dup = GEN.proof([(GEN.ts("\u00e9".encode()), GEN.uint(1)), (GEN.ts("\u00e9".encode()), GEN.uint(2))])
+    unprotected = GEN.cmap([(GEN.uint(396), GEN.cmap([GEN.inclusion(dup)]))])
     rec = tmp_path / "dup_text_key.cose"
-    rec.write_bytes(GEN.receipt([GEN.inclusion(dup)], GEN.root()))
+    # No signature is needed: the duplicate key is refused before any signature is checked.
+    rec.write_bytes(b"\xd2" + GEN.arr([GEN.bs(GEN.protected()), unprotected, b"\xf6", GEN.bs(b"\x00" * 96)]))
     r = subprocess.run([sys.executable, str(HERE / "reader.py"), str(rec), str(HERE / "vectors" / "keys.cbor"),
                         "--digest", VECTORS["vdp_twin"]["data_hash_hex"]], capture_output=True, cwd=tmp_path,
                        env={"PATH": "/usr/bin:/bin", "PYTHONIOENCODING": "ascii"}, timeout=120)

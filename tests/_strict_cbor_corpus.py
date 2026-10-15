@@ -30,6 +30,12 @@ VALID = {
     "map_bytes_key": ("a1410100", {b"\x01": 0}),
     "map_indefinite": ("bf0102ff", {1: 2}),
     "bytes_indefinite_chunks_not_utf8": ("5f41ff42ffffff", b"\xff\xff\xff"),
+    "map_two_bytes_keys": ("a2410100410200", {b"\x01": 0, b"\x02": 0}),
+    "map_null_key": ("a1f601", {None: 1}),
+    "head_23_in_the_initial_byte": ("17", 23),
+    "head_four_bytes": ("1affffffff", 4294967295),
+    "head_eight_bytes": ("1b0000000100000000", 4294967296),
+    "negative_ten": ("29", -10),
 }
 
 #: name -> hex
@@ -66,6 +72,11 @@ INVALID = {
     "additional_info_29_major_5": "bd",
     "additional_info_30_major_6": "de",
     "additional_info_28_major_7": "fc",
+    # The same heads followed by what would be a valid indefinite body: a reader that reads 28 to 30 as 31 accepts these.
+    "additional_info_29_text_before_chunks": "7d656b6579c3bcff",
+    "additional_info_29_bytes_before_chunks": "5d4100ff",
+    "additional_info_29_array_before_items": "9d00ff",
+    "additional_info_29_map_before_pairs": "bd0000ff",
     "simple_value_two_byte_below_32": "f814",
     "simple_value_two_byte_31": "f81f",
     "string_too_short": "4561",

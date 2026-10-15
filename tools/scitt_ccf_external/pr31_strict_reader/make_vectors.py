@@ -32,7 +32,8 @@ Every vector carries ``strict_line``, the whole line this reader must print, der
 and RFC 9052, not from a run of the reader.
 
 The key is the fixed TEST key of the separate probe generator, which is not in this tree (a constant, no secret). Signatures are deterministic ECDSA
-(RFC 6979), so running this again writes the same bytes. Standard library and ``cryptography`` only; no cbor2, and
+(RFC 6979), so running this again writes the same bytes. Standard library and ``cryptography`` 43 or later only
+(deterministic ECDSA came with 43.0.0); no cbor2, and
 the duplicate keys are written byte by byte because no encoder writes them.
 
 Usage: make_vectors.py [OUTPUT DIRECTORY]   (default: vectors/ next to this file)

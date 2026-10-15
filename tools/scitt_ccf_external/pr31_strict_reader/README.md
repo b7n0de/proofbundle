@@ -206,7 +206,8 @@ From the repository root:
         --digest b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52
     python3 tools/scitt_ccf_external/pr31_strict_reader/make_vectors.py   # writes vectors/ again, byte for byte
 
-`make_vectors.py` needs only the standard library and `cryptography`. Its signatures are deterministic (RFC 6979), so
+`make_vectors.py` needs only the standard library and `cryptography` 43 or later, the first release with
+deterministic ECDSA. The package itself declares 42 as its floor. Its signatures are deterministic (RFC 6979), so
 a second run writes the same bytes. `tests/test_pr31_strict_reader.py` runs this reader on all 66 receipts. It holds
 the verdict of each probe, the whole line of each vector and the reasons of five probes, it checks that
 `make_vectors.py` writes the files in `vectors/` byte for byte, and it runs `reader.py` as a script as shown above.

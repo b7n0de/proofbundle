@@ -95,6 +95,36 @@ def test_every_reader_refuses_invalid_cbor(reader, case):
         read(bytes.fromhex(INVALID[case]))
 
 
+#: The nesting limit of each reader: how many containers around the innermost item it still reads (measured
+#: 2026-10-15 under cbor2 5.9.0 and 6.1.4 and without cbor2, the same for every kind below).
+DEPTH_LIMITS = {"strict_cbor": 64, "cbor_min": 64, "statement_package": 16}
+#: kind -> the data item with d containers around a 0. Tag 6 is unassigned, so cbor2 reads it as a plain tag.
+NESTINGS = {
+    "array": lambda d: b"\x81" * d + b"\x00",
+    "indefinite_array": lambda d: b"\x9f" * d + b"\x00" + b"\xff" * d,
+    "map_value": lambda d: b"\xa1\x00" * d + b"\x00",
+    "indefinite_map_value": lambda d: b"\xbf\x00" * d + b"\x00" + b"\xff" * d,
+    "tag": lambda d: b"\xc6" * d + b"\x00",
+    "tag_in_array": lambda d: b"\x81\xc6" * (d // 2) + b"\x81" * (d % 2) + b"\x00",
+}
+
+
+def test_every_reader_names_its_depth_limit():
+    assert set(DEPTH_LIMITS) >= set(READERS)
+
+
+@pytest.mark.parametrize("reader", sorted(READERS))
+@pytest.mark.parametrize("kind", sorted(NESTINGS))
+def test_every_reader_reads_its_depth_limit_and_refuses_one_more(reader, kind):
+    """The corpus holds cases far beyond the limit; a reader that counts one kind of container twice, or not at all,
+    or starts one off, still refuses those. At the limit and one beyond, each of these turns a verdict."""
+    read, errors = READERS[reader]
+    build, limit = NESTINGS[kind], DEPTH_LIMITS[reader]
+    read(build(limit))
+    with pytest.raises(errors):
+        read(build(limit + 1))
+
+
 def test_the_reason_names_the_duplicate_key_and_its_offset():
     with pytest.raises(CborInvalid) as exc:
         loads_strict_cbor(bytes.fromhex("a2014161014162"))
@@ -289,6 +319,7 @@ def test_a_cut_item_is_refused_where_it_is_cut_not_by_the_end_check(hx, strict_r
     ("ff", "outside an indefinite container"),
     ("a1c00101", "is not an integer, a text string or a byte string"),
     ("a1810101", "is not an integer, a text string or a byte string"),
+    ("f0", "simple/float 16"),
 ])
 def test_cbor_min_names_a_break_alone_and_a_key_it_does_not_represent(hx, words):
     with pytest.raises(ValueError, match=words):
@@ -309,15 +340,26 @@ def test_the_package_checker_never_lets_cbor2_merge_two_pairs_into_one():
         assert len(cbor2.loads(data)) == 2, hx
 
 
+@pytest.mark.parametrize("hx", ["5f", "42ff", "5fbff6a1fb7f", "19ff", "830102", "a201", "7f6461626364"])
+def test_the_package_checker_refuses_a_cut_item_itself(hx):
+    """Through the shared corpus a refusal by cbor2 counts as well; here the pre-scan must name the cut itself, so the
+    bytes never reach cbor2 unchecked."""
+    pytest.importorskip("cbor2")
+    with pytest.raises(_PACKAGE.Malformed):
+        _PACKAGE.item_end(bytes.fromhex(hx), 0)
+
+
 def test_one_item_from_an_offset_and_its_end():
     data = bytes.fromhex("01" + "a1014161" + "02")
     assert load_item_strict(data, 1) == ({1: b"a"}, 5)
 
 
+@pytest.mark.parametrize("hx", ["a1014161", "a1014161f6"])
 @pytest.mark.parametrize("offset", [-1, 7, True])
-def test_an_offset_outside_the_input_is_refused(offset):
+def test_an_offset_outside_the_input_is_refused(hx, offset):
+    """The second input ends in f6, a whole data item on its own, so a reader that counts -1 from the end reads it."""
     with pytest.raises(CborInvalid):
-        load_item_strict(bytes.fromhex("a1014161"), offset)
+        load_item_strict(bytes.fromhex(hx), offset)
 
 
 @pytest.mark.parametrize("given", ["a0", ["a0"], None])
