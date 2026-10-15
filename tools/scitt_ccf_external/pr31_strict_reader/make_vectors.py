@@ -295,7 +295,10 @@ def vectors() -> dict:
             ("form_five_elements", receipt([inclusion(good)], root(), extra=[b"\xf6"]), "FAIL struct"),
             ("form_unprotected_not_a_map", receipt([], root(), unprotected=bs(b"\xa0")), "FAIL struct"),
             ("form_protected_not_a_map", receipt([inclusion(good)], root(), prot=arr([uint(1)])), "FAIL protected"),
-            ("form_vdp_without_inclusion", receipt([(uint(-2), arr([bs(b"\xa0")]))], root()), "FAIL vdp"),
+            # Its one consistency proof is the empty map, so the schema of verifiable-proofs refuses it before
+            # the reader's own rule that a receipt it reads carries inclusion proofs.
+            ("form_vdp_without_inclusion", receipt([(uint(-2), arr([bs(b"\xa0")]))], root()),
+             "FAIL consistency_keys"),
             ("form_proof_not_a_map", receipt([inclusion(arr([leaf(), path(PATH_A)]))], root()), "FAIL vdp_map")):
         v[name] = (rec, DH, None, {"strict": "FAIL", "strict_line": line, "twin": "vdp_twin"})
     # The empty map in the data-hash preimage, written as a0, b8 00 and bf ff.

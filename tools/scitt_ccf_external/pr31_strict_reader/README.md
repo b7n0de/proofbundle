@@ -39,9 +39,11 @@ indefinite text string is refused, because RFC 8949 Section 3.2.3 makes the stri
 A label is an integer or a text string (RFC 9052 Section 1.4), and an integer is an integer. In Python, `1.0 == 1` and
 `True == 1` with the same hash, so a reader that looks labels up as Python values reads a proof map with the key 1.0
 as one with the key 1. This reader refuses a header map, the `vdp` map, a proof map or a key whose labels are other
-data items, and an algorithm, a VDS or a key type given as a float. A key set whose point is not on its curve is a
-`FAIL keys` line, not an error. A signature is r and s, each in exactly the byte length of the curve (RFC 9053 Section
-2.1); a signature of another length, such as one with a zero byte in front of r and s, is refused.
+data items, and an algorithm, a VDS or a key type given as a float. A key set whose point is not on its curve, whose
+coordinate is not exactly the byte length of the curve (RFC 9053 Section 7.1.1), or whose kid is not a byte string is
+a `FAIL keys` line, not an error. A receipt whose kid is not a byte string (RFC 9052 Section 3.1) is `FAIL kid`. A
+signature is r and s, each in exactly the byte length of the curve (RFC 9053 Section 2.1); a signature of another
+length, such as one with a zero byte in front of r and s, is refused.
 
 ## What it is not
 
@@ -49,8 +51,10 @@ data items, and an algorithm, a VDS or a key type given as a float. A key set wh
 - The verdicts below hold for these receipts and these named versions only.
 - A `PASS` says that the inclusion proofs of the receipt verify under the named key for the named data hash. It does
   not say that the statement is true or that the ledger is honest.
-- Consistency proofs under the `vdp` label -2 are checked for their form only: each is a byte string that holds one
-  valid CBOR map. They are not computed, and a `PASS` says nothing about them.
+- It is an inclusion reader. Consistency proofs under the `vdp` label -2 are checked for their form only, against their
+  schema in Section 4 of the profile: a closed map of exactly an `anchor` of 32 bytes and a non-empty `path` of
+  elements that are each a boolean and a hash of 32 bytes. They are not computed, because that needs an older root the
+  verifier already trusts, and a `PASS` says nothing about them.
 
 ## The probes, `probes/`
 
@@ -156,7 +160,7 @@ The three readers:
 | form_protected_not_a_map | FAIL | FAIL protected | FAIL header | FAIL vds | FAIL struct |
 | form_tag_17 | FAIL | FAIL tag | FAIL cbor | FAIL tag | FAIL tag |
 | form_unprotected_not_a_map | FAIL | FAIL struct | FAIL cbor | FAIL struct | FAIL struct |
-| form_vdp_without_inclusion | FAIL | FAIL vdp | FAIL proof | FAIL vdp | FAIL struct |
+| form_vdp_without_inclusion | FAIL | FAIL consistency_keys | FAIL proof | FAIL vdp | FAIL struct |
 | its_33 | FAIL | FAIL leaf_hash | FAIL proof | FAIL leaf_hash | FAIL struct |
 | label_leaf_float_1_0 | FAIL | FAIL proof_keys | FAIL proof | PASS | FAIL struct |
 | label_leaf_true | FAIL | FAIL proof_keys | FAIL proof | PASS | FAIL struct |

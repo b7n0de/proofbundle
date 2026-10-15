@@ -212,7 +212,7 @@
   "receipt_sha256": "2f9a6c9a007c8cdb0780ae16924e8b88109e8776a3ed5d63a3aced71778840db",
   "statement": null,
   "strict": "FAIL",
-  "strict_line": "FAIL vdp",
+  "strict_line": "FAIL consistency_keys",
   "twin": "vdp_twin"
  },
  "its_33": {

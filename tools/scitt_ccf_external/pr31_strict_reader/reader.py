@@ -8,6 +8,10 @@ header, the vdp map and each proof. A duplicate map key, an encoding that is not
 and bytes after an item are refused before any algorithm runs. A head that is not the shortest and an indefinite
 length are valid CBOR and are read.
 
+It is an inclusion reader. The whole vdp map must match ``verifiable-proofs`` before any root is computed, so each
+consistency proof is held to its schema too (Section 4 of the profile at 820c5e4e), but no consistency root is computed:
+``compute_roots`` needs an older root the verifier already trusts, and a receipt does not carry it.
+
 A label is an integer or a text string (RFC 9052 Section 1.4, ``label = int / tstr``), and an integer is an integer:
 a key or value 1.0 or ``true`` equals 1 in Python but is a different CBOR data item, so a header map, the vdp map, a
 proof map or a key holding one is refused instead of being read as the integer.
@@ -94,7 +98,11 @@ def statement_digest(raw: bytes) -> bytes:
     if not (isinstance(top, Tag) and top.number == 18):
         raise Fail("statement_tag")
     body = top.value
-    if not (isinstance(body, list) and len(body) == 4 and isinstance(body[1], dict)):
+    # COSE_Sign1 (RFC 9052 Section 4.2): a protected header in a byte string, an unprotected map, a payload that is a
+    # byte string or nil, and a signature in a byte string. Every element is checked, not only the one this reader
+    # replaces.
+    if not (isinstance(body, list) and len(body) == 4 and isinstance(body[0], bytes) and isinstance(body[1], dict)
+            and (body[2] is None or isinstance(body[2], bytes)) and isinstance(body[3], bytes)):
         raise Fail("statement_struct")
     i = _skip_head(raw, _skip_head(raw, 0))
     spans = []
@@ -126,7 +134,12 @@ def read_keys(raw: bytes) -> list:
                 and _int(k.get(-1)) and k.get(-1) in CURVES):
             raise Fail("keys")
         x, y = k.get(-2), k.get(-3)
-        if not (isinstance(x, bytes) and isinstance(y, bytes)):
+        n = (CURVES[k[-1]].key_size + 7) // 8
+        # RFC 9053 Section 7.1.1: x and y keep their leading zero bytes, so each is exactly the byte length of the
+        # curve, as r and s are in a signature. A kid is a byte string (RFC 9052 Section 7.1), like the one it meets.
+        if not (isinstance(x, bytes) and isinstance(y, bytes) and len(x) == len(y) == n):
+            raise Fail("keys")
+        if 2 in k and not isinstance(k[2], bytes):
             raise Fail("keys")
         numbers = ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"), CURVES[k[-1]]())
         try:
@@ -139,9 +152,31 @@ def read_keys(raw: bytes) -> list:
     return out
 
 
+def _proof_element(el) -> bool:
+    """ccf-proof-element: an array of exactly a boolean and a byte string of 32 bytes."""
+    return (isinstance(el, list) and len(el) == 2 and type(el[0]) is bool and isinstance(el[1], bytes)
+            and len(el[1]) == 32)
+
+
+def _check_consistency(m: dict) -> None:
+    """One ccf-consistency-proof against its schema, Section 4 of the profile at 820c5e4e: a closed map of exactly
+    anchor (1), a byte string of 32 bytes, and path (2), a non-empty array of ccf-proof-element. The form only; no
+    consistency root is computed (see the module docstring)."""
+    if not all(_int(k) for k in m) or set(m) != {1, 2}:
+        raise Fail("consistency_keys")
+    anchor, path = m[1], m[2]
+    if not (isinstance(anchor, bytes) and len(anchor) == 32):
+        raise Fail("consistency_anchor")
+    if not (isinstance(path, list) and path):
+        raise Fail("consistency_path")
+    if not all(_proof_element(el) for el in path):
+        raise Fail("consistency_path_el")
+
+
 def _check_vdp(unprotected: dict) -> dict:
-    """The whole vdp map before any algorithm: only -1 and -2, each a non-empty array of byte strings that are each
-    one valid CBOR map (f6d4eb04). A broken entry refuses the receipt even if no algorithm would read it."""
+    """The whole vdp map before any algorithm (f6d4eb04): only -1 and -2, each a non-empty array of byte strings that
+    are each one valid CBOR map, and each consistency proof against its full schema. A broken entry refuses the receipt
+    even if no algorithm would read it. Each inclusion proof is held to its schema in check(), before its root."""
     vdp = unprotected.get(VDP)
     if not isinstance(vdp, dict):
         raise Fail("vdp")
@@ -156,8 +191,11 @@ def _check_vdp(unprotected: dict) -> dict:
         for p in entries:
             if not isinstance(p, bytes):
                 raise Fail("vdp_type")
-            if not isinstance(strict(p, "proof"), dict):
+            m = strict(p, "proof")
+            if not isinstance(m, dict):
                 raise Fail("vdp_map")
+            if label == CONSISTENCY:
+                _check_consistency(m)
     return vdp
 
 
@@ -185,6 +223,8 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
     alg = protected.get(1)
     if not (_int(alg) and alg in ALGS):
         raise Fail("alg")
+    if 4 in protected and not isinstance(protected[4], bytes):
+        raise Fail("kid")                 # RFC 9052 Section 3.1: the kid header parameter is a byte string
     if payload is not None:
         raise Fail("payload")
     if INCLUSION not in vdp:
@@ -207,10 +247,8 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
             raise Fail("evidence_len")
         if not (isinstance(path, list) and path):
             raise Fail("path")
-        for el in path:
-            if not (isinstance(el, list) and len(el) == 2 and type(el[0]) is bool
-                    and isinstance(el[1], bytes) and len(el[1]) == 32):
-                raise Fail("path_el")
+        if not all(_proof_element(el) for el in path):
+            raise Fail("path_el")
         if data_hash != digest:
             raise Fail("digest_mismatch")
         h = H(its + H(evidence_bytes) + data_hash)

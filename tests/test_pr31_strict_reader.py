@@ -302,6 +302,174 @@ def test_the_command_line_prints_the_line_and_exits_2_when_a_file_cannot_be_read
     assert READER.main([str(tmp_path / "missing.cose"), str(keys), "--digest", digest]) == 2
 
 
+def _beside_the_inclusion_proof(*pairs: tuple) -> bytes:
+    """vdp_twin with these vdp pairs added next to its inclusion proof, only in the unprotected header: the protected
+    header, the payload and the signature stay the same bytes, so no key is needed (the form of review round 21)."""
+    raw = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
+    before = READER.strict(raw, "receipt").value
+    i = READER._skip_head(raw, READER._skip_head(raw, 0))
+    _, start = READER.load_item_strict(raw, i)
+    _, end = READER.load_item_strict(raw, start)
+    vdp = GEN.cmap([GEN.inclusion(*before[1][READER.VDP][READER.INCLUSION]), *pairs])
+    changed = raw[:start] + GEN.cmap([(GEN.uint(READER.VDP), vdp)]) + raw[end:]
+    after = READER.strict(changed, "receipt").value
+    assert (before[0], before[2], before[3]) == (after[0], after[2], after[3])
+    return changed
+
+
+_A, _H = b"\x11" * 32, b"\x22" * 32
+_PATH = GEN.path([(True, _H), (False, _H)])
+
+
+def _consistency(*entries: bytes) -> bytes:
+    """A consistency-proof array of byte strings, each wrapping the given CBOR item."""
+    return _beside_the_inclusion_proof((GEN.uint(READER.CONSISTENCY), GEN.arr([GEN.bs(e) for e in entries])))
+
+
+@pytest.mark.parametrize("name, entry, line", [
+    # The five forms review round 21 measured as PASS (R21-1): an empty map, no anchor, an anchor of no bytes, an empty
+    # path and the integer 7 as path.
+    ("empty_map", b"\xa0", "FAIL consistency_keys"),
+    ("missing_anchor", GEN.cmap([(GEN.uint(2), _PATH)]), "FAIL consistency_keys"),
+    ("anchor_zero_bytes", GEN.cmap([(GEN.uint(1), GEN.bs(b"")), (GEN.uint(2), _PATH)]), "FAIL consistency_anchor"),
+    ("empty_path", GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), GEN.arr([]))]), "FAIL consistency_path"),
+    ("path_integer_7", GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), GEN.uint(7))]), "FAIL consistency_path"),
+    # The forms of the invalid cddl samples of the profile repository at 820c5e4e, written here from their description.
+    ("anchor_31_bytes", GEN.cmap([(GEN.uint(1), GEN.bs(_A[:31])), (GEN.uint(2), _PATH)]), "FAIL consistency_anchor"),
+    ("anchor_33_bytes", GEN.cmap([(GEN.uint(1), GEN.bs(_A + b"\x11")), (GEN.uint(2), _PATH)]),
+     "FAIL consistency_anchor"),
+    ("anchor_text", GEN.cmap([(GEN.uint(1), GEN.ts(b"a" * 32)), (GEN.uint(2), _PATH)]), "FAIL consistency_anchor"),
+    ("element_hash_33_bytes", GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), GEN.path([(True, _H + b"\x22")]))]),
+     "FAIL consistency_path_el"),
+    ("element_three_items", GEN.cmap([(GEN.uint(1), GEN.bs(_A)),
+                                      (GEN.uint(2), GEN.arr([GEN.arr([b"\xf5", GEN.bs(_H), GEN.bs(_H)])]))]),
+     "FAIL consistency_path_el"),
+    ("element_as_map", GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), GEN.arr([
+        GEN.cmap([(GEN.uint(1), b"\xf5"), (GEN.uint(2), GEN.bs(_H))])]))]), "FAIL consistency_path_el"),
+    ("left_not_bool", GEN.cmap([(GEN.uint(1), GEN.bs(_A)),
+                                (GEN.uint(2), GEN.arr([GEN.arr([GEN.uint(1), GEN.bs(_H)])]))]),
+     "FAIL consistency_path_el"),
+    ("missing_path", GEN.cmap([(GEN.uint(1), GEN.bs(_A))]), "FAIL consistency_keys"),
+    ("unknown_key_3", GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), _PATH), (GEN.uint(3), GEN.uint(0))]),
+     "FAIL consistency_keys"),
+    ("text_keys", GEN.cmap([(GEN.ts(b"anchor"), GEN.bs(_A)), (GEN.ts(b"path"), _PATH)]), "FAIL consistency_keys"),
+    ("array_not_map", GEN.arr([GEN.bs(_A), _PATH]), "FAIL vdp_map"),
+    ("double_bstr_wrapped", GEN.bs(GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), _PATH)])), "FAIL vdp_map"),
+])
+def test_a_consistency_proof_beside_a_valid_inclusion_proof_is_held_to_its_schema(name, entry, line):
+    """Section 5 of the profile at 820c5e4e: the whole vdp map matches verifiable-proofs before either algorithm, and a
+    consistency proof is a closed map of an anchor of 32 bytes and a non-empty path of proof elements (Section 4). The
+    reader computes no consistency root; the form is checked all the same. Nothing signed changes in these receipts,
+    so without the check each one printed the PASS line of vdp_twin."""
+    assert READER.verdict(_consistency(entry), (HERE / "vectors" / "keys.cbor").read_bytes(),
+                          digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"])) == line
+
+
+def test_a_consistency_proof_that_is_not_a_byte_string_is_refused():
+    """The not-bstr-wrapped sample: the map itself where the byte string wrapping it belongs."""
+    receipt = _beside_the_inclusion_proof(
+        (GEN.uint(READER.CONSISTENCY), GEN.arr([GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), _PATH)])])))
+    assert READER.verdict(receipt, (HERE / "vectors" / "keys.cbor").read_bytes(),
+                          digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"])) == "FAIL vdp_type"
+
+
+@pytest.mark.parametrize("entries", [
+    [GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), _PATH)])],
+    [GEN.cmap([(GEN.uint(2), GEN.path([(False, _H)])), (GEN.uint(1), GEN.bs(_A))])],
+    [GEN.cmap([(GEN.uint(1), GEN.bs(_A)), (GEN.uint(2), _PATH)]),
+     GEN.cmap([(GEN.uint(1), GEN.bs(_H)), (GEN.uint(2), GEN.path([(True, _A)] * 17))])],
+])
+def test_control_a_consistency_proof_of_the_right_form_leaves_the_verdict_of_the_twin(entries):
+    """A structurally valid mixed receipt: the inclusion proof decides, and the line is the PASS line of vdp_twin."""
+    twin = VECTORS["vdp_twin"]
+    assert READER.verdict(_consistency(*entries), (HERE / "vectors" / "keys.cbor").read_bytes(),
+                          digest=bytes.fromhex(twin["data_hash_hex"])) == twin["strict_line"]
+
+
+@pytest.mark.parametrize("element, ok", [(0, False), (2, False), (3, False), (None, True)])
+def test_every_element_of_the_statement_has_its_cose_sign1_form(element, ok):
+    """A sibling of R21-1 found by the same search: the statement is a COSE_Sign1 (RFC 9052 Section 4.2), so its
+    protected header and signature are byte strings and its payload is a byte string or nil, not only its second
+    element a map. None is the control, with a nil payload."""
+    items = [GEN.bs(b"\xa0"), b"\xa0", GEN.bs(b"payload"), GEN.bs(b"\x00" * 64)]
+    if element is not None:
+        items[element] = GEN.uint(7)
+    else:
+        items[2] = b"\xf6"
+    raw = b"\xd2" + GEN.arr(items)
+    if ok:
+        assert len(READER.statement_digest(raw)) == 32
+    else:
+        with pytest.raises(READER.Fail) as exc:
+            READER.statement_digest(raw)
+        assert str(exc.value) == "statement_struct"
+
+
+def _signed(kid_item: bytes | None) -> bytes:
+    """The receipt of vdp_twin signed again under a protected header whose kid is this data item, or that has none."""
+    prot = GEN.cmap([(b"\x01", b"\x38\x22")] + ([] if kid_item is None else [(GEN.uint(4), kid_item)])
+                    + [(GEN.uint(395), b"\x02")])
+    good = GEN.proof([(GEN.uint(1), GEN.leaf()), (GEN.uint(2), GEN.path(GEN.PATH_A))])
+    return GEN.receipt([GEN.inclusion(good)], GEN.root(), prot=prot)
+
+
+@pytest.mark.skipif(not _signs_deterministically(), reason="NOT MEASURED: cryptography before 43 signs at random")
+@pytest.mark.parametrize("kid_item, keys, line", [
+    # A kid that is not a byte string (RFC 9052 Section 3.1), against a key set without kid, so that before this
+    # check every key was a candidate and the receipt passed.
+    (GEN.ts(GEN.KID), _keyset(kid=False), "FAIL kid"),
+    (GEN.uint(7), _keyset(kid=False), "FAIL kid"),
+    (b"\xf6", _keyset(kid=False), "FAIL kid"),
+    (GEN.ts(GEN.KID), _keyset(), "FAIL kid"),
+    # Controls: a kid that is a byte string, and no kid at all, against both key sets.
+    (GEN.bs(GEN.KID), _keyset(), None),
+    (GEN.bs(GEN.KID), _keyset(kid=False), None),
+    (None, _keyset(), None),
+    (None, _keyset(kid=False), None),
+])
+def test_a_kid_that_is_not_a_byte_string_is_refused(kid_item, keys, line):
+    got = READER.verdict(_signed(kid_item), keys, digest=GEN.DH)
+    assert got.startswith("PASS ") if line is None else got == line
+
+
+def _padded(coordinate: bytes) -> bytes:
+    return b"\x00" + coordinate
+
+
+@pytest.mark.parametrize("keys, line", [
+    # RFC 9053 Section 7.1.1 keeps leading zero bytes, so a coordinate is exactly the byte length of the curve. A zero
+    # byte in front reads as the same number, so before this check these key sets verified.
+    (_keyset(x=_padded(GEN.SK.public_key().public_numbers().x.to_bytes(48, "big"))), "FAIL keys"),
+    (_keyset(y=_padded(GEN.SK.public_key().public_numbers().y.to_bytes(48, "big"))), "FAIL keys"),
+    (GEN.arr([GEN.cmap([(GEN.uint(1), GEN.uint(2)), (GEN.uint(2), GEN.ts(GEN.KID)), (GEN.uint(-1), GEN.uint(2)),
+                        (GEN.uint(-2), GEN.bs(GEN.SK.public_key().public_numbers().x.to_bytes(48, "big"))),
+                        (GEN.uint(-3), GEN.bs(GEN.SK.public_key().public_numbers().y.to_bytes(48, "big")))])]),
+     "FAIL keys"),
+    (_keyset(), None),
+])
+def test_a_key_coordinate_of_another_length_or_a_kid_of_another_type_is_refused(keys, line):
+    """The last two rows of the key set: a padded x or y, a kid as text, and the control. The receipt carries no kid
+    here, so every key is a candidate and only the key's own form decides."""
+    if not _signs_deterministically():
+        pytest.skip("NOT MEASURED: cryptography before 43 signs at random")
+    got = READER.verdict(_signed(None), keys, digest=GEN.DH)
+    assert got.startswith("PASS ") if line is None else got == line
+
+
+@pytest.mark.parametrize("curve, keyset_index, n", [(1, 0, 32), (3, 1, 66)])
+def test_the_coordinate_length_follows_the_curve(curve, keyset_index, n):
+    """P-256 and P-521 keys of the generator: exactly 32 and 66 bytes are read, one byte more is refused."""
+    keys = READER.read_keys(GEN.keyset_p256_p521())
+    assert len(keys) == 2
+    sk = (GEN.SK_P256, GEN.SK_P521)[keyset_index]
+    pn = sk.public_key().public_numbers()
+    padded = GEN.arr([GEN.cmap([(GEN.uint(1), GEN.uint(2)), (GEN.uint(-1), GEN.uint(curve)),
+                                (GEN.uint(-2), GEN.bs(b"\x00" + pn.x.to_bytes(n, "big"))),
+                                (GEN.uint(-3), GEN.bs(pn.y.to_bytes(n, "big")))])])
+    with pytest.raises(READER.Fail):
+        READER.read_keys(padded)
+
+
 def test_counter_probe_with_cbor2_the_last_value_of_a_duplicate_key_wins(monkeypatch):
     """With cbor2 in place of the strict helper, a duplicate key no longer stops the reader: the receipt signed for
     the last value passes, the one signed for the first fails on its signature. That is the earlier reading."""
