@@ -176,34 +176,45 @@ def test_control_exactly_at_the_limit_is_read(kwargs, hx):
     loads_strict_cbor(bytes.fromhex(hx), **kwargs)
 
 
-def test_without_arguments_the_three_limits_are_those_of_the_default_budget():
-    """The defaults are DEFAULT_BUDGET.input_bytes, .json_depth and .json_nodes, each with its own number: a swap of
-    two of them would leave every limit test above green, which pass their limits explicitly."""
-    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+def test_without_arguments_the_three_limits_are_those_of_the_default_budget(monkeypatch):
+    """The defaults are DEFAULT_BUDGET.input_bytes, .json_depth and .json_nodes, each on its own axis. A small budget
+    with three different numbers stands in for the default, so a swap of two axes changes a verdict here, and no test
+    load is built from a budget value (the rule of test_lauf11_l3_testlast_ist_gedeckelt)."""
+    import dataclasses  # noqa: PLC0415
 
-    size, items = DEFAULT_BUDGET.input_bytes, DEFAULT_BUDGET.json_nodes
-    assert size != items
+    from proofbundle import budget  # noqa: PLC0415
+
+    monkeypatch.setattr(budget, "DEFAULT_BUDGET",
+                        dataclasses.replace(budget.DEFAULT_BUDGET, input_bytes=40, json_depth=3, json_nodes=5))
     with pytest.raises(CborInvalid) as exc:
-        loads_strict_cbor(b"\x00" * (size + 1))
-    assert exc.value.reason == f"input of {size + 1} bytes exceeds {size}"
-    body = size - 5
-    assert loads_strict_cbor(b"\x5a" + body.to_bytes(4, "big") + b"\x00" * body) == b"\x00" * body
-
-    def array(n: int) -> bytes:
-        return b"\x9a" + n.to_bytes(4, "big") + b"\x00" * n
-
+        loads_strict_cbor(b"\x00" * 41)
+    assert exc.value.reason == "input of 41 bytes exceeds 40"
+    assert loads_strict_cbor(b"\x58\x26" + b"\x00" * 38) == b"\x00" * 38
     with pytest.raises(CborInvalid) as exc:
-        loads_strict_cbor(array(items + 1))
-    assert exc.value.reason == f"more than {items} array elements, map pairs and string chunks"
-    assert len(loads_strict_cbor(array(items))) == items
+        loads_strict_cbor(b"\x86" + b"\x00" * 6)
+    assert exc.value.reason == "more than 5 array elements, map pairs and string chunks"
+    assert loads_strict_cbor(b"\x85" + b"\x00" * 5) == [0] * 5
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(b"\x81" * 4 + b"\x00")
+    assert exc.value.reason == "nesting deeper than 3"
+    assert loads_strict_cbor(b"\x81" * 3 + b"\x00") == [[[0]]]
+    for start, empty in ((b"\x5f", b"\x40"), (b"\x7f", b"\x60")):
+        with pytest.raises(CborInvalid) as exc:
+            loads_strict_cbor(start + empty * 6 + b"\xff")
+        assert exc.value.reason == "more than 5 array elements, map pairs and string chunks"
+        assert loads_strict_cbor(start + empty * 5 + b"\xff") in (b"", "")
 
 
 def test_the_chunks_of_an_indefinite_string_count_against_the_default_budget():
     """Without this, 8 MiB of empty chunks were read inside the byte budget (4 s, about 740 MiB, measured
-    2026-10-15)."""
+    2026-10-15). The load is capped at HARTER_LASTDECKEL; the value itself is asserted, so a larger default fails here
+    on the assertion and not on the memory of the run."""
+    from _lastdeckel import HARTER_LASTDECKEL  # noqa: PLC0415
+
     from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
 
-    n = DEFAULT_BUDGET.json_nodes
+    assert DEFAULT_BUDGET.json_nodes <= HARTER_LASTDECKEL
+    n = min(DEFAULT_BUDGET.json_nodes, HARTER_LASTDECKEL)
     for start, empty in ((b"\x5f", b"\x40"), (b"\x7f", b"\x60")):
         with pytest.raises(CborInvalid) as exc:
             loads_strict_cbor(start + empty * (n + 1) + b"\xff")
