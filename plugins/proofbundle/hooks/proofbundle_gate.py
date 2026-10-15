@@ -10219,7 +10219,8 @@ _OPEN_REASON = {"missing": "no_receipt", "unverified": "verification_failed", "r
 
 
 def done_evaluation(directory: str, deadline: float, receipt_path: str | None = None, environ: dict | None = None,
-                    receipt_dir: str | None = None, at_commit: str | None = None, reviewed: bool = False) -> dict:
+                    receipt_dir: str | None = None, at_commit: str | None = None, reviewed: bool = False,
+                    order: dict | None = None, local_order: bool = False) -> dict:
     """The done check (D26, D28) with what it found: {"verdict", "done", "repo", "commit", "state", "checks",
     "open", "policy", "base", "inside"}. Pass when every check of the done section has a receipt that verifies under
     the declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
@@ -10233,11 +10234,15 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     tree. A pushed commit without a declaration or a done check gets no done check (inactive). At a commit a receipt
     counts only for a clean run on that commit (git_clean true, review 2026-10-09 F1): a run on a working state that
     differed from it is not a run on the commit, whatever tree ids the receipt names. `reviewed` names the commit in
-    the texts as the commit under review (the CI check) instead of a pushed commit."""
+    the texts as the commit under review (the CI check) instead of a pushed commit. `order` is a local done order
+    (D38, _local_orders): its done section, policy and base stand in for the declaration's at HEAD, and the texts name
+    the repository. `local_order` says that the repository has a local order, which stands for a declaration found only
+    in the work tree, so that one is not refused as uncommitted (D38)."""
     result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
-              "policy": None, "base": None, "inside": []}
+              "policy": None, "base": None, "inside": [], "local": None if order is None else order["file"]}
     try:
-        return _evaluate_done(result, directory, deadline, receipt_path, environ, receipt_dir, at_commit, reviewed)
+        return _evaluate_done(result, directory, deadline, receipt_path, environ, receipt_dir, at_commit, reviewed,
+                              order, local_order)
     except Exception as exc:
         # What the check had found before it failed, for the Stop hook's count (review 2026-10-09, F6).
         try:
@@ -10257,7 +10262,8 @@ def _refused(result: dict, verdict: Verdict, ident: str) -> dict:
 
 
 def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: str | None, environ: dict | None,
-                   receipt_dir: str | None, at_commit: str | None, reviewed: bool) -> dict:
+                   receipt_dir: str | None, at_commit: str | None, reviewed: bool, order: dict | None = None,
+                   local_order: bool = False) -> dict:
     environ = os.environ if environ is None else environ
     repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
     if unreadable:
@@ -10281,6 +10287,9 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
         where, now = ((f"the commit under review {commit[:12]}", "the tree of the commit under review") if reviewed
                       else (f"the pushed commit {commit[:12]}", "the tree the push sends"))
     result.update(repo=repo, commit=commit or None)
+    if order is not None:
+        return _evaluate_rows(result, repo, commit, head_commit, where, now, order["done"], order["policy"], deadline,
+                              receipt_path, environ, receipt_dir, at_commit, order)
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES) if commit else None
     if raw is None and at_commit is not None:
         result["verdict"] = Verdict("inactive", f"NOT MEASURED: no declaration at {where} ({DECLARATION} is absent "
@@ -10292,6 +10301,13 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
             result["verdict"] = Verdict("inactive", f"NOT MEASURED: no declaration ({DECLARATION} is absent at HEAD "
                                                     "and in the working tree); no done check applies.",
                                         "nothing_declared", repo=repo, head=commit or None)
+            return result
+        if local_order:
+            # D38: the repository has a local done order, made from the declaration in the work tree or from files
+            # outside it; that order is judged on its own, so the uncommitted declaration is not refused here
+            result["verdict"] = Verdict("inactive", f"NOT MEASURED: {DECLARATION} is not at HEAD; the repository's local "
+                                                    "done order is judged in its place (D38).",
+                                        "local_order_stands", repo=repo, head=commit or None)
             return result
         return _refused(result, Verdict("deny", f"NOT MEASURED: {DECLARATION} is in the working tree but not at HEAD.",
                                         "declaration_not_committed", evidence=f"the declaration {DECLARATION}",
@@ -10315,6 +10331,22 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
                                         next_step=f"commit the policy {done['policy']} that pins your test key",
                                         repo=repo, head=commit), "policy")
     require_pinned_signer(policy, f"the done policy {done['policy']}")
+    return _evaluate_rows(result, repo, commit, head_commit, where, now, done, policy, deadline, receipt_path, environ,
+                          receipt_dir, at_commit, None)
+
+
+def _evaluate_rows(result: dict, repo: str, commit: str, head_commit: str, where: str, now: str, done: dict,
+                   policy: bytes, deadline: float, receipt_path: str | None, environ, receipt_dir: str | None,
+                   at_commit: str | None, order: dict | None) -> dict:
+    """The checks of a done section against their receipts and the working state, from the declaration at HEAD or from
+    a local done order (D38), whose policy and base it carries."""
+    checks = done["checks"]
+    if order is not None:
+        result["done"] = done
+        if receipt_path is not None and len(checks) != 1:
+            raise GateError(f"the done check declares {len(checks)} checks; name a folder of receipts with "
+                            "--receipt-dir")
+        require_pinned_signer(policy, f"the policy of the local done order {order['file']}")
     result["policy"] = policy
     rows = []
     for check in checks:
@@ -10412,7 +10444,8 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
                                        else commit_state(repo, commit, deadline))
             if state["worktree"] is None:
                 return _refused(result, _state_not_measured(now, state, repo, commit), "state")
-        base, why = order_base(repo, commit, done, deadline)
+        base, why = (order_base(repo, commit, done, deadline) if order is None
+                     else _local_order_base(repo, order, deadline))
         if base is None:
             return _refused(result, Verdict(
                 "deny", f"NOT MEASURED: {why}, so the gate cannot tell whether the work changed the paths the order "
@@ -10446,6 +10479,9 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
         if others:
             failed += "; also open: " + ", ".join(others)
         next_step = first["command"] if first["status"] in ("outside_paths", "no_change") else f"run {first['command']}"
+        if order is not None:   # D38: the end may be judged from another directory, so the repository is named
+            failed = f"the local done order for {repo}: {failed}"
+            next_step += f" in {repo}"
         result["verdict"] = Verdict("deny", f"proofbundle gate: {failed}.", _OPEN_REASON[first["status"]],
                                     evidence=f"the receipt {first['receipt']}" if "receipt" in first
                                     else "the working state", failed=failed, next_step=next_step, repo=repo,
@@ -10455,7 +10491,9 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
     names = ", ".join(row["id"] for row in rows)
     result["verdict"] = Verdict(
         "pass", f"proofbundle gate: done. {len(rows)} {'check' if len(rows) == 1 else 'checks'} ({names}): every "
-                f"receipt verifies under {done['policy']}, says every one of its tests passed with exit status 0, was "
+                f"receipt verifies under "
+                f"{done['policy'] if order is None else 'the policy of the local done order for ' + repo}, says every "
+                f"one of its tests passed with exit status 0, was "
                 f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, {now}"
                 + ("" if at_commit is not None else f" ({'clean' if tested == state['tree'] else 'with uncommitted changes'})")
                 + (f"; no path outside the order changed since {result['base'][:12]}, the commit that declared it, "
@@ -10749,6 +10787,223 @@ def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
     return host, event
 
 
+# --- local done orders, outside every work tree (D38) --------------------------------------------------------------
+
+#: The folder of the gate directory that holds the local done orders (D38): one file `<key>.json` per repository and the
+#: gate's record of its digest, `<key>.seen.json`. Nothing of it lies in a work tree or a commit.
+DONE_ORDERS_DIR = "done-orders"
+DONE_ORDER_SCHEMA = "proofbundle-plugin/done-order/v0.1"
+DONE_ORDER_SEEN_SCHEMA = "proofbundle-plugin/done-order-seen/v0.1"
+_DONE_ORDER_KEYS = frozenset({"schema", "repo", "gitdir", "base", "created", "done", "policy"})
+_DONE_ORDER_SEEN_KEYS = frozenset({"schema", "sha256", "written", "replaced"})
+MAX_ORDER_BYTES = 256 * 1024
+_ORDER_FILE = re.compile(r"([0-9a-f]{64})\.json")
+_ORDER_SEEN_FILE = re.compile(r"([0-9a-f]{64})\.seen\.json")
+_FULL_COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _order_key(toplevel: str, gitdir: str) -> str:
+    """The name of a repository's local done order: the sha256 of its work tree root and git directory, each resolved
+    physically, so a link to the clone names the same order and another worktree of it names another one."""
+    joined = os.path.realpath(toplevel) + "\0" + os.path.realpath(gitdir)
+    return hashlib.sha256(joined.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def _orders_dir(environ) -> str | None:
+    gate_dir = _gate_dir(environ)
+    return None if gate_dir is None else os.path.join(gate_dir, DONE_ORDERS_DIR)
+
+
+def _parse_local_order(raw: bytes) -> dict:
+    """A local done order as done-order writes it: exactly its keys, the done section in the form of the declaration's
+    (D28), the policy as base64 of its bytes, an absolute root and git directory and a full commit id as the base of
+    `paths`. GateError for anything else."""
+    try:
+        doc = strict_json(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise GateError(f"it is not strict JSON ({exc})") from exc
+    if not isinstance(doc, dict) or set(doc) != _DONE_ORDER_KEYS or doc["schema"] != DONE_ORDER_SCHEMA:
+        raise GateError(f"it is not a done order of this gate (the keys and the schema {DONE_ORDER_SCHEMA})")
+    if not all(isinstance(doc[k], str) and os.path.isabs(doc[k]) for k in ("repo", "gitdir")):
+        raise GateError("its repo and gitdir are not absolute paths")
+    if not (isinstance(doc["base"], str) and _FULL_COMMIT.fullmatch(doc["base"])) or not isinstance(doc["created"], str):
+        raise GateError("its base is not a full commit id, or its created time is not a string")
+    try:
+        policy = base64.b64decode(doc["policy"], validate=True) if isinstance(doc["policy"], str) else b""
+    except (ValueError, binascii.Error):
+        policy = b""
+    if not policy:
+        raise GateError("its policy is not base64 of the policy's bytes")
+    return {"repo": doc["repo"], "gitdir": doc["gitdir"], "base": doc["base"], "created": doc["created"],
+            "done": _done_section(doc["done"]), "policy": policy}
+
+
+def _order_seen(folder: str, key: str) -> tuple[dict | None, str | None]:
+    """The gate's record of an order's digest as (record, None), (None, None) where there is none, (None, why) where a
+    present record is not the gate's own (D38)."""
+    path = os.path.join(folder, f"{key}.seen.json")
+    try:
+        raw = _read_regular(path, MAX_STATE_BYTES + 1)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, f"the record {path} cannot be read ({exc.strerror or exc})"
+    try:
+        doc = strict_json(raw) if len(raw) <= MAX_STATE_BYTES else None
+    except (ValueError, UnicodeDecodeError):
+        doc = None
+    if not (isinstance(doc, dict) and set(doc) == _DONE_ORDER_SEEN_KEYS and doc["schema"] == DONE_ORDER_SEEN_SCHEMA
+            and isinstance(doc["sha256"], str) and _HEX64.fullmatch(doc["sha256"]) and isinstance(doc["replaced"], list)):
+        return None, f"the record {path} is not the gate's record of a done order"
+    return doc, None
+
+
+def _order_refusal(entry: dict, reason: str, failed: str, next_step: str) -> dict:
+    """The result of a local done order the gate refuses before its checks (D38): a deny with the order as its one open
+    point. The repository is the order's own only where git found it bound as the order names it, so only there the
+    block is counted toward max_blocks (D28), with the default limit: a changed order does not set its own."""
+    verdict = Verdict("deny", f"proofbundle gate: the local done order {entry['file']} is refused: {failed}.", reason,
+                      evidence=f"the local done order {entry['file']}", failed=f"the local done order {entry['file']}: "
+                                                                            f"{failed}",
+                      next_step=next_step, repo=entry.get("bound"))
+    return {"verdict": verdict, "done": None, "repo": entry.get("bound"), "commit": None, "state": None,
+            "checks": [], "open": [{"id": "local-order", "status": reason, "failed": verdict.failed,
+                                    "command": next_step}],
+            "policy": None, "base": None, "inside": [], "local": entry["file"]}
+
+
+def _local_orders(environ, deadline: float) -> list[dict]:
+    """Every local done order in the gate directory (D38), each {"key", "file", "order"} where the order holds its
+    digest and binding, or {"key", "file", "refusal"} with the result that blocks the end: an order that changed since
+    the gate wrote it, that has no record of the gate, whose record has no order left, that cannot be read, or whose
+    repository git no longer finds at its root with its git directory. A folder that cannot be listed is a refusal
+    too: the end does not pass on orders the gate could not read."""
+    folder = _orders_dir(environ)
+    if folder is None:
+        return []
+    try:
+        names = sorted(os.listdir(folder))
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        entry = {"key": "", "file": folder}
+        return [{**entry, "refusal": _order_refusal(entry, "order_unreadable", f"the folder cannot be listed "
+                                                                               f"({exc.strerror or exc})",
+                                                    f"make {folder} a folder the hook can read")}]
+    keys = sorted({m.group(1) for n in names for m in (_ORDER_FILE.fullmatch(n), _ORDER_SEEN_FILE.fullmatch(n)) if m})
+    entries = []
+    for key in keys:
+        path = os.path.join(folder, f"{key}.json")
+        entry = {"key": key, "file": path}
+        again = "have a person make the order again with done-order --replace, or remove it with done-order --remove"
+        try:
+            raw = _read_regular(path, MAX_ORDER_BYTES + 1)
+        except FileNotFoundError:
+            entries.append({**entry, "refusal": _order_refusal(entry, "order_removed", "the gate's record of the order "
+                                                               "is there, the order is not: it was removed other than "
+                                                               "by done-order --remove", again)})
+            continue
+        except OSError as exc:
+            entries.append({**entry, "refusal": _order_refusal(entry, "order_unreadable", f"it cannot be read "
+                                                               f"({exc.strerror or exc})", again)})
+            continue
+        if len(raw) > MAX_ORDER_BYTES:
+            entries.append({**entry, "refusal": _order_refusal(entry, "order_unreadable", f"it holds more than "
+                                                               f"{MAX_ORDER_BYTES} bytes", again)})
+            continue
+        try:
+            order = _parse_local_order(raw)
+        except GateError as exc:
+            entries.append({**entry, "refusal": _order_refusal(entry, "order_unreadable", str(exc), again)})
+            continue
+        entry["done"] = order["done"]
+        paths, _why = _repo_paths(order["repo"], deadline) if os.path.isdir(order["repo"]) else (None, "")
+        bound = (paths is not None and paths["toplevel"] is not None and paths["gitdir"] is not None
+                 and os.path.realpath(paths["toplevel"]) == order["repo"]
+                 and os.path.realpath(paths["gitdir"]) == order["gitdir"]
+                 and _order_key(order["repo"], order["gitdir"]) == key)
+        if bound:
+            entry["bound"] = order["repo"]
+        digest = hashlib.sha256(raw).hexdigest()
+        seen, why = _order_seen(folder, key)
+        if seen is None:
+            entries.append({**entry, "refusal": _order_refusal(
+                entry, "order_unrecorded", why or "the gate has no record of its digest: it was not made with "
+                                                  "done-order, or the record was removed", again)})
+            continue
+        if seen["sha256"] != digest:
+            entries.append({**entry, "refusal": _order_refusal(
+                entry, "order_changed", f"it changed after the gate first read it (sha256 {seen['sha256'][:12]} when "
+                                        f"written, {digest[:12]} now)", again)})
+            continue
+        if not bound:
+            entries.append({**entry, "refusal": _order_refusal(
+                entry, "order_unbound", f"git does not find the repository it names at {order['repo']} with the git "
+                                        f"directory {order['gitdir']}",
+                f"restore the repository, or have a person remove the order with done-order --remove --repo "
+                f"{order['repo']}")})
+            continue
+        entries.append({**entry, "order": {**order, "file": path, "sha256": digest,
+                                           "replaced": len(seen["replaced"])}})
+    return entries
+
+
+def _local_order_base(repo: str, order: dict, deadline: float) -> tuple[str | None, str]:
+    """The base of a local order's paths (D31, D38): the commit that was HEAD when the order was made, while git still
+    names it as a commit of the repository."""
+    proc = _git(repo, "rev-parse", "--verify", "-q", f"{order['base']}^{{commit}}", deadline=deadline)
+    if proc.returncode != 0 or proc.stdout.decode("ascii", "replace").strip() != order["base"]:
+        return None, f"the base {order['base'][:12]} of the local done order is not a commit of the repository"
+    return order["base"], ""
+
+
+def _failed_result(exc: Exception, verdict: Verdict, local: str | None = None) -> dict:
+    """The result of a check that failed, with the failure as its one open point (_failed_check), or one that names no
+    repository, so it blocks without being counted."""
+    partial = _failed_check(exc, verdict)
+    if partial is not None:
+        return partial
+    return {"verdict": verdict, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
+            "policy": None, "base": None, "inside": [], "local": local}
+
+
+def done_evaluations(directory: str, deadline: float, environ: dict | None = None) -> list[dict]:
+    """The done check of an end (Stop, TaskCompleted; D26, D28, D38): the repository of `directory` as before, then
+    each local done order in the gate directory, in the order of its key, whatever the directory. A repository with a
+    local order is judged by that order, and by the declaration at HEAD where it has one; a declaration found only in
+    its work tree is not refused there, the local order stands for it. Each result is done_evaluation's, with "local"
+    naming the order's file."""
+    environ = os.environ if environ is None else environ
+    entries = _local_orders(environ, deadline)
+    keys = {e["key"] for e in entries}   # a refused order stands for the work tree's declaration too: it blocks itself
+    results = []
+    try:
+        paths, _why = _repo_paths(directory, deadline)
+        here = (_order_key(paths["toplevel"], paths["gitdir"]) if paths is not None and paths["toplevel"]
+                and paths["gitdir"] else None)
+        results.append(done_evaluation(directory, deadline, environ=environ, local_order=here in keys))
+    except GateError as exc:
+        results.append(_failed_result(exc, Verdict("deny", f"proofbundle gate: {exc}.", "gate_error",
+                                                   evidence="the done check", failed=f"the check reached no verdict "
+                                                                                     f"({exc})",
+                                                   next_step="fix the cause named here")))
+    for entry in entries:
+        if "refusal" in entry:
+            results.append(entry["refusal"])
+            continue
+        order = entry["order"]
+        try:
+            results.append(done_evaluation(order["repo"], deadline, environ=environ, order=order))
+        except GateError as exc:
+            verdict = Verdict("deny", f"proofbundle gate: the local done order for {order['repo']}: {exc}.",
+                              "gate_error", evidence="the done check", failed=f"the local done order for "
+                                                                              f"{order['repo']}: the check reached no "
+                                                                              f"verdict ({exc})",
+                              next_step="fix the cause named here")
+            results.append(_failed_result(exc, verdict, order["file"]))
+    return results
+
+
 def _event_directory(event: dict) -> str:
     cwd = event.get("cwd")
     return cwd if isinstance(cwd, str) and os.path.isabs(cwd) else os.getcwd()
@@ -10761,67 +11016,101 @@ def stop_command(argv: list[str]) -> int:
     the session does not end on a check that reached no verdict. After max_blocks blocks without progress it writes
     DONE_BLOCKER and stops blocking (N3). Claude Code overrides a Stop hook after eight continuations without a tool
     call in between (documented; nine blocks measured with Claude Code 2.1.294), which is why the hard boundary is
-    the CI check (README)."""
+    the CI check (README). Beside the repository of the cwd it judges every repository with a local done order (D38,
+    done_evaluations)."""
     deadline = time.monotonic() + DEADLINE_SECONDS
-    host, event, result = "claude", None, None
+    host, event = "claude", None
     try:
         host, event = _hook_event(argv, "Stop")
-        result = done_evaluation(_event_directory(event), deadline)
-        verdict = result["verdict"]
+        results = done_evaluations(_event_directory(event), deadline)
     except GateError as exc:
         verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
                           failed=f"the check reached no verdict ({exc})", next_step="fix the cause named here")
-        result = _failed_check(exc, verdict)
+        results = [_failed_result(exc, verdict)]
     except Exception as exc:  # noqa: BLE001 - any failure inside the check blocks, it never lets the end through
         verdict = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.", "internal_error",
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
-        result = _failed_check(exc, verdict)
-    blocker, counting, unread, removal = None, None, None, None
-    # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
-    # where no order could be read, the default limit applies.
-    limit = result["done"]["max_blocks"] if result is not None and result["done"] is not None else DEFAULT_MAX_BLOCKS
-    try:
-        if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
-            blocker, counting, unread = _account_block(result, event, limit)
-        elif result is not None and result["done"] is not None and verdict.decision == "pass":
+        results = [_failed_result(exc, verdict)]
+    # D38: every repository with a local done order is judged beside the one of the cwd. Each counts its own blocks: the
+    # first repository that still blocks gives the answer; one past its limit writes its blocker and the next one is
+    # looked at; the end without a done verdict comes only when every refused repository has written its blocker.
+    shown, ended, passed = None, [], []
+    for result in results:
+        if result["verdict"].decision != "pass" or result["done"] is None:
+            continue
+        try:
             counting, removal, unread = _account_pass(result, event)
-    except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
-        blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
+        except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
+            counting, removal, unread = f"counting failed ({type(exc).__name__}: {exc})", None, None
+        passed.append((result, counting, removal, unread))
+    for result in results:
+        verdict = result["verdict"]
+        if verdict.decision != "deny":
+            continue
+        # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
+        # where no order could be read, the default limit applies.
+        limit = result["done"]["max_blocks"] if result["done"] is not None else DEFAULT_MAX_BLOCKS
+        blocker, counting, unread = None, None, None
+        try:
+            if result["repo"] and result["open"]:
+                blocker, counting, unread = _account_block(result, event, limit)
+        except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
+            blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
+        if blocker is None:
+            shown = (verdict, limit, counting, unread)
+            break
+        ended.append((result, verdict, limit, blocker, counting))
+    decisive = (shown[0] if shown is not None else ended[0][1] if ended else passed[0][0]["verdict"] if passed
+                else results[0]["verdict"])
     try:
-        write_log(log_entry(host, event, Outcome(verdict.decision, verdict.text(), [verdict]), ["Stop"]), host)
+        write_log(log_entry(host, event, Outcome(decisive.decision, decisive.text(), [decisive]), ["Stop"]), host)
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
-    if verdict.decision == "pass":
-        # Each failure of the hook's own files is named for what it is, and only one that happened (R8-4)
-        message = verdict.detail
+    if shown is not None:
+        verdict, limit, counting, unread = shown
+        line = _done_line(verdict)
         if counting is not None:
-            message += f" The hook could not record this end in its count: {counting}."
-        if unread is not None:
-            message += (f" The earlier count could not be read ({unread}); "
-                        + ("the hook wrote its own record in its place." if counting is None
-                           else "it stays in place, since the hook could not write its own record."))
-        if removal is not None:
-            message += f" {removal[0].upper()}{removal[1:]}; this done end stands, and the blocker file is out of date."
-        sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
-    elif blocker is not None:
+            line += (f" The hook could not count this block: {counting}, so the end after {limit} blocks without "
+                     f"progress cannot take effect; make {EVIDENCE_DIR} a directory of the repository that the hook "
+                     "can write.")
+        elif unread is not None:
+            line += (f" The hook counted this block as the first: the earlier count could not be read ({unread}); "
+                     f"its own record is written again, so the end after {limit} blocks without progress counts from "
+                     "here.")
+        sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
+    elif ended:
+        result, verdict, limit, blocker, counting = ended[0]
         message = (f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
                    f"blocks, so the hook stops blocking and the session ends without a done verdict. The open points "
                    f"and the state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")
         if counting is not None:   # an unread record never reaches here: it makes this block the first (R4-3)
             message += (f" The hook could not record this end in its count: {counting}; the next stop reads the record "
                         "from before it.")
+        for other, other_verdict, _limit, other_blocker, _counting in ended[1:]:
+            message += (f" Also ended without a done verdict: {other['repo']}, open points in {other_blocker}: "
+                        f"{other_verdict.failed.rstrip('.')}.")
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
-    elif verdict.decision != "inactive":
-        line = _done_line(verdict)
-        if counting is not None and verdict.decision == "deny":
-            line += (f" The hook could not count this block: {counting}, so the end after {limit} blocks without "
-                     f"progress cannot take effect; make {EVIDENCE_DIR} a directory of the repository that the hook "
-                     "can write.")
-        elif unread is not None and verdict.decision == "deny":
-            line += (f" The hook counted this block as the first: the earlier count could not be read ({unread}); "
-                     f"its own record is written again, so the end after {limit} blocks without progress counts from "
-                     "here.")
+    elif passed:
+        # Each failure of the hook's own files is named for what it is, and only one that happened (R8-4)
+        messages = []
+        for result, counting, removal, unread in passed:
+            message = result["verdict"].detail
+            if counting is not None:
+                message += f" The hook could not record this end in its count: {counting}."
+            if unread is not None:
+                message += (f" The earlier count could not be read ({unread}); "
+                            + ("the hook wrote its own record in its place." if counting is None
+                               else "it stays in place, since the hook could not write its own record."))
+            if removal is not None:
+                message += (f" {removal[0].upper()}{removal[1:]}; this done end stands, and the blocker file is out of "
+                            "date.")
+            if result.get("local"):
+                message += f" (Local done order {result['local']}, D38.)"
+            messages.append(message)
+        sys.stdout.write(json.dumps({"systemMessage": " ".join(messages)}) + "\n")
+    elif any(r["verdict"].decision not in ("inactive", "pass", "deny") for r in results):
+        line = _done_line(decisive)
         sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
     return 0
 
@@ -10844,28 +11133,251 @@ def task_completed_command(argv: list[str]) -> int:
     when the task must stay open, nothing when it may be marked completed, and exits 0 either way; the hook command
     in hooks.json turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its
     own line. Python itself exits 2 when it cannot open the gate (measured), so exit 2 cannot be the gate's own
-    signal. Any failure inside the check keeps the task open. Codex has no such event."""
+    signal. Any failure inside the check keeps the task open. Codex has no such event. Like the Stop hook it judges
+    every repository with a local done order too (D38)."""
     deadline = time.monotonic() + DEADLINE_SECONDS
-    result = None
     try:
         _host_name, event = _hook_event(argv, "TaskCompleted")
-        result = done_evaluation(_event_directory(event), deadline)
-        verdict = result["verdict"]
+        results = done_evaluations(_event_directory(event), deadline)
     except GateError as exc:
-        verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
-                          failed=f"the check reached no verdict ({exc})", next_step="fix the cause named here")
+        results = [_failed_result(exc, Verdict("deny", f"proofbundle gate: {exc}.", "gate_error",
+                                               evidence="the done check", failed=f"the check reached no verdict ({exc})",
+                                               next_step="fix the cause named here"))]
     except Exception as exc:  # noqa: BLE001 - any failure inside the check keeps the task open
-        verdict = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.", "internal_error",
-                          evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
-                          next_step="report this error")
-    if verdict.decision != "deny":
+        results = [_failed_result(exc, Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.",
+                                               "internal_error", evidence="the done check",
+                                               failed=f"internal error {type(exc).__name__}: {exc}",
+                                               next_step="report this error"))]
+    # D38: the task stays open while any repository the end judges, a local done order's included, refuses it
+    result = next((r for r in results if r["verdict"].decision == "deny"), None)
+    if result is None:
         return 0
     try:
-        if result is not None and result["done"] is not None:
+        if result["done"] is not None:
             _tally(result["repo"], task_blocked=1)
     except Exception:  # noqa: BLE001 - counting never changes the answer
         pass
-    sys.stdout.write(_done_line(verdict) + "\n")
+    sys.stdout.write(_done_line(result["verdict"]) + "\n")
+    return 0
+
+
+DONE_ORDER_USAGE = ("usage: done-order --repo DIR [--declaration FILE] [--policy FILE] [--replace] | "
+                    "done-order --remove (--repo DIR | --key KEY) | done-order --list")
+
+
+def _write_order_file(folder: str, name: str, data: bytes) -> None:
+    """Write a file of the orders folder through a fresh temporary file that replaces it, never through a link."""
+    temporary = os.path.join(folder, f".{name}.{secrets.token_hex(6)}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(temporary, os.path.join(folder, name))
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _ignored(root: str, path: str, deadline: float) -> bool:
+    """Whether git ignores `path` in the work tree at `root`. check-ignore refuses the literal pathspecs of the gate's
+    read environment, so this call alone runs without them; `path` is a relative path of a done section, checked by
+    _relative, with no pathspec magic."""
+    _refuse_partial_clone(root, deadline)
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    environment = {k: v for k, v in _read_env(root).items() if k != "GIT_LITERAL_PATHSPECS"}
+    proc = subprocess.run(["git", *_READ_ONLY_GIT, "-C", root, "check-ignore", "-q", "--", path], capture_output=True,
+                          timeout=left, check=False, env=environment)
+    if proc.returncode not in (0, 1):
+        raise GateError(f"git check-ignore failed for {path}: "
+                        f"{proc.stderr.decode('utf-8', 'replace').strip() or proc.returncode}")
+    return proc.returncode == 0
+
+
+def _ignore_receipts(root: str, done: dict, deadline: float) -> list[str]:
+    """Add to the repository's info/exclude every receipt and every file of the done check's own that git does not yet
+    ignore, so none of them reaches a commit (D38). Returns the lines added."""
+    wanted = [check["receipt"] for check in done["checks"]] + list(DONE_OWN_FILES)
+    missing = [path for path in wanted if not _ignored(root, path, deadline)]
+    if not missing:
+        return []
+    where = _git(root, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude", deadline=deadline)
+    lines = _git_lines(where.stdout) if where.returncode == 0 else None
+    if not lines or len(lines) != 1 or not os.path.isabs(lines[0]):
+        raise GateError("git does not name the repository's info/exclude file")
+    added = [f"/{path}" for path in missing]
+    os.makedirs(os.path.dirname(lines[0]), exist_ok=True)
+    with open(lines[0], "a", encoding="utf-8") as handle:
+        handle.write("# proofbundle done order (D38): receipts and the done check's own files stay out of commits\n")
+        handle.write("".join(line + "\n" for line in added))
+    still = [path for path in missing if not _ignored(root, path, deadline)]
+    if still:
+        raise GateError(f"git still does not ignore {', '.join(still)} (a tracked file is never ignored); the order "
+                        "is not written")
+    return added
+
+
+def done_order(repo_dir: str, declaration: str | None, policy_file: str | None, replace: bool, deadline: float,
+               environ: dict | None = None) -> str:
+    """Make the local done order of a repository (D38): its done section from a declaration (by default the one in the
+    work tree, delta's variant E), the policy's bytes, the commit at HEAD as the base of `paths`, the work tree root and
+    the git directory, written to the gate directory with the gate's record of its digest. An order that exists is
+    replaced only with `replace`, and the record keeps the digest it replaces. The receipts are added to info/exclude
+    where git does not yet ignore them."""
+    environ = os.environ if environ is None else environ
+    folder = _orders_dir(environ)
+    if folder is None:
+        raise GateError("no gate directory is known (an absolute PROOFBUNDLE_GATE_DIR, XDG_CONFIG_HOME or HOME)")
+    paths, why = _repo_paths(repo_dir, deadline)
+    if paths is None or paths["toplevel"] is None or paths["gitdir"] is None:
+        raise GateError(f"{repo_dir} is not in a git work tree ({why or 'git names none'})")
+    root, gitdir = os.path.realpath(paths["toplevel"]), os.path.realpath(paths["gitdir"])
+    source = declaration or os.path.join(root, *DECLARATION.split("/"))
+    raw = _read_regular(source, MAX_DECLARATION_BYTES + 1, follow=True)
+    if len(raw) > MAX_DECLARATION_BYTES:
+        raise GateError(f"{source} holds more than {MAX_DECLARATION_BYTES} bytes")
+    done = parse_done(raw)
+    if done is None:
+        raise GateError(f"{source} declares no done check")
+    section = strict_json(raw)["done"]
+    policy_path = policy_file or os.path.join(root, *done["policy"].split("/"))
+    policy = _read_regular(policy_path, MAX_DECLARATION_BYTES + 1, follow=True)
+    if len(policy) > MAX_DECLARATION_BYTES:
+        raise GateError(f"{policy_path} holds more than {MAX_DECLARATION_BYTES} bytes")
+    require_pinned_signer(policy, f"the done policy {policy_path}")
+    head = _git(root, "rev-parse", "--verify", "-q", "HEAD^{commit}", deadline=deadline)
+    base = head.stdout.decode("ascii", "replace").strip()
+    if head.returncode != 0 or not _FULL_COMMIT.fullmatch(base):
+        raise GateError("the repository has no commit at HEAD, the base the order's paths are compared with")
+    key = _order_key(root, gitdir)
+    data = (json.dumps({"schema": DONE_ORDER_SCHEMA, "repo": root, "gitdir": gitdir, "base": base, "created": _now(),
+                        "done": section, "policy": base64.b64encode(policy).decode("ascii")},
+                       indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass")
+    if len(data) > MAX_ORDER_BYTES:
+        raise GateError(f"the order would hold more than {MAX_ORDER_BYTES} bytes")
+    _parse_local_order(data)   # the gate reads back what it writes
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    order_path = os.path.join(folder, f"{key}.json")
+    seen, _why = _order_seen(folder, key)
+    try:
+        previous = hashlib.sha256(_read_regular(order_path, MAX_ORDER_BYTES + 1)).hexdigest()
+    except FileNotFoundError:
+        previous = None
+    except OSError:
+        previous = "unreadable"
+    if (previous is not None or os.path.lexists(os.path.join(folder, f"{key}.seen.json"))) and not replace:
+        raise GateError(f"a local done order for {root} exists ({order_path}); --replace writes a new one, and the "
+                        "gate keeps the digest it replaces")
+    replaced = list(seen["replaced"]) if seen is not None else []
+    if previous is not None or seen is not None:
+        replaced.append({"sha256": previous or "absent", "recorded": seen["sha256"] if seen else "none", "at": _now()})
+    added = _ignore_receipts(root, done, deadline)
+    _write_order_file(folder, f"{key}.json", data)
+    _write_order_file(folder, f"{key}.seen.json", (json.dumps(
+        {"schema": DONE_ORDER_SEEN_SCHEMA, "sha256": hashlib.sha256(data).hexdigest(), "written": _now(),
+         "replaced": replaced}, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    names = ", ".join(check["id"] for check in done["checks"])
+    lines = [f"wrote the local done order {order_path} for {root} (checks {names}; sha256 "
+             f"{hashlib.sha256(data).hexdigest()}; base {base[:12]})"]
+    if replaced:
+        lines.append(f"it replaces an earlier order; the gate records {len(replaced)} replacement(s)")
+    if added:
+        lines.append(f"added to the repository's info/exclude: {' '.join(added)}")
+    return "\n".join(lines)
+
+
+def done_order_remove(repo_dir: str | None, key: str | None, deadline: float, environ: dict | None = None) -> str:
+    """Remove the local done order of a repository, and the gate's record of it (D38). By repository: every order that
+    names its root, whether or not the repository is still there. By key: the order and record of that key."""
+    environ = os.environ if environ is None else environ
+    folder = _orders_dir(environ)
+    if folder is None:
+        raise GateError("no gate directory is known (an absolute PROOFBUNDLE_GATE_DIR, XDG_CONFIG_HOME or HOME)")
+    keys = set()
+    if key is not None:
+        if not _HEX64.fullmatch(key):
+            raise GateError("--key must be the 64 hexadecimal digits of an order's name")
+        keys.add(key)
+    else:
+        root = os.path.realpath(repo_dir)
+        paths, _why = _repo_paths(repo_dir, deadline) if os.path.isdir(repo_dir) else (None, "")
+        if paths is not None and paths["toplevel"] is not None and paths["gitdir"] is not None:
+            root = os.path.realpath(paths["toplevel"])
+            keys.add(_order_key(root, paths["gitdir"]))
+        try:
+            names = os.listdir(folder)
+        except FileNotFoundError:
+            names = []
+        for name in names:
+            match = _ORDER_FILE.fullmatch(name)
+            if not match:
+                continue
+            try:
+                doc = strict_json(_read_regular(os.path.join(folder, name), MAX_ORDER_BYTES + 1))
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            if isinstance(doc, dict) and doc.get("repo") == root:
+                keys.add(match.group(1))
+    removed = []
+    for k in sorted(keys):
+        for name in (f"{k}.json", f"{k}.seen.json"):
+            try:
+                os.unlink(os.path.join(folder, name))
+                removed.append(name)
+            except FileNotFoundError:
+                pass
+    if not removed:
+        raise GateError("no local done order matches")
+    return f"removed from {folder}: {', '.join(removed)}"
+
+
+def done_order_list(deadline: float, environ: dict | None = None) -> str:
+    """Every local done order and what the gate finds for it now (D38)."""
+    environ = os.environ if environ is None else environ
+    rows = []
+    for entry in _local_orders(environ, deadline):
+        if "order" in entry:
+            order = entry["order"]
+            rows.append(f"{entry['key']}\t{order['repo']}\tchecks {', '.join(c['id'] for c in order['done']['checks'])}"
+                        f"\tbase {order['base'][:12]}\tcreated {order['created']}\treplaced {order['replaced']}\tok")
+        else:
+            refusal = entry["refusal"]["verdict"]
+            rows.append(f"{entry['key']}\t{entry['file']}\t{refusal.reason_id}: {refusal.failed}")
+    return "\n".join(rows) if rows else "no local done order"
+
+
+def done_order_command(argv: list[str]) -> int:
+    options = {"--repo": None, "--declaration": None, "--policy": None, "--key": None}
+    flags, i = {"--replace": False, "--remove": False, "--list": False}, 0
+    while i < len(argv):
+        if argv[i] in flags and not flags[argv[i]]:
+            flags[argv[i]], i = True, i + 1
+        elif argv[i] in options and i + 1 < len(argv) and options[argv[i]] is None:
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"{DONE_ORDER_USAGE}; unexpected {argv[i]!r}", file=sys.stderr)
+            return 2
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    making = options["--declaration"] or options["--policy"] or flags["--replace"]
+    if flags["--list"] and not (flags["--remove"] or making or options["--repo"] or options["--key"]):
+        action = lambda: done_order_list(deadline)   # noqa: E731
+    elif flags["--remove"] and not making and (options["--repo"] is None) != (options["--key"] is None):
+        action = lambda: done_order_remove(options["--repo"], options["--key"], deadline)   # noqa: E731
+    elif options["--repo"] and not (flags["--remove"] or flags["--list"] or options["--key"]):
+        action = lambda: done_order(options["--repo"], options["--declaration"], options["--policy"],   # noqa: E731
+                                    flags["--replace"], deadline)
+    else:
+        print(DONE_ORDER_USAGE, file=sys.stderr)
+        return 2
+    try:
+        print(action())
+    except (GateError, OSError, ValueError) as exc:
+        print(f"proofbundle done-order: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -11826,6 +12338,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_check_command(argv[1:])
     if argv[:1] == ["done-init"]:
         return done_init_command(argv[1:])
+    if argv[:1] == ["done-order"]:
+        return done_order_command(argv[1:])
     if argv[:1] == ["task-completed"]:
         return task_completed_command(argv[1:])
     if argv[:1] == ["done-statement"]:

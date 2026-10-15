@@ -480,6 +480,20 @@ PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT=.proofbundle/proofbun
 
 For an order with several checks, edit the `done` section as above and commit it.
 
+### A local order, outside the work tree (D38)
+
+When the order must not reach a commit, a person keeps it in the gate directory instead:
+
+```sh
+python3 <plugin folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--declaration FILE --policy FILE]
+```
+
+It reads the done section and the policy (from the clone's `.proofbundle/` or from the files named), writes the order
+to `done-orders/` in the gate directory with the gate's record of its digest, and adds the receipts and the hook's own
+files to the clone's `info/exclude`. The Stop and TaskCompleted hooks then judge that clone at every end, whatever
+directory the session runs in, and an order that changed since it was written blocks. `done-order --list` shows every
+order, `done-order --remove --repo <clone>` removes one, `--replace` makes it again.
+
 ### As an in-toto Statement
 
 `proofbundle_gate.py done-statement --repo DIR --key FILE --out FILE --resource-uri URI` writes, for a passing done

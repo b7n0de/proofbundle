@@ -2657,3 +2657,61 @@ differ, and the lines above are the path by which they do. Not changed here.
 
 Corpus rows of the three forms, a harmful counterpart and controls: measured on 62dcc7b0 and on this commit, under both
 hosts, with the same answers (archive of Nachtrag 9).
+
+## D38. A done order outside the work tree, for every repository it names (Nachtrag 12, 2026-10-15)
+
+Measured by delta in the pilot at 35214a8c (finding 20261015T1725Z): Stop and TaskCompleted judged only the repository
+of the hook's cwd (`done_evaluation(_event_directory(event))`), so a session that works in clones with `git -C <clone>`
+from a fixed directory never had a clone's order checked; and an order kept only in the work tree (`.proofbundle/` in
+`.git/info/exclude`, variant E) blocked every end, a valid receipt included ("the declaration is not committed"),
+while a committed order (variant C) put `.proofbundle/` into the pull request.
+
+Measured for the place (Nachtrag 12, probe_write_targets): the PreToolUse gate denies a Write and an apply_patch into
+the gate directory under both hosts (write_to_gate_dir); into the plugin data folder it gives Claude Code no answer
+and denies under Codex only as codex_write_unbound. Read, not run: Claude Code gives hooks CLAUDE_PLUGIN_DATA and Codex
+0.162.1 its own PLUGIN_DATA (D37), so an order in one host's data folder is not seen by the other; the gate directory
+is the same for both.
+
+Chosen (owner order of Nachtrag 12, place decided in the build):
+- A local done order is a file `done-orders/<key>.json` in the gate directory (D25), outside every work tree. Its key
+  is the sha256 of the repository's work tree root and git directory as git names them, resolved physically. It holds
+  the order in the form of the declaration's `done` section (D28), the policy's bytes, the commit that was HEAD when
+  the order was made (the base of `paths`, D31), the root and the git directory. Nothing of it is in a commit.
+- A person makes it with `done-order --repo DIR`: the done section and the policy come from the declaration and
+  policy in the work tree (variant E) or from files named with `--declaration` and `--policy`, which may lie outside
+  it. The command adds every receipt and every file of the done check's own that git does not yet ignore to the
+  repository's `info/exclude`, so none of them reaches a commit, and writes no order if git still does not ignore one.
+  `--replace` writes a new order over an existing one, `--remove` (by `--repo` or `--key`) deletes an order and its
+  record, `--list` names every order with what the gate finds for it.
+- The gate takes the order's digest when it writes it, its first read, into `done-orders/<key>.seen.json`. At every
+  Stop and TaskCompleted the order must still have that digest. An order that differs (`order_changed`), an order
+  without the gate's record (`order_unrecorded`), a record whose order is gone (`order_removed`) and an order the gate
+  cannot read (`order_unreadable`) block the end with their reason, fail-closed like an uncommitted declaration, until
+  a person makes the order again or removes it. A replacement keeps the digest it replaced in the record.
+- Stop and TaskCompleted judge the repository of the hook's cwd as before, and then every repository with a local
+  order, whatever the cwd. An order is open while a check has no valid receipt for the state now; the end blocks with
+  the first open point, and the line names the repository. Each repository counts its own blocks and writes its own
+  blocker (D28); the first one that still blocks gives the answer, and the end without a done verdict comes only when
+  every refused repository has written its blocker. A refused order counts in its repository only where git finds it
+  bound as the order names it, with the default limit; otherwise it blocks without a count.
+- An order whose repository git no longer finds at its root, or finds with another git directory, blocks
+  (`order_unbound`) until a person restores the repository or removes the order.
+- In a repository with a local order, a declaration found only in the work tree is not refused as uncommitted; the
+  local order stands for it (`local_order_stands`, no block of its own). A declaration at HEAD with a done check is
+  judged as before, beside the local order, and the end needs both.
+- The committed order of D28 is unchanged, and so are the PreToolUse gate, the push path and the CI check.
+- Codex reads the same gate directory, so its Stop hook judges the same orders. Codex has no TaskCompleted event.
+
+Limits: the gate directory is closed to the file tools of both hosts, not to the shell (D27); a shell write is seen
+only through the digest, and a shell that rewrites the order and the gate's record together is not seen. The agent
+can run `done-order` itself, as it can commit a changed order (D28); the record keeps every replacement. Every session
+of the user, under both hosts, sees every local order, so two sessions in different clones block each other's ends. A
+refused order whose repository is gone blocks without a count: Claude Code ends the turn after nine blocks (D26),
+Codex has no such limit. Nothing in CI sees a local order: it is an early warning, and the boundary for what is
+committed stays the required CI check.
+
+Options:
+- A. The order in the gate directory, its digest taken when it is written, every order judged at every end (chosen).
+- B. The order in the plugin data folder (Cowork's proposal). Not chosen after the measurement above: Claude Code's
+  file tools may write there, and the two hosts each have a folder of their own.
+- C. An order bound to one session. Not built; an owner question, like a gate on a shell call of `done-order`.
