@@ -2233,7 +2233,8 @@ every simple command bash would execute, in order.
 - An interpreter or another carrier of code (a shell, `eval`, `source`, `xargs`, `env`, `alias`, `trap`, `export`, a
   script by path, …), or a program the gate does not know, whose text names git or gh asks at least
   (`code_names_git`): there is no inert-Python rule (owner answer 6, review finding Q18-1; answer 9). The same holds for
-  a carrier that reads a git or gh step's output, and for git or gh text anywhere beside a step that runs code.
+  a carrier that reads a git or gh step's output, and for git or gh text anywhere beside a step that runs code. One
+  form is excepted since D39: the body of a quoted here-document to `python3 -` is the interpreter's input.
 
 Kept, with the answer of the whole command: a deny of the whole command; an approved rule (N24); the bare
 `git --version`; every form the parser does not model (shell keywords, functions, background jobs, ANSI-C and locale
@@ -2732,3 +2733,34 @@ Options:
   file tools may write there, and the two hosts each have a folder of their own.
 - C. An order bound to one session. Not built (owner question O1 of Nachtrag 12); the owner chose the account instead,
   to be built before a second account (Nachtrag 13).
+
+## D39. Fewer asks in daily work: a here-document to python (Nachtrag 14, 2026-10-15)
+
+Measured by delta in the pilot at 14a5feb1 under Claude Code, from 22:47 Berlin: five asks in ten minutes. Two came from
+`python3 - "$B" "$L" <<'EOF'` whose Python named git or gh in strings and variable names (the safety net,
+net_unmodeled_git); one from `git -C <dir> diff --stat` beside a sed and grep pipeline (D3); one from `gh pr view …
+--json body --jq .body` after a `cd` in a chain (net_unmodeled_git); one from `git add` before the house commit script
+(D3, D33), which stays, as every commit through that ceremony asks. delta changes three habits (Python in a file, grep
+for command grep, reading with git status and git log); the parts below are what remains (owner word of 23:00 and owner
+choice of 23:0x).
+
+Part 1, a here-document to python (owner choice of Nachtrag 14):
+- A command that is exactly `python3 - [arguments] <<'MARK'` (or `python - …`) with a marker the shell sees quoted
+  (`'MARK'`, `"MARK"`, `\MARK`), its body and the marker line is judged by its words before the here-document,
+  `python3 - [arguments]`, as `python3 file.py [arguments]` is judged (_interpreter_heredoc_head). With a quoted marker
+  the shell expands nothing in the body; it is the interpreter's input and no shell text, so neither the safety net
+  nor class c reads a git or gh word in it.
+- The command gets no freer answer than the file form, only no ask from the body: a git or gh word in the arguments
+  and a substitution there that runs git get the answer the file form gets, and so does a done-order call in them
+  (D38, O2).
+- Today's answer stays for every other form: an unquoted marker, another interpreter (perl, node, …), a shell as the
+  interpreter (bash, sh, zsh), python without `-`, an option before `-`, a path, a wrapper or an assignment before
+  python, a second here-document or any other redirection, `<<-`, a chain, a pipeline, a list, a command after the
+  marker line, and every form the class c parser does not model.
+- For this one form the rule replaces owner answer 9 of 2026-10-14 (an interpreter whose words or here-document name
+  git or gh asks at least, D33) and the control of review finding Q18-1: `python3 - <<'PY'` with `os.system('git push
+  origin main')` in its body asked from d828c2be to d6e248a8 and now gets the answer of `python3 file.py`, which the
+  gate does not gate. Answer 6 stands: the gate reads no Python and judges none inert. The `-c` forms of Q18-1 and
+  every other interpreter still ask.
+- Limit: the Python in the body may start git or gh, as a file may; the gate does not read code (D8). The push path,
+  the pre-push hook and the CI check are unchanged.

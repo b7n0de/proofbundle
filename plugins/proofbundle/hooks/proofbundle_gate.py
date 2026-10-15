@@ -8981,6 +8981,40 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
 #: The decisions from the strictest to the freest, for comparing two answers to one command.
 _SH_STRICTNESS = ("deny", "ask", "warn", "pass", "inactive")
 
+#: The interpreters whose here-document the gate reads as the interpreter's input (D39, part 1 of Nachtrag 14).
+_HEREDOC_INTERPRETERS = ("python3", "python")
+
+
+def _interpreter_heredoc_head(command: str) -> str | None:
+    """The text the gate judges for a command that is exactly `python3 - [arguments] <<'MARK'` (or `python`) with a
+    quoted marker, its body and the marker line (owner choice of Nachtrag 14, part 1, D39): the words before the
+    here-document, `python3 - [arguments]`, judged as `python3 file.py [arguments]` is today. The body is the
+    interpreter's input and has no expansion, so it is no shell text: neither the safety net nor class c reads a git or
+    gh word in it. The form is read by the class c parser and must be one simple command with no assignment, the
+    literal program word python3 or python, the literal word `-` next, and one redirection, a `<<` here-document on the
+    standard input whose marker the shell sees quoted. None for every other form, which keeps today's answer: an
+    unquoted marker, another interpreter or a shell, a path or a wrapper as the program, an option before `-`, a second
+    here-document or any other redirection, `<<-`, a chain, a pipeline, a list or a command after the marker line, and
+    every form the parser does not model."""
+    try:
+        tree = _sh_parse(command)
+    except (_ShUnmodeled, RecursionError):
+        return None
+    if len(tree.items) != 1:
+        return None
+    pipes, ops = tree.items[0]
+    if ops or len(pipes) != 1 or len(pipes[0]) != 1 or not isinstance(pipes[0][0], _ShSimple):
+        return None
+    cmd = pipes[0][0]
+    if cmd.assigns or len(cmd.words) < 2 or cmd.words[0].raw not in _HEREDOC_INTERPRETERS or cmd.words[1].raw != "-":
+        return None
+    if len(cmd.redirs) != 1:
+        return None
+    doc = cmd.redirs[0]
+    if not isinstance(doc.target, _ShHeredoc) or doc.op != "<<" or doc.fd or not doc.target.quoted:
+        return None
+    return " ".join(w.raw for w in cmd.words)
+
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
@@ -9010,11 +9044,17 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     gate directory) and never under Codex, a human rule may free exactly one plain local git form, bound by a
     digest to the repository's program-selecting state. push and gh never reach this path; a rule with effect
     "ask", a digest that no longer matches, strict mode, Codex, or no rule at all all fall through to the normal
-    decision, which asks. The model can neither set the mode nor write a rule."""
-    outcome = _decide_outcome(command, cwd, deadline, host, environ)
+    decision, which asks. The model can neither set the mode nor write a rule.
+
+    A command that is exactly `python3 - [arguments] <<'MARK'` with a quoted marker is judged by its words before the
+    here-document, as `python3 file.py [arguments]` is (D39, _interpreter_heredoc_head): the body is the
+    interpreter's input, not shell text, and the gate does not read code (D8)."""
+    head = _interpreter_heredoc_head(command)
+    judged = command if head is None else head
+    outcome = _decide_outcome(judged, cwd, deadline, host, environ)
     if outcome is not None:
-        _name_narrower_spelling(outcome, command, cwd, deadline, host, environ)
-    return _with_done_order(outcome, command)
+        _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
+    return _with_done_order(outcome, judged)
 
 
 def _narrower_spelling(command: str) -> str | None:
