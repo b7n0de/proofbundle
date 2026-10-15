@@ -46,6 +46,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from proofbundle._strict_json import loads_strict
 from proofbundle._wire_b64 import decode_b64_either
 from proofbundle.canonical import canonicalize_statement
 from proofbundle.decision import (DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE, STATEMENT_TYPE,
@@ -128,7 +129,12 @@ def content_root(envelope: dict) -> str:
 
 
 def _statement(envelope: dict) -> dict:
-    return json.loads(decode_b64_either(envelope["payload"]))
+    """The statement the signed payload carries, read with the house's strict JSON reader.
+
+    `json.loads` kept the last of two members with one name, so the profile could read another predicate than a
+    strict verifier of the same bytes (the repository's strict decoding rule of 2026-10-14). A payload that is not
+    strict JSON raises, and the never-raise boundary of `reconcile` answers unknown and names the type."""
+    return loads_strict(decode_b64_either(envelope["payload"]))
 
 
 def decision_predicate(*, action_id: str, attempt: int, decided_at: str, expires_at: str | None, surface: str,

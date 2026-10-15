@@ -386,7 +386,12 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         The depth is asked of the parser, not fixed. Python 3.14 parses 10,000 levels that 3.10 to 3.13 refuse, and
         the case failed in CI on 3.14 alone: the answer was unknown for the missing version signal, so the boundary
         this case is about was never reached. It doubles from 10,000 until the interpreter's own json.loads raises,
-        which `_statement` calls, and an interpreter that parses every depth up to ten million is not measured here."""
+        which `_statement` calls, and an interpreter that parses every depth up to ten million is not measured here.
+
+        Since 2026-10-14 `_statement` reads with `loads_strict` (the repository's strict decoding rule), whose depth
+        bound refuses such a payload before the interpreter's recursion limit is reached, so the answer names
+        BundleFormatError ("JSON nesting is too deep") where it named RecursionError. The boundary is the same: an
+        answer, never an exception."""
         from proofbundle import dsse
         tiefe = 10000
         while tiefe <= 10_000_000:
@@ -401,7 +406,7 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         signiert = dsse.sign_envelope(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
         antwort = self._reconcile(signiert)
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
-        self.assertIn("RecursionError", antwort["reasons"][0])
+        self.assertIn("BundleFormatError", antwort["reasons"][0])
         antwort = self._reconcile({"payload": base64.b64encode(roh).decode(), "payloadType": "x", "signatures": []})
         self.assertEqual(antwort["verdict"], self.g.NOT_ACCEPTED)
         self.assertIn("not signed by the pinned gate key", antwort["reasons"][0])

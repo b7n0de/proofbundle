@@ -88,6 +88,10 @@ def item_end(data: bytes, pos: int, depth: int = 0) -> int:
         arg = None
     else:
         raise Malformed(f"a reserved or break head at byte {pos - 1}")
+    if major == 7 and info == 24 and arg < 32:
+        # Not well-formed (RFC 8949 Section 3.3). cbor2 5.9.0 reads f8 14 as false and cbor2 6.1.4 refuses it, so
+        # without this line the verdict on these bytes depended on the installed cbor2 (measured 2026-10-14).
+        raise Malformed(f"a simple value below 32 in the two-byte form at byte {pos - 2}")
     if pos > len(data) or major in (0, 1, 7):
         if pos > len(data):
             raise Malformed("truncated")
