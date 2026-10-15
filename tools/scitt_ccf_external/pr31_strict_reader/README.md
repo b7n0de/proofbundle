@@ -42,8 +42,10 @@ as one with the key 1. This reader refuses a header map, the `vdp` map, a proof 
 data items, and an algorithm, a VDS or a key type given as a float. A key set whose point is not on its curve, whose
 coordinate is not exactly the byte length of the curve (RFC 9053 Section 7.1.1), or whose kid is not a byte string is
 a `FAIL keys` line, not an error. A receipt whose kid is not a byte string (RFC 9052 Section 3.1) is `FAIL kid`. A
-signature is r and s, each in exactly the byte length of the curve (RFC 9053 Section 2.1); a signature of another
-length, such as one with a zero byte in front of r and s, is refused.
+label in both the protected and the unprotected header is `FAIL label_in_both_headers`: RFC 9052 Section 3 says an
+application SHOULD verify that no label occurs in both, and this reader does. A signature is r and s, each in exactly
+the byte length of the curve (RFC 9053 Section 2.1); a signature of another length, such as one with a zero byte in
+front of r and s, is refused.
 
 ## What it is not
 

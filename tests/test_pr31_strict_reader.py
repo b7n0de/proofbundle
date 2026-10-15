@@ -302,16 +302,17 @@ def test_the_command_line_prints_the_line_and_exits_2_when_a_file_cannot_be_read
     assert READER.main([str(tmp_path / "missing.cose"), str(keys), "--digest", digest]) == 2
 
 
-def _beside_the_inclusion_proof(*pairs: tuple) -> bytes:
-    """vdp_twin with these vdp pairs added next to its inclusion proof, only in the unprotected header: the protected
-    header, the payload and the signature stay the same bytes, so no key is needed (the form of review round 21)."""
+def _beside_the_inclusion_proof(*pairs: tuple, header: tuple = ()) -> bytes:
+    """vdp_twin with these vdp pairs added next to its inclusion proof, and the ``header`` pairs next to the vdp map,
+    only in the unprotected header: the protected header, the payload and the signature stay the same bytes, so no
+    key is needed (the form of review round 21)."""
     raw = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
     before = READER.strict(raw, "receipt").value
     i = READER._skip_head(raw, READER._skip_head(raw, 0))
     _, start = READER.load_item_strict(raw, i)
     _, end = READER.load_item_strict(raw, start)
     vdp = GEN.cmap([GEN.inclusion(*before[1][READER.VDP][READER.INCLUSION]), *pairs])
-    changed = raw[:start] + GEN.cmap([(GEN.uint(READER.VDP), vdp)]) + raw[end:]
+    changed = raw[:start] + GEN.cmap([(GEN.uint(READER.VDP), vdp), *header]) + raw[end:]
     after = READER.strict(changed, "receipt").value
     assert (before[0], before[2], before[3]) == (after[0], after[2], after[3])
     return changed
@@ -468,6 +469,26 @@ def test_the_coordinate_length_follows_the_curve(curve, keyset_index, n):
                                 (GEN.uint(-3), GEN.bs(pn.y.to_bytes(n, "big")))])])
     with pytest.raises(READER.Fail):
         READER.read_keys(padded)
+
+
+@pytest.mark.parametrize("label, value, line", [
+    # Codex thread 4285979691 on pull request 352: each of these beside the vdp map passed before this check, with the
+    # protected header, the payload and the signature unchanged.
+    (GEN.uint(1), GEN.uint(-7), "FAIL label_in_both_headers"),
+    (GEN.uint(4), GEN.bs(b"other-kid"), "FAIL label_in_both_headers"),
+    (GEN.uint(395), GEN.uint(3), "FAIL label_in_both_headers"),
+    (GEN.uint(4), GEN.bs(GEN.KID), "FAIL label_in_both_headers"),
+    # Control: a label the protected header does not carry stays allowed, as the probe foreign_label_unprotected has it.
+    (GEN.uint(99), GEN.uint(0), None),
+    (GEN.ts(b"x"), GEN.uint(0), None),
+])
+def test_a_label_in_both_header_buckets_is_refused(label, value, line):
+    """RFC 9052 Section 3: an application SHOULD verify that the same label does not occur in both the protected and
+    the unprotected header. Even the same kid twice is refused: the rule is about the label, not its value."""
+    receipt = _beside_the_inclusion_proof(header=((label, value),))
+    got = READER.verdict(receipt, (HERE / "vectors" / "keys.cbor").read_bytes(),
+                         digest=bytes.fromhex(VECTORS["vdp_twin"]["data_hash_hex"]))
+    assert got == (line or VECTORS["vdp_twin"]["strict_line"])
 
 
 def test_counter_probe_with_cbor2_the_last_value_of_a_duplicate_key_wins(monkeypatch):

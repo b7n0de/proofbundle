@@ -217,6 +217,10 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
         raise Fail("protected_label")
     if not _labels(unprotected):
         raise Fail("unprotected_label")
+    if set(protected) & set(unprotected):
+        # RFC 9052 Section 3: an application SHOULD verify that no label occurs in both buckets. This reader does, so
+        # a second alg, kid or VDS outside the signature is refused instead of being passed over.
+        raise Fail("label_in_both_headers")
     vdp = _check_vdp(unprotected)
     if not (_int(protected.get(VDS)) and protected.get(VDS) == 2):
         raise Fail("vds")
