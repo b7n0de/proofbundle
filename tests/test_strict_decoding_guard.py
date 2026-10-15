@@ -66,18 +66,21 @@ ROOTS = ("src", "plugins", "tools", "docs/scitt")
 OUTSIDE = ("scripts", "conformance", "interop", "examples", "fuzz", "benchmarks")
 
 
-def _im_checkout() -> bool:
-    """Repository checkout or an extracted sdist? Read from conftest, the one source for it, as
-    test_a_register_entry_promised_in_prose_exists does. Without conftest the answer is unknown, and unknown skips.
+def _im_checkout(repo: Path = REPO) -> bool | None:
+    """Repository checkout (True), an extracted sdist (False), or no basis to say (None)? Read from conftest's
+    ``baumkontext``, which asks for positive evidence of each tree: a ``.git`` at the root for a checkout, a PKG-INFO
+    of this project and no ``.git`` for a distribution (review round 22, R22-2). The first version asked
+    ``running_in_repo_checkout``, which reads the absence of three markers as a distribution, and a checkout copy
+    without them ran green. Without conftest there is no basis either.
 
     No path literal of the repository stands here on purpose: conftest's derivation reads such a literal as a module
     that needs the repository and skips the whole module outside a checkout, the tests on planted sources included
     (measured from the extracted sdist on 2026-10-15)."""
-    try:
-        from conftest import running_in_repo_checkout  # noqa: PLC0415
-    except Exception:  # noqa: BLE001
-        return False
-    return running_in_repo_checkout()
+    c = _conftest()
+    if c is None:
+        return None
+    art, _why = c.baumkontext(repo)
+    return None if art is None else art == "checkout"
 
 
 # TWO TREES, AND EACH LISTED PATH SAYS WHICH ONE IT IS IN (review round 21, R21-2). Measured on 2026-10-15 in the
@@ -94,6 +97,10 @@ def _im_checkout() -> bool:
 # Whether a distribution promises a path is read from its MANIFEST.in the way conftest reads it for the derived skip
 # set (`_manifest_verspricht`, `_manifest_zeilen`), the one reader of the template under tests/. No readable template
 # is no basis, and no basis stays loud.
+#
+# WHICH TREE IT IS needs evidence of its own (review round 22, R22-2): a `.git` at the root for a checkout, a PKG-INFO
+# of this project and no `.git` for a distribution, from conftest's `baumkontext`. A tree that shows neither is no
+# basis and fails on an absent path. The absence of the paths this guard protects is never read as a distribution.
 
 #: What the distribution carries of the directories this guard names: src/ through the package discovery of
 #: pyproject.toml, scripts/ through its explicit list in MANIFEST.in, conformance/ and examples/ through `graft`.
@@ -153,9 +160,14 @@ def _promised(rel: str, repo: Path = REPO, directory: bool = False) -> bool | No
 
 
 def _absent(rel: str, *, repo: Path = REPO, in_checkout: bool | None = None, directory: bool = False) -> tuple:
-    """("FAIL", why) or ("NOT MEASURED", why) for a listed path that is absent from ``repo``."""
+    """("FAIL", why) or ("NOT MEASURED", why) for a listed path that is absent from ``repo``. ``in_checkout`` None asks
+    the tree; a tree that shows neither kind fails, because only a distribution may leave a path unmeasured."""
     if in_checkout is None:
-        in_checkout = _im_checkout()
+        in_checkout = _im_checkout(repo)
+    if in_checkout is None:
+        c = _conftest()
+        why = c.baumkontext(repo)[1] if c is not None else "conftest cannot be imported"
+        return "FAIL", f"{rel} is absent and this tree shows neither a checkout nor a distribution: {why}"
     if in_checkout:
         return "FAIL", f"{rel} is absent from the checkout: a path this guard lists went away"
     promised = _promised(rel, repo, directory)
@@ -574,6 +586,63 @@ def test_both_trees_an_absent_path_is_judged_by_where_it_is_missing(tmp_path, in
     if manifest is not None:
         (tmp_path / "MANIFEST.in").write_text(manifest, encoding="utf-8")
     assert _absent(rel, repo=tmp_path, in_checkout=in_checkout, directory=directory)[0] == verdict
+
+
+def _tree(tmp_path, *, git: str | None = None, pkg_info_name: str | None = None) -> Path:
+    """A planted tree: pyproject.toml of the project ``planted`` and a template that does not promise tools/, with a
+    ``.git`` directory or worktree file and a PKG-INFO as asked."""
+    (tmp_path / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    (tmp_path / "MANIFEST.in").write_text("prune tools\n", encoding="utf-8")
+    if git == "directory":
+        (tmp_path / ".git").mkdir()
+    elif git == "worktree file":
+        (tmp_path / ".git").write_text("gitdir: /elsewhere/.git/worktrees/planted\n", encoding="utf-8")
+    if pkg_info_name is not None:
+        (tmp_path / "PKG-INFO").write_text(f"Metadata-Version: 2.1\nName: {pkg_info_name}\n", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.parametrize("git, pkg_info_name, verdict, words", [
+    # Review round 22, R22-2: a checkout without .github/, tools/ and SPEC.md is still a checkout, a worktree too.
+    ("directory", None, "FAIL", "went away"),
+    ("worktree file", None, "FAIL", "went away"),
+    # A distribution shows itself by its PKG-INFO; only there is a path the template does not promise unmeasured.
+    (None, "planted", "NOT MEASURED", "not shipped"),
+    (None, "Planted", "NOT MEASURED", "not shipped"),
+    # No evidence, the evidence of another project, or evidence of both: no basis, and no basis stays loud.
+    (None, None, "FAIL", "neither a checkout nor a distribution"),
+    (None, "other-project", "FAIL", "neither a checkout nor a distribution"),
+    ("directory", "planted", "FAIL", "neither a checkout nor a distribution"),
+])
+def test_both_trees_the_kind_of_tree_needs_evidence_and_the_absence_of_markers_is_none(tmp_path, git, pkg_info_name,
+                                                                                      verdict, words):
+    """None of these trees carries .github/, tools/ or SPEC.md, the markers whose absence the first version read as a
+    distribution. The verdict on the absent tools/ follows what the tree shows of itself."""
+    tree = _tree(tmp_path, git=git, pkg_info_name=pkg_info_name)
+    got, why = _absent("tools", repo=tree, directory=True)
+    assert (got, words in why) == (verdict, True), why
+
+
+def test_both_trees_a_real_git_checkout_without_the_markers_fails_on_an_absent_path(tmp_path):
+    """The same with a repository git itself initialised, so the evidence is the one a real checkout carries."""
+    import shutil  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    if shutil.which("git") is None:
+        pytest.skip("NOT MEASURED: no git on this machine")
+    tree = _tree(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tree)], check=True, capture_output=True, timeout=60)
+    got, why = _absent("tools", repo=tree, directory=True)
+    assert got == "FAIL" and "went away" in why, why
+
+
+def test_this_tree_shows_which_kind_it_is():
+    """The guard's own tree must show one kind: a checkout by its .git, the extracted sdist by its PKG-INFO. Without
+    that, every absent path here would fail, and the shipped suite with it."""
+    c = _conftest()
+    assert c is not None
+    art, why = c.baumkontext(REPO)
+    assert art in ("checkout", "distribution"), why
 
 
 def _outcome(call) -> str:

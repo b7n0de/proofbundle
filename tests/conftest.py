@@ -171,6 +171,39 @@ def running_in_repo_checkout() -> bool:
     return any((_REPO_ROOT / m).exists() for m in _REPO_ONLY_MARKERS)
 
 
+def baumkontext(wurzel: pathlib.Path = _REPO_ROOT) -> tuple[str | None, str]:
+    """("checkout" | "distribution" | None, why), each from POSITIVE evidence only (review round 22, R22-2).
+
+    `running_in_repo_checkout` reads the absence of three markers as a distribution. Measured by the reviewer on
+    2026-10-15: a copy of the checkout with `.git`, without `.github/`, `tools/` and `SPEC.md`, ran the strict decoding
+    guard as a distribution, skipped the lost `tools/` paths as not shipped and ended green. The absence of what a
+    test protects is no evidence of a package. So this reader asks for evidence of each kind:
+      checkout       a `.git` at the root, a directory or the file of a linked worktree;
+      distribution   a PKG-INFO at the root that names the project pyproject.toml names, and no `.git`;
+      None           neither, or both: no basis, and a caller without a basis stays loud.
+    Only the strict decoding guard asks this so far; the derived skip set above keeps the markers (a named sibling)."""
+    wurzel = pathlib.Path(wurzel)
+    git = (wurzel / ".git").exists()
+    name = None
+    try:
+        for zeile in (wurzel / "PKG-INFO").read_text(encoding="utf-8", errors="replace").splitlines():
+            if zeile.startswith("Name:"):
+                name = zeile.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    projekt = _projektname(wurzel)
+    verteilung = bool(name and projekt and _normalisierter_name(name) == _normalisierter_name(projekt))
+    if git and verteilung:
+        return None, f"{wurzel} carries both a .git and a PKG-INFO of {projekt}, so neither tree is shown"
+    if git:
+        return "checkout", f"{wurzel}/.git exists"
+    if verteilung:
+        return "distribution", f"{wurzel}/PKG-INFO names {name}, the project of pyproject.toml, and there is no .git"
+    return None, (f"{wurzel} has no .git and no PKG-INFO naming the project of pyproject.toml "
+                  f"(PKG-INFO name {name!r}, project {projekt!r})")
+
+
 # ── The skip set is DERIVED, not enumerated (deep gate finding L6-01, P1) ────────────────────────────
 #
 # The frozenset above IS the defect. Commit 2c5e7a5 already appended ids to it once, and the gate found six
