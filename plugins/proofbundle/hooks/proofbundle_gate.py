@@ -8638,8 +8638,34 @@ def _sh_gated(step: _ShStep) -> bool:
     return sub == "push" or sub not in _GIT_LOCAL_SUBCOMMANDS
 
 
+def _sh_read_objects(later: _ShStep, environ: dict) -> tuple[str, ...]:
+    """The files the later step's own answer read or starts that a write could change (R20-3 of review round 20): the
+    program its name selects on PATH, and for gh the configuration files the gh profile reads (config.yml and hosts.yml
+    in _gh_config_dir), whatever links lead to them."""
+    objects = []
+    if later.kind == "gh":
+        folder = _gh_config_dir(environ)
+        objects += [os.path.join(folder, name) for name in ("config.yml", "hosts.yml")] if folder else []
+    if later.kind in ("git", "gh"):
+        program = shutil.which(later.head, path=environ.get("PATH", ""))
+        objects += [program] if program else []
+    return tuple(objects)
+
+
+def _sh_same_file(path: str, other: str) -> bool:
+    """Whether path names the file other names: the same resolved path (a symbolic link on either side followed), or
+    the same file identity, device and inode, so that a hard link counts (R20-3)."""
+    if os.path.realpath(path) == os.path.realpath(other):
+        return True
+    try:
+        first, second = os.stat(path), os.stat(other)
+    except (OSError, ValueError):
+        return False
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
 def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None,
-                      gh_config: str | None = None) -> bool:
+                      gh_config: str | None = None, read_objects: tuple[str, ...] = ()) -> bool:
     """Whether the step may change what the answer of the later step read: the configuration, the hooks, the
     evidence, the environment, the aliases or the programs a name selects, and for a read form that walks the work tree
     the gitlinks of the index (a `git add` of an embedded repository adds one, and `git status` or `git diff` then
@@ -8656,10 +8682,12 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
     if step.kind == "data":
         if targets and step.cwd is None:
             return True
-        if later is not None and later.kind == "gh" and any(
-                gh_config is None or _sh_path_within(t if os.path.isabs(t) else os.path.join(step.cwd, t), gh_config)
-                for t in targets):
+        paths = [t if os.path.isabs(t) else os.path.join(step.cwd, t) for t in targets]
+        if later is not None and later.kind == "gh" and any(gh_config is None or _sh_path_within(p, gh_config)
+                                                            for p in paths):
             return True     # gh's configuration, which the gh profile of the later step read (class b, D36)
+        if any(_sh_same_file(p, o) for p in paths for o in read_objects):
+            return True     # a file the later step's answer read or starts, through a link or under another name (R20-3)
         if step.head == "sort" and any(w.startswith(("-o", "--output")) for w in step.words[1:]):
             return True
         if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
@@ -8845,8 +8873,10 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                               "of `&&` and `;` (K-NW-2 B, D3)")
             released = True
         if answer is None or answer.decision in ("pass", "inactive"):
-            gh_config = _gh_config_dir(os.environ if environ is None else environ) if s.kind == "gh" else None
-            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s, gh_config)]
+            env_now = os.environ if environ is None else environ
+            gh_config = _gh_config_dir(env_now) if s.kind == "gh" else None
+            read_objects = _sh_read_objects(s, env_now)
+            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s, gh_config, read_objects)]
             if changed:
                 verdicts.append(Verdict(
                     "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "

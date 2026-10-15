@@ -2520,7 +2520,10 @@ nothing. Reason id `free_after_gh_profile`; where the profile finds something, `
   all set at once (measured).
 - Inside a longer command, class c judges the gh read form as a step of its own. A gh read form changes no state
   another step reads (it writes gh's HTTP cache only, measured); a step before it that writes into gh's configuration
-  folder changes what its profile read, and the step asks.
+  folder changes what its profile read, and the step asks. So does a step that writes one of the files the answer
+  read under another name (R20-3 of review round 20): config.yml, hosts.yml or the program the later step's name
+  selects on PATH (gh, or git for a read form of class a), compared by the resolved path and by device and inode,
+  so that a symbolic link or a hard link outside the folder counts as the file itself.
 
 Measured with gh 2.89.0 against a local stand-in for github.com, api.github.com and a second host, in a network
 namespace of its own with only the loopback interface, under strace (programs started, connections), with fake tokens:
