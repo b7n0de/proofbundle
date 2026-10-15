@@ -34,21 +34,6 @@ BASIS_ARTEN = {"catalogue", "enumeration", "declared"}
 UNVEREINBAR_MIT_COMPLETE = {"failed", "resource_exhausted", "unavailable"}
 
 
-def _reject_duplicate_keys(pairs):
-    """A JSON object with one member name twice is refused, never read as its last member.
-
-    CAP-1 is silent on duplicate names and RFC 8259 calls the behaviour unpredictable (README, "Eine
-    Mehrdeutigkeit"). This command line reads strictly, like the Rust implementation in rs/, since the
-    repository's strict decoding rule of 2026-10-14. lauf.py still measures the last-wins and first-wins readings through
-    verify() directly, so the recorded table does not depend on this reader."""
-    out = {}
-    for name, value in pairs:
-        if name in out:
-            raise ValueError(f"duplicate member name {name!r}")
-        out[name] = value
-    return out
-
-
 def _ganzzahl(x):
     """Eine echte Ganzzahl. bool ist in Python eine int-Unterklasse und hier keine Zahl."""
     return isinstance(x, int) and not isinstance(x, bool)
@@ -251,14 +236,7 @@ def main(argv):
         print("usage: cap1_verify.py <attestation.json>", file=sys.stderr)
         return 2
     with open(argv[1], "rb") as fh:
-        raw = fh.read()
-    try:
-        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except ValueError as exc:
-        # The same answer as the Rust implementation gives for a JSON error: REFUSED, the reason, exit 1.
-        print("REFUSED")
-        print(f"  JSON: {exc}")
-        return 1
+        doc = json.loads(fh.read().decode("utf-8"))
     ok, failures = verify(doc)
     if ok:
         print("CONFORMS")

@@ -8,6 +8,10 @@ header, the vdp map and each proof. A duplicate map key, an encoding that is not
 and bytes after an item are refused before any algorithm runs. A head that is not the shortest and an indefinite
 length are valid CBOR and are read.
 
+A label is an integer or a text string (RFC 9052 Section 1.4, ``label = int / tstr``), and an integer is an integer:
+a key or value 1.0 or ``true`` equals 1 in Python but is a different CBOR data item, so a header map, the vdp map, a
+proof map or a key holding one is refused instead of being read as the integer.
+
 It replaces the reference implementation of 2026-10-12 named in the pull request comment of that date, which read
 with cbor2 and accepted a duplicate key in a proof and an empty consistency-proof array next to a valid inclusion
 proof. The measured readings of both, and of the Go reader at e305458c, are in README.md next to this file.
@@ -59,6 +63,11 @@ def _int(v) -> bool:
     return type(v) is int
 
 
+def _labels(m: dict) -> bool:
+    """Every key of the map is a COSE label: an int (not a bool) or a text string."""
+    return all(type(k) is int or type(k) is str for k in m)
+
+
 def _head(major: int, n: int) -> bytes:
     if n < 24:
         return bytes([major << 5 | n])
@@ -104,13 +113,17 @@ def _skip_head(raw: bytes, i: int) -> int:
 
 def read_keys(raw: bytes) -> list:
     if raw.startswith(b"-----BEGIN"):
-        return [(None, x509.load_pem_x509_certificate(raw).public_key())]
+        try:
+            return [(None, x509.load_pem_x509_certificate(raw).public_key())]
+        except ValueError as exc:
+            raise Fail("keys") from exc
     out = []
     keyset = strict(raw, "keys")
     if not isinstance(keyset, list):
         raise Fail("keys")
     for k in keyset:
-        if not (isinstance(k, dict) and k.get(1) == 2 and k.get(-1) in CURVES):
+        if not (isinstance(k, dict) and _labels(k) and _int(k.get(1)) and k.get(1) == 2
+                and _int(k.get(-1)) and k.get(-1) in CURVES):
             raise Fail("keys")
         x, y = k.get(-2), k.get(-3)
         if not (isinstance(x, bytes) and isinstance(y, bytes)):
@@ -126,7 +139,7 @@ def _check_vdp(unprotected: dict) -> dict:
     vdp = unprotected.get(VDP)
     if not isinstance(vdp, dict):
         raise Fail("vdp")
-    if set(vdp) - {INCLUSION, CONSISTENCY}:
+    if not all(_int(k) for k in vdp) or set(vdp) - {INCLUSION, CONSISTENCY}:
         raise Fail("vdp_key")
     for label in (INCLUSION, CONSISTENCY):
         if label not in vdp:
@@ -156,6 +169,10 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
     protected = strict(protected_raw, "protected")
     if not isinstance(protected, dict):
         raise Fail("protected")
+    if not _labels(protected):
+        raise Fail("protected_label")
+    if not _labels(unprotected):
+        raise Fail("unprotected_label")
     vdp = _check_vdp(unprotected)
     if not (_int(protected.get(VDS)) and protected.get(VDS) == 2):
         raise Fail("vds")
@@ -169,7 +186,7 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
     roots = set()
     for p in vdp[INCLUSION]:
         m = strict(p, "proof")
-        if set(m) != {1, 2}:
+        if not all(_int(k) for k in m) or set(m) != {1, 2}:
             raise Fail("proof_keys")
         leaf, path = m[1], m[2]
         if not (isinstance(leaf, list) and len(leaf) == 3):
@@ -240,8 +257,13 @@ def main(argv=None) -> int:
     except ValueError:
         print("FAIL digest")
         return 0
-    print(verdict(a.receipt.read_bytes(), a.keys.read_bytes(),
-                  statement_raw=a.statement.read_bytes() if a.statement else None, digest=digest))
+    try:
+        receipt_raw, keys_raw = a.receipt.read_bytes(), a.keys.read_bytes()
+        statement_raw = a.statement.read_bytes() if a.statement else None
+    except OSError as exc:
+        print(f"reader.py: cannot read an input file: {exc}", file=sys.stderr)
+        return 2
+    print(verdict(receipt_raw, keys_raw, statement_raw=statement_raw, digest=digest))
     return 0
 
 

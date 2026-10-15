@@ -2,8 +2,8 @@
 
 The vector files are evidence: `nachrechnen.py` recomputes them, `mint_indefinite.py` mints vector D from them
 and `reader_matrix.py` feeds them to the libraries it measures. `json.load` keeps the LAST of two members with
-one name, so a doubled `bytes_hex` would decide silently which bytes are recomputed (the repository's
-strict decoding rule of 2026-10-14). Standard library only, like the rest of this directory.
+one name, so a doubled `bytes_hex` would decide silently which bytes are recomputed (the strict decoding
+rule stated in tests/test_strict_decoding_guard.py). Standard library only, like the rest of this directory.
 """
 from __future__ import annotations
 

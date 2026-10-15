@@ -33,14 +33,22 @@ encoding for it. This reader writes it as the one byte `a0`. The seven receipts 
 `00101f76` match a preimage with `a0`; that was measured on 2026-10-12 and is not repeated here.
 
 A valid CBOR encoding that is not the shortest one, such as a head that is not the shortest or an indefinite length,
-is read, because RFC 8949 Section 5.3.1 does not make it invalid.
+is read, because RFC 8949 Section 5.3.1 does not make it invalid. A code point spread between two chunks of an
+indefinite text string is refused, because RFC 8949 Section 3.2.3 makes the string invalid.
+
+A label is an integer or a text string (RFC 9052 Section 1.4), and an integer is an integer. In Python, `1.0 == 1` and
+`True == 1` with the same hash, so a reader that looks labels up as Python values reads a proof map with the key 1.0
+as one with the key 1. This reader refuses a header map, the `vdp` map, a proof map or a key whose labels are other
+data items, and an algorithm, a VDS or a key type given as a float.
 
 ## What it is not
 
 - It does not claim conformance to the profile, and it is not a COSE library.
 - The verdicts below hold for these receipts and these named versions only.
-- A `PASS` says that the receipt verifies under the named key for the named data hash. It does not say that the
-  statement is true or that the ledger is honest.
+- A `PASS` says that the inclusion proofs of the receipt verify under the named key for the named data hash. It does
+  not say that the statement is true or that the ledger is honest.
+- Consistency proofs under the `vdp` label -2 are checked for their form only: each is a byte string that holds one
+  valid CBOR map. They are not computed, and a `PASS` says nothing about them.
 
 ## The probes, `probes/`
 
@@ -55,9 +63,10 @@ The generator itself is not in this tree. All probes share one data hash, `b111c
 
 ## The vectors, `vectors/`
 
-12 receipts written by `make_vectors.py`, with the same test key. The probes repeat a duplicate key with the same
+32 receipts written by `make_vectors.py`, with the same test key. The probes repeat a duplicate key with the same
 value, so a reader that keeps the first value and one that keeps the last agree there. These vectors make them
-disagree, and add the cases of `f6d4eb04` and of the empty map:
+disagree, add the cases of `f6d4eb04` and of the empty map, and add one receipt for each requirement that no probe
+exercises:
 
 | vectors | what they hold |
 |---|---|
@@ -66,14 +75,24 @@ disagree, and add the cases of `f6d4eb04` and of the empty map:
 | `vdp_empty_consistency`, `vdp_duplicate_key`, `vdp_unknown_key` | a valid inclusion proof next to an empty `consistency-proof` array, a duplicate key in the `vdp` map, and a `vdp` key other than -1 and -2 |
 | `vdp_twin` | the control for the three `vdp` cases |
 | `empty_map_a0`, `empty_map_b8_00`, `empty_map_bf_ff` | one statement (`statement.cose`) whose unprotected header is not empty, and three receipts whose data hash is the SHA-256 of that statement with the header replaced by `a0`, by `b8 00` or by `bf ff` |
+| `label_leaf_float_1_0`, `label_leaf_true`, `label_path_float_2_0`, `label_vdp_float_minus_1_0`, `label_unprotected_float_396_0` | a key that equals an integer label in Python but is another data item (1.0, `true`, 2.0, -1.0, 396.0), in the proof map, the `vdp` map or the unprotected header. Only the unprotected part changes, so the signature stays valid and anyone can write such a receipt without the key |
+| `label_protected_alg_true`, `label_protected_vds_float`, `label_protected_alg_value_float` | the same in the protected header (the label of `alg` as `true`, VDS 2 as 2.0, `alg` -35 as -35.0), signed with the test key |
+| `evidence_chunks_split_inside_a_code_point`, `evidence_chunks_split_at_code_points` | the evidence as an indefinite text string in two chunks, cut inside the first `ü` and at a code point |
+| `evidence_512_two_byte_characters`, `evidence_513_two_byte_characters` | 1024 and 1026 bytes of evidence in 512 and 513 characters, so the bytes are counted and not the characters |
+| `evidence_as_byte_string`, `its_33` | the evidence as a byte string, and an `internal-transaction-hash` of 33 bytes |
+| `form_tag_17`, `form_five_elements`, `form_unprotected_not_a_map`, `form_protected_not_a_map`, `form_vdp_without_inclusion`, `form_proof_not_a_map` | a receipt, a header, a `vdp` map or a proof of another form |
 
-`vectors.json` names, per vector, the data hash, the statement where there is one, and the verdict expected from a
-strict reader. For the `dup_*` vectors it also names the verdicts of a first-wins and of a last-wins reader.
+`vectors.json` names, per vector, the data hash, the statement where there is one, the verdict expected from a
+strict reader and the whole line it must print (`strict_line`). For the `dup_*` vectors it also names the verdicts of
+a first-wins and of a last-wins reader. The expected lines follow from the text of pull request 31 and RFC 9052, not
+from a run of this reader.
 
 ## What was measured, 2026-10-15
 
 The three readers:
-- **This reader:** `reader.py`, CPython 3.10.12, `cryptography` 50.0.2, no cbor2.
+- **This reader:** `reader.py`, CPython 3.10.12, `cryptography` 50.0.2, no cbor2. The 36 receipts of the first run
+  and the 20 vectors added later the same day were run again together; the Go reader and the earlier reference gave
+  the same results on the 36 as in the first run.
 - **The Go reader:** `tools/scitt_ccf_external/section4_reader_go/main.go` at commit `e305458c` (sha256 `248b684a…`).
   It is on the branch `claude/scitt-section4-vectors`, not on main. Built with Go 1.27.2 linux/amd64, called as
   `ccfverify -receipt R -keys K` with `-digest HEX` or `-statement S`.
@@ -120,22 +139,44 @@ The three readers:
 | vdp_empty_consistency | FAIL | FAIL vdp_empty | FAIL proof | PASS | FAIL struct |
 | vdp_twin | PASS | PASS | PASS | PASS | FAIL struct |
 | vdp_unknown_key | FAIL | FAIL vdp_key | FAIL proof | PASS | FAIL struct |
+| evidence_512_two_byte_characters | PASS | PASS | PASS | PASS | FAIL struct |
+| evidence_513_two_byte_characters | FAIL | FAIL evidence_len | FAIL proof | FAIL evidence_len | FAIL struct |
+| evidence_as_byte_string | FAIL | FAIL evidence | FAIL proof | FAIL evidence | FAIL struct |
+| evidence_chunks_split_at_code_points | PASS | PASS | PASS | PASS | FAIL struct |
+| evidence_chunks_split_inside_a_code_point | FAIL | FAIL cbor_proof: a chunk of an indefinite text string is not valid UTF-8 on its own | FAIL cbor | FAIL proof_decode | FAIL struct |
+| form_five_elements | FAIL | FAIL struct | FAIL cbor | FAIL struct | FAIL struct |
+| form_proof_not_a_map | FAIL | FAIL vdp_map | FAIL proof | FAIL proof_keys | FAIL struct |
+| form_protected_not_a_map | FAIL | FAIL protected | FAIL header | FAIL vds | FAIL struct |
+| form_tag_17 | FAIL | FAIL tag | FAIL cbor | FAIL tag | FAIL tag |
+| form_unprotected_not_a_map | FAIL | FAIL struct | FAIL cbor | FAIL struct | FAIL struct |
+| form_vdp_without_inclusion | FAIL | FAIL vdp | FAIL proof | FAIL vdp | FAIL struct |
+| its_33 | FAIL | FAIL leaf_hash | FAIL proof | FAIL leaf_hash | FAIL struct |
+| label_leaf_float_1_0 | FAIL | FAIL proof_keys | FAIL proof | PASS | FAIL struct |
+| label_leaf_true | FAIL | FAIL proof_keys | FAIL proof | PASS | FAIL struct |
+| label_path_float_2_0 | FAIL | FAIL proof_keys | FAIL proof | PASS | FAIL struct |
+| label_protected_alg_true | FAIL | FAIL protected_label | FAIL header | PASS | FAIL struct |
+| label_protected_alg_value_float | FAIL | FAIL alg | FAIL header | PASS | FAIL struct |
+| label_protected_vds_float | FAIL | FAIL vds | FAIL header | FAIL vds | FAIL struct |
+| label_unprotected_float_396_0 | FAIL | FAIL unprotected_label | FAIL header | PASS | FAIL struct |
+| label_vdp_float_minus_1_0 | FAIL | FAIL vdp_key | FAIL proof | PASS | FAIL struct |
 
 The `expected, strict` column gives the verdict a strict reader is expected to give. For
 `plus_empty_consistency_array` the generator had left the verdict open; the strict reading follows `f6d4eb04`. Where
 the readers name reasons differently, the table shows each reader's own word.
 
 Counted from the table:
-- **This reader and the Go reader:** the same verdict on all 36 receipts.
-- **The earlier reference with cbor2 5.9.0:** a different verdict on 7 of them. It accepts:
+- **This reader and the Go reader:** the same verdict on all 56 receipts.
+- **The earlier reference with cbor2 5.9.0:** a different verdict on 14 of them. It accepts:
   - `duplicate_key_2`;
   - `dup_leaf_last` and `dup_path_last`, where the last value of the duplicate key wins;
-  - `plus_empty_consistency_array`, `vdp_empty_consistency`, `vdp_duplicate_key` and `vdp_unknown_key`.
+  - `plus_empty_consistency_array`, `vdp_empty_consistency`, `vdp_duplicate_key` and `vdp_unknown_key`;
+  - the seven `label_*` vectors other than `label_protected_vds_float`, where it reads a float or `true` as the
+    integer label or value.
 
   On `dup_leaf_first` and `dup_path_first` it fails on the signature, because it keeps the last value.
-- **The earlier reference with cbor2 6.1.4:** `FAIL struct` on 35 of 36. Under a tag, at any depth, cbor2 6 returns
+- **The earlier reference with cbor2 6.1.4:** `FAIL struct` on 54 of 56. Under a tag, at any depth, cbor2 6 returns
   an array as a tuple and a map as a frozendict, where cbor2 5.9.0 returns a list and a dict. The reference tests for
-  a list. Only `without_tag18`, which has no tag, passes.
+  a list. `form_tag_17` fails on its tag first, and only `without_tag18`, which has no tag, passes.
 
 ## Reproducing
 
@@ -148,8 +189,9 @@ From the repository root:
     python3 tools/scitt_ccf_external/pr31_strict_reader/make_vectors.py   # writes vectors/ again, byte for byte
 
 `make_vectors.py` needs only the standard library and `cryptography`. Its signatures are deterministic (RFC 6979), so
-a second run writes the same bytes. `tests/test_pr31_strict_reader.py` runs this reader on all 36 receipts and
-holds each verdict and reason.
+a second run writes the same bytes. `tests/test_pr31_strict_reader.py` runs this reader on all 56 receipts. It holds
+the verdict of each probe, the whole line of each vector and the reasons of four probes of pull request 31, and it
+checks that `make_vectors.py` writes the files in `vectors/` byte for byte.
 
 ## Limitations
 

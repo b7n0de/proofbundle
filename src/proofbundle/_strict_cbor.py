@@ -5,7 +5,8 @@ cbor_min.py`` did the same. Two readers of the same bytes can then check differe
 parser differential that ``_strict_json`` closes for JSON. The CCF receipt profile now requires a verifier to
 reject an inclusion proof that is not valid CBOR under RFC 8949 Section 5.3.1, duplicate map keys in particular
 (ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile pull request 31, commits eb01db3f and f6d4eb04). This
-repository applies the same rule to every reader of checked, signed or evidential bytes (since 2026-10-14).
+repository applies the same rule to its readers of checked, signed or evidential bytes; the scope and the readers
+outside it are named in ``tests/test_strict_decoding_guard.py``.
 
 WHAT IT REFUSES, each with a reason and the offset where it was decided (:class:`CborInvalid`, a
 ``BundleFormatError``):
@@ -15,10 +16,11 @@ WHAT IT REFUSES, each with a reason and the offset where it was decided (:class:
   a chunk of an indefinite string that is not a definite string of the same major type; a simple value below 32
   in the two-byte form;
 * input that is not valid (RFC 8949 Section 5.3.1): a duplicate map key at any depth, a text string that is not
-  valid UTF-8;
+  valid UTF-8, and a chunk of an indefinite text string that is not valid UTF-8 on its own (Section 3.2.3: the
+  bytes of one code point cannot be spread between chunks);
 * bytes before or after the one data item (``loads``), so a caller never reads a prefix;
-* input over the byte, depth or width budget, and a map key this reader cannot represent (an array, a map or a
-  tag as key).
+* input over the byte, depth or width budget (the width budget counts array elements, map pairs and the chunks of
+  indefinite strings), and a map key this reader cannot represent (an array, a map or a tag as key).
 
 WHAT IT ACCEPTS that a profile may still refuse: heads that are not in their shortest form and indefinite
 lengths. Both are valid CBOR under Section 5.3.1; requiring the preferred or deterministic encoding (Section 4.2)
@@ -115,7 +117,7 @@ class _Reader:
     def _count(self, k: int, offset: int) -> None:
         self.items += k
         if self.items > self.max_items:
-            raise CborInvalid(f"more than {self.max_items} array elements and map pairs", offset)
+            raise CborInvalid(f"more than {self.max_items} array elements, map pairs and string chunks", offset)
 
     def head(self, i: int):
         """-> (major type, argument or None for an indefinite length, offset after the head)."""
@@ -140,7 +142,6 @@ class _Reader:
         if depth > self.max_depth:
             raise CborInvalid(f"nesting deeper than {self.max_depth}", i)
         start = i
-        ib = self.b[i] if i < self.n else None
         mt, arg, i = self.head(i)
         if mt == 0:
             return arg, i
@@ -161,7 +162,15 @@ class _Reader:
                         raise CborInvalid("a chunk of an indefinite string is not a definite string of its type", cpos)
                     if carg > self.n - j:
                         raise CborInvalid("string runs past the end of the input", cpos)
-                    parts.append(bytes(self.b[j:j + carg]))
+                    self._count(1, cpos)
+                    chunk = bytes(self.b[j:j + carg])
+                    if mt == 3:
+                        try:
+                            chunk.decode("utf-8")
+                        except UnicodeDecodeError as exc:
+                            raise CborInvalid("a chunk of an indefinite text string is not valid UTF-8 on its own",
+                                              cpos) from exc
+                    parts.append(chunk)
                     i = j + carg
                 raw = b"".join(parts)
             else:
@@ -234,7 +243,7 @@ class _Reader:
         # Major type 7: simple values and floats.
         if arg is None:
             raise CborInvalid("break outside an indefinite container", start)
-        ai = ib & 0x1F
+        ai = self.b[start] & 0x1F       # head() has read the byte at start, so it exists
         if ai < 24:
             if arg == 20:
                 return False, i
@@ -288,7 +297,7 @@ def loads_strict_cbor(data: bytes, *, max_bytes: int | None = None, max_depth: i
     """Exactly one valid CBOR data item that covers all of ``data``, or :class:`CborInvalid`.
 
     Defaults come from ``DEFAULT_BUDGET``: ``input_bytes`` for the size, ``json_depth`` for the nesting and
-    ``json_nodes`` for the combined number of array elements and map pairs.
+    ``json_nodes`` for the combined number of array elements, map pairs and chunks of indefinite strings.
     """
     value, end = load_item_strict(data, 0, max_bytes=max_bytes, max_depth=max_depth, max_items=max_items)
     if end != len(data):

@@ -13,8 +13,19 @@ that keeps the first value and one that keeps the last one agree there. These ve
 * ``empty_map_*``: one statement whose unprotected header is not empty, and three receipts whose data
   hash is the SHA-256 of the statement with that header replaced by ``a0``, by ``b8 00`` or by ``bf ff``. A reader
   that writes the empty map as ``a0`` verifies the first and refuses the other two with a data-hash mismatch.
+* ``label_*``: a key that equals an integer label in Python but is another data item (``1.0``, ``true``, ``-1.0``,
+  ``396.0``) in the proof map, the vdp map, the unprotected header or the protected header. Only the unprotected
+  part changes for the first four, so the signature stays valid without the key; a reader that looks labels up as
+  Python values reads them as the integers. A label is ``int / tstr`` (RFC 9052 Section 1.4).
+* ``evidence_*``, ``its_33``, ``form_*``: one requirement each that no probe exercises, with its control: a code point
+  spread between two chunks of the evidence (RFC 8949 Section 3.2.3), 1024 and 1026 bytes of evidence in 512 and 513
+  two-byte characters, an ``internal-transaction-hash`` of 33 bytes, evidence as a byte string, and receipts whose
+  tag, array, headers, vdp map or proof have another form.
 
-The key is the fixed TEST key of ``probes/sonden.py`` (a constant, no secret). Signatures are deterministic ECDSA
+Every vector carries ``strict_line``, the whole line this reader must print, derived from the text of pull request 31
+and RFC 9052, not from a run of the reader.
+
+The key is the fixed TEST key of the separate probe generator, which is not in this tree (a constant, no secret). Signatures are deterministic ECDSA
 (RFC 6979), so running this again writes the same bytes. Standard library and ``cryptography`` only; no cbor2, and
 the duplicate keys are written byte by byte because no encoder writes them.
 
@@ -31,7 +42,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 HERE = Path(__file__).resolve().parent
-#: The constant of probes/sonden.py, line 7: a TEST key, published on purpose.
+#: The constant of the separate probe generator (its file sonden.py, line 7): a TEST key, published on purpose.
 SK = ec.derive_private_key(0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678,
                            ec.SECP384R1())
 KID = b"sonde-kid-1"
@@ -76,8 +87,8 @@ EV = b"ce:2.5:" + b"a" * 64
 EV_OTHER = b"ce:2.5:" + b"b" * 64
 
 
-def leaf(ev: bytes = EV, dh: bytes = DH) -> bytes:
-    return arr([bs(ITS), ts(ev), bs(dh)])
+def leaf(ev: bytes = EV, dh: bytes = DH, its: bytes = ITS, ev_item: bytes | None = None) -> bytes:
+    return arr([bs(its), ts(ev) if ev_item is None else ev_item, bs(dh)])
 
 
 def path(els: list) -> bytes:
@@ -88,25 +99,31 @@ PATH_A = [(True, S1), (False, S2)]
 PATH_B = [(False, S3), (True, S1)]
 
 
-def root(ev: bytes = EV, els: list = PATH_A, dh: bytes = DH) -> bytes:
-    h = H(ITS + H(ev) + dh)
+def root(ev: bytes = EV, els: list = PATH_A, dh: bytes = DH, its: bytes = ITS) -> bytes:
+    h = H(its + H(ev) + dh)
     for left, x in els:
         h = H(x + h) if left else H(h + x)
     return h
 
 
-def protected() -> bytes:
-    return cmap([(uint(1), uint(-35)), (uint(4), bs(KID)), (uint(395), uint(2))])
+def protected(alg_label: bytes = b"\x01", alg: bytes = b"\x38\x22", vds: bytes = b"\x02") -> bytes:
+    """alg -35 (written 38 22) under label 1, the kid under 4, VDS 2 under 395."""
+    return cmap([(alg_label, alg), (uint(4), bs(KID)), (uint(395), vds)])
 
 
-def receipt(vdp_pairs: list, signed_root: bytes) -> bytes:
-    prot = protected()
-    text = b"Signature1"
-    tbs = arr([ts(text), bs(prot), bs(b""), bs(signed_root)])
+def sign(prot: bytes, signed_root: bytes) -> bytes:
+    tbs = arr([ts(b"Signature1"), bs(prot), bs(b""), bs(signed_root)])
     r, s = utils.decode_dss_signature(SK.sign(tbs, ec.ECDSA(hashes.SHA384(), deterministic_signing=True)))
-    signature = r.to_bytes(48, "big") + s.to_bytes(48, "big")
-    unprotected = cmap([(uint(396), cmap(vdp_pairs))])
-    return b"\xd2" + arr([bs(prot), unprotected, b"\xf6", bs(signature)])
+    return r.to_bytes(48, "big") + s.to_bytes(48, "big")
+
+
+def receipt(vdp_pairs: list, signed_root: bytes, *, prot: bytes | None = None, vdp_label: bytes = b"\x19\x01\x8c",
+            tag: bytes = b"\xd2", unprotected: bytes | None = None, extra: list = ()) -> bytes:
+    prot = protected() if prot is None else prot
+    signature = sign(prot, signed_root)
+    if unprotected is None:
+        unprotected = cmap([(vdp_label, cmap(vdp_pairs))])
+    return tag + arr([bs(prot), unprotected, b"\xf6", bs(signature), *extra])
 
 
 def proof(pairs: list) -> bytes:
@@ -139,8 +156,15 @@ def preimage(stmt: bytes, empty_map: bytes) -> bytes:
     return stmt[:start] + empty_map + stmt[start + len(unprotected):]
 
 
+#: Data items that equal an integer label in Python and are other CBOR data items.
+F16_1, F16_2, F16_M1, F16_396, TRUE = b"\xf9\x3c\x00", b"\xf9\x40\x00", b"\xf9\xbc\x00", b"\xf9\x5e\x30", b"\xf5"
+#: A two-byte character: 512 of them are 1024 bytes, the most evidence may hold, and 513 are 1026.
+U_UMLAUT = "\u00fc".encode("utf-8")
+
+
 def vectors() -> dict:
     good = proof([(uint(1), leaf()), (uint(2), path(PATH_A))])
+    pass_line = "PASS " + root().hex()
     v = {}
     # Duplicate leaf: values EV and EV_OTHER; the root of the reading named in "signed_for" is signed.
     for order, first, second in (("first", EV, EV_OTHER), ("last", EV_OTHER, EV)):
@@ -154,6 +178,11 @@ def vectors() -> dict:
             "signed_for": order, "strict": "FAIL", "first_wins": "PASS" if order == "first" else "FAIL",
             "last_wins": "PASS" if order == "last" else "FAIL"})
     v["dup_twin"] = (receipt([inclusion(good)], root()), DH, None, {"strict": "PASS"})
+    for name, line in (("dup_leaf_first", "FAIL cbor_proof: duplicate map key 1"),
+                       ("dup_leaf_last", "FAIL cbor_proof: duplicate map key 1"),
+                       ("dup_path_first", "FAIL cbor_proof: duplicate map key 2"),
+                       ("dup_path_last", "FAIL cbor_proof: duplicate map key 2"), ("dup_twin", pass_line)):
+        v[name][3]["strict_line"] = line
     # The vdp map (f6d4eb04), each with its twin.
     v["vdp_empty_consistency"] = (receipt([inclusion(good), (uint(-2), arr([]))], root()), DH, None,
                                   {"strict": "FAIL", "twin": "vdp_twin"})
@@ -162,13 +191,66 @@ def vectors() -> dict:
     v["vdp_unknown_key"] = (receipt([inclusion(good), (uint(-3), arr([bs(good)]))], root()), DH, None,
                             {"strict": "FAIL", "twin": "vdp_twin"})
     v["vdp_twin"] = (receipt([inclusion(good)], root()), DH, None, {"strict": "PASS"})
+    for name, line in (("vdp_empty_consistency", "FAIL vdp_empty"),
+                       ("vdp_duplicate_key", "FAIL cbor_receipt: duplicate map key -1"),
+                       ("vdp_unknown_key", "FAIL vdp_key"), ("vdp_twin", pass_line)):
+        v[name][3]["strict_line"] = line
+    # Labels that are not the integer (RFC 9052 Section 1.4: label = int / tstr). The first four change only the
+    # unprotected part, so the signature over the root stays valid.
+    for name, pairs, line in (
+            ("label_leaf_float_1_0", [(F16_1, leaf()), (uint(2), path(PATH_A))], "FAIL proof_keys"),
+            ("label_leaf_true", [(TRUE, leaf()), (uint(2), path(PATH_A))], "FAIL proof_keys"),
+            ("label_path_float_2_0", [(uint(1), leaf()), (F16_2, path(PATH_A))], "FAIL proof_keys")):
+        v[name] = (receipt([inclusion(proof(pairs))], root()), DH, None,
+                   {"strict": "FAIL", "strict_line": line, "twin": "vdp_twin"})
+    v["label_vdp_float_minus_1_0"] = (receipt([(F16_M1, arr([bs(good)]))], root()), DH, None,
+                                      {"strict": "FAIL", "strict_line": "FAIL vdp_key", "twin": "vdp_twin"})
+    v["label_unprotected_float_396_0"] = (receipt([inclusion(good)], root(), vdp_label=F16_396), DH, None,
+                                          {"strict": "FAIL", "strict_line": "FAIL unprotected_label", "twin": "vdp_twin"})
+    v["label_protected_alg_true"] = (receipt([inclusion(good)], root(), prot=protected(alg_label=TRUE)), DH, None,
+                                     {"strict": "FAIL", "strict_line": "FAIL protected_label", "twin": "vdp_twin"})
+    v["label_protected_vds_float"] = (receipt([inclusion(good)], root(), prot=protected(vds=F16_2)), DH, None,
+                                      {"strict": "FAIL", "strict_line": "FAIL vds", "twin": "vdp_twin"})
+    v["label_protected_alg_value_float"] = (
+        receipt([inclusion(good)], root(), prot=protected(alg=b"\xfb\xc0\x41\x80\x00\x00\x00\x00\x00")), DH, None,
+        {"strict": "FAIL", "strict_line": "FAIL alg", "twin": "vdp_twin"})
+    # Evidence: a code point spread between two chunks, and the byte length against the character length.
+    ev_u = b"ce:2.5:" + U_UMLAUT * 4
+    for name, cut, line in (("evidence_chunks_split_inside_a_code_point", 8,
+                             "FAIL cbor_proof: a chunk of an indefinite text string is not valid UTF-8 on its own"),
+                            ("evidence_chunks_split_at_code_points", 9, "PASS " + root(ev_u).hex())):
+        item = b"\x7f" + ts(ev_u[:cut]) + ts(ev_u[cut:]) + b"\xff"
+        p = proof([(uint(1), leaf(ev_u, ev_item=item)), (uint(2), path(PATH_A))])
+        v[name] = (receipt([inclusion(p)], root(ev_u)), DH, None, {"strict": line.split()[0], "strict_line": line})
+    for n, line in ((512, None), (513, "FAIL evidence_len")):
+        ev = U_UMLAUT * n
+        p = proof([(uint(1), leaf(ev)), (uint(2), path(PATH_A))])
+        line = line or "PASS " + root(ev).hex()
+        v[f"evidence_{n}_two_byte_characters"] = (receipt([inclusion(p)], root(ev)), DH, None,
+                                                  {"strict": line.split()[0], "strict_line": line})
+    p = proof([(uint(1), arr([bs(ITS), bs(EV), bs(DH)])), (uint(2), path(PATH_A))])
+    v["evidence_as_byte_string"] = (receipt([inclusion(p)], root()), DH, None,
+                                    {"strict": "FAIL", "strict_line": "FAIL evidence"})
+    its33 = ITS + b"\x00"
+    p = proof([(uint(1), leaf(its=its33)), (uint(2), path(PATH_A))])
+    v["its_33"] = (receipt([inclusion(p)], root(its=its33)), DH, None, {"strict": "FAIL", "strict_line": "FAIL leaf_hash"})
+    # Forms of the receipt, the headers, the vdp map and the proof.
+    for name, rec, line in (
+            ("form_tag_17", receipt([inclusion(good)], root(), tag=b"\xd1"), "FAIL tag"),
+            ("form_five_elements", receipt([inclusion(good)], root(), extra=[b"\xf6"]), "FAIL struct"),
+            ("form_unprotected_not_a_map", receipt([], root(), unprotected=bs(b"\xa0")), "FAIL struct"),
+            ("form_protected_not_a_map", receipt([inclusion(good)], root(), prot=arr([uint(1)])), "FAIL protected"),
+            ("form_vdp_without_inclusion", receipt([(uint(-2), arr([bs(b"\xa0")]))], root()), "FAIL vdp"),
+            ("form_proof_not_a_map", receipt([inclusion(arr([leaf(), path(PATH_A)]))], root()), "FAIL vdp_map")):
+        v[name] = (rec, DH, None, {"strict": "FAIL", "strict_line": line, "twin": "vdp_twin"})
     # The empty map in the data-hash preimage, written as a0, b8 00 and bf ff.
     stmt = statement()
     for name, em in (("a0", b"\xa0"), ("b8_00", b"\xb8\x00"), ("bf_ff", b"\xbf\xff")):
         dh = H(preimage(stmt, em))
         p = proof([(uint(1), leaf(dh=dh)), (uint(2), path(PATH_A))])
         v[f"empty_map_{name}"] = (receipt([inclusion(p)], root(dh=dh)), dh, stmt, {
-            "strict": "PASS" if name == "a0" else "FAIL", "preimage_empty_map_hex": em.hex()})
+            "strict": "PASS" if name == "a0" else "FAIL", "preimage_empty_map_hex": em.hex(),
+            "strict_line": "PASS " + root(dh=dh).hex() if name == "a0" else "FAIL digest_mismatch"})
     return v
 
 

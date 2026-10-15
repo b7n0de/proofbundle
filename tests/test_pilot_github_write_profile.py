@@ -388,7 +388,7 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         this case is about was never reached. It doubles from 10,000 until the interpreter's own json.loads raises,
         which `_statement` calls, and an interpreter that parses every depth up to ten million is not measured here.
 
-        Since 2026-10-14 `_statement` reads with `loads_strict` (the repository's strict decoding rule), whose depth
+        Since 2026-10-14 `_statement` reads with `loads_strict` (the strict decoding rule of test_strict_decoding_guard.py), whose depth
         bound refuses such a payload before the interpreter's recursion limit is reached, so the answer names
         BundleFormatError ("JSON nesting is too deep") where it named RecursionError. The boundary is the same: an
         answer, never an exception."""

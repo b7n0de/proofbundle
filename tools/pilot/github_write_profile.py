@@ -132,7 +132,7 @@ def _statement(envelope: dict) -> dict:
     """The statement the signed payload carries, read with the house's strict JSON reader.
 
     `json.loads` kept the last of two members with one name, so the profile could read another predicate than a
-    strict verifier of the same bytes (the repository's strict decoding rule of 2026-10-14). A payload that is not
+    strict verifier of the same bytes (the strict decoding rule stated in tests/test_strict_decoding_guard.py). A payload that is not
     strict JSON raises, and the never-raise boundary of `reconcile` answers unknown and names the type."""
     return loads_strict(decode_b64_either(envelope["payload"]))
 

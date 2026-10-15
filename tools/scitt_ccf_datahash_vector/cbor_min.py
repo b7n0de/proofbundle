@@ -7,7 +7,7 @@ sagt, welche Form er gesehen hat.
 
 Kein COSE-Paket, kein cbor2. Standardbibliothek, und Ed25519 aus `cryptography`.
 
-STRICT SINCE 2026-10-14 (the repository's strict decoding rule, after pull request 31 to the CCF
+STRICT SINCE 2026-10-14 (the strict decoding rule stated in tests/test_strict_decoding_guard.py, after pull request 31 to the CCF
 receipt profile). Until then a map with a duplicate key kept the LAST value without a word, as cbor2
 does; a string shorter than its head said was cut short, `0x1f` read as `None`, and a chunk of an indefinite
 string could have any type. Now `lade` refuses each of these with a reason (`ValueError`), and `load_exactly_one`
@@ -56,7 +56,7 @@ def _kopf(b: bytes, i: int):
 def _key_marker(k, pos: int):
     """Equal exactly when two keys are the same CBOR data item (1 and True are not)."""
     if isinstance(k, (bool, type(None))):
-        return ("einfach", repr(k))
+        return ("simple", repr(k))
     if isinstance(k, (int, str, bytes)):
         return (type(k).__name__, k)
     raise ValueError(f"map key at offset {pos} is not an integer, a text string or a byte string")

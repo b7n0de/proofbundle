@@ -106,14 +106,20 @@ def item_end(data: bytes, pos: int, depth: int = 0) -> int:
         if pos + arg > len(data):
             raise Malformed("truncated")
         return pos + arg
-    seen, count = set(), 0
+    seen, keys, count = set(), [], 0
     while (data[pos:pos + 1] != b"\xff") if arg is None else (count < arg):
         if major == 5:
             key_end = item_end(data, pos, depth + 1)
             key = cbor2.loads(data[pos:key_end])
-            if (type(key).__name__, repr(key)) in seen:
+            marker = (type(key).__name__, repr(key))
+            if marker in seen:
                 raise Malformed(f"duplicate map key {key!r}")
-            seen.add((type(key).__name__, repr(key)))
+            if any(key == k for k in keys):
+                # 1 and 1.0, true and 1, 0.0 and -0.0: distinct data items (their markers differ), but cbor2 builds
+                # one dict key from them and keeps the last value without a word.
+                raise Malformed(f"map key {key!r} and an earlier key are one dict key")
+            seen.add(marker)
+            keys.append(key)
             pos = key_end
         pos, count = item_end(data, pos, depth + 1), count + 1
     return pos + (arg is None)

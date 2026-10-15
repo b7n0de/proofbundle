@@ -1,6 +1,6 @@
 """Every strict CBOR reader of this repository refuses what is not one valid data item, and accepts what is.
 
-The strict decoding rule of 2026-10-14: a duplicate map key, an encoding that is not
+The strict decoding rule stated in test_strict_decoding_guard.py: a duplicate map key, an encoding that is not
 valid under RFC 8949 Section 5.3.1 and bytes after the one value are refused with a reason, fail-closed, by
 every reader of checked, signed or evidential bytes. The corpus in ``_strict_cbor_corpus`` is shared, so the
 three readers below cannot drift apart without one of them turning red:
@@ -153,6 +153,10 @@ def test_an_array_as_a_map_key_is_refused():
     ({"max_bytes": 3}, "a2014161024162"),
     ({"max_depth": 2}, "818181" + "00"),
     ({"max_items": 2}, "83010203"),
+    ({"max_items": 2}, "9f010203ff"),
+    ({"max_items": 1}, "bf01010202ff"),
+    ({"max_items": 2}, "5f414141414141ff"),
+    ({"max_items": 2}, "7f616161616161ff"),
 ])
 def test_the_limits_hold(kwargs, hx):
     with pytest.raises(CborInvalid):
@@ -163,9 +167,73 @@ def test_the_limits_hold(kwargs, hx):
     ({"max_bytes": 7}, "a2014161024162"),
     ({"max_depth": 3}, "818181" + "00"),
     ({"max_items": 3}, "83010203"),
+    ({"max_items": 3}, "9f010203ff"),
+    ({"max_items": 2}, "bf01010202ff"),
+    ({"max_items": 3}, "5f414141414141ff"),
+    ({"max_items": 3}, "7f616161616161ff"),
 ])
 def test_control_exactly_at_the_limit_is_read(kwargs, hx):
     loads_strict_cbor(bytes.fromhex(hx), **kwargs)
+
+
+def test_without_arguments_the_three_limits_are_those_of_the_default_budget():
+    """The defaults are DEFAULT_BUDGET.input_bytes, .json_depth and .json_nodes, each with its own number: a swap of
+    two of them would leave every limit test above green, which pass their limits explicitly."""
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+
+    size, items = DEFAULT_BUDGET.input_bytes, DEFAULT_BUDGET.json_nodes
+    assert size != items
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(b"\x00" * (size + 1))
+    assert exc.value.reason == f"input of {size + 1} bytes exceeds {size}"
+    body = size - 5
+    assert loads_strict_cbor(b"\x5a" + body.to_bytes(4, "big") + b"\x00" * body) == b"\x00" * body
+
+    def array(n: int) -> bytes:
+        return b"\x9a" + n.to_bytes(4, "big") + b"\x00" * n
+
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(array(items + 1))
+    assert exc.value.reason == f"more than {items} array elements, map pairs and string chunks"
+    assert len(loads_strict_cbor(array(items))) == items
+
+
+def test_the_chunks_of_an_indefinite_string_count_against_the_default_budget():
+    """Without this, 8 MiB of empty chunks were read inside the byte budget (4 s, about 740 MiB, measured
+    2026-10-15)."""
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+
+    n = DEFAULT_BUDGET.json_nodes
+    for start, empty in ((b"\x5f", b"\x40"), (b"\x7f", b"\x60")):
+        with pytest.raises(CborInvalid) as exc:
+            loads_strict_cbor(start + empty * (n + 1) + b"\xff")
+        assert exc.value.reason.startswith(f"more than {n} ")
+        assert loads_strict_cbor(start + empty * n + b"\xff") in (b"", "")
+
+
+@pytest.mark.parametrize("hx", ["7f61c361bcff", "7f61e2618261acff"])
+def test_a_code_point_spread_between_chunks_is_refused_at_the_chunk(hx):
+    """RFC 8949 Section 3.2.3: if any chunk of an indefinite text string is invalid, the string is invalid."""
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(bytes.fromhex(hx))
+    assert exc.value.reason == "a chunk of an indefinite text string is not valid UTF-8 on its own"
+    assert exc.value.offset == 1
+
+
+@pytest.mark.parametrize("hx, value", [
+    ("a2f001f102", {Simple(16): 1, Simple(17): 2}),
+    ("a2f401f502", {False: 1, True: 2}),
+    ("a2f601f702", {None: 1, UNDEFINED: 2}),
+])
+def test_control_different_simple_values_are_different_keys(hx, value):
+    assert loads_strict_cbor(bytes.fromhex(hx)) == value
+
+
+@pytest.mark.parametrize("hx", ["a2f001f002", "a2f401f402", "a2f701f702", "a2f82001f82002"])
+def test_the_same_simple_value_twice_is_a_duplicate_key(hx):
+    with pytest.raises(CborInvalid) as exc:
+        loads_strict_cbor(bytes.fromhex(hx))
+    assert exc.value.reason.startswith("duplicate map key")
 
 
 def test_one_item_from_an_offset_and_its_end():
