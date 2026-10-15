@@ -221,4 +221,4 @@ the verdict of each probe, the whole line of each vector and the reasons of five
 
 ---
 
-Prepared with AI agent involvement, reviewed and submitted under human oversight.
+Created with AI assistance. Reviewed and published by me.
