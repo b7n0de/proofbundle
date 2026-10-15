@@ -2705,7 +2705,10 @@ Chosen (owner order of Nachtrag 12, place decided in the build):
 Limits: the gate directory is closed to the file tools of both hosts, not to the shell (D27); a shell write is seen
 only through the digest, and a shell that rewrites the order and the gate's record together is not seen. The agent
 can run `done-order` itself, as it can commit a changed order (D28); the record keeps every replacement. Every session
-of the user, under both hosts, sees every local order, so two sessions in different clones block each other's ends. A
+of the user, under both hosts, sees every local order, so two sessions in different clones block each other's ends, and
+so does a session with another CLAUDE_CONFIG_DIR (measured by Cowork, Nachtrag 13). Owner choice of 2026-10-15
+(Nachtrag 13, O1): an order is to be bound to the account, CLAUDE_CONFIG_DIR under Claude Code and CODEX_HOME under
+Codex. That is built before the plugin reaches a second account, not now: in the pilot only delta has the plugin. A
 refused order whose repository is gone blocks without a count: Claude Code ends the turn after nine blocks (D26),
 Codex has no such limit. Nothing in CI sees a local order: it is an early warning, and the boundary for what is
 committed stays the required CI check.
@@ -2714,4 +2717,5 @@ Options:
 - A. The order in the gate directory, its digest taken when it is written, every order judged at every end (chosen).
 - B. The order in the plugin data folder (Cowork's proposal). Not chosen after the measurement above: Claude Code's
   file tools may write there, and the two hosts each have a folder of their own.
-- C. An order bound to one session. Not built; an owner question, like a gate on a shell call of `done-order`.
+- C. An order bound to one session. Not built (owner question O1 of Nachtrag 12); the owner chose the account instead,
+  to be built before a second account (Nachtrag 13).
