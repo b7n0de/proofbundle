@@ -1191,6 +1191,13 @@ _READ_GRAMMAR = {
                "--candidates": _READ_NUMBER.fullmatch}),
 }
 _WORKTREE_LIST_FLAGS = frozenset({"--porcelain", "-v", "--verbose", "-z"})
+#: The read forms for which `--` only ends the options: the words after it are still revisions (for ls-tree the first
+#: is the tree-ish), so a word there that names an index entry reads the index and starts fsmonitor (R20-2 of review
+#: round 20; measured with git 2.43.0 and, by the reviewer, 2.51.1: `describe --always -- :0:a.txt`,
+#: `merge-base -- :a.txt HEAD`, `merge-base -- HEAD :0:a.txt`, `ls-tree -- :a.txt` and `ls-tree -- :0:a.txt` started
+#: it). For the other forms of the grammar a word after `--` is a path: log, show, rev-list, rev-parse, for-each-ref,
+#: branch --list and show-ref started nothing, and diff, grep, status and ls-files walk the work tree anyway.
+_READ_REVISIONS_AFTER_DASHDASH = frozenset({"describe", "merge-base", "ls-tree"})
 
 
 def _names_index(word: str) -> bool:
@@ -1207,7 +1214,9 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
     K-NW-2 B: a glob may become an option, review 2026-10-09, F2). `git worktree list` and `git cat-file -t|-s|-e|-p
     <object>` are fixed forms. A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
     may name an index entry (_names_index) and a `git branch` pattern without --list are not free (a name without
-    --list creates a branch). The value of a separated option is a number or a pattern, never a revision."""
+    --list creates a branch). The value of a separated option is a number or a pattern, never a revision. For the forms
+    of _READ_REVISIONS_AFTER_DASHDASH `--` ends only the options, so a word after it that may name an index entry, or
+    that the shell may rewrite, is not free either (R20-2)."""
     rewritten = list(rewrites) if rewrites is not None else [False] * len(args)
     if sub == "worktree":
         return bool(args) and args[0] == "list" and not any(rewritten) and all(a in _WORKTREE_LIST_FLAGS
@@ -1225,6 +1234,14 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
         if rewritten[i]:
             return False
         if word == "--":
+            rest, rest_rewritten = args[i + 1:], rewritten[i + 1:]
+            if sub == "ls-tree":
+                # only the first positional word is the tree-ish; the words after it are paths
+                count = 0 if positional else 1
+                rest, rest_rewritten = rest[:count], rest_rewritten[:count]
+            if sub in _READ_REVISIONS_AFTER_DASHDASH and (
+                    any(rest_rewritten) or any(_names_index(w) for w in rest)):
+                return False   # `--` ends only the options here; the words after it are revisions (R20-2)
             positional = positional or i + 1 < len(args)
             break
         if word == "-":

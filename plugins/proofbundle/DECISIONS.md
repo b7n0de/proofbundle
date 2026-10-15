@@ -2282,6 +2282,11 @@ repository (_read_profile_problem) finds nothing that starts a program for it. R
   name an index entry (`:path`, `:0:path`, also after `^` or in a range) keeps any form asked: resolving it reads the
   index, and reading the index queries fsmonitor for every form (measured for rev-parse, log, show, rev-list,
   describe, ls-tree, merge-base, cat-file and a --points-at or --contains value; a path after `--` reads no index).
+  For describe, merge-base and ls-tree `--` ends only the options and the words after it are still revisions (for
+  ls-tree the first one, where no tree-ish came before): such a word that may name an index entry, or that the shell
+  may rewrite, keeps the ask too (R20-2 of review round 20; measured with git 2.43.0, and by the reviewer with 2.51.1:
+  `describe --always -- :0:a.txt`, `merge-base -- :a.txt HEAD` and `ls-tree -- :a.txt` started fsmonitor;
+  `log --oneline -- :a.txt` and `ls-tree HEAD -- :a.txt` did not).
 - The profile reads what K-NW-2 B reads (the effective configuration with every include, the hook directory, the
   hook's GIT_* names) and is an allow-list too: an unknown key, GIT_* name or hook keeps the ask. Not free for any form:
   a promisor key, read by its presence (C-5); a pager key (core.pager, pager.*), and GIT_PAGER or PAGER, the two names
