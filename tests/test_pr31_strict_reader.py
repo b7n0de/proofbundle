@@ -287,6 +287,13 @@ def test_a_reason_that_quotes_a_text_key_reaches_an_ascii_stream(tmp_path):
     assert r.stdout.decode("utf-8").strip() == "FAIL cbor_proof: duplicate map key '\u00e9'"
 
 
+@pytest.mark.parametrize("digest", [None, b"\x00" * 31])
+def test_without_a_whole_digest_the_line_is_fail_digest(digest):
+    """No digest and no statement, or a digest of 31 bytes: one FAIL line, not an exception."""
+    receipt, keys = HERE / "vectors" / "vdp_twin.cose", HERE / "vectors" / "keys.cbor"
+    assert READER.verdict(receipt.read_bytes(), keys.read_bytes(), digest=digest) == "FAIL digest"
+
+
 def test_the_command_line_prints_the_line_and_exits_2_when_a_file_cannot_be_read(tmp_path, capsys):
     receipt, keys = HERE / "vectors" / "vdp_twin.cose", HERE / "vectors" / "keys.cbor"
     digest = VECTORS["vdp_twin"]["data_hash_hex"]

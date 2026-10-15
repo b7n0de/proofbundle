@@ -345,13 +345,25 @@ def test_the_package_checker_never_lets_cbor2_merge_two_pairs_into_one():
         assert len(cbor2.loads(data)) == 2, hx
 
 
-@pytest.mark.parametrize("hx", ["5f", "42ff", "5fbff6a1fb7f", "19ff", "830102", "a201", "7f6461626364"])
+@pytest.mark.parametrize("hx", ["5f", "42ff", "5fbff6a1fb7f", "19ff", "830102", "a201", "7f6461626364",
+                                "1c" + "00" * 16, "f81f"])
 def test_the_package_checker_refuses_a_cut_item_itself(hx):
     """Through the shared corpus a refusal by cbor2 counts as well; here the pre-scan must name the cut itself, so the
     bytes never reach cbor2 unchecked."""
     pytest.importorskip("cbor2")
     with pytest.raises(_PACKAGE.Malformed):
         _PACKAGE.item_end(bytes.fromhex(hx), 0)
+
+
+def test_control_the_package_checker_reads_a_simple_value_of_32_in_two_bytes():
+    """The control of f8 1f above: 32 is the first simple value the two-byte form may carry (RFC 8949 Section 3.3)."""
+    pytest.importorskip("cbor2")
+    assert _PACKAGE.item_end(bytes.fromhex("f820"), 0) == 2
+
+
+def test_cbor_min_reads_from_the_start_without_an_offset():
+    """mint_indefinite.py calls lade with the input alone."""
+    assert CBOR_MIN.lade(bytes.fromhex("0102")) == (1, 1)
 
 
 def test_one_item_from_an_offset_and_its_end():
