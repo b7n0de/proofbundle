@@ -307,7 +307,8 @@ def run_level2(env: dict, repo: pathlib.Path, source: str = "HEAD", remote_ref: 
     ("cd a && cd b && git push", [("git push", gate.UNKNOWN, None)]),   # Nachtrag 15: a cd chain is NOT MEASURED
     ("cd sub && git push", [("git push", gate.UNKNOWN, None)]),         # Punkt 6: cd sub is now NOT MEASURED
     ("cd $HOME && git push", [("git push", gate.UNKNOWN, None)]),
-    ("git status\ngit push", [("git status", gate.UNKNOWN, [gate._NOT_FREE]), ("git push", gate.UNKNOWN, None)]),
+    # a read step of a longer command is not free; its mark gives it the text of D37 under Codex (Nachtrag 11)
+    ("git status\ngit push", [("git status", gate.UNKNOWN, [gate._READ_NOT_FREE]), ("git push", gate.UNKNOWN, None)]),
     ("popd; git push", [("git push", gate.UNKNOWN, None)]),
     ("x=$(git push)", [("git push", gate.UNKNOWN, None)]),
     ("`git push`", [("git push", gate.UNKNOWN, None)]),

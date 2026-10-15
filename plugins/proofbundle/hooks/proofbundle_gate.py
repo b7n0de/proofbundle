@@ -464,9 +464,16 @@ _CODEX_READ_FORM_NEXT_STEP = ("Have a person run the call outside this unverifie
 #: both hosts only after the gh profile (_gh_profile_problem) finds nothing that makes it start a program, reach another
 #: host or print a token; otherwise it asks under Claude Code and is denied under Codex (DECISIONS.md D36).
 _GH_READ_FREE = "\x00gh-read-free"
+#: Detail marker for a step of a longer command that is a read form of the grammar by the check class a frees with
+#: (_resolve_single as for the whole command: a bare `git` at the head of its run, at most one literal `-C`, no global
+#: option, no expansion, no redirection, no unvetted assignment, _read_form with the words the shell rewrites). It is
+#: never free: the judge gives it the answer of D3 under Claude Code and the reviewer's text of D37 under Codex, with
+#: the same verdict and reason id (owner choice of 2026-10-15, Nachtrag 11). Only _overmatch sets it, at the top level.
+_READ_NOT_FREE = "\x00read-not-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
-_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_GH_READ_FREE], [_MAYBE_PUSH])
+_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_GH_READ_FREE], [_MAYBE_PUSH],
+                   [_READ_NOT_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -2144,7 +2151,7 @@ def _git_label(words: list[str]) -> str:
     return f"git {words[i]}" if i < len(words) else "git"
 
 
-def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> None:
+def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False, read_step: bool = False) -> None:
     """Report every gated call a single run of words (between control operators) executes, each NOT
     MEASURED. A `git`/`git-push`/`gh` word anywhere in the run (so after a wrapper such as `env`, `sudo`,
     `command`, `nice`, `timeout`) counts; a shell executor word anywhere (`bash`/`sh`/`dash`/`zsh`/`ksh`,
@@ -2152,12 +2159,22 @@ def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> No
     have their string arguments scanned. The scan is an over-approximation on purpose: it never misses a
     nested push, including through a wrapper or a `-lc`/`-cl` bundle (review R4-1, the bypass probes), at
     the cost of a rare harmless ask. No git form here is free, `git --version` included: it is not the whole
-    command (review Runde 7, R7-4; Runde 9, owner choice B)."""
+    command (review Runde 7, R7-4; Runde 9, owner choice B). With read_step (_overmatch: the top level, a run without a
+    redirection, a command whose bare `git` names the git program as far as it shows), a run that is a read form of
+    the grammar by the check of the whole command and has the answer of D3 here is marked _READ_NOT_FREE, still not
+    free (D37, Nachtrag 11). `git worktree list`, whose subcommand the scan names a possible transfer, keeps its answer:
+    the reason ids stay."""
+    head = next((k for k, w in enumerate(words) if not _ASSIGNMENT.match(w[0])), len(words))
     for k, (value, _has, _raw) in enumerate(words):
         base = os.path.basename(value)
         rest = [w[0] for w in words[k + 1:]]
         if base == "git":
-            emit([_strict_git(rest, UNKNOWN, free_base=UNKNOWN)])
+            call = _strict_git(rest, UNKNOWN, free_base=UNKNOWN)
+            if read_step and k == head and call[2] == [_NOT_FREE] and not any(w[1] for w in words) \
+                    and not _expansion_present(" ".join(w[2] for w in words)) \
+                    and [c[2] for c in _resolve_single(words, ".", env_set)] == [[_READ_FREE]]:
+                call = (call[0], UNKNOWN, [_READ_NOT_FREE])
+            emit([call])
         elif base == "git-push":
             emit([("git push", UNKNOWN, None)])
         elif base == "gh":
@@ -2174,6 +2191,48 @@ def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> No
                     emit(gated_calls(arg, UNKNOWN, depth + 1, inherited_env=env_set))
 
 
+#: Heads of a run (after its prefix assignments) with which a later bare `git` of the same command may not name the git
+#: program the shell looks up, or may run with other options or variables than the words show: bash and zsh builtins
+#: and precommand modifiers that define a function, an alias, a builtin or a hashed program, run text or another
+#: command in the current shell, or set its options or variables without an assignment word. With one of them, or a
+#: shell keyword (_SH_KEYWORDS), in the command, no step is marked as a read form (D37, Nachtrag 11).
+_READ_STEP_UNCLEAR_HEADS = frozenset({
+    "alias", "unalias", "eval", "source", ".", "enable", "disable", "hash", "unhash", "rehash", "autoload", "functions",
+    "zmodload", "emulate", "command", "builtin", "exec", "noglob", "nocorrect", "-", "trap", "fc", "bind", "sched",
+    "mapfile", "readarray", "set", "shopt", "setopt", "unsetopt", "declare", "typeset", "local", "readonly", "export",
+    "unset", "let", "read", "getopts", "integer", "float", "private", "vared"})
+#: A head word that is a plain command name; any other (a glob, a zsh `aliases[git]=…`, a job spec) is unclear.
+_READ_STEP_PLAIN_HEAD = re.compile(r"[A-Za-z0-9_./+-]+")
+
+
+def _read_steps_clear(toks: list) -> bool:
+    """Whether every bare `git` at the head of a run of this command names the git program, as far as the command
+    shows: only the operators `;`, `&&`, `||`, `|`, `&` and newlines (no subshell, group, function definition or
+    here-document, whose body the lexer reads as words), and no run headed by an expansion, a word that is not a plain
+    command name, a shell keyword, one of _READ_STEP_UNCLEAR_HEADS, or a printf or print that may set a variable
+    (`-v`, a %n conversion, R20-1). A command that fails it keeps the answer of D3 for every git step (D37)."""
+    if any(t[0] == "op" and t[1] not in (";", "&&", "||", "|", "&") for t in toks):
+        return False
+    at_head, printing = True, False
+    for t in toks:
+        if t[0] == "op":
+            at_head, printing = True, False
+            continue
+        if t[0] != "word":
+            continue
+        value, has_subst = t[1], t[2]
+        if printing and (value.startswith("-v") or _SH_PRINTF_ASSIGNS.search(value.replace("%%", ""))):
+            return False
+        if not at_head or (_ASSIGNMENT.match(value) and not has_subst):
+            continue
+        at_head = False
+        if has_subst or not _READ_STEP_PLAIN_HEAD.fullmatch(value) or value in _SH_KEYWORDS \
+                or value in _READ_STEP_UNCLEAR_HEADS:
+            return False
+        printing = value in ("printf", "print")
+    return True
+
+
 def _overmatch(command: str, toks: list, depth: int,
                inherited_env: bool = False) -> list[tuple[str, str | None, list[str] | None]]:
     """A command that is not one strict simple `git`/`gh` command: every gated call that occurs anywhere
@@ -2188,11 +2247,16 @@ def _overmatch(command: str, toks: list, depth: int,
 
     def emit(found: list) -> None:
         for name, _dir, detail in found:
-            # a read form of class a is free only as a whole command; anywhere else it keeps the answer of D3
-            calls.append((name, UNKNOWN, detail if detail in ([_HOOKS_DISABLE], [_NOT_FREE]) else
+            # a read form of class a is free only as a whole command; anywhere else it keeps the answer of D3, and a
+            # read step of this command (_READ_NOT_FREE) keeps its mark for the text of D37 under Codex
+            calls.append((name, UNKNOWN, detail if detail in ([_HOOKS_DISABLE], [_NOT_FREE], [_READ_NOT_FREE]) else
                           [_NOT_FREE] if detail == [_READ_FREE] else None))
 
+    # A step is marked as a read form only at the top level of a command whose bare `git` names the git program as far
+    # as the command shows (_read_steps_clear); a nested shell, a substitution and a run with a redirection keep D3.
+    read_steps = depth == 0 and _read_steps_clear(toks)
     run: list = []
+    redirected = False
     for t in toks:
         if t[0] == "word":
             run.append(t[1:])
@@ -2200,14 +2264,15 @@ def _overmatch(command: str, toks: list, depth: int,
             # A redirection does not end the simple command, and its target is read as one of its words: a shell
             # that reads the text another way (zsh's numeric glob `<1-2>`) gives git that word (R2-1). Reading
             # more words can only find more gated calls or a hook-disabling form, never free one.
+            redirected = True
             if t[2] is not None:
                 run.append(t[2])
         else:  # a control operator ends the run
             if run:
-                _scan_run(run, emit, depth, env_set)
-            run = []
+                _scan_run(run, emit, depth, env_set, read_step=read_steps and not redirected)
+            run, redirected = [], False
     if run:
-        _scan_run(run, emit, depth, env_set)
+        _scan_run(run, emit, depth, env_set, read_step=read_steps and not redirected)
     if depth < MAX_NESTING:
         for body in _subst_bodies(command):
             emit(gated_calls(body, UNKNOWN, depth + 1, inherited_env=env_set))
@@ -9443,6 +9508,12 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
            environ: dict | None = None) -> Outcome:
     verdicts = list(extra or [])
     seen = set()
+    # A read step of a longer command (_READ_NOT_FREE) is the not-free form of D3 under Claude Code. Under Codex it
+    # carries the reviewer's text of D37, unless a step of the same name is not a read form: the answers of one name
+    # count once, as before, and then keep the text of D3 (Nachtrag 11).
+    plain = {n for n, _d, x in calls if x == [_NOT_FREE]}
+    calls = [(n, d, [_NOT_FREE] if x == [_READ_NOT_FREE] and (host != "codex" or n in plain) else x)
+             for n, d, x in calls]
     for name, directory, detail in calls:
         # realpath, not normpath: a `git -C` walks the filesystem physically through symlinks, so the gate
         # must too, or `git -C link/..` names a different repository than a string normalisation would (R4-2).
@@ -9517,10 +9588,11 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         if detail == [_READ_FREE] and host != "codex":
             verdicts.append(_read_free_verdict(name, resolved, deadline))
             continue
-        if detail == [_READ_FREE]:
+        if detail in ([_READ_FREE], [_READ_NOT_FREE]):
             # class a is off under Codex (owner answer 10 of 2026-10-14); the text is the reviewer's of review round 20,
             # answer 4, word for word (owner choice 3 of 2026-10-15, D37): it names what the Codex hook leaves unbound
-            # and does not claim that an absolute `-C` leaves the directory unknown
+            # and does not claim that an absolute `-C` leaves the directory unknown. A read step of a longer command
+            # carries it too, in the answer of the whole command (owner choice of 2026-10-15, Nachtrag 11)
             verdicts.append(Verdict(
                 "ask", _CODEX_READ_FORM_EXPLANATION, "git_form_not_free",
                 evidence="the execution context of the call, which the Codex hook does not carry (D37)",

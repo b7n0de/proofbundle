@@ -2633,6 +2633,22 @@ execution context." Only a read form the gate recognises as class a carries it; 
 own reason (`git remote`, directory_unresolved in the chain of milestone run 2; a git form that is not free, D3).
 The verdict, the exit code and the reason id stay: deny as the host answer, exit 0, git_form_not_free.
 
+In the answer of the whole command (owner choice of 2026-10-15, Nachtrag 11): under Codex every step of a longer
+command that is a read form of the grammar carries the same explanation and next step. A read form is the check class a
+frees with under Claude Code (_read_form, the words the shell rewrites included), applied to the step's run as to the
+whole command: a bare `git` at the head of the run, at most one literal `-C`, no global option, no expansion, no
+redirection, no unvetted assignment in the command. The chain of milestone run 2 now carries the reviewer's text for
+`git status` and `git branch`; `git remote` keeps directory_unresolved and `git stash list` the text of D3. With an
+absolute `git -C` in the step the same text applies, which claims no missing directory. The verdict, the exit code and
+the reason ids stay; under Claude Code nothing changes. A step whose membership is unclear keeps the text of D3 and is
+an owner question, not built: a step in a shell string or a substitution, after a wrapper or a keyword, in a command
+with a subshell, a group, a function definition or a here-document, or with a run headed by an expansion, a word that
+is no plain command name, or a builtin that defines a function, an alias, a builtin or a hashed program, runs text or
+another command, or sets options or variables in the current shell (_READ_STEP_UNCLEAR_HEADS, a printf that may set a
+variable); a step whose name another step outside the grammar shares, as the answers of one name count once; and
+`git worktree list`, the one read form whose subcommand the scan of a longer command names a possible transfer, which
+keeps directory_unresolved there because the reason ids stay.
+
 Siblings. A shell command `apply_patch <<'EOF' …` is applied by Codex itself in the environment's cwd joined with the
 workdir (exec_command.rs lines 372-384); the gate sees a Bash call without a git or gh word and does not judge it (D8),
 as for any shell write (D27). Class b under Codex (D36) reads the gh profile from the hook's environment, while the
