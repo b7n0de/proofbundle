@@ -96,7 +96,9 @@ def test_every_reader_refuses_invalid_cbor(reader, case):
 
 
 #: The nesting limit of each reader: how many containers around the innermost item it still reads (measured
-#: 2026-10-15 under cbor2 5.9.0 and 6.1.4 and without cbor2, the same for every kind below).
+#: 2026-10-15 under cbor2 5.9.0 and 6.1.4 and without cbor2, the same for every kind below). A chunk of an indefinite
+#: string counts one level below its string; an indefinite string without a chunk is a leaf. Before this kind was in
+#: the list, _strict_cbor read 64 arrays around a chunked string that the two other readers refused.
 DEPTH_LIMITS = {"strict_cbor": 64, "cbor_min": 64, "statement_package": 16}
 #: kind -> the data item with d containers around a 0. Tag 6 is unassigned, so cbor2 reads it as a plain tag.
 NESTINGS = {
@@ -106,6 +108,9 @@ NESTINGS = {
     "indefinite_map_value": lambda d: b"\xbf\x00" * d + b"\x00" + b"\xff" * d,
     "tag": lambda d: b"\xc6" * d + b"\x00",
     "tag_in_array": lambda d: b"\x81\xc6" * (d // 2) + b"\x81" * (d % 2) + b"\x00",
+    "indefinite_text": lambda d: b"\x81" * (d - 1) + b"\x7f\x61a\xff",
+    "indefinite_bytes": lambda d: b"\x81" * (d - 1) + b"\x5f\x41a\xff",
+    "empty_indefinite_text": lambda d: b"\x81" * d + b"\x7f\xff",
 }
 
 

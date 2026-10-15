@@ -20,7 +20,8 @@ WHAT IT REFUSES, each with a reason and the offset where it was decided (:class:
   bytes of one code point cannot be spread between chunks);
 * bytes after the one data item (``loads_strict_cbor``), so a caller never reads a prefix;
 * input over the byte, depth or width budget (the width budget counts array elements, map pairs and the chunks of
-  indefinite strings), and a map key this reader cannot represent (an array, a map, a tag or a NaN as key).
+  indefinite strings; a chunk counts one level below its string, as in the two other strict readers), and a map key
+  this reader cannot represent (an array, a map, a tag or a NaN as key).
 
 WHAT IT ACCEPTS that a profile may still refuse: heads that are not in their shortest form and indefinite
 lengths. Both are valid CBOR under Section 5.3.1; requiring the preferred or deterministic encoding (Section 4.2)
@@ -161,6 +162,8 @@ class _Reader:
                         i += 1
                         break
                     cpos = i
+                    if depth + 1 > self.max_depth:
+                        raise CborInvalid(f"nesting deeper than {self.max_depth}", cpos)
                     cmt, carg, j = self.head(i)
                     if cmt != mt or carg is None:
                         raise CborInvalid("a chunk of an indefinite string is not a definite string of its type", cpos)
