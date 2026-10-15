@@ -7161,26 +7161,33 @@ def _process_dependent(entry: str) -> bool:
 
 
 def _git_identity_problem(deadline: float) -> str | None:
-    """Why the git a plain `git push` starts is not shown to be git, or None (adversarial lens of 2026-10-14, F1): the
-    program PATH names must be byte for byte the `git` in the exec path it reports. Only git starts the pre-push hook,
-    and without Level 2 nothing judges a handed-over push. A wrapper or a script earlier on PATH, and a shim, differ.
-    This proves no origin (D27): a program that reports a forged exec path holding a copy of itself is not caught.
-    A PATH entry that is no absolute path (an empty one is the working directory) makes every lookup depend on the
-    directory it runs in, and the shell's is not the gate's (adversarial lens 2 of 2026-10-14, F-A): no hand-over."""
+    """Why the git a plain `git push` starts is not shown to be git, or None (_git_identity)."""
+    return _git_identity(deadline)[0]
+
+
+def _git_identity(deadline: float) -> tuple[str | None, dict | None]:
+    """(why the git a plain `git push` starts is not shown to be git, None), or (None, the exec path and the sha256 of
+    the git it checked) (adversarial lens of 2026-10-14, F1): the program PATH names must be byte for byte the `git` in
+    the exec path it reports. Only git starts the pre-push hook, and without Level 2 nothing judges a handed-over push.
+    A wrapper or a script earlier on PATH, and a shim, differ. This proves no origin (D27): a program that reports a
+    forged exec path holding a copy of itself is not caught. A PATH entry that is no absolute path (an empty one is the
+    working directory) makes every lookup depend on the directory it runs in, and the shell's is not the gate's
+    (adversarial lens 2 of 2026-10-14, F-A): no hand-over. The checked values are returned so that the hand-over record
+    binds the git this check measured and no git read after it (R20-4)."""
     entries = os.environ.get("PATH", "").split(os.pathsep)
     if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
         return ("PATH holds an entry that is no absolute path (an empty entry is the working directory) or resolves "
                 "through /proc or /dev/fd, so the program a name selects depends on the process, and the shell's is "
-                "not the gate's")
+                "not the gate's"), None
     git = shutil.which("git")
     exec_path = _git_exec_path(deadline)
     if git is None or exec_path is None:
-        return "git names no program on PATH or no exec path, so the gate cannot tell which git the push starts"
+        return "git names no program on PATH or no exec path, so the gate cannot tell which git the push starts", None
     on_path, in_exec_path = os.path.realpath(git), os.path.join(exec_path, "git")
-    measured = _sha256_or_none(on_path)
-    if measured is None or measured != _sha256_or_none(in_exec_path):
+    git_sha256 = _sha256_or_none(on_path)
+    if git_sha256 is None or git_sha256 != _sha256_or_none(in_exec_path):
         return (f"the git on PATH ({on_path}) is not byte for byte the git of its exec path ({in_exec_path}), so the "
-                "gate cannot tell that the push starts git and its pre-push hook (a wrapper, a script or a shim)")
+                "gate cannot tell that the push starts git and its pre-push hook (a wrapper, a script or a shim)"), None
     # The pre-push wrapper starts `python3 -I <gate>` from PATH (D24B); a shim there can end the hook before Level 2
     # runs (lens 3, F-I). The host starts this gate the same way (hooks.json), so the two must be the same program.
     python, own = shutil.which("python3"), os.path.realpath(sys.executable)
@@ -7188,8 +7195,8 @@ def _git_identity_problem(deadline: float) -> str | None:
     if measured is None or measured != _sha256_or_none(own):
         return (f"the python3 on PATH ({os.path.realpath(python) if python else 'none'}), which the pre-push hook "
                 f"starts, is not byte for byte the interpreter this gate runs under ({own}), so the gate cannot tell "
-                "that the hook reaches Level 2 (a shim, a script or another interpreter)")
-    return None
+                "that the hook reaches Level 2 (a shim, a script or another interpreter)"), None
+    return None, {"exec_path": exec_path, "git_sha256": git_sha256}
 
 
 def _handover_binding(repo: str, remote: str, url: str, level2: dict, deadline: float, environ: dict) -> dict | None:
@@ -7255,6 +7262,8 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
         if word.startswith("-") and word != "-" and word not in _HANDOVER_FLAGS:
             return (f"the option {word} is not one a hand-over allows (a force, a lease, a dry run, a signed push and a "
                     "push option keep the push an ask)"), False
+    # The configuration the checks below read; the binding must record this one and no later one (R20-4).
+    configuration = _configuration_digest(repo, deadline)
     why = _handover_push_config_problem(repo, deadline)
     if why is not None:
         return why, False
@@ -7304,12 +7313,23 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
     level2, why = _bound_level2(paths["hooks"], deadline)
     if level2 is None:
         return f"no bound Level 2: {why}", True
-    why = _git_identity_problem(deadline)
+    why, identity = _git_identity(deadline)
     if why is not None:
         return why, False
     binding = _handover_binding(repo, remote, url, level2, deadline, environ)
-    if binding is None:
+    if binding is None or configuration is None:
         return "the binding of the hand-over (git, configuration, transport) cannot be read whole", False
+    # R20-4: the binding reads transport, configuration and git again. What it records must be what was approved and
+    # checked above; a change the gate reads in between gets no record, so the record never names an unchecked value.
+    if binding["transport"] != transport:
+        return (f"the transport changed between the approval check and the binding (approved {transport}, read again "
+                f"{binding['transport']}), so the record would bind a transport nobody approved"), False
+    if binding["configuration"] != configuration:
+        return ("the effective git configuration changed between the checks of the hand-over and its binding, so the "
+                "record would bind a configuration the checks did not read"), False
+    if (binding["exec_path"], binding["git_sha256"]) != (identity["exec_path"], identity["git_sha256"]):
+        return ("the git program changed between the identity check and the binding (exec path or sha256), so the "
+                "record would bind a git that was not shown to be the git of its exec path"), False
     created = int(time.time())
     record = {"schema": HANDOVER_SCHEMA, "nonce": secrets.token_hex(16), "created": created,
               "expires": created + HANDOVER_TTL_SECONDS, "repo": common, "worktree": os.path.realpath(repo),

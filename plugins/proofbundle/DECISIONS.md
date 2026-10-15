@@ -2365,6 +2365,10 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   `GIT_EXEC_PATH`, `GIT_PREFIX` and `GIT_DIR`, which git sets for a hook, measured with git 2.34.1, the last in a
   linked worktree, whose repository the git directory binds; `HOME`, `XDG_CONFIG_HOME`, the
   gate directory, the ssh agent and the proxy names), of the effective configuration and of the transport.
+  The binding records what Level 1 checked (R20-4 of review round 20): the transport digest must equal the approved
+  one, the configuration digest the one read before the checks of the hand-over, and git's exec path and sha256 the ones
+  the identity check measured. Where the binding reads another value, no record and no pointer are written and the
+  push asks, the changed part named.
 - The transport approval: `<gate directory>/transports.json`, a JSON array a person writes and the gate only reads,
   each entry exactly `{repo, remote, url, transport_digest}`, read as strictly as `rules.json`. The digest
   (`_transport_digest`) binds the push URL, every configuration entry of the remote, of a URL rewrite, of
