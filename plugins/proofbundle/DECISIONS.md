@@ -2841,3 +2841,34 @@ Part 2, commit -F with a file (owner choice of Nachtrag 15):
   an `F` inside a cluster (`-qF`), and `-e`, `--edit`, `-t`, `--template`, `--cleanup` and every other option.
 - Reading the file starts no program; the hooks that read the message (commit-msg, prepare-commit-msg) are part of the
   state check as before. Measured in tests: a commit-msg hook in the common directory asks and starts in bash.
+
+Part 3, worktree add after a checkout check (owner choice of Nachtrag 15):
+- `git -C <literal absolute path> worktree add [-q] [-b <name>] <literal absolute target> [<revision>]` is free under
+  Claude Code after the checkout check (_checkout_state_problem); -q and -b each at most once and before the target, the
+  name and the revision literal and not starting with `-`. Under Codex it carries the reviewer's text of D37, with
+  "this form" for "this read form". `--detach`, `--lock`, `--orphan`, `--track`, `-B`, `--force` and every other option,
+  a relative target, more than one `-C` and the form as a step of a longer command keep today's answer.
+- The form writes only locally: a new branch, a folder and the records under `.git/worktrees`. The target must not
+  exist, and it must be no path a file-tool write may not touch (a hook directory, a configuration file, the gate
+  directory; decide_write).
+- Measured with git 2.43.0 in throwaway repositories (measure/worktree_add_starts.sh of Nachtrag 15): with a proxy for
+  every hook githooks(5) names, in the hook directory and through core.hooksPath, the form ran post-checkout,
+  post-index-change and reference-transaction; a smudge and a process filter an attribute assigns started, the same
+  filters with no attribute did not; fsmonitor started; commit.gpgSign with gpg.program started nothing.
+- The check reads the repository as K-NW-2 B does: the effective configuration with every include, a linked work tree's
+  own configuration, the hooks of the common directory or of core.hooksPath, and the GIT_* environment. Not free: any
+  filter key (no attribute is read here, as the checkout reads the attributes of the revision it checks out), fsmonitor,
+  a configured hook, automatic maintenance, every key or GIT_* name the check does not know, and every hook outside the
+  25 names measured not to run (_HOOKS_NOT_RUN_BY_WORKTREE_ADD). The signing settings are inert for this form: it makes
+  no commit and no tag.
+
+Stays an ask, named: `git fetch`. It talks to the network and may start a program through a credential helper, a
+transport helper (`ext::`, `remote-<scheme>`), core.sshCommand or GIT_SSH, an upload-pack the remote names, or the
+reference-transaction hook. The gate models none of these ways; fetch keeps the text of an unresolved transfer, with
+and without `-C`.
+
+Limits, in plain words: every measurement is with git 2.43.0 (delta: 2.51.1); a hook name a newer git adds keeps the
+form not free until the list names it. The checkout check reads the state when the gate answers; a file another process
+writes between the answer and the run is not seen (D27). Where git-lfs is installed its filter keys keep `worktree add`
+asked; whether a filter counts only where an attribute assigns it, as for `git diff` in D39, is an owner question and
+not built.

@@ -460,6 +460,12 @@ _READ_FREE = "\x00read-free"
 _READ_FREE_DRIVERS_OFF = "\x00read-free-drivers-off"
 #: The details of a read form of class a as the whole command.
 _READ_FREE_DETAILS = ([_READ_FREE], [_READ_FREE_DRIVERS_OFF])
+#: Detail marker for `git -C <literal absolute path> worktree add [-q] [-b <name>] <literal absolute target>
+#: [<revision>]` as the whole command (owner choice of Nachtrag 15, part 3, D40). The name of the call carries the
+#: target. The judge
+#: frees it under Claude Code only after the checkout check of its repository (_checkout_state_problem); under Codex it
+#: carries the reviewer's text of D37.
+_CHECKOUT_FREE = "\x00checkout-free"
 #: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
 #: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
 _CODEX_READ_FORM_EXPLANATION = (
@@ -482,7 +488,7 @@ _READ_NOT_FREE = "\x00read-not-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
 _MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_READ_FREE_DRIVERS_OFF],
-                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE])
+                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1013,14 +1019,74 @@ def _standard_config_files(directory: str, deadline: float, paths: dict) -> set[
     return files
 
 
-def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None) -> str | None:
+#: Hook names githooks(5) of git 2.43 documents that `git worktree add` does not run (measured with git 2.43.0 in the
+#: hook directory and through core.hooksPath, measure/worktree_add_starts.sh of Nachtrag 15: it ran post-checkout,
+#: post-index-change and reference-transaction). A hook of any other name, an unknown one included, keeps the form not
+#: free.
+_HOOKS_NOT_RUN_BY_WORKTREE_ADD = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg",
+    "commit-msg", "post-commit", "pre-rebase", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
+    "post-receive", "post-update", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate",
+    "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit",
+})
+
+
+def _worktree_add_target(args: list[str], rewrites: list[bool] | None) -> str | None:
+    """The target of `worktree add [-q] [-b <name>] <target> [<revision>]` (D40, part 3 of Nachtrag 15), or None for any
+    other form: -q and -b each at most once and before the target, the target a literal absolute path, the name and the
+    revision literal and not starting with `-`, no word the shell may rewrite, no expansion. --detach, --lock, --orphan,
+    --track, -B, --force and every other option stay as they are today."""
+    if args[:1] != ["add"] or (rewrites is not None and any(rewrites)) or any("$" in a for a in args):
+        return None
+    rest, seen, k = args[1:], set(), 0
+    while k < len(rest) and rest[k].startswith("-"):
+        if rest[k] == "-q" and "-q" not in seen:
+            seen.add("-q")
+            k += 1
+        elif rest[k] == "-b" and "-b" not in seen and k + 1 < len(rest) and rest[k + 1] \
+                and not rest[k + 1].startswith("-"):
+            seen.add("-b")
+            k += 2
+        else:
+            return None
+    positional = rest[k:]
+    if len(positional) not in (1, 2) or not os.path.isabs(positional[0]):
+        return None
+    if len(positional) == 2 and (not positional[1] or positional[1].startswith("-")):
+        return None
+    return positional[0]
+
+
+def _checkout_state_problem(directory: str, target: str, deadline: float, environ: dict | None = None) -> str | None:
+    """None when `git worktree add` of the repository at directory into target starts no program and writes nothing the
+    gate guards, else what was found (D40, part 3 of Nachtrag 15). The target must not exist, and must be no path a
+    file-tool write may not touch (a hook directory, a configuration file, the gate directory: decide_write). The
+    repository is read as K-NW-2 B reads it (_add_commit_state_problem): the effective configuration with every
+    include, a linked work tree's own configuration and the common directory's hooks included; a filter, fsmonitor,
+    a configured hook, automatic maintenance and any key or GIT_* name the check does not know keep the form not free.
+    The hooks it runs are post-checkout, post-index-change and reference-transaction (measured); every hook outside
+    _HOOKS_NOT_RUN_BY_WORKTREE_ADD keeps it not free. The signing settings do not: the form makes no commit and no tag
+    (measured: commit.gpgSign and gpg.program started nothing)."""
+    if os.path.lexists(target):
+        return f"the target {target} exists"
+    written = decide_write("Write", {"file_path": target}, directory, deadline, "claude", environ)
+    if written is not None:
+        return f"a write the gate guards: {written.verdicts[0].failed if written.verdicts else written.text}"
+    return _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORKTREE_ADD,
+                                     signing_inert=True)
+
+
+def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None,
+                              hooks_not_run: frozenset = _HOOKS_NOT_RUN_BY_ADD_COMMIT,
+                              signing_inert: bool = False) -> str | None:
     """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
     else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
     --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
     resolved by git), and the hook's GIT_* environment. A source the owner named (filter, hook, fsmonitor, signature
     program, an include onto one) is named as such; any configuration key, hook or GIT_* name the check does not
     positively understand is named too, and either keeps the form not free. Not read: the program PATH selects (the
-    D27 class, F15-3), and gitattributes, which select a driver only a filter.* or diff.* key defines."""
+    D27 class, F15-3), and gitattributes, which select a driver only a filter.* or diff.* key defines. hooks_not_run and
+    signing_inert serve the checkout check of `git worktree add` (_checkout_state_problem, D40)."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1041,10 +1107,12 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
 
     for scope, origin, key, value in entries:
         source = _program_source(key.lower(), value, directory, deadline)
-        if source is not None:
+        if source is not None and not (signing_inert and source == "signature program"):
             return f"a {source}: {key} {origin_of(scope, origin)}"
     for scope, origin, key, value in entries:
         lowered = key.lower()
+        if signing_inert and lowered.startswith("gpg."):
+            continue
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return f"a configuration key the check does not know to start no program: {key} {origin_of(scope, origin)}"
     hooks = paths["hooks"]
@@ -1056,7 +1124,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         except OSError as exc:
             return f"a hook: the hook directory {hooks} cannot be read ({exc})"
         for name in names:
-            if not name.endswith(".sample") and name not in _HOOKS_NOT_RUN_BY_ADD_COMMIT:
+            if not name.endswith(".sample") and name not in hooks_not_run:
                 return f"a hook: {os.path.join(hooks, name)}"
     for name in sorted(environ):
         if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name):
@@ -2036,6 +2104,13 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         # since D40 with exactly one `-C` and a literal absolute path, which names the repository; the judge frees it
         # only after the state check of that repository.
         return f"git {sub}", directory, [_STATE_FREE]
+    if sub == "worktree" and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
+            and _one_absolute_c(words, i, c_count, not_measured, rewrites):
+        target = _worktree_add_target(args, None if rewrites is None else rewrites[i + 1:])
+        if target is not None:
+            # D40 (part 3 of Nachtrag 15): the whole command adds one work tree; the judge frees it under Claude Code
+            # only after the checkout check of the repository the -C path names.
+            return f"git worktree add {target}", directory, [_CHECKOUT_FREE]
     if sub is not None and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and not not_measured and c_count <= 1 \
             and _read_form(sub, args, None if rewrites is None else rewrites[i + 1:]):
@@ -2191,13 +2266,13 @@ def _resolve_single(words: list[tuple], directory: str | None,
     name, cdir, detail = call
     if detail in ([_HOOKS_DISABLE], [_NOT_FREE]):
         return [call]  # a hook-disabling form denies and a repository form asks, whatever the context
-    if detail in ([_STATE_FREE], *_READ_FREE_DETAILS) and not neutral_only:
+    if detail in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE]) and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
     if detail in _READ_FREE_DETAILS and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
         return [(name, UNKNOWN, [_NOT_FREE])]  # a prefix assignment counts as the hook's environment does (D34)
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
-    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS) and any(rewritten):
+    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE]) and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
         return [(name, UNKNOWN, None)]
@@ -2890,7 +2965,8 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
             if disabling:
                 return disabling
         if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
-            calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS) else (n, c, d)
+            calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE])
+                     else (n, c, d)
                      for n, c, d in calls if d != [_GH_READ_FREE]]
         if not _redirections_open_no_file(toks):
             # A redirection that opens a file runs before git does, the pre-push hook may be its target (R2-2): the
@@ -9040,6 +9116,9 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                           "`git -C <absolute path> …`"))
             continue
         answer = judge_whole(_sh_step_text(s, assigns=True), s.cwd)
+        if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_checkout_check"
+                                                         for v in answer.verdicts):
+            raise _ShKeep("`git worktree add` is free only as the whole command (D40)")
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
                                                          for v in answer.verdicts):
             # K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and, since the owner's choice of
@@ -9600,6 +9679,37 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
+def _checkout_free_verdict(name: str, directory: str | None, deadline: float, host: str) -> Verdict:
+    """The verdict for `git worktree add` in the form of D40: under Claude Code pass when the checkout check finds
+    nothing, else the not-free answer of D3 with what it found; under Codex the reviewer's text of D37, as for the read
+    forms of class a, with "this form" for "this read form" (owner choice of Nachtrag 15, part 3)."""
+    if host == "codex":
+        return Verdict(
+            "ask", _CODEX_READ_FORM_EXPLANATION.replace("this read form", "this form"), "git_form_not_free",
+            evidence="the execution context of the call, which the Codex hook does not carry (D37)",
+            failed=f"{name} is a form the gate frees only under Claude Code, after a check of its repository (D40)",
+            next_step=_CODEX_READ_FORM_NEXT_STEP)
+    target = name[len("git worktree add "):]
+    try:
+        problem = (_checkout_state_problem(directory, target, deadline) if directory is not UNKNOWN
+                   else "the gate cannot tell which repository the call acts on")
+    except GateError as exc:
+        problem = f"the checkout check reached no result ({exc})"
+    if problem is None:
+        return Verdict("pass", f"proofbundle gate: {name} is free. The checkout check of the repository at "
+                               f"{directory} found no filter, fsmonitor, hook that runs on a checkout or include onto "
+                               "one, every configuration key and GIT_* setting it read is one it knows to start no "
+                               "program for this form, and the target does not exist (DECISIONS.md D40).",
+                       "free_after_checkout_check", repo=directory)
+    return Verdict(
+        "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the checkout check found {problem}. Such a "
+               "setting selects a program git may start for this form, or the form would write where the gate does "
+               "not let it (DECISIONS.md D3, D40).",
+        "git_form_not_free", evidence=f"the repository state {name} runs with",
+        failed=f"{name} may start a program or write a guarded path: {problem}",
+        next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
+
+
 def _read_free_verdict(name: str, directory: str | None, deadline: float, drivers_off: bool = False) -> Verdict:
     """The verdict for a read form of class a under Claude Code: pass when the read profile of its repository finds
     nothing that starts a program for it, else the not-free answer of D3 with the source it found (owner answers 1 to
@@ -9728,6 +9838,9 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "quote present in the text",
                 next_step="run the call in a plain form the gate reads (a single `git`/`gh` command, no "
                           "unusual quoting, substitution or letter case), or have a person review it"))
+            continue
+        if detail == [_CHECKOUT_FREE]:
+            verdicts.append(_checkout_free_verdict(name, resolved, deadline, host))
             continue
         if detail == [_STATE_FREE]:
             verdicts.append(_state_free_verdict(name, resolved, deadline, host,
