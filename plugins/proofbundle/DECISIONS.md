@@ -2692,8 +2692,12 @@ Chosen (owner order of Nachtrag 12, place decided in the build):
   order, whatever the cwd. An order is open while a check has no valid receipt for the state now; the end blocks with
   the first open point, and the line names the repository. Each repository counts its own blocks and writes its own
   blocker (D28); the first one that still blocks gives the answer, and the end without a done verdict comes only when
-  every refused repository has written its blocker. A refused order counts in its repository only where git finds it
-  bound as the order names it, with the default limit; otherwise it blocks without a count.
+  every refused repository has written its blocker. A refused order counts in its repository where git finds it bound
+  as the order names it; otherwise it counts in the gate directory beside the order, `<key>.state.json` and
+  `<key>.blocker.json` (owner choice O3 of Nachtrag 13), so the session ends without a done verdict after the limit
+  under both hosts, as in D26. Both counts take the default limit, never one a changed order sets. The order stays, and
+  `done-order --list` names it; `--remove` takes its count files along. Only a folder the gate cannot list blocks
+  without a count.
 - An order whose repository git no longer finds at its root, or finds with another git directory, blocks
   (`order_unbound`) until a person restores the repository or removes the order.
 - In a repository with a local order, a declaration found only in the work tree is not refused as uncommitted; the
@@ -2718,8 +2722,8 @@ of the user, under both hosts, sees every local order, so two sessions in differ
 so does a session with another CLAUDE_CONFIG_DIR (measured by Cowork, Nachtrag 13). Owner choice of 2026-10-15
 (Nachtrag 13, O1): an order is to be bound to the account, CLAUDE_CONFIG_DIR under Claude Code and CODEX_HOME under
 Codex. That is built before the plugin reaches a second account, not now: in the pilot only delta has the plugin. A
-refused order whose repository is gone blocks without a count: Claude Code ends the turn after nine blocks (D26),
-Codex has no such limit. Nothing in CI sees a local order: it is an early warning, and the boundary for what is
+refused order whose repository is gone ends the session without a done verdict after the limit since O3, under both
+hosts; before, it blocked without a count and Codex had no end. Nothing in CI sees a local order: it is an early warning, and the boundary for what is
 committed stays the required CI check.
 
 Options:

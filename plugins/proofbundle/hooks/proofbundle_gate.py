@@ -10654,13 +10654,19 @@ def _done_state(repo: str) -> tuple[dict | None, str | None]:
     doc = _read_done_file(repo, DONE_STATE, "state")
     if doc is None:
         return None, _done_file_problem(repo, DONE_STATE, "state")
+    return _count_record(doc, DONE_STATE)
+
+
+def _count_record(doc: dict, name: str) -> tuple[dict | None, str | None]:
+    """The checks of _done_state on a count record read from `name`: (record, None) for a running count, (None, why)
+    otherwise. The same checks hold for the count of a local done order in the gate directory (D38, O3)."""
     fields = frozenset(doc)
     if fields == _STATE_FIELDS_CLEAR and isinstance(doc["session"], str):
         session = hashlib.sha256(doc["session"].encode("utf-8", "surrogatepass")).hexdigest()
     elif fields == _STATE_FIELDS:
         session = doc["session_sha256"]
     else:
-        return None, f"{DONE_STATE} carries the fields {', '.join(sorted(fields))}, not those of the hook's count"
+        return None, f"{name} carries the fields {', '.join(sorted(fields))}, not those of the hook's count"
     open_points = doc["open"]
     why = ("its session is not a sha256" if not (isinstance(session, str) and _SESSION_SHA256.fullmatch(session))
            else "its open points are not a list of [id, status] pairs"
@@ -10670,7 +10676,7 @@ def _done_state(repo: str) -> tuple[dict | None, str | None]:
            if not (type(doc["blocks"]) is int and doc["blocks"] >= 0)
            else "its blocker flag is not true or false" if type(doc["blocker"]) is not bool else None)
     if why is not None:
-        return None, f"{DONE_STATE} is not a running count: {why}"
+        return None, f"{name} is not a running count: {why}"
     return {"session_sha256": session, "open": open_points, "blocks": doc["blocks"], "blocker": doc["blocker"]}, None
 
 
@@ -10860,8 +10866,9 @@ def _order_seen(folder: str, key: str) -> tuple[dict | None, str | None]:
 
 def _order_refusal(entry: dict, reason: str, failed: str, next_step: str) -> dict:
     """The result of a local done order the gate refuses before its checks (D38): a deny with the order as its one open
-    point. The repository is the order's own only where git found it bound as the order names it, so only there the
-    block is counted toward max_blocks (D28), with the default limit: a changed order does not set its own."""
+    point. The repository is the order's own only where git found it bound as the order names it; there the block is
+    counted toward max_blocks (D28), elsewhere in the gate directory beside the order (owner choice O3 of Nachtrag 13),
+    both with the default limit: a changed order does not set its own."""
     verdict = Verdict("deny", f"proofbundle gate: the local done order {entry['file']} is refused: {failed}.", reason,
                       evidence=f"the local done order {entry['file']}", failed=f"the local done order {entry['file']}: "
                                                                             f"{failed}",
@@ -10869,7 +10876,7 @@ def _order_refusal(entry: dict, reason: str, failed: str, next_step: str) -> dic
     return {"verdict": verdict, "done": None, "repo": entry.get("bound"), "commit": None, "state": None,
             "checks": [], "open": [{"id": "local-order", "status": reason, "failed": verdict.failed,
                                     "command": next_step}],
-            "policy": None, "base": None, "inside": [], "local": entry["file"]}
+            "policy": None, "base": None, "inside": [], "local": entry["file"], "order_key": entry["key"]}
 
 
 def _local_orders(environ, deadline: float) -> list[dict]:
@@ -10955,6 +10962,69 @@ def _local_order_base(repo: str, order: dict, deadline: float) -> tuple[str | No
     if proc.returncode != 0 or proc.stdout.decode("ascii", "replace").strip() != order["base"]:
         return None, f"the base {order['base'][:12]} of the local done order is not a commit of the repository"
     return order["base"], ""
+
+
+def _write_record(path: str, doc: dict) -> str | None:
+    """Write a count record or blocker of a local done order through a fresh temporary file that replaces it, never
+    through a link (as _write_done_file does in a repository). None on success, else why not."""
+    data = (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass")
+    if len(data) > MAX_STATE_BYTES:
+        return f"{os.path.basename(path)} would be {len(data)} bytes, more than the {MAX_STATE_BYTES} the hook reads back"
+    temporary = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.{secrets.token_hex(6)}.tmp")
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(temporary, path)
+    except OSError as exc:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        return f"{os.path.basename(path)} could not be written: {exc}"
+    return None
+
+
+def _order_count(path: str) -> tuple[dict | None, str | None]:
+    """The count record of a local done order in the gate directory, as _done_state reads one in a repository."""
+    try:
+        raw = _read_regular(path, MAX_STATE_BYTES + 1)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, f"{os.path.basename(path)} cannot be read ({exc.strerror or exc})"
+    try:
+        doc = strict_json(raw) if len(raw) <= MAX_STATE_BYTES else None
+    except (ValueError, UnicodeDecodeError):
+        doc = None
+    if not (isinstance(doc, dict) and doc.get("schema") == DONE_FILES_SCHEMA.format("state")):
+        return None, f"{os.path.basename(path)} is not the hook's own record (strict JSON of its schema)"
+    return _count_record(doc, os.path.basename(path))
+
+
+def _account_order_block(result: dict, event: dict | None, limit: int) -> tuple[str | None, str | None, str | None]:
+    """Count one blocked end for a refused local done order whose repository git does not find (owner choice O3 of
+    Nachtrag 13): in the gate directory beside the order, `<key>.state.json` and `<key>.blocker.json`, by the rule of
+    _account_block. After `limit` blocks with the same open point in the same session the blocker is written and the
+    session ends without a done verdict, under both hosts; the order stays, and done-order --list names it."""
+    folder, key = os.path.dirname(result["local"]), result["order_key"]
+    state, blocker = os.path.join(folder, f"{key}.state.json"), os.path.join(folder, f"{key}.blocker.json")
+    session = _session_key(event)
+    signature = [[p["id"], p["status"]] for p in result["open"]]
+    previous, unread = _order_count(state)
+    same = previous is not None and previous["session_sha256"] == session and previous["open"] == signature
+    blocks = previous["blocks"] + 1 if same else 1
+    record = {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session, "open": signature,
+              "blocks": blocks, "blocker": False}
+    if blocks > limit:
+        problem = _write_record(blocker, _blocker(result, event, blocks))
+        counted = _write_record(state, {**record, "blocker": problem is None})
+        if problem is not None:
+            return None, (f"the blocker could not be written ({problem})"
+                          + ("" if counted is None else f", nor the block count ({counted})")), unread
+        return blocker, (None if counted is None else f"the end could not be recorded in the count ({counted})"), unread
+    problem = _write_record(state, record)
+    return None, (None if problem is None else f"the block count could not be recorded ({problem})"), unread
 
 
 def _failed_result(exc: Exception, verdict: Verdict, local: str | None = None) -> dict:
@@ -11055,6 +11125,8 @@ def stop_command(argv: list[str]) -> int:
         try:
             if result["repo"] and result["open"]:
                 blocker, counting, unread = _account_block(result, event, limit)
+            elif result.get("order_key") and result["open"]:   # O3: no repository, the gate directory counts
+                blocker, counting, unread = _account_order_block(result, event, limit)
         except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
             blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
         if blocker is None:
@@ -11088,7 +11160,8 @@ def stop_command(argv: list[str]) -> int:
             message += (f" The hook could not record this end in its count: {counting}; the next stop reads the record "
                         "from before it.")
         for other, other_verdict, _limit, other_blocker, _counting in ended[1:]:
-            message += (f" Also ended without a done verdict: {other['repo']}, open points in {other_blocker}: "
+            message += (f" Also ended without a done verdict: {other['repo'] or other['local']}, open points in "
+                        f"{other_blocker}: "
                         f"{other_verdict.failed.rstrip('.')}.")
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
     elif passed:
@@ -11324,7 +11397,7 @@ def done_order_remove(repo_dir: str | None, key: str | None, deadline: float, en
                 keys.add(match.group(1))
     removed = []
     for k in sorted(keys):
-        for name in (f"{k}.json", f"{k}.seen.json"):
+        for name in (f"{k}.json", f"{k}.seen.json", f"{k}.state.json", f"{k}.blocker.json"):
             try:
                 os.unlink(os.path.join(folder, name))
                 removed.append(name)
