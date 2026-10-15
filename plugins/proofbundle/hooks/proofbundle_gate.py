@@ -442,7 +442,9 @@ _MAYBE_PUSH = "\x00maybe-push"
 #: (owner choice B of 2026-10-03, review Runde 9). It asks under Claude Code and is denied under Codex.
 _NOT_FREE = "\x00not-free"
 #: Detail marker for exactly `git add` and `git commit -m` in the plain forms _plain_add_commit accepts, as the whole
-#: command (owner choice K-NW-2 B of 2026-10-08). The judge frees such a call only after the state check of its
+#: command with no global option or exactly one `-C` with a literal absolute path (owner choice K-NW-2 B of 2026-10-08;
+#: D40, part 1 of Nachtrag 15: the repository is the one that path names). The judge frees such a call only after the
+#: state check of its
 #: repository (_add_commit_state_problem) finds nothing that starts a program for it; otherwise it asks under Claude
 #: Code and is denied under Codex, with the source it found (DECISIONS.md D3, "two forms after a state check").
 _STATE_FREE = "\x00state-free"
@@ -1935,6 +1937,17 @@ _FROM_DIRECTORY = object()
 _BARE_VERSION = re.compile(r"[ \t]*git[ \t]+--version[ \t]*")
 
 
+def _one_absolute_c(words: list[str], i: int, c_count: int, not_measured: bool, rewrites: list[bool] | None) -> bool:
+    """Whether the global options before words[i] are exactly one `-C` with a literal absolute path (D40, part 1 of
+    Nachtrag 15): the word `-C` itself and then its value, which carries no expansion, is no word the shell may
+    rewrite, and is absolute as written (a `~` the shell expands is not). More than one `-C`, a relative path and any
+    other global option are not this form."""
+    if i != 2 or c_count != 1 or not_measured or words[0] != "-C":
+        return False
+    value = words[1]
+    return "$" not in value and os.path.isabs(value) and not (rewrites is not None and rewrites[1])
+
+
 def _strict_git(words: list[str], directory: str | None, free_base: object = _FROM_DIRECTORY,
                 rewrites: list[bool] | None = None,
                 raws: list[str] | None = None) -> tuple[str, str | None, list[str] | None] | None:
@@ -2004,10 +2017,12 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         if words == ["--version"] and free_base is _FROM_DIRECTORY and start is not UNKNOWN:
             return None
         return ("git --version" if words == ["--version"] else "git"), UNKNOWN, [_NOT_FREE]
-    if sub in ("add", "commit") and i == 0 and free_base is _FROM_DIRECTORY and start is not UNKNOWN \
+    if sub in ("add", "commit") and (i == 0 or _one_absolute_c(words, i, c_count, not_measured, rewrites)) \
+            and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and _plain_add_commit(sub, args, None if rewrites is None else rewrites[i + 1:]):
-        # K-NW-2 B (2026-10-08): the whole command is a plain `git add` or `git commit -m` with no global option;
-        # the judge frees it only after the state check of its repository.
+        # K-NW-2 B (2026-10-08): the whole command is a plain `git add` or `git commit -m` with no global option, or
+        # since D40 with exactly one `-C` and a literal absolute path, which names the repository; the judge frees it
+        # only after the state check of that repository.
         return f"git {sub}", directory, [_STATE_FREE]
     if sub is not None and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and not not_measured and c_count <= 1 \
@@ -8845,6 +8860,7 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
         return bool(step.cmd.assigns) and not all(_assignment_neutral(w.value) for w in step.cmd.assigns)
     if step.kind == "git":
         sub_words = step.words[1:]
+        sub_words = sub_words[2:] if sub_words[:1] == ["-C"] else sub_words   # one -C names the repository (D40)
         if sub_words[:1] == ["add"] and later is not None and later.kind == "git":
             after = later.words[1:]
             after = after[2:] if after[:1] == ["-C"] else after
@@ -8852,9 +8868,8 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
                 return True     # the gitlinks the read profile read for a walking form (_has_submodule)
         # a read form of class a writes no configuration, hook, evidence or index entry (the refresh of git status
         # rewrites the stat data, not the gitlinks the read profile reads)
-        read = sub_words[2:] if sub_words[:1] == ["-C"] else sub_words
         return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"]
-                    or (bool(read) and _read_form(read[0], read[1:])))
+                    or (bool(sub_words) and _read_form(sub_words[0], sub_words[1:])))
     if step.kind == "gh":
         # a read form of class b writes gh's HTTP cache and nothing else (measured): no configuration, hook, evidence
         # or environment another step's answer reads
@@ -9537,24 +9552,28 @@ def _push_form_hint(host: str) -> str:
 
 
 _FREE_FORMS_HINT = ("run `git add <paths>` and then `git commit -m <message>`, each as a whole command of its own or as "
-                    "steps of one chain joined only by `&&` or `;`, with no wrapper, redirection, assignment, "
-                    "substitution or other option: the gate frees exactly these two forms after a state check of the "
-                    "repository (DECISIONS.md D3, D33); otherwise have a person review the call")
+                    "steps of one chain joined only by `&&` or `;`, at most after one `-C <absolute path>`, with no "
+                    "wrapper, redirection, assignment, substitution or other option: the gate frees exactly these two "
+                    "forms after a state check of the repository (DECISIONS.md D3, D33, D40); otherwise have a person "
+                    "review the call")
 
 
-def _state_free_verdict(name: str, directory: str | None, deadline: float, host: str) -> Verdict:
+def _state_free_verdict(name: str, directory: str | None, deadline: float, host: str, named: bool = False) -> Verdict:
     """The verdict for one of the two forms K-NW-2 B frees: pass when the state check of its repository finds nothing
     that starts a program for it, else the not-free answer of D3 with the source it found. Under Codex the hook names
     the session directory, not the directory the command runs in (measured with Codex 0.161.0: a workdir the model
-    sets reaches the command and not the hook), so the pass says which directory was checked."""
+    sets reaches the command and not the hook), so the pass says which directory was checked: with named, the one the
+    command names with `-C` (D40)."""
     try:
         problem = (_add_commit_state_problem(directory, deadline) if directory is not UNKNOWN
                    else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the state check reached no result ({exc})"
     if problem is None:
-        where = (f"the session directory {directory}, which Codex names; Codex does not tell the gate where a command "
-                 "runs (a workdir the model sets reaches the command, not the hook)" if host == "codex"
+        where = (f"the directory {directory}, which the command names with -C; Codex does not tell the gate in which "
+                 "environment a command runs (D37)" if host == "codex" and named
+                 else f"the session directory {directory}, which Codex names; Codex does not tell the gate where a "
+                 "command runs (a workdir the model sets reaches the command, not the hook)" if host == "codex"
                  else f"the repository at {directory}")
         return Verdict("pass", f"proofbundle gate: {name} is free. The state check of {where} found no filter, hook, "
                                "fsmonitor, signature program or include onto one, and every configuration key, hook "
@@ -9699,7 +9718,8 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                           "unusual quoting, substitution or letter case), or have a person review it"))
             continue
         if detail == [_STATE_FREE]:
-            verdicts.append(_state_free_verdict(name, resolved, deadline, host))
+            verdicts.append(_state_free_verdict(name, resolved, deadline, host,
+                                                named=resolved != os.path.realpath(cwd)))
             continue
         if detail in _READ_FREE_DETAILS and host != "codex":
             verdicts.append(_read_free_verdict(name, resolved, deadline,

@@ -405,9 +405,10 @@ Chosen (owner, 2026-10-08, card K-NW-2): option B. `git add` and `git commit` ar
 repository's state finds no configuration that starts a program for them: no filter, no hook, no fsmonitor, no
 signature program, and no include onto one of them.
 
-What is free. Exactly two forms, each as the whole command headed by a bare `git` with no global option, no
-redirection, no chain and no unvetted prefix assignment (the conditions of the bare `git --version` above); since the
-owner's choice of 2026-10-14, 16:2x Berlin, also as steps of a plain chain of `&&` and `;` (D33):
+What is free. Exactly two forms, each as the whole command headed by a bare `git` with no global option (since D40
+also with exactly one `-C` and a literal absolute path, which names the repository), no redirection, no chain and no
+unvetted prefix assignment (the conditions of the bare `git --version` above); since the owner's choice of 2026-10-14,
+16:2x Berlin, also as steps of a plain chain of `&&` and `;` (D33):
 - `git add` with pathspecs and only `-A`, `--all`, `-u`, `--update` and `--`;
 - `git commit` with at least one message (`-m`, `--message`, a cluster of `a`, `q` and `m` such as `-am`), and only
   `-a`, `--all`, `-q`, `--quiet`, `--` and pathspecs.
@@ -2799,3 +2800,35 @@ Part 2, git diff without diff drivers (owner choice of Nachtrag 14):
   hook's environment; a file another process writes between the answer and the run is not seen (D27). The way git
   reads attributes is git's own; a newer git that reads them from another place keeps that place unread until the
   profile names it (attr.tree and GIT_ATTR_SOURCE already ask, as a key and a GIT_* name the profile does not know).
+
+## D40. add, commit and worktree add with one absolute -C, commit -F (Nachtrag 15, 2026-10-15)
+
+Measured by delta in the pilot at 14a5feb1 under Claude Code, 23:01 to 23:13 Berlin, while setting up scope 6.3.1: four
+asks. Three came from a gap of the gate:
+- `git -C /mnt/bigstore/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md` asked: K-NW-2 B (D3, D33) freed add
+  and commit only with no global option, while the read forms of class a take one literal `-C` and the gate's own
+  answer tells the agent to name the repository with `git -C <absolute path>`; a `cd` before it stays unresolved. delta
+  works in linked work trees on bigstore and starts the session elsewhere, so add and commit had no free form.
+- `git -C … commit -q -F <file>` asked: _plain_add_commit knew only `-m`, and a message from a file is the house rule
+  for longer commit texts.
+- `git -C /home/konrad/proofbundle worktree add -q -b docs/release-scope-6-3-1 /mnt/bigstore/claude_worktrees/scope_631
+  origin/main` asked with the text for unresolved push forms; delta adds a work tree for every order.
+The fourth, a chain with `W=…`, `test -e` and `git fetch`, stays: delta writes paths literally from now on and runs
+fetch on its own, and fetch stays an ask (below).
+
+Part 1, add and commit with one literal absolute `-C` (owner choice of Nachtrag 15):
+- `git -C <path> add …` and `git -C <path> commit …` are judged as the forms without `-C` are (D3): the same options
+  (_ADD_OPTIONS, _COMMIT_FLAGS), the repository the path names instead of the hook's cwd, and the same state check
+  (_add_commit_state_problem) for that repository, also as steps of a plain chain (D33).
+- The path is the value of exactly one global option, the word `-C` itself, and is literal and absolute as written:
+  no expansion, no word the shell may rewrite, no `~` (_one_absolute_c). Two `-C`, a relative path, a path the shell may
+  rewrite and any other global option (`-c`, `--git-dir`, …) keep today's answer.
+- The state check reads a linked work tree through git itself: `rev-parse --git-common-dir --git-dir --git-path hooks`
+  follows the `.git` file to the gitdir and its commondir, and names the hooks of the common directory or of
+  core.hooksPath; `config --list --show-scope` reads config.worktree where extensions.worktreeConfig is set. Measured
+  in tests: a pre-commit hook in the common directory, a core.hooksPath and a core.fsmonitor in config.worktree each
+  ask and are named, and a counter-probe in bash starts each proxy.
+- Under Codex such a form is free after the state check as the forms without `-C` are (D3); the pass names the
+  directory the command names and says that Codex does not tell the gate the environment a command runs in (D37).
+- Class c: a `git -C <path> add` before a `git -C <path> commit` changes no state the commit's answer read, as for the
+  forms without `-C` (_sh_changes_state).
