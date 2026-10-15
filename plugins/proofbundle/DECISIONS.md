@@ -2514,7 +2514,9 @@ nothing. Reason id `free_after_gh_profile`; where the profile finds something, `
   another form than OWNER/REPO, or a GH_* name it does not know (GH_PATH among them); (2) gh's configuration
   (config.yml and hosts.yml in GH_CONFIG_DIR, $XDG_CONFIG_HOME/gh or $HOME/.config/gh, absolute only): not free with a
   pager or a unix socket with a value, a key it does not know, or a file not in the block form gh writes; an empty
-  `pager:` is none, and GH_PAGER set empty overrides the configured one (both measured); (3) the version: every PATH
+  `pager:` is none, and GH_PAGER set empty overrides the configured one (both measured); the two files are read without
+  blocking, their type checked at the opened descriptor, so a FIFO, a device or a socket in their place is refused
+  and never waited on (R20-5 of review round 20, the reader of R18-2); (3) the version: every PATH
   entry absolute and not through /proc or /dev/fd, and `gh --version` of the gh on that PATH names 2.89.0 (answer 5).
   The repository plays no part: the git gh starts for these forms started none of the program sources of class a,
   all set at once (measured).

@@ -1766,8 +1766,10 @@ def _gh_config_problem(environ: dict) -> str | None:
         if not os.path.lexists(path):
             continue
         try:
-            with open(path, "rb") as handle:
-                data = handle.read(_GH_CONFIG_MAX_BYTES + 1)
+            # without blocking, the type checked at the opened descriptor: a FIFO, a device or a socket in the place of
+            # the file is refused, never waited on (R20-5 of review round 20, the reader of R18-2); a link to a regular
+            # file is followed, as gh follows it
+            data = _read_regular(path, _GH_CONFIG_MAX_BYTES + 1, follow=True)
         except OSError as exc:
             return f"gh's configuration file {path} cannot be read ({exc.strerror or exc})"
         try:
