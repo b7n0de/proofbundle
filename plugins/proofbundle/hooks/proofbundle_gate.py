@@ -11722,6 +11722,11 @@ GATE_SCRIPT = "proofbundle_gate.py"
 #: The done-order switches that only add a duty: a new order (--repo, with its sources) or the list (owner choice O2 of
 #: Nachtrag 13). Every other form replaces or removes an order, or is one the gate cannot read whole.
 _DONE_ORDER_NEW = ("--repo", "--declaration", "--policy")
+#: Programs that run a command with words they build from their input: xargs and GNU parallel append the words they read,
+#: or put them where a replacement string stands (`-I %`), so the gate cannot read the switches done-order gets (owner
+#: choice F1 of Nachtrag 17). find's -exec and -execdir are not among them: the words after them are fixed, and `{}` and
+#: the closing `;` are words the gate already answers as a change (measured at d6e248a8).
+_ARGUMENT_BUILDERS = frozenset({"xargs", "parallel"})
 
 
 def _unreadable_word(word: tuple) -> bool:
@@ -11754,25 +11759,31 @@ def _done_order_run(run: list[tuple], depth: int) -> list[str]:
     """The done-order calls of one run of words (D38, O2): the gate's script named by its file name, directly or as the
     script of an interpreter or wrapper, followed by `done-order`; a script word the shell builds, followed by
     `done-order`; and a subcommand word the shell builds after the script, which may be done-order. A shell's `-c`
-    string and the string of eval, source and `.` are read in turn, as gated_calls reads them."""
+    string and the string of eval, source and `.` are read in turn, as gated_calls reads them. Behind xargs or parallel
+    (_ARGUMENT_BUILDERS) the script with done-order or with no subcommand word, and done-order itself, are a change in
+    every form: the program appends words from its input or puts them in place (F1 of Nachtrag 17)."""
     found = []
+    built = False
     for k, word in enumerate(run):
         base = os.path.basename(word[0])
         rest = [w[0] for w in run[k + 1:]]
+        built = built or base in _ARGUMENT_BUILDERS
         if base in _SHELL_DASH_C and depth < MAX_NESTING:
             command = _shell_c_arg(rest)
             if command is not None:
                 found.extend(_done_order_calls(command, depth + 1))
         elif base in _STRING_EXECUTORS and depth < MAX_NESTING:
             found.extend(kind for arg in rest if not arg.startswith("-") for kind in _done_order_calls(arg, depth + 1))
-        if base == GATE_SCRIPT and k + 1 < len(run):
+        if base == GATE_SCRIPT and built and (k + 1 >= len(run) or run[k + 1][0] == "done-order"):
+            found.append("change")   # xargs or parallel give it words the gate does not see (F1)
+        elif base == GATE_SCRIPT and k + 1 < len(run):
             subcommand = run[k + 1]
             if _unreadable_word(subcommand):
                 found.append("change")
             elif subcommand[0] == "done-order":
                 found.append(_done_order_kind(run[k + 2:]))
-        elif word[0] == "done-order" and any(_unreadable_word(w) for w in run[:k]):
-            found.append("change")   # the program before it may be the gate, built by the shell
+        elif word[0] == "done-order" and (built or any(_unreadable_word(w) for w in run[:k])):
+            found.append("change")   # the program before it may be the gate, built by the shell or from the input
     return found
 
 

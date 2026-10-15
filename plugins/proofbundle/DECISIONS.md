@@ -2716,6 +2716,15 @@ Chosen (owner order of Nachtrag 12, place decided in the build):
   the script of python or of a wrapper, in each run of a chain, a pipeline or a list, in a command substitution and in
   the string of `sh -c`, `eval`, `source` and `.`. A shell that writes the files of `done-orders/` directly is the
   limit of D27; a copy of the gate under another name and code an interpreter runs (`python3 -c`) are not read.
+- done-order behind a program that builds its arguments from its input (finding F1 of Nachtrag 17, measured by Cowork
+  at f6408b97): `echo --replace | xargs python3 <gate> done-order --repo <clone>` runs done-order with `--replace`,
+  and got no answer. Behind xargs or GNU parallel the gate's script with done-order or with no subcommand word, and
+  done-order itself, are a change in every form (`-I`, `-a`, `-0`, `-n`, input on standard input): ask under Claude
+  Code, deny under Codex. Measured at d6e248a8 for the siblings: `xargs -I{} … {}`, `xargs -i`, parallel with `:::`
+  and every `find -exec` and `-execdir` form asked already (`{}`, `:::` and the closing `;` are words the gate answers
+  as a change); find is not added. A done-order call whose script and subcommand both come from a file or from another
+  program's output (`xargs -a calls.txt python3`) names neither in the command and is not seen, like code an
+  interpreter runs.
 - Codex reads the same gate directory, so its Stop hook judges the same orders. Codex has no TaskCompleted event.
 
 Limits: the gate directory is closed to the file tools of both hosts, not to the shell (D27); a shell write is seen
