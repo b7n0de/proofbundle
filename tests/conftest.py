@@ -749,6 +749,73 @@ def _glob_trifft(muster: list[str], pfad: list[str], *, rekursiv: bool) -> bool:
     return ab(0, 0)
 
 
+def _glob_trifft_darunter(muster: list[str], pfad: list[str], *, rekursiv: bool) -> bool:
+    """Could setuptools' glob yield a path AT OR BELOW `pfad`: does `muster` match `pfad` followed by zero or more
+    further segments? The same segment rule as `_glob_trifft`; the segments below `pfad` are free, so a pattern
+    segment left over when `pfad` is used up can always be met (review round 22, R22-3)."""
+    import fnmatch  # noqa: PLC0415
+    import functools  # noqa: PLC0415
+
+    @functools.lru_cache(maxsize=None)
+    def ab(i: int, j: int) -> bool:
+        if j == len(pfad):
+            return True
+        if i == len(muster):
+            return False
+        if rekursiv and muster[i] == "**":
+            return ab(i + 1, j) or ab(i, j + 1)
+        return fnmatch.fnmatchcase(pfad[j], muster[i]) and ab(i + 1, j + 1)
+    return ab(0, 0)
+
+
+def _manifest_verspricht_verzeichnis(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Does this distribution promise a file at or below the DIRECTORY `rel`? The directory form of
+    `_manifest_verspricht`, with the same reading of the template and the same glob (review round 22, R22-3).
+
+    The first form lived in tests/test_strict_decoding_guard.py and compared the segments of a line with the segments
+    of the directory literally. Measured by the reviewer: with `graft inter*` setuptools shipped 21 files under
+    `interop/`, and with `interop/` removed from the extracted sdist the guard skipped it as not promised and ended
+    green; `graft intero?`, `recursive-include inter* *.py` and `include inter*/*.py` read the same way. Here a line
+    promises the directory when its pattern can match a path at or below it: `include` through the glob of its
+    pattern, `recursive-include` through its directory, `**` and each pattern, `graft` through its directory and
+    everything below, any `global-include`, and the `where` of the package discovery at, below or above it. As in
+    `_manifest_verspricht`, a negative line withdraws nothing, and no template and no PKG-INFO promise nothing."""
+    wurzel = pathlib.Path(wurzel)
+    try:
+        text: str | None = (wurzel / "MANIFEST.in").read_text(encoding="utf-8")
+    except OSError:
+        text = None
+    if text is None and not (wurzel / "PKG-INFO").is_file():
+        return False
+    pfad = _segmente(rel)
+    konf = _paketkonfiguration(wurzel) or {}
+    pakete = konf.get("packages")
+    finden = pakete.get("find") if isinstance(pakete, dict) else None
+    orte = finden.get("where", ["."]) if isinstance(finden, dict) else []
+    for ort in (orte if isinstance(orte, list) else []):
+        teile = _segmente(ort) if isinstance(ort, str) else None
+        if teile is not None and (teile[:len(pfad)] == pfad or pfad[:len(teile)] == teile):
+            return True
+    if text is None:
+        return False
+    for zeile in _manifest_zeilen(text):
+        worte = zeile.split()
+        befehl, args = worte[0], worte[1:]
+        if befehl == "include" and args:
+            if any(not m.endswith("/") and _glob_trifft_darunter(_segmente(m), pfad, rekursiv=False) for m in args):
+                return True
+        elif befehl == "recursive-include" and len(args) >= 2:
+            if any(_glob_trifft_darunter(_segmente(args[0]) + ["**"] + _segmente(m), pfad, rekursiv=True)
+                   for m in args[1:]):
+                return True
+        elif befehl == "graft" and len(args) == 1:
+            if _glob_trifft_darunter(_segmente(args[0]) + ["**", "*"], pfad, rekursiv=True):
+                return True
+        elif befehl == "global-include" and args:
+            return True
+    return False
+
+
 def _translate_pattern(glob: str):
     """`setuptools.command.egg_info.translate_pattern` (69.5.1), which `global-include` uses. It differs
     from the glob above on purpose, because setuptools differs: a character class is taken literally

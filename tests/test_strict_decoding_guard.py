@@ -126,37 +126,18 @@ def _conftest():
 def _promised(rel: str, repo: Path = REPO, directory: bool = False) -> bool | None:
     """Does the distribution at ``repo`` promise this file, or a file under this directory? None: no basis to say.
 
-    A file is asked of conftest's ``_manifest_verspricht``. A directory is promised by a positive line that names a
-    path under it (``include``, ``graft``, ``recursive-include``), by a ``graft`` or ``recursive-include`` of a
-    directory above it, by any ``global-include``, and by a ``where`` of the package discovery at or under it."""
+    A file is asked of conftest's ``_manifest_verspricht``, a directory of its ``_manifest_verspricht_verzeichnis``,
+    which reads the template the same way and matches with the same glob (review round 22, R22-3). The first form here
+    compared the segments of a line with those of the directory literally, so ``graft inter*`` did not promise
+    ``interop``, although setuptools ships it."""
     c = _conftest()
     if c is None:
         return None
-    try:
-        text = (repo / "MANIFEST.in").read_text(encoding="utf-8")
-    except OSError:
+    if not (repo / "MANIFEST.in").is_file():
         return None
     if not directory:
         return c._manifest_verspricht(rel, repo)
-    parts = c._segmente(rel)
-
-    def related(name: str, above_counts: bool) -> bool:
-        seg = c._segmente(name)
-        return seg[:len(parts)] == parts or (above_counts and parts[:len(seg)] == seg)
-
-    for line in c._manifest_zeilen(text):
-        command, *args = line.split()
-        if command == "global-include":
-            return True
-        if command == "include" and any(related(a, False) for a in args):
-            return True
-        if command in ("graft", "recursive-include") and args and related(args[0], True):
-            return True
-    konf = c._paketkonfiguration(repo) or {}
-    packages = konf.get("packages")
-    find = packages.get("find") if isinstance(packages, dict) else None
-    where = find.get("where", ["."]) if isinstance(find, dict) else []
-    return any(isinstance(w, str) and related(w, True) for w in (where if isinstance(where, list) else []))
+    return c._manifest_verspricht_verzeichnis(rel, repo)
 
 
 def _absent(rel: str, *, repo: Path = REPO, in_checkout: bool | None = None, directory: bool = False) -> tuple:
@@ -634,6 +615,35 @@ def test_both_trees_a_real_git_checkout_without_the_markers_fails_on_an_absent_p
     subprocess.run(["git", "init", "-q", str(tree)], check=True, capture_output=True, timeout=60)
     got, why = _absent("tools", repo=tree, directory=True)
     assert got == "FAIL" and "went away" in why, why
+
+
+_DIRECTORY_VECTORS = Path(__file__).parent / "fixtures" / "manifest_semantics" / "verzeichnisse.json"
+
+
+@pytest.mark.parametrize("case", ["graft_star", "graft_question_mark", "recursive_include_star",
+                                  "include_star_directory", "graft_literal"])
+def test_both_trees_a_directory_a_glob_promised_and_that_went_missing_fails(tmp_path, case):
+    """Review round 22, R22-3, on the trees a real sdist was: the files setuptools shipped for the template (recorded
+    in verzeichnisse.json by tests/fixtures/manifest_semantics/erzeuge_vektoren.py), with its PKG-INFO, and then
+    interop/ removed. A glob that promised interop/ makes its loss a failure; a directory no line promises stays NOT
+    MEASURED, and the intact tree measures interop/."""
+    import json  # noqa: PLC0415
+
+    fall = json.loads(_DIRECTORY_VECTORS.read_text(encoding="utf-8"))["cases"][case]
+    for rel in fall["shipped"]:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x\n", encoding="utf-8")
+    (tmp_path / "MANIFEST.in").write_text(fall["template"], encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(fall["pyproject"], encoding="utf-8")
+    (tmp_path / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: vektorprojekt\n", encoding="utf-8")
+    assert _outcome(lambda: _present_or_skip("interop", repo=tmp_path, directory=True)) == "MEASURED"
+    for rel in [r for r in fall["shipped"] if r.startswith("interop/")]:
+        (tmp_path / rel).unlink()
+    for d in sorted({p for p in tmp_path.rglob("*") if p.is_dir() and "interop" in p.parts}, reverse=True):
+        d.rmdir()
+    got, why = _absent("interop", repo=tmp_path, directory=True)
+    assert got == "FAIL" and "promises it" in why, why
+    assert _absent("outside", repo=tmp_path, directory=True)[0] == "NOT MEASURED"
 
 
 def test_this_tree_shows_which_kind_it_is():
