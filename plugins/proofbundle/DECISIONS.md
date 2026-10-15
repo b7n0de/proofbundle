@@ -2463,6 +2463,13 @@ Options (DESIGN_push_destination.md, sections 3 to 5):
 - d. The hand-over to Level 2, with the transport rule and the contract above (chosen).
 - e. a for the message, d for the verdict. Rejected with a (answer 4).
 
+Owner answer of 2026-10-15 (Nachtrag 8 to FIX-18 part B): a redirection that opens no file stays in the plain push form.
+`git push origin main 2>/dev/null` and `git push origin main < /dev/null` are the plain push of `_codex_plain_push` and
+are handed over like the push alone; Level 2 still judges the real push against the record and checks its receipt. The
+corpus layer handover of Nachtrag 6, point 3, measured both forms handed over and every other form of the layer (a
+chain, a pipe, a subshell, a group, a substitution, a redirection into a file, a prefix assignment) not handed over;
+its expectation now names these two forms beside the push alone. The gate is unchanged.
+
 ## D36. A gh read form free after a gh profile: class b of the ask load (FIX-18 part B, 2026-10-14)
 
 Owner answers 4, 5 and 10 of 2026-10-14, equal to the reviewer's recommendations: no `gh attestation verify`; the rules

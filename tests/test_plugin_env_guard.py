@@ -221,10 +221,9 @@ def test_child(module_names, monkeypatch):
 '''
 
 
-def test_a_planted_caller_value_reaches_no_process_of_a_plugin_test(tmp_path):
-    """Counter-probe: a pytest run whose caller sets a token, an askpass program and a GIT_ value. The plugin module's
-    child process, its module fixture and plugin_env() see none of them; a module of another name sees them all,
-    which shows the planting reached the run."""
+def _planted_run(tmp_path: pathlib.Path, planted: dict) -> tuple[subprocess.CompletedProcess, dict, dict]:
+    """A pytest run whose caller sets `planted`, with this helper and fixture, a plugin module and a module of another
+    name; what each module's child process, module fixture and plugin_env() saw (names only)."""
     tests = tmp_path / "tests"
     tests.mkdir()
     shutil.copy(TESTS / "_plugin_env.py", tests / "_plugin_env.py")
@@ -233,15 +232,23 @@ def test_a_planted_caller_value_reaches_no_process_of_a_plugin_test(tmp_path):
     (tests / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     for name in ("test_plugin_planted.py", "test_other_planted.py"):
         (tests / name).write_text(_PLANTED_MODULE, encoding="utf-8")
-    planted = {"GITHUB_TOKEN": "PLANTED-N6P1", "GH_TOKEN": "PLANTED-N6P1", "GIT_ASKPASS": "/planted/askpass",
-               "SSH_ASKPASS": "/planted/askpass", "GIT_CONFIG_COUNT": "0"}
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tests),
                            str(tests)], capture_output=True, text=True, timeout=300, check=False,
                           cwd=tmp_path, env=plugin_env(**planted))
     assert proc.returncode == 0, proc.stdout[-2000:]
-    assert "PLANTED-N6P1" not in proc.stdout + proc.stderr
     plugin = json.loads((tests / "test_plugin_planted.json").read_text(encoding="utf-8"))
     other = json.loads((tests / "test_other_planted.json").read_text(encoding="utf-8"))
+    return proc, plugin, other
+
+
+def test_a_planted_caller_value_reaches_no_process_of_a_plugin_test(tmp_path):
+    """Counter-probe: a pytest run whose caller sets a token, an askpass program and a GIT_ value. The plugin module's
+    child process, its module fixture and plugin_env() see none of them; a module of another name sees them all,
+    which shows the planting reached the run."""
+    planted = {"GITHUB_TOKEN": "PLANTED-N6P1", "GH_TOKEN": "PLANTED-N6P1", "GIT_ASKPASS": "/planted/askpass",
+               "SSH_ASKPASS": "/planted/askpass", "GIT_CONFIG_COUNT": "0"}
+    proc, plugin, other = _planted_run(tmp_path, planted)
+    assert "PLANTED-N6P1" not in proc.stdout + proc.stderr
     for names in (plugin["child"], plugin["module"], plugin["helper"]):
         assert not set(names) & set(planted), names
     assert set(plugin["module"] + plugin["helper"]) <= set(FIXED) | {PYTEST_OWN, "GIT_CONFIG_GLOBAL"}, plugin
@@ -251,3 +258,19 @@ def test_a_planted_caller_value_reaches_no_process_of_a_plugin_test(tmp_path):
     assert set(plugin["child"]) <= set(FIXED) | {PYTEST_OWN, "GIT_CONFIG_GLOBAL"} | made, plugin
     assert set(planted) <= set(other["child"]) and set(planted) <= set(other["module"]), other
     assert other["helper"] is None
+
+
+def test_uv_offline_and_its_cache_pass_and_a_proxy_or_certificate_path_does_not(tmp_path):
+    """Owner answer of Nachtrag 8: UV_OFFLINE and UV_CACHE_DIR carry no secret, so the caller's values reach a plugin
+    module's child process, its module fixture and plugin_env(); a proxy name, a certificate path and any other uv
+    name do not. A module of another name sees them all."""
+    passed = {"UV_OFFLINE": "1", "UV_CACHE_DIR": str(tmp_path / "uv-cache")}
+    withheld = {"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9",
+                "HTTP_PROXY": "http://127.0.0.1:9", "ALL_PROXY": "http://127.0.0.1:9",
+                "SSL_CERT_FILE": "/planted/ca.pem", "REQUESTS_CA_BUNDLE": "/planted/ca.pem",
+                "UV_INDEX_URL": "https://planted.invalid/simple"}
+    _proc, plugin, other = _planted_run(tmp_path, {**passed, **withheld})
+    for names in (plugin["child"], plugin["module"], plugin["helper"]):
+        assert set(passed) <= set(names), names
+        assert not set(withheld) & set(names), names
+    assert set(passed) | set(withheld) <= set(other["child"]), other
