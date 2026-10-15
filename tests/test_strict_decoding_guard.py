@@ -58,6 +58,30 @@ REPO = Path(__file__).resolve().parents[1]
 ROOTS = ("src", "plugins", "tools", "docs/scitt")
 OUTSIDE = ("scripts", "conformance", "interop", "examples", "fuzz", "benchmarks")
 
+
+def _im_checkout() -> bool:
+    """Repository checkout or an extracted sdist? Read from conftest, the one source for it, as
+    test_a_register_entry_promised_in_prose_exists does. Without conftest the answer is unknown, and unknown skips.
+
+    No path literal of the repository stands here on purpose: conftest's derivation reads such a literal as a module
+    that needs the repository and skips the whole module outside a checkout, the tests on planted sources included
+    (measured from the extracted sdist on 2026-10-15)."""
+    try:
+        from conftest import running_in_repo_checkout  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return False
+    return running_in_repo_checkout()
+
+
+# THE SUBJECT OF THE TREE-WIDE TESTS IS NOT SHIPPED. Measured on 2026-10-15 in the hermetic cleanroom of pull request
+# 352, which runs the shipped suite from the extracted sdist: tools/, docs/scitt/ and interop/ are not in the
+# distribution, so the listed exceptions had no reference left, one strict hook was found instead of three, and
+# interop/ did not exist. In that tree the counts would measure part of the repository and call it the whole. Only these
+# tests are skipped there; the tests on planted sources and on a planted tree run everywhere.
+_NUR_IM_CHECKOUT = pytest.mark.skipif(
+    not _im_checkout(), reason="NOT MEASURED: the guard counts the repository's tree, and an extracted sdist ships "
+                               "only part of it")
+
 #: json hooks that refuse a duplicate member name; every function defined under one of these names is run below.
 STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members"}
 
@@ -346,6 +370,7 @@ def _measure(repo=REPO):
     return found, type_findings, hooks
 
 
+@_NUR_IM_CHECKOUT
 def test_every_lax_decode_reference_is_named_and_counted():
     found, _, _ = _measure()
     assert found, "the guard found no decode reference at all, so it measured nothing"
@@ -358,12 +383,14 @@ def test_every_lax_decode_reference_is_named_and_counted():
     assert not gone, f"listed exceptions with no reference left, remove them from EXCEPTIONS: {gone}"
 
 
+@_NUR_IM_CHECKOUT
 def test_behind_cbor2_every_container_check_holds_under_cbor2_5_and_6():
     _, type_findings, _ = _measure()
     assert not type_findings, ("list or dict behind cbor2 outside a call, an annotation and an isinstance with "
                                f"tuple or Mapping (cbor2 6 returns tuples and frozendicts under a tag): {type_findings}")
 
 
+@_NUR_IM_CHECKOUT
 def test_every_strict_hook_defined_in_the_scope_refuses_a_duplicate_member_name():
     _, _, hooks = _measure()
     assert len(hooks) >= 3, f"the guard found {len(hooks)} strict hook definitions, so it measured too little"
@@ -508,6 +535,7 @@ def test_counter_probe_a_hook_is_judged_by_what_it_does_not_by_its_name(source, 
     assert (got_refuses, got_assert) == (refuses, uses_assert)
 
 
+@_NUR_IM_CHECKOUT
 def test_the_docstring_names_the_directories_outside_the_scope_that_exist():
     """The scope statement above is held: each directory it names as outside exists, and none of them is a root."""
     for top in OUTSIDE:
