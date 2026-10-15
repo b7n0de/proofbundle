@@ -451,6 +451,14 @@ _STATE_FREE = "\x00state-free"
 #: built). Under Claude Code the judge frees it only after the read profile of its repository (_read_profile_problem)
 #: finds nothing that starts a program for this form; under Codex it is the not-free answer of D3 (owner answer 10).
 _READ_FREE = "\x00read-free"
+#: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
+#: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
+_CODEX_READ_FORM_EXPLANATION = (
+    "NOT MEASURED. Under Codex, even with an absolute git -C path, the execution environment, filesystem and "
+    "environment variables remain unbound. Without such a -C argument, the effective working directory is unbound as "
+    "well. The gate therefore cannot free this read form.")
+_CODEX_READ_FORM_NEXT_STEP = ("Have a person run the call outside this unverified agent path, or use a host whose hook "
+                              "supplies the required execution context.")
 #: Detail marker for a gh read form of class b (_gh_read_form) as the whole command, headed by a bare `gh` with no
 #: prefix assignment and no word the shell may rewrite (owner answers 4 and 5 of 2026-10-14). The judge frees it under
 #: both hosts only after the gh profile (_gh_profile_problem) finds nothing that makes it start a program, reach another
@@ -9509,7 +9517,17 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         if detail == [_READ_FREE] and host != "codex":
             verdicts.append(_read_free_verdict(name, resolved, deadline))
             continue
-        if detail in ([_NOT_FREE], [_READ_FREE]):   # class a is off under Codex (owner answer 10 of 2026-10-14)
+        if detail == [_READ_FREE]:
+            # class a is off under Codex (owner answer 10 of 2026-10-14); the text is the reviewer's of review round 20,
+            # answer 4, word for word (owner choice 3 of 2026-10-15, D37): it names what the Codex hook leaves unbound
+            # and does not claim that an absolute `-C` leaves the directory unknown
+            verdicts.append(Verdict(
+                "ask", _CODEX_READ_FORM_EXPLANATION, "git_form_not_free",
+                evidence="the execution context of the call, which the Codex hook does not carry (D37)",
+                failed=f"{name} is a read form of class a, which the gate does not free under Codex",
+                next_step=_CODEX_READ_FORM_NEXT_STEP))
+            continue
+        if detail == [_NOT_FREE]:
             verdicts.append(Verdict(
                 "ask", f"NOT MEASURED: the gate gives no free answer for {name}. A git form that acts on a repository "
                        "can start another program through its options, the repository's configuration and "

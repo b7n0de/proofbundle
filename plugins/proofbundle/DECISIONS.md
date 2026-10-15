@@ -2613,8 +2613,25 @@ environment variables git sees. `git remote`, a step of the chain, is no read fo
 stays off under Codex (owner answer 10); a patch without an environment line stays codex_write_unbound.
 
 Not built (Nachtrag 9, point 5): the gate cannot tell the default form or the version from what it sees, so reading
-such a patch as bound to cwd would reach every form and version, which is wider than shown. Owner question N9-1 is
-open.
+such a patch as bound to cwd would reach every form and version, which is wider than shown.
+
+Decided (owner choice 2 of 2026-10-15 on question N9-1: A, as the reviewer of round 20 recommended): apply_patch
+under Codex stays codex_write_unbound, a patch without an environment line included, and class a stays off under
+Codex. A later B, reading such a patch as bound to the hook's cwd, would need at least, as the reviewer named them:
+a binding to the Codex build actually started and checked; exactly one local environment, enforced technically; no
+later choice of environments by a client (thread/start, turn/start, environment/add); a binding the agent cannot
+produce itself; updatedInput excluded or the changed input checked again; and a measurement on a real host. A
+missing environments.toml and missing process variables are no proof that only the local environment is selected,
+and `codex --version` on PATH does not identify the process that started the hook.
+
+The answer to a read form of class a under Codex (owner choice 3 of 2026-10-15): the explanation and the next step
+of the reviewer's answer 4, word for word. Explanation: "NOT MEASURED. Under Codex, even with an absolute git -C
+path, the execution environment, filesystem and environment variables remain unbound. Without such a -C argument,
+the effective working directory is unbound as well. The gate therefore cannot free this read form." Next step:
+"Have a person run the call outside this unverified agent path, or use a host whose hook supplies the required
+execution context." Only a read form the gate recognises as class a carries it; a form outside class a keeps its
+own reason (`git remote`, directory_unresolved in the chain of milestone run 2; a git form that is not free, D3).
+The verdict, the exit code and the reason id stay: deny as the host answer, exit 0, git_form_not_free.
 
 Siblings. A shell command `apply_patch <<'EOF' …` is applied by Codex itself in the environment's cwd joined with the
 workdir (exec_command.rs lines 372-384); the gate sees a Bash call without a git or gh word and does not judge it (D8),
