@@ -2394,6 +2394,12 @@ Chosen (variant d, with the transport rule and the hand-over contract):
   in blocks; lens 3, F-O). A path remote counts only where git opens `<path>/.git` or `<path>` as a plain git directory,
   a file URL only as `file:///<path>` without `#`, `?`, `%` or brackets, and every bound file hashes or is absent (lens
   4). A remote helper, shell syntax in a value or an unresolved program keeps the ask, and the answer names it.
+- The ASKPASS contract (owner choice 1 of 2026-10-15 on R20-6 of review round 20): an ASKPASS program (GIT_ASKPASS,
+  SSH_ASKPASS, core.askPass) that was set when the transport was approved and is unchanged belongs, with its sha256,
+  to the approved transport, and the hand-over is then allowed. There is no hand-over for a value that changed, is
+  empty, cannot be modelled, or was set only after the approval. A set ASKPASS alone does not exclude the hand-over;
+  the approved case is a control test (tests/test_plugin_review20_r6_askpass_contract.py), beside the four cases
+  without one.
 - Level 2 has two modes and says which ran. Without a pointer it runs standalone, as D24 described it; its pass and
   inactive texts say that git's destination names were not compared with an expected target (answer 6). With a pointer
   it consumes the hand-over first (pointer and record are renamed before they are read, so a hand-over is used at most
