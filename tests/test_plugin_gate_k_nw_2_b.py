@@ -358,7 +358,7 @@ def test_an_environment_name_the_check_does_not_know_keeps_the_forms_not_free(tm
 
 
 @pytest.mark.parametrize("command", ["git commit", "git commit -m", "git commit -S -m x", "git commit -e -m x",
-                                     "git commit -v -m x", "git commit --amend -m x", "git commit -F msg.txt",
+                                     "git commit -v -m x", "git commit --amend -m x", "git commit -F -",
                                      "git commit --trailer x=y -m x", "git commit --no-verify -m x", "git add -p",
                                      "git add -i", "git add -e", "git add --renormalize .", "git add -",
                                      "git -C . add a.txt", "git -c core.fsmonitor=false add a.txt", "FOO=1 git add a.txt",
@@ -369,7 +369,8 @@ def test_every_other_form_stays_not_free(tmp_path, command):
     """Options that start an editor, a signer, a diff or a trailer command, a global option, an unvetted assignment, a
     redirection, a chain other than the plain one of Nachtrag 2 (owner choice of 2026-10-14, 16:2x: `git add . && git
     commit -m x` is free now, its `||` form stands in), a wrapper, a path to another git and an expansion leave the form
-    as it was before K-NW-2 B."""
+    as it was before K-NW-2 B. `git commit -F <file>` is a message since D40 (part 2 of Nachtrag 15); `-F -`, the message
+    from standard input, stays here."""
     repo = _repo(tmp_path)
     claude = gate.decide(command, str(repo), _deadline())
     codex = gate.decide(command, str(repo), _deadline(), host="codex")

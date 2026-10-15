@@ -410,9 +410,10 @@ also with exactly one `-C` and a literal absolute path, which names the reposito
 unvetted prefix assignment (the conditions of the bare `git --version` above); since the owner's choice of 2026-10-14,
 16:2x Berlin, also as steps of a plain chain of `&&` and `;` (D33):
 - `git add` with pathspecs and only `-A`, `--all`, `-u`, `--update` and `--`;
-- `git commit` with at least one message (`-m`, `--message`, a cluster of `a`, `q` and `m` such as `-am`), and only
-  `-a`, `--all`, `-q`, `--quiet`, `--` and pathspecs.
-Any other option (`-p`, `-i`, `-e`, `--renormalize`, `-S`, `-v`, `--amend`, `-F`, `-C`, `-c`, `--trailer`,
+- `git commit` with at least one message (`-m`, `--message`, a cluster of `a`, `q` and `m` such as `-am`, and since D40
+  `-F <file>` or `--file=<file>` with a literal file other than `-`), and only `-a`, `--all`, `-q`, `--quiet`, `--` and
+  pathspecs.
+Any other option (`-p`, `-i`, `-e`, `--renormalize`, `-S`, `-v`, `--amend`, `-F -`, `-C`, `-c`, `--trailer`,
 `--no-verify`, …) keeps the form as before, because an editor, a signer, a diff or a trailer command can start. The
 answer is a `pass`: a message, no permission decision, so the host's own permission flow applies. Reason id
 `free_after_state_check`.
@@ -2832,3 +2833,11 @@ Part 1, add and commit with one literal absolute `-C` (owner choice of Nachtrag 
   directory the command names and says that Codex does not tell the gate the environment a command runs in (D37).
 - Class c: a `git -C <path> add` before a `git -C <path> commit` changes no state the commit's answer read, as for the
   forms without `-C` (_sh_changes_state).
+
+Part 2, commit -F with a file (owner choice of Nachtrag 15):
+- `git commit -F <file>` and `git commit --file=<file>` count as a message as `-m` does, with and without the `-C` of
+  part 1, after the same state check. The file is literal: no word the shell may rewrite, no expansion.
+- Not free stay: `-F -` and `--file=-` (the message from standard input), an empty name, `--file <file>` as two words,
+  an `F` inside a cluster (`-qF`), and `-e`, `--edit`, `-t`, `--template`, `--cleanup` and every other option.
+- Reading the file starts no program; the hooks that read the message (commit-msg, prepare-commit-msg) are part of the
+  state check as before. Measured in tests: a commit-msg hook in the common directory asks and starts in bash.

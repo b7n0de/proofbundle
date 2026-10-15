@@ -822,9 +822,10 @@ def _hooks_off(key: str) -> bool:
 
 
 #: The options of the two forms K-NW-2 B frees (DECISIONS.md D3). `git add` takes pathspecs and -A/--all/-u/--update;
-#: `git commit` takes at least one message (-m, --message, a -m inside a cluster of a and q), -a/--all, -q/--quiet and
-#: pathspecs. Every other option of either form (-p, -i, -e, -S, -v, --amend, -F, -C, --trailer, --no-verify, …)
-#: leaves the form as it is today, not free: an editor, a signing program, a diff or a trailer command can start.
+#: `git commit` takes at least one message (-m, --message, a -m inside a cluster of a and q, and since D40 `-F <file>`
+#: or `--file=<file>` with a literal file other than `-`), -a/--all, -q/--quiet and pathspecs. Every other option of
+#: either form (-p, -i, -e, -S, -v, --amend, -t, --cleanup, -C, --trailer, --no-verify, …) leaves the form as it is
+#: today, not free: an editor, a signing program, a diff or a trailer command can start.
 _ADD_OPTIONS = frozenset({"-A", "--all", "-u", "--update"})
 _COMMIT_FLAGS = frozenset({"-a", "--all", "-q", "--quiet"})
 
@@ -832,9 +833,12 @@ _COMMIT_FLAGS = frozenset({"-a", "--all", "-q", "--quiet"})
 def _plain_add_commit(sub: str, args: list[str], rewrites: list[bool] | None = None) -> bool:
     """Whether `git <sub> <args>` is one of the two plain forms K-NW-2 B frees after the state check: `git add` with
     pathspecs and only the options of _ADD_OPTIONS, or `git commit` with at least one message and only -a, -q and
-    pathspecs. A `--` ends the options; a lone `-` is no pathspec here. `rewrites` says, word by word, whether the
-    shell may rewrite it (_shell_rewrites): such a word before the `--` that ends the options, a message included,
-    may become an option, so the form is not free (review 2026-10-09, F2); after that `--` it stays a pathspec."""
+    pathspecs. A message is `-m` as before or, since D40 (part 2 of Nachtrag 15), a file named after `-F` or in
+    `--file=`: a literal file, never `-` (standard input) and never an empty name; `--file <file>` and an `F` inside a
+    cluster stay not free. A `--` ends the options; a lone `-` is no pathspec here. `rewrites` says, word by word,
+    whether the shell may rewrite it (_shell_rewrites): such a word before the `--` that ends the options, a message
+    included, may become an option, so the form is not free (review 2026-10-09, F2); after that `--` it stays a
+    pathspec."""
     after_dashdash = False
     rewritten = list(rewrites) if rewrites is not None else [False] * len(args)
     if sub == "add":
@@ -865,6 +869,14 @@ def _plain_add_commit(sub: str, args: list[str], rewrites: list[bool] | None = N
                 return False
             message, i = True, i + 1
         elif word.startswith("--message="):
+            message = True
+        elif word == "-F":
+            if i + 1 >= len(args) or rewritten[i + 1] or args[i + 1] in ("", "-"):
+                return False
+            message, i = True, i + 1
+        elif word.startswith("--file="):
+            if word[len("--file="):] in ("", "-"):
+                return False
             message = True
         elif word in _COMMIT_FLAGS:
             pass
