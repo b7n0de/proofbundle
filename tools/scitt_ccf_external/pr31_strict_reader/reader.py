@@ -199,6 +199,28 @@ def _check_vdp(unprotected: dict) -> dict:
     return vdp
 
 
+def _header_type_ok(label, value) -> bool:
+    """The type RFC 9052 Section 3.1 gives the common header parameters: alg an int or a text string, content type an
+    unsigned int or a text string, kid, IV and Partial IV byte strings. A label without a fixed type is not judged."""
+    if label == 1:
+        return type(value) is int or type(value) is str
+    if label == 3:
+        return (type(value) is int and value >= 0) or type(value) is str
+    if label in (4, 5, 6):
+        return isinstance(value, bytes)
+    return True
+
+
+def _check_header_parameters(protected: dict, unprotected: dict) -> None:
+    """The common header parameters hold their type in whichever bucket they stand (review round 22, R22-1): RFC 9052
+    Section 3.1 allows kid in either bucket, and a type checked in the protected bucket only let the unsigned bucket
+    carry a kid of 7, a text string or null and pass."""
+    for bucket in (protected, unprotected):
+        for label, value in bucket.items():
+            if not _header_type_ok(label, value):
+                raise Fail("kid" if label == 4 else "header_type")
+
+
 def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
     receipt = strict(receipt_raw, "receipt")
     if isinstance(receipt, Tag):
@@ -227,8 +249,7 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
     alg = protected.get(1)
     if not (_int(alg) and alg in ALGS):
         raise Fail("alg")
-    if 4 in protected and not isinstance(protected[4], bytes):
-        raise Fail("kid")                 # RFC 9052 Section 3.1: the kid header parameter is a byte string
+    _check_header_parameters(protected, unprotected)
     if payload is not None:
         raise Fail("payload")
     if INCLUSION not in vdp:

@@ -302,11 +302,11 @@ def test_the_command_line_prints_the_line_and_exits_2_when_a_file_cannot_be_read
     assert READER.main([str(tmp_path / "missing.cose"), str(keys), "--digest", digest]) == 2
 
 
-def _beside_the_inclusion_proof(*pairs: tuple, header: tuple = ()) -> bytes:
-    """vdp_twin with these vdp pairs added next to its inclusion proof, and the ``header`` pairs next to the vdp map,
-    only in the unprotected header: the protected header, the payload and the signature stay the same bytes, so no
-    key is needed (the form of review round 21)."""
-    raw = (HERE / "vectors" / "vdp_twin.cose").read_bytes()
+def _beside_the_inclusion_proof(*pairs: tuple, header: tuple = (), raw: bytes | None = None) -> bytes:
+    """vdp_twin, or ``raw``, with these vdp pairs added next to its inclusion proof, and the ``header`` pairs next to
+    the vdp map, only in the unprotected header: the protected header, the payload and the signature stay the same
+    bytes, so no key is needed (the form of review round 21)."""
+    raw = (HERE / "vectors" / "vdp_twin.cose").read_bytes() if raw is None else raw
     before = READER.strict(raw, "receipt").value
     i = READER._skip_head(raw, READER._skip_head(raw, 0))
     _, start = READER.load_item_strict(raw, i)
@@ -406,10 +406,11 @@ def test_every_element_of_the_statement_has_its_cose_sign1_form(element, ok):
         assert str(exc.value) == "statement_struct"
 
 
-def _signed(kid_item: bytes | None) -> bytes:
-    """The receipt of vdp_twin signed again under a protected header whose kid is this data item, or that has none."""
+def _signed(kid_item: bytes | None, extra: tuple = ()) -> bytes:
+    """The receipt of vdp_twin signed again under a protected header whose kid is this data item, or that has none,
+    with the ``extra`` pairs after the VDS."""
     prot = GEN.cmap([(b"\x01", b"\x38\x22")] + ([] if kid_item is None else [(GEN.uint(4), kid_item)])
-                    + [(GEN.uint(395), b"\x02")])
+                    + [(GEN.uint(395), b"\x02"), *extra])
     good = GEN.proof([(GEN.uint(1), GEN.leaf()), (GEN.uint(2), GEN.path(GEN.PATH_A))])
     return GEN.receipt([GEN.inclusion(good)], GEN.root(), prot=prot)
 
@@ -430,6 +431,48 @@ def _signed(kid_item: bytes | None) -> bytes:
 ])
 def test_a_kid_that_is_not_a_byte_string_is_refused(kid_item, keys, line):
     got = READER.verdict(_signed(kid_item), keys, digest=GEN.DH)
+    assert got.startswith("PASS ") if line is None else got == line
+
+
+@pytest.mark.skipif(not _signs_deterministically(), reason="NOT MEASURED: cryptography before 43 signs at random")
+@pytest.mark.parametrize("label, value, line", [
+    # Review round 22, R22-1: RFC 9052 Section 3.1 allows kid in either bucket, and the type was checked in the
+    # protected one only. Under a protected header without kid, each of these passed with the signed bytes unchanged.
+    (GEN.uint(4), GEN.uint(7), "FAIL kid"),
+    (GEN.uint(4), GEN.ts(GEN.KID), "FAIL kid"),
+    (GEN.uint(4), b"\xf6", "FAIL kid"),
+    # The siblings with a type of their own in Table 3: content type (uint / tstr), IV and Partial IV (bstr).
+    (GEN.uint(3), GEN.uint(-1), "FAIL header_type"),
+    (GEN.uint(3), GEN.bs(b"text/plain"), "FAIL header_type"),
+    (GEN.uint(5), GEN.uint(7), "FAIL header_type"),
+    (GEN.uint(6), GEN.ts(b"x"), "FAIL header_type"),
+    # Controls: a kid, a content type and an IV of their type, and a label without a type of its own.
+    (GEN.uint(4), GEN.bs(GEN.KID), None),
+    (GEN.uint(4), GEN.bs(b"other-kid"), None),
+    (GEN.uint(3), GEN.uint(60), None),
+    (GEN.uint(3), GEN.ts(b"application/cbor"), None),
+    (GEN.uint(5), GEN.bs(b"\x00" * 12), None),
+    (GEN.uint(99), GEN.uint(7), None),
+])
+def test_a_header_parameter_holds_its_type_in_the_unprotected_bucket_too(label, value, line):
+    """The unprotected kid is never used to select a key, so a byte string there leaves every key a candidate and
+    the receipt passes; only its type is judged."""
+    receipt = _beside_the_inclusion_proof(header=((label, value),), raw=_signed(None))
+    got = READER.verdict(receipt, (HERE / "vectors" / "keys.cbor").read_bytes(), digest=GEN.DH)
+    assert got.startswith("PASS ") if line is None else got == line
+
+
+@pytest.mark.skipif(not _signs_deterministically(), reason="NOT MEASURED: cryptography before 43 signs at random")
+@pytest.mark.parametrize("extra, line", [
+    ((GEN.uint(3), GEN.uint(-1)), "FAIL header_type"),
+    ((GEN.uint(5), GEN.ts(b"x")), "FAIL header_type"),
+    ((GEN.uint(6), GEN.uint(0)), "FAIL header_type"),
+    ((GEN.uint(3), GEN.uint(60)), None),
+    ((GEN.uint(5), GEN.bs(b"\x00" * 12)), None),
+])
+def test_a_header_parameter_holds_its_type_in_the_protected_bucket(extra, line):
+    """The same types in the signed bucket, signed with the test key, so the signature is not what refuses them."""
+    got = READER.verdict(_signed(None, (extra,)), (HERE / "vectors" / "keys.cbor").read_bytes(), digest=GEN.DH)
     assert got.startswith("PASS ") if line is None else got == line
 
 
