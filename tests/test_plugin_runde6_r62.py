@@ -133,10 +133,12 @@ def test_environment_and_config_writes_that_can_select_a_program_are_not_measure
 def test_vetted_assignments_and_config_reads_are_not_free(command):
     """Review Runde 9, owner choice B: a vetted assignment or a configuration read leaves the form a repository
     form, and none is free. A vetted pager assignment keeps a read form so too (class a, D34: it counts like a pager
-    key)."""
+    key). A read step of a longer command keeps its mark for the text of D37 under Codex and is not free either
+    (Nachtrag 11)."""
     g = _gate()
     calls = _calls(g, command)
-    assert calls and all(c[2] == [g._NOT_FREE] for c in calls), (command, calls)
+    marks = ([g._NOT_FREE], [g._READ_NOT_FREE])
+    assert calls and all(c[2] in marks for c in calls), (command, calls)
 
 
 @pytest.mark.parametrize("command", ["GIT_TERMINAL_PROMPT=0 git status", "LC_ALL=C git status"])
