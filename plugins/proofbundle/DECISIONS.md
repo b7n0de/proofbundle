@@ -2699,12 +2699,21 @@ Chosen (owner order of Nachtrag 12, place decided in the build):
 - In a repository with a local order, a declaration found only in the work tree is not refused as uncommitted; the
   local order stands for it (`local_order_stands`, no block of its own). A declaration at HEAD with a done check is
   judged as before, beside the local order, and the end needs both.
-- The committed order of D28 is unchanged, and so are the PreToolUse gate, the push path and the CI check.
+- The committed order of D28 is unchanged, and so are the push path and the CI check.
+- A shell command that runs done-order (owner choice O2 of Nachtrag 13): a new order and `--list` are free, since they
+  only add a duty or read; `--replace`, `--remove` and every form the gate cannot read whole (an unknown switch, a word
+  the shell builds or rewrites, the script or the subcommand given by an expansion, an unparsable command that names
+  done-order) ask under Claude Code and are denied under Codex (`done_order_change`). The PreToolUse gate reads the call
+  in each form it reads a program in: the gate's script by its file name `proofbundle_gate.py`, as the program or as
+  the script of python or of a wrapper, in each run of a chain, a pipeline or a list, in a command substitution and in
+  the string of `sh -c`, `eval`, `source` and `.`. A shell that writes the files of `done-orders/` directly is the
+  limit of D27; a copy of the gate under another name and code an interpreter runs (`python3 -c`) are not read.
 - Codex reads the same gate directory, so its Stop hook judges the same orders. Codex has no TaskCompleted event.
 
 Limits: the gate directory is closed to the file tools of both hosts, not to the shell (D27); a shell write is seen
 only through the digest, and a shell that rewrites the order and the gate's record together is not seen. The agent
-can run `done-order` itself, as it can commit a changed order (D28); the record keeps every replacement. Every session
+can run a new order or the list itself; a replacement or a removal through its shell asks or is denied since O2, and the
+record keeps every replacement a person makes. Every session
 of the user, under both hosts, sees every local order, so two sessions in different clones block each other's ends, and
 so does a session with another CLAUDE_CONFIG_DIR (measured by Cowork, Nachtrag 13). Owner choice of 2026-10-15
 (Nachtrag 13, O1): an order is to be bound to the account, CLAUDE_CONFIG_DIR under Claude Code and CODEX_HOME under

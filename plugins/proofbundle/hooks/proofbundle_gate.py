@@ -9014,7 +9014,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     outcome = _decide_outcome(command, cwd, deadline, host, environ)
     if outcome is not None:
         _name_narrower_spelling(outcome, command, cwd, deadline, host, environ)
-    return outcome
+    return _with_done_order(outcome, command)
 
 
 def _narrower_spelling(command: str) -> str | None:
@@ -11379,6 +11379,118 @@ def done_order_command(argv: list[str]) -> int:
         print(f"proofbundle done-order: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+#: The file name of this gate, by which a shell command names it: directly as a program or as the script of an
+#: interpreter (D38, Nachtrag 13).
+GATE_SCRIPT = "proofbundle_gate.py"
+#: The done-order switches that only add a duty: a new order (--repo, with its sources) or the list (owner choice O2 of
+#: Nachtrag 13). Every other form replaces or removes an order, or is one the gate cannot read whole.
+_DONE_ORDER_NEW = ("--repo", "--declaration", "--policy")
+
+
+def _unreadable_word(word: tuple) -> bool:
+    """Whether the shell may build or rewrite the word before the program sees it: a substitution, an expansion, a glob
+    or another character _shell_rewrites names."""
+    value, has_subst, raw = word
+    return bool(has_subst) or _expansion_present(raw) or _shell_rewrites(raw)
+
+
+def _done_order_kind(args: list[tuple]) -> str:
+    """"free" for `done-order --list` and for a new order (--repo with at most --declaration and --policy, each once,
+    every word literal), "change" for every other form: --replace, --remove, an unknown switch, a word the shell builds
+    or rewrites (owner choice O2 of Nachtrag 13: what the gate cannot read is answered as a replacement)."""
+    if any(_unreadable_word(a) for a in args):
+        return "change"
+    values = [a[0] for a in args]
+    if values == ["--list"]:
+        return "free"
+    seen, i = set(), 0
+    while i < len(values):
+        if values[i] in _DONE_ORDER_NEW and values[i] not in seen and i + 1 < len(values):
+            seen.add(values[i])
+            i += 2
+            continue
+        return "change"
+    return "free" if "--repo" in seen else "change"
+
+
+def _done_order_run(run: list[tuple], depth: int) -> list[str]:
+    """The done-order calls of one run of words (D38, O2): the gate's script named by its file name, directly or as the
+    script of an interpreter or wrapper, followed by `done-order`; a script word the shell builds, followed by
+    `done-order`; and a subcommand word the shell builds after the script, which may be done-order. A shell's `-c`
+    string and the string of eval, source and `.` are read in turn, as gated_calls reads them."""
+    found = []
+    for k, word in enumerate(run):
+        base = os.path.basename(word[0])
+        rest = [w[0] for w in run[k + 1:]]
+        if base in _SHELL_DASH_C and depth < MAX_NESTING:
+            command = _shell_c_arg(rest)
+            if command is not None:
+                found.extend(_done_order_calls(command, depth + 1))
+        elif base in _STRING_EXECUTORS and depth < MAX_NESTING:
+            found.extend(kind for arg in rest if not arg.startswith("-") for kind in _done_order_calls(arg, depth + 1))
+        if base == GATE_SCRIPT and k + 1 < len(run):
+            subcommand = run[k + 1]
+            if _unreadable_word(subcommand):
+                found.append("change")
+            elif subcommand[0] == "done-order":
+                found.append(_done_order_kind(run[k + 2:]))
+        elif word[0] == "done-order" and any(_unreadable_word(w) for w in run[:k]):
+            found.append("change")   # the program before it may be the gate, built by the shell
+    return found
+
+
+def _done_order_calls(command: str, depth: int = 0) -> list[str]:
+    """Each call of the gate's done-order in a shell command, as "free" or "change" (D38, owner choice O2 of Nachtrag
+    13), in every form gated_calls reads a program in: the whole command, each run of a chain, a pipeline or a list, the
+    words of a redirection, each command substitution, and a shell's `-c` string or the string of eval, source and `.`.
+    A command the gate cannot parse that names done-order counts as a change."""
+    text = _drop_comments(command)
+    toks = _lex(text)
+    if toks is None or depth > MAX_NESTING:
+        return ["change"] if "done-order" in text or GATE_SCRIPT in text else []
+    found, run = [], []
+    for t in [*toks, ("op", ";")]:
+        if t[0] == "word":
+            run.append(t[1:])
+        elif t[0] == "redir":
+            if t[2] is not None:
+                run.append(t[2])
+        else:
+            if run:
+                found.extend(_done_order_run(run, depth))
+            run = []
+    if depth < MAX_NESTING:
+        for body in _subst_bodies(text):
+            found.extend(_done_order_calls(body, depth + 1))
+    return found
+
+
+def _done_order_verdict(command: str) -> Verdict | None:
+    """The answer to a shell command that replaces or removes a local done order, or calls done-order in a form the gate
+    cannot read whole (owner choice O2 of Nachtrag 13): ask under Claude Code, deny under Codex. A new order and the
+    list are free; None where the command makes no such call."""
+    if "change" not in _done_order_calls(command):
+        return None
+    return Verdict("ask", "NOT MEASURED: the command replaces or removes a local done order, or calls done-order in a "
+                          "form the gate cannot read whole. A done order is a duty a person set (D38); a new order and "
+                          "the list are free, a replacement or a removal is a person's decision.",
+                   "done_order_change", evidence="the local done orders in the gate directory",
+                   failed="the command may replace or remove a local done order (done-order --replace or --remove, or "
+                          "a form of done-order the gate cannot read whole)",
+                   next_step="have a person run done-order --replace or --remove outside the agent")
+
+
+def _with_done_order(outcome: Outcome | None, command: str) -> Outcome | None:
+    """The answer of decide() with a done-order change added (D38, O2): it asks beside any answer short of a deny, and is
+    named beside a deny. Codex turns the ask into a deny (answer)."""
+    verdict = _done_order_verdict(command)
+    if verdict is None:
+        return outcome
+    if outcome is None or outcome.decision not in ("deny", "ask"):
+        return Outcome("ask", verdict.text(), ([] if outcome is None else list(outcome.verdicts)) + [verdict])
+    return Outcome(outcome.decision, f"{outcome.text} {verdict.text()}", list(outcome.verdicts) + [verdict])
 
 
 DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE | --receipt-dir DIR] [--at-commit REV]"
