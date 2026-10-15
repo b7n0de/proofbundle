@@ -2296,7 +2296,8 @@ repository (_read_profile_problem) finds nothing that starts a program for it. R
   diff.* key that is no display setting. A prefix assignment of the command counts as the hook's environment does
   (`GIT_PAGER=cat git log` asks; `LC_ALL=C git log` does not), as the whole command and as a step of class c. Not
   free for a form that walks the work tree (status, diff, grep, ls-files): a filter, the git-lfs standard filter
-  included (answer 2); fsmonitor that git does not read as false; any hook that is not a sample; a submodule
+  included (answer 2; for `git diff --no-ext-diff --no-textconv` only where an attribute assigns it, D39); fsmonitor
+  that git does not read as false; any hook that is not a sample; a submodule
   (a .gitmodules, or a gitlink in the index). The index is listed through the gate's own git path with fsmonitor and
   hooks off, after the profile has found neither (Q18-2). The signing settings are inert for these forms: the grammar
   and the profile let no form read a signature.
@@ -2734,7 +2735,7 @@ Options:
 - C. An order bound to one session. Not built (owner question O1 of Nachtrag 12); the owner chose the account instead,
   to be built before a second account (Nachtrag 13).
 
-## D39. Fewer asks in daily work: a here-document to python (Nachtrag 14, 2026-10-15)
+## D39. Fewer asks in daily work: a here-document to python, git diff without diff drivers (Nachtrag 14, 2026-10-15)
 
 Measured by delta in the pilot at 14a5feb1 under Claude Code, from 22:47 Berlin: five asks in ten minutes. Two came from
 `python3 - "$B" "$L" <<'EOF'` whose Python named git or gh in strings and variable names (the safety net,
@@ -2764,3 +2765,37 @@ Part 1, a here-document to python (owner choice of Nachtrag 14):
   every other interpreter still ask.
 - Limit: the Python in the body may start git or gh, as a file may; the gate does not read code (D8). The push path,
   the pre-push hook and the CI check are unchanged.
+
+Part 2, git diff without diff drivers (owner choice of Nachtrag 14):
+- Measured first, at d6e248a8: `git diff` and `git show` are read forms of class a since D34. In a repository whose
+  configuration has no filter key, `git diff --stat` is free with or without the two switches; `git show --stat` is
+  free with the lfs filter configured too, as a filter never counted for a form that does not walk the work tree. Two
+  things asked: `git -C $W diff --stat`, whose `-C` word is an expansion (D3), and every walking form wherever a filter
+  key is configured (answer 2), as `git lfs install` does in the global configuration and as this container's
+  /etc/gitconfig does (`git diff --stat` asked with "a filter: filter.lfs.clean in the system configuration").
+- Measured with git 2.43.0, stdout a pipe, in throwaway repositories (measure/proxy_starts.sh of Nachtrag 14): for
+  `git diff --no-ext-diff --no-textconv`, with and without `--stat`, fsmonitor and a clean filter an attribute assigns
+  started; diff.external, GIT_EXTERNAL_DIFF, a diff driver's command and a textconv program did not, and each started
+  for `git diff` without the switches (textconv for `git show` too); a clean and a process filter no attribute names
+  started for no form; a pager with stdout a pipe for none. `git show` started neither fsmonitor nor a filter.
+- Built: `git diff` with both `--no-ext-diff` and `--no-textconv` before `--` (_drivers_off) is a read form whose read
+  profile counts a configured filter only where an attribute assigns a filter to a path of the index. git resolves the
+  attributes itself: `check-attr filter` over the paths `ls-files` lists, in the direction of a check-in, with every
+  attribute file and macro, through the gate's own git path with fsmonitor and hooks off (_filter_assigned). Any value
+  but unspecified and unset asks, a driver no key defines included, and so does a listing or a check git does not
+  complete. The ask names the path and the value. Free under Claude Code after that profile; under Codex the
+  reviewer's text of D37, as for every read form.
+- Every other rule of D34 stays for this form: fsmonitor that git does not read as false, any hook that is not a
+  sample, a submodule, a promisor key, the pager keys and GIT_PAGER or PAGER (the gate cannot add `--no-pager` or set
+  GIT_PAGER for the command it answers), and every diff.* key that is no display setting. diff.external and a
+  driver's command or textconv program keep the ask although they did not start with both switches: that is measured
+  with git 2.43.0 only, and the owner's order keeps every way not safely excluded an ask.
+- Class c: a step before the switched diff that writes a file named `.gitattributes`, `attributes` or
+  `gitattributes` changes the state its answer read (_sh_reads_attributes), so the diff asks there; a step that writes
+  another file leaves it free as a step of its own (D33).
+- Without both switches `git diff` keeps today's answer: it asks where a filter key is configured and is free where
+  none is (D34). `git show` is unchanged with and without the switches.
+- Limits: the attributes are read when the gate answers, from the work tree, the index and the attribute files of the
+  hook's environment; a file another process writes between the answer and the run is not seen (D27). The way git
+  reads attributes is git's own; a newer git that reads them from another place keeps that place unread until the
+  profile names it (attr.tree and GIT_ATTR_SOURCE already ask, as a key and a GIT_* name the profile does not know).

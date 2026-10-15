@@ -451,6 +451,13 @@ _STATE_FREE = "\x00state-free"
 #: built). Under Claude Code the judge frees it only after the read profile of its repository (_read_profile_problem)
 #: finds nothing that starts a program for this form; under Codex it is the not-free answer of D3 (owner answer 10).
 _READ_FREE = "\x00read-free"
+#: Detail marker for `git diff` as a read form of class a with both --no-ext-diff and --no-textconv among its options
+#: (owner choice of Nachtrag 14, part 2, D39). The judge frees it under Claude Code after the read profile of class a,
+#: in which a configured filter counts only where an attribute assigns a filter to a path of the index
+#: (_filter_assigned); everything else it shares with _READ_FREE, the reviewer's text of D37 under Codex included.
+_READ_FREE_DRIVERS_OFF = "\x00read-free-drivers-off"
+#: The details of a read form of class a as the whole command.
+_READ_FREE_DETAILS = ([_READ_FREE], [_READ_FREE_DRIVERS_OFF])
 #: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
 #: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
 _CODEX_READ_FORM_EXPLANATION = (
@@ -472,8 +479,8 @@ _GH_READ_FREE = "\x00gh-read-free"
 _READ_NOT_FREE = "\x00read-not-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
-_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_GH_READ_FREE], [_MAYBE_PUSH],
-                   [_READ_NOT_FREE])
+_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_READ_FREE_DRIVERS_OFF],
+                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1213,6 +1220,20 @@ _WORKTREE_LIST_FLAGS = frozenset({"--porcelain", "-v", "--verbose", "-z"})
 #: it). For the other forms of the grammar a word after `--` is a path: log, show, rev-list, rev-parse, for-each-ref,
 #: branch --list and show-ref started nothing, and diff, grep, status and ls-files walk the work tree anyway.
 _READ_REVISIONS_AFTER_DASHDASH = frozenset({"describe", "merge-base", "ls-tree"})
+#: The two options that keep `git diff` from starting a diff driver: an external diff (diff.external, GIT_EXTERNAL_DIFF,
+#: diff.<driver>.command) and a textconv program (D39, part 2 of Nachtrag 14). Measured with git 2.43.0, stdout a pipe
+#: (measure/proxy_starts.sh of Nachtrag 14): with both, `git diff` and `git diff --stat` started none of them, while
+#: `git diff` without them started each; fsmonitor and a clean filter an attribute assigns started either way.
+_DIFF_DRIVERS_OFF = ("--no-ext-diff", "--no-textconv")
+
+
+def _drivers_off(sub: str, args: list[str]) -> bool:
+    """Whether `git <sub> <args>`, a read form of the grammar, is `git diff` with both options of _DIFF_DRIVERS_OFF
+    before a `--` (D39, part 2). The grammar takes neither --ext-diff nor --textconv, so neither can turn them back."""
+    if sub != "diff":
+        return False
+    options = args[:args.index("--")] if "--" in args else args
+    return all(flag in options for flag in _DIFF_DRIVERS_OFF)
 
 
 def _names_index(word: str) -> bool:
@@ -1341,7 +1362,36 @@ def _has_submodule(directory: str, toplevel: str, deadline: float) -> str | None
     return None
 
 
-def _read_profile_problem(sub: str, directory: str, deadline: float, environ: dict | None = None) -> str | None:
+def _filter_assigned(directory: str, configured: str, deadline: float) -> str | None:
+    """None when no path of the index has a filter attribute, else what was found (D39, part 2 of Nachtrag 14): a
+    configured filter driver starts for `git diff` only for a path an attribute assigns it to (measured with git 2.43.0:
+    a clean and a process driver no attribute names started for no form). git resolves the attributes itself, with
+    `check-attr` over the paths of the index, in the direction of a check-in (the work tree's .gitattributes, then the
+    index's) and with info/attributes, the global and the system file and every macro; the index is read through the
+    gate's own git path with fsmonitor and hooks off (Q18-2). Any value but unspecified and unset counts, a driver no
+    key defines included, and so does a listing or a check git does not complete."""
+    hardened = ("-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}")
+    listed = _git(directory, *hardened, "ls-files", "-z", deadline=deadline)
+    if listed.returncode != 0:
+        return f"a filter: {configured}, and the index cannot be listed to read the attributes"
+    paths = [p for p in listed.stdout.split(b"\0") if p]
+    if not paths:
+        return None
+    checked = _run_git(directory, (*hardened, "check-attr", "--stdin", "-z", "filter"), deadline,
+                       stdin=b"\0".join(paths) + b"\0")
+    fields = checked.stdout.split(b"\0")
+    if checked.returncode != 0 or fields[-1:] != [b""] or (len(fields) - 1) % 3 or (len(fields) - 1) // 3 != len(paths):
+        return f"a filter: {configured}, and git could not read the attributes of every path"
+    for k in range(0, len(fields) - 1, 3):
+        value = fields[k + 2]
+        if value not in (b"unspecified", b"unset"):
+            return (f"a filter: {configured}, assigned to {_git_text(fields[k])} "
+                    f"(filter={value.decode('utf-8', 'replace')})")
+    return None
+
+
+def _read_profile_problem(sub: str, directory: str, deadline: float, environ: dict | None = None,
+                          drivers_off: bool = False) -> str | None:
     """None when the repository at directory holds nothing that starts a program for the read form `git <sub>`, else
     what it found (class a, owner answers 1 to 3 of 2026-10-14). Read as K-NW-2 B reads: the effective configuration
     with every include in the hook's environment, the effective hook directory and the hook's GIT_* environment; for a
@@ -1350,9 +1400,11 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     pipe of the Bash tool is not relied on; _read_env_problem, which also judges a prefix assignment of the command);
     for a form that walks the work tree a filter (answer 2: the git-lfs filter counts like any), fsmonitor that git does
     not read as false, any hook that is not a sample, and a submodule; any key, hook or GIT_* name the profile does not
-    know."""
+    know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
+    attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays."""
     environ = os.environ if environ is None else environ
     walks = sub in _READ_WALKS
+    filters: list[str] = []
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
         # git reads the configuration, every include with it, before it names the layout
@@ -1373,8 +1425,10 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
                 return f"fsmonitor: {where}"
             continue
         if lowered.startswith("filter."):
-            if walks:
+            if walks and not drivers_off:
                 return f"a filter: {where}"
+            if walks:
+                filters.append(where)
             continue
         if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
             return f"a configuration key the read profile does not know to start no program: {where}"
@@ -1395,7 +1449,10 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
         if problem is not None:
             return f"{problem} in the hook's environment"
     if walks:
-        return _has_submodule(directory, paths["toplevel"], deadline)
+        problem = _has_submodule(directory, paths["toplevel"], deadline)
+        if problem is not None or not filters:
+            return problem
+        return _filter_assigned(directory, filters[0], deadline)
     return None
 
 
@@ -1957,7 +2014,7 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
             and _read_form(sub, args, None if rewrites is None else rewrites[i + 1:]):
         # Class a (owner answer 1 of 2026-10-14): the whole command is a read form of the grammar with at most one
         # literal `-C`; the judge frees it under Claude Code only after the read profile of its repository.
-        return f"git {sub}", directory, [_READ_FREE]
+        return f"git {sub}", directory, ([_READ_FREE_DRIVERS_OFF] if _drivers_off(sub, args) else [_READ_FREE])
     if sub in _GIT_LOCAL_SUBCOMMANDS:
         # No free form (review Runde 9, owner choice B): options, configuration, configured values, hooks and
         # indirect paths can make git start a program the gate does not see.
@@ -2107,13 +2164,13 @@ def _resolve_single(words: list[tuple], directory: str | None,
     name, cdir, detail = call
     if detail in ([_HOOKS_DISABLE], [_NOT_FREE]):
         return [call]  # a hook-disabling form denies and a repository form asks, whatever the context
-    if detail in ([_STATE_FREE], [_READ_FREE]) and not neutral_only:
+    if detail in ([_STATE_FREE], *_READ_FREE_DETAILS) and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
-    if detail == [_READ_FREE] and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
+    if detail in _READ_FREE_DETAILS and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
         return [(name, UNKNOWN, [_NOT_FREE])]  # a prefix assignment counts as the hook's environment does (D34)
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
-    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], [_READ_FREE]) and any(rewritten):
+    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS) and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
         return [(name, UNKNOWN, None)]
@@ -2172,7 +2229,7 @@ def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False, read_
             call = _strict_git(rest, UNKNOWN, free_base=UNKNOWN)
             if read_step and k == head and call[2] == [_NOT_FREE] and not any(w[1] for w in words) \
                     and not _expansion_present(" ".join(w[2] for w in words)) \
-                    and [c[2] for c in _resolve_single(words, ".", env_set)] == [[_READ_FREE]]:
+                    and [c[2] for c in _resolve_single(words, ".", env_set)] in ([d] for d in _READ_FREE_DETAILS):
                 call = (call[0], UNKNOWN, [_READ_NOT_FREE])
             emit([call])
         elif base == "git-push":
@@ -2250,7 +2307,7 @@ def _overmatch(command: str, toks: list, depth: int,
             # a read form of class a is free only as a whole command; anywhere else it keeps the answer of D3, and a
             # read step of this command (_READ_NOT_FREE) keeps its mark for the text of D37 under Codex
             calls.append((name, UNKNOWN, detail if detail in ([_HOOKS_DISABLE], [_NOT_FREE], [_READ_NOT_FREE]) else
-                          [_NOT_FREE] if detail == [_READ_FREE] else None))
+                          [_NOT_FREE] if detail in _READ_FREE_DETAILS else None))
 
     # A step is marked as a read form only at the top level of a command whose bare `git` names the git program as far
     # as the command shows (_read_steps_clear); a nested shell, a substitution and a run with a redirection keep D3.
@@ -2806,7 +2863,7 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
             if disabling:
                 return disabling
         if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
-            calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], [_READ_FREE]) else (n, c, d)
+            calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS) else (n, c, d)
                      for n, c, d in calls if d != [_GH_READ_FREE]]
         if not _redirections_open_no_file(toks):
             # A redirection that opens a file runs before git does, the pre-push hook may be its target (R2-2): the
@@ -2905,13 +2962,13 @@ _PROMISOR_REFUSAL = ("This repository has promisor-related configuration that th
                      "for this check")
 
 
-def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedProcess:
+def _run_git(repo: str, args: tuple, deadline: float, stdin: bytes | None = None) -> subprocess.CompletedProcess:
     left = deadline - time.monotonic()
     if left <= 0:
         raise GateError("the gate ran out of time")
     try:
         return subprocess.run(["git", *_READ_ONLY_GIT, "-C", repo, *args], capture_output=True,
-                              timeout=left, check=False, env=_read_env(repo))
+                              timeout=left, check=False, env=_read_env(repo), input=stdin)
     except FileNotFoundError as exc:
         raise GateError("git is not on PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -7863,7 +7920,7 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
     if len(calls) != 1 or _net_words(command) > 1 or _net_unresolved(command):
         return None
     name, _directory, detail = calls[0]
-    if detail not in ([_NOT_FREE], [_STATE_FREE], [_READ_FREE]) or not name.startswith("git ") \
+    if detail not in ([_NOT_FREE], [_STATE_FREE], *_READ_FREE_DETAILS) or not name.startswith("git ") \
             or name in ("git", "git --version"):
         return None
     toks = _lex(_drop_comments(command))
@@ -8739,6 +8796,21 @@ def _sh_same_file(path: str, other: str) -> bool:
     return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
 
+#: The names of the files git reads attributes from: `.gitattributes` in the work tree, `info/attributes` in the git
+#: directory, the global file (`attributes`) and the system file (`gitattributes`).
+_SH_ATTRIBUTE_FILES = frozenset({".gitattributes", "attributes", "gitattributes"})
+
+
+def _sh_reads_attributes(step: _ShStep) -> bool:
+    """Whether the step is `git diff --no-ext-diff --no-textconv`, whose answer read the attributes (D39, part 2)."""
+    if step.kind != "git":
+        return False
+    words = step.words[1:]
+    if words[:1] == ["-C"]:
+        words = words[2:]
+    return bool(words) and _drivers_off(words[0], words[1:])
+
+
 def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None,
                       gh_config: str | None = None, read_objects: tuple[str, ...] = ()) -> bool:
     """Whether the step may change what the answer of the later step read: the configuration, the hooks, the
@@ -8763,6 +8835,9 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
             return True     # gh's configuration, which the gh profile of the later step read (class b, D36)
         if any(_sh_same_file(p, o) for p in paths for o in read_objects):
             return True     # a file the later step's answer read or starts, through a link or under another name (R20-3)
+        if later is not None and _sh_reads_attributes(later) and any(
+                os.path.basename(p) in _SH_ATTRIBUTE_FILES for p in paths):
+            return True     # an attributes file, which the filter check of the later diff read (D39, part 2)
         if step.head == "sort" and any(w.startswith(("-o", "--output")) for w in step.words[1:]):
             return True
         if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
@@ -9494,13 +9569,14 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
-def _read_free_verdict(name: str, directory: str | None, deadline: float) -> Verdict:
+def _read_free_verdict(name: str, directory: str | None, deadline: float, drivers_off: bool = False) -> Verdict:
     """The verdict for a read form of class a under Claude Code: pass when the read profile of its repository finds
     nothing that starts a program for it, else the not-free answer of D3 with the source it found (owner answers 1 to
-    3 of 2026-10-14, DESIGN_ask_load.md 3.1). Under Codex the judge never asks for it (owner answer 10)."""
+    3 of 2026-10-14, DESIGN_ask_load.md 3.1). Under Codex the judge never asks for it (owner answer 10). drivers_off
+    marks `git diff --no-ext-diff --no-textconv` (D39)."""
     try:
-        problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline) if directory is not UNKNOWN
-                   else "the gate cannot tell which repository the call acts on")
+        problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline, drivers_off=drivers_off)
+                   if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the read profile reached no result ({exc})"
     if problem is None:
@@ -9625,10 +9701,11 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         if detail == [_STATE_FREE]:
             verdicts.append(_state_free_verdict(name, resolved, deadline, host))
             continue
-        if detail == [_READ_FREE] and host != "codex":
-            verdicts.append(_read_free_verdict(name, resolved, deadline))
+        if detail in _READ_FREE_DETAILS and host != "codex":
+            verdicts.append(_read_free_verdict(name, resolved, deadline,
+                                               drivers_off=detail == [_READ_FREE_DRIVERS_OFF]))
             continue
-        if detail in ([_READ_FREE], [_READ_NOT_FREE]):
+        if detail in (*_READ_FREE_DETAILS, [_READ_NOT_FREE]):
             # class a is off under Codex (owner answer 10 of 2026-10-14); the text is the reviewer's of review round 20,
             # answer 4, word for word (owner choice 3 of 2026-10-15, D37): it names what the Codex hook leaves unbound
             # and does not claim that an absolute `-C` leaves the directory unknown. A read step of a longer command
