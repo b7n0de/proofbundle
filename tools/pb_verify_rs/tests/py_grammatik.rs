@@ -51,6 +51,9 @@ impl Files {
         std::fs::write(dir.join("rbad.json"), serde_json::to_vec(&env).unwrap()).unwrap();
         std::fs::copy(case.join("related_b.json"), dir.join("b.json")).unwrap();
         std::fs::copy(case.join("policy.json"), dir.join("p.json")).unwrap();
+        // files whose names start with `-`: a word argparse never takes as a value or a path
+        std::fs::copy(case.join("related_b.json"), dir.join("-b.json")).unwrap();
+        std::fs::write(dir.join("-x.json"), &ex).unwrap();
         Files { dir }
     }
 
@@ -282,6 +285,135 @@ fn f4_relation_values_are_read_before_the_signature() {
             ),
             (
                 "valid",
+                vec![
+                    s("r.json"),
+                    pubk,
+                    s("--with-related"),
+                    s("b.json"),
+                    s("--related-pub"),
+                    rp,
+                    s("--policy"),
+                    s("p.json"),
+                ],
+                0,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn g2_an_option_value_is_never_an_option_word() {
+    let f = Files::new("g2");
+    check(
+        &f,
+        "verify-bundle",
+        &[
+            (
+                "anchor-type without value",
+                v(&["ok.json", "--anchor-type"]),
+                2,
+            ),
+            (
+                "anchor-type value is a flag",
+                v(&["ok.json", "--anchor-type", "--require-anchor"]),
+                2,
+            ),
+            (
+                "anchor-type value is an unknown flag",
+                v(&["ok.json", "--anchor-type", "--bogus"]),
+                2,
+            ),
+            (
+                "anchor-type value is a flag prefix",
+                v(&["ok.json", "--anchor-type", "--req"]),
+                2,
+            ),
+            (
+                "anchor-type value -x",
+                v(&["ok.json", "--anchor-type", "-x"]),
+                2,
+            ),
+            (
+                "anchor-type value is a file named -x.json",
+                v(&["ok.json", "--anchor-type", "-x.json"]),
+                2,
+            ),
+            (
+                "anchor-type value -1",
+                v(&["ok.json", "--anchor-type", "-1"]),
+                3,
+            ),
+            (
+                "anchor-type value -",
+                v(&["ok.json", "--anchor-type", "-"]),
+                3,
+            ),
+            (
+                "anchor-type value '-x y'",
+                v(&["ok.json", "--anchor-type", "-x y"]),
+                3,
+            ),
+            (
+                "expected-root value is a flag",
+                v(&["ok.json", "--expected-root", "--require-anchor"]),
+                2,
+            ),
+            (
+                "expected-root without value",
+                v(&["ok.json", "--expected-root"]),
+                2,
+            ),
+            (
+                "anchor-target value is a flag",
+                v(&["ok.json", "--anchor-target", "--allow-pending"]),
+                2,
+            ),
+            (
+                "expected-tree-size value is a flag",
+                v(&["ok.json", "--expected-tree-size", "--json"]),
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn g2_relation_option_value_is_never_an_option_word() {
+    let f = Files::new("g2r");
+    let (pubk, rp) = (f.pub_b64(), f.related_pub());
+    let s = |x: &str| x.to_string();
+    // this verifier's own form; Python's exit measured for `decision verify r.json --pub KEY ...`
+    check(
+        &f,
+        "verify-relation",
+        &[
+            (
+                "--with-related value is a file named -b.json",
+                vec![
+                    s("r.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("-b.json"),
+                    s("--related-pub"),
+                    rp.clone(),
+                    s("--policy"),
+                    s("p.json"),
+                ],
+                2,
+            ),
+            (
+                "--with-related value is a flag",
+                vec![
+                    s("r.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("--policy"),
+                    s("p.json"),
+                ],
+                2,
+            ),
+            (
+                "the same with the file named b.json",
                 vec![
                     s("r.json"),
                     pubk,

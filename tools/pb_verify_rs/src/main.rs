@@ -2467,6 +2467,11 @@ fn run_verify_relation(
 /// engine, print the lineage as a JSON report (so crosscheck.py maps it through the ONE
 /// common_vocabulary.label_from_verify) and exit with the 0/1/2/3 contract.
 fn dispatch_verify_relation(args: &[OsString], cmd: &str, statement_mode: bool) -> ! {
+    let opts = if statement_mode {
+        PY_RELATION_STATEMENT_VERIFY
+    } else {
+        PY_DECISION_VERIFY
+    };
     let path = args
         .get(2)
         .unwrap_or_else(|| fatal(&format!("{cmd} needs an envelope file")));
@@ -2482,28 +2487,17 @@ fn dispatch_verify_relation(args: &[OsString], cmd: &str, statement_mode: bool) 
     while i < args.len() {
         match text(&args[i], &format!("a {cmd} flag")) {
             "--with-related" => {
-                related_paths.push(PathBuf::from(
-                    args.get(i + 1)
-                        .unwrap_or_else(|| fatal("--with-related needs a path")),
-                ));
+                related_paths.push(PathBuf::from(py_wert(args, i, opts, "--with-related")));
                 i += 2;
             }
             "--related-pub" => {
                 related_pubs.push(
-                    text(
-                        args.get(i + 1)
-                            .unwrap_or_else(|| fatal("--related-pub needs a value")),
-                        "--related-pub",
-                    )
-                    .to_string(),
+                    text(py_wert(args, i, opts, "--related-pub"), "--related-pub").to_string(),
                 );
                 i += 2;
             }
             "--policy" => {
-                policy_path = Some(PathBuf::from(
-                    args.get(i + 1)
-                        .unwrap_or_else(|| fatal("--policy needs a path")),
-                ));
+                policy_path = Some(PathBuf::from(py_wert(args, i, opts, "--policy")));
                 i += 2;
             }
             other => fatal(&format!("unknown {cmd} flag: {other}")),
@@ -3106,6 +3100,185 @@ fn relations_sektion_pruefen(
     Ok(())
 }
 
+// ===========================================================================
+// Z381 (O381-2): THE ARGUMENT GRAMMAR OF THE PYTHON VERIFIER.
+//
+// `verify-bundle` answers the words after it as `proofbundle verify` answers the same words, and
+// `verify-relation` / `verify-relation-statement` as `proofbundle decision verify` /
+// `proofbundle relation-statement verify`. Python reads them with argparse (CPython 3.13,
+// `allow_abbrev=True`); the rules below are argparse's, read from its source
+// (`_parse_optional`, `_get_option_tuples`, `_negative_number_matcher`) and measured against the
+// Python verifier case by case (tests/py_grammatik.rs). The option tables name EVERY option of the
+// Python command, not only those this verifier reads: whether a word is an option, and whether an
+// abbreviation is unique or ambiguous, is decided among all of them.
+// ===========================================================================
+
+/// Unicode decimal digits as CPython 3.13 (Unicode 15.1) knows them: the code point of every digit
+/// zero, each the start of a run of ten. Generated from `unicodedata.decimal`, and measured equal to
+/// what `re`'s `\d` matches (argparse's negative-number rule) and to the digits `int()` reads.
+const PY_DEZIMAL_NULLEN: [u32; 68] = [
+    0x30, 0x660, 0x6F0, 0x7C0, 0x966, 0x9E6, 0xA66, 0xAE6, 0xB66, 0xBE6, 0xC66, 0xCE6, 0xD66,
+    0xDE6, 0xE50, 0xED0, 0xF20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
+    0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0, 0xFF10,
+    0x104A0, 0x10D30, 0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450, 0x114D0, 0x11650,
+    0x116C0, 0x11730, 0x118E0, 0x11950, 0x11C50, 0x11D50, 0x11DA0, 0x11F50, 0x16A60, 0x16AC0,
+    0x16B50, 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6, 0x1E140, 0x1E2F0, 0x1E4F0, 0x1E950,
+    0x1FBF0,
+];
+
+fn py_dezimal(c: char) -> Option<u32> {
+    let u = c as u32;
+    PY_DEZIMAL_NULLEN
+        .iter()
+        .find(|&&z| u >= z && u < z + 10)
+        .map(|&z| u - z)
+}
+
+/// `proofbundle verify` (22aa954e), in its declaration order.
+const PY_VERIFY: &[&str] = &[
+    "-h",
+    "--help",
+    "--json",
+    "--matrix",
+    "--verbose",
+    "--aud",
+    "--nonce",
+    "--expected-root",
+    "--expected-tree-size",
+    "--trusted-checkpoint",
+    "--checkpoint-vkey",
+    "--expected-origin",
+    "--verification-time",
+    "--policy",
+    "--require-anchor",
+    "--anchor-type",
+    "--anchor-target",
+    "--allow-pending",
+    "--trusted-tsa-root",
+    "--bitcoin-header",
+];
+
+/// `proofbundle decision verify` (22aa954e), in its declaration order.
+const PY_DECISION_VERIFY: &[&str] = &[
+    "-h",
+    "--help",
+    "--pub",
+    "--policy",
+    "--json",
+    "--strict",
+    "--aud",
+    "--nonce",
+    "--anchors",
+    "--trusted-tsa-root",
+    "--bitcoin-header",
+    "--with-related",
+    "--related-pub",
+    "--require-derived-subject",
+    "--verification-time",
+];
+
+/// `proofbundle relation-statement verify` (22aa954e), in its declaration order.
+const PY_RELATION_STATEMENT_VERIFY: &[&str] = &[
+    "-h",
+    "--help",
+    "--pub",
+    "--json",
+    "--strict",
+    "--policy",
+    "--with-related",
+    "--related-pub",
+    "--require-derived-subject",
+];
+
+/// What argparse makes of one word (`_parse_optional`).
+#[derive(Debug, PartialEq)]
+enum PyWort<'a> {
+    /// an argument: a positional, or the value of the option before it
+    Argument,
+    /// an option word; every interpretation (option index, explicit `=` value). More than one:
+    /// ambiguous. None: no option of this command, refused as unrecognized.
+    Option(Vec<(usize, Option<&'a [u8]>)>),
+}
+
+/// argparse's `_negative_number_matcher`, `^-\d+$|^-\d*\.\d+$`, with Python's `\d` and Python's
+/// `$`, which also matches before one final newline.
+fn py_negative_zahl(w: &[u8]) -> bool {
+    let Ok(s) = std::str::from_utf8(w) else {
+        return false; // a byte that is no UTF-8 is a surrogate in Python, never a digit
+    };
+    let s = s.strip_suffix('\n').unwrap_or(s);
+    let Some(rest) = s.strip_prefix('-') else {
+        return false;
+    };
+    let ziffern = |t: &str| t.chars().all(|c| py_dezimal(c).is_some());
+    if !rest.is_empty() && ziffern(rest) {
+        return true;
+    }
+    match rest.split_once('.') {
+        Some((a, b)) => !b.is_empty() && ziffern(a) && ziffern(b),
+        None => false,
+    }
+}
+
+fn py_wort<'a>(w: &'a [u8], opts: &[&str]) -> PyWort<'a> {
+    if w.is_empty() || w[0] != b'-' {
+        return PyWort::Argument;
+    }
+    if let Some(i) = opts.iter().position(|o| o.as_bytes() == w) {
+        return PyWort::Option(vec![(i, None)]);
+    }
+    if w.len() == 1 {
+        return PyWort::Argument;
+    }
+    let (vor, nach) = match w.iter().position(|&b| b == b'=') {
+        Some(p) => (&w[..p], Some(&w[p + 1..])),
+        None => (w, None),
+    };
+    if nach.is_some() {
+        if let Some(i) = opts.iter().position(|o| o.as_bytes() == vor) {
+            return PyWort::Option(vec![(i, nach)]);
+        }
+    }
+    let mut treffer = Vec::new();
+    if w[1] == b'-' {
+        for (i, o) in opts.iter().enumerate() {
+            if o.as_bytes().starts_with(vor) {
+                treffer.push((i, nach));
+            }
+        }
+    } else {
+        // A single-dash word: its first two characters may name a single-dash option (`-h`) and
+        // the rest is that option's argument; otherwise every option starting with the part
+        // before `=` is an interpretation. A second character that is no ASCII cannot be part of
+        // an option name.
+        let kurz: &[u8] = if w[1].is_ascii() { &w[..2] } else { &[] };
+        for (i, o) in opts.iter().enumerate() {
+            if o.as_bytes() == kurz {
+                treffer.push((i, Some(&w[2..])));
+            } else if o.as_bytes().starts_with(vor) {
+                treffer.push((i, nach));
+            }
+        }
+    }
+    if !treffer.is_empty() {
+        return PyWort::Option(treffer);
+    }
+    if py_negative_zahl(w) || w.contains(&b' ') {
+        return PyWort::Argument;
+    }
+    PyWort::Option(Vec::new())
+}
+
+/// The value of the option at `args[i]` (Z381 G2): argparse gives an option that takes a value the
+/// NEXT word only when that word is an argument; a missing word, an option word or an unknown word
+/// starting with `-` is "expected one argument", exit 2.
+fn py_wert<'a>(args: &'a [OsString], i: usize, opts: &[&str], name: &str) -> &'a OsString {
+    match args.get(i + 1) {
+        Some(w) if py_wort(w.as_encoded_bytes(), opts) == PyWort::Argument => w,
+        _ => fatal(&format!("argument {name}: expected one argument")),
+    }
+}
+
 fn fatal(msg: &str) -> ! {
     eprintln!("error: {msg}");
     exit(2);
@@ -3205,8 +3378,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     "--expected-root" => {
                         expected_root = Some(
                             text(
-                                args.get(i + 1)
-                                    .unwrap_or_else(|| fatal("--expected-root needs a value")),
+                                py_wert(&args, i, PY_VERIFY, "--expected-root"),
                                 "--expected-root",
                             )
                             .to_string(),
@@ -3215,7 +3387,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     }
                     "--expected-tree-size" => {
                         expected_tree_size = Some(
-                            args.get(i + 1)
+                            Some(py_wert(&args, i, PY_VERIFY, "--expected-tree-size"))
                                 .and_then(|s| s.to_str())
                                 .and_then(|s| s.parse().ok())
                                 .unwrap_or_else(|| fatal("--expected-tree-size needs an integer")),
@@ -3232,6 +3404,9 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         i += 1;
                     }
                     "--anchor-type" => {
+                        // the value is not read (any type string is a requirement), but it must be
+                        // there and be an argument (Z381 G2)
+                        py_wert(&args, i, PY_VERIFY, "--anchor-type");
                         require_anchor = true;
                         i += 2;
                     }
@@ -3239,9 +3414,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     // values of `choices` and refuses any other with exit 2; this verifier took
                     // any word and answered POLICY_UNMET (3), measured.
                     "--anchor-target" => {
-                        let ziel = args
-                            .get(i + 1)
-                            .unwrap_or_else(|| fatal("--anchor-target needs a value"));
+                        let ziel = py_wert(&args, i, PY_VERIFY, "--anchor-target");
                         if !ANCHOR_TARGETS
                             .iter()
                             .any(|t| ziel.as_encoded_bytes() == t.as_bytes())
