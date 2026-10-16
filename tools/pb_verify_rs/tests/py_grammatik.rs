@@ -429,3 +429,86 @@ fn g2_relation_option_value_is_never_an_option_word() {
         ],
     );
 }
+
+#[test]
+fn g4_tree_size_is_read_as_python_int_reads_it() {
+    let f = Files::new("g4");
+    let n = |s: &str, k: usize| s.repeat(k);
+    // (value of --expected-tree-size, Python's exit for ok.json, for bad.json); the example bundle
+    // has tree_size 4. Measured with `proofbundle verify`, CPython 3.13.16.
+    let werte: Vec<(String, i32, i32)> = vec![
+        ("-1".into(), 1, 1),
+        ("18446744073709551616".into(), 1, 1),
+        ("18446744073709551615".into(), 1, 1),
+        ("+4".into(), 0, 1),
+        ("0_4".into(), 0, 1),
+        (" 4 ".into(), 0, 1),
+        ("\u{664}".into(), 0, 1),
+        ("\u{FF14}".into(), 0, 1),
+        ("4__".into(), 2, 2),
+        ("4.0".into(), 2, 2),
+        ("-0".into(), 1, 1),
+        ("\u{A0}4".into(), 0, 1),
+        ("\u{1C}4".into(), 2, 2),
+        ("4".into(), 0, 1),
+        ("04".into(), 0, 1),
+        ("4_".into(), 2, 2),
+        ("_4".into(), 2, 2),
+        ("".into(), 2, 2),
+        ("0x4".into(), 2, 2),
+        ("-\u{661}".into(), 1, 1),
+        (n("9", 41), 1, 1),
+        (n("1", 4300), 1, 1),
+        (n("1", 4301), 2, 2),
+        (n("0", 4299) + "4", 0, 1),
+        (n("0", 4300) + "4", 2, 2),
+        (n("1_", 4299) + "1", 1, 1),
+        (n("1_", 4300) + "1", 2, 2),
+        (format!(" {} ", n("1", 4300)), 1, 1),
+        (format!("-{}", n("1", 4301)), 2, 2),
+        ("- 4".into(), 2, 2),
+        ("-_4".into(), 2, 2),
+        ("+".into(), 2, 2),
+        ("+-4".into(), 2, 2),
+        ("\u{3000}4\u{3000}".into(), 0, 1),
+        ("4\u{2028}".into(), 0, 1),
+        ("\u{85}4".into(), 0, 1),
+        ("4\u{7F}".into(), 2, 2),
+        ("\u{664}4".into(), 1, 1),
+        ("4\n".into(), 0, 1),
+        ("4\n\n".into(), 0, 1),
+        ("\u{1D7D2}".into(), 0, 1),
+        ("\u{B2}".into(), 2, 2),
+        ("4 4".into(), 2, 2),
+        ("\t4\u{B}".into(), 0, 1),
+        ("\u{C}4\r".into(), 0, 1),
+        ("4\u{FFFF}".into(), 2, 2),
+        ("\u{1680}-4".into(), 1, 1),
+        ("-\u{2000}4".into(), 2, 2),
+        ("\u{200B}4".into(), 2, 2),
+        ("4\u{301}".into(), 2, 2),
+        ("\u{661}_\u{664}".into(), 1, 1),
+        ("1\u{66B}0".into(), 2, 2),
+        ("\u{1FBF4}".into(), 0, 1),
+        ("\u{F24}".into(), 0, 1),
+        ("\u{11F54}".into(), 0, 1),
+    ];
+    let mut names = Vec::new();
+    let mut cases = Vec::new();
+    for (w, ok, bad) in &werte {
+        let kurz: String = w.chars().take(24).collect();
+        for (datei, exit) in [("ok.json", *ok), ("bad.json", *bad)] {
+            names.push(format!(
+                "{datei} --expected-tree-size {kurz:?} ({} chars)",
+                w.chars().count()
+            ));
+            cases.push((v(&[datei, "--expected-tree-size", w]), exit));
+        }
+    }
+    let cases: Vec<(&str, Vec<String>, i32)> = names
+        .iter()
+        .zip(cases)
+        .map(|(n, (a, e))| (n.as_str(), a, e))
+        .collect();
+    check(&f, "verify-bundle", &cases);
+}

@@ -952,7 +952,7 @@ const ANCHOR_TARGETS: [&str; 3] = ["receipt", "preRegistration", "statement"];
 fn verify_bundle(
     b: &serde_json::Value,
     expected_root: Option<&str>,
-    expected_tree_size: Option<u64>,
+    expected_tree_size: Option<ExpectedTreeSize>,
 ) -> Result<bool, String> {
     // Z381 F2: the three header fields, read as Python `bundle._verify_bundle` reads them, and BEFORE
     // any cryptography. Python raises on each of them wherever it meets it (exit 2), even after a
@@ -1056,7 +1056,7 @@ fn verify_bundle(
         }
     }
     if let Some(ets) = expected_tree_size {
-        if tree_size != ets {
+        if ets != ExpectedTreeSize::Exactly(tree_size) {
             return Ok(false);
         }
     }
@@ -3279,6 +3279,97 @@ fn py_wert<'a>(args: &'a [OsString], i: usize, opts: &[&str], name: &str) -> &'a
     }
 }
 
+/// Unicode whitespace above U+007E as CPython 3.13 knows it (`str.isspace`, measured over every
+/// code point): `int()` turns each of these into a space before it parses. Below U+007F it skips
+/// only the six ASCII spaces; U+001C..U+001F are `isspace` but refused by `int()`, measured.
+const PY_SPACE_ABOVE_ASCII: [u32; 19] = [
+    0x85, 0xA0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008,
+    0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+];
+
+/// CPython's default `sys.get_int_max_str_digits()`: `int()` refuses a decimal string with more
+/// digits than this (underscores, sign and whitespace not counted), measured at 4300 and 4301.
+const PY_INT_MAX_STR_DIGITS: usize = 4300;
+
+/// The tree size a relying party expects (Z381 G4). Python reads any integer; one below zero or
+/// above `u64::MAX` equals no `tree_size` this verifier reads, so the comparison fails (exit 1)
+/// where Python's fails, instead of refusing the argument (exit 2) as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpectedTreeSize {
+    Exactly(u64),
+    Never,
+}
+
+/// Python's `int(s)` for a str in base 10 (`PyLong_FromUnicodeObject`, `PyLong_FromString`,
+/// `long_from_string_base` in CPython 3.13); None where it raises ValueError.
+fn py_int(s: &str) -> Option<ExpectedTreeSize> {
+    // `_PyUnicode_TransformDecimalAndSpaceToASCII`: a character below U+007F stays, whitespace
+    // becomes a space, a decimal digit its ASCII digit, anything else makes the string invalid.
+    let mut a = Vec::with_capacity(s.len());
+    for c in s.chars() {
+        let u = c as u32;
+        if u < 0x7F {
+            a.push(u as u8);
+        } else if PY_SPACE_ABOVE_ASCII.contains(&u) {
+            a.push(b' ');
+        } else {
+            a.push(b'0' + py_dezimal(c)? as u8);
+        }
+    }
+    let space = |b: u8| matches!(b, b' ' | b'\t' | b'\n' | 0x0B | 0x0C | b'\r');
+    let mut i = 0;
+    while i < a.len() && space(a[i]) {
+        i += 1;
+    }
+    let negative = match a.get(i) {
+        Some(b'-') => {
+            i += 1;
+            true
+        }
+        Some(b'+') => {
+            i += 1;
+            false
+        }
+        _ => false,
+    };
+    // digits with single underscores between them; no leading or trailing underscore
+    let mut digits = Vec::new();
+    let mut prev_underscore = false;
+    while i < a.len() && (a[i].is_ascii_digit() || a[i] == b'_') {
+        if a[i] == b'_' {
+            if digits.is_empty() || prev_underscore {
+                return None;
+            }
+            prev_underscore = true;
+        } else {
+            digits.push(a[i]);
+            prev_underscore = false;
+        }
+        i += 1;
+    }
+    if digits.is_empty() || prev_underscore || !a[i..].iter().all(|&b| space(b)) {
+        return None;
+    }
+    if digits.len() > PY_INT_MAX_STR_DIGITS {
+        return None;
+    }
+    let first = digits
+        .iter()
+        .position(|&d| d != b'0')
+        .unwrap_or(digits.len());
+    let significant = &digits[first..];
+    if significant.is_empty() {
+        return Some(ExpectedTreeSize::Exactly(0));
+    }
+    if negative || significant.len() > 20 {
+        return Some(ExpectedTreeSize::Never);
+    }
+    let v = significant
+        .iter()
+        .fold(0u128, |v, &d| v * 10 + u128::from(d - b'0'));
+    Some(u64::try_from(v).map_or(ExpectedTreeSize::Never, ExpectedTreeSize::Exactly))
+}
+
 fn fatal(msg: &str) -> ! {
     eprintln!("error: {msg}");
     exit(2);
@@ -3369,7 +3460,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                 .get(2)
                 .unwrap_or_else(|| fatal("verify-bundle needs a bundle file"));
             let mut expected_root: Option<String> = None;
-            let mut expected_tree_size: Option<u64> = None;
+            let mut expected_tree_size: Option<ExpectedTreeSize> = None;
             let mut require_anchor = false;
             let mut allow_pending = false;
             let mut i = 3;
@@ -3385,13 +3476,20 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         );
                         i += 2;
                     }
+                    // Z381 G4: Python reads the value with `int()`: a sign, Unicode digits, single
+                    // underscores and surrounding whitespace are an integer, and one that no
+                    // tree_size can equal (below zero, above u64::MAX) fails the comparison, exit
+                    // 1. This verifier read it with `u64::from_str` and refused all of them, exit
+                    // 2, measured.
                     "--expected-tree-size" => {
-                        expected_tree_size = Some(
-                            Some(py_wert(&args, i, PY_VERIFY, "--expected-tree-size"))
-                                .and_then(|s| s.to_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or_else(|| fatal("--expected-tree-size needs an integer")),
-                        );
+                        let w = py_wert(&args, i, PY_VERIFY, "--expected-tree-size");
+                        expected_tree_size =
+                            Some(py_int(text(w, "--expected-tree-size")).unwrap_or_else(|| {
+                                fatal(&format!(
+                                    "argument --expected-tree-size: invalid int value: {}",
+                                    w.to_string_lossy()
+                                ))
+                            }));
                         i += 2;
                     }
                     // --anchor-type / --anchor-target imply --require-anchor (WP-A1).
