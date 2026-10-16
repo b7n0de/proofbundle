@@ -129,7 +129,7 @@ def test_E1B_deltas_chain_is_free_through_the_hook(tmp_path, repo):
     assert _hook(tmp_path, chain) == (0, None, "")
 
 
-def test_E1B_the_pass_names_the_url_the_rule_and_D46(tmp_path, repo):
+def test_E1B_the_pass_names_the_url_the_rule_and_D45(tmp_path, repo):
     detail = _decide(repo, "git -C {a} fetch -q origin main").verdicts[0].detail
     for named in ("git fetch origin is free", "at https://github.com/o/r", "the one fetch rule of a clone",
                   "A pager is named (PAGER in the hook's environment)", BOUND, "D45"):
