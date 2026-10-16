@@ -291,6 +291,11 @@ The mode, and any applied rule, appear in every gate-log line. A human revokes a
 `rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the
 read-only rule file acts.
 
+A file `pilot.json` beside `mode` turns on the pilot of Z405 (D55): for each GitHub write the gate decides and the
+pilot reads, the gate writes a signed decision receipt of the profile github-write/1 into the folder the file names,
+for an approval as for a refusal, before the write. The receipt changes nothing the gate answers, and the gate holds
+no key: the signer the file names signs. Without the file nothing is written.
+
 ### The gate's log
 
 Every gate call appends one line to `gate-log.jsonl` in the plugin data directory: time, host, gate

@@ -21154,6 +21154,448 @@ def _host(argv: list[str]) -> str:
                     f"{AUTONOMOUS_FLAG}")
 
 
+# --- the pilot of Z405: a signed decision receipt for each GitHub write the gate decides (DECISIONS.md D55) -------
+#
+# The pilot contract (docs/pilot/pilot_contract.md on main) and its profile github-write/1 (docs/pilot/pilot_profile.md,
+# tools/pilot/github_write_profile.py) want a decision-receipt/v0.1 for every write to GitHub the gate decides, allowed
+# or refused, with decidedAt before the write. The gate writes one after its verdict and before its answer. The receipt
+# changes nothing the gate answers: not the decision, not the exit code, not the log line, not a byte on stdout or
+# stderr. A receipt the gate cannot issue is a line in the journal of the receipt folder, never an answer.
+
+PILOT_FILE = "pilot.json"
+MAX_PILOT_BYTES = 16 * 1024
+MAX_CLOSING_RULES_BYTES = 64 * 1024
+PILOT_PROFILE = "github-write/1"
+PILOT_ENGINE, PILOT_REVISION = "proofbundle-pilot/github-write", "1"
+DECISION_RECEIPT_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
+INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+INTOTO_PAYLOAD_TYPE = "application/vnd.in-toto+json"
+PILOT_SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pullRequestBody", "git.push",
+                  "github.merge")
+#: How long the gate waits for the signer of the operator before it gives up on one receipt.
+PILOT_SIGNER_SECONDS = 10.0
+#: The decisions of the gate at Level 1 and the verdicts of decision-receipt/v0.1 they are recorded as. pass approves;
+#: deny refuses; ask hands the call to a person, whose answer the gate does not see. inactive, handover and warn get no
+#: receipt: there the gate leaves the write to another check (D5, D35, D12), and Level 2 decides a push it hands over.
+_PILOT_VERDICTS = {"pass": "ALLOW", "deny": "DENY", "ask": "ESCALATE"}
+_PILOT_KEYS = frozenset({"profile", "gate_id", "observer_id", "agent_id", "principal_id", "validity_seconds",
+                         "receipts", "signer", "public_key", "closing_rules"})
+_PILOT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}\Z", re.ASCII)
+_PILOT_HEX_KEY = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
+_PILOT_REASON = re.compile(r"[a-z0-9_]{1,64}\Z", re.ASCII)
+_PILOT_OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.ASCII)
+_GH_OWNER = r"[A-Za-z0-9][A-Za-z0-9-]{0,38}"
+_GH_REPO = r"[A-Za-z0-9._-]{1,100}?"
+_GH_SLUG = re.compile(rf"({_GH_OWNER})/({_GH_REPO})\Z", re.ASCII)
+_GH_NUMBER = re.compile(r"[1-9][0-9]{0,9}\Z", re.ASCII)
+_GH_PULL_URL = re.compile(rf"https://github\.com/({_GH_OWNER})/({_GH_REPO})/pull/([1-9][0-9]{{0,9}})\Z", re.ASCII)
+_GH_REPLIES = re.compile(rf"/?repos/({_GH_OWNER})/({_GH_REPO})/pulls/([1-9][0-9]{{0,9}})/comments/[1-9][0-9]{{0,19}}"
+                         r"/replies\Z", re.ASCII)
+#: The push URLs the pilot reads a GitHub repository from: https, scp-like ssh and ssh URLs to github.com, with nothing
+#: else in them. A URL that carries a user, a password, a port or a query is not one of them, so the receipt names no
+#: target there and never a part of such a URL (the rule of D49).
+_GH_PUSH_URLS = (re.compile(rf"https://github\.com/({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII),
+                 re.compile(rf"git@github\.com:({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII),
+                 re.compile(rf"ssh://git@github\.com/({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII))
+_PILOT_BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,200}\Z", re.ASCII)
+#: The plain gh forms the pilot reads a write from: the surface, the options that take a value and the slot each fills,
+#: the options without a value. Every other option, a second use of one, `--` and a spelling such as `-bTEXT` leave the
+#: form unread: the gate still decides it, and no receipt is written, so an effect of it counts under M5.
+_PILOT_GH_FORMS = {
+    ("pr", "comment"): ("github.conversationComment", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"},
+                        {}),
+    ("pr", "edit"): ("github.pullRequestBody", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"}, {}),
+    ("pr", "merge"): ("github.merge", {"--repo": "repo", "-R": "repo"},
+                      {"--merge": "method", "-m": "method", "--squash": "method", "-s": "method", "--rebase": "method",
+                       "-r": "method"}),
+    ("pr", "create"): ("github.pullRequestBody", {"--title": "title", "-t": "title", "--body": "body", "-b": "body",
+                                                  "--head": "head", "-H": "head", "--base": "base", "-B": "base",
+                                                  "--repo": "repo", "-R": "repo"}, {}),
+}
+
+
+def _pilot_config(environ: dict) -> dict | None:
+    """The pilot configuration a person wrote into pilot.json of the gate directory (D55), or None: no directory, no
+    file, or a file that is not exactly the pilot's form. Read like `mode`, and decide_write denies every write to
+    that directory, so the model does not write it. Its values select the receipts' folder, the signer, the key and
+    the names of the pilot's roles; none of them is a secret, and only the names enter a receipt."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return None
+    try:
+        raw = _read_regular(os.path.join(directory, PILOT_FILE), MAX_PILOT_BYTES + 1, follow=True)
+        data = strict_json(raw) if len(raw) <= MAX_PILOT_BYTES else None
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or set(data) != _PILOT_KEYS or data["profile"] != PILOT_PROFILE:
+        return None
+    if not all(isinstance(data[k], str) and _PILOT_ID.fullmatch(data[k])
+               for k in ("gate_id", "observer_id", "agent_id", "principal_id")):
+        return None
+    seconds = data["validity_seconds"]
+    if type(seconds) is not int or not 1 <= seconds <= 86400:
+        return None
+    if not (isinstance(data["public_key"], str) and _PILOT_HEX_KEY.fullmatch(data["public_key"])):
+        return None
+    signer, paths = data["signer"], [data["receipts"]] + ([data["closing_rules"]] if data["closing_rules"] else [])
+    if not (isinstance(signer, list) and 1 <= len(signer) <= 32 and all(isinstance(w, str) and w for w in signer)):
+        return None
+    if data["closing_rules"] is not None and not isinstance(data["closing_rules"], str):
+        return None
+    for text in [signer[0]] + paths:
+        if not (isinstance(text, str) and os.path.isabs(text) and len(text) <= 4096):
+            return None
+    if any(ord(c) < 32 for text in signer + paths for c in text):
+        return None
+    return data
+
+
+def _pilot_instant(nanoseconds: int) -> str:
+    """An RFC 3339 instant in UTC with six fraction digits, the most the decision's verifier reads (pilot profile)."""
+    whole, rest = divmod(nanoseconds, 1_000_000_000)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(whole)) + f".{rest // 1000:06d}Z"
+
+
+def _pilot_canonical(value: object) -> bytes:
+    """The RFC 8785 form of a receipt the gate builds. It holds objects, lists, strings and one boolean, and every
+    string is ASCII, so sorted keys without spaces are that form; a non-ASCII byte refuses the receipt (ValueError)
+    rather than risk a second reading of it."""
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    if not raw.isascii():
+        raise ValueError("a receipt holds a byte outside ASCII")
+    return raw
+
+
+def _pilot_keyid(public: bytes) -> str:
+    """OpenSSH's SHA256 fingerprint of the Ed25519 public key, as the profile writes it into every envelope."""
+    def string(data: bytes) -> bytes:
+        return len(data).to_bytes(4, "big") + data
+    digest = hashlib.sha256(string(b"ssh-ed25519") + string(public)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _pilot_policy_digest(environ: dict) -> str:
+    """The sha256 the receipt names as the gate's policy: over the gate's own file, the mode and the rules a person
+    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile)."""
+    parts = {}
+    with open(os.path.realpath(__file__), "rb") as handle:
+        parts["gate"] = hashlib.sha256(handle.read()).hexdigest()
+    directory = _gate_dir(environ)
+    for name, limit in (("mode", MAX_MODE_BYTES + 1), ("rules.json", MAX_RULES_BYTES + 1)):
+        try:
+            raw = _read_regular(os.path.join(directory, name), limit, follow=True) if directory else b""
+        except OSError:
+            raw = b""
+        parts[name] = hashlib.sha256(raw).hexdigest()
+    return hashlib.sha256(_pilot_canonical(parts)).hexdigest()
+
+
+def _pilot_options(args: list[str], valued: dict, flags: dict) -> tuple[dict, list] | None:
+    """The options and positional words of a plain gh form, or None for a word the pilot does not read."""
+    found, positional, i = {}, [], 0
+    while i < len(args):
+        word = args[i]
+        name, eq, value = word.partition("=") if word.startswith("--") else (word, "", "")
+        if eq and name in valued and valued[name] not in found:
+            found[valued[name]], i = value, i + 1
+        elif not eq and word in valued and valued[word] not in found and i + 1 < len(args):
+            found[valued[word]], i = args[i + 1], i + 2
+        elif not eq and word in flags and flags[word] not in found:
+            found[flags[word]], i = word, i + 1
+        elif word.startswith("-"):
+            return None
+        else:
+            positional.append(word)
+            i += 1
+    return found, positional
+
+
+def _pilot_pull_target(positional: list, found: dict) -> str | None:
+    """https://github.com/<owner>/<repo>/pull/<n> for a pull request named by its URL, or by its number and --repo."""
+    if len(positional) != 1:
+        return None
+    match = _GH_PULL_URL.fullmatch(positional[0])
+    if match and "repo" not in found:
+        owner, repo, number = match.groups()
+    else:
+        slug = _GH_SLUG.fullmatch(found.get("repo", ""))
+        if not (slug and _GH_NUMBER.fullmatch(positional[0])):
+            return None
+        (owner, repo), number = slug.groups(), positional[0]
+    return None if repo in (".", "..") else f"https://github.com/{owner}/{repo}/pull/{number}"
+
+
+def _pilot_compare_target(owner: str, repo: str, base: object, head: object) -> str | None:
+    """https://github.com/<owner>/<repo>/compare/<base>...<head> for a pull request that does not exist yet."""
+    if repo in (".", "..") or not all(isinstance(b, str) and _PILOT_BRANCH.fullmatch(b) and ".." not in b
+                                      for b in (base, head)):
+        return None
+    return f"https://github.com/{owner}/{repo}/compare/{base}...{head}"
+
+
+def _pilot_bytes(text: object) -> bytes | None:
+    try:
+        return text.encode("utf-8") if isinstance(text, str) else None
+    except UnicodeEncodeError:
+        return None
+
+
+def _pilot_shell_action(command: str) -> dict | None:
+    """The one GitHub write a plain shell command makes, as the pilot reads it (D55): its surface, its target and the
+    bytes it writes, the last two None where the form does not name them. None for a command that is not one simple
+    command of literal words, or not a write the pilot reads. `git push` at Level 1 has neither target nor bytes: the
+    gate does not resolve what a push sends there (D3), and Level 2 writes the receipt that names them."""
+    toks = _lex(_drop_comments(command))
+    if toks is None or not toks or any(t[0] != "word" or t[2] for t in toks) or _expansion_present(command):
+        return None
+    words = [t[1] for t in toks]
+    if words[:2] == ["git", "push"]:
+        return {"surface": "git.push", "target": None, "bytes": None, "media": "text/plain"}
+    if words[:1] != ["gh"] or len(words) < 3:
+        return None
+    if words[1] == "api":
+        parsed = _pilot_options(words[3:], {"-f": "field", "--raw-field": "field", "-X": "method",
+                                            "--method": "method"}, {})
+        path = _GH_REPLIES.fullmatch(words[2])
+        if parsed is None or parsed[1] or path is None or parsed[0].get("method", "POST") != "POST":
+            return None
+        name, eq, body = parsed[0].get("field", "").partition("=")
+        owner, repo, number = path.groups()
+        if name != "body" or not eq or repo in (".", ".."):
+            return None
+        return {"surface": "github.reviewThreadReply", "target": f"https://github.com/{owner}/{repo}/pull/{number}",
+                "bytes": _pilot_bytes(body), "media": "text/markdown"}
+    form = _PILOT_GH_FORMS.get((words[1], words[2]))
+    parsed = _pilot_options(words[3:], form[1], form[2]) if form else None
+    if parsed is None:
+        return None
+    surface, (found, positional) = form[0], parsed
+    if (words[1], words[2]) == ("pr", "create"):
+        slug = _GH_SLUG.fullmatch(found.get("repo", ""))
+        if positional or slug is None or not {"title", "body", "head", "base"} <= set(found):
+            return None
+        target = _pilot_compare_target(*slug.groups(), found["base"], found["head"])
+        return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
+    target = _pilot_pull_target(positional, found)
+    if surface == "github.merge":
+        # A merge writes no text of the agent: its approved bytes are the empty string (D55).
+        return {"surface": surface, "target": target, "bytes": b"", "media": "text/plain"}
+    if "body" not in found:
+        return None
+    return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
+
+
+def _pilot_mcp_action(tool: str, tool_input: object) -> dict | None:
+    """The GitHub write a gated MCP tool makes, read from its own arguments (D55), or None."""
+    name = tool.rsplit("__", 1)[-1]
+    if not isinstance(tool_input, dict):
+        return None
+    owner, repo = tool_input.get("owner"), tool_input.get("repo")
+    slug = _GH_SLUG.fullmatch(f"{owner}/{repo}") if isinstance(owner, str) and isinstance(repo, str) else None
+    if slug is None or repo in (".", ".."):
+        return None
+    if name == "create_pull_request":
+        target = _pilot_compare_target(owner, repo, tool_input.get("base"), tool_input.get("head"))
+        return {"surface": "github.pullRequestBody", "target": target, "bytes": _pilot_bytes(tool_input.get("body")),
+                "media": "text/markdown"}
+    if name == "merge_pull_request":
+        number = tool_input.get("pullNumber", tool_input.get("pull_number"))
+        number = str(number) if type(number) is int else number
+        target = (f"https://github.com/{owner}/{repo}/pull/{number}"
+                  if isinstance(number, str) and _GH_NUMBER.fullmatch(number) else None)
+        return {"surface": "github.merge", "target": target, "bytes": b"", "media": "text/plain"}
+    if name in ("push_files", "create_or_update_file"):
+        branch = tool_input.get("branch")
+        target = (f"https://github.com/{owner}/{repo}#refs/heads/{branch}"
+                  if isinstance(branch, str) and _PILOT_BRANCH.fullmatch(branch) and ".." not in branch else None)
+        return {"surface": "git.push", "target": target, "bytes": None, "media": "text/plain"}
+    return None
+
+
+def _pilot_push_actions(url: str | None, lines: list[tuple]) -> list[tuple[dict, str]]:
+    """One git.push action per ref line of Level 2 (D55): the target is the repository the push URL names on GitHub
+    and the ref it writes, the bytes are the commit it sends, `<sha>` and a line feed. A URL that is no plain GitHub URL
+    leaves the target unnamed, and a deletion the bytes."""
+    slug = None
+    for pattern in _GH_PUSH_URLS:
+        match = pattern.fullmatch(url) if isinstance(url, str) else None
+        if match and match.group(2) not in (".", ".."):
+            slug = match.groups()
+    actions = []
+    for local_ref, local_sha, remote_ref, remote_sha in lines:
+        ref_ok = (remote_ref.startswith(_TRACKABLE) and _PILOT_BRANCH.fullmatch(remote_ref) and ".." not in remote_ref
+                  and not remote_ref.endswith(("/", ".lock")))
+        target = f"https://github.com/{slug[0]}/{slug[1]}#{remote_ref}" if slug and ref_ok else None
+        sent = (local_sha + "\n").encode("ascii") if _PILOT_OID.fullmatch(local_sha) and local_sha not in _ZERO_OIDS \
+            else None
+        key = hashlib.sha256(" ".join((local_ref, local_sha, remote_ref, remote_sha)).encode("utf-8",
+                                                                                            "surrogatepass")).hexdigest()
+        actions.append(({"surface": "git.push", "target": target, "bytes": sent, "media": "text/plain"}, key))
+    return actions
+
+
+def _pilot_journal(folder: str, entry: dict) -> None:
+    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name."""
+    entry = {"at": _pilot_instant(time.time_ns()), **entry}
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "journal.jsonl"), "a", encoding="ascii") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def _pilot_sign(config: dict, message: bytes) -> bytes:
+    """The Ed25519 signature the operator's signer makes over `message` (the DSSE PAE): the signer reads it on stdin
+    and writes the 64-byte signature in base64 on stdout. The gate holds no key (D55)."""
+    proc = subprocess.run(config["signer"], input=message, capture_output=True, timeout=PILOT_SIGNER_SECONDS,
+                          env={"PATH": os.defpath, "LANG": "C"}, check=False)
+    if proc.returncode != 0 or len(proc.stdout) > 256:
+        raise GateError("signer_failed")
+    try:
+        signature = base64.b64decode(proc.stdout.strip(), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise GateError("signer_answer") from exc
+    if len(signature) != 64:
+        raise GateError("signer_answer")
+    return signature
+
+
+def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: str, reasons: list[str]) -> None:
+    """Write one decision receipt of github-write/1 into <receipts>/decisions (D55), signed by the operator's signer.
+    decisionId is `<action id>#<attempt>`: the action id is a digest of the surface, the target, the bytes and the
+    agent, so a retried action keeps its id; the attempt is the first number no receipt of that id holds yet."""
+    folder, decided_ns = config["receipts"], time.time_ns()
+    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
+    surface, target = action["surface"], action["target"]
+    named = [surface, target, digest, config["agent_id"]] if target and digest else \
+        [surface, "unresolved", key, config["agent_id"]]
+    action_id = "a-" + hashlib.sha256("\0".join(named).encode("ascii")).hexdigest()[:32]
+    closing = None
+    if config["closing_rules"] is not None:
+        try:
+            raw = _read_regular(config["closing_rules"], MAX_CLOSING_RULES_BYTES + 1, follow=True)
+        except OSError as exc:
+            raise GateError("closing_rules_unread") from exc
+        if len(raw) > MAX_CLOSING_RULES_BYTES:
+            raise GateError("closing_rules_unread")
+        closing = hashlib.sha256(raw).hexdigest()
+    decisions = os.path.join(folder, "decisions")
+    os.makedirs(decisions, exist_ok=True)
+    for attempt in range(1, 100_000):
+        path = os.path.join(decisions, f"{action_id}-{attempt}.json")
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise GateError("attempts_exhausted")
+    try:
+        decision_id = f"{action_id}#{attempt}"
+        proposed = {"actionType": surface, "method": "write",
+                    "target": {"name": target, "uri": target} if target else {"name": "not resolved by the gate"}}
+        if digest is not None:
+            proposed["parametersDigest"] = {"sha256": digest}
+        else:
+            proposed["parametersRef"] = {"uri": "urn:proofbundle:pilot:not-resolved"}
+        snapshot = ([{"name": "approved bytes" if verdict == "ALLOW" else "proposed bytes",
+                      "digest": {"sha256": digest}, "mediaType": action["media"]}] if digest else []) + \
+            ([{"name": "closing rules", "digest": {"sha256": closing}, "mediaType": "application/json"}]
+             if closing else [])
+        not_checked = [{"field": "content", "reason": "the gate does not judge whether the text is true",
+                        "impact": "an approved text can be wrong"}]
+        if target is None or digest is None:
+            not_checked.append({"field": "proposedAction", "reason": "the gate does not resolve the target or the "
+                                "bytes of this form", "impact": "an effect cannot be matched to this decision by them"})
+        predicate = {
+            "schemaVersion": "0.1.0", "decisionId": decision_id, "decisionType": "preActionAuthorization",
+            "decidedAt": _pilot_instant(decided_ns), "decisionMaker": {"id": config["gate_id"]},
+            "agent": {"id": config["agent_id"]}, "principal": {"id": config["principal_id"]},
+            "proposedAction": proposed, "inputSnapshot": snapshot,
+            "policyBoundary": {"policyEngine": PILOT_ENGINE, "policyId": "outbound-gate-rules",
+                               "decisionPath": f"outbound-gate/{verdict.lower()}-write",
+                               "policyDigest": {"sha256": _pilot_policy_digest(environ)},
+                               "bundleRevision": PILOT_REVISION},
+            "evidenceRefs": [], "decision": {"verdict": verdict, "reasonCodes": reasons or ["no_reason_named"]},
+            "notChecked": not_checked,
+            "decisionChangeConditions": [{"conditionType": "ruleChange",
+                                          "description": "a changed gate, mode or rule of the gate"}],
+            "privacy": {"rawInputsIncluded": False},
+            "validity": {"audience": [config["observer_id"]], "nonce": decision_id,
+                         "expiresAt": _pilot_instant(decided_ns + config["validity_seconds"] * 1_000_000_000)},
+        }
+        statement = {"_type": INTOTO_STATEMENT_TYPE,
+                     "subject": [{"name": f"decision:{decision_id}",
+                                  "digest": {"sha256": hashlib.sha256(_pilot_canonical(predicate)).hexdigest()}}],
+                     "predicateType": DECISION_RECEIPT_TYPE, "predicate": predicate}
+        body = _pilot_canonical(statement)
+        kind = INTOTO_PAYLOAD_TYPE.encode("ascii")
+        message = b"DSSEv1 %d %s %d %s" % (len(kind), kind, len(body), body)
+        signature = _pilot_sign(config, message)
+        envelope = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": INTOTO_PAYLOAD_TYPE,
+                    "signatures": [{"keyid": _pilot_keyid(bytes.fromhex(config["public_key"])),
+                                    "sig": base64.b64encode(signature).decode("ascii")}]}
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            fd = None
+            handle.write(json.dumps(envelope, sort_keys=True) + "\n")
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        os.unlink(path)
+        raise
+    _pilot_journal(folder, {"issued": True, "decisionId": decision_id, "verdict": verdict,
+                            "file": os.path.join("decisions", os.path.basename(path))})
+
+
+def _pilot_issue_all(config: dict | None, environ: dict, actions: list[tuple[dict, str]], verdict: str | None,
+                     reasons: list[str]) -> None:
+    """Issue a receipt for each action; a failure is a journal line with its fixed name and never an answer (D55)."""
+    if config is None or verdict is None:
+        return
+    reasons = sorted({r for r in reasons if isinstance(r, str) and _PILOT_REASON.fullmatch(r)})
+    for action, key in actions:
+        try:
+            _pilot_issue(config, environ, action, key, verdict, reasons)
+        except Exception as exc:  # noqa: BLE001 - a receipt never changes the answer (D55)
+            why = str(exc) if isinstance(exc, GateError) and _PILOT_REASON.fullmatch(str(exc)) else \
+                f"internal_{type(exc).__name__}"
+            try:
+                _pilot_journal(config["receipts"], {"issued": False, "why": why})
+            except Exception:  # noqa: BLE001 - nor does a journal it cannot write
+                pass
+
+
+def pilot_after_tool(event: object, outcome: "Outcome", environ: dict, host: str = "claude") -> None:
+    """Level 1 (D55): after the gate's verdict on a tool call, a receipt for the GitHub write the call makes, when the
+    pilot is on and the pilot reads the form. The receipt records what the host enforces: Codex has no dialog, and the
+    gate answers an ask there as a refusal (answer, D4), so the receipt says DENY."""
+    decision = "deny" if host == "codex" and outcome.decision == "ask" else outcome.decision
+    verdict = _PILOT_VERDICTS.get(decision)
+    config = _pilot_config(environ) if verdict is not None else None
+    if config is None or not isinstance(event, dict):
+        return
+    tool = event.get("tool_name")
+    if isinstance(tool, str) and tool.startswith("mcp__"):
+        action = _pilot_mcp_action(tool, event.get("tool_input"))
+        key = hashlib.sha256(json.dumps(event.get("tool_input"), sort_keys=True, ensure_ascii=True,
+                                        default=str).encode("ascii")).hexdigest()
+    elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+        return
+    else:
+        command, _cwd = _command_from_event(event)
+        action = _pilot_shell_action(command)
+        key = hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    if action is not None:
+        _pilot_issue_all(config, environ, [(action, key)], verdict, [v.reason_id for v in outcome.verdicts])
+
+
+def pilot_after_push(url: str | None, lines: list[tuple], decision: str, reasons: list[str], environ: dict) -> None:
+    """Level 2 (D55): after the pre-push verdict, a receipt per ref line. pass approves the push and every other
+    verdict but inactive denies it, as the hook's exit code does; inactive gets no receipt."""
+    if decision == "inactive":
+        return
+    _pilot_issue_all(_pilot_config(environ), environ, _pilot_push_actions(url, lines),
+                     "ALLOW" if decision == "pass" else "DENY", reasons)
+
+
 def pre_push_command(argv: list[str]) -> int:
     """PROTOTYPE git pre-push hook entry (DECISIONS.md, D24; installed only by install-pre-push, D24B). git runs a
     pre-push hook as `hook <remote-name> <remote-url>` with one `<local_ref> <local_sha> <remote_ref>
@@ -21175,12 +21617,20 @@ def pre_push_command(argv: list[str]) -> int:
                              "The push is denied.\n")
             return 1
         lines.append(tuple(parts))
+    url = argv[1] if len(argv) > 1 else None
     try:
-        verdict = pre_push_verdict(os.getcwd(), lines, deadline, argv[0] if argv else None,
-                                   argv[1] if len(argv) > 1 else None)
+        verdict = pre_push_verdict(os.getcwd(), lines, deadline, argv[0] if argv else None, url)
     except GateError as exc:
+        try:
+            pilot_after_push(url, lines, "deny", ["pre_push_gate_error"], os.environ)
+        except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
+            pass
         sys.stderr.write(f"proofbundle pre-push (prototype): {exc}. The push is denied.\n")
         return 1
+    try:
+        pilot_after_push(url, lines, verdict.decision, [verdict.reason_id], os.environ)
+    except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
+        pass
     sys.stderr.write(verdict.text() + "\n")
     # Point 1 (review Runde 5): exit 0 only for pass and a measured inactive; ask, unknown states, measurement
     # errors and any exception all block (exit 1). A rule change stays blocked; there is no release switch in
@@ -21435,6 +21885,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
     printed = None
     if verdict is not None:
+        try:
+            pilot_after_tool(event, verdict, os.environ, host)
+        except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
+            pass
         try:
             if verdict.decision != "pass" or any(v.reason_id in ("approved_by_rule", *HINT_REASONS)
                                                  for v in verdict.verdicts) or \

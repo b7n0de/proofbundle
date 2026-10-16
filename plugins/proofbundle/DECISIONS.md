@@ -3415,6 +3415,50 @@ character. The check reads the text (_GH_HELPER_FORM), never the words of a spli
 reason of an unknown helper, a form the shell reads literally included. Then, as before, the gh it names must be the gh
 on PATH and the gh profile of D36 and D43 must be free for it.
 
+## D55. A signed decision receipt for each GitHub write the gate decides, outside the decision (Z405, part 1, 2026-10-16)
+
+Order CLOUD-KRAXO-Z405-EIGENER-PILOT-01, owner choice of 2026-10-16, 23:0x Berlin. The pilot contract on main
+(docs/pilot/pilot_contract.md, pull request 305) wants a decision receipt of each write an agent session makes to GitHub,
+issued by the outbound gate before the write, for an approval as for a refusal, and the pilot profile github-write/1
+(docs/pilot/pilot_profile.md and tools/pilot/github_write_profile.py, pull request 303) fixes how it is written.
+
+The rule:
+- The pilot is on when a person wrote `pilot.json` into the gate directory, beside `mode` (D25), read like it, so the
+  model does not write it. It names the profile (`github-write/1`), the names of the gate, the observer, the agent and
+  the principal, the validity in seconds, the receipt folder, the signer, the gate's public key and the closing rules
+  of the surfaces. Any other key, a missing one, a value outside its form or an unreadable file is no pilot, and the
+  gate writes nothing. Without the file the gate does exactly what it did.
+- After its verdict and before its answer the gate writes one decision-receipt/v0.1 per GitHub write the pilot reads, in
+  the form of the profile: `decisionId` is `<action id>#<attempt>`, the action id a digest of the surface, the target,
+  the bytes and the agent, the attempt the first number no receipt of that id holds; `validity.nonce` is the decisionId,
+  the audience the observer, `decidedAt` the gate's clock with six fraction digits, `expiresAt` that plus the validity;
+  the version signal `proofbundle-pilot/github-write` and revision `1`; the subject derived from the predicate; strict
+  mode's fields present. The receipt is a DSSE envelope of the in-toto Statement in its RFC 8785 form.
+- The verdict: pass is ALLOW, deny is DENY, ask is ESCALATE, an ask that the gate answers as a deny under Codex (D4) is
+  DENY. inactive, handover and warn get no receipt: there the gate leaves the write to another check (D5, D35, D12), and
+  Level 2 decides a push it hands over. Level 2 records its own verdict per ref line: pass is ALLOW, every other verdict
+  but inactive DENY, as the hook's exit code is.
+- What the pilot reads: a push at Level 2 from git's ref lines (the bytes are `<sha>` and a line feed of the commit it
+  sends, the target `https://github.com/<owner>/<repo>#<ref>` when the push URL is a plain GitHub URL, nothing of a URL
+  with a user, a password, a port or a query); a plain `git push` at Level 1, without target and bytes, since the gate
+  does not resolve them there (D3); `gh pr comment`, `gh pr edit --body`, `gh pr merge` and `gh pr create` in their plain
+  forms with literal words, a reply in a review thread through `gh api repos/<o>/<r>/pulls/<n>/comments/<id>/replies -f
+  body=…`, and the gated MCP tools from their own arguments. A pull request is named `https://github.com/<o>/<r>/pull/<n>`
+  on every surface, a new one `…/compare/<base>...<head>`. A merge writes no text of the agent; its bytes are empty. Any
+  other form is not read: the gate decides it as before and writes no receipt, so an effect of it counts under M5 of
+  the contract.
+- The receipt carries no value of the configuration, the environment or a credential (the rule of D49): the names of
+  the roles, digests, reason ids and a target in the one GitHub form. A refused action keeps only the digest of the
+  proposed bytes (contract, section 8).
+- The gate holds no key. It hands the DSSE pre-authentication bytes to the signer `pilot.json` names, which writes the
+  64-byte Ed25519 signature in base64; the receipt names the key by its OpenSSH fingerprint. Whose key that is decides
+  what a receipt proves: the gate runs as the agent session's user, so a key that user can reach can sign anything.
+  The pilot's runbook (part 3 of Z405) puts the signer behind a boundary of the operator; here only the probe signer
+  runs, with a key derived from a public label (plugins/proofbundle/pilot/probe_signer.py).
+- A receipt changes nothing the gate answers: not the decision, not the exit code, not the log line (D21), not a byte
+  on stdout or stderr. A receipt the gate cannot issue (the signer fails, the closing rules are unreadable, a byte
+  outside ASCII) is a line in `journal.jsonl` of the receipt folder with a fixed name, never an answer.
+
 ## D59. git ls-remote from github.com after the fetch profile of D45 (Nachtrag 22, part 3, 2026-10-17)
 
 Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
