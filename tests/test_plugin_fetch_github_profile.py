@@ -132,8 +132,8 @@ def test_E1B_deltas_chain_is_free_through_the_hook(tmp_path, repo):
 def test_E1B_the_pass_names_the_url_the_rule_and_D45(tmp_path, repo):
     detail = _decide(repo, "git -C {a} fetch -q origin main").verdicts[0].detail
     for named in ("git fetch origin is free", "at https://github.com/o/r", "the one fetch rule of a clone",
-                  "A pager is named (PAGER in the hook's environment)", BOUND, "D45"):
-        assert named in detail, (named, detail)
+                  "A pager is named (PAGER in the hook's environment)", "git fetch starts no pager", "D48", "D45"):
+        assert named in detail, (named, detail)   # since Nachtrag 20 (O19-2) git's pager counts under no host (D48)
 
 
 @pytest.mark.parametrize("hook", ["pre-push", "post-checkout", "post-merge", "pre-commit", "post-index-change",
@@ -224,7 +224,8 @@ CONFIG_ASKS = {
     "gc.recentObjectsHook": [("gc.recentObjectsHook", "{tmp}/h")],
     "transfer.bundleURI": [("transfer.bundleURI", "true")],
     "an unknown key": [("probe.unknown", "x")],
-    "core.pager without the bound host": [("core.pager", "less"), ("@unbind", "")],
+    # core.pager without the bound host is free since Nachtrag 20 (D48); a pager.<command> key keeps the rule of D42
+    "pager.fetch without the bound host": [("pager.fetch", "true"), ("@unbind", "")],
 }
 
 
@@ -250,7 +251,7 @@ ENV_ASKS = {"HTTPS_PROXY": "http://127.0.0.1:3128", "https_proxy": "http://127.0
             "http_proxy": "http://x:1", "GIT_SSH": "/bin/true", "GIT_SSH_COMMAND": "ssh -v",
             "GIT_ASKPASS": "/bin/true", "SSH_ASKPASS": "/bin/true", "GIT_SSL_NO_VERIFY": "1",
             "GIT_SSL_CAINFO": "/tmp/x.pem", "GIT_HTTP_USER_AGENT": "x", "GIT_TRACE": "1", "GIT_EXEC_PATH": "/x",
-            "GIT_OPTIONAL_LOCKS": "1", "GIT_PAGER@unbound": "less"}
+            "GIT_OPTIONAL_LOCKS": "1"}   # GIT_PAGER without the bound host is free since Nachtrag 20 (D48)
 
 
 @pytest.mark.parametrize("name", list(ENV_ASKS))

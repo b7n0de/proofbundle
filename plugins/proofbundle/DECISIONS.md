@@ -3238,3 +3238,15 @@ configuration, no network (truth_n19_state.py, truth_n19_state.jsonl, 45 runs pl
 as without the key and opened no connection.
 
 Not changed: uploadpack.packObjectsHook and every neighbouring name keep asking, as in D44.
+
+## D48. git's pager does not count for the fetch form of D45, under any host (Nachtrag 20, 2026-10-16)
+
+D45 judged a pager as class a does (D34, D42): it did not count only under a bound host whose Bash tool gives the
+command no terminal, and asked everywhere else. The measurement of D45 had shown more than that rule used: git fetch
+started no pager with PAGER, GIT_PAGER or core.pager set, also on a terminal of script(1) (O19-2 of Nachtrag 19). Owner
+choice of 2026-10-16, 18:3x Berlin: yes, for the fetch form of D45 under every host.
+
+The rule: for the fetch form of D45, core.pager (any scope) and PAGER and GIT_PAGER in the hook's environment are noted
+in the pass text and do not count. Only what was measured: a pager.<command> key of git and the pager of gh in the gh
+helper's gh profile (D43) keep the rule of D42, since the measurement did not cover them. Every read form of class a
+keeps D34 and D42, a fetch under Codex keeps its ask (D41), and a prefix assignment of PAGER is not the form.

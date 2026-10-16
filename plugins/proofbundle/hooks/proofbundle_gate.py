@@ -1712,7 +1712,8 @@ def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: l
 
 
 def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ: dict | None = None,
-                           inert_pagers: list | None = None, found_url: list | None = None) -> str | None:
+                           inert_pagers: list | None = None, found_url: list | None = None,
+                           bound_pagers: list | None = None) -> str | None:
     """None when the fetch of D45 from `remote` in the repository at directory starts only git's own programs and
     connects only to github.com, else what the fetch profile found (Ergänzung 1 to Nachtrag 19). Read as the read
     profile reads (D34): the effective configuration with every include in the hook's environment, the effective hook
@@ -1724,13 +1725,16 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
       (http.proxy took it to the proxy: measured), a proxy name in the environment;
     - programs: a hook fetch or its maintenance runs (_HOOKS_NOT_RUN_BY_FETCH), fsmonitor that git does not read as
       false (measured: the fetch started it), core.sshCommand, core.askPass, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS,
-      SSH_ASKPASS, a promisor key, a pager as in class a (D34, D42);
+      SSH_ASKPASS, a promisor key; core.pager, PAGER and GIT_PAGER unless inert_pagers is a list (git fetch starts no
+      pager: measured, D48), a pager.<command> key unless bound_pagers is a list (D42);
     - a credential helper that is not on _FETCH_HELPERS and not the gh helper of _fetch_gh_helper (each helper started
       on a 401 of the stand-in, a name on PATH as git-credential-<name>: measured), any other credential.* key;
     - a submodule (a .gitmodules, a gitlink in the index, or a git directory under modules/) unless
       fetch.recurseSubmodules reads false (measured: the default recursion fetched the submodule from its own URL);
     - any key or GIT_* name the profile does not know.
-    found_url, a list, gets the URL of the remote when the profile finds nothing."""
+    found_url, a list, gets the URL of the remote when the profile finds nothing. With inert_pagers, a list, core.pager,
+    PAGER and GIT_PAGER are noted there instead of counted; with bound_pagers, a list, a pager.<command> key of git and
+    the pager of gh in the gh helper's gh profile are, the ones the measurement of D48 did not cover."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1749,8 +1753,9 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
         if re.match(_PARTIAL_CLONE_KEYS, lowered):
             return f"a lazy fetch from a promisor remote: {where}"
         if lowered == "core.pager" or lowered.startswith("pager."):
-            if inert_pagers is not None:
-                inert_pagers.append(where)
+            noted = inert_pagers if lowered == "core.pager" else bound_pagers
+            if noted is not None:
+                noted.append(where)
                 continue
             return f"a pager: {where}"
         if lowered == "core.fsmonitor":
@@ -1771,7 +1776,7 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
         if section == "credential" and variable == "helper":
             if value in _FETCH_HELPERS:
                 continue
-            problem = _fetch_gh_helper(value or "", environ, deadline, inert_pagers)
+            problem = _fetch_gh_helper(value or "", environ, deadline, bound_pagers)
             if problem is not None:
                 return f"{problem}: {where}"
             continue
@@ -1823,20 +1828,25 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
 
 def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host: str = "claude") -> Verdict:
     """The verdict for the fetch form of D45 under Claude Code: pass when the fetch profile of its repository finds
-    nothing, else the ask of D41 with what it found (Ergänzung 1 to Nachtrag 19). Under a host whose Bash tool gives
-    the command no terminal a pager does not count, as in class a (D42)."""
+    nothing, else the ask of D41 with what it found (Ergänzung 1 to Nachtrag 19). A pager of git does not count under
+    any host: git fetch starts none, measured on a terminal too (Nachtrag 20, D48). The pager of gh in the gh helper's
+    gh profile does not count only under a host whose Bash tool gives the command no terminal, as in D42."""
     remote = name.split(" ", 2)[2]
-    inert_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
+    inert_pagers: list = []
+    bound_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
     url: list = []
     try:
-        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url)
+        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url, bound_pagers)
                    if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the fetch profile reached no result ({exc})"
     if problem is None:
-        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not count: the hook's environment names the "
-                  f"host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal "
-                  "(DECISIONS.md D42).") if inert_pagers else ""
+        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not count: git fetch starts no pager, "
+                  "measured with PAGER, GIT_PAGER and core.pager on a terminal of script(1) (DECISIONS.md D48)."
+                  if inert_pagers else "")
+        pagers += (f" A pager is named ({'; '.join(bound_pagers)}) and does not count: the hook's environment names "
+                   f"the host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal "
+                   "(DECISIONS.md D42)." if bound_pagers else "")
         return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of the repository at {directory} "
                                f"found the remote {remote} at {url[0]} with the one fetch rule of a clone, no URL "
                                "rewrite, proxy, transport helper, ssh or askpass setting, no credential helper but "
