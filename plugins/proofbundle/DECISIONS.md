@@ -3170,7 +3170,8 @@ The profile, not free (each with a test that asks, and the finding named in the 
   though an https fetch started none of the ssh ones), a promisor key, a pager as in class a (D34; not under the bound
   host of D42);
 - a credential helper other than the empty value, `store` and `!<gh> auth git-credential` naming the gh on PATH while
-  the gh profile of D36 and D43 is free for it (_fetch_gh_helper); any other credential.* key;
+  the gh profile of D36 and D43 is free for it (_fetch_gh_helper; since D54 only in its two literal forms); any other
+  credential.* key;
 - a submodule (a .gitmodules, a gitlink in the index, a git directory under modules/) unless fetch.recurseSubmodules
   reads false; fetch.recurseSubmodules with another value, submodule.recurse;
 - any key or GIT_* name the profile does not know (GIT_SSL_*, GIT_HTTP_*, GIT_TRACE*, GIT_EXEC_PATH among them; the
@@ -3361,3 +3362,24 @@ The rule:
   else, an absent file or an unreadable one gives English, the default of the public repository. The model cannot set
   it: decide_write denies every write to the gate directory (D25). The owner sets it for delta and echo, in their gate
   directory, not in the code.
+
+## D54. The gh helper of D45 only in its two literal forms (Nachtrag 21, review Runde 24, R24-1, 2026-10-16)
+
+Found by the reviewer of round 24 at 6459ff53: the fetch profile split credential.helper with shlex and checked the
+words, but git hands the value after the `!` to a shell. `!"<tmp>/`touch review24_marker`/gh" auth git-credential`
+was one absolute word ending in /gh for shlex, and the gh on PATH when its folder bears that very name, so the fetch was
+free; the shell ran `touch` first. Owner choice of 2026-10-16: R24-1 after 6.3.1 and before Z405.
+
+Evidence, git 2.43.0 and dash with a stand-in gh, `git credential fill` per form under strace -f, no network
+(truth_n21_helper.py): a backtick and $(…) in a double-quoted path ran their command before gh; $HOME and ${HOME} there
+put the hook's HOME in place, and a gh in that folder started instead of the one the profile checked; a line end after
+git-credential made git's own `get` a second command of the shell; single quotes, a space or a line end in a quoted
+path and a tab between the words started the stand-in gh alone. `!gh auth git-credential` and `!<abs>/gh auth
+git-credential` started the stand-in gh with `auth git-credential get` and nothing else.
+
+The rule: the gh helper is free only where the value, as git keeps it, is exactly `!gh auth git-credential` or
+`!<abs> auth git-credential`: one space between the words, <abs> an absolute path of A-Z a-z 0-9 / . _ + - only that
+ends in /gh, nothing before or after. No quote, $, backtick, backslash, space, tab or line end, no other shell
+character. The check reads the text (_GH_HELPER_FORM), never the words of a split. Every other value asks with the
+reason of an unknown helper, a form the shell reads literally included. Then, as before, the gh it names must be the gh
+on PATH and the gh profile of D36 and D43 must be free for it.

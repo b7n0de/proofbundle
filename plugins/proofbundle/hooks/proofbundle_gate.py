@@ -1704,19 +1704,26 @@ def _fetch_env_problem(name: str, value: str | None = None) -> str | None:
     return None
 
 
+#: The gh helper in the only two forms the fetch profile frees (D54, review Runde 24, R24-1): `!gh auth git-credential`
+#: or `!<abs> auth git-credential`, the words apart by exactly one space, <abs> an absolute path of A-Z a-z 0-9 / . _ + -
+#: only that ends in /gh; nothing before or after. Matched whole on the value as git keeps it, never on the words of a
+#: split: git hands the value after the `!` to a shell. Measured with git 2.43.0 and dash (truth_n21_helper.py of the
+#: delivery): a backtick or $(…) in a double-quoted path ran its command (touch) before gh, $HOME and ${HOME} there put
+#: the hook's HOME in its place, so another gh started than the one the profile checked, and a line end after
+#: git-credential made git's own `get` a second command. A quote, a space, a tab or a line end is held to the same rule
+#: where the shell reads it literally.
+_GH_HELPER_FORM = re.compile(r"!(gh|(?:/[A-Za-z0-9/._+-]*)?/gh) auth git-credential")
+
+
 def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: list | None) -> str | None:
-    """None when value is `!<gh> auth git-credential` naming the gh on PATH and the gh profile of D36 and D43 is free
-    for that gh (owner choice of 2026-10-16: the helper only then; measured with gh 2.89.0 on a 401: it started nothing
-    and connected nowhere), else what keeps the ask; a value of another shape is no gh helper and asks."""
-    try:
-        words = shlex.split(value[1:]) if value.startswith("!") else []
-    except ValueError:
-        words = []
-    if len(words) != 3 or words[1:] != ["auth", "git-credential"] or os.path.basename(words[0]) != "gh" \
-            or (words[0] != "gh" and not os.path.isabs(words[0])):
+    """None when value is one of the two literal forms of _GH_HELPER_FORM, its gh is the gh on PATH and the gh profile
+    of D36 and D43 is free for that gh (owner choice of 2026-10-16: the helper only then; measured with gh 2.89.0 on a
+    401: it started nothing and connected nowhere), else what keeps the ask; every other value asks (D54)."""
+    form = _GH_HELPER_FORM.fullmatch(value)
+    if form is None:
         return "a credential helper the fetch profile does not know"
     on_path = shutil.which("gh", path=environ.get("PATH"))
-    named = on_path if words[0] == "gh" else words[0]
+    named = on_path if form.group(1) == "gh" else form.group(1)
     if on_path is None or not os.path.exists(named) or os.path.realpath(named) != os.path.realpath(on_path):
         return "the credential helper names a gh that is not the gh on PATH, the one the gh profile checks"
     problem = _gh_profile_problem(environ, deadline, inert_pagers, [])
