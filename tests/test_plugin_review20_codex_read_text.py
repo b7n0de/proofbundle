@@ -35,7 +35,7 @@ def _host(repo, command: str, host: str = "codex"):
                           capture_output=True, text=True, env=plugin_env(), timeout=120, check=False)
     answer = json.loads(proc.stdout) if proc.stdout.strip() else {}
     out = answer.get("hookSpecificOutput", {})
-    return proc.returncode, out.get("permissionDecision"), out.get("permissionDecisionReason") or ""
+    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 @pytest.mark.parametrize("command", ["git status", "git -C {REPO} status", "git log --oneline -1",

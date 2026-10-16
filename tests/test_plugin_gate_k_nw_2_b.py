@@ -93,7 +93,7 @@ def _free(command: str, repo: pathlib.Path) -> None:
         outcome = gate.decide(command, str(repo), _deadline(), host=host)
         assert outcome is not None and outcome.decision == "pass", (host, command, outcome and outcome.text)
         assert {v.reason_id for v in outcome.verdicts} == {"free_after_state_check"}, (host, outcome.verdicts)
-        assert "permissionDecision" not in gate.answer(outcome.decision, outcome.text, host=host)["hookSpecificOutput"]
+        assert gate.answer(outcome.decision, outcome.text, host=host) is None   # D53: a pass answers nothing
 
 
 def _change(repo: pathlib.Path) -> None:
@@ -111,18 +111,21 @@ def test_the_two_forms_are_free_in_a_clean_repository(tmp_path, command):
 
 
 def test_the_hook_answer_of_a_free_form_carries_no_permission_decision(tmp_path):
-    """The whole path through the hook: the answer is a message, no allow and no deny, so the host's own permission
-    flow decides."""
+    """The whole path through the hook: no allow and no deny, so the host's own permission flow decides. Since D53 a
+    free form prints nothing at all; the log line names the pass and its reason."""
     repo = _repo(tmp_path)
     for host in ("claude", "codex"):
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                  "tool_input": {"command": "git commit -m msg"}}
+        logs = tmp_path / f"logs-{host}"
         proc = subprocess.run([sys.executable, "-I", str(GATE), "--host", host], input=json.dumps(event),
                               capture_output=True, text=True, timeout=120,
-                              env=plugin_env(PROOFBUNDLE_GATE_DIR=str(tmp_path / "gate")))
-        answer = json.loads(proc.stdout)
-        assert "permissionDecision" not in answer["hookSpecificOutput"], (host, answer)
-        assert "is free" in answer["systemMessage"], answer
+                              env=plugin_env(PROOFBUNDLE_GATE_DIR=str(tmp_path / "gate"), CLAUDE_PLUGIN_DATA=str(logs),
+                                             PLUGIN_DATA=str(logs)))
+        assert proc.returncode == 0 and proc.stdout == "", (host, proc.stdout)
+        entry = json.loads((logs / "gate-log.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        assert (entry["verdict"], entry["decision"], entry["reason_ids"]) == ("pass", "none",
+                                                                             ["free_after_state_check"]), entry
 
 
 def test_a_free_commit_starts_no_program_in_the_clean_repository(tmp_path):

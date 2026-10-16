@@ -28,6 +28,7 @@ from proofbundle.emit import generate_signer
 
 import test_claude_code_plugin_gate as cg
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -142,7 +143,7 @@ def test_ci_mode_gives_no_pass_for_a_folder_named_twice(repo, variant):
 def test_level_1_names_the_tree_and_no_clean_source(env, repo):
     _twice(repo, "an empty evidence list")
     answer, entry = n2c._level1(env, repo)
-    text = answer["systemMessage"]
+    text = long_text(answer)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "deny", answer
     assert entry["reason_ids"] == ["gate_error"] and TWICE in text, (entry, text)
     assert n2c.SOURCES_CLEAN not in text, text

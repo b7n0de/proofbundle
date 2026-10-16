@@ -26,6 +26,7 @@ import pytest
 import test_plugin_done_check as dc
 import test_plugin_review_fix_f6_early_open as f6
 from _plugin_env import plugin_env
+from _gate_answer import long_text
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -120,7 +121,7 @@ def test_the_claude_push_is_denied_in_the_repository_the_cwd_names(env, tmp_path
     answer = _pre_tool(env, repo, "claude", "Bash", {"command": "git push origin main"})
     decision = answer.get("hookSpecificOutput", {}).get("permissionDecision")
     assert decision == "deny", answer
-    assert "check unit is missing" in answer["hookSpecificOutput"]["permissionDecisionReason"], answer
+    assert "check unit is missing" in answer["hookSpecificOutput"]["additionalContext"], answer   # D53
 
 
 @pytest.mark.parametrize("suffix", ids)
@@ -130,7 +131,7 @@ def test_control_the_codex_push_warns_before_and_after(env, tmp_path, keys, suff
     _with_remote(tmp_path, repo)
     answer = _pre_tool(env, repo, "codex", "Bash", {"command": "git push origin main"})
     assert "permissionDecision" not in answer.get("hookSpecificOutput", {}), answer
-    assert "under Codex the gate cannot bind git push" in answer.get("systemMessage", ""), answer
+    assert "under Codex the gate cannot bind git push" in (long_text(answer) if answer else ""), answer
 
 
 def _evidenced(tmp_path: pathlib.Path, suffix: str, neighbour: str) -> pathlib.Path:
@@ -153,7 +154,7 @@ def test_the_mcp_diagnosis_reads_the_repository_the_cwd_names(env, tmp_path, suf
     answer = _pre_tool(env, repo, host, "mcp__github__create_pull_request", {"title": "t"})
     out = answer["hookSpecificOutput"]
     assert out["permissionDecision"] == decision, answer
-    assert "reads 'deny' (" in out["permissionDecisionReason"], out["permissionDecisionReason"]
+    assert "reads 'deny' (" in out["additionalContext"], out["additionalContext"]   # D53: the model's long reason
 
 
 @pytest.mark.parametrize("neighbour", NEIGHBOURS)

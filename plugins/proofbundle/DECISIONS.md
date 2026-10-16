@@ -505,7 +505,8 @@ or `diff.*` key defines, and those keys are refused.
 ## D4. What a pass does
 
 Chosen: no permission decision. The gate reports what it verified to the user and to the model, and
-the host's normal permission flow decides whether the call runs. The gate never answers `allow`. A push handed over to
+the host's normal permission flow decides whether the call runs. Since D53 a pass prints nothing: its verdict and its
+reason ids stand in the log (D21). The gate never answers `allow`. A push handed over to
 Level 2 (D35) is answered the same way: no permission decision, and a message that names the hand-over.
 
 Options:
@@ -521,7 +522,8 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
   nothing at that path, not even a link or a folder. Then it answers without a permission decision,
   under both hosts. The message goes to the user (`systemMessage`) and to the model
   (`additionalContext`). It starts with `NOT MEASURED:` and says that the gate is not active in this
-  repository, because nothing is declared. The host's normal permission flow decides.
+  repository, because nothing is declared. The host's normal permission flow decides. Since D53 the user sees a short
+  line in its place, once per session and repository, and the model gets the message as before.
 - Every other case where nothing was verified stays NOT MEASURED and `ask`, and `deny` under Codex
   (D12):
   - a declaration only in the working tree;
@@ -1930,7 +1932,8 @@ Chosen (option B of the owner card for N1):
   writes `pytest_args`, `pytest_addopts` and `n_deselected` into `provenance` (core change of the same date).
 - A block names the first open check, its kind (no change, missing, unverified, red, other selection, no state,
   stale, outside paths), the command that closes it and the other open checks, in one line. Claude Code and Codex read
-  the same answer: `decision` and `reason` for a block, `systemMessage` for a pass or a blocker; the hook never
+  the same answer: `decision` and `reason` for a block, `systemMessage` for a blocker (since D53 a pass prints
+  nothing and a block shows the user a short line in `systemMessage`); the hook never
   sets `continue`. Codex runs the same `stop` from `.codex-plugin/plugin.json` with `--host codex`.
 - After `max_blocks` blocks with the same open points (kind and check, not the trees) in the same session, the hook
   writes `.proofbundle/done-blocker.json` with the open points, their commands and the commit, tree and working
@@ -3317,3 +3320,44 @@ opened the same connection, made the same requests and wrote the same refs as wi
 The rule: the fetch profile does not count remote.<remote>.pushurl and remote.<remote>.push. Every other key of the
 remote asks as in D45. A push later in the same command stays a gated step that is not the first and keeps the answer
 of the whole command (D33, D45); a push on its own is judged by the push check, which reads its own destination.
+
+## D53. Silent on a pass, one short line otherwise, in the language a person sets (Ergänzung 3 to Nachtrag 20, 2026-10-16)
+
+Measured by Cowork on delta's screen (Claude Code 2.1.301, 19:51 Berlin): every free command carried a grey block of
+some 700 characters, `PreToolUse:Bash says: proofbundle gate: git diff is free. The read profile …`. answer() gave every
+pass and every inactive gate its reason as systemMessage (the user) and as additionalContext (the model). Owner choice of
+2026-10-16, 20:2x Berlin: a free command shows nothing; an ask or a block shows one short line with the step that asks
+(D46), the reason in everyday words and the D number.
+
+The rule:
+- A pass prints nothing: no systemMessage, no additionalContext, no permission decision (D4); the hook ends with 0.
+  One pass stays visible: a call a human rule frees (D25). Review Runde 15, F15-2, made every such call name the mode
+  and the rules and when each last changed, because a shell command can change them unseen, and the owner's rule there
+  was that making it visible is enough. It shows one short line, `Gate frees <step> by a rule a person wrote, mode and
+  rules as of <time> (D25).`, and the model gets the long reason with the files and their digests, still without a
+  permission decision. Whether such a call should be silent too is the owner's question O20-3.
+  The Stop hook is silent on a passed end without a finding. The log line of every call stays what it was (D21): the
+  verdict, the reason ids, the repositories with HEAD and digests. The log never held the text of a reason, and it
+  does not now; a text can quote words of the command, which D21 keeps out of the log.
+- An inactive gate (D5) shows its line once per session and repository: the first inactive answer of a session for a
+  repository creates an empty file in `inactive-shown/` of the plugin data directory (O_EXCL), and later inactive
+  answers of that session for that repository print nothing. Without a session id or a writable data directory every
+  inactive answer shows, as before. A SessionStart hook cannot know which repositories a session will touch, so the
+  line comes at the first command there, not at the start of the session.
+- Every other answer shows the user one line of at most 160 characters: `Gate asks at <step> because <reason> (D<n>).`,
+  `Gate blocks …`, `Gate warns at …`, `Gate hands <step> over to the pre-push check (D35).`, `Gate is not active here
+  because …`, and at the Stop hook `Gate holds the end because …`. In German: `Tor fragt bei <Schritt>, weil <Grund>
+  (D<n>).`, `Tor sperrt …`, `Tor warnt bei …`, `Tor übergibt <Schritt> an die Prüfung beim Push (D35).`, `Tor ist hier
+  nicht aktiv, weil …`, `Tor hält das Ende auf, weil …`; real umlauts, no dash and no colon between clauses, no path.
+  The step is `git <subcommand>` or the gh call of the step that has the decision (D46), `MCP <tool>`, or the file
+  tool; the reason and the D number come from the reason id (_SHORT_REASONS); for the profiles of class a and b and
+  the fetch of D45 the D number is the last one the long reason names.
+- The long reason goes to the model as before: additionalContext always, permissionDecisionReason of a deny under
+  Claude Code. The dialog of an ask shows permissionDecisionReason to the user, so under Claude Code it carries the
+  short line. Codex has no dialog (D12): its deny carries the short line in permissionDecisionReason, and for an ask
+  turned into a deny the line ends with `Codex cannot ask, so the gate blocks the call.` The long reason keeps the
+  sentence `Codex cannot ask, so the gate denies the call.` (D37).
+- The language is a file `language` in the gate directory, beside `mode`, read like it: `de` gives German, anything
+  else, an absent file or an unreadable one gives English, the default of the public repository. The model cannot set
+  it: decide_write denies every write to the gate directory (D25). The owner sets it for delta and echo, in their gate
+  directory, not in the code.

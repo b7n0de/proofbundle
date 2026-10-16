@@ -46,5 +46,5 @@ def test_removing_the_partial_clone_key_lets_the_check_go_on(env, tmp_path, keys
     f6.ends_in_the_blocker(env, repo, gate.DEFAULT_MAX_BLOCKS, "gate_error")
     dc._git(repo, "config", "--unset", "remote.origin.promisor")
     answer = f6.stop(env, repo)
-    assert answer is not None and "done. 1 check (unit)" in answer["systemMessage"], answer
+    assert dc.done_end(answer) and "done. 1 check (unit)" in dc.done_message(env, repo), answer
     assert not (repo / gate.DONE_BLOCKER).exists()

@@ -68,7 +68,7 @@ def _answer(tmp_path, command: str, host: str) -> tuple[int, str | None, str]:
     proc = subprocess.run([sys.executable, "-I", G, *args], input=event, capture_output=True, text=True,
                           env=plugin_env(), timeout=120, check=False)
     out = json.loads(proc.stdout).get("hookSpecificOutput", {}) if proc.stdout.strip() else {}
-    return proc.returncode, out.get("permissionDecision"), out.get("permissionDecisionReason") or ""
+    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 @pytest.mark.parametrize("host", ["claude", "codex"])

@@ -22,6 +22,7 @@ import sys
 import pytest
 
 import test_plugin_done_check as d
+from _gate_answer import parsed, run_hook
 
 pytestmark = d.pytestmark
 _clean_git_config = d._clean_git_config
@@ -52,10 +53,10 @@ def _local_order(env: dict, repo: pathlib.Path, public: str) -> pathlib.Path:
 def _stop(env: dict, cwd: pathlib.Path, host: str = "claude") -> dict | None:
     event = {"hook_event_name": "Stop", "session_id": "s", "cwd": str(cwd), "stop_hook_active": False}
     args = [] if host == "claude" else ["--host", host]
-    proc = subprocess.run([sys.executable, "-I", str(GATE), "stop", *args], input=json.dumps(event),
-                          capture_output=True, text=True, env=env, cwd=cwd, timeout=180, check=False)
+    proc, entry = run_hook([sys.executable, "-I", str(GATE), "stop", *args], json.dumps(event), env, cwd=cwd,
+                           timeout=180)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout) if proc.stdout.strip() else None
+    return parsed(proc, entry)   # D53: Silent for a passed end, with its log line
 
 
 def _session_dir(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -72,7 +73,7 @@ def test_D38_variant_E_a_local_order_ends_with_a_valid_receipt_and_blocks_withou
     d._receipt(repo, keys.signer)
     answer = _stop(env, repo)
     assert answer is not None and "decision" not in answer, answer
-    assert answer["systemMessage"].startswith("proofbundle gate: done."), answer
+    assert d.done_end(answer), answer
     assert d._git(repo, "status", "--porcelain", "--ignored=no") == "", "nothing of the order is in the work tree"
 
 
@@ -84,7 +85,7 @@ def test_D38_stop_from_a_directory_outside_the_clone_blocks_on_its_open_order(en
     assert f"the local done order for {repo.resolve()}" in reason and "check tests is missing" in reason, reason
     d._receipt(repo, keys.signer)
     answer = _stop(env, session, host)
-    assert answer is not None and "decision" not in answer and "done." in answer["systemMessage"], answer
+    assert d.done_end(answer), answer
 
 
 def test_D38_task_completed_from_outside_the_clone_keeps_the_task_open(env, repo, keys, tmp_path):
@@ -99,7 +100,7 @@ def test_D38_task_completed_from_outside_the_clone_keeps_the_task_open(env, repo
 def test_D38_an_order_changed_after_the_first_read_blocks(env, repo, keys, tmp_path):
     order = _local_order(env, repo, keys.public)
     d._receipt(repo, keys.signer)
-    assert "done." in _stop(env, repo)["systemMessage"], "the order as written ends the session"
+    assert d.done_end(_stop(env, repo)), "the order as written ends the session"
     doc = json.loads(order.read_text(encoding="utf-8"))
     doc["done"]["receipt"] = ".proofbundle/other_receipt.json"
     order.write_text(json.dumps(doc), encoding="utf-8")
@@ -141,7 +142,7 @@ def test_D38_an_order_entirely_outside_the_work_tree_keeps_the_receipts_out_of_c
     assert made.returncode == 0 and "info/exclude" in made.stdout, made
     d.blocked(_stop(env, _session_dir(tmp_path)))
     d._receipt(repo, keys.signer)
-    assert "done." in _stop(env, _session_dir(tmp_path))["systemMessage"]
+    assert d.done_end(_stop(env, _session_dir(tmp_path)))
     d._git(repo, "add", "-A")
     assert d._git(repo, "diff", "--cached", "--name-only") == "", "no file of the order reaches a commit"
 
@@ -154,7 +155,7 @@ def test_D38_a_committed_order_and_a_local_order_of_one_repository_both_count(en
     assert made.returncode == 0 and made.stdout.startswith("wrote the local done order"), made
     d.blocked(_stop(env, declared))
     d._receipt(declared, keys.signer)
-    assert "done." in _stop(env, declared)["systemMessage"]
+    assert d.done_end(_stop(env, declared))
 
 
 def test_D38_an_existing_order_is_replaced_only_on_request_and_the_replacement_is_recorded(env, repo, keys):
@@ -174,7 +175,7 @@ def test_D38_control_variant_C_the_committed_order_works_as_before(env, declared
     assert "check tests is missing" in reason
     d._receipt(declared, keys.signer)
     answer = _stop(env, declared)
-    assert answer is not None and answer["systemMessage"].startswith("proofbundle gate: done."), answer
+    assert d.done_end(answer), answer
 
 
 def test_D38_control_variant_E_without_a_local_order_still_blocks_as_uncommitted(env, repo, keys):

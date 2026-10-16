@@ -28,6 +28,7 @@ import pytest
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
+from _gate_answer import Silent, long_text
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -228,7 +229,7 @@ def _level1(env: dict, repo: pathlib.Path, host: str = "claude",
                           text=True, env=env, timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
     entry = json.loads((pathlib.Path(env["PLUGIN_DATA"]) / gate.LOG_NAME).read_text(encoding="utf-8").splitlines()[-1])
-    return json.loads(proc.stdout), entry
+    return (json.loads(proc.stdout) if proc.stdout.strip() else Silent(entry)), entry   # D53: a pass prints nothing
 
 
 def _level2(env: dict, repo: pathlib.Path) -> subprocess.CompletedProcess:
@@ -246,11 +247,11 @@ def test_level_1_a_push_needs_the_done_check_at_the_pushed_commit(env, tmp_path,
     decision = answer["hookSpecificOutput"].get("permissionDecision")
     if case == "valid":   # the done check passes at the sent commit; the destination is NOT MEASURED (R9-1)
         assert_destination_not_measured(answer, entry)
-        assert f"the sent source commit(s) {_rev(r.path, 'HEAD')[:12]} showed no failure" in answer["systemMessage"]
+        assert f"the sent source commit(s) {_rev(r.path, 'HEAD')[:12]} showed no failure" in long_text(answer)
     else:
         assert decision == "deny", (case, answer)
         assert entry["reason_ids"] == [REASONS[case]], (case, entry)
-        assert "the push needs the done check at the pushed commit" in answer["systemMessage"]
+        assert "the push needs the done check at the pushed commit" in long_text(answer)
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -309,7 +310,7 @@ def test_a_receipt_of_an_uncommitted_state_does_not_pass_the_push(env, tmp_path)
     answer, entry = _level1(env, r.path)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert entry["reason_ids"] == ["stale_receipt"]
-    assert "the tree the push sends is tree" in answer["systemMessage"]
+    assert "the tree the push sends is tree" in long_text(answer)
 
 
 def test_gh_pr_create_needs_the_done_check_at_the_branch_it_publishes(env, tmp_path):
@@ -367,7 +368,7 @@ def test_an_unresolved_push_with_a_failed_done_check_is_a_deny(env, tmp_path):
     answer, entry = _level1(env, r.path, command="git push origin main:refs/heads/other")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", answer
     assert entry["reason_ids"] == ["no_receipt"]
-    assert "Separately, the comparison with the target was NOT MEASURED" in answer["systemMessage"]
+    assert "Separately, the comparison with the target was NOT MEASURED" in long_text(answer)
     r.make("valid")
     answer, entry = _level1(env, r.path, command="git push origin main:refs/heads/other")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer   # a pass cannot heal the comparison
@@ -396,11 +397,11 @@ def test_the_check_is_at_the_pushed_commit_not_at_head(env, tmp_path):
     answer, entry = _level1(env, r.path, command="git push origin other:refs/heads/main")   # in full (R8-2)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", answer
     assert entry["reason_ids"] == ["stale_receipt"]
-    assert f"the pushed commit {pushed[:12]}" in answer["systemMessage"]
-    assert f"git checkout {pushed[:12]} &&" in answer["systemMessage"]
+    assert f"the pushed commit {pushed[:12]}" in long_text(answer)
+    assert f"git checkout {pushed[:12]} &&" in long_text(answer)
     _git(r.path, "switch", "-q", "other")
     _receipt(r.path, r.signer)                       # now a receipt for the pushed commit
     _git(r.path, "switch", "-q", "main")
     answer, entry = _level1(env, r.path, command="git push origin other:refs/heads/main")
     assert_destination_not_measured(answer, entry)   # the receipt for the pushed commit passes it; R9-1: asks
-    assert f"the sent source commit(s) {pushed[:12]} showed no failure" in answer["systemMessage"]
+    assert f"the sent source commit(s) {pushed[:12]} showed no failure" in long_text(answer)

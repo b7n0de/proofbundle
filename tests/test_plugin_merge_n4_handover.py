@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 import test_plugin_gate_push_destination_18 as g18
+from _gate_answer import long_text
 
 pytestmark = g18.pytestmark
 _clean_git_environment = g18._clean_git_environment
@@ -45,7 +46,7 @@ def test_NO_HANDOVER_a_push_that_is_not_the_whole_plain_command(handover_env, tm
     answer, entry = g18._level1(handover_env, r.path, command=NO_HANDOVER[name])
     assert g18._decision(answer) == "ask", (name, answer)
     assert entry["verdict"] != "handover" and "handed_over" not in entry["reason_ids"], (name, entry)
-    assert "hands this push over" not in answer["systemMessage"], (name, answer)
+    assert "hands this push over" not in long_text(answer), (name, answer)
     assert not g18._pointer(r.path).exists() and g18._records(handover_env) == [], name
 
 

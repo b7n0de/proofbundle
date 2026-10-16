@@ -28,6 +28,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _gate_answer import long_text
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -288,8 +289,8 @@ def test_codex_a_good_repo_push_is_not_measured_and_warns(tmp_path):
     out = _run_gate(repo, event, "--host", "codex")
     answer = json.loads(out.stdout)
     assert "permissionDecision" not in answer["hookSpecificOutput"]
-    assert answer["systemMessage"].startswith("NOT MEASURED:")
-    assert "workdir" in answer["systemMessage"] and gate.CODEX_PUSH_WARNING in answer["systemMessage"]
+    assert long_text(answer).startswith("NOT MEASURED:")
+    assert "workdir" in long_text(answer) and gate.CODEX_PUSH_WARNING in long_text(answer)
 
 
 # --- subprocess helpers ------------------------------------------------------------------------------

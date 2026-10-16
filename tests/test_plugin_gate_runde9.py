@@ -508,7 +508,7 @@ def test_r9_4_a_hook_event_that_repeats_a_key_is_denied(tmp_path):
                           timeout=120, check=False, env=plugin_env(CLAUDE_PLUGIN_DATA=str(tmp_path)))
     answer = json.loads(proc.stdout)["hookSpecificOutput"]
     assert answer["permissionDecision"] == "deny", answer
-    assert "repeats the key 'command'" in answer["permissionDecisionReason"], answer
+    assert "repeats the key 'command'" in answer["additionalContext"], answer   # D53: the model's long reason
 
 
 @pytest.mark.parametrize("where", ["result text", "reply line"])

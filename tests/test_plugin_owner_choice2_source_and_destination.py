@@ -16,6 +16,7 @@ import subprocess
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -55,7 +56,7 @@ def _ask(env: dict, work: pathlib.Path, command: str) -> str:
     answer, entry = n2c._level1(env, work, command=command)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
     assert entry["reason_ids"] == ["push_not_measured"], entry
-    return answer["systemMessage"].split(" Details: ", 1)[1]
+    return long_text(answer).split(" Details: ", 1)[1]
 
 
 @pytest.mark.parametrize("command, destination", [

@@ -21,6 +21,7 @@ import base64
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,7 @@ import pytest
 import proofbundle
 from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
+from _gate_answer import Silent, parsed, run_hook
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -167,20 +169,41 @@ def declared(repo: pathlib.Path, keys: Keys) -> pathlib.Path:
 
 
 def stop(env: dict, cwd: pathlib.Path, event: dict | None = None) -> tuple[int, dict | None, str]:
+    """The Stop hook's exit code, its answer and stderr. Since D53 a passed end prints nothing: the answer is then
+    Silent, with the log line of the end (tests/_gate_answer.py)."""
     event = {"hook_event_name": "Stop", "session_id": "s", "cwd": str(cwd), "stop_hook_active": False} \
         if event is None else event
-    proc = subprocess.run([sys.executable, "-I", str(GATE), "stop"], input=json.dumps(event), capture_output=True,
-                          text=True, env=env, cwd=cwd, timeout=180, check=False)
-    return proc.returncode, (json.loads(proc.stdout) if proc.stdout.strip() else None), proc.stderr
+    proc, entry = run_hook([sys.executable, "-I", str(GATE), "stop"], json.dumps(event), env, cwd=cwd, timeout=180)
+    return proc.returncode, parsed(proc, entry), proc.stderr
 
 
 def blocked(answer: dict | None) -> str:
+    """The one line of a blocked end, which the model gets as the reason; the user sees the short line (D53)."""
     assert answer is not None and answer["decision"] == "block", answer
     reason = answer["reason"]
-    assert "\n" not in reason and reason == answer["systemMessage"]
+    assert "\n" not in reason and reason != answer["systemMessage"]
+    assert re.search(r"^Gate holds the end because .+ \(D[0-9]{1,3}[A-Z]?\)\.$", answer["systemMessage"]), answer
+    assert len(answer["systemMessage"]) <= 160, answer
     assert reason.startswith("proofbundle done check: ")
     assert "Never weaken the declaration, the policy or the key" in reason
     return reason
+
+
+def done_end(answer: dict | None) -> dict:
+    """A passed end: silent since D53, with the log line of a done verdict."""
+    assert isinstance(answer, Silent), answer
+    assert (answer.entry["verdict"], answer.entry["reason_ids"]) == ("pass", ["done"]), answer
+    return answer.entry
+
+
+def done_message(env: dict, repo: pathlib.Path) -> str:
+    """The text of the done verdict for the repository, as the done check in CI prints it: the same evaluation the
+    Stop hook runs (done_evaluation), whose pass the Stop hook no longer prints (D53)."""
+    proc = subprocess.run([sys.executable, "-I", str(GATE), "done-check", "--repo", str(repo)], capture_output=True,
+                          text=True, env=env, cwd=repo, timeout=180, check=False)
+    report = json.loads(proc.stdout)
+    assert (proc.returncode, report["verdict"]) == (0, "pass"), report
+    return report["message"]
 
 
 # --- nothing declared: NOT MEASURED, no block ----------------------------------------------------------------------
@@ -207,9 +230,10 @@ def test_outside_a_repository_nothing_is_blocked(env, tmp_path):
 def test_a_green_receipt_for_the_current_tree_lets_the_session_end(env, declared, keys):
     _receipt(declared, keys.signer)
     code, answer, _ = stop(env, declared)
-    assert code == 0 and set(answer) == {"systemMessage"}
-    assert "done." in answer["systemMessage"] and _git(declared, "rev-parse", "HEAD^{tree}") in answer["systemMessage"]
-    assert "not that the tests test anything" in answer["systemMessage"]
+    assert code == 0 and done_end(answer)
+    message = done_message(env, declared)
+    assert "done." in message and _git(declared, "rev-parse", "HEAD^{tree}") in message
+    assert "not that the tests test anything" in message
 
 
 def test_a_green_receipt_for_another_commit_blocks_and_names_both(env, declared, keys):
@@ -278,12 +302,12 @@ def test_an_uncommitted_state_with_its_own_receipt_ends_and_a_later_change_block
     claim = json.loads(base64.b64decode(json.loads((declared / RECEIPT).read_text())["payload_b64"]))
     assert claim["provenance"]["git_clean"] is False
     assert claim["provenance"]["git_worktree_tree"] == _git_tree_of_working_state(declared)
-    assert stop(env, declared)[1].keys() == {"systemMessage"}
+    assert done_end(stop(env, declared)[1])
     _git(declared, "add", "src")                               # the same bytes, committed; the receipt stays out
     _git(declared, "commit", "-q", "-m", "the same bytes")    # the tested tree is now HEAD's tree, the commit is new
     assert "the receipt names commit" in blocked(stop(env, declared)[1])
     _receipt(declared, keys.signer)                            # a run on the new commit ends the session
-    assert stop(env, declared)[1].keys() == {"systemMessage"}
+    assert done_end(stop(env, declared)[1])
     _write(declared / "src" / "new.py", "NEW = 2\n")
     blocked(stop(env, declared)[1])
 
@@ -392,7 +416,7 @@ def test_done_init_sets_the_check_up_and_its_key_signs_a_receipt_that_ends_the_s
     from proofbundle.emit import load_signer
     _receipt(repo, load_signer(str(key)))
     assert _git(repo, "status", "--porcelain") == ""           # the receipt is ignored, the tree stays clean
-    assert stop(env, repo)[1].keys() == {"systemMessage"}
+    assert done_end(stop(env, repo)[1])
     again = subprocess.run([sys.executable, "-I", str(GATE), "done-init", "--repo", str(repo)], capture_output=True,
                            text=True, env=env, timeout=180, check=False)
     assert again.returncode == 1 and "already declares a done check" in again.stderr
@@ -444,8 +468,8 @@ def test_an_order_with_two_checks_names_the_missing_one_and_its_command(env, ord
     assert reason.count("python -m pytest tests/integration.") == 1 and "also open" not in reason
     _run(ordered, keys.signer, INTEGRATION)
     code, answer, _ = stop(env, ordered)
-    assert code == 0 and set(answer) == {"systemMessage"}
-    assert "done. 2 checks (unit, integration)" in answer["systemMessage"]
+    assert code == 0 and done_end(answer)
+    assert "done. 2 checks (unit, integration)" in done_message(env, ordered)
 
 
 def test_every_open_check_is_listed_after_the_first(env, ordered):
@@ -493,7 +517,7 @@ def test_missing_foreign_stale_and_manipulated_receipts_each_block(env, ordered,
     _write(path, bundle)
     assert "check unit is unverified" in blocked(stop(env, ordered)[1])
     _run(ordered, keys.signer, UNIT)
-    assert stop(env, ordered)[1].keys() == {"systemMessage"}
+    assert done_end(stop(env, ordered)[1])
     _write(ordered / "src" / "module.py", "VALUE = 7\n")                         # stale: the state moved on
     reason = blocked(stop(env, ordered)[1])
     assert "check unit is stale: the tests ran on tree" in reason and "also open: integration (stale)" in reason
@@ -545,8 +569,8 @@ def test_paths_outside_the_order_block_and_the_base_is_the_commit_that_set_it(en
     base = _git(repo, "rev-parse", "HEAD")
     _write(repo / "src" / "module.py", "VALUE = 8\n")
     _run(repo, keys.signer, UNIT)
-    assert stop(env, repo)[1].keys() == {"systemMessage"}
-    assert f"no path outside the order changed since {base[:12]}" in stop(env, repo)[1]["systemMessage"]
+    assert done_end(stop(env, repo)[1])
+    assert f"no path outside the order changed since {base[:12]}" in done_message(env, repo)
     _write(repo / "test_ok.py", "def test_ok():\n    assert 1\n")
     _run(repo, keys.signer, UNIT)
     reason = blocked(stop(env, repo)[1])
@@ -593,7 +617,7 @@ def test_after_max_blocks_without_progress_a_blocker_is_written_and_the_session_
     metrics = _done_file(repo, gate.DONE_METRICS)
     assert (metrics["blocked"], metrics["blockers"], metrics["missing_checks"], metrics["done"]) == (2, 1, 2, 0)
     _run(repo, keys.signer, INTEGRATION)                                         # the step is made up
-    assert "done. 2 checks" in stop(env, repo)[1]["systemMessage"]
+    assert done_end(stop(env, repo)[1]) and "done. 2 checks" in done_message(env, repo)
     metrics = _done_file(repo, gate.DONE_METRICS)
     assert (metrics["completed_after_block"], metrics["done"]) == (1, 1)
     assert not (repo / gate.DONE_BLOCKER).exists()
@@ -626,7 +650,7 @@ def test_the_done_files_are_not_part_of_the_working_state_and_a_link_is_not_foll
     blocked(stop(env, repo)[1])
     assert outside.read_text() == "unchanged" and not (repo / gate.DONE_METRICS).is_symlink()
     _run(repo, keys.signer, UNIT)
-    assert "done. 1 check (unit)" in stop(env, repo)[1]["systemMessage"]
+    assert done_end(stop(env, repo)[1]) and "done. 1 check (unit)" in done_message(env, repo)
 
 
 def test_counters_need_no_network_and_name_each_open_kind(env, ordered, keys):
@@ -715,11 +739,12 @@ def test_every_stop_answer_is_one_codex_reads_and_none_sets_continue(env, repo, 
                                   input=json.dumps(event), capture_output=True, text=True, env=env, cwd=repo,
                                   timeout=180, check=False)
         assert proc.returncode == 0
-        answers.append(json.loads(proc.stdout))
-    for answer in answers:
+        answers.append(json.loads(proc.stdout) if proc.stdout.strip() else None)
+    assert answers[3] is None                                     # D53: a passed end prints nothing
+    for answer in answers[:3]:
         assert set(answer) <= CODEX_STOP_FIELDS and "continue" not in answer
-    assert [a.get("decision") for a in answers] == ["block", None, "block", None]
-    assert "NOT DONE" in answers[1]["systemMessage"] and "done." in answers[3]["systemMessage"]
+    assert [a.get("decision") for a in answers[:3]] == ["block", None, "block"]
+    assert "NOT DONE" in answers[1]["systemMessage"] and "done." in done_message(env, repo)
 
 
 # --- done-check in CI with several receipts ------------------------------------------------------------------------
@@ -789,7 +814,7 @@ def test_no_statement_without_a_pass_on_a_clean_state(env, ordered, keys, tmp_pa
     _write(ordered / "src" / "module.py", "VALUE = 9\n")
     for check in (UNIT, INTEGRATION):
         _run(ordered, keys.signer, check)
-    assert stop(env, ordered)[1].keys() == {"systemMessage"}                     # done on an uncommitted state
+    assert done_end(stop(env, ordered)[1])                                       # done on an uncommitted state
     proc = done_statement(env, ordered, key, out)
     assert proc.returncode == 1 and "differs from HEAD" in proc.stderr and not out.exists()
 

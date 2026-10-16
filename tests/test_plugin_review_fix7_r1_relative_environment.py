@@ -27,6 +27,7 @@ import pytest
 import test_plugin_done_check as dc
 import test_plugin_gate_n2c_push_done as n2c
 import test_plugin_review_fix_f6_early_open as f6
+from _gate_answer import Silent, long_text
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -227,7 +228,8 @@ def _push(env: dict, cwd: pathlib.Path) -> tuple[dict, dict]:
                           timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
     log = pathlib.Path(env["PLUGIN_DATA"]) / gate.LOG_NAME
-    return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    entry = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    return (json.loads(proc.stdout) if proc.stdout.strip() else Silent(entry)), entry   # D53: a pass prints nothing
 
 
 @pytest.mark.parametrize("git_dir", ["relative", "absolute"])
@@ -244,6 +246,6 @@ def test_level_1_reads_the_push_in_the_repository_git_names_from_the_call_direct
     answer, entry = _push(rel, tmp_path)
     n2c.assert_destination_not_measured(answer, entry)
     head = n2c._rev(r.path, "HEAD")[:12]
-    assert f"the sent source commit(s) {head} showed no failure" in answer["systemMessage"], answer
+    assert f"the sent source commit(s) {head} showed no failure" in long_text(answer), answer
     assert n2c._level2(push_env, r.path).returncode == 0
 

@@ -226,7 +226,7 @@ measured.
 
 | What the gate finds | Answer |
 |---|---|
-| Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
+| Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies. Nothing is printed (D53); the log names what was verified. |
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
 | No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. A push under Level 1 gets the same only where the four conditions of owner choice 1 A hold: its sources are determined, nothing is declared in the whole history it may send or at any present local ref, and no added update, wrapper or submodule push is involved. The supported range for the local refs is narrow (owner choice of 2026-10-13, D5): one ordinary main worktree, symbolic refs only `HEAD` and `refs/remotes/<remote>/HEAD` naming a ref git lists, a ref store in its normal form; git resolves every ref. This is local inactivity, not a check: the destination stays NOT MEASURED, and a declaration only the remote holds is not seen. Otherwise the push asks, NOT MEASURED, and names the condition that failed and its entry; outside the range it says so and never that nothing is declared, and a person reviews the push (D5, D3). |
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
@@ -278,7 +278,8 @@ asks. A write by a file tool to anything under the gate directory is **denied**,
 not asked, under both hosts. A shell command can still write the mode and the rules (review Runde 15, F15-2:
 `printf with-approvals > "$PROOFBUNDLE_GATE_DIR/mode"` switched the mode without a gate call), so every call a
 rule frees names the mode and rules files, when each last changed and its sha256, and says that the gate cannot
-tell who wrote them. The local gate is an early warning; the boundary is the CI check (D22). Under Codex both
+tell who wrote them; since D53 the user sees it as one short line with the time of the last change, and the model gets
+the whole text. A file `language` beside `mode` holding `de` makes the short lines German (D53); English is the default. The local gate is an early warning; the boundary is the CI check (D22). Under Codex both
 modes deny.
 The mode, and any applied rule, appear in every gate-log line. A human revokes an approval by editing
 `rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the

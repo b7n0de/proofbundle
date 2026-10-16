@@ -22,6 +22,8 @@ import time
 
 import pytest
 
+from _gate_answer import long_text
+
 import test_claude_code_plugin_gate as cg
 import test_plugin_gate_n2c_push_done as n2c
 
@@ -68,7 +70,7 @@ def test_the_reviewers_case_a_done_policy_over_the_limit_after_a_passed_evidence
     assert answer["hookSpecificOutput"].get("permissionDecision") == "deny", answer
     item = _repo_entry(entry)
     assert (item["verdict"], item["reason_id"]) == ("deny", "gate_error"), item
-    assert "larger than" in answer["systemMessage"], answer
+    assert "larger than" in long_text(answer), answer
     _assert_evidence(repo, item, head, "passed")
 
 
@@ -81,7 +83,7 @@ def test_the_reviewers_sibling_the_verifier_cannot_start_at_all(env, repo, tmp_p
     assert answer["hookSpecificOutput"].get("permissionDecision") == "deny", answer
     item = _repo_entry(entry)
     assert (item["verdict"], item["reason_id"]) == ("deny", "internal_error"), item
-    assert "OSError" in answer["systemMessage"] or "Exec format error" in answer["systemMessage"], answer
+    assert "OSError" in long_text(answer) or "Exec format error" in long_text(answer), answer
     _assert_evidence(repo, item, head, "not completed: internal_error")
 
 

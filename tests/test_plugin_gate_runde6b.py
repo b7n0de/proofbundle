@@ -24,6 +24,7 @@ import subprocess
 import sys
 
 import pytest
+from _gate_answer import long_text
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -295,8 +296,8 @@ def test_a_file_tool_write_to_configuration_or_hooks_asks_under_claude(tmp_path,
     repo = _repo(tmp_path)
     answer = _run(_file_event(tool, repo / target, repo))
     assert _decision_of(answer) == "ask", answer
-    assert answer["systemMessage"].startswith("NOT MEASURED:"), answer
-    assert "configuration or hooks" in answer["systemMessage"], answer
+    assert long_text(answer).startswith("NOT MEASURED:"), answer
+    assert "configuration or hooks" in long_text(answer), answer
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit", "apply_patch"])
@@ -306,7 +307,7 @@ def test_a_file_tool_write_to_configuration_or_hooks_denies_under_codex(tmp_path
     event = _patch_event([target], repo) if tool == "apply_patch" else _file_event(tool, repo / target, repo)
     answer = _run(event, host="codex")
     assert _decision_of(answer) == "deny", answer
-    assert answer["systemMessage"].startswith("NOT MEASURED:"), answer
+    assert long_text(answer).startswith("NOT MEASURED:"), answer
 
 
 def test_a_write_through_a_symlink_into_the_hooks_is_resolved(tmp_path):

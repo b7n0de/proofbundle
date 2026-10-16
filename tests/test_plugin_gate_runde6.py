@@ -22,6 +22,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
+from _gate_answer import long_text
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -305,8 +306,8 @@ def test_r6_1_a_gated_mcp_write_is_not_measured_whatever_the_local_repository(tm
     answer = _mcp(repo, tool, host)
     specific = answer["hookSpecificOutput"]
     assert specific.get("permissionDecision") == expected, answer
-    assert specific["permissionDecisionReason"].startswith("NOT MEASURED:"), answer
-    assert "Diagnosis only" in answer["systemMessage"], answer
+    assert specific["additionalContext"].startswith("NOT MEASURED:"), answer   # D53: the model's long reason
+    assert "Diagnosis only" in long_text(answer), answer
 
 
 def test_r6_1_decide_mcp_takes_the_host(tmp_path):

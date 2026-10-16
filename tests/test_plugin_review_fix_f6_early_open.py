@@ -25,6 +25,7 @@ import pytest
 
 import test_plugin_done_check as dc
 import test_plugin_gate_nordstern_b as nb
+from _gate_answer import parsed, run_hook
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -39,10 +40,9 @@ IGNORE = ".proofbundle/receipts/\n.proofbundle/done-state.json\n.proofbundle/don
 def stop(env: dict, cwd: pathlib.Path, host: str = "claude") -> dict | None:
     event = {"hook_event_name": "Stop", "session_id": "s", "cwd": str(cwd), "stop_hook_active": False}
     argv = [sys.executable, "-I", str(dc.GATE), "stop"] + (["--host", "codex"] if host == "codex" else [])
-    proc = subprocess.run(argv, input=json.dumps(event), capture_output=True, text=True, env=env, cwd=cwd, timeout=180,
-                          check=False)
+    proc, entry = run_hook(argv, json.dumps(event), env, cwd=cwd, timeout=180)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout) if proc.stdout.strip() else None
+    return parsed(proc, entry)   # D53: Silent for a passed end, with its log line
 
 
 def ends_in_the_blocker(env: dict, repo: pathlib.Path, limit: int, status: str, host: str = "claude") -> dict:
@@ -148,7 +148,7 @@ def test_removing_the_cause_lets_the_check_go_on(env, tmp_path, keys):
     dc._commit(repo, "the policy")
     dc._run(repo, keys.signer, UNIT)
     answer = stop(env, repo)
-    assert answer is not None and "done. 1 check (unit)" in answer["systemMessage"], answer
+    assert dc.done_end(answer) and "done. 1 check (unit)" in dc.done_message(env, repo), answer
     assert not (repo / gate.DONE_BLOCKER).exists()
 
 

@@ -18,6 +18,8 @@ import sys
 
 import pytest
 
+from _gate_answer import long_text
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
 
@@ -104,7 +106,7 @@ def test_under_codex_a_push_form_that_is_not_plain_is_denied(repo, command):
     answer = gate.answer(outcome.decision, outcome.text, host="codex")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", command
     assert "warn" not in {v.decision for v in outcome.verdicts}, outcome.verdicts
-    assert "warns about a git push" not in answer["systemMessage"]
+    assert "warns about a git push" not in long_text(answer)
 
 
 @pytest.mark.parametrize("command", [c for c in NOT_PLAIN.values() if "git push" in c and "'" not in c

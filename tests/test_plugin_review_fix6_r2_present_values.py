@@ -208,6 +208,6 @@ def test_the_sources_of_an_unresolved_push_come_from_the_remote_git_pushes_to(en
     assert dry.returncode == 0 and "side -> main" in dry.stderr, dry.stderr
     answer, entry = n2c._level1(env, r.path, command="git push")
     assert (entry["verdict"], entry["reason_ids"]) == ("ask", ["push_not_measured"]), entry
-    reason = answer["hookSpecificOutput"]["permissionDecisionReason"]
+    reason = answer["hookSpecificOutput"]["additionalContext"]   # D53: the model's long reason
     assert "cannot tell which commits the push sends" in reason, reason
     assert not n2c.reached_destination(json.dumps(answer, ensure_ascii=False)), reason

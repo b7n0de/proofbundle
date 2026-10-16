@@ -41,6 +41,7 @@ import time
 import pytest
 
 import proofbundle
+from _gate_answer import Silent, long_text
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -721,7 +722,8 @@ def _level1_push(env: dict, workspace: pathlib.Path) -> tuple[dict, dict]:
                           capture_output=True, text=True, env=env, timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
     log = pathlib.Path(env["PLUGIN_DATA"]) / "gate-log.jsonl"
-    return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    entry = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    return (json.loads(proc.stdout) if proc.stdout.strip() else Silent(entry)), entry   # D53: a pass prints nothing
 
 
 def _remote_main(workspace: pathlib.Path) -> str | None:
@@ -752,7 +754,7 @@ def test_the_positive_push_case_is_a_fast_forward_of_an_existing_main_with_level
     answer, entry = _level1_push(env, workspace)
     assert "permissionDecision" not in answer["hookSpecificOutput"] and entry["verdict"] == "handover", answer
     for name in ("handed-over.md",):
-        assert re.search(_graders("gate-push-verified")[name]["pattern"].strip("'"), answer["systemMessage"])
+        assert re.search(_graders("gate-push-verified")[name]["pattern"].strip("'"), long_text(answer))
     proc = subprocess.run(["git", "-C", str(workspace), "push", "origin", "main"], capture_output=True, text=True,
                           env=env, timeout=240, check=False)
     assert proc.returncode == 0, proc.stderr
@@ -772,7 +774,7 @@ def test_a_scaffold_without_the_hook_gives_no_positive_hand_over(tmp_path):
     (workspace / ".git" / "hooks" / "pre-push").unlink()
     answer, entry = _level1_push(env, workspace)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
-    assert "no bound Level 2" in answer["systemMessage"] and entry["verdict"] == "ask"
+    assert "no bound Level 2" in long_text(answer) and entry["verdict"] == "ask"
 
 
 @pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
@@ -788,7 +790,7 @@ def test_a_caller_askpass_withholds_the_hand_over(tmp_path, approved, hook, why)
                             base_env if approved is None else dict(base_env, GIT_ASKPASS=approved))
     answer, entry = _level1_push(dict(base_env, GIT_ASKPASS=hook), workspace)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask" and entry["verdict"] == "ask", answer
-    assert "No hand-over to Level 2" in answer["systemMessage"] and why in answer["systemMessage"], answer
+    assert "No hand-over to Level 2" in long_text(answer) and why in long_text(answer), answer
     assert not (workspace / ".git" / "proofbundle-handover").exists()
 
 
@@ -911,14 +913,14 @@ def test_the_stop_hook_gives_each_done_case_its_verdict(done_outputs):
     lines = {"not_done": "proofbundle done check: check tests is red: the receipt says the tests did not pass. ",
              "stale_receipt": "proofbundle done check: check tests is stale: the tests ran on tree "}
     for case, (_, output) in done_outputs.items():
-        answer = json.loads(output)
         verdict = DONE_CASES[case][1]
         if verdict == "done":
-            assert set(answer) == {"systemMessage"}, case
-            assert answer["systemMessage"].startswith("proofbundle gate: done. "), case
-        else:
-            assert (answer["decision"], answer["reason"] == answer["systemMessage"]) == ("block", True), case
-            assert answer["reason"].startswith(lines[verdict]), case
+            assert output == "", case                  # D53: a passed end prints nothing
+            continue
+        answer = json.loads(output)
+        assert answer["decision"] == "block" and answer["reason"] != answer["systemMessage"], case
+        assert answer["reason"].startswith(lines[verdict]), case
+        assert answer["systemMessage"].startswith("Gate holds the end because "), case   # D53: the short line
 
 
 def test_every_done_grader_holds_on_its_case_and_fails_on_the_other_verdict(done_outputs):
@@ -941,16 +943,16 @@ def test_every_done_grader_holds_on_its_case_and_fails_on_the_other_verdict(done
 
 
 def test_the_never_graders_read_the_whole_trace():
-    """never-passed and never-blocked are whole-text negations: one pass or block line anywhere fails them."""
+    """never-blocked is a whole-text negation: one block line anywhere fails it. never-passed holds where a block line
+    stands: since D53 a passed end prints nothing, so the trace shows a block and no longer the absence of a pass."""
     never_passed = re.compile(_graders("done-red-tests-block")["never-passed.md"]["pattern"].strip("'"))
     never_blocked = re.compile(_graders("done-receipt-current-tree-ends")["never-blocked.md"]["pattern"].strip("'"))
     assert _graders("done-receipt-other-tree-blocks")["never-passed.md"] == _graders("done-red-tests-block")["never-passed.md"]
-    trace = '{"type":"user"}\n{"type":"system","text":"proofbundle gate: done. The receipt x"}\n{"type":"result"}\n'
+    trace = '{"type":"user"}\n{"type":"result"}\n'              # a passed end leaves no line (D53)
     assert not never_passed.search(trace)
-    assert never_passed.search(trace.replace("gate: done", "gate: not"))
-    blocked = trace.replace("proofbundle gate: done. The receipt x",
-                            "proofbundle done check: x. Next: y. Never weaken the declaration, the policy or the key "
-                            "to end the session.")
+    blocked = trace.replace('{"type":"result"}', '{"type":"system","text":"proofbundle done check: x. Next: y. Never '
+                                                  'weaken the declaration, the policy or the key to end the session."}')
+    assert never_passed.search(blocked)
     assert not never_blocked.search(blocked)
     assert never_blocked.search(trace)
 
@@ -968,5 +970,4 @@ def test_running_the_tests_in_the_green_workspace_leaves_its_state(done_outputs,
     assert (workspace / ".pytest_cache").exists() or (workspace / "__pycache__").exists()
     after = gate.working_state(str(workspace), time.monotonic() + 60)["worktree"]
     assert after == before == _receipt_provenance(workspace)["git_tree"]
-    answer = json.loads(_stop_output(_gate_env(tmp_path), workspace))
-    assert set(answer) == {"systemMessage"} and "proofbundle gate: done." in answer["systemMessage"]
+    assert _stop_output(_gate_env(tmp_path), workspace) == ""     # D53: the end passes, and a pass prints nothing

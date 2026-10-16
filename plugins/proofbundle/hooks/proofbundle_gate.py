@@ -8624,12 +8624,15 @@ def _within_gate_dir(path: str, cwd: str, gate_dir: str) -> str | None:
 
 class Outcome:
     """The combined answer for one call: the decision, its text, the verdict of every repository, and, when a
-    human rule freed the call, the applied-rule note for the log (N24)."""
+    human rule freed the call, the applied-rule note for the log (N24). step names the step of a longer command that
+    has the decision on its own (D46), as the short line names it (D53); None where the reason names no one step."""
 
-    __slots__ = ("decision", "text", "verdicts", "applied_rule")
+    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step")
 
-    def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None):
+    def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None,
+                 step: str | None = None):
         self.decision, self.text, self.verdicts, self.applied_rule = decision, text, verdicts, applied_rule
+        self.step = step
 
     def __iter__(self):
         return iter((self.decision, self.text))
@@ -9538,7 +9541,7 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
             return whole
         # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to
         return Outcome(whole.decision, _sh_keep_reason(keep, steps, whole, judge_whole, cwd), whole.verdicts,
-                       whole.applied_rule)
+                       whole.applied_rule, step=_sh_short_name(keep.step))
 
 
 #: How the reason says a decision of a step's own answer (D46).
@@ -9615,6 +9618,23 @@ def _sh_call_name(step: "_ShStep") -> str:
     if words[i:i + 2] == ["worktree", "add"]:
         return "git worktree add"
     return f"git {words[i]}" if i < len(words) else "git"
+
+
+def _sh_short_name(step: "_ShStep | None") -> str | None:
+    """The name of a git or gh step as the short line names it (D53): `git <subcommand>` or the gh call, no path, no
+    other word of the step; None for no step or a step of another program."""
+    if step is None or step.kind not in ("git", "gh", "git-x"):
+        return None
+    return _sh_call_name(step)
+
+
+def _sh_deciding_step(own: list, decision: str) -> str | None:
+    """The name of the first git or gh step whose own answer has the decision, the step the reason names first (D46),
+    for the short line (D53)."""
+    for s, a in own:
+        if a is not None and a.decision == decision:
+            return _sh_short_name(s)
+    return None
 
 
 def _sh_pushing(step: "_ShStep") -> bool:
@@ -9834,10 +9854,11 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 return Outcome(whole.decision, _sh_steps_reason(whole.decision, own, [
                     v for v in whole.verdicts if v.decision == whole.decision], kept=(
                         "a plain chain with `git add` or `git commit -m` that is not free keeps the answer of the "
-                        "whole command (D3, Nachtrag 2)")), whole.verdicts, whole.applied_rule)
+                        "whole command (D3, Nachtrag 2)")), whole.verdicts, whole.applied_rule,
+                    step=_sh_deciding_step(own, whole.decision))
             text = (" ".join(v.text() for v in chosen) if host == "codex" or len(steps) < 2 else
                     _sh_steps_reason(decision, own, chosen))
-            return Outcome(decision, text, verdicts)
+            return Outcome(decision, text, verdicts, step=_sh_deciding_step(own, decision))
     combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
 
@@ -10682,23 +10703,312 @@ def _command_from_event(event: object) -> tuple[str, str]:
     return command, cwd if isinstance(cwd, str) and cwd else os.getcwd()
 
 
-def answer(decision: str, reason: str, host: str = "claude") -> dict:
-    """The PreToolUse answer. A pass and an inactive gate carry no permission decision, only the message.
+# --- what the user sees: silence on a pass, one short line otherwise (DECISIONS.md D53) -------------------------------
 
-    The reason goes to the user (systemMessage) and to the model (additionalContext) as well as into
-    permissionDecisionReason, because a host shows the reason of an "ask" to the user only. Every field
-    used here is one both hosts accept; Codex rejects an answer with any other field, and a
-    permissionDecisionReason without a permissionDecision. A "warn" (a git push under Codex, Karte 5 A) carries no
-    permission decision either: the reason, with the warning sentence, goes out as the message only.
+#: The languages of the short line (D53). English is the default; a person writes `de` into the file `language` of the
+#: gate directory, beside `mode`, for German. The file is read like `mode`, and decide_write denies every write to that
+#: directory, so the model does not set it.
+_LANGUAGES = ("en", "de")
+MAX_LANGUAGE_BYTES = 64
+#: The longest short line (D53), counted in characters as the host shows them.
+SHORT_LINE_MAX = 160
+#: The longest name of a step in the short line; a longer one is cut.
+_SHORT_STEP_MAX = 40
+#: The folder of the plugin data directory that records which repository of which session already showed that the gate
+#: is not active there (D53): one empty file per session and repository, created once.
+INACTIVE_SEEN_DIR = "inactive-shown"
+_INACTIVE_SEEN_KEEP = 4096
+
+
+def _read_language(environ: dict) -> str:
+    """The language of the short line a person set (D53): "en" (the default) or "de". Anything the gate cannot read as
+    one of those words is English: no directory, no file, an unreadable or oversized file, an unknown word."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return "en"
+    try:
+        raw = _read_regular(os.path.join(directory, "language"), MAX_LANGUAGE_BYTES + 1, follow=True)   # R18-2 class
+    except OSError:
+        return "en"
+    if len(raw) > MAX_LANGUAGE_BYTES:
+        return "en"
+    word = raw.decode("utf-8", "replace").strip().lower()
+    return word if word in _LANGUAGES else "en"
+
+
+#: reason_id -> (D number, English reason, German reason) of the short line (D53). The reason completes "because …" and
+#: "weil …"; it names no path and no value. A D number of None takes the last decision the long reason names.
+_SHORT_REASONS = {
+    # ask, and deny under Codex
+    "absence_not_measured": ("D5", "the gate cannot measure that nothing is declared",
+                             "das Tor nicht messen kann, dass nichts erklärt ist"),
+    "declaration_uncommitted": ("D5", "the evidence declaration is not committed",
+                                "die Erklärung der Belege nicht committet ist"),
+    "declaration_unread": ("D5", "the gate could not read the evidence declaration",
+                           "das Tor die Erklärung der Belege nicht lesen konnte"),
+    "empty_declaration": ("D5", "the declaration lists no evidence", "die Erklärung keine Belege nennt"),
+    "no_commit": ("D5", "the repository has no commit yet", "das Repository noch keinen Commit hat"),
+    "not_a_work_tree": ("D5", "the gate cannot name the repository", "das Tor das Repository nicht benennen kann"),
+    "checkout_not_modeled": ("D40", "this form may start programs on the checkout",
+                             "diese Form beim Auschecken Programme starten kann"),
+    "code_names_git": ("D33", "a program in the command may start git or gh from text",
+                       "ein Programm im Befehl git oder gh aus Text starten kann"),
+    "codex_push_not_plain": ("D12", "under Codex only the plain git push warns",
+                             "unter Codex nur das schlichte git push warnt"),
+    "codex_context_unbound": ("D12", "the Codex hook does not carry the working directory",
+                              "der Codex-Haken das Arbeitsverzeichnis nicht mitgibt"),
+    "directory_unresolved": ("D33", "the directory after a cd is unknown", "das Verzeichnis nach einem cd unbekannt ist"),
+    "done_order_change": ("D38", "the command changes a local done order",
+                          "der Befehl einen lokalen Abschlussauftrag ändert"),
+    "gh_form_not_free": (None, "a setting may make gh start a program or reach another host",
+                         "eine Einstellung gh ein Programm starten oder einen anderen Host erreichen lassen kann"),
+    "git_form_not_free": (None, "a setting may make git start a program",
+                          "eine Einstellung git ein Programm starten lassen kann"),
+    "net_unmodeled_git": ("D27", "the gate cannot read a git or gh call exactly",
+                          "das Tor einen git- oder gh-Aufruf nicht genau lesen kann"),
+    "possible_unmodeled_push": ("D8", "the command may send objects in a form the gate does not resolve",
+                                "der Befehl Objekte in einer Form senden kann, die das Tor nicht auflöst"),
+    "push_not_measured": ("D3", "the gate cannot resolve what this push sends",
+                          "das Tor nicht auflösen kann, was dieser Push sendet"),
+    "remote_read_not_modeled": (None, "this fetch is not the form the gate frees",
+                                "dieser fetch nicht die Form ist, die das Tor freigibt"),
+    "rules_changed": ("D20", "the push changes the evidence rules", "der Push die Regeln der Belege ändert"),
+    "step_after_state_change": ("D33", "a step before it may change what its answer read",
+                                "ein Schritt davor ändern kann, was seine Antwort gelesen hat"),
+    "target_ref_absent": ("D3", "the target branch does not exist yet", "der Zielzweig noch nicht existiert"),
+    "mcp_target_unbound": ("D8", "the gate binds neither the target nor the content of the tool",
+                           "das Tor weder Ziel noch Inhalt des Werkzeugs bindet"),
+    "write_to_repo_state": ("D8", "the write touches git configuration or hooks",
+                            "das Schreiben die Git-Konfiguration oder Hooks berührt"),
+    # deny
+    "sandbox_verifier_unavailable": ("D24B", "the verifier cannot start here", "der Prüfer hier nicht starten kann"),
+    "no_receipt": ("D26", "a receipt of a required check is missing", "eine Quittung einer Pflichtprüfung fehlt"),
+    "verification_failed": ("D6", "the evidence did not verify", "die Belege nicht bestätigt wurden"),
+    "not_done": ("D26", "a required check did not pass", "eine Pflichtprüfung nicht bestanden ist"),
+    "other_selection": ("D28", "a receipt names another test selection", "eine Quittung eine andere Testauswahl nennt"),
+    "stale_receipt": ("D26", "a receipt does not match the current state",
+                      "eine Quittung nicht zum aktuellen Stand passt"),
+    "outside_paths": ("D31", "the work changed none of the named paths", "die Arbeit keinen der genannten Pfade änderte"),
+    "no_change": ("D31", "the work changed nothing", "die Arbeit nichts geändert hat"),
+    "order_removed": ("D38", "the local done order was removed", "der lokale Abschlussauftrag entfernt wurde"),
+    "order_unreadable": ("D38", "the local done order cannot be read", "der lokale Abschlussauftrag nicht lesbar ist"),
+    "codex_write_unbound": ("D12", "the Codex hook does not bind the write",
+                            "der Codex-Haken das Schreiben nicht bindet"),
+    "declaration_not_committed": ("D26", "the evidence declaration is not committed",
+                                  "die Erklärung der Belege nicht committet ist"),
+    "declaration_required": ("D22", "the workflow requires an evidence declaration",
+                             "der Ablauf eine Erklärung der Belege verlangt"),
+    "gate_error": ("D10", "the gate reached no verdict", "das Tor zu keinem Urteil kam"),
+    "internal_error": ("D10", "the gate reached no verdict", "das Tor zu keinem Urteil kam"),
+    "hook_input": ("D10", "the gate could not read the call", "das Tor den Aufruf nicht lesen konnte"),
+    "git_directory_unread": ("D24", "git does not name the git directory", "git das Git-Verzeichnis nicht nennt"),
+    "handover_refused": ("D35", "the hand-over does not match", "die Übergabe nicht passt"),
+    "hooks_disabled": ("D24", "the command would turn off the check of the push",
+                       "der Befehl die Prüfung des Pushs abschalten würde"),
+    "missing_file": ("D26", "the done policy is missing", "die Richtlinie der Abschlussprüfung fehlt"),
+    "not_bound": ("D2", "the evidence is not bound to this tree", "die Belege nicht an diesen Stand gebunden sind"),
+    "order_base_not_measured": ("D31", "the gate cannot measure whether the work changed the paths",
+                                "das Tor nicht messen kann, ob die Arbeit die Pfade änderte"),
+    "policy_pins_no_signer": ("D7", "the policy pins no signer", "die Richtlinie keinen Unterzeichner festlegt"),
+    "stale_subject": ("D2", "the declared subject does not match the tree",
+                      "der erklärte Gegenstand nicht zum Stand passt"),
+    "state_not_measured": ("D26", "the working state cannot be read", "der Arbeitsstand nicht lesbar ist"),
+    "write_to_gate_dir": ("D25", "the write targets the gate's own directory",
+                          "das Schreiben das Verzeichnis des Tors trifft"),
+    # inactive, shown once per session and repository
+    "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
+    "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
+    "done_only": ("D26", "the repository declares only a done check", "das Repository nur eine Abschlussprüfung erklärt"),
+    "no_repository": ("D5", "this is no git repository", "hier kein Git-Repository ist"),
+    "no_done_check": ("D26", "the repository declares no done check", "das Repository keine Abschlussprüfung erklärt"),
+    "local_order_stands": ("D38", "a local done order stands for the repository",
+                           "für das Repository ein lokaler Abschlussauftrag gilt"),
+    "handover_no_update": ("D35", "the push names no update", "der Push keine Änderung nennt"),
+    # handover
+    "handed_over": ("D35", "the pre-push check gives the verdict", "die Prüfung beim Push urteilt"),
+}
+#: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
+_SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
+                   "git ein Programm starten kann, das das Tor nicht sieht")
+#: The reason of a read form under Codex, where class a is off (D37).
+_SHORT_CODEX_READ = ("D37", "under Codex no read form is free", "unter Codex keine Leseform frei ist")
+#: An id the table does not know: the long reason, which goes to the model, says why (D19).
+_SHORT_UNKNOWN = ("D19", "the full reason says why", "die volle Begründung sagt, warum")
+_SHORT_LAST_D = re.compile(r"\bD([0-9]{1,3}[A-Z]?)\b")
+#: The templates of the short line by decision and language (D53): the step, the reason, the D number.
+_SHORT_TEMPLATES = {
+    "en": {"ask": "Gate asks at {step} because {reason} ({d}).", "deny": "Gate blocks {step} because {reason} ({d}).",
+           "warn": "Gate warns at {step} because {reason} ({d}).",
+           "handover": "Gate hands {step} over to the pre-push check ({d}).",
+           "inactive": "Gate is not active here because {reason} ({d}).",
+           "stop": "Gate holds the end because {reason} ({d}).",
+           "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25)."},
+    "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
+           "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
+           "handover": "Tor übergibt {step} an die Prüfung beim Push ({d}).",
+           "inactive": "Tor ist hier nicht aktiv, weil {reason} ({d}).",
+           "stop": "Tor hält das Ende auf, weil {reason} ({d}).",
+           "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25)."},
+}
+_SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
+_SHORT_UNKNOWN_TIME = {"en": "unknown", "de": "unbekannt"}
+_STAMP_TIME = re.compile(r"last changed ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)")
+#: What the deny of an ask says under Codex, which has no dialog (D12), in the short line of the deny.
+_SHORT_CODEX_DENY = {"en": "Codex cannot ask, so the gate blocks the call.",
+                     "de": "Codex kann nicht fragen, darum sperrt das Tor den Aufruf."}
+
+
+def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
+    """(D number, English reason, German reason) of the short line for verdict (D53)."""
+    if verdict is None:
+        return _SHORT_UNKNOWN
+    if verdict.reason_id == "git_form_not_free" and verdict.detail == _CODEX_READ_FORM_EXPLANATION:
+        return _SHORT_CODEX_READ
+    if verdict.reason_id == "git_form_not_free" and verdict.evidence.startswith("none, the gate reads no repository"):
+        return _SHORT_GIT_FORM
+    entry = _SHORT_REASONS.get(verdict.reason_id, _SHORT_UNKNOWN)
+    if entry[0] is None:
+        named = _SHORT_LAST_D.findall(verdict.detail)
+        entry = (f"D{named[-1]}" if named else "D3", entry[1], entry[2])
+    return entry
+
+
+def _short_step_name(command: str | None, cwd: str) -> str | None:
+    """The name of the first git or gh step of a command, `git <subcommand>` or the gh call (D53), or None."""
+    if not command:
+        return None
+    steps: list = []
+    try:
+        _sh_walk(_sh_parse(command), cwd, steps)
+    except Exception:  # noqa: BLE001 - a command the parser does not model is named as "this command"
+        return None
+    for s in steps:
+        name = _sh_short_name(s)
+        if name:
+            return name
+    return None
+
+
+def short_line(decision: str, outcome: "Outcome | None", step: str | None, language: str, form: str | None = None,
+               suffix: str = "") -> str:
+    """The one line the user sees for an answer that is no pass (D53): the step that has the decision, the reason in
+    everyday words and the D number, at most SHORT_LINE_MAX characters, in the language a person set. The long reason
+    goes on to the model and the log keeps what it kept."""
+    language = language if language in _LANGUAGES else "en"
+    lead = None
+    if outcome is not None:
+        lead = next((v for v in outcome.verdicts if v.decision == decision), None) or \
+            (outcome.verdicts[0] if outcome.verdicts else None)
+    d, english, german = _short_reason(lead)
+    name = step or _SHORT_NO_STEP[language]
+    if len(name) > _SHORT_STEP_MAX:
+        name = name[:_SHORT_STEP_MAX - 1] + "…"
+    template = _SHORT_TEMPLATES[language][form or decision]
+    when = max(_STAMP_TIME.findall(lead.detail if lead is not None else ""), default=_SHORT_UNKNOWN_TIME[language])
+    line = template.format(step=name, reason=german if language == "de" else english, d=d, when=when)
+    line = f"{line} {suffix}" if suffix else line
+    if len(line) > SHORT_LINE_MAX:
+        line = line[:SHORT_LINE_MAX - 2] + "…."
+    return line
+
+
+def _inactive_first(host: str, session: object, outcome: "Outcome") -> bool:
+    """Whether an inactive answer is the first of its session for one of its repositories (D53), so the user sees once
+    that the gate is not active there. One empty file per host, session and repository in INACTIVE_SEEN_DIR of the
+    plugin data directory, created with O_EXCL: the call that creates it shows the line. Without a session id or a
+    writable data directory every inactive answer counts as the first, as before D53."""
+    directory = log_directory(host)
+    if directory is None or not isinstance(session, str) or not session:
+        return True
+    folder = os.path.join(directory, INACTIVE_SEEN_DIR)
+    repos = sorted({str(v.repo) for v in outcome.verdicts if v.decision == "inactive"}) or ["none"]
+    first = False
+    try:
+        os.makedirs(folder, exist_ok=True)
+        for repo in repos:
+            key = hashlib.sha256("\0".join((host, session, repo)).encode("utf-8", "surrogateescape")).hexdigest()[:32]
+            try:
+                fd = os.open(os.path.join(folder, key), os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                             | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o600)
+            except FileExistsError:
+                continue
+            os.close(fd)
+            first = True
+        if first:
+            _inactive_seen_trim(folder)
+    except OSError:
+        return True
+    return first
+
+
+def _inactive_seen_trim(folder: str) -> None:
+    """Remove the oldest half of the records once there are more than _INACTIVE_SEEN_KEEP; never raises."""
+    try:
+        names = os.listdir(folder)
+        if len(names) <= _INACTIVE_SEEN_KEEP:
+            return
+        dated = sorted((os.lstat(os.path.join(folder, n)).st_mtime, n) for n in names)
+        for _when, name in dated[:len(dated) // 2]:
+            os.unlink(os.path.join(folder, name))
+    except OSError:
+        pass
+
+
+def answer(decision: str, reason: str, host: str = "claude", short: str | None = None) -> dict | None:
+    """The PreToolUse answer (D53). A pass answers nothing: the hook prints nothing, carries no permission decision
+    (D4) and its reason stays in the log as its reason ids. An inactive gate, a warn and a hand-over carry no permission
+    decision either (D4, D5, D35).
+
+    Every other answer shows the user one short line, `short` (systemMessage), and gives the model the long reason
+    (additionalContext). Under Claude Code the dialog of an "ask" shows permissionDecisionReason to the user, so it
+    carries the short line, and a "deny" gives permissionDecisionReason to the model, so it carries the long reason.
+    Codex has no dialog (D12): its deny carries the short line there. Without `short` the long reason, with the Codex
+    and warning sentences, stands in its place, as before D53. Every field used here is one both hosts accept; Codex rejects an answer with any other field, and a
+    permissionDecisionReason without a permissionDecision. A "warn" (a git push under Codex, Karte 5 A) goes out with
+    the warning sentence in the long reason.
     """
+    if decision == "pass":
+        return None
     if decision == "ask" and host == "codex":
         decision, reason = "deny", reason + " Codex cannot ask, so the gate denies the call."
     if decision == "warn":
         reason = f"{reason} {CODEX_PUSH_WARNING}"
+    short = reason if short is None else short
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
-    if decision not in ("pass", "inactive", "warn", "handover"):   # D4: the gate never answers allow (D35 too)
-        specific.update(permissionDecision=decision, permissionDecisionReason=reason)
-    return {"systemMessage": reason, "hookSpecificOutput": specific}
+    if decision not in ("inactive", "warn", "handover"):   # D4: the gate never answers allow (D35 too)
+        specific.update(permissionDecision=decision,
+                        permissionDecisionReason=short if decision == "ask" or host == "codex" else reason)
+    return {"systemMessage": short, "hookSpecificOutput": specific}
+
+
+def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | None,
+                    environ: dict | None = None) -> dict | None:
+    """What the PreToolUse hook prints for an outcome (D53): nothing for a pass, nothing for an inactive gate after the
+    first inactive answer of the session for its repositories, else answer() with the short line in the language a
+    person set. Under Codex an ask is a deny, and its short line says that Codex cannot ask (D12)."""
+    environ = os.environ if environ is None else environ
+    decision = outcome.decision
+    if decision == "pass":
+        if not any(v.reason_id == "approved_by_rule" for v in outcome.verdicts):
+            return None
+        # A call a human rule frees stays visible (review Runde 15, F15-2: a shell command can switch the mode and
+        # the rules unseen, and making each freed call visible is the owner's remedy): one short line with the time
+        # the mode and the rules last changed, the long reason to the model, no permission decision (D4, D25, D53).
+        lead = next(v for v in outcome.verdicts if v.reason_id == "approved_by_rule")
+        short = short_line("pass", Outcome("pass", lead.detail, [lead]), outcome.step or step,
+                           _read_language(environ), form="rule")
+        return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                               "additionalContext": outcome.text}}
+    session = event.get("session_id") if isinstance(event, dict) else None
+    if decision == "inactive" and not _inactive_first(host, session, outcome):
+        return None
+    language = _read_language(environ)
+    name = outcome.step or step
+    if decision == "ask" and host == "codex":
+        short = short_line("ask", outcome, name, language, form="deny", suffix=_SHORT_CODEX_DENY[language])
+    else:
+        short = short_line(decision, outcome, name, language)
+    return answer(decision, outcome.text, host=host, short=short)
 
 
 def tree_digest_command(argv: list[str]) -> int:
@@ -12086,8 +12396,10 @@ def _event_directory(event: dict) -> str:
 
 
 def stop_command(argv: list[str]) -> int:
-    """The Stop hook (D26, D28), the same for Claude Code and Codex. Prints a block with one line, a message for a
-    pass, nothing where no done check is declared; exits 0. It never sets continue: a block asks the host to go on
+    """The Stop hook (D26, D28), the same for Claude Code and Codex. Prints a block whose reason is the one line for
+    the model and whose message is the short line for the user (D53); nothing for a pass without a finding, a message
+    for a pass with one (a count the hook could not write or read, a blocker file out of date) and for an end without a
+    done verdict; nothing where no done check is declared; exits 0. It never sets continue: a block asks the host to go on
     working (Codex inserts the reason as a new turn), it never stops the host. Any failure inside the check blocks:
     the session does not end on a check that reached no verdict. After max_blocks blocks without progress it writes
     DONE_BLOCKER and stops blocking (N3). Claude Code overrides a Stop hook after eight continuations without a tool
@@ -12145,6 +12457,7 @@ def stop_command(argv: list[str]) -> int:
         write_log(log_entry(host, event, Outcome(decisive.decision, decisive.text(), [decisive]), ["Stop"]), host)
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
+    language = _read_language(os.environ)
     if shown is not None:
         verdict, limit, counting, unread = shown
         line = _done_line(verdict)
@@ -12156,7 +12469,8 @@ def stop_command(argv: list[str]) -> int:
             line += (f" The hook counted this block as the first: the earlier count could not be read ({unread}); "
                      f"its own record is written again, so the end after {limit} blocks without progress counts from "
                      "here.")
-        sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
+        sys.stdout.write(json.dumps({"decision": "block", "reason": line,
+                                     "systemMessage": _stop_short(verdict, language)}) + "\n")
     elif ended:
         result, verdict, limit, blocker, counting = ended[0]
         message = (f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
@@ -12170,8 +12484,9 @@ def stop_command(argv: list[str]) -> int:
                         f"{other_blocker}: "
                         f"{other_verdict.failed.rstrip('.')}.")
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
-    elif passed:
-        # Each failure of the hook's own files is named for what it is, and only one that happened (R8-4)
+    elif passed and any(c is not None or r is not None or u is not None for _res, c, r, u in passed):
+        # D53: a passed end is silent; a failure of the hook's own files is a finding and stays visible, each named for
+        # what it is, and only one that happened (R8-4)
         messages = []
         for result, counting, removal, unread in passed:
             message = result["verdict"].detail
@@ -12188,10 +12503,19 @@ def stop_command(argv: list[str]) -> int:
                 message += f" (Local done order {result['local']}, D38.)"
             messages.append(message)
         sys.stdout.write(json.dumps({"systemMessage": " ".join(messages)}) + "\n")
+    elif passed:
+        pass   # D53: a passed end without a finding is silent; the log holds it
     elif any(r["verdict"].decision not in ("inactive", "pass", "deny") for r in results):
         line = _done_line(decisive)
-        sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
+        sys.stdout.write(json.dumps({"decision": "block", "reason": line,
+                                     "systemMessage": _stop_short(decisive, language)}) + "\n")
     return 0
+
+
+def _stop_short(verdict: Verdict, language: str) -> str:
+    """The short line a blocked end shows the user (D53); the model gets the one line of _done_line as the reason."""
+    return short_line(verdict.decision, Outcome(verdict.decision, verdict.text(), [verdict]), None, language,
+                      form="stop")
 
 
 def _failed_check(exc: Exception, verdict: Verdict) -> dict | None:
@@ -13589,8 +13913,32 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001 - the log never changes the answer
             pass
     if verdict is not None:
-        sys.stdout.write(json.dumps(answer(verdict.decision, verdict.text, host=host)) + "\n")
+        printed = None
+        try:
+            if verdict.decision != "pass" or any(v.reason_id == "approved_by_rule" for v in verdict.verdicts):
+                printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
+        except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
+            printed = answer(verdict.decision, verdict.text, host=host)
+        if printed is not None:
+            sys.stdout.write(json.dumps(printed) + "\n")
     return 0
+
+
+def _step_of_event(event: object) -> str | None:
+    """The name of the call a hook event describes, as the short line names it (D53): the first git or gh step of a
+    shell command, `MCP <tool>` for an MCP tool, the tool's name for a file tool."""
+    if not isinstance(event, dict):
+        return None
+    tool = event.get("tool_name")
+    if isinstance(tool, str) and tool.startswith("mcp__"):
+        return f"MCP {tool.rsplit('__', 1)[-1]}"
+    if isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+        return tool
+    try:
+        command, cwd = _command_from_event(event)
+    except GateError:
+        return None
+    return _short_step_name(command, cwd)
 
 
 if __name__ == "__main__":

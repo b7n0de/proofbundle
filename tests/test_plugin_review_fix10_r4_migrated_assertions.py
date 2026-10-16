@@ -44,9 +44,10 @@ def _unrelated_ask(*_args, **_kwargs) -> dict:
     """A Level 1 answer of the right shape (ask, NOT MEASURED, every part decision() checks) for an unrelated reason."""
     text = (f"{TIMEOUT}: Evidence: none, the gate ran out of time. Failed: the gate ran out of time. Next step: retry "
             f"the call. {cg.WEAKEN_RULE} Details: the gate ran out of time.")
+    short = "Gate asks at git push because the gate reached no verdict (D10)."   # D53: the user's short line
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                   "permissionDecisionReason": text, "additionalContext": text},
-            "systemMessage": text}
+                                   "permissionDecisionReason": short, "additionalContext": text},
+            "systemMessage": short}
 
 
 def test_the_graft_test_fails_on_an_unrelated_level_2_failure(shim, tmp_path, monkeypatch):  # noqa: F811

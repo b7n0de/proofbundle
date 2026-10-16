@@ -19,6 +19,7 @@ import time
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 gate = n2c.gate
 env = n2c.env
@@ -35,8 +36,8 @@ def _hook(env: dict, cwd, command: str, host: str = "claude") -> tuple[dict, dic
     assert proc.returncode == 0, proc.stderr
     entry = json.loads((n2c.pathlib.Path(env["PLUGIN_DATA"]) / gate.LOG_NAME).read_text(encoding="utf-8")
                        .splitlines()[-1])
-    answer = json.loads(proc.stdout)
-    return answer, entry, answer.get("systemMessage", "")
+    answer = json.loads(proc.stdout) if proc.stdout.strip() else None   # D53: a pass prints nothing
+    return answer, entry, (long_text(answer) if answer else "")
 
 
 @pytest.fixture

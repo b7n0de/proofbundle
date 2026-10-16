@@ -26,6 +26,7 @@ import pytest
 
 import proofbundle
 import test_plugin_done_check as dc
+from _gate_answer import long_text
 from _plugin_env import plugin_env
 
 gate = dc.gate
@@ -124,10 +125,10 @@ def test_a_change_in_the_paths_passes_committed_or_not(env, repo, keys):
     dc._write(repo / "src" / "module.py", "VALUE = 2\n")         # uncommitted: the working state counts (K1 C)
     _receipts(repo, keys)
     code, answer, _ = dc.stop(env, repo)
-    assert code == 0 and set(answer) == {"systemMessage"}, answer
+    assert code == 0 and dc.done_end(answer), answer                  # D53: a passed end prints nothing
     base = dc._git(repo, "rev-parse", "HEAD")
     assert f"no path outside the order changed since {base[:12]}, the commit that declared it, and 1 path in it did" \
-        in answer["systemMessage"]
+        in dc.done_message(env, repo)
     dc._commit(repo, "the work")
     _receipts(repo, keys)
     assert dc.stop(env, repo)[0] == 0 and _evaluate(repo)["verdict"].decision == "pass"
@@ -147,8 +148,9 @@ def test_an_order_without_paths_is_as_before(env, tmp_path, keys):
     dc._commit(path, "an order without paths")
     dc._run(path, keys.signer, UNIT)
     code, answer, _ = dc.stop(env, path)
-    assert code == 0 and "done. 1 check (unit)" in answer["systemMessage"], answer
-    assert "the commit that declared" not in answer["systemMessage"]
+    message = dc.done_message(env, path)
+    assert code == 0 and dc.done_end(answer) and "done. 1 check (unit)" in message, answer
+    assert "the commit that declared" not in message
 
 
 # --- which commit declared the order ----------------------------------------------------------------------------
@@ -240,7 +242,7 @@ def _level1(env: dict, repo: pathlib.Path) -> dict:
     proc = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True, env=env,
                           timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
 def test_a_push_of_a_commit_without_a_change_in_the_paths_is_denied_at_both_levels(env, repo, keys):
@@ -249,7 +251,7 @@ def test_a_push_of_a_commit_without_a_change_in_the_paths_is_denied_at_both_leve
     _receipts(repo, keys)
     answer = _level1(env, repo)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", answer
-    assert "no change" in answer["systemMessage"] and "the tree the push sends" in answer["systemMessage"]
+    assert "no change" in long_text(answer) and "the tree the push sends" in long_text(answer)
     proc = _level2(env, repo)
     assert proc.returncode == 1 and "no change" in proc.stderr, proc.stderr
 
@@ -262,7 +264,7 @@ def test_a_push_of_a_commit_with_the_work_passes_at_both_levels(env, repo, keys)
     _receipts(repo, keys)
     answer = _level1(env, repo)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
-    assert "git push also matches" in answer["systemMessage"] and "showed no failure" in answer["systemMessage"]
+    assert "git push also matches" in long_text(answer) and "showed no failure" in long_text(answer)
     assert _level2(env, repo).returncode == 0
 
 

@@ -28,6 +28,7 @@ import time
 import pytest
 
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -66,7 +67,7 @@ def _undeclared(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str
 
 def _l1(env: dict, work: pathlib.Path, command: str = "git push origin main") -> tuple[dict, dict, str]:
     answer, entry = n2c._level1(env, work, command=command)
-    return answer, entry, answer["systemMessage"]
+    return answer, entry, long_text(answer)
 
 
 def _assert_inactive(answer: dict, entry: dict, text: str) -> None:

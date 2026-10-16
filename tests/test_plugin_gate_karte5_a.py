@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 import pytest
+from _gate_answer import Silent
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -82,7 +83,7 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
                           text=True, env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr
     entry = json.loads((logs / gate.LOG_NAME).read_text(encoding="utf-8").splitlines()[-1])
-    return json.loads(proc.stdout), entry
+    return (json.loads(proc.stdout) if proc.stdout.strip() else Silent(entry)), entry   # D53: a pass prints nothing
 
 
 @pytest.mark.parametrize("command", ["git push", "git push origin main", "git push -u origin main"])

@@ -132,7 +132,8 @@ def _decide(command: str, repo: pathlib.Path, host: str) -> gate.Outcome:
 
 
 def _host_answer(outcome: gate.Outcome, host: str) -> str | None:
-    return gate.answer(outcome.decision, outcome.text, host=host)["hookSpecificOutput"].get("permissionDecision")
+    answer = gate.answer(outcome.decision, outcome.text, host=host)
+    return None if answer is None else answer["hookSpecificOutput"].get("permissionDecision")   # D53: a pass is None
 
 
 # --- git add and git commit -m ------------------------------------------------------------------------------------

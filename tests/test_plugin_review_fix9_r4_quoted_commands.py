@@ -14,6 +14,7 @@ import shlex
 import subprocess
 
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -34,8 +35,8 @@ def test_every_command_in_the_answer_parses_and_names_the_remote_whole(env, tmp_
     _git(r.path, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     _git(r.path, "remote", "rename", "origin", NAME)
     answer, _entry = n2c._level1(env, r.path, command="git push \"o'brien\" main")
-    text = answer.get("systemMessage", "") + json.dumps(answer.get("hookSpecificOutput", {}), ensure_ascii=False)
-    for command in re.findall(r"`([^`]+)`", answer.get("systemMessage", "")):
+    text = long_text(answer) + json.dumps(answer.get("hookSpecificOutput", {}), ensure_ascii=False)
+    for command in re.findall(r"`([^`]+)`", long_text(answer)):   # D53: the long reason names the commands
         assert _parses(command), command
         words = shlex.split(command)
         if any("brien" in w for w in words):

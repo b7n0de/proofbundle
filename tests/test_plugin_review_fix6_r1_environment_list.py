@@ -25,6 +25,7 @@ import test_plugin_gate_k_nw_2_b as knw
 import test_plugin_gate_n2c_push_done as n2c
 import test_plugin_review_fix_f6_early_open as f6
 import test_plugin_review_fix6_r1_environment as r1e
+from _gate_answer import Silent
 
 gate = dc.gate
 UNIT = dc.UNIT
@@ -102,7 +103,8 @@ def _done_repo(tmp_path: pathlib.Path, keys) -> pathlib.Path:
 
 
 def _done(answer: dict | None) -> bool:
-    return answer is not None and set(answer) == {"systemMessage"} and "done." in answer["systemMessage"]
+    """A done end: since D53 it prints nothing, and its log line names the done verdict."""
+    return isinstance(answer, Silent) and answer.entry["reason_ids"] == ["done"]
 
 
 def test_objects_git_finds_in_an_alternate_are_the_objects_the_gate_reads(env, tmp_path, keys):

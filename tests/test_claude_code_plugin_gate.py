@@ -53,6 +53,7 @@ import proofbundle
 from proofbundle.decision import emit_decision_receipt
 from proofbundle.emit import emit_bundle, generate_signer
 from _plugin_env import plugin_env
+from _gate_answer import Silent, long_text, parsed, run_hook, short_text
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -209,10 +210,9 @@ def _clean_git_config(monkeypatch):
 def run_gate(env: dict, cwd: pathlib.Path | str, command: str, *, raw: str | None = None) -> dict | None:
     event = raw if raw is not None else json.dumps(
         {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}})
-    proc = subprocess.run([sys.executable, str(GATE)], input=event, capture_output=True, text=True,
-                          env=env, timeout=120, check=False)
+    proc, entry = run_hook([sys.executable, str(GATE)], event, env)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout) if proc.stdout.strip() else None
+    return parsed(proc, entry)   # D53: Silent for a pass, None for a call the gate does not gate
 
 
 INACTIVE = "The gate is not active in this repository, because nothing is declared."
@@ -221,20 +221,26 @@ WEAKEN_RULE = ("Never weaken the evidence declaration, a trust policy or an expe
 
 
 def decision(answer: dict | None) -> str:
-    """deny, ask, pass (verified, no decision) or inactive (nothing declared, no decision)."""
+    """deny, ask, pass (verified, no decision) or inactive (nothing declared, no decision). Since D53 a pass prints
+    nothing (Silent, judged as the log line says), and every other answer shows the user a short line while the model
+    gets the long reason (additionalContext), which is what the checks below read."""
     assert answer is not None, "a gated call must be answered"
+    if isinstance(answer, Silent):
+        assert (answer.entry["verdict"], answer.entry["decision"]) == ("pass", "none"), answer
+        return "pass"
     specific = answer["hookSpecificOutput"]
     assert specific["hookEventName"] == "PreToolUse"
-    assert answer["systemMessage"] == specific["additionalContext"]
+    short_text(answer)
+    message = long_text(answer)
     got = specific.get("permissionDecision", "pass")
     assert got in ("deny", "ask", "pass"), "the gate must never answer allow"
     if got != "pass":
-        assert specific["permissionDecisionReason"] == answer["systemMessage"]
+        # D53: the dialog of an ask shows the short line; a deny gives the model the long reason
+        assert specific["permissionDecisionReason"] == (answer["systemMessage"] if got == "ask" else message)
         for part in ("Evidence: ", ". Failed: ", ". Next step: ", WEAKEN_RULE, " Details: "):
-            assert part in answer["systemMessage"], (part, answer["systemMessage"])
+            assert part in message, (part, message)
         return got
     assert "permissionDecisionReason" not in specific
-    message = answer["systemMessage"]
     if "NOT MEASURED" in message:
         # No decision on NOT MEASURED only where the gate measured that nothing is declared.
         assert message.count("NOT MEASURED:") == message.count(INACTIVE), message
@@ -243,7 +249,9 @@ def decision(answer: dict | None) -> str:
 
 
 def reason(answer: dict) -> str:
-    return answer["systemMessage"]
+    """The long reason the model gets (D53). A pass prints none."""
+    assert not isinstance(answer, Silent), f"a pass prints no reason since D53: {answer!r}"
+    return long_text(answer)
 
 
 #: Since review round 9 of 2026-10-11 (R9-1) every Level 1 push whose earlier steps resolve ends at the destination
@@ -779,7 +787,7 @@ def test_a_chain_across_repositories_is_not_measured_while_a_single_push_resolve
     # answered inactive here.
     both = run_gate(shim, repo, f"git push && git -C {other} push")
     assert decision(both) == "ask" and not at_destination(both, clean=False)
-    assert both["systemMessage"].startswith("NOT MEASURED: ")
+    assert long_text(both).startswith("NOT MEASURED: ")
     # each repository still resolves on its own, as a single `git -C`, up to the destination check (R9-1)
     assert at_destination(run_gate(shim, other, f"git -C {repo} push"))
     plain = _plain(tmp_path, "plain")  # no remote: a single push to it is NOT MEASURED before the destination
@@ -1420,7 +1428,7 @@ def test_a_push_nested_in_a_shell_bundle_is_not_measured(shim, repo, command):
     unseen; that it is seen, as NOT MEASURED, is what this asserts."""
     answer = run_gate(shim, repo, command)
     assert decision(answer) == "ask"
-    assert answer["systemMessage"].startswith("NOT MEASURED: ")
+    assert long_text(answer).startswith("NOT MEASURED: ")
 
 
 def test_a_push_insteadof_rewrite_is_not_measured(repo):

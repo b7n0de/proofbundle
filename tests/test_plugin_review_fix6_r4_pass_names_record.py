@@ -51,7 +51,11 @@ def _doc(**fields) -> bytes:
 
 
 def _message(answer: dict | None) -> str:
-    assert answer is not None and set(answer) == {"systemMessage"}, answer   # a done end: a message, no block
+    """The message of a done end. Since D53 a done end without a finding prints nothing, and its message is empty;
+    a finding of the hook's own files stays a message, no block."""
+    if answer is None:
+        return ""
+    assert set(answer) == {"systemMessage"}, answer
     return answer["systemMessage"]
 
 

@@ -25,6 +25,7 @@ import time
 import pytest
 
 import test_plugin_gate_n2c_push_done as base
+from _gate_answer import Silent, long_text
 from _plugin_env import plugin_env
 
 gate = base.gate
@@ -107,7 +108,8 @@ def _level1(env: dict, repo: pathlib.Path, command: str = "git push origin main"
                           capture_output=True, text=True, env=env, timeout=180, check=False)
     assert proc.returncode == 0, proc.stderr
     log = pathlib.Path(env["PLUGIN_DATA"]) / gate.LOG_NAME
-    return json.loads(proc.stdout), json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    entry = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    return (json.loads(proc.stdout) if proc.stdout.strip() else Silent(entry)), entry   # D53: a pass prints nothing
 
 
 def _push(env: dict, repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -139,13 +141,13 @@ def _decision(answer: dict) -> str | None:
 def assert_handed_over(answer: dict, entry: dict) -> None:
     assert _decision(answer) is None, answer
     assert (entry["verdict"], entry["decision"], entry["reason_ids"]) == ("handover", "none", ["handed_over"]), entry
-    assert "hands this push over to Level 2" in answer["systemMessage"], answer
+    assert "hands this push over to Level 2" in long_text(answer), answer
 
 
 def assert_asked_without_handover(answer: dict, entry: dict, why: str) -> None:
     assert _decision(answer) == "ask", answer
     assert entry["reason_ids"] == ["push_not_measured"], entry
-    assert "No hand-over to Level 2" in answer["systemMessage"] and why in answer["systemMessage"], answer
+    assert "No hand-over to Level 2" in long_text(answer) and why in long_text(answer), answer
 
 
 # --- 1. the valid fast-forward ----------------------------------------------------------------------------------
@@ -184,7 +186,7 @@ def test_without_an_approved_transport_level_1_asks(env, tmp_path):
     (pathlib.Path(env["PROOFBUNDLE_GATE_DIR"]) / "mode").write_text("with-approvals\n", encoding="utf-8")
     answer, entry = _level1(env, r.path)
     assert_asked_without_handover(answer, entry, "the transport is not approved")
-    assert "transport-digest" in answer["systemMessage"] and not _pointer(r.path).exists() and _records(env) == []
+    assert "transport-digest" in long_text(answer) and not _pointer(r.path).exists() and _records(env) == []
 
 
 def test_the_transport_that_is_not_approved_asks_before_its_effects(env, tmp_path):
@@ -217,7 +219,7 @@ def test_without_level_2_level_1_asks_and_names_install_pre_push_as_a_voluntary_
     r = _repo(tmp_path, env, install=False)
     answer, entry = _level1(env, r.path)
     assert_asked_without_handover(answer, entry, "no bound Level 2: no pre-push hook is installed")
-    assert "install-pre-push" in answer["systemMessage"] and "optional" in answer["systemMessage"]
+    assert "install-pre-push" in long_text(answer) and "optional" in long_text(answer)
     assert not (r.path / ".git" / "hooks" / "pre-push").exists(), "the gate installs nothing"
 
 
@@ -350,7 +352,7 @@ def test_a_forced_update_is_no_hand_over(env, tmp_path, command, why):
     r = _repo(tmp_path, env)
     answer, entry = _level1(env, r.path, command=command)
     assert _decision(answer) == "ask" and entry["reason_ids"] == ["push_not_measured"], answer
-    assert why in answer["systemMessage"] and not _pointer(r.path).exists()
+    assert why in long_text(answer) and not _pointer(r.path).exists()
 
 
 @pytest.mark.parametrize("command", ["GIT_TERMINAL_PROMPT=0 git push origin main", "LANG=C git push origin main",
@@ -363,7 +365,7 @@ def test_only_the_plain_push_form_is_handed_over(env, tmp_path, command):
     r = _repo(tmp_path, env)
     answer, entry = _level1(env, r.path, command=command)
     assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
-    assert "No hand-over to Level 2" in answer["systemMessage"] or "hands this push over" not in answer["systemMessage"]
+    assert "No hand-over to Level 2" in long_text(answer) or "hands this push over" not in long_text(answer)
     assert not _pointer(r.path).exists() and _records(env) == []
 
 
@@ -384,7 +386,7 @@ def test_a_plain_form_with_a_redirection_that_opens_no_file_is_handed_over(env, 
 def test_a_gh_call_is_no_hand_over(env, tmp_path):
     r = _repo(tmp_path, env)
     answer, _entry = _level1(env, r.path, command="gh pr create --fill")
-    assert _decision(answer) == "ask" and "hands this push over" not in answer["systemMessage"]
+    assert _decision(answer) == "ask" and "hands this push over" not in long_text(answer)
     assert not _pointer(r.path).exists()
 
 
@@ -816,7 +818,7 @@ def test_an_assignment_in_front_of_the_program_is_no_hand_over(env, tmp_path, ke
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
-    assert "sets an environment name in front of its program" in answer["systemMessage"], answer
+    assert "sets an environment name in front of its program" in long_text(answer), answer
 
 
 @pytest.mark.parametrize("url, vcs", [("probe://example.invalid/x.git", None), ("Probe://example.invalid/x.git", None),
@@ -840,7 +842,7 @@ def test_a_transport_that_starts_a_remote_helper_is_no_hand_over(env, tmp_path, 
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
-    assert "remote helper" in answer["systemMessage"] and not _pointer(r.path).exists()
+    assert "remote helper" in long_text(answer) and not _pointer(r.path).exists()
 
 
 @pytest.mark.parametrize("key, value", [
@@ -860,7 +862,7 @@ def test_a_program_value_the_gate_does_not_model_as_a_plain_command_is_no_hand_o
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
-    assert "the transport is not one a hand-over models" in answer["systemMessage"], answer
+    assert "the transport is not one a hand-over models" in long_text(answer), answer
     assert not _pointer(r.path).exists()
 
 
@@ -978,7 +980,7 @@ def test_a_named_program_larger_than_the_gate_hashes_is_no_hand_over(env, tmp_pa
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert entry["reason_ids"] != ["internal_error"] and _decision(answer) == "ask", answer
-    assert "resolves to no file" in answer["systemMessage"] or "not one a hand-over models" in answer["systemMessage"]
+    assert "resolves to no file" in long_text(answer) or "not one a hand-over models" in long_text(answer)
 
 
 def test_hashing_in_blocks_gives_the_sha256_of_the_whole_file(tmp_path):
@@ -1016,7 +1018,7 @@ def test_a_program_path_under_proc_is_no_hand_over(env, tmp_path):
     base._git(r.path, "config", "remote.origin.receivepack", "/proc/self/cwd/rp")
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
-    assert _decision(answer) == "ask" and "names a program under /proc or /dev/fd" in answer["systemMessage"], answer
+    assert _decision(answer) == "ask" and "names a program under /proc or /dev/fd" in long_text(answer), answer
 
 
 @pytest.mark.parametrize("form", ["suffix", "gitfile", "fragment", "query", "percent"])
@@ -1039,7 +1041,7 @@ def test_a_path_remote_git_opens_by_another_name_is_no_hand_over(env, tmp_path, 
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
     assert _decision(answer) == "ask" and entry["verdict"] != "handover", answer
-    assert "No hand-over to Level 2" in answer["systemMessage"], answer
+    assert "No hand-over to Level 2" in long_text(answer), answer
 
 
 def test_an_ssh_program_the_gate_cannot_hash_is_no_hand_over(env, tmp_path):
@@ -1054,7 +1056,7 @@ def test_an_ssh_program_the_gate_cannot_hash_is_no_hand_over(env, tmp_path):
     base._git(r.path, "remote", "set-url", "origin", "ssh://example.invalid/x.git")
     _approve(env, r.path)
     answer, entry = _level1(env, r.path)
-    assert _decision(answer) == "ask" and "cannot hash" in answer["systemMessage"], answer
+    assert _decision(answer) == "ask" and "cannot hash" in long_text(answer), answer
 
 
 @pytest.mark.parametrize("url", ["file:///x%00y.git", "file://[/x.git", "file://\uff21/x.git"],

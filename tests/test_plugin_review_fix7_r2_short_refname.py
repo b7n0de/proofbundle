@@ -20,6 +20,7 @@ import pytest
 from proofbundle.emit import generate_signer
 
 import test_plugin_gate_n2c_push_done as n2c
+from _gate_answer import long_text
 
 pytestmark = n2c.pytestmark
 env = n2c.env
@@ -55,7 +56,7 @@ def _outcome(env, repo, command: str) -> tuple[str, list, bool, str]:
     """The verdict, its reasons, whether the resolution reached the destination check (R9-1), and the answer's text."""
     answer, entry = n2c._level1(env, repo, command=command)
     reached = n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
-    return entry["verdict"], entry["reason_ids"], reached, answer.get("systemMessage", "")
+    return entry["verdict"], entry["reason_ids"], reached, (long_text(answer) if answer else "")
 
 
 #: The destination git resolves for every push here, as the destination reason names it (R9-1).
@@ -69,7 +70,7 @@ def _judged_to_main(env, repo, command: str) -> None:
     it NOT MEASURED since R9-1; the evidence at HEAD showed no failure."""
     answer, entry = n2c._level1(env, repo, command=command)
     n2c.assert_destination_not_measured(answer, entry)
-    message = answer["systemMessage"]
+    message = long_text(answer)
     assert f"the sent source commit(s) {_out(repo, 'rev-parse', 'HEAD')[:12]} showed no failure" in message, message
     assert FOR_MAIN in message, message
 
