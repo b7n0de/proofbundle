@@ -99,7 +99,10 @@ def test_N11_control_claude_code_keeps_its_answer(tmp_path, variant):
         assert text.count(D3) == 1, text
         assert [v.reason_id for v in out.verdicts] == ["free_after_read_profile", "git_form_not_free"], out.verdicts
     else:
-        assert text.count(D3) == 2, text
+        # D46 (Ergänzung 1 to Nachtrag 19, part A) changed this text: the reason names first the step that asks on its
+        # own and no finding of D3 for the read steps it names as free; the decision and the verdicts stay
+        assert text.count(D3) == 0 and text.startswith("NOT MEASURED: the step `git remote -v` of this command asks on "
+                                                       "its own"), text
         assert [v.reason_id for v in out.verdicts] == ["git_form_not_free", "git_form_not_free",
                                                        "directory_unresolved"], out.verdicts
 
