@@ -2291,7 +2291,8 @@ repository (_read_profile_problem) finds nothing that starts a program for it. R
   `describe --always -- :0:a.txt`, `merge-base -- :a.txt HEAD` and `ls-tree -- :a.txt` started fsmonitor;
   `log --oneline -- :a.txt` and `ls-tree HEAD -- :a.txt` did not).
 - The profile reads what K-NW-2 B reads (the effective configuration with every include, the hook directory, the
-  hook's GIT_* names) and is an allow-list too: an unknown key, GIT_* name or hook keeps the ask. Not free for any form:
+  hook's GIT_* names) and is an allow-list too: an unknown key, GIT_* name or hook keeps the ask (D44 adds five
+  uploadpack keys of the serving side by name). Not free for any form:
   a promisor key, read by its presence (C-5); a pager key (core.pager, pager.*), and GIT_PAGER or PAGER, the two names
   git reads to choose the pager, because no host adapter is bound (answer 3; review Runde 6, point 1: a
   program-selecting variable counts like its key); log.showSignature, format.pretty, pretty.*, submodule.*, and every
@@ -3069,3 +3070,44 @@ Limits, in plain words: at delta the reads stay asked until telemetry is off the
 gate) and no extension is installed; whether the sampled telemetry may stay on is the owner's question (O18-1 of the
 report). The measurements ran on linux amd64 with git 2.43.0 and no network; the default sample rate and the endpoint
 gh sends to by default were not observed.
+
+## D44. The uploadpack keys of the serving side in the read profile: class a (Nachtrag 19, 2026-10-16)
+
+Measured by delta at ba65da56: `git log -3 --oneline` in a repository whose .git/config carries
+uploadpack.allowAnySHA1InWant asked with "a configuration key the read profile does not know to start no program". The
+key acts only in upload-pack, the serving side of a fetch from this repository. Owner choice of 2026-10-16: measure each
+key first; only a key shown to start no program and open no connection joins the read profile, by its own name, not by a
+pattern; uploadpack.packObjectsHook and every key that names a program keep asking.
+
+The rule: _READ_UPLOADPACK_KEYS names uploadpack.allowAnySHA1InWant, uploadpack.allowTipSHA1InWant,
+uploadpack.allowReachableSHA1InWant, uploadpack.allowRefInWant and uploadpack.allowFilter, and _READ_INERT_KEYS takes
+them in. The value is not judged: true, false, an invalid value and a key without a value were measured alike. Every
+other finding of the read profile is read on and still counts.
+
+Evidence, measured with git 2.43.0 under strace -f (execve, execveat, connect, socket), stdout a pipe, a fresh HOME, no
+system configuration, in a network namespace of its own (truth_n19.py of Nachtrag 19):
+- The 23 spellings of the read forms of the grammar (log, show, diff, grep and status first, two or three spellings
+  each; then rev-list, ls-files, rev-parse, for-each-ref, branch --list, ls-tree, show-ref, merge-base, describe,
+  worktree list and cat-file), each with one of the five keys set true, false, `bogus` or without a value, and with
+  `[uploadPack] allowAnySHA1InWant = true`: 483 runs, no program started, no connection or socket opened, exit code and
+  length of the output equal to the run without the key.
+- The same with uploadpack.packObjectsHook naming a program, uploadpack.keepAlive and uploadpack.hideRefs: nothing
+  started. packObjectsHook keeps asking all the same: it names a program, and upload-pack reads it from the global
+  configuration (measured: a fetch from the repository started the hook with it in the global file, not with it in the
+  repository's own).
+- Positive controls of the harness: diff.external started its program for the three diff runs, core.fsmonitor for
+  diff, grep, status and ls-files, and `git ls-remote http://127.0.0.1:9/x` showed git-remote-http and its connect.
+- Counter-check (gegenprobe_n19.py): a fetch from the repository over file:// started git-upload-pack; with each key
+  set `bogus` it ended with "bad boolean config value" for that key and exit 128, with true and false it ended 0.
+
+Not changed: uploadpack.packObjectsHook; every other uploadpack.* and uploadpackfilter.* key and every name that is
+none of the five (uploadpack.allowAnySHA1InWants, uploadpack.allowSHA1InWant, uploadpack.<sub>.allowAnySHA1InWant,
+receivepack.allowAnySHA1InWant); a key the command sets (`git -c …`, a prefix assignment of GIT_CONFIG_PARAMETERS);
+Codex (class a stays off, D37); and the state check of add, commit -m and worktree add (K-NW-2 B, D3, D40), which keeps
+its own list and still asks for these keys (measured with the same keys under strace: add, commit -m and worktree add
+start the same programs with and without them; whether they join that list is the owner's question O19-1).
+
+Limits, in plain words: measured with git 2.43.0 (delta: 2.51.1); a later git that gives one of these keys a meaning
+outside upload-pack is not measured. Measured with an empty global and no system configuration. What a key changes in a
+fetch was not shown, only that upload-pack reads it: a fetch over file:// of a commit no ref names, by its id, ended 0
+with allowAnySHA1InWant true and with false alike.

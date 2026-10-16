@@ -1401,13 +1401,26 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
     return not (sub == "branch" and positional and not listing)
 
 
+#: The uploadpack keys git reads only in upload-pack, the serving side of a fetch from this repository (DECISIONS.md
+#: D44, Nachtrag 19): which objects a client may ask for by id (allowTipSHA1InWant, allowReachableSHA1InWant,
+#: allowAnySHA1InWant) or by ref (allowRefInWant), and whether a filter is served (allowFilter). Each is a boolean and
+#: names no program, and no read form of the grammar starts upload-pack for its own repository. Measured with git 2.43.0
+#: under strace: the read forms with each key set true, false, to an invalid value or without a value started no
+#: program and opened no connection, with the exit code and output of the run without it; a fetch from the repository
+#: started upload-pack, which ended on the invalid value. Named one by one: uploadpack.packObjectsHook names a program,
+#: and every other uploadpack.* or uploadpackfilter.* key keeps the form not free.
+_READ_UPLOADPACK_KEYS = frozenset({
+    "uploadpack.allowanysha1inwant", "uploadpack.allowtipsha1inwant", "uploadpack.allowreachablesha1inwant",
+    "uploadpack.allowrefinwant", "uploadpack.allowfilter",
+})
 #: The configuration keys the read profile positively understands as starting no program for a read form of the
 #: grammar: the keys K-NW-2 B knows (D3) less the pager, which a read form starts on a terminal, and fsmonitor, which
 #: the profile judges by form; the keys Teil 1 measured for read forms (sequence.editor, gc.auto with maintenance.auto,
-#: merge drivers); and display settings of log, status, grep and diff that name no program, each measured to start
-#: nothing (a/wahrheit_a.py, "Anzeigeschlüssel"). Every other key, log.showSignature, format.pretty, pretty.*,
-#: submodule.* and every other diff.* key among them, keeps the form not free.
-_READ_INERT_KEYS = (_STATE_INERT_KEYS - {"core.pager", "core.fsmonitor"}) | frozenset({
+#: merge drivers); display settings of log, status, grep and diff that name no program, each measured to start
+#: nothing (a/wahrheit_a.py, "Anzeigeschlüssel"); and the uploadpack keys above (D44). Every other key,
+#: log.showSignature, format.pretty, pretty.*, submodule.* and every other diff.* key among them, keeps the form not
+#: free.
+_READ_INERT_KEYS = (_STATE_INERT_KEYS - {"core.pager", "core.fsmonitor"}) | _READ_UPLOADPACK_KEYS | frozenset({
     "sequence.editor", "gc.auto", "maintenance.auto", "core.abbrev", "log.date", "log.decorate", "log.abbrevcommit",
     "log.showroot", "log.mailmap", "status.short", "status.branch", "status.showuntrackedfiles", "status.relativepaths",
     "status.aheadbehind", "status.showstash", "status.renames", "status.renamelimit", "grep.linenumber", "grep.column",
