@@ -158,8 +158,9 @@ def test_E1A_a_push_that_is_not_the_first_step_is_named_as_such(tmp_path, clone)
 def test_E1A_a_kept_command_keeps_the_decision_and_verdicts_of_the_whole_command_and_says_why(tmp_path, clone, command):
     """Where class c keeps the answer of the whole command, only the text changes (D46)."""
     command = command.format(a=clone)
-    out = _decide(clone, command)
-    whole = gate._decide_outcome_whole(command, str(clone), time.monotonic() + 180, "claude", gate.os.environ)
+    env = plugin_env(**DELTA)
+    out = gate.decide(command, str(clone), time.monotonic() + 180, "claude", env)
+    whole = gate._decide_outcome_whole(command, str(clone), time.monotonic() + 180, "claude", env)
     assert (out.decision, [v.reason_id for v in out.verdicts]) == \
         (whole.decision, [v.reason_id for v in whole.verdicts]), out.text
     assert out.text != whole.text
