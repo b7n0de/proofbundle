@@ -9555,7 +9555,10 @@ def _sh_steps_reason(decision: str, own: list, chosen: list, kept: str | None = 
 
 
 def _sh_call_name(step: "_ShStep") -> str:
-    """The name the whole command's answer gives a git step: `git <subcommand>`, after the global options."""
+    """The name the whole command's answer gives a git or gh step: `git <subcommand>`, after the global options, or
+    the name of a gated gh call."""
+    if step.kind == "gh":
+        return _gh_call(step.words[1:]) or "gh"
     words, i = step.words[1:], 0
     while i < len(words) and words[i].startswith("-"):
         i += 2 if words[i] in _GIT_GLOBAL_VALUE and "=" not in words[i] else 1
@@ -9591,7 +9594,7 @@ def _sh_keep_reason(keep: "_ShKeep", steps: list, whole: Outcome, judge_whole, c
                          "answer of the whole command, in which no git step of a longer command is free (D3); the "
                          "reason belongs to the command, not to one step (DECISIONS.md D33, D46).",
                          *[v.text() for v in chosen]])
-    name = _sh_call_name(s) if s.kind == "git" else ""
+    name = _sh_call_name(s) if s.kind in ("git", "gh") else ""
     of_step = [v for v in chosen if _sh_generic_chain_verdict(v) and name and _sh_names_call(v, name)]
     rest = [v.text() for v in chosen if not _sh_generic_chain_verdict(v)]
     others = [t for t in steps if t is not s and t.kind in ("git", "gh") and t.cwd is not None and not _sh_pushing(t)]

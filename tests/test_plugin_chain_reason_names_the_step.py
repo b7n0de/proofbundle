@@ -195,3 +195,12 @@ def test_E1A_a_step_whose_directory_is_unknown_after_cd_is_named_as_such(tmp_pat
     assert out.text.startswith(f"NOT MEASURED: the gate cannot judge the step `git -C {clone} log -1` of this command "
                                "on its own"), out.text
     assert "its directory is unknown after a directory change" in out.text, out.text
+
+
+def test_E1A_a_gated_gh_call_that_is_not_the_first_step_keeps_its_own_text(tmp_path, clone):
+    out = _decide(clone, f"git -C {clone} status; gh pr create --fill")
+    assert out.decision == "ask", out.text
+    assert out.text.startswith("NOT MEASURED: the step `gh pr create --fill` of this command is a push or another "
+                               "gated call"), out.text
+    assert "which repository gh pr create acts on" in out.text and "Next step: " in out.text, out.text
+    assert "git status may start a program" not in out.text, out.text
