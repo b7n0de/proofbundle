@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Added
+
+- Add `proofbundle emit-test-receipt`, which signs a JUnit XML report (pytest, Maven Surefire, jest-junit) or a CTRF 0.2.x JSON report into an eval receipt that `show-eval` verifies, and `proofbundle check-test-receipt`, which checks such a receipt against its report: the digest, every count and the verdict. The Python API is `proofbundle.adapters.from_junit_xml`, `from_ctrf_json`, `read_junit_xml`, `read_ctrf_json` and `verify_test_receipt`. The claim is `pass_rate >= 1`, where passed means no failure, no error and at least one passed test, so a report of skipped tests only does not pass. The receipt records the report's SHA-256, an optional commit, the five counts, the rule and what it does not prove. A report with a document type declaration, entities, processing instructions, duplicate attributes or keys, an encoding other than UTF-8, fields CTRF does not define, or counts that contradict the tests they count is refused with a reason code. See `INTEGRATIONS.md` and `docs/NON_CLAIMS.md`.
+
 ## [6.3.0] - 2026-10-14
 
 Three entries change existing behaviour for package users. By default, DSSE signing adds a key ID when the signer exposes its Ed25519 public key (Changed). The pytest plugin skips receipt generation for metric names other than `pass_rate` and bases threshold decisions on exact test counts rather than a pass rate rounded to six decimal places (Fixed). The remaining entries add material or concern the project's CI.

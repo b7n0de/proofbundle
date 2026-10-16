@@ -100,6 +100,74 @@ sample counts from the harness `n-samples` block: `effective_samples`, `original
 fallback). A silently subsetted run can no longer present itself as a full run under the same
 signed claim. See `examples/lm_eval_receipt.py` for a complete offline round-trip.
 
+## JUnit XML and CTRF JSON test reports (after 6.3.0)
+
+A CI that writes a JUnit XML report (pytest `--junitxml`, Maven Surefire, jest-junit) or a CTRF
+JSON report gets an eval receipt from it. The adapter reads the file only and imports no test tool.
+
+```bash
+proofbundle emit-test-receipt --junit report.xml --commit "$GITHUB_SHA" --key pb.key --out test-receipt.json
+proofbundle show-eval test-receipt.json --expect-issuer ed25519:<your key>
+proofbundle check-test-receipt test-receipt.json --report report.xml
+```
+
+```python
+from proofbundle.adapters import from_junit_xml, verify_test_receipt
+from proofbundle.evalclaim import emit_eval_receipt
+from proofbundle import generate_signer
+
+claim, salts = from_junit_xml("report.xml", commit="<40 or 64 hex>")
+receipt = emit_eval_receipt(claim, generate_signer())
+assert verify_test_receipt(receipt, "report.xml")["ok"]
+```
+
+`from_ctrf_json` and `--ctrf` read CTRF. `read_junit_xml` and `read_ctrf_json` return the counts of
+report bytes without building a claim.
+
+**What is read.** Five counts: tests, passed, failed, errors and skipped. A JUnit testcase with an
+`<error>` is an error, otherwise with a `<failure>` a failure, otherwise with a `<skipped>` a skip,
+otherwise passed; pytest's xfail is a skip. A Surefire testcase that passed on a rerun
+(`flakyFailure`, `flakyError`) is passed. In CTRF, `pending` is counted as skipped and `other` as an
+error: CTRF has no error status, and `other` is an outcome that is neither a pass, a failure nor a
+skip (jest writes a `test.todo` as `other`), so it never reads as passed. Both counts stand in the
+provenance as read.
+
+**The claim.** `metric` is `pass_rate`, `comparator` `>=` and `threshold` `1`, over `n` = passed +
+failed + errors. Passed means no failure, no error and at least one passed test, so an empty report
+and a report of skipped tests only do not pass. The provenance carries `report_sha256` (the SHA-256
+of the report's bytes), the optional `commit`, the counts as `tests_total`, `tests_passed`,
+`tests_failed`, `tests_errors` and `tests_skipped`, the pass rate rounded down to six places,
+`verdict_rule` and `non_claims`. The dataset commitment is over `sha256:<report digest>` and the
+model commitment over `git:<commit>`.
+
+**What is refused.** Every refusal is a `ReportRefused` with a stable `code` and a sentence naming
+the reason; the CLI exits 2 and writes no receipt.
+
+| Code | When |
+|---|---|
+| `doctype`, `entity`, `processing_instruction` | an XML document type declaration (DTD, entity declarations, external references, parameter entities), an undefined entity, a processing instruction |
+| `duplicate_attribute`, `duplicate_key` | a duplicated XML attribute, a duplicated JSON key at any depth |
+| `encoding` | anything but UTF-8; an XML declaration naming another encoding; a byte order mark in CTRF |
+| `trailing_content`, `malformed` | bytes after the one root element or JSON value; not well-formed; `NaN`, `Infinity` or a lone surrogate in JSON |
+| `structure` | a JUnit element where the formats above have none, such as a `<testcase>` inside `<system-out>` or an unknown outcome inside a `<testcase>` |
+| `count_mismatch`, `bad_count`, `contradiction` | a `tests`, `failures`, `errors` or `skipped` attribute or a CTRF summary count that disagrees with what it counts; a count that is not a non-negative integer; a rerun record without a final failure, or a flaky mark beside one |
+| `not_ctrf`, `unsupported_version`, `unknown_field`, `missing_field`, `bad_value` | not a CTRF document; a `specVersion` other than 0.2.x; a field CTRF does not define outside `extra` in the root, `results`, `tool`, `summary` or a test; a required field missing or of the wrong type |
+| `too_large`, `too_deep`, `not_a_file`, `unreadable` | past 64 MiB (`--max-report-bytes`) or 64 levels of nesting; a path that is not a regular file |
+
+Two real reports are refused for contradicting themselves: jest-junit 17.0.0 writes a `test.todo` as
+a testcase without a child and leaves it out of `tests`, and an older Surefire writer counted one test
+for two testcases. The objects CTRF defines but this adapter does not read (`environment`,
+`insights`, `baseline`, and a test's retry attempts, attachments and steps) are not validated; use a
+JSON Schema validator against the CTRF schema for full conformance. The CTRF reader follows
+`spec/ctrf.md` of `ctrf-io/ctrf`, version 0.2.0 of 2026-10-10. The vectors, real and synthetic, are in
+`tests/fixtures/test_reports`.
+
+**What the receipt does not prove** stands in it as `non_claims`: which report was signed by which
+key, and how its counts read under the rule. Not that the tests are meaningful, that the report came
+from the real run, or that it lists every test. Measured on 2026-10-16: a jest test file that failed
+to load was missing from both the jest-junit and the CTRF report of the same run, and nothing in
+either file showed it.
+
 ## Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4)
 
 HF's Community Evals accept per-benchmark result entries with an optional string `verifyToken`
