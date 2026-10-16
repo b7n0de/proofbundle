@@ -9282,11 +9282,13 @@ def _sh_walk_subs(subs: list, cwd: str | None, out: list) -> None:
 
 
 class _ShKeep(Exception):
-    """The whole command keeps the gate's answer of today; with floor "ask", raised to at least ask."""
+    """The whole command keeps the gate's answer of today; with floor "ask", raised to at least ask. step is the step
+    the reason belongs to, where it belongs to one (a gated step that is not the first, D46)."""
 
-    def __init__(self, why: str, floor: str | None = None):
+    def __init__(self, why: str, floor: str | None = None, step: "_ShStep | None" = None):
         super().__init__(why)
         self.floor = floor
+        self.step = step
 
 
 def _sh_step_text(step: _ShStep, assigns: bool = False) -> str:
@@ -9458,6 +9460,7 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
     the gate reads as one the shell may rewrite (_shell_rewrites), a step after a `cd` (its directory is unknown until
     class e), and K-NW-2 B's two forms in a longer command that is not a plain chain of `&&` and `;` (D3; the owner's
     choice of 2026-10-14, 16:2x, Nachtrag 2: _sh_plain_chain)."""
+    steps: list[_ShStep] = []
     try:
         try:
             tree = _sh_parse(command)
@@ -9465,7 +9468,6 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
             raise _ShKeep("substitutions nested too deep") from exc
         except _ShUnmodeled as exc:
             raise _ShKeep(f"not modelled: {exc}") from exc
-        steps: list[_ShStep] = []
         try:
             _sh_walk(tree, cwd, steps)
         except _ShUnmodeled as exc:
@@ -9481,7 +9483,145 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
                 "code_names_git", evidence="none, the gate reads no code",
                 failed=str(keep), next_step="run the git or gh call as its own command, or have a person review it")
             return Outcome("ask", verdict.text(), list(whole.verdicts if whole else []) + [verdict])
-        return whole
+        if whole is None or host == "codex" or whole.decision not in ("deny", "ask", "warn") or \
+                (len(steps) < 2 and keep.step is None and not any(_sh_generic_chain_verdict(v)
+                                                                   for v in whole.verdicts)):
+            return whole
+        # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to
+        return Outcome(whole.decision, _sh_keep_reason(keep, steps, whole, judge_whole, cwd), whole.verdicts,
+                       whole.applied_rule)
+
+
+#: How the reason says a decision of a step's own answer (D46).
+_SH_VERB = {"deny": "is denied", "ask": "asks", "warn": "warns"}
+
+
+def _sh_generic_chain_verdict(v: Verdict) -> bool:
+    """Whether v is the answer of the whole command that every git step of a longer command gets (D3: no git step of a
+    longer command is free, and its directory is not resolved there), which names no finding of that step (D46)."""
+    return ((v.reason_id == "git_form_not_free" and v.evidence == "none, the gate reads no repository state for a git "
+             "form") or (v.reason_id == "directory_unresolved" and v.evidence.startswith("unknown, the repository")))
+
+
+def _sh_free_sentence(free: list) -> str:
+    if not free:
+        return "No other git or gh step of the command would be free on its own."
+    return "On their own, these git and gh steps of the command would be free: " + "; ".join(
+        f"`{t}`" for t in free) + "."
+
+
+def _sh_steps_reason(decision: str, own: list, chosen: list, kept: str | None = None) -> str:
+    """The text of the reason for a longer command that class c judged step by step (Ergänzung 1 to Nachtrag 19, part
+    A, DECISIONS.md D46): where a git or gh step has the decision on its own, that step first with its reason ids and
+    its text, then in one sentence which git and gh steps would be free on their own, then the steps that have the
+    decision on their own too, then every other text of the decision (a step after a state change, a write). Where no
+    step has it on its own, the text says that the reason belongs to the command, not to one step. kept names why the
+    command keeps the answer of the whole command. The decision and the verdicts are not changed."""
+    verb = _SH_VERB[decision]
+    prefix = "proofbundle gate: " if decision == "deny" else "NOT MEASURED: "
+    deciding = [(s, a) for s, a in own if a is not None and a.decision == decision]
+    unknown = [s for s, a in own if a is None and s.cwd is None]
+    free = [_sh_step_text(s) for s, a in own if a is not None and a.decision in ("pass", "inactive")]
+    used: list = []
+    parts = []
+    if deciding:
+        first, answer = deciding[0]
+        mine = [v for v in answer.verdicts if v.decision == decision]
+        used.extend(mine)
+        ids = ", ".join(dict.fromkeys(v.reason_id for v in mine))
+        parts.append(f"{prefix}the step `{_sh_step_text(first)}` of this command {verb} on its own ({ids}):")
+        parts.extend(v.text() for v in mine)
+        parts.append(_sh_free_sentence(free))
+        if len(deciding) > 1:
+            parts.append(f"These steps {verb.replace('is ', 'are ').replace('asks', 'ask').replace('warns', 'warn')}"
+                         " on their own too: " + "; ".join(f"`{_sh_step_text(s)}`" for s, _a in deciding[1:]) + ".")
+            for _s, a in deciding[1:]:
+                mine = [v for v in a.verdicts if v.decision == decision]
+                used.extend(mine)
+                parts.extend(v.text() for v in mine)
+    elif unknown:
+        parts.append(f"NOT MEASURED: the gate cannot judge the step `{_sh_step_text(unknown[0])}` of this command on "
+                     "its own: its directory is unknown after a directory change (class e of DESIGN_ask_load.md is "
+                     "not built), so it keeps the answer of the whole command.")
+        parts.append(_sh_free_sentence(free))
+    else:
+        parts.append(f"{prefix}no git or gh step of this command {verb} on its own; the reason belongs to the command, "
+                     "not to one step.")
+        parts.append(_sh_free_sentence(free))
+    if kept:
+        parts.append(f"The command keeps the answer of the whole command: {kept}.")
+    parts.extend(v.text() for v in chosen if all(v is not u for u in used))
+    return " ".join(parts)
+
+
+def _sh_call_name(step: "_ShStep") -> str:
+    """The name the whole command's answer gives a git step: `git <subcommand>`, after the global options."""
+    words, i = step.words[1:], 0
+    while i < len(words) and words[i].startswith("-"):
+        i += 2 if words[i] in _GIT_GLOBAL_VALUE and "=" not in words[i] else 1
+    return f"git {words[i]}" if i < len(words) else "git"
+
+
+def _sh_pushing(step: "_ShStep") -> bool:
+    """Whether a step is a push, a possible transfer or a gated gh call, which the gate judges only as the first step of
+    a command on its own and does not judge for the text of a reason (D46)."""
+    return step.kind == "git-x" or (step.kind == "gh" and _gh_call(step.words[1:]) is not None) or \
+        (step.kind == "git" and _sh_call_name(step) == "git push")
+
+
+def _sh_names_call(v: Verdict, name: str) -> bool:
+    """Whether the whole command's answer v, one every git step of a longer command gets, is the one for `name`."""
+    return v.failed == f"{name} may start a program the gate does not see" or \
+        f"which repository {name} acts on" in v.detail
+
+
+def _sh_keep_reason(keep: "_ShKeep", steps: list, whole: Outcome, judge_whole, cwd: str) -> str:
+    """The text of the reason where class c keeps the answer of the whole command (D46). First the reason class c keeps
+    it. Where that reason is a form of the command (one the parser does not model, a carrier of code, an expansion), it
+    belongs to no step: the text says so, and the whole command's texts follow. Where it is a gated step that is not
+    the first step, that step with its own answer (a push or a gated gh call is not judged on its own here: the gate
+    judges it only as the first step; its texts are the whole command's for it), in one sentence which other git and
+    gh steps would be free on their own, and the whole command's texts that name a finding; the answer every other git
+    step of a longer command gets there (D3), which names none for that step, is left out. Every reason keeps its
+    evidence and next step (D19). The decision and the verdicts are not changed."""
+    chosen = [v for v in whole.verdicts if v.decision == whole.decision]
+    s = keep.step
+    if s is None:
+        return " ".join([f"NOT MEASURED: the gate does not judge this command step by step: {keep}. It keeps the "
+                         "answer of the whole command, in which no git step of a longer command is free (D3); the "
+                         "reason belongs to the command, not to one step (DECISIONS.md D33, D46).",
+                         *[v.text() for v in chosen]])
+    name = _sh_call_name(s) if s.kind == "git" else ""
+    of_step = [v for v in chosen if _sh_generic_chain_verdict(v) and name and _sh_names_call(v, name)]
+    rest = [v.text() for v in chosen if not _sh_generic_chain_verdict(v)]
+    others = [t for t in steps if t is not s and t.kind in ("git", "gh") and t.cwd is not None and not _sh_pushing(t)]
+    free, asking = [], []
+    for t in others:
+        answer = judge_whole(_sh_step_text(t, assigns=True), t.cwd)
+        (free if answer is None or answer.decision in ("pass", "inactive") else asking).append(_sh_step_text(t))
+    pushing = _sh_pushing(s)
+    alone = None if pushing or s.cwd is None else judge_whole(_sh_step_text(s, assigns=True), s.cwd)
+    text = f"`{_sh_step_text(s)}`"
+    if alone is not None and alone.decision not in ("pass", "inactive"):
+        mine = [v for v in alone.verdicts if v.decision == alone.decision]
+        ids = ", ".join(dict.fromkeys(v.reason_id for v in mine))
+        lead = [f"NOT MEASURED: the step {text} of this command {_SH_VERB[alone.decision]} on its own ({ids}):",
+                *[v.text() for v in mine]]
+    elif alone is not None:
+        lead = [f"NOT MEASURED: the step {text} of this command would be free on its own.",
+                *[v.text() for v in of_step]]
+    else:
+        lead = [f"NOT MEASURED: the step {text} of this command is a push or another gated call, which the gate judges "
+                "only as the first step of a command on its own.", *[v.text() for v in of_step]]
+    parts = [*lead, "It is a gated step that is not the first step, so the gate does not judge the command step by "
+                    "step and keeps the answer of the whole command, in which no git step of a longer command is free "
+                    "(D3; DECISIONS.md D33, D46).", _sh_free_sentence(free)]
+    if asking:
+        parts.append("These steps ask on their own too: " + "; ".join(f"`{x}`" for x in asking) + ".")
+    parts.extend(rest)
+    if not any("Next step: " in p for p in parts):
+        parts.extend(v.text() for v in chosen[:1])     # D19: every reason says what to do
+    return " ".join(parts)
 
 
 def _sh_plain_chain(command: str, tree: _ShList, steps: list) -> bool:
@@ -9522,6 +9662,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
               judge_whole, plain_chain: bool = False) -> Outcome | None:
     released = False   # a K-NW-2 B step left free in a plain chain (Nachtrag 2)
     verdicts: list = []
+    own: list = []     # each git and gh step with its answer on its own, for the text of the reason (D46)
     free_fetches: set = set()   # the fetch steps of D45 whose own answer is free
     protected: set = set()
     for s in steps:
@@ -9575,11 +9716,12 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 free_fetches.add(id(s))
         if gated:
             if host == "codex" or not s.top_level or s.cmd.redirs or any(t.kind != "cd" for t in s.before):
-                raise _ShKeep(f"the gated step {_sh_step_text(s)} is not the first step on its own")
+                raise _ShKeep(f"the gated step {_sh_step_text(s)} is not the first step on its own", step=s)
         if s.cwd is None:
             # The directory is unknown after a directory change (class e is not built): the step keeps the answer of
             # the whole command, with the form that answer names (suite of b6e46962: the safe push form of D32 had
             # given way to a text of its own). Its verdicts count once, however many steps keep them.
+            own.append((s, None))
             if whole is not None:
                 verdicts.extend(v for v in whole.verdicts if all(v is not w for w in verdicts))
                 continue
@@ -9592,6 +9734,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                           "`git -C <absolute path> …`"))
             continue
         answer = judge_whole(_sh_step_text(s, assigns=True), s.cwd)
+        own.append((s, answer))
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_checkout_check"
                                                          for v in answer.verdicts):
             raise _ShKeep("`git worktree add` is free only as the whole command (D40)")
@@ -9629,9 +9772,17 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             if released and whole is not None and _SH_STRICTNESS.index(whole.decision) <= \
                     _SH_STRICTNESS.index(decision):
                 # a plain chain that is not free keeps the whole command's answer where that is as strict: its reason
-                # and the two forms it names stay what they were before Nachtrag 2
-                return whole
-            return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
+                # and the two forms it names stay what they were before Nachtrag 2; the text names the step first
+                # (D46)
+                if host == "codex" or len(steps) < 2:
+                    return whole
+                return Outcome(whole.decision, _sh_steps_reason(whole.decision, own, [
+                    v for v in whole.verdicts if v.decision == whole.decision], kept=(
+                        "a plain chain with `git add` or `git commit -m` that is not free keeps the answer of the "
+                        "whole command (D3, Nachtrag 2)")), whole.verdicts, whole.applied_rule)
+            text = (" ".join(v.text() for v in chosen) if host == "codex" or len(steps) < 2 else
+                    _sh_steps_reason(decision, own, chosen))
+            return Outcome(decision, text, verdicts)
     combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
 

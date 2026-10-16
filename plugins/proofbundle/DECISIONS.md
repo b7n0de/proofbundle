@@ -2197,6 +2197,8 @@ review Runde 12) counts every git or gh word in the whole text. The owner's answ
 reviewer's recommendations) and Nachtrag 1 of FIX-18 order the classes of DESIGN_ask_load.md by their benefit; class
 c comes first, because no other class acts without it.
 
+How the reason of a longer command names the step that asks, and says so where the reason belongs to no step: D46.
+
 Built (class c): after the answer of the whole command, the gate parses the command as bash 5.2 does for the forms it
 models (lists, `&&`/`||` chains, pipelines, subshells and groups whose redirections open no file, simple commands with
 assignments and redirections, here-documents, and command, process, parameter and arithmetic substitutions) and walks
@@ -3190,3 +3192,32 @@ github.com; whether github.com answers a fetch with a redirect, and to where, is
 2.92.0 rests on D43's measurement of that version, not on a run of `gh auth git-credential` with it. SSL_CERT_FILE,
 CURL_CA_BUNDLE and other names libcurl reads for its trust are not read. A fetch over ssh, from another host or with
 another remote form keeps the ask. The program PATH selects is not read (D27), as for class a.
+
+## D46. The reason of a longer command names the step that asks (Ergänzung 1 to Nachtrag 19, part A, 2026-10-16)
+
+Measured by Cowork at 1db350a1 in delta's environment, a clone under an absolute path with origin on a local
+repository: delta's chain of 09:53Z (`git -C <abs> status --porcelain --branch; … rev-parse HEAD; … log -1 --format=%B
+<sha> | tail -3; … fetch -q origin main; … rev-parse origin/main; … merge-base --is-ancestor <sha> HEAD; echo …; ls
+<abs>/.git/hooks/ | grep -v sample`) asked; each step alone was free but the fetch (remote_read_not_modeled), and the
+chain without the fetch was free. The reason named status, rev-parse and log, each with "Evidence: none, the gate reads
+no repository state for a git form", first, and the fetch only later and with "the gate cannot tell which repository
+git fetch acts on"; the owner read from it that `git -C` itself asked. Reproduced at 1db350a1: the fetch is a gated step
+(not on _GIT_LOCAL_SUBCOMMANDS), and a gated step that is not the first step makes class c keep the answer of the whole
+command, which gives every git step of a longer command the not-free answer of D3.
+
+The rule, under Claude Code: only the text of the reason changes; the decision and the verdicts with their reason ids
+stay as they were.
+- A longer command class c judges step by step (_sh_steps_reason): where a git or gh step has the decision on its own,
+  the text names that step first with its reason ids and its own text, then in one sentence which git and gh steps
+  would be free on their own, then the steps that have the decision on their own too, then every other text of the
+  decision. Where no step has it on its own (a step after a state change, a write), the text says that the reason
+  belongs to the command, not to one step; where a step's directory is unknown after a `cd`, it says that.
+- A longer command class c keeps whole (_sh_keep_reason): first why. A form of the command (one the parser does not
+  model, a carrier of code, an expansion) belongs to no step, and the text says so before the whole command's texts.
+  A gated step that is not the first step is named with its own answer (a push or a gated gh call is not judged on its
+  own there; its texts are the whole command's, the safe push form of D32 among them), then which other steps would be
+  free on their own and which ask on their own too, then the whole command's texts that name a finding; the answer
+  every other git step of a longer command gets there names no finding for that step and is left out. delta's chain
+  with origin on a local path is such a command: its fetch is not free (D45) and is named first.
+- Every reason keeps the house prefix and its evidence, failure and next step (D19).
+Under Codex the texts stay as they were (D37 fixes them word for word). A single command keeps its text.
