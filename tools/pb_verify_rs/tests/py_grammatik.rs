@@ -141,3 +141,16 @@ fn g3_allow_pending_needs_an_anchor_requirement() {
         ],
     );
 }
+
+#[test]
+fn f5_anchor_target_takes_only_the_three_choices() {
+    let f = Files::new("f5");
+    let mut cases = Vec::new();
+    for t in ["receipt", "preRegistration", "statement"] {
+        cases.push((t, v(&["ok.json", "--anchor-target", t]), 3));
+    }
+    for t in ["x", "", "Receipt", "rec", "receipt ", "receipt\u{FFFF}"] {
+        cases.push((t, v(&["ok.json", "--anchor-target", t]), 2));
+    }
+    check(&f, "verify-bundle", &cases);
+}

@@ -946,6 +946,9 @@ const BUNDLE_SCHEMA_V01: &str = "proofbundle/v0.1";
 const BUNDLE_SIGNATURE_ALG: &str = "ed25519";
 const BUNDLE_MERKLE_HASH_ALG: &str = "sha256-rfc6962";
 
+/// The values of `proofbundle verify --anchor-target` (argparse `choices`, SPEC §7i).
+const ANCHOR_TARGETS: [&str; 3] = ["receipt", "preRegistration", "statement"];
+
 fn verify_bundle(
     b: &serde_json::Value,
     expected_root: Option<&str>,
@@ -3216,7 +3219,27 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         allow_pending = true;
                         i += 1;
                     }
-                    "--anchor-type" | "--anchor-target" => {
+                    "--anchor-type" => {
+                        require_anchor = true;
+                        i += 2;
+                    }
+                    // Z381 F5: Python's argparse lets --anchor-target take exactly the three
+                    // values of `choices` and refuses any other with exit 2; this verifier took
+                    // any word and answered POLICY_UNMET (3), measured.
+                    "--anchor-target" => {
+                        let ziel = args
+                            .get(i + 1)
+                            .unwrap_or_else(|| fatal("--anchor-target needs a value"));
+                        if !ANCHOR_TARGETS
+                            .iter()
+                            .any(|t| ziel.as_encoded_bytes() == t.as_bytes())
+                        {
+                            fatal(&format!(
+                                "--anchor-target: invalid choice: {} (choose from {})",
+                                ziel.to_string_lossy(),
+                                ANCHOR_TARGETS.join(", ")
+                            ));
+                        }
                         require_anchor = true;
                         i += 2;
                     }
