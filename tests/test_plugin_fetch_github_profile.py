@@ -390,3 +390,21 @@ def test_E1B_control_a_step_before_or_a_push_after_keeps_the_ask(tmp_path, repo,
     makes the fetch ask (step_after_state_change)."""
     out = _decide(repo, command)
     assert out is not None and out.decision in ("ask", "deny"), (command, out and out.text)
+
+
+@pytest.mark.parametrize("key, value", [("extensions.partialClone", "origin"), ("remote.origin.promisor", "true")])
+def test_E1B_a_promisor_is_named_as_such(tmp_path, repo, key, value):
+    w.git(repo, "config", key, value)
+    out = _decide(repo, "git -C {a} fetch -q origin main")
+    assert _asked(out) and "a lazy fetch from a promisor remote" in out.text, out.text
+
+
+def test_E1B_a_fetch_the_profile_does_not_free_stays_a_gated_step(tmp_path, repo):
+    """Not the first step and not free on its own: class c keeps the whole command's answer, as for every fetch before
+    (D33); its decision and reason ids are the whole command's."""
+    w.git(repo, "remote", "set-url", "origin", str(tmp_path / "elsewhere"))
+    command = "git -C {a} log -1; git -C {a} fetch -q origin main".format(a=repo)
+    out = _decide(repo, command)
+    whole = gate._decide_outcome_whole(command, str(repo), time.monotonic() + 180, "claude", gate.os.environ)
+    assert (out.decision, [v.reason_id for v in out.verdicts]) == \
+        (whole.decision, [v.reason_id for v in whole.verdicts]), out.text
