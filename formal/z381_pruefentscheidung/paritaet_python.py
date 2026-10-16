@@ -184,8 +184,52 @@ def run_python(inputs, workers):
     return [r for p in parts for r in p]
 
 
+# The index layout of D3 and D4 in tests/common/domains.rs (header variant innermost in D3). Used to
+# name the axes of a disagreement on a bundle; it describes, it decides nothing.
+D3_AXES = (("header", 8), ("sd_jwt_vc", 7), ("merkle", 602), ("signature", 37), ("payload", 5))
+D4_AXES = (("flags", 16), ("sd_jwt_vc", 7), ("merkle", 602), ("payload", 2))
+
+
+def bundle_axes(domain: str, k: int) -> str:
+    axes = D3_AXES if domain.startswith("D3") else D4_AXES
+    parts = []
+    for name, size in axes:
+        parts.append(f"{name}={k % size}")
+        k //= size
+    return ",".join(parts)
+
+
+def bundle_shape(i: dict) -> str:
+    """For D3/D4: which header field is off, and which member is absent or not an object."""
+    try:
+        b = json.loads(i["file"])
+    except (TypeError, ValueError):
+        return "file-not-json"
+    if not isinstance(b, dict):
+        return "bundle-not-object"
+    tags = []
+    if b.get("schema") != "proofbundle/v0.1":
+        tags.append("schema-off")
+    sig, mk = b.get("signature"), b.get("merkle")
+    if isinstance(sig, dict) and sig.get("alg") != "ed25519":
+        tags.append("alg-off")
+    if isinstance(mk, dict) and mk.get("hash_alg") != "sha256-rfc6962":
+        tags.append("hash_alg-off")
+    for name, v in (("signature", sig), ("merkle", mk), ("payload_b64", b.get("payload_b64"))):
+        if v is None:
+            tags.append(f"{name}-absent")
+        elif name != "payload_b64" and not isinstance(v, dict):
+            tags.append(f"{name}-not-object")
+    if "sd_jwt_vc" in b:
+        tags.append("sd_jwt_vc-present")
+    return ",".join(tags) or "header-right"
+
+
 def shape(i: dict) -> str:
     """A coarse, explicit description of the argument shape, for grouping only."""
+    if i["domain"].startswith(("D3", "D4")):
+        tail = " ".join(a.decode("utf-8", "replace") for a in i["argv"][2:])
+        return f"{bundle_shape(i)} flags=[{tail}]"
     w = [a.decode("utf-8", "replace") for a in i["argv"]]
     tags = []
     if not w or w[0] != "verify-bundle":
@@ -274,6 +318,8 @@ def main() -> int:
         g["count"] += 1
         if len(g["examples"]) < 3:
             g["examples"].append({"domain": i["domain"], "k": i["k"],
+                                  "axes": bundle_axes(i["domain"], i["k"])
+                                  if i["domain"].startswith(("D3", "D4")) else None,
                                   "argv": [x.decode("utf-8", "backslashreplace") for x in i["argv"]],
                                   "file": "absent" if i["file"] is None else
                                   ("valid bundle" if len(i["file"]) > 2 else i["file"].decode()),

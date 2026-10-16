@@ -61,8 +61,8 @@ fn plant(src: &str, mutant: &str) -> String {
         // same input, different verdict: the verdict depends on how often the function ran
         "nondeterministic" => replace_exact(
             src,
-            ") -> Result<bool, String> {\n    let payload_b64 = b\n        .get(\"payload_b64\")",
-            ") -> Result<bool, String> {\n    static AUFRUFE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);\n    if AUFRUFE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 == 1 {\n        return Ok(false);\n    }\n    let payload_b64 = b\n        .get(\"payload_b64\")",
+            ") -> Result<bool, String> {\n    // Z381 F2: the three header fields",
+            ") -> Result<bool, String> {\n    static AUFRUFE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);\n    if AUFRUFE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 == 1 {\n        return Ok(false);\n    }\n    // Z381 F2: the three header fields",
             1,
             "mutant nondeterministic",
         ),

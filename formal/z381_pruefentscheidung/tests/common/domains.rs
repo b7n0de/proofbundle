@@ -53,6 +53,8 @@ pub fn d2() -> Domain {
 // invalid encoding / valid-but-wrong / valid-and-right, the product is decided in full. Real
 // Ed25519 signatures and an independent RFC 6962 implementation make the deep paths (signature
 // verified, inclusion verified, root pinned, SD-JWT checked) reachable, so PASS is in the domain.
+// Z381 continuation: the header fields `schema`, `signature.alg`, `merkle.hash_alg` are a further axis
+// (HEADER_VARIANTS), so D3 is that many times the product above.
 // ---------------------------------------------------------------------------------------------
 pub fn sha(parts: &[&[u8]]) -> Vec<u8> {
     let mut h = Sha256::new();
@@ -296,6 +298,32 @@ pub fn signature_variant(k: &Keys, s: usize, payload: Option<&[u8]>) -> Option<V
     }
 }
 
+/// The header axis (Z381 continuation, F2): `schema`, `signature.alg` and `merkle.hash_alg` right,
+/// absent, or carrying a value Python refuses. Variant 0 is the bundle Python accepts; every domain
+/// but D3 uses it, so a PASS of the proof is a PASS for Python too. `signature.alg` and
+/// `merkle.hash_alg` exist only where the signature and the merkle member are objects.
+pub const HEADER_VARIANTS: usize = 8;
+
+fn header(h: usize) -> (Option<Value>, Option<Value>, Option<Value>) {
+    let (schema, alg, hash) = (
+        json!("proofbundle/v0.1"),
+        json!("ed25519"),
+        json!("sha256-rfc6962"),
+    );
+    match h {
+        0 => (Some(schema), Some(alg), Some(hash)),
+        1 => (None, Some(alg), Some(hash)),
+        2 => (Some(json!("proofbundle/v9")), Some(alg), Some(hash)),
+        3 => (Some(json!(1)), Some(alg), Some(hash)),
+        4 => (Some(schema), None, Some(hash)),
+        5 => (Some(schema), Some(json!("rsa-pss-sha256")), Some(hash)),
+        6 => (Some(schema), Some(alg), None),
+        7 => (Some(schema), Some(alg), Some(json!("sha1"))),
+        _ => unreachable!(),
+    }
+}
+
+/// A bundle with the right header fields (header variant 0).
 pub fn bundle(
     k: &Keys,
     ax: &Axes,
@@ -304,16 +332,38 @@ pub fn bundle(
     m: usize,
     d: usize,
 ) -> (Vec<u8>, Option<String>) {
+    bundle_h(k, ax, 0, p, s, m, d)
+}
+
+pub fn bundle_h(
+    k: &Keys,
+    ax: &Axes,
+    h: usize,
+    p: usize,
+    s: usize,
+    m: usize,
+    d: usize,
+) -> (Vec<u8>, Option<String>) {
+    let (schema, alg, hash_alg) = header(h);
     let (pv, praw) = &ax.payload[p];
     let mut o = Map::new();
+    if let Some(v) = schema {
+        o.insert("schema".into(), v);
+    }
     if let Some(v) = pv {
         o.insert("payload_b64".into(), v.clone());
     }
-    if let Some(v) = signature_variant(k, s, *praw) {
+    if let Some(mut v) = signature_variant(k, s, *praw) {
+        if let (Some(sig), Some(a)) = (v.as_object_mut(), alg) {
+            sig.insert("alg".into(), a);
+        }
         o.insert("signature".into(), v);
     }
     let (mv, root) = merkle_variant(m, praw.unwrap_or(PAYLOAD));
-    if let Some(v) = mv {
+    if let Some(mut v) = mv {
+        if let (Some(mk), Some(a)) = (v.as_object_mut(), hash_alg) {
+            mk.insert("hash_alg".into(), a);
+        }
         o.insert("merkle".into(), v);
     }
     if let Some(v) = &ax.sd[d] {
@@ -331,15 +381,17 @@ pub fn d3() -> Domain {
         MERKLE_VARIANTS,
         ax.sd.len(),
     );
-    let n = np * ns * nm * nd;
+    let n = HEADER_VARIANTS * np * ns * nm * nd;
     Domain::new("D3_structured_bundles", n, move |mut i| {
+        let h = i % HEADER_VARIANTS;
+        i /= HEADER_VARIANTS;
         let d = i % nd;
         i /= nd;
         let m = i % nm;
         i /= nm;
         let s = i % ns;
         let p = i / ns;
-        Input::new(bundle_argv(&[]), Some(bundle(&k, &ax, p, s, m, d).0))
+        Input::new(bundle_argv(&[]), Some(bundle_h(&k, &ax, h, p, s, m, d).0))
     })
 }
 

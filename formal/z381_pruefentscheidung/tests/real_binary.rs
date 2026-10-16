@@ -58,7 +58,7 @@ fn harness_agrees_with_real_binary_on_samples() {
     for (d, step) in [
         (d1(), 9_973usize),
         (d2(), 9_967),
-        (d3(), 97),
+        (d3(), 773), // D3 carries the header axis (8 variants); 773 is odd, so every variant is sampled
         (d4(), 17),
         (d5(), 13),
         (d6(), 7),

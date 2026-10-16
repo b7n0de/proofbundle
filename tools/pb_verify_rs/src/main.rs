@@ -941,11 +941,29 @@ fn verify_sdjwt_issuer(
 // deciding check is signature / merkle / root / tree-size / strict-parse.
 // Err(..) => malformed (exit 2); Ok(true) => verified (0); Ok(false) => failure (1).
 // ---------------------------------------------------------------------------
+/// The header fields of a native bundle (SPEC.md §3, §5), exactly the values Python accepts.
+const BUNDLE_SCHEMA_V01: &str = "proofbundle/v0.1";
+const BUNDLE_SIGNATURE_ALG: &str = "ed25519";
+const BUNDLE_MERKLE_HASH_ALG: &str = "sha256-rfc6962";
+
 fn verify_bundle(
     b: &serde_json::Value,
     expected_root: Option<&str>,
     expected_tree_size: Option<u64>,
 ) -> Result<bool, String> {
+    // Z381 F2: the three header fields, read as Python `bundle._verify_bundle` reads them, and BEFORE
+    // any cryptography. Python raises on each of them wherever it meets it (exit 2), even after a
+    // signature that did not verify, so checking them first gives every bundle the exit Python gives
+    // it. Until Z381 this verifier read none of the three: a bundle without `schema`, or one naming
+    // `signature.alg` "rsa-pss-sha256" or `merkle.hash_alg` "sha1", was verified as Ed25519 and
+    // SHA-256 and passed (exit 0) where Python refuses it (exit 2), measured.
+    let schema = b.get("schema");
+    if schema.and_then(|v| v.as_str()) != Some(BUNDLE_SCHEMA_V01) {
+        return Err(format!(
+            "unsupported schema {}, expected '{BUNDLE_SCHEMA_V01}'",
+            py_repr(schema)
+        ));
+    }
     let payload_b64 = b
         .get("payload_b64")
         .and_then(|v| v.as_str())
@@ -953,6 +971,26 @@ fn verify_bundle(
     let payload = b64_strict(payload_b64).map_err(|e| format!("payload_b64: {e}"))?;
 
     let sig = b.get("signature").ok_or("missing signature")?;
+    let alg = sig.get("alg");
+    if alg.and_then(|v| v.as_str()) != Some(BUNDLE_SIGNATURE_ALG) {
+        return Err(format!(
+            "signature alg {} not supported in v0.1",
+            py_repr(alg)
+        ));
+    }
+    let mk = b.get("merkle").ok_or("missing merkle")?;
+    match mk.get("hash_alg") {
+        None => {
+            return Err("missing field merkle.hash_alg - REQUIRED since v1.6 (SPEC.md §5)".into());
+        }
+        Some(h) if h.as_str() == Some(BUNDLE_MERKLE_HASH_ALG) => {}
+        Some(h) => {
+            return Err(format!(
+                "merkle hash_alg {} not supported in v0.1",
+                py_repr(Some(h))
+            ));
+        }
+    }
     let pub_b64 = sig
         .get("public_key_b64")
         .and_then(|v| v.as_str())
@@ -977,7 +1015,6 @@ fn verify_bundle(
         return Ok(false);
     }
 
-    let mk = b.get("merkle").ok_or("missing merkle")?;
     let leaf_index = mk
         .get("leaf_index")
         .and_then(|v| v.as_u64())
@@ -3626,6 +3663,71 @@ mod tests {
         std::fs::write(&klein, b"{\"a\":1}").expect("write");
         assert_eq!(read_file_begrenzt(&klein).expect("klein"), b"{\"a\":1}");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_header_fields_are_read_before_the_signature() {
+        // Z381 F2: `schema`, `signature.alg` and `merkle.hash_alg` take exactly the values Python
+        // accepts, and a wrong one is malformed (exit 2) even when the signature would fail too.
+        let roh = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/example_bundle.json"
+        ))
+        .expect("examples/example_bundle.json");
+        let gut = strict_parse(&roh).expect("the example parses");
+        assert_eq!(
+            verify_bundle(&gut, None, None),
+            Ok(true),
+            "the example verifies"
+        );
+        let mit = |f: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = gut.clone();
+            f(&mut v);
+            v
+        };
+        let falle: [(&str, serde_json::Value); 6] = [
+            (
+                "schema absent",
+                mit(&|v| {
+                    v.as_object_mut().unwrap().remove("schema");
+                }),
+            ),
+            (
+                "schema v9",
+                mit(&|v| v["schema"] = serde_json::json!("proofbundle/v9")),
+            ),
+            (
+                "alg absent",
+                mit(&|v| {
+                    v["signature"].as_object_mut().unwrap().remove("alg");
+                }),
+            ),
+            (
+                "alg rsa",
+                mit(&|v| v["signature"]["alg"] = serde_json::json!("rsa-pss-sha256")),
+            ),
+            (
+                "hash_alg absent",
+                mit(&|v| {
+                    v["merkle"].as_object_mut().unwrap().remove("hash_alg");
+                }),
+            ),
+            (
+                "hash_alg sha1",
+                mit(&|v| v["merkle"]["hash_alg"] = serde_json::json!("sha1")),
+            ),
+        ];
+        for (name, v) in &falle {
+            assert!(verify_bundle(v, None, None).is_err(), "{name}: not refused");
+            // the same header with a signature that does not verify: still malformed, not FAIL
+            let mut kaputt = v.clone();
+            kaputt["signature"]["sig_b64"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode([0u8; 64]));
+            assert!(
+                verify_bundle(&kaputt, None, None).is_err(),
+                "{name}: a failing signature was decided before the header"
+            );
+        }
     }
 
     #[cfg(unix)]
