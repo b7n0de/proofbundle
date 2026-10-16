@@ -7,9 +7,9 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 
 use super::*;
+use z381_pruefentscheidung::boundary::input_path_not_utf8;
 
 pub struct Domain {
     pub name: &'static str,
@@ -32,9 +32,8 @@ impl Domain {
 // ---------------------------------------------------------------------------------------------
 pub fn d1() -> Domain {
     let alphabet: Vec<u8> = (0..=255u8).collect();
-    Domain::new("D1_bytes_len_le_3", words(256, 3), move |k| Input {
-        argv: bundle_argv(&[]),
-        file: Some(word(&alphabet, 3, k)),
+    Domain::new("D1_bytes_len_le_3", words(256, 3), move |k| {
+        Input::new(bundle_argv(&[]), Some(word(&alphabet, 3, k)))
     })
 }
 
@@ -44,9 +43,8 @@ pub fn d1() -> Domain {
 pub const JSON16: &[u8; 16] = b"{}[]\":,01-.eat\\ ";
 
 pub fn d2() -> Domain {
-    Domain::new("D2_json16_len_le_6", words(16, 6), |k| Input {
-        argv: bundle_argv(&[]),
-        file: Some(word(JSON16, 6, k)),
+    Domain::new("D2_json16_len_le_6", words(16, 6), |k| {
+        Input::new(bundle_argv(&[]), Some(word(JSON16, 6, k)))
     })
 }
 
@@ -341,10 +339,7 @@ pub fn d3() -> Domain {
         i /= nm;
         let s = i % ns;
         let p = i / ns;
-        Input {
-            argv: bundle_argv(&[]),
-            file: Some(bundle(&k, &ax, p, s, m, d).0),
-        }
+        Input::new(bundle_argv(&[]), Some(bundle(&k, &ax, p, s, m, d).0))
     })
 }
 
@@ -406,10 +401,7 @@ pub fn d4() -> Domain {
             })
             .collect();
         let fl: Vec<&str> = flags.iter().map(|s| s.as_str()).collect();
-        Input {
-            argv: bundle_argv(&fl),
-            file: Some(bytes),
-        }
+        Input::new(bundle_argv(&fl), Some(bytes))
     })
 }
 
@@ -419,7 +411,10 @@ pub fn d4() -> Domain {
 // against three file states. Restricted to `verify-bundle` and to words that are no subcommand;
 // the other subcommands are outside this proof.
 // ---------------------------------------------------------------------------------------------
-pub fn d5() -> Domain {
+
+/// The 14 argv words of D5 and D6, and the valid bundle (right signature, right inclusion proof
+/// for a one-leaf tree) the file states use.
+pub fn argv_alphabet() -> (Vec<OsString>, Vec<u8>) {
     let k = keys();
     let ax = axes(&k);
     let right_sig = 2 + 5 * SIG_VARIANTS + 3;
@@ -446,45 +441,67 @@ pub fn d5() -> Domain {
         "--anchor-type".into(),
         "".into(),
         "x".into(),
-        OsString::from_vec(b"input\xff.json".to_vec()),
+        input_path_not_utf8(),
     ];
-    let a = alphabet.len();
+    (alphabet, valid)
+}
+
+/// argv[1] is verify-bundle or no subcommand at all (absent, unknown, not UTF-8).
+fn first_ok(w: &[OsString]) -> bool {
+    match w.first().and_then(|x| x.to_str()) {
+        None => true,
+        Some("verify-bundle") | Some("") | Some("x") => true,
+        Some(s) => ![
+            "budget",
+            "content-root",
+            "verify-dsse",
+            "merkle-root",
+            "strict-parse",
+            "verify-trust-pack-threshold",
+            "verify-relation",
+            "verify-relation-statement",
+            "coverage-report",
+        ]
+        .contains(&s),
+    }
+}
+
+/// The argv words of D5/D6 number `w` (program name first).
+pub fn argv_word(alphabet: &[OsString], w: usize) -> Vec<OsString> {
+    let idx: Vec<u8> = (0..alphabet.len() as u8).collect();
+    let words: Vec<OsString> = word(&idx, 4, w)
+        .into_iter()
+        .map(|j| alphabet[j as usize].clone())
+        .collect();
+    assert!(first_ok(&words));
+    let mut argv: Vec<OsString> = vec!["pb_verify_rs".into()];
+    argv.extend(words);
+    argv
+}
+
+pub fn d5() -> Domain {
+    let (alphabet, valid) = argv_alphabet();
     let files: [Option<Vec<u8>>; 3] = [Some(valid), Some(b"{}".to_vec()), None];
-    let words_n = words(a, 4);
-    let n = words_n * files.len();
-    let first_ok = |w: &[OsString]| -> bool {
-        // argv[1] is verify-bundle or no subcommand at all (absent, unknown, not UTF-8)
-        match w.first().and_then(|x| x.to_str()) {
-            None => true,
-            Some("verify-bundle") | Some("") | Some("x") => true,
-            Some(_) => !w[0].to_str().is_some_and(|s| {
-                [
-                    "budget",
-                    "content-root",
-                    "verify-dsse",
-                    "merkle-root",
-                    "strict-parse",
-                    "verify-trust-pack-threshold",
-                    "verify-relation",
-                    "verify-relation-statement",
-                    "coverage-report",
-                ]
-                .contains(&s)
-            }),
-        }
-    };
-    let idx: Vec<u8> = (0..a as u8).collect();
+    let n = words(alphabet.len(), 4) * files.len();
     Domain::new("D5_argv_len_le_4", n, move |i| {
-        let w: Vec<OsString> = word(&idx, 4, i / files.len())
-            .into_iter()
-            .map(|j| alphabet[j as usize].clone())
-            .collect();
-        assert!(first_ok(&w));
-        let mut argv: Vec<OsString> = vec!["pb_verify_rs".into()];
-        argv.extend(w);
-        Input {
-            argv,
-            file: files[i % files.len()].clone(),
-        }
+        Input::new(
+            argv_word(&alphabet, i / files.len()),
+            files[i % files.len()].clone(),
+        )
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
+// D6 (Z381 continuation): the argv of D5 against ONE file state, the valid bundle stored under the
+// name that is not UTF-8 (`input.json` does not exist). This is the F1 reproduction as a domain:
+// the file Python reads under that name must be read by the verifier too, so PASS is reachable.
+// ---------------------------------------------------------------------------------------------
+pub fn d6() -> Domain {
+    let (alphabet, valid) = argv_alphabet();
+    let n = words(alphabet.len(), 4);
+    Domain::new("D6_argv_len_le_4_file_not_utf8", n, move |i| Input {
+        argv: argv_word(&alphabet, i),
+        name: input_path_not_utf8(),
+        file: Some(valid.clone()),
     })
 }

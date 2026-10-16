@@ -11,13 +11,26 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use z381_pruefentscheidung::boundary::{Observed, INPUT_PATH};
-use z381_pruefentscheidung::decide;
+use z381_pruefentscheidung::decide_at;
 use z381_pruefentscheidung::verdict::{classify_parts, Class};
 
 #[derive(Clone)]
 pub struct Input {
     pub argv: Vec<OsString>,
+    /// The path the file lives under: `INPUT_PATH` in D1-D5, a name that is not UTF-8 in D6.
+    pub name: OsString,
     pub file: Option<Vec<u8>>,
+}
+
+impl Input {
+    /// An input whose file (if any) lives under `INPUT_PATH`.
+    pub fn new(argv: Vec<OsString>, file: Option<Vec<u8>>) -> Self {
+        Input {
+            argv,
+            name: INPUT_PATH.into(),
+            file,
+        }
+    }
 }
 
 pub fn bundle_argv(flags: &[&str]) -> Vec<OsString> {
@@ -36,13 +49,13 @@ fn show(i: &Input) -> String {
         Some(b) if b.len() <= 96 => format!("{:?}", String::from_utf8_lossy(b)),
         Some(b) => format!("{} bytes, sha-prefix {:02x?}", b.len(), &b[..8]),
     };
-    format!("argv={:?} file={file}", i.argv)
+    format!("argv={:?} name={:?} file={file}", i.argv, i.name)
 }
 
 /// The three properties for one input. Ok(class) or the violated property.
 pub fn check(i: &Input) -> Result<Class, String> {
-    let a = decide(i.argv.clone(), i.file.clone());
-    let b = decide(i.argv.clone(), i.file.clone());
+    let a = decide_at(i.argv.clone(), i.name.clone(), i.file.clone());
+    let b = decide_at(i.argv.clone(), i.name.clone(), i.file.clone());
     let class = match &a {
         Observed::Exited { code, out, err } => classify_parts(*code, out, err)
             .map_err(|e| format!("P2 (exactly one verdict) violated: {e}: {a:?}"))?,

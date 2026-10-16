@@ -9,14 +9,25 @@
 //! * `exit(code)` — `std::process::exit`: never returns.
 //! * `read_file_begrenzt(path)` — the verifier's own capped file read, on a virtual regular file
 //!   whose content is the input bytes (assumption A4 of the report: the real function returns
-//!   exactly these bytes for a regular file of at most `BUDGET_INPUT_BYTES`).
+//!   exactly these bytes for a regular file of at most `BUDGET_INPUT_BYTES`). The path is compared
+//!   as raw bytes (`OsStr`), so a file under a name that is not valid UTF-8 is a file like any
+//!   other; it takes `&str` (the verifier before the Z381 fix) and `&Path` (after it).
 //! `out`/`err` collect what `println!`/`eprintln!` would have written, one entry per line.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
-/// The only path the virtual file system knows.
+/// The default path of the virtual file system's one file.
 pub const INPUT_PATH: &str = "input.json";
+/// A legal Unix file name that is not valid UTF-8 (byte 0xff), used as an argv word and, in D6, as
+/// the name the one file lives under.
+pub const INPUT_PATH_NOT_UTF8: &[u8] = b"input\xff.json";
 const BUDGET_INPUT_BYTES: usize = 8_388_608;
+
+pub fn input_path_not_utf8() -> OsString {
+    OsStr::from_bytes(INPUT_PATH_NOT_UTF8).to_os_string()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Observed {
@@ -39,14 +50,25 @@ pub enum Observed {
 #[derive(Default)]
 struct Io {
     args: Vec<OsString>,
+    /// The path the one file lives under (empty: `INPUT_PATH`).
+    name: OsString,
     file: Option<Vec<u8>>,
     out: Vec<String>,
     err: Vec<String>,
 }
 
-fn virtual_read(io_file: Option<&Vec<u8>>, path: &str) -> Result<Vec<u8>, String> {
+fn virtual_read(
+    io_name: &OsStr,
+    io_file: Option<&Vec<u8>>,
+    path: &Path,
+) -> Result<Vec<u8>, String> {
+    let name = if io_name.is_empty() {
+        OsStr::new(INPUT_PATH)
+    } else {
+        io_name
+    };
     match io_file {
-        Some(bytes) if path == INPUT_PATH => {
+        Some(bytes) if path.as_os_str() == name => {
             if bytes.len() > BUDGET_INPUT_BYTES {
                 return Err(format!(
                     "verification budget exceeded: input_bytes = {} > limit {}",
@@ -56,8 +78,11 @@ fn virtual_read(io_file: Option<&Vec<u8>>, path: &str) -> Result<Vec<u8>, String
             }
             Ok(bytes.clone())
         }
+        // `Path::display` is what the verifier prints after the Z381 fix; for a UTF-8 path it is
+        // the path itself, as before.
         _ => Err(format!(
-            "cannot read {path}: No such file or directory (os error 2)"
+            "cannot read {}: No such file or directory (os error 2)",
+            path.display()
         )),
     }
 }
@@ -94,8 +119,11 @@ mod imp {
         panic::resume_unwind(Box::new(ExitSignal(code)))
     }
 
-    pub fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
-        IO.with(|io| virtual_read(io.borrow().file.as_ref(), path))
+    pub fn read_file_begrenzt(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
+        IO.with(|io| {
+            let io = io.borrow();
+            virtual_read(&io.name, io.file.as_ref(), path.as_ref())
+        })
     }
 
     pub fn out(line: String) {
@@ -129,10 +157,16 @@ mod imp {
     /// Run the real verifier once: `argv` includes the program name, `file` is the content of
     /// `INPUT_PATH` (None: the path does not exist).
     pub fn decide(argv: Vec<OsString>, file: Option<Vec<u8>>) -> Observed {
+        decide_at(argv, OsString::from(INPUT_PATH), file)
+    }
+
+    /// As `decide`, with the one file living under `name` instead of `INPUT_PATH`.
+    pub fn decide_at(argv: Vec<OsString>, name: OsString, file: Option<Vec<u8>>) -> Observed {
         install_hook();
         IO.with(|io| {
             *io.borrow_mut() = Io {
                 args: argv,
+                name,
                 file,
                 out: Vec::new(),
                 err: Vec::new(),
@@ -183,6 +217,7 @@ mod imp {
     pub fn set_input(argv: Vec<OsString>, file: Option<Vec<u8>>) {
         *io() = Io {
             args: argv,
+            name: OsString::new(),
             file,
             out: Vec::new(),
             err: Vec::new(),
@@ -210,8 +245,9 @@ mod imp {
         unreachable!()
     }
 
-    pub fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
-        virtual_read(io().file.as_ref(), path)
+    pub fn read_file_begrenzt(path: impl AsRef<Path>) -> Result<Vec<u8>, String> {
+        let io = io();
+        virtual_read(&io.name, io.file.as_ref(), path.as_ref())
     }
 
     pub fn out(line: String) {

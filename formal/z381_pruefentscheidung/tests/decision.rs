@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::domains::{d1, d2, d3, d4, d5, Domain};
+use common::domains::{d1, d2, d3, d4, d5, d6, Domain};
 use common::{assert_clean, run_domain, Report};
 
 fn decide_all(d: Domain) -> Report {
@@ -54,6 +54,17 @@ fn d5_argv_up_to_4() {
     assert!(
         r.histogram.contains_key("Ok"),
         "PASS must be reachable in D5"
+    );
+    assert_clean(&r);
+}
+
+#[test]
+fn d6_argv_up_to_4_file_under_a_name_that_is_not_utf8() {
+    let r = decide_all(d6());
+    assert_eq!(r.inputs, 41_371);
+    assert!(
+        r.histogram.contains_key("Ok"),
+        "PASS must be reachable in D6: the file under the name that is not UTF-8 is read"
     );
     assert_clean(&r);
 }

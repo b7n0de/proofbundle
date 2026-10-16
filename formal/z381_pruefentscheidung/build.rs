@@ -136,10 +136,18 @@ fn main() {
     }
     s = s.replace("std::env::args()", "crate::boundary::args()");
     s = s.replace("std::env::args_os()", "crate::boundary::args_os()");
+    // The capped file read: before the Z381 fix it takes the path as `&str`, after it as `&Path`
+    // (a path that is not valid UTF-8 is still a path). Exactly one of the two signatures.
+    let sig_str = "fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {";
+    let sig_path = "fn read_file_begrenzt(path: &Path) -> Result<Vec<u8>, String> {";
+    let (a, b) = (s.matches(sig_str).count(), s.matches(sig_path).count());
+    if a + b != 1 {
+        panic!("z381 build: read_file_begrenzt expected once, found &str={a} &Path={b}");
+    }
     s = replace_exact(
         &s,
-        "fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {",
-        "#[allow(dead_code)]\nfn read_file_begrenzt_vom_dateisystem(path: &str) -> Result<Vec<u8>, String> {",
+        "fn read_file_begrenzt(path: &",
+        "#[allow(dead_code)]\nfn read_file_begrenzt_vom_dateisystem(path: &",
         1,
         "read_file_begrenzt",
     );

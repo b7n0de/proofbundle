@@ -12,9 +12,9 @@ mod common;
 use std::path::PathBuf;
 use std::process::Command;
 
-use common::domains::{d1, d2, d3, d4, d5};
-use z381_pruefentscheidung::boundary::{Observed, INPUT_PATH};
-use z381_pruefentscheidung::decide;
+use common::domains::{d1, d2, d3, d4, d5, d6};
+use z381_pruefentscheidung::boundary::Observed;
+use z381_pruefentscheidung::decide_at;
 
 fn binary() -> PathBuf {
     let p = std::env::var_os("PB_VERIFY_RS_BIN")
@@ -54,18 +54,24 @@ fn harness_agrees_with_real_binary_on_samples() {
     let mut compared = 0usize;
     let mut panics = 0usize;
     let mut diffs: Vec<String> = Vec::new();
+    let mut ndiff = 0usize;
     for (d, step) in [
         (d1(), 9_973usize),
         (d2(), 9_967),
         (d3(), 97),
         (d4(), 17),
         (d5(), 13),
+        (d6(), 7),
     ] {
         let mut k = 0;
         while k < d.n {
             let input = (d.gen)(k);
-            let file = dir.join(INPUT_PATH);
-            let _ = std::fs::remove_file(&file);
+            // the one file lives under `input.name` (raw bytes: D6 uses a name that is not UTF-8);
+            // every other name is cleared, so no file of an earlier sample is visible
+            for e in std::fs::read_dir(&dir).unwrap() {
+                std::fs::remove_file(e.unwrap().path()).unwrap();
+            }
+            let file = dir.join(&input.name);
             if let Some(b) = &input.file {
                 std::fs::write(&file, b).unwrap();
             }
@@ -80,7 +86,8 @@ fn harness_agrees_with_real_binary_on_samples() {
                 Some(c) => Seen::Exit(c, lines(&out.stdout), lines(&out.stderr)),
                 None => panic!("real binary killed by a signal on {:?}", input.argv),
             };
-            let model = match decide(input.argv.clone(), input.file.clone()) {
+            let model = match decide_at(input.argv.clone(), input.name.clone(), input.file.clone())
+            {
                 Observed::Exited { code, out, err } => Seen::Exit(code, out, err),
                 Observed::Panicked { .. } => Seen::Panic,
                 Observed::Returned { out, err } => Seen::Exit(0, out, err),
@@ -88,23 +95,20 @@ fn harness_agrees_with_real_binary_on_samples() {
             if real == Seen::Panic {
                 panics += 1;
             }
-            if real != model && diffs.len() < 5 {
-                diffs.push(format!(
-                    "{} k={k}: real {real:?} vs harness {model:?}",
-                    d.name
-                ));
+            if real != model {
+                ndiff += 1;
+                if diffs.len() < 5 {
+                    diffs.push(format!(
+                        "{} k={k}: real {real:?} vs harness {model:?}",
+                        d.name
+                    ));
+                }
             }
             compared += 1;
             k += step;
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
-    println!(
-        "Z381 REAL_BINARY compared={compared} panics_on_both_sides={panics} diffs={}",
-        diffs.len()
-    );
-    assert!(
-        diffs.is_empty(),
-        "harness and real binary disagree: {diffs:#?}"
-    );
+    println!("Z381 REAL_BINARY compared={compared} panics_on_both_sides={panics} diffs={ndiff}");
+    assert!(ndiff == 0, "harness and real binary disagree: {diffs:#?}");
 }

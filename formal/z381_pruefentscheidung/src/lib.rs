@@ -26,4 +26,4 @@ mod verifier {
 pub mod verdict;
 
 #[cfg(not(kani))]
-pub use boundary::decide;
+pub use boundary::{decide, decide_at};
