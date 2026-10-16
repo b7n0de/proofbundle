@@ -676,7 +676,9 @@ def test_check_says_that_ok_is_not_a_pass(tmp_path):
     assert _run("emit-test-receipt", "--junit", str(report), "--out", str(out),
                 "--new-key", str(tmp_path / "k.key")).returncode == 0
     r = _run("check-test-receipt", str(out), "--report", str(report))
-    assert r.returncode == 0 and "passed=False" in r.stdout and "not that the run passed" in r.stdout
+    # The verdict line itself: the reason line above it also holds "passed=False", so a test on the text alone
+    # stayed green when the verdict line lost its value (mutant `cli: check does not print the signed verdict`).
+    assert r.returncode == 0 and "verdict    passed=False (exit 0 says" in r.stdout
 
 
 def test_written_files_are_exit_zero_under_a_stdout_that_cannot_encode_the_path(tmp_path):
