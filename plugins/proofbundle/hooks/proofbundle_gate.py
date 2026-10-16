@@ -1920,10 +1920,11 @@ def _gh_yaml_entries(text: str) -> list[tuple[tuple[str, ...], str]] | None:
     return entries
 
 
-def _gh_config_problem(environ: dict) -> str | None:
+def _gh_config_problem(environ: dict, inert_pagers: list | None = None) -> str | None:
     """What gh's configuration files (config.yml and hosts.yml in _gh_config_dir) hold that a read form may start or
     reach, or None: a pager or a unix socket with a value (a pager overridden by GH_PAGER set in the environment is
-    none, measured), a key the profile does not know, or a file it cannot read in the block form gh writes."""
+    none, measured), a key the profile does not know, or a file it cannot read in the block form gh writes. With
+    inert_pagers (a host whose Bash tool gives no terminal, _no_terminal_host) a pager is noted there instead."""
     folder = _gh_config_dir(environ)
     if folder is None:
         return ("the gate cannot tell where gh reads its configuration (no absolute GH_CONFIG_DIR, XDG_CONFIG_HOME "
@@ -1964,6 +1965,9 @@ def _gh_config_problem(environ: dict) -> str | None:
             if not known:
                 return f"a key the gh profile does not know: {'.'.join(keys)} in {path}"
             if keys[-1] in _GH_PROGRAM_KEYS and value and not (keys[-1] == "pager" and "GH_PAGER" in environ):
+                if keys[-1] == "pager" and inert_pagers is not None:
+                    inert_pagers.append(f"{'.'.join(keys)} in {path}")
+                    continue
                 return f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {'.'.join(keys)} in {path}"
     return None
 
@@ -2003,18 +2007,38 @@ def _gh_version_problem(environ: dict, deadline: float) -> str | None:
     return None
 
 
-def _gh_profile_problem(environ: dict, deadline: float) -> str | None:
+def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | None = None) -> str | None:
     """None when nothing around a gh read form makes it start a program, reach another host or print a token, else what
     the gh profile found (class b, D36): the hook's environment (_gh_env_problem), gh's configuration
     (_gh_config_problem) and the version of the gh on PATH (_gh_version_problem). The repository plays no part: the git
     gh starts for these forms (remote -v, config --get-regexp, config push.default and remote.pushDefault,
     symbolic-ref, rev-parse --symbolic-full-name) started none of the program sources of class a, all of them set at
-    once (measured)."""
+    once (measured). With inert_pagers, for a host whose Bash tool gives the command no terminal (_no_terminal_host,
+    D41), a pager PAGER, GH_PAGER or gh's configuration names is noted there and does not count; GH_FORCE_TTY still
+    does, as gh then starts its pager as on a terminal."""
     for name in sorted(environ):
         problem = _gh_env_problem(name, environ[name])
+        if problem is not None and inert_pagers is not None and name in ("PAGER", "GH_PAGER"):
+            inert_pagers.append(name)
+            continue
         if problem is not None:
             return f"{problem} in the hook's environment"
-    return _gh_config_problem(environ) or _gh_version_problem(environ, deadline)
+    return _gh_config_problem(environ, inert_pagers) or _gh_version_problem(environ, deadline)
+
+
+#: The hosts whose Bash tool gives a command no terminal, each as it names itself to a hook in AI_AGENT: the host
+#: adapter owner answer 3 asks for before the pipe of the Bash tool is relied on (D41, part 2 of Nachtrag 16). Measured
+#: with Claude Code 2.1.301 run with no network against a stand-in for the API (host/host_cases.py): in the print and
+#: the interactive form, and for a command run in the background, the command got a pipe on standard output, no terminal
+#: on standard input and error and no controlling terminal (/dev/tty could not be opened); a hook got
+#: AI_AGENT=claude-code_2-1-301_harness, the command claude-code_2-1-301_agent. gh 2.89.0 started the pager PAGER,
+#: GH_PAGER or its configuration named there for none of these, and on a terminal of script(1) for each.
+_NO_TERMINAL_HOSTS = frozenset({"claude-code_2-1-301_harness"})
+
+
+def _no_terminal_host(host: str, environ: dict) -> bool:
+    """Whether the hook runs under a host of _NO_TERMINAL_HOSTS: Claude Code (never Codex), named in AI_AGENT."""
+    return host == "claude" and environ.get("AI_AGENT") in _NO_TERMINAL_HOSTS
 
 
 #: The default of _strict_git's free_base: the call is the whole command, headed by a bare `git` (from
@@ -9749,21 +9773,28 @@ def _read_free_verdict(name: str, directory: str | None, deadline: float, driver
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
-def _gh_read_free_verdict(name: str, deadline: float, environ: dict) -> Verdict:
+def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str = "claude") -> Verdict:
     """The verdict for a gh read form of class b: pass when the gh profile finds nothing that makes it start a program,
     reach another host or print a token, else the ask of today with what it found (owner answers 4 and 5 of
-    2026-10-14, DESIGN_ask_load.md 3.2, DECISIONS.md D36)."""
+    2026-10-14, DESIGN_ask_load.md 3.2, DECISIONS.md D36). Under a host whose Bash tool gives the command no terminal
+    a pager does not count, and the pass names it (D41)."""
+    inert_pagers: list | None = [] if _no_terminal_host(host, environ) else None
     try:
-        problem = _gh_profile_problem(environ, deadline)
+        problem = _gh_profile_problem(environ, deadline, inert_pagers)
     except GateError as exc:
         problem = f"the gh profile reached no result ({exc})"
     if problem is None:
+        found = "forced terminal" if inert_pagers else "pager, forced terminal"
+        pagers = (f" A pager is named ({', '.join(inert_pagers)}) and does not start: the hook's environment names the "
+                  f"host {environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal, and gh "
+                  "starts its pager only on a terminal (DECISIONS.md D41).") if inert_pagers else ""
         return Verdict("pass", f"proofbundle gate: {name} is free. It is a gh read form of the allow-list: it sends "
                                "only GET requests and GraphQL queries to the host its repository names, every option "
                                "is one the gate knows to open no browser, name no other host and print no token, and "
-                               "the gh profile found a checked gh version on PATH and no pager, forced terminal, other "
-                               "host, Enterprise token or unix socket in the environment and gh's configuration (class "
-                               "b, owner answers 4 and 5 of 2026-10-14; DECISIONS.md D36).", "free_after_gh_profile")
+                               f"the gh profile found a checked gh version on PATH and no {found}, other host, "
+                               "Enterprise token or unix socket in the environment and gh's configuration (class b, "
+                               "owner answers 4 and 5 of 2026-10-14; DECISIONS.md D36)." + pagers,
+                       "free_after_gh_profile")
     return Verdict(
         "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the gh profile found {problem}. Such a "
                "setting may make gh start a program, reach another host or print a token, which the gate does not "
@@ -9800,7 +9831,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
         if detail == [_GH_READ_FREE]:
             # class b applies under both hosts (owner answer 10): the gh profile reads no repository, so the directory
             # the Codex hook cannot bind plays no part in it (D36)
-            verdicts.append(_gh_read_free_verdict(name, deadline, os.environ if environ is None else environ))
+            verdicts.append(_gh_read_free_verdict(name, deadline, os.environ if environ is None else environ, host))
             continue
         if host == "codex" and (name == "git push" or name.startswith("gh ")):
             # R5-2: under Codex the hook receives the session directory and the command text, not the

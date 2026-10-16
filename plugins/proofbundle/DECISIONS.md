@@ -2910,3 +2910,34 @@ Part 1, GIT_OPTIONAL_LOCKS=0 (owner choice of Nachtrag 16):
   1), and the session's shell did not carry it. D35 recorded GIT_OPTIONAL_LOCKS=0 in the Bash tool's shell in a session
   of 2026-10-14 (_HOST_SHELL_INERT), and Cowork measured it on its host. Where it comes from there is NOT MEASURED; the
   rule judges the name and the value, wherever they come from.
+
+Part 2, the pager of gh reads (class b; owner choice of Nachtrag 16: measure both ways under Claude Code 2.1.301 and
+take the one shown):
+- Measured with the Claude Code binary 2.1.301, run with no network in a namespace of its own against a stand-in for
+  the Messages API and the stand-in for github.com of D36, fake keys only (host/host_cases.py of Nachtrag 16).
+- Way (a), GH_PAGER=cat through updatedInput: Claude Code ran the command a PreToolUse hook gave back, from the user's
+  settings and from a plugin, with permissionDecision allow and with none, in the print and the interactive form. But
+  with a permission rule `Bash(gh pr view:*)` the rewritten `GH_PAGER=cat gh pr view …` ran only when the hook also said
+  allow; with no decision Claude Code asked for approval, as it does for that command typed with the prefix. Way (a)
+  frees the form only by making the gate approve a call, which it does nowhere else. The binary also names sessions in
+  which a hook from the user's own files may not change a call ("a restricted session: CLAUDE_CODE_RESTRICTED", "a
+  session that restricts your own Claude Code files: CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG"), and there the call is not
+  made; CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG=1 as an environment name alone did not bring that about (measured), how
+  such a session starts is NOT MEASURED. Not built.
+- Way (b), no terminal: in the print and the interactive form, and for a command run in the background, the command
+  got a pipe on standard output, no terminal on standard input and error, and no controlling terminal (`/dev/tty` could
+  not be opened). gh 2.89.0 started no pager there with PAGER, GH_PAGER or a pager in its configuration; on a terminal
+  of script(1) it started each, and with GH_FORCE_TTY too. A hook got AI_AGENT=claude-code_2-1-301_harness, the command
+  claude-code_2-1-301_agent. Built.
+- The rule: under Claude Code, when the hook's AI_AGENT names a host in _NO_TERMINAL_HOSTS (only
+  claude-code_2-1-301_harness), a pager PAGER, GH_PAGER or gh's configuration (config.yml, a host block) names does not
+  count for a class b read form (_no_terminal_host, _gh_profile_problem); the pass names the pager and the host. This
+  is the bound host adapter owner answer 3 asks for: the gate relies on the pipe only for a host measured to give one.
+- Not changed: GH_FORCE_TTY (gh then pages as on a terminal), every other finding of the gh profile (another host, an
+  Enterprise token, a unix socket, an unknown GH_* name or key, the gh version), Codex (the reviewer's text stays as
+  today), and every form that is not a class b read form whose standard output is the tool's or a pipe: a redirection,
+  an `exec` step before it, a group or subshell with a redirection, a prefix assignment, and a program that opens a
+  terminal of its own (script, unbuffer, ssh -t, tmux, python's pty) keep today's ask (measured on the gate).
+- Limits, in plain words: AI_AGENT names a version, not an origin (D27); a host that sets the name falsely is not caught.
+  The rule holds for 2.1.301 only; a new version keeps the ask until it is measured and added. Class a (D34) counts
+  GIT_PAGER, PAGER and the pager keys for the same reason; that sibling is not built here and is an owner question.
