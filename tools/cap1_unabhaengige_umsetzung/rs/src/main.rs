@@ -3,17 +3,22 @@ mod json;
 mod regeln;
 
 use std::io::Read;
+use std::path::PathBuf;
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    // Z381 O381-3: argv is read as `OsString` and the path stays a `Path` up to the open. A file
+    // name that is not valid UTF-8 is still a file name: `std::env::args()` panicked on it (exit
+    // 101, no verdict), where the Python implementation reads the same file, measured.
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if args.len() != 2 {
         eprintln!("usage: cap1_verify_rs <attestation.json>");
         std::process::exit(2);
     }
+    let path = PathBuf::from(&args[1]);
     let mut s = String::new();
-    match std::fs::File::open(&args[1]).and_then(|mut f| f.read_to_string(&mut s)) {
+    match std::fs::File::open(&path).and_then(|mut f| f.read_to_string(&mut s)) {
         Ok(_) => {}
-        Err(e) => { eprintln!("konnte {} nicht lesen: {e}", args[1]); std::process::exit(2); }
+        Err(e) => { eprintln!("konnte {} nicht lesen: {e}", path.display()); std::process::exit(2); }
     }
     let doc = match json::lies(&s) {
         Ok(d) => d,
