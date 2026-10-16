@@ -576,7 +576,15 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         instance of ArchiveTimeStamp had broken the key sharing of the instance dicts before, and every further
         instance cost 572.8 B instead of 356.6 B. That is memory the suite really holds, so the table must carry it.
         Measured in a FRESH process, because the break changes the class state for the rest of the process and must
-        touch nothing else here."""
+        touch nothing else here.
+
+        The break costs memory on CPython 3.10 only. Measured 2026-10-16 in a fresh process per version: 216.4 B more
+        per element on 3.10.12, between 0.0 and 0.2 B on 3.11.15, 3.12.15, 3.13.16 and 3.14.8, where an instance keeps
+        its values without a dict of its own until one is asked for (Objects/object_layout.md in CPython). The control
+        below therefore states what each interpreter does, a cost above the noise on 3.10 and none beyond it from 3.11
+        on. The former `ungeteilt > geteilt` decided on the 0.1 B rounding there: under the baseline of the mutation
+        layer (PYTHONHASHSEED=0, CPython 3.12.15) it read 320.9 against 320.9 and stopped all 36 shards of run
+        38932917601."""
         import subprocess  # noqa: PLC0415
         programm = (
             "import importlib.util, sys\n"
@@ -591,10 +599,18 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
         self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
         geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
-        self.assertGreater(ungeteilt, geteilt, "control: breaking the key sharing costs memory")
+        # One pointer per element: far above the measured spread (0.2 B), far below the effect on 3.10 (216.4 B).
+        rauschen = 8.0
+        if sys.version_info < (3, 11):
+            self.assertGreater(ungeteilt - geteilt, rauschen, "control: breaking the key sharing costs memory")
+        else:
+            self.assertLessEqual(
+                abs(ungeteilt - geteilt), rauschen,
+                "control: from CPython 3.11 on breaking the key sharing costs nothing measurable; if it does again, "
+                "the entry renewal_ats_chain of the table has to be measured again on this interpreter")
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
-        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
+        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], max(geteilt, ungeteilt))
 
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle
