@@ -2954,6 +2954,8 @@ Part 3, the reasons of fetch, ls-remote and worktree add (owner choice of Nachtr
   commits. Measured with git 2.43.0 from a remote given as a local path (measure/fetch_starts.sh of Nachtrag 16):
   ls-remote started the configured upload-pack; fetch started it, fsmonitor and, where a ref changed,
   reference-transaction. The network ways are named after git's documentation and D40, not measured (no network).
+  Since D45 one fetch form from github.com is free under Claude Code after a fetch profile, measured against a
+  stand-in; where that profile finds something, the fetch keeps this reason id and the reason names the finding.
 - worktree add (reason id `checkout_not_modeled`): the checkout may start the hooks post-checkout, post-index-change and
   reference-transaction, a smudge or process filter an attribute assigns, and fsmonitor (measured in D40); the gate
   checks them only for the one form of D40, as the whole command under Claude Code. Under Claude Code the next step
@@ -3111,3 +3113,80 @@ Limits, in plain words: measured with git 2.43.0 (delta: 2.51.1); a later git th
 outside upload-pack is not measured. Measured with an empty global and no system configuration. What a key changes in a
 fetch was not shown, only that upload-pack reads it: a fetch over file:// of a commit no ref names, by its id, ended 0
 with allowAnySHA1InWant true and with false alike.
+
+## D45. git fetch from github.com after a fetch profile (Ergänzung 1 to Nachtrag 19, part B, 2026-10-16)
+
+Owner choice of 2026-10-16, 11:5x Berlin. Until now every fetch asked (D41). Free now, under Claude Code and never under
+Codex: `git -C <literal absolute path> fetch` with at most -q/--quiet, --prune and --no-tags, then a remote name and
+branch names without `:` (_fetch_form, _fetch_branch: no `+`, `^`, glob, `..`, `@{`, part starting with `.`, `.lock`,
+`refs/` or the word `tag`), as the whole command or as a step of class c, when the fetch profile of its repository
+(_fetch_profile_problem) finds nothing. As a step it stands on its own wherever it stands only where its own answer is
+free; a fetch of the form the profile does not free stays a gated step, as every fetch was (D33), and asks with the
+reason id and text of D41 and what the profile found. Every other form keeps the ask of D41: no or another `-C`, any
+other global or fetch option, an option after the remote, `--`, a URL or path as the remote, a refspec, a word the shell
+may rewrite, a prefix assignment the profile does not accept, a redirection.
+
+Ground truth, measured with git 2.43.0 under strace -f (execve, connect) with no network, in a network and mount
+namespace of its own whose /etc/hosts names github.com, against a local stand-in for github.com serving the
+repositories with `git http-backend` over TLS, a second host and a CONNECT proxy (truth_fetch_e1.py, 68 cases; each
+source set alone in a fresh copy of a clone under an absolute path, stdout a pipe or a terminal of script(1)):
+- The form from https://github.com/<owner>/<repo> (with and without `.git`, each option, on a terminal too) started
+  git-remote-https, unpack-objects, rev-list and `maintenance run --auto`, all git's own, and connected only to
+  github.com:443 (and tried nscd's socket); with gc due (gc.auto=1 and two loose objects in objects/17) `gc --auto`
+  with repack, pack-objects, prune, pack-refs, reflog expire, worktree prune and rerere gc; maintenance.auto=false
+  started none of them. It wrote FETCH_HEAD, objects, the tracking refs and their reflogs, tags, packed-refs, and with
+  gc packs, gc.log and info/refs.
+- Started a program or reached another host, each kept asking: a reference-transaction hook (twice per fetch, eight
+  times with gc), pre-auto-gc with gc due, core.fsmonitor, remote.<name>.vcs (git-remote-<vcs>), url.*.insteadOf (the
+  other host served the fetch), http.proxy, HTTPS_PROXY, https_proxy and ALL_PROXY (the proxy got CONNECT
+  github.com:443), a submodule with the default recursion (a fetch of the submodule from its own URL; with
+  fetch.recurseSubmodules=false none).
+- On a 401 of the stand-in: `credential.helper=store` started git credential-store (get, then store after the
+  success); `cache` started git credential-cache and left git credential-cache--daemon running after the fetch returned
+  (measured without strace: still running 3 s later), so it is not on the list; `!<program>` and a name on PATH
+  (git-credential-<name>) started that program; `!gh auth git-credential` with gh 2.89.0 started gh twice, which
+  connected nowhere; GIT_ASKPASS, SSH_ASKPASS and core.askPass started their program; without any of them the fetch
+  failed without a start. On a public repository no helper and no askpass started.
+- Started nothing for an https fetch: the 26 other hooks githooks(5) documents, all present, with gc due and with
+  --prune; a clean, smudge and process filter an attribute assigns; core.sshCommand, GIT_SSH, GIT_SSH_COMMAND;
+  remote.<name>.uploadpack; PAGER, GIT_PAGER and core.pager, on a terminal too; GIT_OPTIONAL_LOCKS=0; fetch.prune; a
+  shallow clone (its shallow file was not written).
+- A redirect of the server to another host was followed (http.followRedirects=initial); with
+  http.followRedirects=false the fetch failed. A remapped fetch rule writes another branch into the tracking ref.
+- delta's chain with origin on the stand-in, run whole: git's own programs, tail, ls and grep, and github.com:443 only.
+
+The profile, not free (each with a test that asks, and the finding named in the reason):
+- the target: remote.<name>.url other than exactly one https://github.com/<owner>/<repo>[.git], a fetch rule other
+  than exactly +refs/heads/*:refs/remotes/<name>/*, any other key of that remote (uploadpack, vcs, proxy, pushurl, …;
+  another remote's url, pushurl, fetch and push are not read), any url.* and http.* key, a proxy name;
+- programs: a hook the fetch or its maintenance runs (reference-transaction, pre-auto-gc, and every hook of another
+  name; the 26 others do not count, the pre-push hook of Level 2 among them), fsmonitor that git does not read as
+  false, core.sshCommand, core.askPass, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, SSH_ASKPASS (owner choice: they ask,
+  though an https fetch started none of the ssh ones), a promisor key, a pager as in class a (D34; not under the bound
+  host of D42);
+- a credential helper other than the empty value, `store` and `!<gh> auth git-credential` naming the gh on PATH while
+  the gh profile of D36 and D43 is free for it (_fetch_gh_helper); any other credential.* key;
+- a submodule (a .gitmodules, a gitlink in the index, a git directory under modules/) unless fetch.recurseSubmodules
+  reads false; fetch.recurseSubmodules with another value, submodule.recurse;
+- any key or GIT_* name the profile does not know (GIT_SSL_*, GIT_HTTP_*, GIT_TRACE*, GIT_EXEC_PATH among them; the
+  keys the read profile knows, fetch.prune and filter drivers are known; GIT_OPTIONAL_LOCKS=0 of the Bash tool is inert,
+  D41).
+
+The state a free fetch changes (point 4 of the order). It writes the tracking refs, FETCH_HEAD, objects and
+packed-refs, and its maintenance packs, gc.log and info/refs. The push check reads the tracking ref as what the remote
+is known to hold (D20, the commits a push newly sends), and the destination check reads every present ref and the
+records beside them, FETCH_HEAD among them (D35): both bases change. The done check reads HEAD's first-parent history,
+the declaration and the working state, which a fetch does not write. Where the basis changes, the ask stays for the
+following step: within one command a push or a gated gh call after the fetch is a gated step that is not the first step
+and keeps the answer of the whole command (class c, D33); a later push of its own is judged against the tracking refs as
+github.com gave them under the one fetch rule the profile requires, which maps each branch to its own tracking ref.
+No later step's own answer reads what a fetch writes (the read, state, gh and fetch profiles read the configuration, the
+hooks, the environment, the index's gitlinks and the attributes), so a free fetch is no state change for the steps
+after it (_sh_changes_state); a step before a fetch that may change what its profile read keeps it asking
+(step_after_state_change), a write of .gitmodules and a `git add` among them. Under Codex the fetch stays a gated step.
+
+Limits, in plain words: measured with git 2.43.0 (delta: 2.51.1) and gh 2.89.0 against a stand-in, not against
+github.com; whether github.com answers a fetch with a redirect, and to where, is not measured; the gh helper under gh
+2.92.0 rests on D43's measurement of that version, not on a run of `gh auth git-credential` with it. SSL_CERT_FILE,
+CURL_CA_BUNDLE and other names libcurl reads for its trust are not read. A fetch over ssh, from another host or with
+another remote form keeps the ask. The program PATH selects is not read (D27), as for class a.

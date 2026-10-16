@@ -466,6 +466,11 @@ _READ_FREE_DETAILS = ([_READ_FREE], [_READ_FREE_DRIVERS_OFF])
 #: frees it under Claude Code only after the checkout check of its repository (_checkout_state_problem); under Codex it
 #: carries the reviewer's text of D37.
 _CHECKOUT_FREE = "\x00checkout-free"
+#: Detail marker for `git -C <literal absolute path> fetch [-q|--quiet] [--prune] [--no-tags] <remote> [<branch>…]` as
+#: the whole command or as a step of class c (Ergänzung 1 to Nachtrag 19, DECISIONS.md D45). The name of the call
+#: carries the remote. Under Claude Code the judge frees it only after the fetch profile of its repository
+#: (_fetch_profile_problem); under Codex it keeps the ask of D41.
+_FETCH_FREE = "\x00fetch-free"
 #: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
 #: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
 _CODEX_READ_FORM_EXPLANATION = (
@@ -488,7 +493,7 @@ _READ_NOT_FREE = "\x00read-not-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
 _MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_READ_FREE_DRIVERS_OFF],
-                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE])
+                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE], [_FETCH_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1069,6 +1074,43 @@ def _worktree_add_target(args: list[str], rewrites: list[bool] | None) -> str | 
     return positional[0]
 
 
+#: The options of the fetch form D45 frees, none of which takes a value (Ergänzung 1 to Nachtrag 19).
+_FETCH_FORM_OPTIONS = frozenset({"-q", "--quiet", "--prune", "--no-tags"})
+#: A remote name of that form: a name, not a URL or a path (no `:` and no `/`).
+_FETCH_REMOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+#: A branch name of that form, before the checks _fetch_branch adds: no `:` (no destination), no `+` (no forced
+#: update), no `^` (no negative refspec), no glob, space, `~`, `?`, `[` or backslash.
+_FETCH_BRANCH_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+
+
+def _fetch_branch(word: str) -> bool:
+    """Whether word is a branch name of the fetch form D45 frees: _FETCH_BRANCH_NAME, no `..`, no `@{`, no empty part,
+    no part that starts with `.`, no end in `/`, `.` or `.lock`, not under `refs/` and not the word `tag`, with which
+    `git fetch <remote> tag <name>` fetches a tag into a local tag."""
+    parts = word.split("/")
+    return (_FETCH_BRANCH_NAME.fullmatch(word) is not None and ".." not in word and "@{" not in word
+            and all(parts) and not any(part.startswith(".") for part in parts)
+            and not word.endswith((".", ".lock")) and not word.startswith("refs/") and word != "tag")
+
+
+def _fetch_form(args: list[str], rewrites: list[bool] | None = None) -> str | None:
+    """The remote of `fetch [-q|--quiet] [--prune] [--no-tags] <remote> [<branch>…]` (the words after `fetch`; D45,
+    Ergänzung 1 to Nachtrag 19), or None for any other form: the options first and each without a value, then one
+    remote name and branch names (_fetch_branch), every word literal, no expansion, no word the shell may rewrite and no
+    `--`. Every other option, a URL or path as the remote, a refspec with `:`, `+`, `^` or a glob, and an option after
+    the remote stay as they are today."""
+    if (rewrites is not None and any(rewrites[:len(args)])) or any("$" in a for a in args):
+        return None
+    k = 0
+    while k < len(args) and args[k] in _FETCH_FORM_OPTIONS:
+        k += 1
+    if k >= len(args) or not _FETCH_REMOTE_NAME.fullmatch(args[k]):
+        return None
+    if not all(_fetch_branch(w) for w in args[k + 1:]):
+        return None
+    return args[k]
+
+
 def _checkout_state_problem(directory: str, target: str, deadline: float, environ: dict | None = None) -> str | None:
     """None when `git worktree add` of the repository at directory into target starts no program and writes nothing the
     gate guards, else what was found (D40, part 3 of Nachtrag 15). The target must not exist, and must be no path a
@@ -1571,6 +1613,240 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
             return problem
         return _filter_assigned(directory, filters[0], deadline)
     return None
+
+
+# --- git fetch from github.com after a fetch profile (Ergänzung 1 to Nachtrag 19, DECISIONS.md D45) -----------------
+#
+# Owner choice of 2026-10-16, 11:5x Berlin: `git -C <abs> fetch` with at most -q/--quiet, --prune, --no-tags, a remote
+# name and branch names is free under Claude Code, never under Codex, when the fetch profile of its repository finds
+# nothing. Measured with git 2.43.0 under strace with no network against a local stand-in for github.com
+# (truth_fetch_e1.py of the delivery): such a fetch from https://github.com/<owner>/<repo> started only git's own
+# programs (git-remote-https, unpack-objects or index-pack, rev-list, `maintenance run --auto` and, past gc's threshold,
+# `gc --auto` with repack, pack-objects, prune, pack-refs, reflog expire, worktree prune and rerere gc) and connected
+# only to github.com:443; the sources below each started a program or reached another host, and a key or name the
+# profile does not know keeps the ask.
+
+#: The hooks githooks(5) of git 2.43 documents and neither a fetch nor the maintenance it starts runs (measured: all of
+#: them present, with gc forced and with --prune, none started). reference-transaction (every ref update of the fetch
+#: and of gc's pack-refs) and pre-auto-gc (gc --auto) started and are not on the list, nor is a hook of any other name.
+_HOOKS_NOT_RUN_BY_FETCH = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg",
+    "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update",
+    "proc-receive", "post-receive", "post-update", "push-to-checkout", "post-rewrite", "sendemail-validate",
+    "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit",
+    "post-index-change",
+})
+#: The keys the fetch profile knows to start no program for the fetch and to keep it on github.com: those of the read
+#: profile (D34, D44; the identity, the stat and line-ending settings, the display settings, gc.auto and
+#: maintenance.auto, whose gc runs git's own programs and the two hooks judged above) less core.sshCommand and
+#: core.askPass (owner choice: they ask, though an https fetch started neither: measured), and fetch.prune (measured:
+#: deletes tracking refs, starts nothing). Every other key, the url.*, http.*, credential.*, remote.* and submodule.*
+#: families included, is judged below or keeps the ask.
+_FETCH_INERT_KEYS = (_READ_INERT_KEYS - {"core.sshcommand", "core.askpass"}) | frozenset({"fetch.prune"})
+#: The families of K-NW-2 B and the read profile a fetch never applies (branch upstreams, push and pull settings,
+#: colours, advice, aliases, which git never applies to a built-in, includes read through, signing and merge drivers),
+#: without the remote, url, http and credential families, which select where and how a fetch connects; and filter
+#: drivers, which a fetch checks nothing out for (measured: a clean, a smudge and a process program an attribute
+#: assigns started for no fetch).
+_FETCH_INERT_PATTERN = re.compile(r"branch\.[^\n]*\.(remote|merge)|includeif\.[^\n]*\.path|push\.[a-z0-9]+"
+                                  r"|pull\.[a-z0-9]+|color\.[^\n]+|advice\.[a-z0-9]+|alias\.[^\n]+|gpg\.[^\n]+"
+                                  r"|merge\.[^\n]*\.(driver|name|recursive)|filter\.[^\n]+")
+#: The URL a remote of the form must have: github.com over https, an owner and a repository, with or without `.git`,
+#: nothing before or after (no user, port, query, fragment or further path).
+_FETCH_GITHUB_URL = re.compile(r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9._-]+)")
+#: GIT_* names in the hook's environment the fetch profile accepts: the configuration files and entries git reads into
+#: the list the profile reads, the identity, the prompt switch and the editors a fetch does not start. GIT_ASKPASS, the
+#: ssh names, GIT_SSL_* and GIT_HTTP_* (they select a program or change how the fetch connects or what it trusts) and
+#: every other GIT_* name ask; GIT_OPTIONAL_LOCKS=0 of the Bash tool does not (_tool_inert, D41).
+_FETCH_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|COUNT|KEY_[0-9]+|VALUE_[0-9]+)"
+                              r"|(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|TERMINAL_PROMPT|EDITOR|SEQUENCE_EDITOR)")
+#: The proxy names libcurl reads for an https URL (measured: with HTTPS_PROXY, https_proxy or ALL_PROXY the fetch
+#: connected to the proxy, not to github.com), each in both spellings.
+_FETCH_PROXY_ENV = frozenset({"http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"})
+#: The credential helper values the fetch profile knows (measured on a 401 of the stand-in): the empty value, which
+#: resets the list (gh's setup writes it before its own), and `store`, which starts git's credential-store, reads
+#: ~/.git-credentials and writes it back after a success. `cache` is not on the list: it left git's
+#: credential-cache--daemon running after the fetch returned (measured). A gh helper is judged by _fetch_gh_helper.
+_FETCH_HELPERS = frozenset({"", "store"})
+
+
+def _fetch_env_problem(name: str, value: str | None = None) -> str | None:
+    """What an environment name means for the fetch of D45, in the hook's environment or as a prefix assignment of the
+    command: a pager counts like a pager of class a (D34); a proxy name, SSH_ASKPASS and a GIT_* name the profile does
+    not know ask, unless the Bash tool sets it with the value at which it starts no program (_tool_inert; value None,
+    as for a prefix assignment, never is). None for any other name."""
+    if name in ("GIT_PAGER", "PAGER"):
+        return f"a pager: {name}"
+    if name in _FETCH_PROXY_ENV:
+        return f"a proxy, which takes the fetch to another host first: {name}"
+    if name == "SSH_ASKPASS":
+        return "an askpass program, which git starts for a username or password: SSH_ASKPASS"
+    if name.startswith("GIT_") and not _FETCH_INERT_ENV.fullmatch(name) and not _tool_inert(name, value):
+        return f"an environment setting the fetch profile does not know to start no program: {name}"
+    return None
+
+
+def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: list | None) -> str | None:
+    """None when value is `!<gh> auth git-credential` naming the gh on PATH and the gh profile of D36 and D43 is free
+    for that gh (owner choice of 2026-10-16: the helper only then; measured with gh 2.89.0 on a 401: it started nothing
+    and connected nowhere), else what keeps the ask; a value of another shape is no gh helper and asks."""
+    try:
+        words = shlex.split(value[1:]) if value.startswith("!") else []
+    except ValueError:
+        words = []
+    if len(words) != 3 or words[1:] != ["auth", "git-credential"] or os.path.basename(words[0]) != "gh" \
+            or (words[0] != "gh" and not os.path.isabs(words[0])):
+        return f"a credential helper the fetch profile does not know: {value!r}"
+    on_path = shutil.which("gh", path=environ.get("PATH"))
+    named = on_path if words[0] == "gh" else words[0]
+    if on_path is None or not os.path.exists(named) or os.path.realpath(named) != os.path.realpath(on_path):
+        return (f"the credential helper {value!r} names a gh that is not the gh on PATH, the one the gh profile "
+                "checks")
+    problem = _gh_profile_problem(environ, deadline, inert_pagers, [])
+    if problem is not None:
+        return f"the credential helper {value!r} starts gh, and the gh profile found {problem}"
+    return None
+
+
+def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ: dict | None = None,
+                           inert_pagers: list | None = None, found_url: list | None = None) -> str | None:
+    """None when the fetch of D45 from `remote` in the repository at directory starts only git's own programs and
+    connects only to github.com, else what the fetch profile found (Ergänzung 1 to Nachtrag 19). Read as the read
+    profile reads (D34): the effective configuration with every include in the hook's environment, the effective hook
+    directory and the hook's environment. Not free:
+    - the target: remote.<remote>.url other than exactly one https://github.com/<owner>/<repo>[.git], a fetch rule other
+      than exactly +refs/heads/*:refs/remotes/<remote>/* (another rule writes another branch into the tracking ref the
+      push check reads), and every other key of that remote (uploadpack, vcs, which starts a remote helper: measured,
+      proxy, pushurl, …); any url.* key (insteadOf took the fetch to another host: measured), any http.* key
+      (http.proxy took it to the proxy: measured), a proxy name in the environment;
+    - programs: a hook fetch or its maintenance runs (_HOOKS_NOT_RUN_BY_FETCH), fsmonitor that git does not read as
+      false (measured: the fetch started it), core.sshCommand, core.askPass, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS,
+      SSH_ASKPASS, a promisor key, a pager as in class a (D34, D42);
+    - a credential helper that is not on _FETCH_HELPERS and not the gh helper of _fetch_gh_helper (each helper started
+      on a 401 of the stand-in, a name on PATH as git-credential-<name>: measured), any other credential.* key;
+    - a submodule (a .gitmodules, a gitlink in the index, or a git directory under modules/) unless
+      fetch.recurseSubmodules reads false (measured: the default recursion fetched the submodule from its own URL);
+    - any key or GIT_* name the profile does not know.
+    found_url, a list, gets the URL of the remote when the profile finds nothing."""
+    environ = os.environ if environ is None else environ
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        return f"the gate cannot read the repository's layout and configuration ({why})"
+    if paths["gitdir"] is None or paths["toplevel"] is None:
+        return "the directory is not inside a git work tree"
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return f"the gate cannot read the effective configuration ({why})"
+    urls, rules, recurse_off = [], [], False
+    for scope, origin, key, value in entries:
+        lowered, where = key.lower(), f"{key} in the {scope} configuration {origin.removeprefix('file:')}"
+        section, _dot, rest = key.partition(".")
+        subsection, _dot, variable = rest.rpartition(".")
+        section, variable = section.lower(), variable.lower()
+        if re.match(_PARTIAL_CLONE_KEYS, lowered):
+            return f"a lazy fetch from a promisor remote: {where}"
+        if lowered == "core.pager" or lowered.startswith("pager."):
+            if inert_pagers is not None:
+                inert_pagers.append(where)
+                continue
+            return f"a pager: {where}"
+        if lowered == "core.fsmonitor":
+            if not _git_false(directory, value, deadline):
+                return f"fsmonitor, which the fetch starts: {where}"
+            continue
+        if section == "remote" and subsection == remote:
+            if variable == "url":
+                urls.append(value)
+                continue
+            if variable == "fetch":
+                rules.append(value)
+                continue
+            return (f"a setting of the remote {remote} the fetch profile does not know to keep the fetch on "
+                    f"github.com: {where}")
+        if section == "remote" and subsection and variable in ("url", "pushurl", "fetch", "push"):
+            continue        # another remote's address and rules, which a fetch from this remote does not read
+        if section == "credential" and variable == "helper":
+            if value in _FETCH_HELPERS:
+                continue
+            problem = _fetch_gh_helper(value or "", environ, deadline, inert_pagers)
+            if problem is not None:
+                return f"{problem}: {where}"
+            continue
+        if lowered == "fetch.recursesubmodules":
+            recurse_off = _git_false(directory, value, deadline)
+            if recurse_off:
+                continue
+            return f"a submodule recursion: {where}"
+        if lowered not in _FETCH_INERT_KEYS and not _FETCH_INERT_PATTERN.fullmatch(lowered):
+            return ("a configuration key the fetch profile does not know to keep the fetch to git's own programs and "
+                    f"github.com: {where}")
+    if len(urls) != 1:
+        return (f"the remote {remote} has no URL" if not urls else
+                f"the remote {remote} has {len(urls)} URLs, and the profile knows a fetch from one")
+    matched = _FETCH_GITHUB_URL.fullmatch(urls[0] or "")
+    if matched is None or matched.group(2) in (".", "..", ".git"):
+        return f"the URL of the remote {remote} is not https://github.com/<owner>/<repo>: {urls[0]!r}"
+    if rules != [f"+refs/heads/*:refs/remotes/{remote}/*"]:
+        return (f"the fetch rules of the remote {remote} are not the one rule +refs/heads/*:refs/remotes/{remote}/*: "
+                f"{rules!r}")
+    hooks = paths["hooks"]
+    if hooks and os.path.lexists(hooks):
+        if not os.path.isdir(hooks):
+            return f"a hook: the hook directory {hooks} is not a directory"
+        try:
+            names = sorted(os.listdir(hooks))
+        except OSError as exc:
+            return f"a hook: the hook directory {hooks} cannot be read ({exc})"
+        for name in names:
+            if not name.endswith(".sample") and name not in _HOOKS_NOT_RUN_BY_FETCH:
+                return f"a hook the fetch or its maintenance may start: {os.path.join(hooks, name)}"
+    for name in sorted(environ):
+        problem = _fetch_env_problem(name, environ[name])
+        if problem is not None and inert_pagers is not None and name in ("PAGER", "GIT_PAGER"):
+            inert_pagers.append(f"{name} in the hook's environment")
+            continue
+        if problem is not None:
+            return f"{problem} in the hook's environment"
+    if not recurse_off:
+        if os.path.lexists(os.path.join(paths["gitdir"], "modules")):
+            return f"a submodule: {os.path.join(paths['gitdir'], 'modules')}"
+        problem = _has_submodule(directory, paths["toplevel"], deadline)
+        if problem is not None:
+            return f"{problem}, which the fetch may fetch from its own URL"
+    if found_url is not None:
+        found_url.append(urls[0])
+    return None
+
+
+def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host: str = "claude") -> Verdict:
+    """The verdict for the fetch form of D45 under Claude Code: pass when the fetch profile of its repository finds
+    nothing, else the ask of D41 with what it found (Ergänzung 1 to Nachtrag 19). Under a host whose Bash tool gives
+    the command no terminal a pager does not count, as in class a (D42)."""
+    remote = name.split(" ", 2)[2]
+    inert_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
+    url: list = []
+    try:
+        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url)
+                   if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
+    except GateError as exc:
+        problem = f"the fetch profile reached no result ({exc})"
+    if problem is None:
+        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not count: the hook's environment names the "
+                  f"host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal "
+                  "(DECISIONS.md D42).") if inert_pagers else ""
+        return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of the repository at {directory} "
+                               f"found the remote {remote} at {url[0]} with the one fetch rule of a clone, no URL "
+                               "rewrite, proxy, transport helper, ssh or askpass setting, no credential helper but "
+                               "those it knows, no hook the fetch or its maintenance starts, no fsmonitor, no "
+                               "submodule it would fetch, and every key and environment setting it read is one it "
+                               "knows to keep the fetch to git's own programs and github.com (DECISIONS.md D45)."
+                               + pagers,
+                       "free_after_fetch_profile", repo=directory)
+    asked = _unmodeled_read_or_checkout("git fetch", host)
+    return Verdict(
+        "ask", f"{asked.detail} The fetch profile of D45 found {problem}, so this fetch is not the one it frees.",
+        "remote_read_not_modeled", evidence=asked.evidence, failed=f"{asked.failed}; the fetch profile found {problem}",
+        next_step=asked.next_step, repo=directory)
 
 
 # --- class b: gh read forms (DESIGN_ask_load.md 3.2, owner answers 4 and 5 of 2026-10-14, DECISIONS.md D36) --------
@@ -2270,6 +2546,13 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
             # D40 (part 3 of Nachtrag 15): the whole command adds one work tree; the judge frees it under Claude Code
             # only after the checkout check of the repository the -C path names.
             return f"git worktree add {target}", directory, [_CHECKOUT_FREE]
+    if sub == "fetch" and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
+            and _one_absolute_c(words, i, c_count, not_measured, rewrites):
+        remote = _fetch_form(args, None if rewrites is None else rewrites[i + 1:])
+        if remote is not None:
+            # D45 (Ergänzung 1 to Nachtrag 19): the command fetches from one named remote with one absolute -C; the
+            # judge frees it under Claude Code only after the fetch profile of the repository the -C path names.
+            return f"git fetch {remote}", directory, [_FETCH_FREE]
     if sub is not None and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and not not_measured and c_count <= 1 \
             and _read_form(sub, args, None if rewrites is None else rewrites[i + 1:]):
@@ -2428,13 +2711,19 @@ def _resolve_single(words: list[tuple], directory: str | None,
     name, cdir, detail = call
     if detail in ([_HOOKS_DISABLE], [_NOT_FREE]):
         return [call]  # a hook-disabling form denies and a repository form asks, whatever the context
+    if detail == [_FETCH_FREE] and (not (bare and neutral_only) or any(rewritten) or any(
+            _fetch_env_problem(w[0].partition("=")[0]) for w in words[:i])):
+        # a fetch that is not the form of D45 as the whole command keeps today's answer, a prefix assignment the fetch
+        # profile does not accept included (it counts as the hook's environment does, as for class a, D34)
+        return [("git fetch", UNKNOWN, None)]
     if detail in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE]) and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
     if detail in _READ_FREE_DETAILS and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
         return [(name, UNKNOWN, [_NOT_FREE])]  # a prefix assignment counts as the hook's environment does (D34)
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
-    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE]) and any(rewritten):
+    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE], [_FETCH_FREE]) \
+            and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
         return [(name, UNKNOWN, None)]
@@ -3128,6 +3417,7 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                 return disabling
         if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE])
+                     else ("git fetch", UNKNOWN, [_MAYBE_PUSH]) if d == [_FETCH_FREE]
                      else (n, c, d)
                      for n, c, d in calls if d != [_GH_READ_FREE]]
         if not _redirections_open_no_file(toks):
@@ -9035,6 +9325,14 @@ def _sh_gated(step: _ShStep) -> bool:
     return sub == "push" or sub not in _GIT_LOCAL_SUBCOMMANDS
 
 
+def _sh_fetch_step(step: _ShStep) -> bool:
+    """Whether a git step is the fetch form of D45: `git -C <literal absolute path> fetch …` with the words _fetch_form
+    accepts (Ergänzung 1 to Nachtrag 19)."""
+    words = step.words
+    return (step.kind == "git" and len(words) >= 4 and words[1] == "-C" and "$" not in words[2]
+            and os.path.isabs(words[2]) and words[3] == "fetch" and _fetch_form(words[4:]) is not None)
+
+
 def _sh_read_objects(later: _ShStep, environ: dict) -> tuple[str, ...]:
     """The files the later step's own answer read or starts that a write could change (R20-3 of review round 20): the
     program its name selects on PATH, and for gh the configuration files the gh profile reads (config.yml and hosts.yml
@@ -9077,7 +9375,8 @@ def _sh_reads_attributes(step: _ShStep) -> bool:
 
 
 def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = None,
-                      gh_config: str | None = None, read_objects: tuple[str, ...] = ()) -> bool:
+                      gh_config: str | None = None, read_objects: tuple[str, ...] = (),
+                      free_fetches: frozenset = frozenset()) -> bool:
     """Whether the step may change what the answer of the later step read: the configuration, the hooks, the
     evidence, the environment, the aliases or the programs a name selects, and for a read form that walks the work tree
     the gitlinks of the index (a `git add` of an embedded repository adds one, and `git status` or `git diff` then
@@ -9103,6 +9402,8 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
         if later is not None and _sh_reads_attributes(later) and any(
                 os.path.basename(p) in _SH_ATTRIBUTE_FILES for p in paths):
             return True     # an attributes file, which the filter check of the later diff read (D39, part 2)
+        if later is not None and _sh_fetch_step(later) and any(os.path.basename(p) == ".gitmodules" for p in paths):
+            return True     # the .gitmodules the fetch profile of the later fetch read for a submodule (D45)
         if step.head == "sort" and any(w.startswith(("-o", "--output")) for w in step.words[1:]):
             return True
         if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
@@ -9114,12 +9415,16 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
         if sub_words[:1] == ["add"] and later is not None and later.kind == "git":
             after = later.words[1:]
             after = after[2:] if after[:1] == ["-C"] else after
-            if after and after[0] in _READ_WALKS:
-                return True     # the gitlinks the read profile read for a walking form (_has_submodule)
+            if after and (after[0] in _READ_WALKS or _sh_fetch_step(later)):
+                return True     # the gitlinks the read profile or the fetch profile read (_has_submodule)
         # a read form of class a writes no configuration, hook, evidence or index entry (the refresh of git status
-        # rewrites the stat data, not the gitlinks the read profile reads)
+        # rewrites the stat data, not the gitlinks the read profile reads). The fetch form of D45 writes the tracking
+        # refs, FETCH_HEAD, objects and packed-refs, and its maintenance packs, gc.log and info/refs (measured); no
+        # later step's own answer reads them (the read, state, gh and fetch profiles read the configuration, the hooks,
+        # the environment, the index's gitlinks and the attributes), and a gated step after it is no first step and
+        # keeps the answer of the whole command (D45); only a fetch free on its own (free_fetches) is such a step
         return not (sub_words[:1] in (["add"], ["commit"]) or step.words == ["git", "--version"]
-                    or (bool(sub_words) and _read_form(sub_words[0], sub_words[1:])))
+                    or (bool(sub_words) and _read_form(sub_words[0], sub_words[1:])) or id(step) in free_fetches)
     if step.kind == "gh":
         # a read form of class b writes gh's HTTP cache and nothing else (measured): no configuration, hook, evidence
         # or environment another step's answer reads
@@ -9217,6 +9522,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
               judge_whole, plain_chain: bool = False) -> Outcome | None:
     released = False   # a K-NW-2 B step left free in a plain chain (Nachtrag 2)
     verdicts: list = []
+    free_fetches: set = set()   # the fetch steps of D45 whose own answer is free
     protected: set = set()
     for s in steps:
         if s.kind == "unresolved":
@@ -9259,7 +9565,15 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             raise _ShKeep(f"a {s.head} step with an expansion or a prefix assignment")
         if any(not isinstance(r.target, _ShHeredoc) and not r.target.literal for r in s.cmd.redirs):
             raise _ShKeep(f"a {s.head} step with a redirection the shell builds")
-        if _sh_gated(s):
+        gated = _sh_gated(s)
+        if gated and host != "codex" and _sh_fetch_step(s) and s.cwd is not None:
+            # D45: the fetch form is a step of its own wherever it stands when its own answer is free (the fetch
+            # profile found nothing); otherwise it stays a gated step, as before. Under Codex it stays gated.
+            fetch_answer = judge_whole(_sh_step_text(s, assigns=True), s.cwd)
+            if fetch_answer is not None and fetch_answer.decision == "pass":
+                gated = False
+                free_fetches.add(id(s))
+        if gated:
             if host == "codex" or not s.top_level or s.cmd.redirs or any(t.kind != "cd" for t in s.before):
                 raise _ShKeep(f"the gated step {_sh_step_text(s)} is not the first step on its own")
         if s.cwd is None:
@@ -9294,7 +9608,8 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             env_now = os.environ if environ is None else environ
             gh_config = _gh_config_dir(env_now) if s.kind == "gh" else None
             read_objects = _sh_read_objects(s, env_now)
-            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s, gh_config, read_objects)]
+            changed = [t for t in s.before if _sh_changes_state(t, id(t) in protected, s, gh_config, read_objects,
+                                                                frozenset(free_fetches))]
             if changed:
                 verdicts.append(Verdict(
                     "ask", f"NOT MEASURED: {_sh_step_text(s)} would be free on its own, but a step before it or beside "
@@ -9366,7 +9681,8 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
     judgment as a git form, besides K-NW-2 B's two forms after a state check (D3), under Claude Code the read forms of
-    class a after a read profile (D34), and under both hosts the gh read forms of class b after a gh profile (D36). The
+    class a after a read profile (D34) and the fetch form from github.com after a fetch profile (D45), and under both
+    hosts the gh read forms of class b after a gh profile (D36). The
     separate push path remains. Under Claude Code it denies an
     evidenced failure at the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except
     the local inactivity of owner choice 1 A for a repository that declares nothing (_local_inactivity, D5); under
@@ -10051,6 +10367,12 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "quote present in the text",
                 next_step="run the call in a plain form the gate reads (a single `git`/`gh` command, no "
                           "unusual quoting, substitution or letter case), or have a person review it"))
+            continue
+        if detail == [_FETCH_FREE]:
+            # D45 (Ergänzung 1 to Nachtrag 19): free under Claude Code after the fetch profile, under Codex the ask
+            # of D41
+            verdicts.append(_unmodeled_read_or_checkout("git fetch", host) if host == "codex" else
+                            _fetch_free_verdict(name, resolved, deadline, host))
             continue
         if detail == [_CHECKOUT_FREE]:
             verdicts.append(_checkout_free_verdict(name, resolved, deadline, host))
