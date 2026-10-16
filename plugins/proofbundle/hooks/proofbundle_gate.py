@@ -2158,6 +2158,9 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         # No free form (review Runde 9, owner choice B): options, configuration, configured values, hooks and
         # indirect paths can make git start a program the gate does not see.
         return f"git {sub}", UNKNOWN, [_NOT_FREE]
+    if sub == "worktree" and args[:1] == ["add"]:
+        # every form of worktree add but the one D40 checks: the answer names the checkout, not a push (D41)
+        return "git worktree add", UNKNOWN, [_MAYBE_PUSH]
     # unknown subcommand, send-pack, any unmodelled transport, and the entries that left the list (S1, A)
     return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
 
@@ -9804,6 +9807,39 @@ def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str =
         next_step="have a person review the call, or run it yourself outside the agent")
 
 
+#: The git subcommands that reach a remote to read from it. They stay possible transfers (_MAYBE_PUSH, an ask, denied
+#: under Codex), but the answer names what they may start instead of the commits a push sends (D41, part 3 of Nachtrag
+#: 16). Measured with git 2.43.0 from a remote given as a local path (measure/fetch_starts.sh of Nachtrag 16):
+#: ls-remote started the upload-pack remote.<name>.uploadpack names; fetch started it, fsmonitor and, where a ref
+#: changed, the reference-transaction hook.
+_REMOTE_READS = frozenset({"git fetch", "git ls-remote"})
+
+
+def _unmodeled_read_or_checkout(name: str, host: str) -> Verdict:
+    """The ask for `git fetch`, `git ls-remote` and every `git worktree add` but the one form D40 checks: today's
+    decision with the reason the form has, which is no push (D41, part 3 of Nachtrag 16)."""
+    if name in _REMOTE_READS:
+        hook = (", fsmonitor, and the reference-transaction hook where a ref changes" if name == "git fetch" else "")
+        return Verdict(
+            "ask", f"NOT MEASURED: {name} reaches a remote over the network or a local path and may start a program "
+                   "to do so: a credential helper, a transport helper (`ext::`, `remote-<scheme>`), core.sshCommand "
+                   f"or GIT_SSH, a proxy command, the upload-pack the remote's configuration names{hook}. The gate "
+                   "models none of these ways and checked nothing; the form sends no commits (DECISIONS.md D40, D41).",
+            "remote_read_not_modeled", evidence=f"the remote {name} reaches and the helpers and hooks it may start",
+            failed=f"{name} reaches a remote through a transport, helpers and hooks the gate does not model",
+            next_step="have a person review the call, or run it yourself outside the agent")
+    form = "`git -C <absolute path> worktree add [-q] [-b <name>] <absolute target> [<revision>]`"
+    return Verdict(
+        "ask", "NOT MEASURED: git worktree add checks out files and may start a program on that checkout: the hooks "
+               "post-checkout, post-index-change and reference-transaction, a smudge or process filter an attribute "
+               f"assigns, or fsmonitor. The gate checks these ways only for {form} as the whole command, under Claude "
+               "Code (D40); this form is not that one, and the gate checked nothing (DECISIONS.md D40, D41).",
+        "checkout_not_modeled", evidence="the hooks, filters and fsmonitor the checkout of git worktree add may start",
+        failed="the command is not the one form of git worktree add the gate checks before the checkout",
+        next_step=("have a person review the call, or run it yourself outside the agent" if host == "codex" else
+                   f"run it as {form} on its own, or have a person review the call"))
+
+
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
            host: str = "claude", extra: list | None = None, plain_push: bool = False,
            environ: dict | None = None) -> Outcome:
@@ -9915,6 +9951,9 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                 failed=f"{name} may start a program the gate does not see",
                 next_step=(_FREE_FORMS_HINT if name in ("git add", "git commit") else
                            "have a person review the call, or run it yourself outside the agent")))
+            continue
+        if detail == [_MAYBE_PUSH] and (name in _REMOTE_READS or name == "git worktree add"):
+            verdicts.append(_unmodeled_read_or_checkout(name, host))
             continue
         if detail == [_MAYBE_PUSH]:
             verdicts.append(Verdict(

@@ -2941,3 +2941,23 @@ take the one shown):
 - Limits, in plain words: AI_AGENT names a version, not an origin (D27); a host that sets the name falsely is not caught.
   The rule holds for 2.1.301 only; a new version keeps the ask until it is measured and added. Class a (D34) counts
   GIT_PAGER, PAGER and the pager keys for the same reason; that sibling is not built here and is an owner question.
+
+Part 3, the reasons of fetch, ls-remote and worktree add (owner choice of Nachtrag 16):
+- `git ls-remote`, `git fetch` and every `git worktree add` but the one form D40 frees asked with the text for unresolved
+  push forms ("the commits and refs this command might send … not one strict push form"). They stay asks, denied under
+  Codex; the answer now names the reason the form has.
+- ls-remote and fetch (_REMOTE_READS, reason id `remote_read_not_modeled`): the form reaches a remote and may start a
+  credential helper, a transport helper, core.sshCommand or GIT_SSH, a proxy command, the upload-pack the remote's
+  configuration names, and for fetch fsmonitor and the reference-transaction hook where a ref changes; it sends no
+  commits. Measured with git 2.43.0 from a remote given as a local path (measure/fetch_starts.sh of Nachtrag 16):
+  ls-remote started the configured upload-pack; fetch started it, fsmonitor and, where a ref changed,
+  reference-transaction. The network ways are named after git's documentation and D40, not measured (no network).
+- worktree add (reason id `checkout_not_modeled`): the checkout may start the hooks post-checkout, post-index-change and
+  reference-transaction, a smudge or process filter an attribute assigns, and fsmonitor (measured in D40); the gate
+  checks them only for the one form of D40, as the whole command under Claude Code. Under Claude Code the next step
+  names that form; under Codex, where it is not free either, it names a person's review.
+- Under Claude Code, fetch and ls-remote get the same text as the first step of a chain (corpus B211: `git fetch origin
+  && git log …`). Not changed: after another step, and under Codex in any chain, their repository is not resolved, and
+  worktree add is free only as the whole command (D40), so these keep `directory_unresolved`, which was never the push
+  text. send-pack, a per-command alias, pull, clone and remote update keep the push text; pull, clone and remote update
+  read a remote too, and whether they get the same text is an owner question.
