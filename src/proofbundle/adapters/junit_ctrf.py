@@ -53,6 +53,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from xml.parsers import expat
 
+from .._membership import is_bool, is_member
 from .._strict_json import loads_strict
 from ..budget import DEFAULT_BUDGET, BudgetExceeded, render_safe
 from ..canonical import _ein_stand
@@ -199,6 +200,8 @@ _PARENTS = {
 _COUNT_ATTRIBUTES = (("tests", "testcase"), ("failures", "failure"), ("errors", "error"), ("skipped", "skipped"))
 _COUNT_TEXT = re.compile(r"\A[0-9]{1,15}\Z")
 _SUITES = frozenset({"testsuites", "testsuite"})
+#: The outcome of one testcase, in the order of precedence the reader decides by is not this order.
+_OUTCOMES = ("pass", "failure", "error", "skipped")
 
 
 class _Frame:
@@ -215,7 +218,7 @@ class _JunitReading:
     def __init__(self) -> None:
         self.stack: list = []
         self.root_name: Optional[str] = None
-        self.outcomes = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+        self.outcomes = dict.fromkeys(_OUTCOMES, 0)
 
     def xml_declaration(self, version: Any, encoding: Any, standalone: Any) -> None:
         if encoding is not None and encoding.lower() != "utf-8":
@@ -227,20 +230,20 @@ class _JunitReading:
         if len(self.stack) >= XML_MAX_DEPTH:
             raise ReportRefused("too_deep", f"the elements nest deeper than {XML_MAX_DEPTH} levels")
         allowed = _PARENTS.get(tag)
-        if allowed is None or parent not in allowed:
+        if allowed is None or not is_member(parent, allowed):
             where = f"inside <{render_safe(parent, quote=False)}>" if parent else "as the root element"
             raise ReportRefused("structure", f"element <{render_safe(tag, quote=False)}> {where} is not part of "
                                              "the JUnit XML this adapter reads")
         frame = _Frame(tag, attributes.get("name") or None)
-        if tag in _SUITES:
+        if is_member(tag, _SUITES):
             frame.declared = _declared_counts(tag, attributes)
             if parent is None:
                 self.root_name = frame.name
         elif tag in ("failure", "error", "skipped"):
             self.stack[-1].counted[tag] += 1
-        elif tag in _FLAKY:
+        elif is_member(tag, _FLAKY):
             self.stack[-1].counted["flaky"] += 1
-        elif tag in _RERUN:
+        elif is_member(tag, _RERUN):
             self.stack[-1].counted["rerun"] += 1
         self.stack.append(frame)
 
@@ -248,7 +251,7 @@ class _JunitReading:
         frame = self.stack.pop()
         if tag == "testcase":
             self._end_testcase(frame)
-        elif tag in _SUITES:
+        elif is_member(tag, _SUITES):
             self._end_suite(frame)
 
     def _end_testcase(self, frame: _Frame) -> None:
@@ -263,13 +266,13 @@ class _JunitReading:
         # The precedence decides a testcase holding more than one outcome (pytest writes a teardown error
         # into the testcase of a skipped test): an error, then a failure, then a skip.
         if c["error"]:
-            self.outcomes["errors"] += 1
+            self.outcomes["error"] += 1
         elif c["failure"]:
-            self.outcomes["failed"] += 1
+            self.outcomes["failure"] += 1
         elif c["skipped"]:
             self.outcomes["skipped"] += 1
         else:
-            self.outcomes["passed"] += 1
+            self.outcomes["pass"] += 1
         suite = self.stack[-1].counted
         suite["testcase"] += 1
         for kind in ("failure", "error", "skipped"):
@@ -289,10 +292,10 @@ class _JunitReading:
                 parent[element] += frame.counted[element]
 
     def result(self) -> ReportCounts:
-        o = self.outcomes
-        return ReportCounts(fmt=FORMAT_JUNIT, tests=sum(o.values()), passed=o["passed"], failed=o["failed"],
-                            errors=o["errors"], skipped=o["skipped"], name=self.root_name, tool_version=None,
-                            spec_version=None)
+        n_pass, n_failure, n_error, n_skipped = (self.outcomes[k] for k in _OUTCOMES)
+        return ReportCounts(fmt=FORMAT_JUNIT, tests=n_pass + n_failure + n_error + n_skipped, passed=n_pass,
+                            failed=n_failure, errors=n_error, skipped=n_skipped, name=self.root_name,
+                            tool_version=None, spec_version=None)
 
 
 def _declared_counts(tag: str, attributes: dict) -> dict:
@@ -312,7 +315,8 @@ def _refuse_doctype(*_: Any) -> None:
                                    "external references are not read")
 
 
-def _refuse_external_entity(*_: Any) -> None:
+def _refuse_external_entity(context: str, base: Optional[str], system_id: Optional[str],
+                            public_id: Optional[str]) -> int:
     # Unreachable while the document type declaration is refused: an external entity needs one. Kept so that
     # no reference is ever resolved or skipped in silence should that refusal be removed.
     raise ReportRefused("external_reference", "the report references an external entity; it is not read")
@@ -382,7 +386,7 @@ _MAX_COUNT = 2 ** 53 - 1
 
 def _only_known(obj: dict, known: frozenset, where: str) -> None:
     for key in obj:
-        if key not in known:
+        if not is_member(key, known):
             raise ReportRefused("unknown_field", f"{where} has the field {render_safe(key)}, which CTRF does not "
                                                  "define outside an extra object")
     if "extra" in obj and type(obj["extra"]) is not dict:
@@ -503,7 +507,7 @@ def read_ctrf_json(data: bytes, *, max_bytes: int = REPORT_MAX_BYTES) -> ReportC
         _only_known(test, _CTRF_TEST, where)
         _text(_field(test, "name", where), f"{where}.name")
         status = _field(test, "status", where)
-        if type(status) is not str or status not in by_status:
+        if type(status) is not str or not is_member(status, _CTRF_STATUSES):
             raise ReportRefused("bad_value", f"{where}.status must be one of {list(_CTRF_STATUSES)}, got "
                                              f"{render_safe(status)}")
         _integer(_field(test, "duration", where), f"{where}.duration", non_negative=False)
@@ -513,10 +517,10 @@ def read_ctrf_json(data: bytes, *, max_bytes: int = REPORT_MAX_BYTES) -> ReportC
         if declared[k] != counted[k]:
             raise ReportRefused("count_mismatch", f"results.summary.{k} is {declared[k]}, but the tests array holds "
                                                   f"{counted[k]}; the report contradicts itself")
-    return ReportCounts(fmt=FORMAT_CTRF, tests=len(tests), passed=by_status["passed"], failed=by_status["failed"],
-                        errors=by_status["other"], skipped=by_status["skipped"] + by_status["pending"],
-                        name=tool_name, tool_version=tool_version, spec_version=version,
-                        other=by_status["other"], pending=by_status["pending"])
+    n_pass, n_failed, n_skipped, n_pending, n_other = (by_status[s] for s in _CTRF_STATUSES)
+    return ReportCounts(fmt=FORMAT_CTRF, tests=len(tests), passed=n_pass, failed=n_failed, errors=n_other,
+                        skipped=n_skipped + n_pending, name=tool_name, tool_version=tool_version,
+                        spec_version=version, other=n_other, pending=n_pending)
 
 
 # ── the claim ────────────────────────────────────────────────────────────────────────────────────────────
@@ -617,12 +621,15 @@ def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = No
     claim = decode_eval_claim(bundle)
     if claim is None:
         return {"ok": False, "reason": "not a valid, issuer-bound eval receipt", "claim": None}
-    if expected_issuers is not None and claim["issuer"] not in list(expected_issuers):
-        return {"ok": False, "reason": f"the receipt is signed by {claim['issuer']}, not by a pinned issuer",
-                "claim": claim}
+    if expected_issuers is not None:
+        if type(expected_issuers) not in (list, tuple) or not all(type(p) is str for p in expected_issuers):
+            return {"ok": False, "reason": "expected_issuers must be a list of issuer strings", "claim": claim}
+        if claim["issuer"] not in expected_issuers:
+            return {"ok": False, "reason": f"the receipt is signed by {claim['issuer']}, not by a pinned issuer",
+                    "claim": claim}
     provenance = claim.get("provenance") or {}
     fmt = provenance.get("report_format")
-    if fmt not in _READERS:
+    if type(fmt) is not str or not is_member(fmt, _READERS):
         return {"ok": False, "reason": "the receipt is not a test-report receipt (no report_format junit-xml or "
                                        "ctrf in its provenance)", "claim": claim}
     try:
@@ -637,10 +644,13 @@ def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = No
     expected = {"tests_total": counts.tests, "tests_passed": counts.passed, "tests_failed": counts.failed,
                 "tests_errors": counts.errors, "tests_skipped": counts.skipped}
     for key, value in expected.items():
-        if provenance.get(key) != value:
+        if type(provenance.get(key)) is not int or provenance.get(key) != value:
             return {"ok": False, "reason": f"the receipt signs {key}={render_safe(provenance.get(key))}, the report "
                                            f"reads as {value}", "claim": claim}
-    shape = (claim["metric"], claim["comparator"], claim["threshold"], claim["n"], claim["passed"])
+    signed_verdict = claim["passed"]
+    if not is_bool(signed_verdict):
+        return {"ok": False, "reason": "the receipt's passed is not a boolean", "claim": claim}
+    shape = (claim["metric"], claim["comparator"], claim["threshold"], claim["n"], signed_verdict)
     if shape != ("pass_rate", ">=", "1", counts.executed, counts.verdict):
         return {"ok": False, "reason": f"the receipt signs {render_safe(list(shape))}, the report gives pass_rate >= 1 "
                                        f"over n={counts.executed} with passed={counts.verdict}", "claim": claim}

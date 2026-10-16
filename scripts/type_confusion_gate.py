@@ -130,6 +130,11 @@ def _benign_fixtures() -> dict[str, object]:
         # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
         "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
+        # `report` als SEKUNDAERER Parameter (16.10.2026): adapters.junit_ctrf.verify_test_receipt nimmt
+        # (bundle, report) — `bundle` ist der gefuzzte Primaerparameter, `report` der Pfad des Berichts, gegen den
+        # eine gueltige Quittung geprueft wuerde. Ein leerer Pfad ist typgueltig und endet, falls er je gelesen
+        # wird, in einer benannten Abweisung (`unreadable`), nie in einer rohen Ausnahme.
+        "report": "",
     }
 
 

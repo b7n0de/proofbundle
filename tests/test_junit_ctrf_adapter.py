@@ -193,6 +193,28 @@ def test_a_rate_just_below_one_never_rounds_to_passed(passed, executed):
     assert Fraction(score) <= Fraction(passed, executed)
 
 
+def test_with_the_doctype_refusal_planted_away_an_external_entity_is_still_refused(monkeypatch):
+    """Gate meta test of the belt behind the doctype refusal: with that refusal removed, an external entity
+    in content reaches the entity handler, which refuses it instead of letting the parser skip it in silence."""
+    from proofbundle.adapters import junit_ctrf
+    monkeypatch.setattr(junit_ctrf, "_refuse_doctype", lambda *_: None)
+    data = (b'<?xml version="1.0"?><!DOCTYPE testsuite [<!ENTITY e SYSTEM "https://example.invalid/x">]>'
+            b'<testsuite name="s" tests="1"><testcase name="t"><system-out>&e;</system-out></testcase></testsuite>')
+    with pytest.raises(ReportRefused) as exc:
+        read_junit_xml(data)
+    assert exc.value.code == "external_reference"
+
+
+def test_the_verdict_guard_refuses_a_score_that_disagrees_with_the_counts(monkeypatch):
+    """Gate meta test of the guard between the score and the counts: a score that would sign passed for a run
+    with a failure is refused, no claim is returned."""
+    from proofbundle.adapters import junit_ctrf
+    monkeypatch.setattr(junit_ctrf, "_pass_rate_floor", lambda passed, executed: "1")
+    with pytest.raises(ReportRefused) as exc:
+        _claim_for(3, 1, 0)
+    assert exc.value.code == "verdict_mismatch"
+
+
 # --- the receipt ---------------------------------------------------------------------------------------
 
 def test_claim_shape_and_what_it_carries():
@@ -340,3 +362,33 @@ def test_public_api_is_exported_with_english_names():
                  "ReportRefused"):
         assert name in adapters.__all__
         assert getattr(adapters, name) is not None
+
+
+def _signed_with_provenance(change):
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import emit_eval_receipt
+    claim, _ = from_junit_xml(VECTORS / "junit/pytest-9.1.1_mixed.xml", timestamp="2026-10-16T00:00:00Z")
+    change(claim["provenance"])
+    return emit_eval_receipt(claim, generate_signer())
+
+
+@pytest.mark.parametrize("value", [["junit-xml"], {"a": 1}, 7, None, True])
+def test_check_never_raises_on_a_report_format_of_another_type(value):
+    bundle = _signed_with_provenance(lambda p: p.__setitem__("report_format", value))
+    result = verify_test_receipt(bundle, VECTORS / "junit/pytest-9.1.1_mixed.xml")
+    assert result["ok"] is False and "test-report" in result["reason"]
+
+
+def test_check_compares_a_signed_count_by_type_not_only_by_value():
+    """True == 1 in Python: a receipt signing tests_passed true for a report with one passed test is not about
+    that report's counts."""
+    bundle = _signed_with_provenance(lambda p: p.__setitem__("tests_passed", True))
+    result = verify_test_receipt(bundle, VECTORS / "junit/pytest-9.1.1_mixed.xml")
+    assert result["ok"] is False and "tests_passed" in result["reason"]
+
+
+def test_emit_into_a_path_that_cannot_be_written_is_malformed_input(tmp_path):
+    out = tmp_path / "missing-directory" / "r.json"
+    r = _run("emit-test-receipt", "--junit", str(VECTORS / "junit/pytest-9.1.1_all_passed.xml"), "--out", str(out),
+             "--new-key", str(tmp_path / "k.key"))
+    assert r.returncode == 2 and "Traceback" not in r.stderr and "ERROR" in r.stderr

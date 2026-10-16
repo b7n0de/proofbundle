@@ -571,9 +571,13 @@ def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
     except (EvalClaimError, ValueError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(bundle, handle, indent=2)
-        handle.write("\n")
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(bundle, handle, indent=2)
+            handle.write("\n")
+    except OSError as exc:
+        _err(exc)
+        return 2
     p = claim["provenance"]
     print(_safe_line(f"wrote test receipt {args.out} ({p['report_format']}: {p['tests_total']} tests, "
                      f"{p['tests_passed']} passed, {p['tests_failed']} failed, {p['tests_errors']} errors, "
