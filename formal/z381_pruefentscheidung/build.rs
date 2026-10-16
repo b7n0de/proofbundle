@@ -93,6 +93,22 @@ fn plant(src: &str, mutant: &str) -> String {
             1,
             "mutant kani_parse_counter",
         ),
+        // P2, harness k2: a usage error writes a stdout line besides its stderr line.
+        "kani_fatal_stdout" => replace_exact(
+            src,
+            "fn fatal(msg: &str) -> ! {\n    eprintln!(\"error: {msg}\");\n    exit(2);\n}",
+            "fn fatal(msg: &str) -> ! {\n    println!(\"ERROR\");\n    eprintln!(\"error: {msg}\");\n    exit(2);\n}",
+            1,
+            "mutant kani_fatal_stdout",
+        ),
+        // P3, harness k6: the inclusion walk answers differently on every second call.
+        "kani_walk_counter" => replace_exact(
+            src,
+            "    proof: &[Vec<u8>],\n) -> Result<Vec<u8>, String> {\n",
+            "    proof: &[Vec<u8>],\n) -> Result<Vec<u8>, String> {\n    static AUFRUFE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);\n    if AUFRUFE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 == 1 {\n        return Err(\"second call\".into());\n    }\n",
+            1,
+            "mutant kani_walk_counter",
+        ),
         "" => src.to_string(),
         other => panic!("z381 build: unknown PB_Z381_MUTANT `{other}`"),
     }

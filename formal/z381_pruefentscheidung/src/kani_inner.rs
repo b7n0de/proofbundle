@@ -7,8 +7,9 @@
 // compile under Kani, measured), so run one harness at a time with:
 //   cargo kani -Z stubbing --harness <name>
 // Each harness states its input bound. Nothing here is counted as proven until a run says so.
-// `PB_Z381_MUTANT=kani_underflow|kani_two_lines|kani_parse_counter` plants the counter-check of
-// P1 (k5), P2 (k1) and P3 (k3); see build.rs.
+// `PB_Z381_MUTANT=<name>` plants a counter-check (see build.rs): kani_underflow for P1 (k5),
+// kani_fatal_stdout for P2 (k2), kani_walk_counter for P3 (k6); kani_two_lines (P2, k1) and
+// kani_parse_counter (P3, k3) target the parser harnesses.
 
 use super::*;
 use std::ffi::OsString;
@@ -61,11 +62,9 @@ fn k1_decision_every_file_up_to_4_bytes() {
     k1_decision_every_file::<4>();
 }
 
-/// P1 + P2 over argv: up to 3 words after `verify-bundle`, each from the flag alphabet or a
+/// P1 + P2 over argv: up to `W` words after `verify-bundle`, each from the flag alphabet or a
 /// symbolic 2-byte word (which may be invalid UTF-8), file content `{}`.
-#[kani::proof]
-#[kani::unwind(12)]
-fn k2_decision_every_argv_up_to_3_words() {
+fn k2_decision_every_argv<const W: usize>() {
     const WORDS: [&str; 8] = [
         "--expected-root",
         "--expected-tree-size",
@@ -78,7 +77,7 @@ fn k2_decision_every_argv_up_to_3_words() {
     ];
     let mut argv = bundle_argv();
     let n: usize = kani::any();
-    kani::assume(n <= 3);
+    kani::assume(n <= W);
     for _ in 0..n {
         let pick: usize = kani::any();
         kani::assume(pick <= WORDS.len());
@@ -90,6 +89,24 @@ fn k2_decision_every_argv_up_to_3_words() {
         }
     }
     run_main(argv, Some(b"{}".to_vec()));
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k2_decision_every_argv_up_to_1_word() {
+    k2_decision_every_argv::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k2_decision_every_argv_up_to_2_words() {
+    k2_decision_every_argv::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k2_decision_every_argv_up_to_3_words() {
+    k2_decision_every_argv::<3>();
 }
 
 /// P3 for the parser: two runs on the same bytes (at most `N`) give the same result.
@@ -198,4 +215,66 @@ fn k5_root_from_inclusion_total_len3() {
 #[kani::stub(node_hash, node_hash_abstract)]
 fn k5_root_from_inclusion_total_len4() {
     k5_root_from_inclusion_total_len::<4>();
+}
+
+fn node_hash_deterministic(l: &[u8], r: &[u8]) -> Vec<u8> {
+    // Assumption A1 for P3: SHA-256 abstracted by a DETERMINISTIC total function to 32 bytes (the
+    // unconstrained stub of k5 may answer differently on two calls and would fail P3 by itself).
+    let mut h = [0u8; 32];
+    h[0] = l.first().copied().unwrap_or(0) ^ r.first().copied().unwrap_or(0).rotate_left(1) ^ 1;
+    h[31] = l.len() as u8 ^ (r.len() as u8).rotate_left(3);
+    h.to_vec()
+}
+
+/// P3 for the inclusion walk over EVERY u64 leaf index and tree size and every proof of exactly
+/// `N` entries: two runs on the same input give the same result (SHA-256 abstracted
+/// deterministically, assumption A1). Z381 continuation: k3 and k4, the P3 harnesses over the
+/// JSON parser, ran out of memory on the dev box; this one carries the P3 counter-check.
+fn k6_root_from_inclusion_deterministic_len<const N: usize>() {
+    let idx: u64 = kani::any();
+    let size: u64 = kani::any();
+    let mut proof = Vec::with_capacity(N);
+    for _ in 0..N {
+        let p: [u8; 32] = kani::any();
+        proof.push(p.to_vec());
+    }
+    let leaf: [u8; 32] = kani::any();
+    let a = root_from_inclusion(idx, size, leaf.to_vec(), &proof);
+    let b = root_from_inclusion(idx, size, leaf.to_vec(), &proof);
+    assert_eq!(a, b);
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_deterministic)]
+fn k6_root_from_inclusion_deterministic_len0() {
+    k6_root_from_inclusion_deterministic_len::<0>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_deterministic)]
+fn k6_root_from_inclusion_deterministic_len1() {
+    k6_root_from_inclusion_deterministic_len::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_deterministic)]
+fn k6_root_from_inclusion_deterministic_len2() {
+    k6_root_from_inclusion_deterministic_len::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_deterministic)]
+fn k6_root_from_inclusion_deterministic_len3() {
+    k6_root_from_inclusion_deterministic_len::<3>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_deterministic)]
+fn k6_root_from_inclusion_deterministic_len4() {
+    k6_root_from_inclusion_deterministic_len::<4>();
 }
