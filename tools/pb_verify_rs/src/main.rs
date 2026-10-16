@@ -2284,7 +2284,32 @@ fn run_verify_relation(
     // element is the list the dispatcher prints as `reasons`: Python's wording and stable codes where
     // Python has them, the error text of the failing step where it does not.
     //
-    // Crypto FIRST (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
+    // Z381 F4: what Python reads BEFORE the signature, read here before it too. `decision verify`,
+    // `outcome verify` and `relation-statement verify` refuse an empty --pub, decode it and load
+    // every --with-related target (with its --related-pub) before they verify anything; each
+    // failure is exit 2 even when the signature would fail. This verifier checked the signature
+    // first and answered 1 for a key that is no base64 or a target that cannot be read, measured.
+    if pub_b64.is_empty() {
+        return (
+            2,
+            "null".into(),
+            vec!["--pub <base64 Ed25519 public key> is required".into()],
+        );
+    }
+    if let Err(e) = b64_strict(pub_b64) {
+        return (2, "null".into(), vec![format!("--pub: {e}")]);
+    }
+    let related = match load_related(
+        related_paths,
+        related_pubs,
+        pub_b64,
+        INTOTO_STATEMENT_PAYLOAD_TYPE,
+    ) {
+        Ok(r) => r,
+        Err(e) => return (2, "null".into(), vec![e]),
+    };
+
+    // Crypto (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
     // relation_statement.py:189-190 / the decision/outcome verify paths) so a statement/receipt
     // presented under the WRONG payloadType fails crypto here, never authenticated under a foreign type.
     match verify_dsse(envelope, pub_b64, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)) {
@@ -2374,19 +2399,6 @@ fn run_verify_relation(
 
     let relationships = predicate.and_then(|p| p.get("relationships"));
     let subject_hex = statement_content_root_hex(&body);
-
-    let related = match load_related(
-        related_paths,
-        related_pubs,
-        pub_b64,
-        INTOTO_STATEMENT_PAYLOAD_TYPE,
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            reasons.push(e);
-            return (2, "null".into(), reasons);
-        }
-    };
 
     let mut lineage = verify_relationship_edges(relationships, &related, Some(&subject_hex));
     lineage.superseded_by_attached = successor_warning(&related, Some(&subject_hex));
@@ -3254,6 +3266,16 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     "--allow-pending only applies together with --require-anchor / --anchor-type \
                      / --anchor-target",
                 );
+            }
+            // Z381 F4: Python decodes --expected-root inside `verify_bundle` and raises on a value
+            // that is no base64 (exit 2), whatever the signature says; this verifier compared it
+            // only after the signature and answered 1 when the signature failed, measured.
+            if let Some(er) = &expected_root {
+                if let Err(e) = b64_strict(er) {
+                    fatal(&format!(
+                        "field expected_root_b64 is not valid base64 ({e})"
+                    ));
+                }
             }
             // strict parse first: a duplicate JSON key / malformed bundle is exit 2 (malformed).
             // S108: every MALFORMED names its reason; the prefix and the exit class stay.

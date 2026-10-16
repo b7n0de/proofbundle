@@ -53,6 +53,26 @@ impl Files {
         std::fs::copy(case.join("policy.json"), dir.join("p.json")).unwrap();
         Files { dir }
     }
+
+    fn root(&self) -> String {
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(self.dir.join("ok.json")).unwrap()).unwrap();
+        v["merkle"]["root_b64"].as_str().unwrap().to_string()
+    }
+
+    fn pub_b64(&self) -> String {
+        let case = repo().join("conformance/relation/relation-signer-same-key-explicit");
+        String::from_utf8(std::fs::read(case.join("pub.b64")).unwrap())
+            .unwrap()
+            .trim()
+            .to_string()
+    }
+
+    fn related_pub(&self) -> String {
+        let case = repo().join("conformance/relation/relation-signer-same-key-explicit/case.json");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(case).unwrap()).unwrap();
+        v["relatedPubs"][0].as_str().unwrap().to_string()
+    }
 }
 
 impl Drop for Files {
@@ -153,4 +173,127 @@ fn f5_anchor_target_takes_only_the_three_choices() {
         cases.push((t, v(&["ok.json", "--anchor-target", t]), 2));
     }
     check(&f, "verify-bundle", &cases);
+}
+
+#[test]
+fn f4_bundle_values_are_read_before_the_signature() {
+    let f = Files::new("f4");
+    let r = f.root();
+    check(
+        &f,
+        "verify-bundle",
+        &[
+            (
+                "expected-root not base64, bad signature",
+                v(&["bad.json", "--expected-root", "\u{ff}"]),
+                2,
+            ),
+            (
+                "expected-root '*', bad signature",
+                v(&["bad.json", "--expected-root", "*"]),
+                2,
+            ),
+            (
+                "expected-root unpadded, bad signature",
+                v(&["bad.json", "--expected-root", "AAA"]),
+                2,
+            ),
+            (
+                "expected-root 3 bytes, valid bundle",
+                v(&["ok.json", "--expected-root", "AAAA"]),
+                1,
+            ),
+            (
+                "expected-root right, bad signature",
+                vec!["bad.json".into(), "--expected-root".into(), r.clone()],
+                1,
+            ),
+            (
+                "expected-root right, valid bundle",
+                vec!["ok.json".into(), "--expected-root".into(), r],
+                0,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn f4_relation_values_are_read_before_the_signature() {
+    let f = Files::new("f4r");
+    // verify-relation in this verifier's own form (the key as the second word); the expected exit is
+    // Python's for the same values in `decision verify ENVELOPE --pub KEY ...`.
+    let pubk = f.pub_b64();
+    let rp = f.related_pub();
+    let s = |x: &str| x.to_string();
+    check(
+        &f,
+        "verify-relation",
+        &[
+            ("empty key", vec![s("r.json"), s("")], 2),
+            ("key '*', bad signature", vec![s("rbad.json"), s("*")], 2),
+            (
+                "key not base64, bad signature",
+                vec![s("rbad.json"), s("\u{ff}")],
+                2,
+            ),
+            (
+                "key of 31 bytes",
+                vec![
+                    s("r.json"),
+                    s("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="),
+                ],
+                1,
+            ),
+            (
+                "--with-related missing, bad signature",
+                vec![
+                    s("rbad.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("missing.json"),
+                ],
+                2,
+            ),
+            (
+                "--related-pub '*', bad signature",
+                vec![
+                    s("rbad.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("b.json"),
+                    s("--related-pub"),
+                    s("*"),
+                ],
+                2,
+            ),
+            (
+                "bad signature",
+                vec![
+                    s("rbad.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("b.json"),
+                    s("--related-pub"),
+                    rp.clone(),
+                    s("--policy"),
+                    s("p.json"),
+                ],
+                1,
+            ),
+            (
+                "valid",
+                vec![
+                    s("r.json"),
+                    pubk,
+                    s("--with-related"),
+                    s("b.json"),
+                    s("--related-pub"),
+                    rp,
+                    s("--policy"),
+                    s("p.json"),
+                ],
+                0,
+            ),
+        ],
+    );
 }
