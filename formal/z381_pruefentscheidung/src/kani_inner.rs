@@ -8,8 +8,9 @@
 //   cargo kani -Z stubbing --harness <name>
 // Each harness states its input bound. Nothing here is counted as proven until a run says so.
 // `PB_Z381_MUTANT=<name>` plants a counter-check (see build.rs): kani_underflow for P1 (k5),
-// kani_fatal_stdout for P2 (k2), kani_walk_counter for P3 (k6); kani_two_lines (P2, k1) and
-// kani_parse_counter (P3, k3) target the parser harnesses.
+// kani_fatal_stdout for P2 (k7, also reachable from k2), kani_walk_counter for P3 (k6);
+// kani_two_lines (P2, k1) and kani_parse_counter (P3, k3) target the parser harnesses. The
+// unwind bound 24 of k7 covers its longest word (20 bytes) plus the loop exit.
 
 use super::*;
 use std::ffi::OsString;
@@ -107,6 +108,56 @@ fn k2_decision_every_argv_up_to_2_words() {
 #[kani::unwind(12)]
 fn k2_decision_every_argv_up_to_3_words() {
     k2_decision_every_argv::<3>();
+}
+
+/// P1 + P2 over argv, CONCRETE words: up to `W` words after `verify-bundle`, each one of nine fixed
+/// words, among them a word that is not UTF-8 (a legal Unix file name), file content `{}`.
+///
+/// Z381 continuation: k2 with a symbolic 2-byte word was not decided in 1800 s at one word (the
+/// word reaches `format!` in the usage error, symbolically). k7 keeps the choice symbolic and the
+/// bytes concrete, so the property is the same over a smaller, named alphabet. It carries the P2
+/// counter-check (kani_fatal_stdout) and the F1 counter-check (the verifier with `args()`, where
+/// the non-UTF-8 word panics).
+fn k7_decision_every_argv_over_nine_words<const W: usize>() {
+    const WORDS: [&[u8]; 9] = [
+        b"--expected-root",
+        b"--expected-tree-size",
+        b"--require-anchor",
+        b"--allow-pending",
+        b"--anchor-type",
+        b"--anchor-target",
+        b"1",
+        b"input.json",
+        b"input\xff.json",
+    ];
+    use std::os::unix::ffi::OsStringExt;
+    let mut argv = bundle_argv();
+    let n: usize = kani::any();
+    kani::assume(n <= W);
+    for _ in 0..n {
+        let pick: usize = kani::any();
+        kani::assume(pick < WORDS.len());
+        argv.push(OsString::from_vec(WORDS[pick].to_vec()));
+    }
+    run_main(argv, Some(b"{}".to_vec()));
+}
+
+#[kani::proof]
+#[kani::unwind(24)]
+fn k7_decision_every_argv_over_nine_words_up_to_1() {
+    k7_decision_every_argv_over_nine_words::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(24)]
+fn k7_decision_every_argv_over_nine_words_up_to_2() {
+    k7_decision_every_argv_over_nine_words::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(24)]
+fn k7_decision_every_argv_over_nine_words_up_to_3() {
+    k7_decision_every_argv_over_nine_words::<3>();
 }
 
 /// P3 for the parser: two runs on the same bytes (at most `N`) give the same result.
