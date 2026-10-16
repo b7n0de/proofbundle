@@ -19,7 +19,9 @@
 //!                                                  in the Python repo — never hand-duplicate this list)
 
 use std::collections::HashSet;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 use base64::Engine;
@@ -2048,7 +2050,7 @@ fn statement_content_root_hex(payload: &[u8]) -> String {
 }
 
 fn load_related(
-    paths: &[String],
+    paths: &[PathBuf],
     related_pubs: &[String],
     main_pub_b64: &str,
     expected_payload_type: &str,
@@ -2057,7 +2059,10 @@ fn load_related(
     // damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
     let mut roh: std::collections::HashMap<String, Vec<TargetInfo>> =
         std::collections::HashMap::new();
-    for (i, path) in paths.iter().enumerate() {
+    for (i, datei) in paths.iter().enumerate() {
+        // The file is read by its raw path; the messages name it as `Path::display` does (the
+        // path itself when it is valid UTF-8, as before).
+        let path = datei.display();
         let rp = related_pubs
             .get(i)
             .map(|s| s.as_str())
@@ -2070,7 +2075,7 @@ fn load_related(
             Some(_) => format!("cannot decode --related-pub for {path}: {e}"),
             None => e,
         })?;
-        let env = strict_parse(&read_file(path))
+        let env = strict_parse(&read_file(datei))
             .map_err(|e| format!("cannot read --with-related {path}: {e}"))?;
         let payload_b64 = env
             .get("payload")
@@ -2230,7 +2235,7 @@ fn load_related(
 fn run_verify_relation(
     envelope: &serde_json::Value,
     pub_b64: &str,
-    related_paths: &[String],
+    related_paths: &[PathBuf],
     related_pubs: &[String],
     policy: Option<&serde_json::Value>,
     statement_mode: bool,
@@ -2409,41 +2414,44 @@ fn run_verify_relation(
 /// `<envelope> <pub_b64> [--with-related P]... [--related-pub B]... [--policy P]`, run the shared
 /// engine, print the lineage as a JSON report (so crosscheck.py maps it through the ONE
 /// common_vocabulary.label_from_verify) and exit with the 0/1/2/3 contract.
-fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) -> ! {
+fn dispatch_verify_relation(args: &[OsString], cmd: &str, statement_mode: bool) -> ! {
     let path = args
         .get(2)
         .unwrap_or_else(|| fatal(&format!("{cmd} needs an envelope file")));
-    let pub_b64 = args
-        .get(3)
-        .unwrap_or_else(|| fatal(&format!("{cmd} needs a base64 public key")));
-    let mut related_paths: Vec<String> = Vec::new();
+    let pub_b64 = text(
+        args.get(3)
+            .unwrap_or_else(|| fatal(&format!("{cmd} needs a base64 public key"))),
+        "the public key",
+    );
+    let mut related_paths: Vec<PathBuf> = Vec::new();
     let mut related_pubs: Vec<String> = Vec::new();
-    let mut policy_path: Option<String> = None;
+    let mut policy_path: Option<PathBuf> = None;
     let mut i = 4;
     while i < args.len() {
-        match args[i].as_str() {
+        match text(&args[i], &format!("a {cmd} flag")) {
             "--with-related" => {
-                related_paths.push(
+                related_paths.push(PathBuf::from(
                     args.get(i + 1)
-                        .cloned()
                         .unwrap_or_else(|| fatal("--with-related needs a path")),
-                );
+                ));
                 i += 2;
             }
             "--related-pub" => {
                 related_pubs.push(
-                    args.get(i + 1)
-                        .cloned()
-                        .unwrap_or_else(|| fatal("--related-pub needs a value")),
+                    text(
+                        args.get(i + 1)
+                            .unwrap_or_else(|| fatal("--related-pub needs a value")),
+                        "--related-pub",
+                    )
+                    .to_string(),
                 );
                 i += 2;
             }
             "--policy" => {
-                policy_path = Some(
+                policy_path = Some(PathBuf::from(
                     args.get(i + 1)
-                        .cloned()
                         .unwrap_or_else(|| fatal("--policy needs a path")),
-                );
+                ));
                 i += 2;
             }
             other => fatal(&format!("unknown {cmd} flag: {other}")),
@@ -2492,8 +2500,8 @@ fn dispatch_verify_relation(args: &[String], cmd: &str, statement_mode: bool) ->
     exit(code);
 }
 
-fn read_file(path: &str) -> Vec<u8> {
-    read_file_begrenzt(path).unwrap_or_else(|e| fatal(&e))
+fn read_file(path: impl AsRef<Path>) -> Vec<u8> {
+    read_file_begrenzt(path.as_ref()).unwrap_or_else(|e| fatal(&e))
 }
 
 /// Die Eingabe ist VOR dem vollstaendigen Einlesen begrenzt — an der Eigenschaft, nicht an der Form.
@@ -2505,12 +2513,17 @@ fn read_file(path: &str) -> Vec<u8> {
 /// (`cli._open_input`: S_ISREG-Stat-Guard VOR dem Oeffnen, `_read_capped`: der LESEAUFRUF selbst ist
 /// gekappt). Beide stehen jetzt auch hier: keine Nicht-Regulaerdatei, und `take(limit + 1)` — mehr als
 /// die Schranke plus ein Byte wird nie gelesen, egal was die Metadaten sagen.
-fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
+///
+/// Z381 (F1): the path is a `Path`, not a `&str`. A Unix file name may carry any byte but `/` and
+/// NUL, and Python reads such a file. Messages name it through `Path::display`, which for a UTF-8
+/// path is the path itself, as before.
+fn read_file_begrenzt(path: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let name = path.display();
+    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {name}: {e}"))?;
     if !md.is_file() {
         return Err(format!(
-            "cannot read {path}: not a regular file (a FIFO, device or directory is refused before \
+            "cannot read {name}: not a regular file (a FIFO, device or directory is refused before \
              any byte is read)"
         ));
     }
@@ -2521,11 +2534,11 @@ fn read_file_begrenzt(path: &str) -> Result<Vec<u8>, String> {
             BUDGET_INPUT_BYTES,
         ));
     }
-    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {name}: {e}"))?;
     let mut buf: Vec<u8> = Vec::new();
     f.take(BUDGET_INPUT_BYTES as u64 + 1)
         .read_to_end(&mut buf)
-        .map_err(|e| format!("cannot read {path}: {e}"))?;
+        .map_err(|e| format!("cannot read {name}: {e}"))?;
     if buf.len() > BUDGET_INPUT_BYTES {
         return Err(budget_ueberschritten(
             "input_bytes",
@@ -3046,8 +3059,28 @@ fn fatal(msg: &str) -> ! {
     exit(2);
 }
 
+/// Z381 (F1): an argument read as TEXT, i.e. a subcommand, a flag, a key, a number or a root.
+///
+/// Until Z381 argv came from the standard library's `args()`, which PANICS on an argument that is
+/// not valid UTF-8: exit 101 and no verdict (measured: `verify-bundle "ok\xff.json"` gave 101,
+/// Python gave 0). Such a text argument is now a usage error, exit 2, which is what Python answers
+/// for the same bytes, measured per role: "invalid choice" for the subcommand, "unrecognized
+/// arguments" for a flag, "non-ASCII character in base64 field" for a key or a root, "invalid int
+/// value" for a tree size. A PATH is never read as text: it stays an `OsStr` up to the file read
+/// (`read_file`), so every file Python reads under a name that is not UTF-8 is read here too. A
+/// value this verifier skips unread (`--anchor-type`, `--anchor-target`) is not decoded either.
+fn text<'a>(arg: &'a OsStr, what: &str) -> &'a str {
+    arg.to_str().unwrap_or_else(|| {
+        fatal(&format!(
+            "{what} is not valid UTF-8: {}",
+            arg.to_string_lossy()
+        ))
+    })
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    // Z381 (F1): `args_os`, never `args`; see `text`.
+    let args: Vec<OsString> = std::env::args_os().collect();
     if args.len() < 2 {
         eprintln!(
             "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
@@ -3055,7 +3088,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
         );
         exit(2);
     }
-    match args[1].as_str() {
+    match text(&args[1], "the subcommand") {
         // LAUF11-L1: die Grenzen, die dieser Binary WIRKLICH benutzt. Ein Python-Test vergleicht sie
         // mit DEFAULT_BUDGET — eine Drift zwischen den beiden Verifizierern faellt damit auf,
         // bevor sie zu zwei Urteilen ueber dieselbe Datei wird.
@@ -3076,9 +3109,11 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             let path = args
                 .get(2)
                 .unwrap_or_else(|| fatal("verify-dsse needs an envelope file"));
-            let pk = args
-                .get(3)
-                .unwrap_or_else(|| fatal("verify-dsse needs a base64 public key"));
+            let pk = text(
+                args.get(3)
+                    .unwrap_or_else(|| fatal("verify-dsse needs a base64 public key")),
+                "the public key",
+            );
             let v = strict_parse(&read_file(path)).unwrap_or_else(|e| fatal(&e));
             // Generic DSSE primitive: no expected-type pin (the relation paths pin in-toto themselves).
             match verify_dsse(&v, pk, None) {
@@ -3094,7 +3129,10 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             }
         }
         "merkle-root" => {
-            let leaves: Result<Vec<Vec<u8>>, _> = args[2..].iter().map(hex::decode).collect();
+            let leaves: Result<Vec<Vec<u8>>, _> = args[2..]
+                .iter()
+                .map(|a| hex::decode(text(a, "a merkle-root leaf")))
+                .collect();
             let leaves = leaves.unwrap_or_else(|e| fatal(&format!("bad leaf hex: {e}")));
             match rfc6962_tree_head(leaves) {
                 Ok(root) => println!("{root}"),
@@ -3110,18 +3148,22 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             let mut require_anchor = false;
             let mut i = 3;
             while i < args.len() {
-                match args[i].as_str() {
+                match text(&args[i], "a verify-bundle flag") {
                     "--expected-root" => {
                         expected_root = Some(
-                            args.get(i + 1)
-                                .cloned()
-                                .unwrap_or_else(|| fatal("--expected-root needs a value")),
+                            text(
+                                args.get(i + 1)
+                                    .unwrap_or_else(|| fatal("--expected-root needs a value")),
+                                "--expected-root",
+                            )
+                            .to_string(),
                         );
                         i += 2;
                     }
                     "--expected-tree-size" => {
                         expected_tree_size = Some(
                             args.get(i + 1)
+                                .and_then(|s| s.to_str())
                                 .and_then(|s| s.parse().ok())
                                 .unwrap_or_else(|| fatal("--expected-tree-size needs an integer")),
                         );
@@ -3568,8 +3610,7 @@ mod tests {
         // Vorpruefung. Ein Verzeichnis ist die naechste Nicht-Regulaerdatei, die ein Test ohne
         // Sonderrechte anlegen kann; die Eigenschaft (`is_file`) ist dieselbe.
         let d = std::env::temp_dir();
-        let e = read_file_begrenzt(d.to_str().expect("utf-8"))
-            .expect_err("ein Verzeichnis wurde gelesen");
+        let e = read_file_begrenzt(&d).expect_err("ein Verzeichnis wurde gelesen");
         assert!(e.contains("not a regular file"), "unerwartete Meldung: {e}");
     }
 
@@ -3579,14 +3620,34 @@ mod tests {
         std::fs::create_dir_all(&d).expect("tmp");
         let gross = d.join("gross.json");
         std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
-        let e = read_file_begrenzt(gross.to_str().expect("utf-8"))
-            .expect_err("ueber der Schranke gelesen");
+        let e = read_file_begrenzt(&gross).expect_err("ueber der Schranke gelesen");
         assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
         let klein = d.join("klein.json");
         std::fs::write(&klein, b"{\"a\":1}").expect("write");
+        assert_eq!(read_file_begrenzt(&klein).expect("klein"), b"{\"a\":1}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_reads_a_file_under_a_name_that_is_not_utf8() {
+        // Z381 (F1): a Unix file name is a byte string. Python reads `ok\xff.json`; until Z381 this
+        // verifier panicked in the standard library's `args()` (exit 101) before any read, and
+        // `read_file_begrenzt` took only `&str`. The path now stays raw up to the read.
+        use std::os::unix::ffi::OsStrExt;
+        let d = std::env::temp_dir().join(format!("pb_verify_rs_z381_{}", std::process::id()));
+        std::fs::create_dir_all(&d).expect("tmp");
+        let raw = d.join(OsStr::from_bytes(b"ok\xff.json"));
+        std::fs::write(&raw, b"{\"a\":1}").expect("write");
         assert_eq!(
-            read_file_begrenzt(klein.to_str().expect("utf-8")).expect("klein"),
+            read_file_begrenzt(&raw).expect("a name that is not UTF-8"),
             b"{\"a\":1}"
+        );
+        let missing = d.join(OsStr::from_bytes(b"missing\xff.json"));
+        let e = read_file_begrenzt(&missing).expect_err("a missing file was read");
+        assert!(
+            e.starts_with("cannot read ") && e.contains("missing\u{FFFD}.json"),
+            "unexpected message: {e}"
         );
         let _ = std::fs::remove_dir_all(&d);
     }
