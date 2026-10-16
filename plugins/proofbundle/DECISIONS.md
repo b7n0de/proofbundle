@@ -2961,3 +2961,41 @@ Part 3, the reasons of fetch, ls-remote and worktree add (owner choice of Nachtr
   worktree add is free only as the whole command (D40), so these keep `directory_unresolved`, which was never the push
   text. send-pack, a per-command alias, pull, clone and remote update keep the push text; pull, clone and remote update
   read a remote too, and whether they get the same text is an owner question.
+
+## D42. git's pager under a host whose Bash tool gives no terminal: class a (Nachtrag 18, 2026-10-16)
+
+Measured by Cowork at ba65da56 in delta's environment (GIT_OPTIONAL_LOCKS=0, GIT_EDITOR=true, the hook's AI_AGENT
+claude-code_2-1-301_harness) with PAGER=less, which stands in the environment of delta's Bash tool and Claude Code
+process: `git log -3 --oneline` and `git -C <abs> diff --no-ext-diff --no-textconv --stat` asked with "a pager: PAGER in
+the hook's environment"; add, commit -F and worktree add were free. Owner answers to Nachtrag 16: O16-1 build this;
+O16-2 a prefix assignment `GIT_OPTIONAL_LOCKS=0` keeps asking; O16-3 pull, clone and remote update keep the push text.
+
+The rule (owner choice of Nachtrag 18): under Claude Code, when _no_terminal_host holds (the hook's AI_AGENT names a
+host of _NO_TERMINAL_HOSTS, D41: only claude-code_2-1-301_harness), a pager does not count in the read profile of class
+a (D34): PAGER and GIT_PAGER in the hook's environment, core.pager and pager.<command> in the configuration
+(_read_profile_problem, _read_free_verdict). The pass names each pager and the host. Every other finding of the read
+profile is read on and still counts.
+
+Evidence per source, measured under Claude Code 2.1.301 with git 2.43.0, run with no network in a namespace of its own
+against the stand-in for the Messages API of D41 (host/host_cases_n18.py of Nachtrag 18): for `git log -3 --oneline`,
+`git show --stat HEAD`, `git diff --no-ext-diff --no-textconv --stat` and `git grep -n a`, each run once as the Bash
+tool runs it and once on a terminal of script(1):
+- PAGER naming a proxy: no start in any of the four tool runs; a start in each of the four terminal runs.
+- GIT_PAGER naming a proxy: the same.
+- core.pager naming a proxy: the same.
+- pager.<command> naming a proxy (pager.log, pager.show, pager.diff, pager.grep): the same.
+- pager.<command>=true, which selects git's default pager (`pager` on this build, as `git var GIT_PAGER` names it; less
+  on others), with a fake of that name first on PATH: the same.
+git starts its pager only when its standard output is a terminal; the Bash tool of the bound host gives a pipe (D41).
+
+Not changed: Codex (class a stays off, the reviewer's text of D37); every other host and every other value of AI_AGENT,
+the command's own `claude-code_2-1-301_agent` among them; a prefix assignment of a pager in the command (`PAGER=…`,
+`GIT_PAGER=…`, judged by _resolve_single as before); an option that forces or sets a pager (`-p`, `--paginate`, `-c
+core.pager=…`, `-c pager.<command>=…`); every form that may give git a terminal (script, unbuffer, python's pty, ssh -t,
+tmux, `exec >` or a redirection onto /dev/pts, a group or subshell with a redirection), which is no class a read form or
+a class c step that asks; and every other finding (an unknown key or GIT_* name, GIT_OPTIONAL_LOCKS other than 0, a
+promisor remote, fsmonitor, a hook, a filter, a submodule).
+
+Limits, in plain words: the binding is to 2.1.301 only; delta reports its version with Nachtrag 5, and another version
+gets its binding in a Nachtrag of its own. AI_AGENT names a version, not an origin (D27). git's pager selection was
+measured with git 2.43.0 (delta: 2.51.1).

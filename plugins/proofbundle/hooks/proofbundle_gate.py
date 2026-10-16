@@ -1486,7 +1486,7 @@ def _filter_assigned(directory: str, configured: str, deadline: float) -> str | 
 
 
 def _read_profile_problem(sub: str, directory: str, deadline: float, environ: dict | None = None,
-                          drivers_off: bool = False) -> str | None:
+                          drivers_off: bool = False, inert_pagers: list | None = None) -> str | None:
     """None when the repository at directory holds nothing that starts a program for the read form `git <sub>`, else
     what it found (class a, owner answers 1 to 3 of 2026-10-14). Read as K-NW-2 B reads: the effective configuration
     with every include in the hook's environment, the effective hook directory and the hook's GIT_* environment; for a
@@ -1496,7 +1496,10 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     for a form that walks the work tree a filter (answer 2: the git-lfs filter counts like any), fsmonitor that git does
     not read as false, any hook that is not a sample, and a submodule; any key, hook or GIT_* name the profile does not
     know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
-    attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays."""
+    attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays. With inert_pagers, for
+    a host whose Bash tool gives the command no terminal (_no_terminal_host, D42), a pager core.pager, pager.<command>,
+    GIT_PAGER or PAGER in the hook's environment names is noted there and does not count; a prefix assignment of the
+    command is judged elsewhere and still counts (_resolve_single)."""
     environ = os.environ if environ is None else environ
     walks = sub in _READ_WALKS
     filters: list[str] = []
@@ -1514,6 +1517,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
         if re.match(_PARTIAL_CLONE_KEYS, lowered):
             return f"a lazy fetch from a promisor remote: {where}"
         if lowered == "core.pager" or lowered.startswith("pager."):
+            if inert_pagers is not None:
+                inert_pagers.append(where)
+                continue
             return f"a pager: {where}"
         if lowered == "core.fsmonitor":
             if walks and not _git_false(directory, value, deadline):
@@ -1541,6 +1547,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
                     return f"a hook: {os.path.join(hooks, name)}"
     for name in sorted(environ):
         problem = _read_env_problem(name, environ[name])
+        if problem is not None and inert_pagers is not None and name in ("PAGER", "GIT_PAGER"):
+            inert_pagers.append(f"{name} in the hook's environment")
+            continue
         if problem is not None:
             return f"{problem} in the hook's environment"
     if walks:
@@ -2032,7 +2041,9 @@ def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | Non
 #: the interactive form, and for a command run in the background, the command got a pipe on standard output, no terminal
 #: on standard input and error and no controlling terminal (/dev/tty could not be opened); a hook got
 #: AI_AGENT=claude-code_2-1-301_harness, the command claude-code_2-1-301_agent. gh 2.89.0 started the pager PAGER,
-#: GH_PAGER or its configuration named there for none of these, and on a terminal of script(1) for each.
+#: GH_PAGER or its configuration named there for none of these, and on a terminal of script(1) for each. git 2.43.0
+#: did the same for log, show, diff and grep with PAGER, GIT_PAGER, core.pager and pager.<command>, a program or true
+#: (D42, Nachtrag 18, host/host_cases_n18.py).
 _NO_TERMINAL_HOSTS = frozenset({"claude-code_2-1-301_harness"})
 
 
@@ -9750,22 +9761,30 @@ def _checkout_free_verdict(name: str, directory: str | None, deadline: float, ho
         next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
 
 
-def _read_free_verdict(name: str, directory: str | None, deadline: float, drivers_off: bool = False) -> Verdict:
+def _read_free_verdict(name: str, directory: str | None, deadline: float, drivers_off: bool = False,
+                       host: str = "claude") -> Verdict:
     """The verdict for a read form of class a under Claude Code: pass when the read profile of its repository finds
     nothing that starts a program for it, else the not-free answer of D3 with the source it found (owner answers 1 to
     3 of 2026-10-14, DESIGN_ask_load.md 3.1). Under Codex the judge never asks for it (owner answer 10). drivers_off
-    marks `git diff --no-ext-diff --no-textconv` (D39)."""
+    marks `git diff --no-ext-diff --no-textconv` (D39). Under a host whose Bash tool gives the command no terminal a
+    pager does not count, and the pass names it (D42)."""
+    inert_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
     try:
-        problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline, drivers_off=drivers_off)
+        problem = (_read_profile_problem(name.split(" ", 1)[1], directory, deadline, drivers_off=drivers_off,
+                                         inert_pagers=inert_pagers)
                    if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the read profile reached no result ({exc})"
     if problem is None:
+        found = "promisor remote" if inert_pagers else "promisor remote, pager"
+        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not start: the hook's environment names "
+                  f"the host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal, "
+                  "and git starts its pager only on a terminal (DECISIONS.md D42).") if inert_pagers else ""
         return Verdict("pass", f"proofbundle gate: {name} is free. The read profile of the repository at {directory} "
-                               "found no promisor remote, pager, filter, fsmonitor, hook or submodule this form starts "
+                               f"found no {found}, filter, fsmonitor, hook or submodule this form starts "
                                "or reads, every option is one the gate knows to start no program, and every "
                                "configuration key and environment setting it read is one it knows to start no program "
-                               "for this form (class a, owner answers 1 to 3 of 2026-10-14; DECISIONS.md D34).",
+                               "for this form (class a, owner answers 1 to 3 of 2026-10-14; DECISIONS.md D34)." + pagers,
                        "free_after_read_profile", repo=directory)
     return Verdict(
         "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the read profile found {problem}. Such a "
@@ -9928,7 +9947,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             continue
         if detail in _READ_FREE_DETAILS and host != "codex":
             verdicts.append(_read_free_verdict(name, resolved, deadline,
-                                               drivers_off=detail == [_READ_FREE_DRIVERS_OFF]))
+                                               drivers_off=detail == [_READ_FREE_DRIVERS_OFF], host=host))
             continue
         if detail in (*_READ_FREE_DETAILS, [_READ_NOT_FREE]):
             # class a is off under Codex (owner answer 10 of 2026-10-14); the text is the reviewer's of review round 20,
