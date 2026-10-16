@@ -956,14 +956,17 @@ _READ_UPLOADPACK_KEYS = frozenset({
 #: not on the list, and so is prefetch, since maintenance.* is refused; git's own default maintenance after a commit
 #: runs only its gc task (git-maintenance(1)). include.path and includeIf.*.path are read through: git reads the
 #: included files into the same list the check reads, and every entry they add is judged like any other. The uploadpack
-#: keys of D44 are on the list since Nachtrag 20 (D47): neither form serves a fetch.
+#: keys of D44 are on the list since Nachtrag 20 (D47): neither form serves a fetch. extensions.worktreeConfig is on
+#: it since Ergänzung 1 to Nachtrag 20 (D50): set true or false it made add, commit -m, worktree add, the read forms and
+#: the fetch of D45 start what they start without it, an invalid value ends git at once, and the key only lets git read
+#: config.worktree, whose every key the effective configuration lists with the scope worktree and each check judges.
 _STATE_INERT_KEYS = frozenset({
     "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates", "core.ignorecase",
     "core.precomposeunicode", "core.symlinks", "core.autocrlf", "core.eol", "core.safecrlf", "core.checkstat",
     "core.trustctime", "core.quotepath", "core.excludesfile", "core.editor", "core.pager", "core.hookspath",
     "extensions.objectformat", "user.name", "user.email", "user.signingkey", "author.name", "author.email",
     "committer.name", "committer.email", "init.defaultbranch", "safe.directory", "gpg.format", "tag.gpgsign",
-    "commit.gpgsign", "core.fsmonitor", "include.path", "core.sshcommand", "core.askpass",
+    "commit.gpgsign", "core.fsmonitor", "include.path", "core.sshcommand", "core.askpass", "extensions.worktreeconfig",
 }) | _READ_UPLOADPACK_KEYS
 _STATE_INERT_PATTERN = re.compile(r"(remote\.[^\n]*\.(url|pushurl|fetch)|branch\.[^\n]*\.(remote|merge)"
                                   r"|includeif\.[^\n]*\.path|push\.[a-z0-9]+|pull\.[a-z0-9]+|http\.[^\n]+"

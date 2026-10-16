@@ -3269,3 +3269,20 @@ profile and the fetch profile (keys with a user), the filter an attribute names,
 fetch rules of the fetch profile and its pass, the paths of the declaration, a push setting, the URL rewrites of a push,
 the programs and URLs of the transport binding, the URLs and the exec path of the Level 2 hand-over, the value of an
 include, the pytest arguments and PYTEST_ADDOPTS of a receipt, a count of a test report.
+
+## D50. extensions.worktreeConfig in the read profile, the state check and the fetch profile (Ergänzung 1 to Nachtrag 20, 2026-10-16)
+
+Measured by delta at a8ca017a: `git log` in 2bedone asked for extensions.worktreeconfig in the local configuration.
+Owner order of 2026-10-16, 18:4x Berlin: the key joins the lists only if it starts nothing itself and every key of
+config.worktree is still judged.
+
+Evidence, git 2.43.0 under strace -f, no network, a fresh HOME, no system configuration (truth_n20_local.py,
+truth_n20_fetch.py): with the key true or false, under core.repositoryformatversion 0 and 1, ten read forms, `git add`,
+`git commit -m` and `git worktree add -q` started the programs they start without it and opened no connection; the
+fetch of D45 started git-remote-https alone and reached github.com alone. An invalid value ended every form with exit
+128 before it started anything. With the key true, config.worktree took effect in the main and in a linked worktree
+(core.fsmonitor and diff.external started), and `git config --list --show-scope --show-origin`, the listing every check
+reads (_config_entries), named those keys with the scope worktree; with the key absent, config.worktree did nothing.
+
+The rule: extensions.worktreeconfig joins _STATE_INERT_KEYS, and with it the read profile (D34) and the fetch profile
+(D45), which take that list in. Every key of config.worktree stays in the listing and is judged like any other.
