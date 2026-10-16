@@ -392,3 +392,156 @@ def test_emit_into_a_path_that_cannot_be_written_is_malformed_input(tmp_path):
     r = _run("emit-test-receipt", "--junit", str(VECTORS / "junit/pytest-9.1.1_all_passed.xml"), "--out", str(out),
              "--new-key", str(tmp_path / "k.key"))
     assert r.returncode == 2 and "Traceback" not in r.stderr and "ERROR" in r.stderr
+
+
+# --- lens run 1, iteration 1: each finding as a case, red at b4b393e6 ------------------------------------------------
+
+def _receipt_with(report, change):
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import emit_eval_receipt
+    reader = from_junit_xml if str(report).endswith(".xml") else from_ctrf_json
+    claim, _ = reader(report, timestamp="2026-10-16T00:00:00Z")
+    change(claim["provenance"])
+    return emit_eval_receipt(claim, generate_signer())
+
+
+@pytest.mark.parametrize("key,value", [("ctrf_status_other_counted_as_errors", 0),
+                                       ("ctrf_status_pending_counted_as_skipped", 7),
+                                       ("pass_rate_floor", "0.99"), ("ctrf_tool_name", "another tool"),
+                                       ("verdict_rule", "passed = true"), ("non_claims", "proves everything"),
+                                       ("harness_version_status", "reported")])
+def test_check_compares_the_whole_provenance_not_only_the_five_counts(key, value):
+    """F1 (P1): the check compared five counts and the verdict, and said ok for a receipt whose other signed
+    provenance contradicted the report. It now rebuilds the provenance from the report and compares all of it."""
+    report = VECTORS / "ctrf/jest-ctrf-json-reporter-0.2.0_mixed.json"
+    result = verify_test_receipt(_receipt_with(report, lambda p: p.__setitem__(key, value)), report)
+    assert result["ok"] is False and key in result["reason"]
+
+
+def test_check_refuses_a_provenance_field_a_test_receipt_does_not_carry():
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with(report, lambda p: p.__setitem__("audited_by", "someone")), report)
+    assert result["ok"] is False and "audited_by" in result["reason"]
+
+
+def test_check_requires_the_receipt_profile():
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with(report, lambda p: p.pop("receipt_profile")), report)
+    assert result["ok"] is False and "test-report receipt" in result["reason"]
+
+
+@pytest.mark.parametrize("limit", [2 ** 40, 2 ** 63 - 1, 2 ** 63, 2 ** 80])
+def test_a_large_limit_is_a_limit_not_an_allocation(limit, tmp_path):
+    """F4 and F5: the file was read with one read of `max_bytes + 1`, so 2**40 ended in MemoryError and 2**63 in
+    OverflowError, in the CLI and in verify_test_receipt."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    claim, _ = from_junit_xml(report, max_bytes=limit, timestamp="2026-10-16T00:00:00Z")
+    assert claim["passed"] is True
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import emit_eval_receipt
+    assert verify_test_receipt(emit_eval_receipt(claim, generate_signer()), report, max_bytes=limit)["ok"] is True
+    out = tmp_path / "r.json"
+    r = _run("emit-test-receipt", "--junit", str(report), "--out", str(out), "--new-key", str(tmp_path / "k.key"),
+             "--max-report-bytes", str(limit))
+    assert r.returncode == 0, r.stderr
+
+
+def test_the_size_refusal_of_a_file_names_the_limit_not_a_wrong_size(tmp_path):
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    size = report.stat().st_size
+    with pytest.raises(ReportRefused) as exc:
+        from_junit_xml(report, max_bytes=size - 1)
+    assert exc.value.code == "too_large"
+    assert f"more than the limit of {size - 1} bytes" in str(exc.value) and str(size) not in str(exc.value)
+
+
+def test_check_takes_the_report_limit_too(tmp_path):
+    """F7: emit-test-receipt had --max-report-bytes and check-test-receipt had none, so a receipt made under a raised
+    limit could never be checked."""
+    report = VECTORS / "junit/pytest-9.1.1_mixed.xml"
+    out = tmp_path / "r.json"
+    assert _run("emit-test-receipt", "--junit", str(report), "--out", str(out),
+                "--new-key", str(tmp_path / "k.key")).returncode == 0
+    small = _run("check-test-receipt", str(out), "--report", str(report), "--max-report-bytes", "100")
+    assert small.returncode == 1 and "more than the limit of 100 bytes" in small.stderr
+    assert _run("check-test-receipt", str(out), "--report", str(report), "--max-report-bytes",
+                str(report.stat().st_size)).returncode == 0
+
+
+def _nfd_ctrf(tmp_path):
+    import unicodedata
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["results"]["tool"]["name"] = unicodedata.normalize("NFD", "café")
+    path = tmp_path / "nfd.json"
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_a_report_string_that_is_not_nfc_is_refused_with_its_field(tmp_path):
+    """F6: the canonicalizer refused it with "string is not NFC-normalized", naming no field, and --suite did not help
+    for CTRF. Now the refusal names the field, and for JUnit a suite of one's own is the way past it."""
+    import unicodedata
+    with pytest.raises(ReportRefused) as exc:
+        from_ctrf_json(_nfd_ctrf(tmp_path), suite="ok")
+    assert exc.value.code == "not_nfc" and "results.tool.name" in str(exc.value)
+    junit = tmp_path / "nfd.xml"
+    junit.write_text(f'<testsuite name="{unicodedata.normalize("NFD", "café")}"><testcase name="a"/></testsuite>',
+                     encoding="utf-8")
+    with pytest.raises(ReportRefused) as exc:
+        from_junit_xml(junit)
+    assert exc.value.code == "not_nfc" and "suite=" in str(exc.value)
+    claim, _ = from_junit_xml(junit, suite="cafe suite")
+    assert claim["suite"] == "cafe suite"
+    with pytest.raises(ReportRefused) as exc:
+        from_junit_xml(junit, suite=unicodedata.normalize("NFD", "café"))
+    assert exc.value.code == "not_nfc" and "suite argument" in str(exc.value)
+    r = _run("emit-test-receipt", "--ctrf", str(_nfd_ctrf(tmp_path)), "--out", str(tmp_path / "o.json"),
+             "--new-key", str(tmp_path / "k.key"))
+    assert r.returncode == 2 and "results.tool.name" in r.stderr
+
+
+def test_the_library_refuses_a_weak_issuer_pin_as_the_cli_does():
+    """F8: verify_test_receipt compared a low-order pin as a string, where check-test-receipt refuses it (exit 2)."""
+    import base64
+    identity = "ed25519:" + base64.b64encode(bytes([1]) + bytes(31)).decode()
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with(report, lambda p: None), report, expected_issuers=[identity])
+    assert result["ok"] is False and "refused as a trusted key" in result["reason"]
+    assert _run("check-test-receipt", "x.json", "--report", str(report), "--expect-issuer", identity).returncode == 2
+
+
+def test_a_count_beyond_the_safe_range_is_named_as_such():
+    """F10: 2**53 was refused as "must be a non-negative integer", which it is."""
+    with pytest.raises(ReportRefused) as exc:
+        read_ctrf_json((VECTORS / "ctrf/syn_count_above_the_safe_range.json").read_bytes())
+    assert "at most 2**53-1" in str(exc.value)
+
+
+def test_the_receipt_is_never_written_over_its_report(tmp_path):
+    """F14: --out could name the report itself, and the receipt replaced the report it is about."""
+    report = tmp_path / "report.xml"
+    report.write_bytes((VECTORS / "junit/pytest-9.1.1_all_passed.xml").read_bytes())
+    before = report.read_bytes()
+    r = _run("emit-test-receipt", "--junit", str(report), "--out", str(report), "--new-key", str(tmp_path / "k.key"))
+    assert r.returncode == 2 and "--out names the report" in r.stderr
+    assert report.read_bytes() == before
+
+
+def test_the_check_exit_codes_are_the_ones_its_help_names(tmp_path):
+    """F15: the help said 2 for malformed input, while an unreadable receipt or report gives 1. The help now says
+    what the command does: 1 for every way a receipt is not ok, 2 for a refused pin or a malformed option."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    assert _run("check-test-receipt", str(tmp_path / "absent.json"), "--report", str(report)).returncode == 1
+    assert _run("check-test-receipt", "x.json", "--report", str(report), "--max-report-bytes", "x").returncode == 2
+    help_text = " ".join(_run("check-test-receipt", "--help").stdout.split())
+    assert "1 not ok" in help_text and "2 a refused --expect-issuer pin" in help_text
+
+
+def test_check_compares_the_suite_version():
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import emit_eval_receipt
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    claim, _ = from_junit_xml(report, timestamp="2026-10-16T00:00:00Z")
+    claim["suite_version"] = "ctrf-0.2.0"
+    result = verify_test_receipt(emit_eval_receipt(claim, generate_signer()), report)
+    assert result["ok"] is False and "ctrf-0.2.0" in result["reason"]

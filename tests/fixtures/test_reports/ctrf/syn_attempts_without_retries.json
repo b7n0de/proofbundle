@@ -1,0 +1,32 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.2.0",
+  "results": {
+    "tool": {
+      "name": "synthetic"
+    },
+    "summary": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "pending": 0,
+      "skipped": 0,
+      "other": 0,
+      "start": 1,
+      "stop": 2
+    },
+    "tests": [
+      {
+        "name": "a",
+        "status": "passed",
+        "duration": 1,
+        "retryAttempts": [
+          {
+            "attempt": 1,
+            "status": "failed"
+          }
+        ]
+      }
+    ]
+  }
+}
