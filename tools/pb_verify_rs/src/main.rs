@@ -3183,6 +3183,7 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             let mut expected_root: Option<String> = None;
             let mut expected_tree_size: Option<u64> = None;
             let mut require_anchor = false;
+            let mut allow_pending = false;
             let mut i = 3;
             while i < args.len() {
                 match text(&args[i], "a verify-bundle flag") {
@@ -3211,13 +3212,25 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                         require_anchor = true;
                         i += 1;
                     }
-                    "--allow-pending" => i += 1,
+                    "--allow-pending" => {
+                        allow_pending = true;
+                        i += 1;
+                    }
                     "--anchor-type" | "--anchor-target" => {
                         require_anchor = true;
                         i += 2;
                     }
                     other => fatal(&format!("unknown verify-bundle flag: {other}")),
                 }
+            }
+            // Z381 G3: `--allow-pending` only means something beside an anchor requirement. Python
+            // refuses the lone flag, exit 2, before it reads the bundle (`cli._cmd_verify`); this
+            // verifier skipped it and answered the verdict of the bundle, 0 where Python says 2.
+            if allow_pending && !require_anchor {
+                fatal(
+                    "--allow-pending only applies together with --require-anchor / --anchor-type \
+                     / --anchor-target",
+                );
             }
             // strict parse first: a duplicate JSON key / malformed bundle is exit 2 (malformed).
             // S108: every MALFORMED names its reason; the prefix and the exit class stay.
