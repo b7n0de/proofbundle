@@ -203,7 +203,7 @@ CONFIG_ASKS = {
     "uploadpack of the remote": [("remote.origin.uploadpack", "{tmp}/up")],
     "vcs of the remote": [("remote.origin.vcs", "probe")],
     "proxy of the remote": [("remote.origin.proxy", "http://127.0.0.1:3128")],
-    "pushurl of the remote": [("remote.origin.pushurl", "https://github.com/o/r")],
+    # pushurl of the remote: free since Ergänzung 2 to Nachtrag 20 (D52), a fetch does not read it
     "insteadOf": [("url.https://other.example/.insteadOf", "https://github.com/")],
     # pushInsteadOf never acts on a fetch: free since Ergänzung 1 to Nachtrag 20 (D51)
     "http.proxy": [("http.proxy", "http://127.0.0.1:3128")],

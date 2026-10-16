@@ -3304,3 +3304,16 @@ The rule, in the fetch profile: url.<base>.pushInsteadOf does not count; url.<ba
 prefix of the remote's URL (an entry without a value and an empty value included), or when its base is empty or has no
 scheme; every other url.* key asks. The profile reads the values and names none of them (D49). Under Codex the fetch
 keeps its ask (D41).
+
+## D52. remote.<name>.pushurl and remote.<name>.push do not count for the fetch of D45 (Ergänzung 2 to Nachtrag 20, 2026-10-16)
+
+Cowork held delta's key list (names only) against the lists of a8ca017a: the clone pr31_strict_decoding carries
+remote.origin.pushurl, and the fetch profile asked for every key of the remote but url and fetch.
+
+Evidence, at the stand-in for github.com, git 2.43.0 under strace -f, no network (truth_n20_fetch.py): a fetch with a
+pushurl on another host, with a push rule, with both and with a pushurl that names a user started the same programs,
+opened the same connection, made the same requests and wrote the same refs as without them.
+
+The rule: the fetch profile does not count remote.<remote>.pushurl and remote.<remote>.push. Every other key of the
+remote asks as in D45. A push later in the same command stays a gated step that is not the first and keeps the answer
+of the whole command (D33, D45); a push on its own is judged by the push check, which reads its own destination.

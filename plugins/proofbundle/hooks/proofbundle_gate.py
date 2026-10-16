@@ -1735,7 +1735,7 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     - the target: remote.<remote>.url other than exactly one https://github.com/<owner>/<repo>[.git], a fetch rule other
       than exactly +refs/heads/*:refs/remotes/<remote>/* (another rule writes another branch into the tracking ref the
       push check reads), and every other key of that remote (uploadpack, vcs, which starts a remote helper: measured,
-      proxy, pushurl, …); a url.<base>.insteadOf whose value is a prefix of the remote's URL, or whose base is empty
+      proxy, …, but pushurl and push, which a fetch does not read: D52); a url.<base>.insteadOf whose value is a prefix of the remote's URL, or whose base is empty
       or has no scheme (D51), and any other url.* key but pushInsteadOf, which rewrites only a push; any http.* key
       (http.proxy took it to the proxy: measured), a proxy name in the environment;
     - programs: a hook fetch or its maintenance runs (_HOOKS_NOT_RUN_BY_FETCH), fsmonitor that git does not read as
@@ -1781,6 +1781,8 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
                 return f"fsmonitor, which the fetch starts: {where}"
             continue
         if section == "remote" and subsection == remote:
+            if variable in ("pushurl", "push"):
+                continue    # D52: a fetch reads neither (measured: the same programs, connection and refs)
             if variable == "url":
                 urls.append(value)
                 url_where.append(where)
