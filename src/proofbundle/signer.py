@@ -187,9 +187,16 @@ class FileSigner(Signer):
     @classmethod
     @_ein_stand(aussen={"cls": "klasse", "path": "pfad"})
     def load(cls, path: Any) -> "FileSigner":
-        """The key of a 32-byte raw seed file, read by ``emit.load_signer``."""
+        """The key of a 32-byte raw seed file, read by ``emit.load_signer``. A file that cannot be read, or holds
+        no 32-byte seed, is a :class:`SignerError` that names the error's type only (lens run 1, iteration 2, N8:
+        the raw OSError and ValueError of the loader got out, unlike every other refusal of this module)."""
         from .emit import load_signer  # noqa: PLC0415
-        return FileSigner(load_signer(path))
+        failed = ""   # set below: past the `try`, only its `except` leads here
+        try:
+            return FileSigner(load_signer(path))
+        except (OSError, ValueError) as exc:
+            failed = type(exc).__name__
+        raise SignerError(f"the key file could not be read as a 32-byte Ed25519 seed ({failed})")
 
     @classmethod
     @_ein_stand(aussen={"cls": "klasse"})

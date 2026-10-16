@@ -64,15 +64,17 @@ The key is selected by a PKCS#11 URI (RFC 7512). The reader is strict:
   malformed percent-encoding, a value that is not UTF-8 or does not fit its PKCS#11 field, and any attribute
   the reader does not know are refused.
 - The scheme `pkcs11:` is taken in any case of its ASCII letters. Attribute names and the values of `type`
-  are taken in lower case, as RFC 7512 writes them; another case is refused.
+  are taken in lower case only. RFC 5234 reads the literals of the grammar in any case; this reader is
+  stricter and refuses another case.
 - python-pkcs11 gives the fields of a token, a slot and a module with bytes that are not UTF-8 replaced by
   U+FFFD and all trailing whitespace removed. A value for one of these fields that holds U+FFFD or ends in
   whitespace is therefore refused: it could match a field it does not spell, or none. `object` and `id` are
   compared by the token itself, byte for byte, and keep both. What stays: a token whose label is `release`
   followed by a tab is matched by `token=release`. Where two tokens could be confused, select by `serial`.
 - Exactly one initialised token and exactly one private key must match. Two matches are an error, not a
-  choice. A slot the module cannot read is an error too, so a second token of the same name cannot hide
-  behind it.
+  choice. A slot the module reports as unreadable is an error too, so a second token of the same name
+  cannot hide behind it. A module that leaves an unreadable token out of its list altogether (SoftHSM2
+  does, measured) shows the signer nothing to refuse: then the other token is the only match.
 - RFC 7512 says an unknown query attribute should be ignored. This reader refuses it, so that no part of a
   URI that selects a signing key is silently dropped.
 - No refusal repeats a value of the URI, so a PIN pasted into the wrong place does not reach a terminal or a
@@ -112,7 +114,11 @@ signatures counts this one too.
 The login of PKCS#11 holds for the token and the whole process. Close a signer (`with`, or `close()`) before
 another one opens the same token; a second one is refused with a message that says another signer is still
 open. A signer dropped without `close()` closes when it is collected, and the command line closes its signer
-when the command ends.
+when the command ends. A refused login leaves the session python-pkcs11 opened for it until the process
+ends; that session is not logged in.
+
+Name a module by one path spelling per process: python-pkcs11 initialises a module once per path, and a
+second spelling of the same module (a link, a `..`) is refused as a module that could not be loaded.
 
 ## One algorithm
 

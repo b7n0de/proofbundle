@@ -356,25 +356,25 @@ def test_the_library_attributes_must_match_the_module(token, pin):
 
 
 def test_an_ambiguous_selection_is_refused(token, pin):
-    with pytest.raises(SignerError, match="more than one"):
+    with pytest.raises(SignerError, match="more than one private key"):
         Pkcs11Signer.open(_uri(token="pb-test", object="dup"), pin=pin)
-    with pytest.raises(SignerError, match="more than one"):
+    with pytest.raises(SignerError, match="more than one private key"):
         Pkcs11Signer.open(_uri(token="pb-test"), pin=pin)
 
 
 def test_a_private_key_without_its_public_object_is_refused(token, pin):
-    with pytest.raises(SignerError, match="public"):
+    with pytest.raises(SignerError, match="public key object for the selected private key"):
         Pkcs11Signer.open(_uri(token="pb-test", object="nopub"), pin=pin)
 
 
 @pytest.mark.parametrize("kind", ["public", "cert", "secret-key", "data"])
 def test_a_uri_selecting_no_private_key_is_refused(token, pin, kind):
-    with pytest.raises(SignerError, match="private"):
+    with pytest.raises(SignerError, match="a signature needs a private key"):
         Pkcs11Signer.open(_uri(token="pb-test", object="ed", type=kind), pin=pin)
 
 
 def test_a_uri_without_module_path_is_refused(token, pin):
-    with pytest.raises(SignerError, match="module-path"):
+    with pytest.raises(SignerError, match="names no module-path"):
         Pkcs11Signer.open("pkcs11:token=pb-test;object=ed", pin=pin)
 
 
@@ -388,7 +388,7 @@ def test_a_module_path_that_is_no_module_file_is_refused(token, pin, path, reaso
 def test_a_library_whose_edwards_default_is_not_eddsa_is_refused(monkeypatch):
     from proofbundle.signer import _import_pkcs11
     monkeypatch.setitem(pkcs11.defaults.DEFAULT_SIGN_MECHANISMS, pkcs11.KeyType.EC_EDWARDS, pkcs11.Mechanism.ECDSA)
-    with pytest.raises(SignerError, match="CKM_EDDSA"):
+    with pytest.raises(SignerError, match="with CKM_EDDSA by default"):
         _import_pkcs11()
 
 
@@ -507,7 +507,7 @@ def test_token_gone_during_the_session_is_an_error_and_never_a_fallback(token, m
             emit_eval_receipt(_claim(), signer)
         # The deleted token leaves a slot that cannot be read in this process: no token is chosen then,
         # not even another one, so a second token of the same name cannot hide behind the unreadable slot.
-        with pytest.raises(SignerError, match="could not be read"):
+        with pytest.raises(SignerError, match="a slot of the module could not be read"):
             Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin_from_env(PIN_VAR))
     finally:
         signer.close()

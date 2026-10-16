@@ -111,6 +111,17 @@ def test_file_signer_loads_the_same_seed_file(tmp_path):
     assert FileSigner.load(str(path)).public_key_raw() == _raw(load_signer(str(path)))
 
 
+@pytest.mark.parametrize("content", [None, b"\x00" * 31, b"\x00" * 33])
+def test_file_signer_load_refuses_a_missing_or_wrong_file_as_a_signer_error(tmp_path, content):
+    """The raw OSError and ValueError of the loader got out of `FileSigner.load` (lens run 1, iteration 2, N8)."""
+    path = tmp_path / "k.key"
+    if content is not None:
+        path.write_bytes(content)
+    with pytest.raises(SignerError, match="could not be read as a 32-byte Ed25519 seed") as info:
+        FileSigner.load(str(path))
+    assert info.value.__context__ is None and str(tmp_path) not in str(info.value)
+
+
 def test_cli_key_file_path_still_passes_the_bare_key(monkeypatch, tmp_path):
     """`--key` hands the producer the key `load_signer` returns, as before: no wrapper in between."""
     key_path = tmp_path / "k.key"
@@ -145,14 +156,14 @@ def test_external_signer_receipt_verifies_and_equals_the_file_receipt():
 def test_external_signer_checks_every_signature_before_it_is_used():
     key, other = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     remote = _Remote(key, answer=other.sign)
-    with pytest.raises(SignerError, match="does not verify"):
+    with pytest.raises(SignerError, match="does not verify under its public key"):
         remote.sign(b"payload")
     with pytest.raises(SignerError):
         emit_eval_receipt(_claim(), remote)
 
 
 @pytest.mark.parametrize("answer,reason", [(lambda d: b"\x00" * 63, "no 64-byte"), (lambda d: "x" * 64, "no 64-byte"),
-                                           (lambda d: None, "no 64-byte"), (lambda d: bytearray(64), "does not verify")])
+                                           (lambda d: None, "no 64-byte"), (lambda d: bytearray(64), "does not verify under its")])
 def test_external_signer_refuses_a_signature_of_the_wrong_form(answer, reason):
     remote = _Remote(Ed25519PrivateKey.generate(), answer=answer)
     with pytest.raises(SignerError, match=reason):
@@ -270,12 +281,13 @@ def test_uri_empty_query_is_grammatical():
     ("pkcs11:token=%4", "malformed percent-encoding"),
     ("pkcs11:token=x%", "malformed percent-encoding"),
     ("pkcs11:id=%ZZ", "malformed percent-encoding"),
-    ("pkcs11:token=%FF", "not UTF-8"),
-    ("pkcs11:token=%C3", "not UTF-8"),                                  # truncated UTF-8
+    ("pkcs11:token=%FF", "is not UTF-8 .RFC 7512"),
+    ("pkcs11:object=%FF", "is not UTF-8 .RFC 7512"),                 # object keeps U+FFFD, not bad bytes
+    ("pkcs11:token=%C3", "is not UTF-8 .RFC 7512"),                                  # truncated UTF-8
     ("pkcs11:token=a%0Ab", "control character"),
     ("pkcs11:serial=%C3%A1", "printable ASCII"),
-    ("pkcs11:vendor-attr=7", "does not know"),                          # unknown path attribute: matches nothing
-    ("pkcs11:Token=x", "does not know"),                                # attribute names are case-sensitive
+    ("pkcs11:vendor-attr=7", "path attribute this reader does not know"),                          # unknown path attribute: matches nothing
+    ("pkcs11:Token=x", "path attribute this reader does not know"),                                # attribute names are case-sensitive
     ("pkcs11:type=key", "none of public"),
     ("pkcs11:library-version=1.2.3", "library-version is M or M.N"),
     ("pkcs11:library-version=256", "library-version is M or M.N"),
@@ -287,12 +299,12 @@ def test_uri_empty_query_is_grammatical():
     ("pkcs11:token=x?pin-value=1234", "a PIN never stands"),            # never a PIN in the URI
     ("pkcs11:token=x?pin-source=file:/etc/pin", "a PIN never stands"),  # never a PIN from a file
     ("pkcs11:token=x?module-name=softhsm2", "module-name is not taken"),
-    ("pkcs11:token=x?module-path=libsofthsm2.so", "absolute path"),     # RFC 7512 2.4, SHOULD reject
-    ("pkcs11:token=x?module-path=", "absolute path"),
-    ("pkcs11:token=x?module-path=/a%00b", "absolute path"),             # NUL in a path
-    ("pkcs11:token=x?module-path=/a%FF", "absolute path"),              # not UTF-8
+    ("pkcs11:token=x?module-path=libsofthsm2.so", "must be an absolute path"),     # RFC 7512 2.4, SHOULD reject
+    ("pkcs11:token=x?module-path=", "must be an absolute path"),
+    ("pkcs11:token=x?module-path=/a%00b", "must be an absolute path"),             # NUL in a path
+    ("pkcs11:token=x?module-path=/a%FF", "must be an absolute path"),              # not UTF-8
     ("pkcs11:token=x?module-path=/a&module-path=/b", "module-path twice"),
-    ("pkcs11:token=x?vendor-q=1", "does not know"),                     # unknown query attribute: refused
+    ("pkcs11:token=x?vendor-q=1", "query attribute this reader does not know"),                     # unknown query attribute: refused
     ("pkcs11:token=x?module-path=/a&", "attribute=value pair"),
 ])
 def test_uri_refuses_what_it_cannot_read_as_one_selection(uri, reason):
@@ -493,8 +505,8 @@ def test_pin_from_env_checks_the_variable_again_when_it_is_read(monkeypatch):
 
 @pytest.mark.parametrize("uri,pin,reason", [
     ("pkcs11:token=x?module-path=/nonexistent/x.so", "1234", "function that returns the PIN"),
-    ("pkcs11:token=x;type=public?module-path=/nonexistent/x.so", lambda: "1", "private key"),
-    ("pkcs11:token=x;type=cert?module-path=/nonexistent/x.so", lambda: "1", "private key"),
+    ("pkcs11:token=x;type=public?module-path=/nonexistent/x.so", lambda: "1", "a signature needs a private key"),
+    ("pkcs11:token=x;type=cert?module-path=/nonexistent/x.so", lambda: "1", "a signature needs a private key"),
     ("pkcs11:token=x", lambda: "1", "no module-path"),
 ])
 def test_open_refuses_before_any_module_is_loaded(uri, pin, reason):
@@ -564,8 +576,8 @@ def _emit_args(tmp_path, *extra):
 
 
 @pytest.mark.parametrize("extra,reason", [
-    (["--key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "not both"),
-    (["--new-key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "not both"),
+    (["--key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "a token is never paired with a file"),
+    (["--new-key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "a token is never paired with a file"),
     (["--token-pin-env", "PB_PIN"], "applies to --token-uri only"),
     (["--key", "k", "--token-pin-env", "PB_PIN"], "applies to --token-uri only"),
     (["--token-uri", ""], "begins with 'pkcs11:'"),
