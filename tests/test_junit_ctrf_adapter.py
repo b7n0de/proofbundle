@@ -545,3 +545,146 @@ def test_check_compares_the_suite_version():
     claim["suite_version"] = "ctrf-0.2.0"
     result = verify_test_receipt(emit_eval_receipt(claim, generate_signer()), report)
     assert result["ok"] is False and "ctrf-0.2.0" in result["reason"]
+
+
+# --- lens run 1, iteration 2: each finding as a case, red at d05061a0 ------------------------------------------------
+
+def _receipt_with_claim(report, change):
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import emit_eval_receipt
+    claim, _ = from_junit_xml(report, timestamp="2026-10-16T00:00:00Z")
+    change(claim)
+    return emit_eval_receipt(claim, generate_signer())
+
+
+@pytest.mark.parametrize("field,value", [("prereg_sha256", "ab" * 32), ("ci95", ["0.99", "1"]),
+                                         ("context_binding", "ci"), ("multiple_testing", "none"),
+                                         ("evaluation_card_sha256", "cd" * 32)])
+def test_check_refuses_a_claim_field_a_test_receipt_does_not_carry(field, value):
+    """N1: such a field is signed and shown by show-eval, but no report can confirm it."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with_claim(report, lambda c: c.__setitem__(field, value)), report)
+    assert result["ok"] is False and field in result["reason"]
+
+
+def test_check_refuses_an_assurance_level_above_self_attested():
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with_claim(report, lambda c: c.__setitem__("assurance_level", "reproduced")),
+                                 report)
+    assert result["ok"] is False and "self_attested" in result["reason"]
+
+
+@pytest.mark.parametrize("value,accepted", [(1.0, True), (1e3, True), (-0.0, True), (1.5, False), (True, False),
+                                            (float(2 ** 53), False)])
+def test_a_ctrf_integer_is_read_as_the_schema_reads_it(value, accepted):
+    """N2: JSON Schema draft 7, which CTRF's Appendix A is, takes 1.0 and 1e3 as integers."""
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["results"]["tests"][0]["duration"] = value
+    doc["results"]["summary"]["start"] = value
+    data = json.dumps(doc).encode()
+    if accepted:
+        assert read_ctrf_json(data).verdict is True
+    else:
+        with pytest.raises(ReportRefused) as exc:
+            read_ctrf_json(data)
+        assert exc.value.code == "bad_value"
+
+
+def test_the_report_is_never_overwritten_through_a_hard_link_or_by_the_key(tmp_path):
+    """N3 and N4: --out as a hard link of the report, and --new-key naming the report, overwrote it."""
+    report = tmp_path / "report.xml"
+    report.write_bytes((VECTORS / "junit/pytest-9.1.1_all_passed.xml").read_bytes())
+    before = report.read_bytes()
+    os.link(report, tmp_path / "hard.json")
+    r = _run("emit-test-receipt", "--junit", str(report), "--out", str(tmp_path / "hard.json"),
+             "--new-key", str(tmp_path / "k.key"))
+    assert r.returncode == 2 and report.read_bytes() == before
+    r = _run("emit-test-receipt", "--junit", str(report), "--out", str(tmp_path / "r.json"), "--new-key", str(report))
+    assert r.returncode == 2 and report.read_bytes() == before
+    r = _run("emit-test-receipt", "--junit", str(report), "--out", str(tmp_path / "same"), "--new-key",
+             str(tmp_path / "same"))
+    assert r.returncode == 2 and not (tmp_path / "same").exists()
+
+
+def test_a_claim_the_emitter_refuses_writes_no_key(tmp_path):
+    """N5: a report the reader accepts but whose claim the emitter refuses (a tool name past the verifier's string
+    limit) left a new key file behind, against the command's own docstring."""
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["results"]["tool"]["name"] = "t" * 1_100_000
+    report = tmp_path / "long.json"
+    report.write_text(json.dumps(doc), encoding="utf-8")
+    key = tmp_path / "k.key"
+    r = _run("emit-test-receipt", "--ctrf", str(report), "--out", str(tmp_path / "r.json"), "--new-key", str(key))
+    assert r.returncode == 2 and "limit" in r.stderr
+    assert not key.exists() and not (tmp_path / "r.json").exists()
+
+
+def test_a_timestamp_that_is_not_nfc_is_refused_with_its_field():
+    """N6: the F6 message class at --timestamp."""
+    import unicodedata
+    with pytest.raises(ReportRefused) as exc:
+        from_junit_xml(VECTORS / "junit/pytest-9.1.1_all_passed.xml",
+                       timestamp=unicodedata.normalize("NFD", "2026-10-16T00:00:00Z é"))
+    assert exc.value.code == "not_nfc" and "timestamp" in str(exc.value)
+
+
+def test_check_refuses_a_size_limit_below_one_as_a_malformed_option():
+    """N7: --max-report-bytes 0 gave exit 1, the help says 2 for a malformed option."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    assert _run("check-test-receipt", "x.json", "--report", str(report), "--max-report-bytes", "0").returncode == 2
+
+
+@pytest.mark.parametrize("stamp,ok", [("0000-01-01T00:00:00Z", True), ("0000-02-29T00:00:00Z", True),
+                                      ("2024-02-29T23:59:60Z", True), ("1900-02-29T00:00:00Z", False),
+                                      ("2026-13-01T00:00:00Z", False), ("2026-04-31T00:00:00Z", False),
+                                      ("2026-10-16T24:00:00Z", False), ("2026-10-16T10:00:00+24:00", False)])
+def test_an_rfc3339_timestamp_is_read_by_its_own_calendar(stamp, ok):
+    """N8: the year 0000 is a valid RFC 3339 year, which `datetime` cannot hold."""
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["timestamp"] = stamp
+    data = json.dumps(doc).encode()
+    if ok:
+        assert read_ctrf_json(data).verdict is True
+    else:
+        with pytest.raises(ReportRefused) as exc:
+            read_ctrf_json(data)
+        assert exc.value.code == "bad_value"
+
+
+class _ShouldNotBeAsked:
+    def __fspath__(self):
+        raise RuntimeError("the caller's __fspath__ ran")
+
+    def __str__(self):
+        raise RuntimeError("the caller's __str__ ran")
+
+
+def test_a_report_path_whose_fspath_raises_gets_an_answer_not_an_exception():
+    """N9: verify_test_receipt raised RuntimeError out of a never-raise surface."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    result = verify_test_receipt(_receipt_with(report, lambda p: None), _ShouldNotBeAsked())
+    assert result["ok"] is False and "path" in result["reason"]
+    with pytest.raises(ReportRefused) as exc:
+        from_junit_xml(_ShouldNotBeAsked())
+    assert exc.value.code == "unreadable"
+
+
+def test_check_says_that_ok_is_not_a_pass(tmp_path):
+    """N11: exit 0 for the receipt of a failing run printed only "=> OK"."""
+    report = VECTORS / "junit/pytest-9.1.1_mixed.xml"
+    out = tmp_path / "r.json"
+    assert _run("emit-test-receipt", "--junit", str(report), "--out", str(out),
+                "--new-key", str(tmp_path / "k.key")).returncode == 0
+    r = _run("check-test-receipt", str(out), "--report", str(report))
+    assert r.returncode == 0 and "passed=False" in r.stdout and "not that the run passed" in r.stdout
+
+
+def test_written_files_are_exit_zero_under_a_stdout_that_cannot_encode_the_path(tmp_path):
+    """N12: under an ASCII stdout the receipt and the key were written and the command still exited 2."""
+    out = tmp_path / "quittung-é.json"
+    p = subprocess.run([sys.executable, "-m", "proofbundle.cli", "emit-test-receipt", "--junit",
+                        str(VECTORS / "junit/pytest-9.1.1_all_passed.xml"), "--out", str(out),
+                        "--new-key", str(tmp_path / "k.key")], capture_output=True, cwd=REPO,
+                       env={**os.environ, "PYTHONPATH": str(REPO / "src"), "PYTHONIOENCODING": "ascii"})
+    assert p.returncode == 0, p.stderr
+    assert out.exists() and b"\\xe9" in p.stdout
