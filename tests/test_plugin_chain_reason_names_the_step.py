@@ -204,3 +204,16 @@ def test_E1A_a_gated_gh_call_that_is_not_the_first_step_keeps_its_own_text(tmp_p
                                "gated call"), out.text
     assert "which repository gh pr create acts on" in out.text and "Next step: " in out.text, out.text
     assert "git status may start a program" not in out.text, out.text
+
+
+def test_E1A_a_worktree_add_that_is_not_the_first_step_keeps_its_own_text(tmp_path, clone):
+    """A sibling of the gh case: the whole command's answer names every worktree add the checkout check does not free
+    `git worktree add`, two words after git (_strict_git), and the reason finds its texts by that name."""
+    target = tmp_path / "wt_new"
+    out = _decide(clone, f"git -C {clone} status; git -C {clone} worktree add -q {target} main")
+    assert out.decision == "ask", out.text
+    assert out.text.startswith(f"NOT MEASURED: the step `git -C {clone} worktree add -q {target} main` of this command "
+                               "would be free on its own."), out.text
+    assert "which repository git worktree add acts on" in out.text and "Next step: " in out.text, out.text
+    assert "git status may start a program" not in out.text, out.text
+    assert f"would be free: `git -C {clone} status`." in out.text, out.text

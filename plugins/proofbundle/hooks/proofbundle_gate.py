@@ -9556,12 +9556,15 @@ def _sh_steps_reason(decision: str, own: list, chosen: list, kept: str | None = 
 
 def _sh_call_name(step: "_ShStep") -> str:
     """The name the whole command's answer gives a git or gh step: `git <subcommand>`, after the global options, or
-    the name of a gated gh call."""
+    `git worktree add` as _strict_git names every worktree add the checkout check does not free, or the name of a
+    gated gh call."""
     if step.kind == "gh":
         return _gh_call(step.words[1:]) or "gh"
     words, i = step.words[1:], 0
     while i < len(words) and words[i].startswith("-"):
         i += 2 if words[i] in _GIT_GLOBAL_VALUE and "=" not in words[i] else 1
+    if words[i:i + 2] == ["worktree", "add"]:
+        return "git worktree add"
     return f"git {words[i]}" if i < len(words) else "git"
 
 
