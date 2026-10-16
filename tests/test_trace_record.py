@@ -191,6 +191,22 @@ def test_an_embedded_ecdsa_record_is_not_verifiable_here_and_says_so():
     assert exit_code(v) == 2 and "verifier-config" in failed(v)
 
 
+def test_the_es384_primitive_verifies_and_never_raises():
+    from proofbundle.signature import verify_ecdsa_p384
+
+    nums = P384.public_key().public_numbers()
+    point = b"\x04" + nums.x.to_bytes(48, "big") + nums.y.to_bytes(48, "big")
+    sig = ecdsa_raw(P384, b"message")
+    assert verify_ecdsa_p384(point, sig, b"message") is True
+    assert verify_ecdsa_p384(point, sig, b"messagf") is False
+    assert verify_ecdsa_p384(point, bytes([sig[0] ^ 1]) + sig[1:], b"message") is False
+    assert verify_ecdsa_p384(b"\x04" + bytes(96), sig, b"message") is False          # not on the curve
+    for bad in (None, 1, "x", [], point[:-1], b"\x02" + point[1:49]):
+        assert verify_ecdsa_p384(bad, sig, b"message") is False
+        assert verify_ecdsa_p384(point, bad, b"message") is False
+    assert verify_ecdsa_p384(point, sig, None) is False
+
+
 # ----------------------------------------------------------------------------------------------
 # Keys come from the relying party; the record's cnf must name the verifying key (3.2.2).
 # ----------------------------------------------------------------------------------------------
@@ -231,6 +247,15 @@ def test_a_cnf_jwk_member_outside_the_schema_is_reported_and_permitted():
     v = verify(embedded(record(jwk)))
     assert exit_code(v) == 0
     assert ("cnf.jwk.use", True) in v.unknown_fields and ("cnf.jwk.alg", True) in v.unknown_fields
+
+
+@pytest.mark.parametrize("kty", [[], {}, ["OKP"], {"a": 1}, None, 1])
+def test_an_unhashable_or_foreign_kty_is_a_failing_check_not_a_raise(kty):
+    jwk = dict(ed_jwk(), kty=kty)
+    v = verify(embedded(record(jwk)))
+    assert exit_code(v) == 1 and "cnf-binding" in failed(v) and "structure" in failed(v)
+    v = verify(jws(record(ed_jwk()), header={"alg": [kty] if kty is not None else []}, key=ED))
+    assert exit_code(v) == 2 and failed(v) == ["jws-header"]
 
 
 def test_a_cnf_jwk_carrying_private_key_material_fails():
@@ -697,6 +722,16 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert _cli(tmp_path, data, keys={"keys": []}) == 2
 
 
+@pytest.mark.parametrize("content", ["null", " null", "[]", "{}", '""', "0", "false", '{"keys": []}',
+                                     '{"keys": null}', ""])
+def test_cli_a_key_file_that_reads_as_absent_is_refused(tmp_path, content):
+    rec_path = tmp_path / "record"
+    rec_path.write_bytes(embedded(record(ed_jwk())))
+    key_path = tmp_path / "key.json"
+    key_path.write_text(content)
+    assert main(["verify-trace", str(rec_path), "--key", str(key_path), "--now", str(NOW)]) == 2
+
+
 def test_cli_json(tmp_path, capsys):
     assert _cli(tmp_path, embedded(record(ed_jwk())), "--json") == 0
     doc = json.loads(capsys.readouterr().out)
@@ -728,4 +763,4 @@ def test_neither_the_verifier_nor_its_tests_import_the_trace_reference():
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
             for name in names:
-                assert not name.split(".")[0] in ("agentrust_trace", "trace_tests"), (path.name, name)
+                assert name.split(".")[0] not in ("agentrust_trace", "trace_tests"), (path.name, name)

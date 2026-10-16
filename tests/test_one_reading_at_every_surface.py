@@ -904,6 +904,7 @@ def _flaechen():
                              sdjwt, sdjwt_issue, sdjwt_vc, signature, statuslist, tlogproof, trust_pack as tp,
                              verification_summary as vs)
     from proofbundle.adapters import agt_receipt as agt  # noqa: PLC0415
+    from proofbundle.adapters import trace_record as tr  # noqa: PLC0415
 
     pub = _raw(_T)
     ev_bundle = ec.emit_eval_receipt(_claim("0.10"), _T)
@@ -992,6 +993,23 @@ def _flaechen():
     from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature  # noqa: PLC0415
     _r, _s = decode_dss_signature(p256.sign(b"message", _ec.ECDSA(_hashes.SHA256())))
     p256_sig = _r.to_bytes(32, "big") + _s.to_bytes(32, "big")
+    p384 = _ec.derive_private_key(12345, _ec.SECP384R1())
+    p384_pub = p384.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    _r, _s = decode_dss_signature(p384.sign(b"message", _ec.ECDSA(_hashes.SHA384())))
+    p384_sig = _r.to_bytes(48, "big") + _s.to_bytes(48, "big")
+    # A TRACE v0.2 Trust Record in the embedded form, signed by _T, for `adapters.trace_record`.
+    import rfc8785  # noqa: PLC0415
+    trace_jwk = {"kty": "OKP", "crv": "Ed25519", "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}
+    trace_rec = {"eat_profile": "tag:agentrust-io.com,2026:trace-v0.2", "iat": 1_792_000_000,
+                 "subject": "spiffe://example.org/agent/sweep", "model": {"provider": "p", "model_id": "m"},
+                 "runtime": {"platform": "software-only", "measurement": "sha256:" + "a" * 64, "nonce": "n"},
+                 "policy": {"bundle_hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
+                 "data_class": "internal", "tool_transcript": {"hash": "sha256:" + "d" * 64},
+                 "build_provenance": {"slsa_level": 0, "digest": "sha256:" + "c" * 64},
+                 "appraisal": {"status": "none", "verifier": "https://verifier.example.org"},
+                 "cnf": {"jwk": trace_jwk}}
+    trace_rec["signature"] = base64.urlsafe_b64encode(_T.sign(rfc8785.dumps(trace_rec))).rstrip(b"=").decode()
+    trace_bytes = json.dumps(trace_rec).encode("utf-8")
 
     saved = dict(anchors._VERIFIERS)
     anchors.register_anchor_type("sweep-anchor/v1", lambda proof, r, *, frozen, now: {
@@ -1105,6 +1123,13 @@ def _flaechen():
         ("signature.verify_ed25519_pinned", lambda w: signature.verify_ed25519_pinned(
             w(pub), w(_T.sign(b"message")), w(b"message"))),
         ("signature.verify_ecdsa_p256", lambda w: signature.verify_ecdsa_p256(w(p256_pub), w(p256_sig), w(b"message"))),
+        ("signature.verify_ecdsa_p384", lambda w: signature.verify_ecdsa_p384(w(p384_pub), w(p384_sig), w(b"message"))),
+        ("adapters.trace_record.verify_trace_record", lambda w: tr.verify_trace_record(
+            w(trace_bytes), trusted_keys=w([trace_jwk]), now=w(1_792_000_060), max_age_seconds=w(86400),
+            max_future_skew_seconds=w(300), expected_nonce=w("n"), expected_policy_hashes=w(["sha256:" + "b" * 64]),
+            expected_subjects=w(["spiffe://example.org/agent/sweep"]),
+            expected_transcript_hash=w("sha256:" + "d" * 64),
+            accepted_profiles=w(["tag:agentrust-io.com,2026:trace-v0.2"]))),
         # emit surfaces
         ("evalclaim.emit_eval_receipt", lambda w: ec.emit_eval_receipt(w(_claim("0.10")), _T)),
         ("decision.emit_decision_receipt", lambda w: decision.emit_decision_receipt(w(dec_pred), _T)),

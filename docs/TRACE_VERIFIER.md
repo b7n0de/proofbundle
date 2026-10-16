@@ -73,4 +73,6 @@ trace-tests at the pinned commits, and these are among them:
 ## No Rust counterpart
 
 The Rust second verifier in `tools/pb_verify_rs` has no TRACE path. The registry
-`scripts/rust_parity_registry.json` records the functions as `PENDING`.
+`scripts/rust_parity_registry.json` records `verify_trace_record` as `PENDING`. It does the same
+for `signature.verify_ecdsa_p384`, the ES384 primitive the verifier uses, which verifies and never
+signs.

@@ -50,19 +50,17 @@ import re
 import time
 from dataclasses import dataclass, field
 from ipaddress import IPv6Address
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
-
+from .._membership import is_member
 from .._strict_json import loads_strict
 from .._wire_b64 import decode_b64url
 from ..automation_verdict import automation_summary
 from ..budget import DEFAULT_BUDGET
+from ..canonical import _bytes_von, _ein_stand, _zeichen_von
 from ..errors import ProofBundleError, VerificationResult
-from ..signature import ed25519_trust_anchor_weakness, verify_ecdsa_p256, verify_ed25519_pinned
+from ..signature import (_ec_point_on_curve, ed25519_trust_anchor_weakness, verify_ecdsa_p256,
+                         verify_ecdsa_p384, verify_ed25519_pinned)
 
 __all__ = [
     "NOT_CHECKED",
@@ -204,6 +202,29 @@ def _parse_json_bytes(raw: bytes, what: str) -> Any:
         raise _Unreadable(f"{what} is not strict JSON: {exc}") from None
 
 
+def _plain(value: Any, depth: int = 0) -> Any:
+    """A caller's JSON-shaped value with every text and byte string read by what it stores
+    (``canonical._zeichen_von``, ``_bytes_von``) and every container read through its base type, so no
+    method of the caller's values decides what the checks below compare. ``canonical._ein_stand`` has
+    already copied the containers; it hands text and bytes subclasses on as they are. A value nested
+    deeper than the parser's own depth bound is left as None, which every reader below refuses."""
+    if depth > DEFAULT_BUDGET.json_depth:
+        return None
+    typ = type(value)
+    if issubclass(typ, str):
+        return _zeichen_von(value)
+    if issubclass(typ, (bytes, bytearray)):
+        return _bytes_von(value)
+    if issubclass(typ, dict):
+        return {(_zeichen_von(k) if issubclass(type(k), str) else k): _plain(v, depth + 1)
+                for k, v in dict.items(value)}
+    if issubclass(typ, list):
+        return [_plain(v, depth + 1) for v in list.__iter__(value)]
+    if issubclass(typ, tuple):
+        return tuple(_plain(v, depth + 1) for v in tuple.__iter__(value))
+    return value
+
+
 class _Unreadable(Exception):
     """Internal: the input cannot be read under this profile (exit 2)."""
 
@@ -263,32 +284,16 @@ def _parse_public_jwk(jwk: Any) -> _Key:
     if kty == "EC" and crv in ("P-256", "P-384"):
         n = _CURVE_BYTES[crv]
         point = b"\x04" + _b64url_field(jwk, "x", n) + _b64url_field(jwk, "y", n)
-        curve = ec.SECP256R1() if crv == "P-256" else ec.SECP384R1()
-        try:
-            ec.EllipticCurvePublicKey.from_encoded_point(curve, point)
-        except ValueError:
-            raise ValueError(f"the {crv} point is not on the curve") from None
+        if not _ec_point_on_curve(crv, point):
+            raise ValueError(f"the {crv} point is not on the curve")
         return _Key("EC", crv, point, _thumbprint("EC", crv, jwk["x"], jwk["y"]))
     raise ValueError(f"unsupported key type kty={kty!r} crv={crv!r}; supported: OKP/Ed25519, EC/P-256, EC/P-384")
 
 
+@_ein_stand
 def jwk_thumbprint(jwk: Any) -> str:
     """RFC 7638 thumbprint of a public Ed25519, P-256 or P-384 JWK. Raises ValueError otherwise."""
     return _parse_public_jwk(jwk).thumbprint
-
-
-def _verify_es384(point: bytes, signature: bytes, message: bytes) -> bool:
-    """ECDSA P-384 with SHA-384 over a raw ``R || S`` signature (RFC 7518 section 3.4). Never raises."""
-    if len(point) != 97 or point[:1] != b"\x04" or len(signature) != 96:
-        return False
-    try:
-        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP384R1(), point)
-        r = int.from_bytes(signature[:48], "big")
-        s = int.from_bytes(signature[48:], "big")
-        pub.verify(encode_dss_signature(r, s), message, ec.ECDSA(hashes.SHA384()))
-        return True
-    except (InvalidSignature, ValueError, TypeError):
-        return False
 
 
 def _signature_valid(alg: str, key: _Key, signature: bytes, message: bytes) -> bool:
@@ -297,7 +302,7 @@ def _signature_valid(alg: str, key: _Key, signature: bytes, message: bytes) -> b
     if alg == "ES256":
         return verify_ecdsa_p256(key.raw, signature, message)
     if alg == "ES384":
-        return _verify_es384(key.raw, signature, message)
+        return verify_ecdsa_p384(key.raw, signature, message)
     return False
 
 
@@ -412,7 +417,7 @@ _digest = _pattern(_DIGEST, "digest")
 
 
 def _object(v: Any, p: str, f: _Findings, required: Sequence[str], props: Dict[str, Any],
-            extra: Any = None) -> bool:
+            open_members: bool = False) -> bool:
     if type(v) is not dict:
         f.bad(p, "must be an object")
         return False
@@ -423,22 +428,21 @@ def _object(v: Any, p: str, f: _Findings, required: Sequence[str], props: Dict[s
         mp = _member_path(p, name)
         if name in props:
             props[name](value, mp, f)
-        elif extra is not None:
+        elif open_members:
+            # Only cnf.jwk is open (RFC 7517 members the schema does not name): reported, and each such
+            # member still holds a canonicalizable value.
             f.extra(mp, True)
-            extra(value, mp, f)
+            _canonicalizable_value(value, mp, f)
         else:
             f.extra(mp, False)
     return True
 
 
-def _array_of(item):
-    def check(v: Any, p: str, f: _Findings) -> None:
-        if type(v) is not list:
-            f.bad(p, "must be an array")
-            return
-        for i, value in enumerate(v):
-            item(value, f"{p}[{i}]", f)
-    return check
+def _array(v: Any, p: str, f: _Findings) -> bool:
+    if type(v) is not list:
+        f.bad(p, "must be an array")
+        return False
+    return True
 
 
 def _model(v: Any, p: str, f: _Findings) -> None:
@@ -486,15 +490,27 @@ def _reference(v: Any, p: str, f: _Findings) -> None:
         "retention": _pattern(_RETENTION, "ISO 8601 duration"), "digest": _digest})
 
 
+def _references(v: Any, p: str, f: _Findings) -> None:
+    if _array(v, p, f):
+        for i, value in enumerate(v):
+            _reference(value, f"{p}[{i}]", f)
+
+
 def _closure_entry(v: Any, p: str, f: _Findings) -> None:
     _object(v, p, f, ("id", "digest", "resolver"), {
         "id": _str_check(1), "digest": _digest, "resolver": _str_check(1)})
 
 
+def _input_closure(v: Any, p: str, f: _Findings) -> None:
+    if _array(v, p, f):
+        for i, value in enumerate(v):
+            _closure_entry(value, f"{p}[{i}]", f)
+
+
 def _reproducibility(v: Any, p: str, f: _Findings) -> None:
     _object(v, p, f, ("function", "code_identity", "input_closure", "transcript_digest"), {
         "function": _str_check(1), "code_identity": _digest, "code_resolver": _str_check(1),
-        "input_closure": _array_of(_closure_entry), "transcript_digest": _digest})
+        "input_closure": _input_closure, "transcript_digest": _digest})
 
 
 _DEPTHS = ("surface", "builder", "transitive")
@@ -585,9 +601,12 @@ def _jwk(v: Any, p: str, f: _Findings) -> None:
     string = _str_check()
     if not _object(v, p, f, ("kty",), {
             "kty": string, "crv": string, "x": string, "y": string, "n": string, "e": string,
-            "kid": string}, extra=_canonicalizable_value):
+            "kid": string}, open_members=True):
         return
-    needed = {"OKP": ("crv", "x"), "EC": ("crv", "x", "y"), "RSA": ("n", "e")}.get(v.get("kty"), ())
+    # Compared, never hashed: kty is the record's and may be any JSON value.
+    kty = v.get("kty")
+    needed = (("crv", "x") if kty == "OKP" else ("crv", "x", "y") if kty == "EC"
+              else ("n", "e") if kty == "RSA" else ())
     for name in needed:
         if name not in v:
             f.bad(_member_path(p, name), f"required for kty {v.get('kty')}")
@@ -621,7 +640,7 @@ def _check_structure(record: Dict[str, Any], form: str) -> _Findings:
         "eat_profile": eat_profile, "iat": _integer(1700000000, _SAFE_INT),
         "subject": _pattern(_SUBJECT, "subject"), "model": _model, "runtime": _runtime,
         "policy": _policy, "data_class": _str_check(), "tool_transcript": _tool_transcript,
-        "delegation": _delegation, "origin": _origin, "references": _array_of(_reference),
+        "delegation": _delegation, "origin": _origin, "references": _references,
         "reproducibility": _reproducibility, "build_provenance": _build_provenance,
         "appraisal": _appraisal, "transparency": _uri, "cnf": _cnf, "signature": signature})
 
@@ -699,6 +718,7 @@ class TraceVerdict:
         }
 
 
+@_ein_stand
 def exit_code(verdict: TraceVerdict) -> int:
     """0 verified · 1 cryptographic or structural failure · 2 unreadable input or unusable trust
     material · 3 sound record, unmet relying-party requirement. Unreadable dominates: nothing else
@@ -707,9 +727,9 @@ def exit_code(verdict: TraceVerdict) -> int:
     if verdict.ok:
         return 0
     failed = [c.name for c in verdict.result.checks if c.ok is not True]
-    if any(name in _UNREADABLE for name in failed):
+    if any(is_member(name, _UNREADABLE) for name in failed):
         return 2
-    if any(name in _INTEGRITY for name in failed):
+    if any(is_member(name, _INTEGRITY) for name in failed):
         return 1
     return 3
 
@@ -781,7 +801,7 @@ def _read_config(trusted_keys: Any, accepted_profiles: Any, max_age_seconds: Any
         if _TRACE_PROFILE_V0_1 in accepted:
             raise ValueError("accepted_profiles names the superseded v0.1 identifier; the v0.2 cutover "
                              "is cutover, not coexistence")
-        unimplemented = [p for p in accepted if p not in _IMPLEMENTED_PROFILES]
+        unimplemented = [p for p in accepted if not is_member(p, _IMPLEMENTED_PROFILES)]
         if unimplemented:
             raise ValueError(f"accepted_profiles names {unimplemented}, which this verifier does not "
                              "implement (section 3.3: such a declaration MUST be refused)")
@@ -842,10 +862,10 @@ def _read_jws(text: str, res: VerificationResult,
         res.add("jws-header", False, "alg 'none' is refused: an unsigned token has no signature binding "
                                      "(section 3.2.2)")
         return None
-    if alg not in _ALGS:
+    if not is_member(alg, _ALGS):
         res.add("jws-header", False, f"alg {alg!r} is not one of ES256, ES384, EdDSA (section 3.2.1)")
         return None
-    others = sorted(k for k in header if k not in _HEADER_MEMBERS)
+    others = sorted(k for k in header if not is_member(k, _HEADER_MEMBERS))
     unknown.extend((_member_path("header", k), False) for k in others)
     if others:
         res.add("jws-header", False, f"header member(s) {others} are not read by this profile and are "
@@ -873,9 +893,10 @@ def _read_jws(text: str, res: VerificationResult,
         res.add("readable", False, "the JWS payload is not a JSON object")
         return None
     res.add("jws-header", True, f"alg {alg}" + (f", typ {header['typ']}" if "typ" in header else ""))
-    return alg, (h64 + "." + p64).encode("ascii"), signature, record
+    return cast(str, alg), (h64 + "." + p64).encode("ascii"), signature, record
 
 
+@_ein_stand
 def verify_trace_record(
     record: Any,
     *,
@@ -906,25 +927,28 @@ def verify_trace_record(
     ``expected_transcript_hash`` against ``tool_transcript.hash``. With none supplied the policy
     verdict is NOT_EVALUATED.
 
-    Never raises for any input: unusable trust material and unreadable bytes come back as failing
-    checks (exit 2), and every other outcome as a check of its own.
+    The body never raises: unusable trust material and unreadable bytes come back as failing checks
+    (exit 2), and every other outcome as a check of its own. The arguments are read once at the call
+    (``canonical._ein_stand``, like every public function of this package), and that reading can
+    refuse a value no JSON, file or CLI builds, with a ``ProofBundleError``, before the body runs.
     """
     res = VerificationResult()
     try:
-        cfg = _read_config(trusted_keys, accepted_profiles, max_age_seconds, max_future_skew_seconds,
-                           now, expected_nonce, expected_policy_hashes, expected_subjects,
-                           expected_transcript_hash)
+        cfg = _read_config(_plain(trusted_keys), _plain(accepted_profiles), max_age_seconds,
+                           max_future_skew_seconds, now, _plain(expected_nonce), _plain(expected_policy_hashes),
+                           _plain(expected_subjects), _plain(expected_transcript_hash))
     except ValueError as exc:
         res.add("verifier-config", False, str(exc))
         return _finish(res)
     accepted: Tuple[str, ...] = cfg["accepted"]
 
-    # Read. Bytes or text only: a parsed dict has already lost duplicate members and spellings.
-    if type(record) is bytes:
-        raw = record
-    elif type(record) is str:
+    # Read. Bytes or text only: a parsed dict has already lost duplicate members and spellings. Each is
+    # read by what it stores, so a subclass's own methods never decide which bytes are verified.
+    if issubclass(type(record), (bytes, bytearray)):
+        raw = _bytes_von(record)
+    elif issubclass(type(record), str):
         try:
-            raw = record.encode("utf-8")
+            raw = _zeichen_von(record).encode("utf-8")
         except UnicodeEncodeError:
             res.add("readable", False, "the record text holds a lone surrogate and has no UTF-8 form")
             return _finish(res, accepted=accepted)
@@ -951,7 +975,6 @@ def verify_trace_record(
             res.add("readable", False, "the record is not a JSON object")
             return _finish(res, form=form, accepted=accepted)
         rec: Dict[str, Any] = obj
-        signing_input: Optional[bytes] = None
         payload_bytes: Optional[bytes] = None
     else:
         form = "jws-compact"
@@ -963,7 +986,7 @@ def verify_trace_record(
         parsed = _read_jws(text, res, header_unknown)
         if parsed is None:
             return _finish(res, form=form, accepted=accepted, unknown=tuple(header_unknown))
-        alg, signing_input, signature, rec = parsed
+        alg, jws_input, jws_signature, rec = parsed
         payload_bytes = decode_b64url(text.split(".")[1])
 
     why = _canonicalizable(rec, "")
@@ -1011,11 +1034,11 @@ def verify_trace_record(
         if not candidates:
             res.add("signature", False, f"alg {alg} needs a {kty}/{crv} key and the relying party "
                                         "trusts none: the token's alg does not match the trusted keys")
-        elif len(signature) != sig_len:
-            res.add("signature", False, f"an {alg} signature is {sig_len} bytes, this one is {len(signature)}")
+        elif len(jws_signature) != sig_len:
+            res.add("signature", False, f"an {alg} signature is {sig_len} bytes, this one is {len(jws_signature)}")
         else:
             for key in candidates:
-                if _signature_valid(alg, key, signature, signing_input):
+                if _signature_valid(alg, key, jws_signature, jws_input):
                     verified_key = key
                     break
             res.add("signature", verified_key is not None,
@@ -1082,9 +1105,10 @@ def verify_trace_record(
             else:
                 res.add("freshness", True, f"iat is {age}s old at {cfg['now']} (max age {cfg['max_age']}s, "
                                            f"skew {cfg['skew']}s)")
-        runtime = rec.get("runtime") if type(rec.get("runtime")) is dict else {}
-        policy = rec.get("policy") if type(rec.get("policy")) is dict else {}
-        transcript = rec.get("tool_transcript") if type(rec.get("tool_transcript")) is dict else {}
+        runtime_v, policy_v, transcript_v = rec.get("runtime"), rec.get("policy"), rec.get("tool_transcript")
+        runtime: Dict[str, Any] = runtime_v if type(runtime_v) is dict else {}
+        policy: Dict[str, Any] = policy_v if type(policy_v) is dict else {}
+        transcript: Dict[str, Any] = transcript_v if type(transcript_v) is dict else {}
         verdicts: List[bool] = []
         if cfg["nonce"] is not None:
             actual = runtime.get("nonce")
