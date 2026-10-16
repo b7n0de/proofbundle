@@ -2557,7 +2557,8 @@ environment are read, not the Bash tool's shell, which may set others (not measu
 class a). Under Codex the command's environment may differ from the hook's (R5-2); owner answer 10 accepts that for
 class b. A host gh reaches through the repository's remotes is the one gh's own configuration knows; how GitHub reads a
 GET it is sent, and an X-HTTP-Method-Override, is not measured (only Accept headers pass). A gh read form in a shell
-alias or function of the host's Bash tool is not seen.
+alias or function of the host's Bash tool is not seen. Since Ergänzung 2 to Nachtrag 18, gh 2.92.0 is a checked
+version as well, under the conditions of D43.
 
 ## D37. Codex 0.162.1: a patch without an environment line, and class a under Codex (Nachtrag 9, 2026-10-15)
 
@@ -3009,3 +3010,62 @@ Limits, in plain words: since Ergänzung 1 the binding holds for the series 2.1.
 measured with 2.1.301 only; the condition is delta's probe for a terminal on each run of its plugin balance, and the
 binding is taken back when it finds one. AI_AGENT names a version, not an origin (D27). git's pager selection was
 measured with git 2.43.0 (delta: 2.51.1).
+
+## D43. gh 2.92.0 in the gh profile, with a condition per deviation (Ergänzung 2 to Nachtrag 18, 2026-10-16)
+
+At delta, gh 2.92.0 at /usr/bin/gh made every gh read ask with "the gh on PATH ... is version 2.92.0, whose read forms
+the gate has not measured" (owner answer 5 of 2026-10-14: the rules are bound to checked versions). The order: measure
+2.92.0 as 2.89.0 was measured for D36; if it behaves the same at every point it joins the checked versions; every
+deviation is named and the form it touches keeps asking.
+
+Measured: the release binary gh_2.92.0_linux_amd64.tar.gz of github.com/cli/cli, sha256
+b57848131bdf0c229cd35e1f2a51aa718199858b2e728410b37e89a428943ec4 as the release's gh_2.92.0_checksums.txt names it, in
+the three class b measurements of D36 (121, 31 and 6 cases: read forms with each listed option, browser, editor, pager
+with and without a terminal, another host, Enterprise token, unix socket, tokens in the output, the writing and running
+forms), each run with 2.89.0 and with 2.92.0 against the local stand-in for github.com in a network namespace of its
+own. Equal for every case: the requests the stand-in saw (host, method, path, query, GraphQL operation, token), the
+exit codes, the local files changed, the tokens in the output, and the markers of a pager, browser, editor, alias or
+extension start; the differences outside the two deviations below were run-to-run noise of the harness (the order of
+two requests, a random label colour, a start strace missed in one run; a second run of 2.89.0 shows the same kind).
+The help of the sixteen read paths, their options included, is the same; `gh help environment` and `gh help config`
+add only the telemetry settings.
+
+Deviation 1, git in the extension folder: on every command, `--version` included, 2.92.0 starts
+`git -C <folder> config remote.origin.url` for each gh-* folder of its extension folder, $XDG_DATA_HOME/gh/extensions
+when XDG_DATA_HOME is set and not empty, else $HOME/.local/share/gh/extensions (a relative one is read from the
+working directory). With no such folder, or with only files or other folders in it, it starts none; telemetry and the
+notifier settings change nothing. 2.89.0 starts none. The rule: under 2.92.0 a read form is free only when that folder
+is an absolute path and is missing or empty (_gh_extension_problem, _GH_GIT_IN_EXTENSIONS); any entry asks and is
+named.
+
+Deviation 2, telemetry: on by default (`telemetry` in config.yml, `enabled | disabled | log`, default enabled). Each
+command, `--version` included, writes gh/device-id into gh's state folder ($XDG_STATE_HOME/gh, else
+$HOME/.local/state/gh, relative to the working directory without HOME) once it is missing; for a sample of commands
+it starts `gh send-telemetry`, which sends the command, its flags, the device id and the platform to GitHub. With
+GH_TELEMETRY_SAMPLE_RATE=100 every `gh pr view` started it, and it connected to GH_TELEMETRY_ENDPOINT_URL; at the
+default rate none of 158 + 120 runs did, so the default rate is low, not shown to be zero. Off, each measured with the
+rate forced (no `gh send-telemetry`, no device id), in gh's documented order: GH_TELEMETRY false or 0 (it decides when
+set: true over `telemetry: disabled` and over DO_NOT_TRACK=1 stayed on), else DO_NOT_TRACK true or 1, else
+`telemetry: disabled`. `log` sends nothing but prints the event and writes the device id. The rule: under 2.92.0 a read
+form is free only with telemetry off in that order (_gh_telemetry_off, _GH_TELEMETRY_ON_BY_DEFAULT); GH_TELEMETRY with
+any other value asks for every version, and values gh read as off without documenting them (GH_TELEMETRY off, no or
+empty; `telemetry: false` or `off`; DO_NOT_TRACK=TRUE) are not relied on. GH_TELEMETRY_SAMPLE_RATE and
+GH_TELEMETRY_ENDPOINT_URL stay unknown names and ask.
+
+gh 2.89.0 has no telemetry (no GH_TELEMETRY, DO_NOT_TRACK or send-telemetry in its binary; `telemetry:` in config.yml
+changed none of its starts and writes, measured), so GH_TELEMETRY false or 0 and the key `telemetry` in config.yml no
+longer ask there.
+
+The gate's own `gh --version` now runs with GH_TELEMETRY=false and XDG_DATA_HOME=/dev/null. Measured with 2.92.0 and an
+extension under HOME: without them it started git in that folder and wrote gh/device-id into the state folder under
+HOME; with them it started nothing and wrote nothing; 2.89.0 printed the same line either way. Before this change, a
+gate that met 2.92.0 wrote that device id into the user's home and, with an extension installed, started git there
+(the farmer's home: not measured).
+
+The pass for a read form under 2.92.0 names the version and how telemetry is off. Unchanged: every other version
+(2.91.0, 2.92.1, 2.93.0 and the rest), the read forms and options of D36, every finding of the gh profile, and D41.
+
+Limits, in plain words: at delta the reads stay asked until telemetry is off there (a setting of the user, not of the
+gate) and no extension is installed; whether the sampled telemetry may stay on is the owner's question (O18-1 of the
+report). The measurements ran on linux amd64 with git 2.43.0 and no network; the default sample rate and the endpoint
+gh sends to by default were not observed.

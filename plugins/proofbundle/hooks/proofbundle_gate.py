@@ -1565,7 +1565,18 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
 #: The gh versions whose read forms the gate has measured: gh 2.89.0, against a local stand-in for github.com in a
 #: network namespace of its own (RÜCKFRAGEN-LAST part 1, and the three measurements of the class b build). Any other
 #: version keeps today's answer (owner answer 5): the allow-list below is gh's behaviour per command and option there.
-_GH_CHECKED_VERSIONS = frozenset({"2.89.0"})
+#: gh 2.92.0 (Ergänzung 2 to Nachtrag 18, DECISIONS.md D43): the same three measurements gave the same requests, tokens,
+#: exit codes, local writes and help for every read form, with two deviations, each a condition of its own below.
+_GH_CHECKED_VERSIONS = frozenset({"2.89.0", "2.92.0"})
+#: The checked versions that start git in every folder of their extension folder on each command, `--version` included
+#: (`git -C <folder> config remote.origin.url`, measured for 2.92.0; 2.89.0 started none): a read form of these is free
+#: only while that folder holds nothing (_gh_extension_problem).
+_GH_GIT_IN_EXTENSIONS = frozenset({"2.92.0"})
+#: The checked versions with telemetry on unless turned off: on each command they write gh/device-id into their state
+#: folder and, for a sample of commands, start `gh send-telemetry`, which sends the command, its flags and the device id
+#: to GitHub (measured for 2.92.0 with the sample rate forced; 2.89.0 has no telemetry). A read form of these is free
+#: only with telemetry off (_gh_telemetry_off).
+_GH_TELEMETRY_ON_BY_DEFAULT = frozenset({"2.92.0"})
 _GH_JSON_OPTIONS = {"-q": True, "--jq": True, "--json": True, "-t": True, "--template": True}
 _GH_REPO_OPTIONS = {"-R": True, "--repo": True}
 #: The read forms by exact command path, each with the options gh 2.89.0 lists for it (its help, FLAGS and INHERITED
@@ -1873,6 +1884,10 @@ def _gh_env_problem(name: str, value: str) -> str | None:
         return "GH_HOST, which names another host"
     if name in ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
         return f"{name}, a token gh sends to a host other than github.com"
+    if name == "GH_TELEMETRY":
+        # false and 0 turn the telemetry of gh 2.92.0 off (gh help environment, measured); gh 2.89.0 has none
+        return None if value in ("false", "0") else "GH_TELEMETRY with a value other than false or 0, under which " \
+                                                       "gh 2.92.0 keeps its telemetry on or logs it"
     if name.startswith("GH_") and name not in _GH_ENV_INERT:
         return f"an environment setting the gh profile does not know: {name}"
     return None
@@ -1929,11 +1944,13 @@ def _gh_yaml_entries(text: str) -> list[tuple[tuple[str, ...], str]] | None:
     return entries
 
 
-def _gh_config_problem(environ: dict, inert_pagers: list | None = None) -> str | None:
+def _gh_config_problem(environ: dict, inert_pagers: list | None = None, settings: dict | None = None) -> str | None:
     """What gh's configuration files (config.yml and hosts.yml in _gh_config_dir) hold that a read form may start or
     reach, or None: a pager or a unix socket with a value (a pager overridden by GH_PAGER set in the environment is
     none, measured), a key the profile does not know, or a file it cannot read in the block form gh writes. With
-    inert_pagers (a host whose Bash tool gives no terminal, _no_terminal_host) a pager is noted there instead."""
+    inert_pagers (a host whose Bash tool gives no terminal, _no_terminal_host) a pager is noted there instead. The key
+    `telemetry` of config.yml (gh 2.92.0; 2.89.0 reads it not) is judged with the version: its value goes to
+    settings."""
     folder = _gh_config_dir(environ)
     if folder is None:
         return ("the gate cannot tell where gh reads its configuration (no absolute GH_CONFIG_DIR, XDG_CONFIG_HOME "
@@ -1966,6 +1983,10 @@ def _gh_config_problem(environ: dict, inert_pagers: list | None = None) -> str |
             if where == "config.yml":
                 if keys[0] == "aliases" or (keys == ("version",)):
                     continue      # an alias acts only on a word that is no builtin command (measured for `api`)
+                if keys == ("telemetry",):
+                    if settings is not None:
+                        settings["telemetry"] = value
+                    continue
                 known = len(keys) == 1 and keys[0] in _GH_CONFIG_KEYS
             else:
                 known = (len(keys) == 1 or (len(keys) == 2 and keys[1] in _GH_HOST_KEYS)
@@ -1981,11 +2002,14 @@ def _gh_config_problem(environ: dict, inert_pagers: list | None = None) -> str |
     return None
 
 
-def _gh_version_problem(environ: dict, deadline: float) -> str | None:
+def _gh_version_problem(environ: dict, deadline: float, telemetry: str | None = None,
+                        notes: list | None = None) -> str | None:
     """Why the gh the command starts is not shown to be a checked version (owner answer 5), or None: every PATH entry an
     absolute path that does not depend on the process (as for the hand-over, D35), and `gh --version` of the gh on that
-    PATH names a version of _GH_CHECKED_VERSIONS. Measured with gh 2.89.0: `--version` sends nothing and starts nothing.
-    This shows a version, not an origin (D27): a program that prints the line is not caught."""
+    PATH names a version of _GH_CHECKED_VERSIONS. Measured with gh 2.89.0: `--version` sends nothing and starts nothing;
+    gh 2.92.0 does the same with the two settings below. This shows a version, not an origin (D27): a program that
+    prints the line is not caught. For a version with a deviation (D43) its condition must hold as well: telemetry off
+    (telemetry is the value of `telemetry` in gh's config.yml) and an empty extension folder; notes gets what held."""
     entries = environ.get("PATH", "").split(os.pathsep)
     if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
         return ("PATH holds an entry that is no absolute path (an empty entry is the working directory) or resolves "
@@ -1996,8 +2020,12 @@ def _gh_version_problem(environ: dict, deadline: float) -> str | None:
     left = deadline - time.monotonic()
     if left <= 0:
         raise GateError("the gate ran out of time")
+    # GH_TELEMETRY and XDG_DATA_HOME: without them gh 2.92.0 wrote gh/device-id into the user's state folder and started
+    # git in each folder of the user's extension folder for `--version`; with them neither (measured; 2.89.0 answered
+    # the same line either way). /dev/null is never a folder, so no extension folder lies under it.
     env = {"PATH": environ.get("PATH", ""), "LC_ALL": "C", "GH_NO_UPDATE_NOTIFIER": "1",
-           "GH_NO_EXTENSION_UPDATE_NOTIFIER": "1", "GH_PROMPT_DISABLED": "1"}
+           "GH_NO_EXTENSION_UPDATE_NOTIFIER": "1", "GH_PROMPT_DISABLED": "1", "GH_TELEMETRY": "false",
+           "XDG_DATA_HOME": os.devnull}
     if environ.get("HOME"):
         env["HOME"] = environ["HOME"]
     try:
@@ -2011,12 +2039,73 @@ def _gh_version_problem(environ: dict, deadline: float) -> str | None:
     m = re.match(r"gh version ([0-9]+\.[0-9]+\.[0-9]+) \(", first[0]) if first else None
     if out.returncode != 0 or m is None:
         return f"{gh} --version named no gh version"
-    if m.group(1) not in _GH_CHECKED_VERSIONS:
-        return f"the gh on PATH ({gh}) is version {m.group(1)}, whose read forms the gate has not measured"
+    version = m.group(1)
+    if version not in _GH_CHECKED_VERSIONS:
+        return f"the gh on PATH ({gh}) is version {version}, whose read forms the gate has not measured"
+    if version in _GH_TELEMETRY_ON_BY_DEFAULT:
+        off = _gh_telemetry_off(environ, telemetry)
+        if off is None:
+            return (f"the gh on PATH ({gh}) is version {version}, whose telemetry is on: it writes a device id and "
+                    "sends a sample of its commands to GitHub; GH_TELEMETRY=false or 0, DO_NOT_TRACK=true or 1 in "
+                    "the hook's environment, or telemetry: disabled in gh's config.yml turn it off (DECISIONS.md D43)")
+        if notes is not None:
+            notes.append(f"its telemetry is off ({off})")
+    if version in _GH_GIT_IN_EXTENSIONS:
+        problem = _gh_extension_problem(environ, version)
+        if problem is not None:
+            return problem
+        if notes is not None:
+            notes.append("no extension is installed")
+    if notes:
+        notes.insert(0, f"gh {version}")
     return None
 
 
-def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | None = None) -> str | None:
+def _gh_telemetry_off(environ: dict, telemetry: str | None) -> str | None:
+    """How the telemetry of gh 2.92.0 is off, or None where it is on, in gh's own order (gh help environment and
+    config, each measured with the sample rate forced: no `gh send-telemetry`, no device id): GH_TELEMETRY decides when
+    set, false and 0 turn it off; else DO_NOT_TRACK true or 1; else `telemetry: disabled` in config.yml. Other values
+    gh read as off (GH_TELEMETRY off, no or empty, `telemetry: false`) are not relied on."""
+    if "GH_TELEMETRY" in environ:
+        value = environ["GH_TELEMETRY"]
+        return f"GH_TELEMETRY={value} in the hook's environment" if value in ("false", "0") else None
+    if environ.get("DO_NOT_TRACK") in ("true", "1"):
+        return f"DO_NOT_TRACK={environ['DO_NOT_TRACK']} in the hook's environment"
+    if telemetry == "disabled":
+        return "telemetry: disabled in gh's config.yml"
+    return None
+
+
+def _gh_extension_problem(environ: dict, version: str) -> str | None:
+    """Why the extension folder of gh `version` is not shown to be empty, or None: the folder gh names
+    ($XDG_DATA_HOME/gh/extensions, else $HOME/.local/share/gh/extensions) is an absolute path and is missing or holds
+    nothing. Measured with 2.92.0: for each entry of a gh-* folder there it started `git -C <folder> config
+    remote.origin.url` on every command, for a missing folder none; any entry asks, gh's own choice among them is not
+    relied on."""
+    if environ.get("XDG_DATA_HOME"):
+        folder = os.path.join(environ["XDG_DATA_HOME"], "gh", "extensions")
+    elif environ.get("HOME"):
+        folder = os.path.join(environ["HOME"], ".local", "share", "gh", "extensions")
+    else:
+        folder = ""
+    if not os.path.isabs(folder):
+        return (f"the gh on PATH is version {version}, which starts git in its extension folder, and the gate cannot "
+                "tell where that folder is (no absolute XDG_DATA_HOME or HOME; DECISIONS.md D43)")
+    try:
+        names = sorted(os.listdir(folder))
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return (f"the gh on PATH is version {version}, which starts git in its extension folder, and {folder} cannot "
+                f"be read ({exc.strerror or exc}; DECISIONS.md D43)")
+    if names:
+        return (f"the gh on PATH is version {version}, which starts git in each extension folder on every command: "
+                f"{os.path.join(folder, names[0])} (DECISIONS.md D43)")
+    return None
+
+
+def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | None = None,
+                        notes: list | None = None) -> str | None:
     """None when nothing around a gh read form makes it start a program, reach another host or print a token, else what
     the gh profile found (class b, D36): the hook's environment (_gh_env_problem), gh's configuration
     (_gh_config_problem) and the version of the gh on PATH (_gh_version_problem). The repository plays no part: the git
@@ -2024,7 +2113,8 @@ def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | Non
     symbolic-ref, rev-parse --symbolic-full-name) started none of the program sources of class a, all of them set at
     once (measured). With inert_pagers, for a host whose Bash tool gives the command no terminal (_no_terminal_host,
     D41), a pager PAGER, GH_PAGER or gh's configuration names is noted there and does not count; GH_FORCE_TTY still
-    does, as gh then starts its pager as on a terminal."""
+    does, as gh then starts its pager as on a terminal. notes gets the conditions of a version's deviations that held
+    (D43)."""
     for name in sorted(environ):
         problem = _gh_env_problem(name, environ[name])
         if problem is not None and inert_pagers is not None and name in ("PAGER", "GH_PAGER"):
@@ -2032,7 +2122,9 @@ def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | Non
             continue
         if problem is not None:
             return f"{problem} in the hook's environment"
-    return _gh_config_problem(environ, inert_pagers) or _gh_version_problem(environ, deadline)
+    settings: dict = {}
+    return (_gh_config_problem(environ, inert_pagers, settings)
+            or _gh_version_problem(environ, deadline, settings.get("telemetry"), notes))
 
 
 #: The hosts whose Bash tool gives a command no terminal, each as it names itself to a hook in AI_AGENT: the host
@@ -9807,8 +9899,9 @@ def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str =
     2026-10-14, DESIGN_ask_load.md 3.2, DECISIONS.md D36). Under a host whose Bash tool gives the command no terminal
     a pager does not count, and the pass names it (D41)."""
     inert_pagers: list | None = [] if _no_terminal_host(host, environ) else None
+    notes: list = []
     try:
-        problem = _gh_profile_problem(environ, deadline, inert_pagers)
+        problem = _gh_profile_problem(environ, deadline, inert_pagers, notes)
     except GateError as exc:
         problem = f"the gh profile reached no result ({exc})"
     if problem is None:
@@ -9816,6 +9909,8 @@ def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str =
         pagers = (f" A pager is named ({', '.join(inert_pagers)}) and does not start: the hook's environment names the "
                   f"host {environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal, and gh "
                   "starts its pager only on a terminal (DECISIONS.md D41).") if inert_pagers else ""
+        if len(notes) > 1:
+            pagers += f" For {notes[0]}, {' and '.join(notes[1:])} (DECISIONS.md D43)."
         return Verdict("pass", f"proofbundle gate: {name} is free. It is a gh read form of the allow-list: it sends "
                                "only GET requests and GraphQL queries to the host its repository names, every option "
                                "is one the gate knows to open no browser, name no other host and print no token, and "
