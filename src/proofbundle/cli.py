@@ -1925,6 +1925,71 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _trace_trusted_keys(paths) -> list:
+    """The relying party's keys for ``verify-trace``: each file holds one public JWK or a JWK Set."""
+    keys: list = []
+    for path in paths:
+        with _open_input(path) as handle:
+            doc = loads_strict(_read_capped(handle))
+        if isinstance(doc, dict) and "keys" in doc:
+            if not isinstance(doc["keys"], list) or not doc["keys"]:
+                raise BundleFormatError(f"{path}: a JWK Set must hold a non-empty 'keys' array")
+            keys.extend(doc["keys"])
+        else:
+            keys.append(doc)
+    return keys
+
+
+def _cmd_verify_trace(args: argparse.Namespace) -> int:
+    from .adapters.trace_record import exit_code, verify_trace_record  # noqa: PLC0415
+    try:
+        keys = _trace_trusted_keys(args.key)
+        with _open_input(args.record, binary=True) as handle:
+            raw = _read_capped_bytes(handle)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        _err(exc)
+        return 2
+    # A compact JWS in a file usually ends with a newline; the library reads the token exactly, so the
+    # surrounding ASCII whitespace is removed here and only here. A JSON record is passed as read.
+    if raw.lstrip(b" \t\r\n")[:1] != b"{":
+        raw = raw.strip(b" \t\r\n")
+    verdict = verify_trace_record(
+        raw, trusted_keys=keys, now=args.now, max_age_seconds=args.max_age,
+        max_future_skew_seconds=args.max_future_skew, expected_nonce=args.nonce,
+        expected_policy_hashes=args.policy_hash, expected_subjects=args.subject,
+        expected_transcript_hash=args.transcript_hash)
+    code = exit_code(verdict)
+    if args.json:
+        print(json.dumps(verdict.as_dict(), indent=2))
+        return code
+    form = f"{verdict.form} ({verdict.alg})" if verdict.form and verdict.alg else (verdict.form or "unknown")
+    print(f"FORM: {_safe_line(form)}")
+    for check in verdict.result.checks:
+        print(f"[{'PASS' if check.ok is True else 'FAIL'}] {check.name}: {_safe_line(str(check.detail))}")
+    if verdict.profile is not None:
+        print(f"PROFILE: {_safe_line(verdict.profile)} (accepted: {', '.join(verdict.accepted_profiles)})")
+    if verdict.policy == "NOT_EVALUATED":
+        print("POLICY: NOT_EVALUATED (no relying-party expectation supplied)")
+    else:
+        print(f"POLICY: {verdict.policy}")
+    print("REVOCATION: NOT_EVALUATED (no revocation bundle consumed; TRACE section 3.2.3: no revocation "
+          "check was performed)")
+    for path, permitted in verdict.unknown_fields:
+        print(f"UNKNOWN FIELD: {_safe_line(path)} ({'permitted by the schema' if permitted else 'refused'})")
+    for item in verdict.not_checked:
+        print(f"NOT CHECKED: {item}")
+    blockers = ", ".join(verdict.automation.get("automationBlockers", []))
+    print(f"AUTOMATION: safeForAutomation={'true' if verdict.automation.get('safeForAutomation') else 'false'}"
+          f" ({blockers})")
+    print(f"=> {'OK' if code == 0 else 'FAILED'} (exit {code})")
+    if code == 0:
+        print("\nThis proves the record was signed by a key you trust, names that key in cnf, is fresh in "
+              "your window and meets the expectations you supplied. It does not prove that anything the "
+              "record states is true, and it is not a decision: a verified record is evidence for your "
+              "policy.")
+    return code
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -3262,6 +3327,42 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="Nachtrag 49b: judge the EAT freshness AS OF this past instant "
                                      "(ISO-8601 'Z'); without it the attestation freshness is not judged")
     verify_enclave.set_defaults(func=_cmd_verify_enclave)
+
+    verify_trace = sub.add_parser(
+        "verify-trace",
+        help="verify a TRACE v0.2 Trust Record (compact JWS or embedded signature) against your keys",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes:\n"
+               "  0  verified: signed by a trusted key, cnf names that key, well formed, fresh, and every\n"
+               "     supplied expectation holds\n"
+               "  1  cryptographic or structural failure (signature, cnf binding, canonical payload,\n"
+               "     profile, schema, unknown member)\n"
+               "  2  unreadable input under this profile, or unusable trust material\n"
+               "  3  sound record, but a relying-party requirement is unmet (time window, nonce,\n"
+               "     policy hash, subject, transcript hash)\n"
+               "Trust comes only from the options: the record's own cnf key, policy hash and time are\n"
+               "never trusted on their own. A verified record is evidence for a policy, never a decision,\n"
+               "and never safeForAutomation: revocation and platform evidence are not checked.")
+    verify_trace.add_argument("record", help="path to the record: a compact JWS or a JSON object with an "
+                                             "embedded Ed25519 signature")
+    verify_trace.add_argument("--key", action="append", required=True, metavar="JWK_FILE",
+                              help="a trusted public key (JWK or JWK Set file); repeatable")
+    verify_trace.add_argument("--now", type=int, default=None,
+                              help="the verification instant, Unix seconds (default: the clock)")
+    verify_trace.add_argument("--max-age", dest="max_age", type=int, default=86400,
+                              help="maximum record age in seconds (default 86400, TRACE section 3.2.2)")
+    verify_trace.add_argument("--max-future-skew", dest="max_future_skew", type=int, default=300,
+                              help="allowed future clock skew in seconds (default 300)")
+    verify_trace.add_argument("--nonce", default=None, help="the challenge runtime.nonce must echo")
+    verify_trace.add_argument("--policy-hash", dest="policy_hash", action="append", default=None,
+                              metavar="DIGEST", help="an expected policy.bundle_hash (sha256:/sha384:); "
+                                                     "repeatable")
+    verify_trace.add_argument("--subject", action="append", default=None,
+                              help="an accepted subject (workload identity); repeatable")
+    verify_trace.add_argument("--transcript-hash", dest="transcript_hash", default=None, metavar="DIGEST",
+                              help="the tool_transcript.hash of the transcript you hold")
+    verify_trace.add_argument("--json", action="store_true", help="machine readable output")
+    verify_trace.set_defaults(func=_cmd_verify_trace)
 
     demo = sub.add_parser(
         "demo",
