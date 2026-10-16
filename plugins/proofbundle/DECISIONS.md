@@ -3459,6 +3459,36 @@ The rule:
   on stdout or stderr. A receipt the gate cannot issue (the signer fails, the closing rules are unreadable, a byte
   outside ASCII) is a line in `journal.jsonl` of the receipt folder with a fixed name, never an answer.
 
+## D56. The records of the pilot and an observer that signs what the GitHub API shows (Z405, part 2, 2026-10-16)
+
+The contract keeps every input of the reconciliation beside the records before the first decision (section 8), and an
+observer run by the operator signs an action-outcome/v0.1 for what GitHub shows of a decision (section 4).
+
+The rule:
+- The records are one folder, the receipt folder of D55. `pilot_records.py start` keeps in it, before the first
+  decision and never after, the contract, the profile github-write/1 as its executable file, AGENTS.md, the closing
+  rules the gate digests, the roster of agent identities (GitHub's numeric id, the login, the agent's name), the two
+  public keys, the verifier's distribution file and its environment, and writes `pilot_start.json` with the sha256 of
+  each. Every reader checks each kept file against its digest before it uses it; a changed file stops it.
+- The observer reads `GET /repos/{owner}/{repo}/events`, 100 to a page, at most three pages, the 300 events GitHub lists.
+  It keeps every response as returned, with the time it asked, its status and its sha256, under `api/<run>/`, beside the
+  run's window. A run is kept as it was and never rewritten. One code path reads: a transport answers GET live against
+  api.github.com or from recorded files; the live path runs first in the pilot at delta.
+- An effect is an event of an agent identity of the roster inside the window: a push (`<head>` and a line feed on
+  `https://github.com/<o>/<r>#<ref>`), a comment on a pull request's conversation, a reply in a review thread, a pull
+  request opened (on `…/compare/<base>...<head>`) or its body edited, a merge (empty bytes, the merge commit as its
+  object), and every other event under its own name, which matches no decision and counts under M5. A person's write is
+  no agent write and is not read.
+- The observer matches effects to decisions by the rule of the contract, section 5 (`pilot_records.match`), from the
+  decisions whose signature verifies with the pinned gate key, and signs an outcome for each effect that takes a
+  decision: decisionRef is the decision's content root, requestedActionDigest its parametersDigest, effectDigest the
+  sha256 of the stored bytes, actualActionDigest the digest of the scope descriptor {surface, target, objectId} beside
+  it, the nonce the decision's, the audience the observer. A decision that names no bytes gets no outcome; the run says
+  so. The outcome is built and signed with the profile the records keep.
+- The observer needs no credential an agent session holds: a public repository's events need none, and a token, if the
+  operator gives one, is read from the operator's file, never from the environment. Its key is the operator's; the
+  probe label derives a key from a public label for tests only.
+
 ## D59. git ls-remote from github.com after the fetch profile of D45 (Nachtrag 22, part 3, 2026-10-17)
 
 Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
