@@ -413,34 +413,38 @@ def _resolve_signer(args):
     a key file that cannot be read or written, the empty path included, is refused with exit 2, not a raw
     traceback.
 
-    ``--key-uri`` (Z380) selects an Ed25519 key in a PKCS#11 token by an RFC 7512 URI instead of a file
-    (`signer.Pkcs11Signer`). It is refused beside ``--key`` or ``--new-key``, and ``--pin-env`` without it, since
-    each would be applied by nothing. The PIN comes from the environment variable ``--pin-env`` names, or from a
+    ``--token-uri`` (Z380) selects an Ed25519 key in a PKCS#11 token by an RFC 7512 URI instead of a file
+    (`signer.Pkcs11Signer`). It is refused beside ``--key`` or ``--new-key``, and ``--token-pin-env`` without it, since
+    each would be applied by nothing. The PIN comes from the environment variable ``--token-pin-env`` names, or from a
     prompt on the terminal; never from the command line. A token that fails ends the command with exit 2, and
     no key file is read, written or generated after it: there is no fallback."""
     new_key = getattr(args, "new_key", None)
     key = getattr(args, "key", None)
-    key_uri = getattr(args, "key_uri", None)
-    pin_env = getattr(args, "pin_env", None)
+    token_uri = getattr(args, "token_uri", None)
+    token_pin_env = getattr(args, "token_pin_env", None)
     if new_key is not None and key is not None:
         print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
         return None
-    if key_uri is not None and (key is not None or new_key is not None):
-        print("ERROR: use either --key-uri or a key file (--key, --new-key), not both: a token is never paired "
+    if token_uri is not None and (key is not None or new_key is not None):
+        print("ERROR: use either --token-uri or a key file (--key, --new-key), not both: a token is never paired "
               "with a file", file=sys.stderr)
         return None
-    if pin_env is not None and key_uri is None:
-        print("ERROR: --pin-env names the variable that holds a token's PIN and applies to --key-uri only",
+    if token_pin_env is not None and token_uri is None:
+        print("ERROR: --token-pin-env names the variable that holds a token's PIN and applies to --token-uri only",
               file=sys.stderr)
         return None
-    if key_uri is not None:
+    if token_uri is not None:
         from .signer import Pkcs11Signer, SignerError, pin_from_env, pin_from_prompt  # noqa: PLC0415
         try:
-            pin = pin_from_env(pin_env) if pin_env is not None else pin_from_prompt()
-            return Pkcs11Signer.open(key_uri, pin=pin)
+            pin = pin_from_env(token_pin_env) if token_pin_env is not None else pin_from_prompt()
+            signer = Pkcs11Signer.open(token_uri, pin=pin)
         except SignerError as exc:
             _err(exc)
             return None
+        # `main` closes it when the command ends: the PKCS#11 login holds for the token and the whole process, so
+        # a second `main` in this process could not log in to the same token while it stays open (lens run 1, F6).
+        args.opened_token_signer = signer
+        return signer
     try:
         if new_key is not None:
             signer = generate_signer()
@@ -3079,15 +3083,15 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
 
 def _token_options(p: argparse.ArgumentParser) -> None:
     """The two options every command that signs takes beside --key and --new-key (Z380, `_resolve_signer`)."""
-    p.add_argument("--key-uri", dest="key_uri", default=None, metavar="PKCS11_URI",
+    p.add_argument("--token-uri", dest="token_uri", default=None, metavar="PKCS11_URI",
                    help="sign with an Ed25519 key held in a PKCS#11 token instead of a key file, selected by an "
                         "RFC 7512 URI that names the module by its absolute path, e.g. "
                         "'pkcs11:token=release;object=release-key?module-path=/usr/lib/softhsm/libsofthsm2.so'. "
                         "Needs the [pkcs11] extra. The PIN is asked for on the terminal, or read from the "
-                        "variable --pin-env names; a PIN in the URI is refused. A token that fails ends the "
+                        "variable --token-pin-env names; a PIN in the URI is refused. A token that fails ends the "
                         "command (exit 2); there is no fallback to a key file")
-    p.add_argument("--pin-env", dest="pin_env", default=None, metavar="NAME",
-                   help="with --key-uri: the NAME of the environment variable that holds the token's user PIN "
+    p.add_argument("--token-pin-env", dest="token_pin_env", default=None, metavar="NAME",
+                   help="with --token-uri: the NAME of the environment variable that holds the token's user PIN "
                         "(never the PIN itself; the command line is readable by other processes)")
 
 
@@ -3720,6 +3724,11 @@ def main(argv=None) -> int:
             import traceback  # noqa: PLC0415
             traceback.print_exc()
         return 2
+    finally:
+        # A token signer `_resolve_signer` opened ends its session with the command (Z380, lens run 1, F6).
+        opened = getattr(args, "opened_token_signer", None)
+        if opened is not None:
+            opened.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

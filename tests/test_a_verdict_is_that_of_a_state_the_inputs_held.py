@@ -156,6 +156,46 @@ class _OkText(str):
     __hash__ = str.__hash__
 
 
+#: The PIN of the stand-in token of the PIN site (`_pin_bauen`), and the classes that store another PIN and claim it.
+_PIN = "4711"
+
+
+class _PinLuegt(str):
+    def __eq__(self, other) -> bool:
+        return other == _PIN
+
+    def __str__(self) -> str:
+        return _PIN
+
+    __hash__ = str.__hash__
+
+
+class _PinRohLuegt(bytes):
+    def __eq__(self, other) -> bool:
+        return other == _PIN.encode()
+
+    def __bytes__(self) -> bytes:
+        return _PIN.encode()
+
+    def decode(self, *a, **k) -> str:
+        return _PIN
+
+    __hash__ = bytes.__hash__
+
+
+class _PinPufferLuegt(bytearray):
+    def __eq__(self, other) -> bool:
+        return other == _PIN.encode()
+
+    def decode(self, *a, **k) -> str:
+        return _PIN
+
+
+class _PinObjekt:
+    def __str__(self) -> str:
+        return _PIN
+
+
 _LUEGEN: "dict[str, dict[str, Callable[[], Any]]]" = {
     "bool": {
         "an object whose __bool__ and __eq__ say True": _BehauptetWahr,
@@ -182,6 +222,14 @@ _LUEGEN: "dict[str, dict[str, Callable[[], Any]]]" = {
         "ok under a str subclass key": lambda: {_OkText("ok"): True, "warn": False},
         "a Mapping that is no dict": lambda: collections.UserDict(ok=True, warn=False),
         "warn as text beside ok True": lambda: {"ok": True, "warn": "false"},
+    },
+    "pin": {
+        "a str subclass that stores another PIN and claims the PIN": lambda: _PinLuegt("0000"),
+        "bytes that store another PIN and claim the PIN": lambda: _PinRohLuegt(b"0000"),
+        "a bytearray that stores another PIN and claims the PIN": lambda: _PinPufferLuegt(b"0000"),
+        "an object whose __str__ answers the PIN": _PinObjekt,
+        "a list holding the PIN": lambda: [_PIN],
+        "the PIN as an int": lambda: int(_PIN),
     },
 }
 
@@ -352,6 +400,59 @@ def _empfang_bauen(parameter: str):
     return bauen
 
 
+def _pin_bauen():
+    """`signer.Pkcs11Signer.open` with its PIN source, against a stand-in token: the module, the token search, the
+    mechanism and the key are replaced for the call, and the login of the package itself (`signer._login`) reads the
+    answer and hands it to the token. The token opens for the exact text `_PIN` only, as a real one compares the PIN
+    it is given; the key behind it is a real Ed25519 key, so the pair check at open runs as it does on a token. No
+    module is loaded and no token is touched, so the site runs without the [pkcs11] extra."""
+    import types
+
+    from proofbundle import signer as modul
+    schluessel = Ed25519PrivateKey.from_private_bytes(b"\x64" * 32)
+
+    class _Fehler(Exception):
+        pass
+
+    class PinIncorrect(_Fehler):
+        pass
+
+    class _Schluessel:
+        def sign(self, data):
+            return schluessel.sign(data)
+
+    class _Sitzung:
+        def close(self):
+            pass
+
+    class _Token:
+        def open(self, *, user_pin):
+            if type(user_pin) is str and user_pin == _PIN:
+                return _Sitzung()
+            raise PinIncorrect()
+    ersatz = {"_import_pkcs11": lambda: types.SimpleNamespace(exceptions=types.SimpleNamespace(PKCS11Error=_Fehler)),
+              "_module": lambda pkcs11, pfad: None, "_token": lambda pkcs11, lib, sel: _Token(),
+              "_mechanism": lambda pkcs11, token: None,
+              "_private_key": lambda pkcs11, sitzung, sel: (_Schluessel(), _raw(schluessel))}
+
+    def aufruf(rueckruf):
+        alt = {k: getattr(modul, k) for k in ersatz}
+        for k, v in ersatz.items():
+            setattr(modul, k, v)
+        try:
+            return _verdikt(lambda: modul.Pkcs11Signer.open("pkcs11:token=t;object=k?module-path=/stand-in/module.so",
+                                                            pin=rueckruf),
+                            lambda s: ("opened", s.key_id))
+        finally:
+            for k, v in alt.items():
+                setattr(modul, k, v)
+    return aufruf, []
+
+
+def _ohne_argument(a: tuple, k: dict) -> bool:
+    return a == () and k == {}
+
+
 _STELLEN: "list[_Stelle]" = [
     _Stelle("assurance.classify_digest_evidence", "evidence_resolver", "bool", _ziffer_bauen,
             lambda: True, lambda: False, _ein_digest),
@@ -377,6 +478,8 @@ _STELLEN: "list[_Stelle]" = [
             _folge_gut),
     _Stelle("anchors.register_anchor_type", "verifier", "anchor result", _anker_stelle_bauen,
             lambda: {"ok": True, "warn": False}, lambda: {"ok": False, "warn": False}, _anker_gut),
+    # Z380: the PIN source of a PKCS#11 signer, called with no argument; its answer is the PIN the token is given.
+    _Stelle("signer.Pkcs11Signer.open", "pin", "pin", _pin_bauen, lambda: _PIN, lambda: "0000", _ohne_argument),
 ]
 
 
@@ -457,6 +560,8 @@ _VERAENDERLICH = {
             lambda: bytes(_FREMD), lambda: bytes(_SCHLUESSEL)),
     "anchor result": (lambda: {"ok": False, "warn": False}, lambda a: a.__setitem__("ok", True),
                       lambda: {"ok": False, "warn": False}, lambda: {"ok": True, "warn": False}),
+    "pin": (lambda: bytearray(b"0000"), lambda a: a.__setitem__(slice(None), _PIN.encode()),
+            lambda: b"0000", lambda: _PIN.encode()),
 }
 
 

@@ -9,7 +9,7 @@ These cases need no optional extra. They pin four things:
 * the RFC 7512 URI that selects a PKCS#11 key is read strictly: a duplicate, a malformed escape, an
   attribute the reader does not know, a PIN in the URI, a relative module path are each refused, and no
   refusal repeats a value of the URI;
-* the command line takes ``--key-uri`` and ``--pin-env`` on every command that signs, refuses them in a
+* the command line takes ``--token-uri`` and ``--token-pin-env`` on every command that signs, refuses them in a
   combination that would be applied by nothing, and never echoes a PIN or a variable name.
 
 The cases against a real token are in ``test_signer_pkcs11_softhsm.py``.
@@ -31,7 +31,7 @@ from proofbundle.errors import ProofBundleError
 from proofbundle.evalclaim import (CLAIM_VALID, build_eval_claim, classify_eval_claim, decode_eval_claim,
                                    emit_eval_receipt, issuer_fingerprint)
 from proofbundle.signer import (SIGNER_ALGORITHMS, ExternalSigner, FileSigner, Pkcs11Signer, SignatureRecord,
-                                SignerError, key_id_of, parse_pkcs11_uri, pin_from_env)
+                                SignerError, key_id_of, parse_pkcs11_uri, pin_from_env, pin_from_prompt)
 from proofbundle.signature import verify_ed25519
 
 
@@ -168,6 +168,7 @@ def test_external_signer_failure_is_a_signer_error_and_names_no_message():
         remote.sign(b"payload")
     assert "ConnectionError" in str(info.value)
     assert "secret-detail" not in str(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
 
 
 @pytest.mark.parametrize("algorithm", ["ecdsa-p256", "ed448", "rsa", "ED25519", ""])
@@ -309,6 +310,56 @@ def test_uri_scheme_is_case_insensitive_as_rfc3986_says():
     assert parse_pkcs11_uri("PKCS11:token=x").token == "x"
 
 
+def test_uri_scheme_folds_its_ascii_letters_only():
+    """`str.lower` folds U+212A KELVIN SIGN to "k", so "p\u212acs11:" passed as the scheme and signed end to end
+    (lens run 1, F2). RFC 3986 3.1 folds the ASCII letters of a scheme only."""
+    with pytest.raises(SignerError, match="begins with 'pkcs11:'"):
+        parse_pkcs11_uri("p\u212acs11:token=x")
+
+
+@pytest.mark.parametrize("uri,reason", [
+    ("pkcs11:slot-id=" + "9" * 4301, "slot-id is a decimal"),
+    ("pkcs11:slot-id=1" + "0" * 20, "slot-id is a decimal"),
+    ("pkcs11:library-version=" + "9" * 4301, "library-version is M or M.N"),
+    ("pkcs11:library-version=1." + "9" * 4301, "library-version is M or M.N"),
+    ("pkcs11:library-version=1000", "library-version is M or M.N"),
+    ("pkcs11:library-version=1.256", "library-version is M or M.N"),
+])
+def test_uri_numbers_of_any_length_are_refused_by_the_reader(uri, reason):
+    """CPython refuses to convert more than 4300 digits with a raw ValueError, which `parse_pkcs11_uri` and
+    `Pkcs11Signer.open` let out (lens run 1, F1). The reader counts the digits first; the refusal is its own."""
+    with pytest.raises(SignerError, match=reason):
+        parse_pkcs11_uri(uri)
+
+
+def test_uri_numbers_keep_their_value_whatever_their_leading_zeros():
+    """CPython counts leading zeros toward its 4300-digit limit too, so only the significant digits are read."""
+    zeros = "0" * 5000
+    u = parse_pkcs11_uri(f"pkcs11:slot-id={zeros}7;library-version={zeros}3.{zeros}1")
+    assert (u.slot_id, u.library_version) == (7, (3, 1))
+    assert parse_pkcs11_uri("pkcs11:slot-id=18446744073709551615;library-version=255.255").slot_id == (1 << 64) - 1
+    assert parse_pkcs11_uri("pkcs11:slot-id=0").slot_id == 0
+
+
+_TOKEN_FIELDS = ["token", "manufacturer", "model", "serial", "library-manufacturer", "library-description",
+                 "slot-manufacturer", "slot-description"]
+
+
+@pytest.mark.parametrize("attribute", _TOKEN_FIELDS)
+@pytest.mark.parametrize("value", ["ab%EF%BF%BD", "x%20", "x%C2%A0", "x%E3%80%80"])
+def test_uri_values_python_pkcs11_cannot_tell_apart_are_refused(attribute, value):
+    """python-pkcs11 0.10.0 gives these fields with bytes that are not UTF-8 replaced by U+FFFD and all trailing
+    whitespace removed (`types._CK_UTF8CHAR_to_str`), so `token=ab%EF%BF%BD` selected a token labelled
+    b"ab\xff" (lens run 1, F3). A value with U+FFFD or with trailing whitespace is refused."""
+    with pytest.raises(SignerError, match="U\\+FFFD or ends in whitespace"):
+        parse_pkcs11_uri(f"pkcs11:{attribute}={value}")
+
+
+def test_uri_object_is_compared_by_the_token_and_keeps_both():
+    assert parse_pkcs11_uri("pkcs11:object=ab%EF%BF%BD%20").object == "ab\ufffd "
+    assert parse_pkcs11_uri("pkcs11:token=a%20b").token == "a b"   # inner whitespace is spelled as it is
+
+
 _MARKER = "Zq9Marker4711"
 
 
@@ -332,14 +383,80 @@ def test_no_refusal_repeats_a_value_of_the_uri(uri):
 
 # ── the PIN ───────────────────────────────────────────────────────────────────────────────────────────
 
+def _prompt_raising(monkeypatch, raised):
+    import getpass
+    import warnings
+
+    def fake(prompt="Password: ", stream=None):
+        if raised is getpass.GetPassWarning:
+            warnings.warn("Can not control echo on the terminal.", getpass.GetPassWarning, stacklevel=2)
+            return "read-from-stdin"
+        raise raised()
+    monkeypatch.setattr(getpass, "getpass", fake)
+
+
+@pytest.mark.parametrize("raised,reason", [("GetPassWarning", "no terminal to ask"), (OSError, "no terminal to ask"),
+                                           (EOFError, "the input ended"), (KeyboardInterrupt, "interrupted")])
+def test_pin_prompt_ends_every_way_in_a_refusal(monkeypatch, raised, reason):
+    """Ctrl-C at the prompt ended in a traceback, and Ctrl-D said there was no terminal (lens run 1, F10)."""
+    import getpass
+    import re
+    _prompt_raising(monkeypatch, getpass.GetPassWarning if raised == "GetPassWarning" else raised)
+    escaped = refusal = None
+    try:
+        pin_from_prompt()()
+    except SignerError as exc:
+        refusal = exc
+    except BaseException as exc:  # noqa: BLE001 - a KeyboardInterrupt that got out would end the whole test run
+        escaped = type(exc).__name__
+    assert escaped is None, f"{escaped} escaped the prompt"
+    assert refusal is not None and re.search(reason, str(refusal))
+    assert refusal.__context__ is None and refusal.__cause__ is None
+
+
+def test_no_refusal_of_the_signer_module_is_raised_inside_an_except_block():
+    """A refusal raised inside `except` keeps the foreign exception as `__context__`, and a foreign exception can
+    hold what the message leaves out: the UnicodeEncodeError of a PIN with a lone surrogate held the whole PIN
+    (lens run 1, F8). Every refusal of the module is raised after the block that noted the failure. A bare
+    `raise`, which re-raises the module's own error, is allowed."""
+    import ast
+    import inspect
+
+    from proofbundle import signer as module
+
+    found = []
+
+    def walk(node, inside):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                walk(child, False)
+                continue
+            if isinstance(child, ast.Raise) and inside and child.exc is not None:
+                found.append(child.lineno)
+            walk(child, inside or isinstance(child, ast.ExceptHandler))
+    walk(ast.parse(inspect.getsource(module)), False)
+    assert found == [], f"a refusal raised inside an except block, at lines {found}"
+
+
+@pytest.mark.parametrize("uri", ["pkcs11:token=%FF", "pkcs11:token=x?module-path=/a%FF"])
+def test_a_refusal_of_the_reader_carries_no_foreign_exception(uri):
+    with pytest.raises(SignerError) as info:
+        parse_pkcs11_uri(uri)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
 def test_pin_from_env_reads_the_named_variable(monkeypatch):
     monkeypatch.setenv("PB_TEST_PIN_X", "4711")
     assert pin_from_env("PB_TEST_PIN_X")() == "4711"
 
 
 @pytest.mark.parametrize("name", ["1234", "", "A B", "PIN=1", "a-b", "ä"])
-def test_pin_from_env_takes_a_name_and_never_shows_a_wrong_one(name):
-    with pytest.raises(SignerError, match="environment variable name") as info:
+def test_pin_from_env_takes_a_name_and_never_shows_a_wrong_one(name, monkeypatch):
+    """The name rule refuses, not the unset check: where the platform takes a variable of that very name, it
+    is set, so a reader that skipped the rule would find a PIN there."""
+    if name and "=" not in name:
+        monkeypatch.setenv(name, "4711")
+    with pytest.raises(SignerError, match="the value given is not one and is not shown") as info:
         pin_from_env(name)
     assert (name not in str(info.value)) or name == ""
 
@@ -404,12 +521,40 @@ def _signing_commands():
     return found
 
 
-def test_every_command_that_signs_takes_key_uri_and_pin_env():
+def test_every_command_that_signs_takes_token_uri_and_token_pin_env():
     found = _signing_commands()
     assert len(found) >= 7
     for path, p in found:
         options = {o for a in p._actions for o in a.option_strings}
-        assert {"--key", "--new-key", "--key-uri", "--pin-env"} <= options, path
+        assert {"--key", "--new-key", "--token-uri", "--token-pin-env"} <= options, path
+
+
+def test_the_token_options_change_no_abbreviation_of_another_option():
+    """argparse takes any unique prefix of a long option (`--ke` for `--key`). The token options share no prefix
+    with another option of a command that signs, so every abbreviation that named an option before they came
+    still names it (lens run 1, F4: `--key-uri` made `--k` and `--ke` ambiguous in seven commands, `--pin-env`
+    made `--p` ambiguous beside `--payload-file`)."""
+    token_options = {"--token-uri", "--token-pin-env"}
+    for path, p in _signing_commands():
+        options = sorted({o for a in p._actions for o in a.option_strings if o.startswith("--")})
+        assert token_options <= set(options), path   # else the check below would hold over nothing
+        others = [o for o in options if o not in token_options]
+        for option in others:
+            for n in range(3, len(option)):
+                prefix = option[:n]
+                if sum(o.startswith(prefix) for o in others) == 1:
+                    assert sum(o.startswith(prefix) for o in options) == 1, (path, prefix)
+
+
+def test_cli_abbreviations_of_the_file_options_still_sign(tmp_path):
+    key_path = tmp_path / "k.key"
+    save_signer(Ed25519PrivateKey.generate(), str(key_path))
+    payload = tmp_path / "p.bin"
+    payload.write_bytes(b"x")
+    for i, option in enumerate(("--k", "--ke")):
+        assert cli.main(["emit", "--p", str(payload), "--out", str(tmp_path / f"b{i}.json"), option,
+                         str(key_path)]) == 0
+    assert (tmp_path / "b0.json").read_bytes() == (tmp_path / "b1.json").read_bytes()
 
 
 def _emit_args(tmp_path, *extra):
@@ -419,41 +564,41 @@ def _emit_args(tmp_path, *extra):
 
 
 @pytest.mark.parametrize("extra,reason", [
-    (["--key", "k", "--key-uri", "pkcs11:token=x" + _MOD], "not both"),
-    (["--new-key", "k", "--key-uri", "pkcs11:token=x" + _MOD], "not both"),
-    (["--pin-env", "PB_PIN"], "applies to --key-uri only"),
-    (["--key", "k", "--pin-env", "PB_PIN"], "applies to --key-uri only"),
-    (["--key-uri", ""], "begins with 'pkcs11:'"),
+    (["--key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "not both"),
+    (["--new-key", "k", "--token-uri", "pkcs11:token=x" + _MOD], "not both"),
+    (["--token-pin-env", "PB_PIN"], "applies to --token-uri only"),
+    (["--key", "k", "--token-pin-env", "PB_PIN"], "applies to --token-uri only"),
+    (["--token-uri", ""], "begins with 'pkcs11:'"),
 ])
-def test_cli_refuses_a_key_uri_combination_that_would_be_applied_by_nothing(tmp_path, capsys, extra, reason):
+def test_cli_refuses_a_token_uri_combination_that_would_be_applied_by_nothing(tmp_path, capsys, extra, reason):
     assert cli.main(_emit_args(tmp_path, *extra)) == 2
     assert not (tmp_path / "b.json").exists()
     err = capsys.readouterr().err
     assert reason in err and "Traceback" not in err
 
 
-def test_cli_key_uri_with_a_pin_in_it_is_refused_and_the_pin_not_shown(tmp_path, capsys):
-    assert cli.main(_emit_args(tmp_path, "--key-uri", f"pkcs11:token=x?pin-value={_MARKER}" + "&module-path=/x",
-                               "--pin-env", "PB_PIN")) == 2
+def test_cli_token_uri_with_a_pin_in_it_is_refused_and_the_pin_not_shown(tmp_path, capsys):
+    assert cli.main(_emit_args(tmp_path, "--token-uri", f"pkcs11:token=x?pin-value={_MARKER}" + "&module-path=/x",
+                               "--token-pin-env", "PB_PIN")) == 2
     captured = capsys.readouterr()
     assert _MARKER not in captured.err and _MARKER not in captured.out
     assert not (tmp_path / "b.json").exists()
 
 
-def test_cli_pin_env_given_a_pin_instead_of_a_name_does_not_show_it(tmp_path, capsys, monkeypatch):
+def test_cli_token_pin_env_given_a_pin_instead_of_a_name_does_not_show_it(tmp_path, capsys, monkeypatch):
     monkeypatch.delenv("PB_" + _MARKER, raising=False)
     for value in ("47114711", "PB_" + _MARKER):
-        assert cli.main(_emit_args(tmp_path, "--key-uri", "pkcs11:token=x?module-path=/nonexistent/lib.so",
-                                   "--pin-env", value)) == 2
+        assert cli.main(_emit_args(tmp_path, "--token-uri", "pkcs11:token=x?module-path=/nonexistent/lib.so",
+                                   "--token-pin-env", value)) == 2
         captured = capsys.readouterr()
         assert value not in captured.err and value not in captured.out
 
 
-def test_cli_key_uri_without_the_extra_names_the_extra(tmp_path, capsys, monkeypatch):
+def test_cli_token_uri_without_the_extra_names_the_extra(tmp_path, capsys, monkeypatch):
     monkeypatch.setitem(sys.modules, "pkcs11", None)
     monkeypatch.setenv("PB_PIN", "1234")
-    assert cli.main(_emit_args(tmp_path, "--key-uri", "pkcs11:token=x?module-path=/usr/lib/x.so",
-                               "--pin-env", "PB_PIN")) == 2
+    assert cli.main(_emit_args(tmp_path, "--token-uri", "pkcs11:token=x?module-path=/usr/lib/x.so",
+                               "--token-pin-env", "PB_PIN")) == 2
     assert "proofbundle[pkcs11]" in capsys.readouterr().err
 
 
@@ -465,10 +610,20 @@ def test_cli_failing_token_never_falls_back_to_a_key_file(tmp_path, monkeypatch,
     monkeypatch.setattr(cli, "generate_signer", forbidden)
     monkeypatch.setattr(cli, "save_signer", forbidden)
     monkeypatch.setenv("PB_PIN", "1234")
-    assert cli.main(_emit_args(tmp_path, "--key-uri", "pkcs11:token=x?module-path=/nonexistent/lib.so",
-                               "--pin-env", "PB_PIN")) == 2
+    assert cli.main(_emit_args(tmp_path, "--token-uri", "pkcs11:token=x?module-path=/nonexistent/lib.so",
+                               "--token-pin-env", "PB_PIN")) == 2
     assert not (tmp_path / "b.json").exists()
     assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("uri", ["pkcs11:slot-id=" + "9" * 4301 + "?module-path=/nonexistent/x.so",
+                                 "pkcs11:library-version=" + "9" * 4301 + "?module-path=/nonexistent/x.so"])
+def test_cli_a_number_of_any_length_in_the_uri_is_the_reader_s_refusal(tmp_path, capsys, monkeypatch, uri):
+    monkeypatch.setenv("PB_PIN", "1234")
+    assert cli.main(_emit_args(tmp_path, "--token-uri", uri, "--token-pin-env", "PB_PIN")) == 2
+    err = capsys.readouterr().err
+    assert "is a decimal number" in err or "two decimal numbers" in err
+    assert "unexpected" not in err and "Traceback" not in err
 
 
 def test_cli_without_any_key_option_keeps_its_message(tmp_path, capsys):

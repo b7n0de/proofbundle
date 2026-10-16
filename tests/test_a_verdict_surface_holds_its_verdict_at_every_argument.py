@@ -226,7 +226,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     from proofbundle import (agent_review as ar, anchors, assurance, automation_verdict as av, bundle as bm, cap1,
                              checkpoint as cp, decision, emit, hf_evals, intoto, kbjwt, merkle, outcome, persample,
                              public_transparency as pt, relation, relation_statement as rs, run_ledger as rl, sdjwt,
-                             sdjwt_issue, sdjwt_vc, signature, subject_binding as sb, trust_pack as tp,
+                             sdjwt_issue, sdjwt_vc, signature, signer as sg, subject_binding as sb,
+                             trust_pack as tp,
                              verification_summary as vs, verifier_block as vb)
     from proofbundle import evalclaim as ec
 
@@ -468,6 +469,9 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("signature.plain_bytes", lambda w: signature.plain_bytes(w(b"the bytes"))),
         ("signature.plain_text", lambda w: signature.plain_text(w("the text"))),
         ("signature.verify_ed25519", lambda w: signature.verify_ed25519(w(pub), w(t.sign(b"message")), w(b"message"))),
+        # Z380: the reader of the PKCS#11 URI that selects a signing key; its verdict is the selection it reads.
+        ("signer.parse_pkcs11_uri", lambda w: sg.parse_pkcs11_uri(
+            w("pkcs11:token=release;serial=7;slot-id=3;library-version=2.6;object=key;id=%01?module-path=/usr/lib/x.so"))),
         ("subject_binding.derive_subject_digest", lambda w: sb.derive_subject_digest(w(dec_pred))),
         ("subject_binding.require_derived_subject", lambda w: sb.require_derived_subject(w(nutzlast(dec_env)))),
         ("subject_binding.subject_cardinality", lambda w: sb.subject_cardinality(w(nutzlast(dec_env)))),

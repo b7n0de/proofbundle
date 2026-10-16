@@ -86,7 +86,7 @@ formal = ["z3-solver>=4.12"]
 # The pytest plugin (opt-in test-run receipt via the pytest11 entry-point) — pytest is an optional extra,
 # never a core dependency. Floor 7.0: the hooks/stats API is signature-stable across pytest 7/8/9.
 pytest = ["pytest>=7"]
-# PKCS#11 signing (`proofbundle.signer.Pkcs11Signer`, `--key-uri` on every command that signs): an Ed25519 key
+# PKCS#11 signing (`proofbundle.signer.Pkcs11Signer`, `--token-uri` on every command that signs): an Ed25519 key
 # held in a token and selected by an RFC 7512 URI. Signing only; no verify path imports it. Pinned to the one
 # version MEASURED, as the inspect pin below is: python-pkcs11 0.10.0 (it needs asn1crypto) against SoftHSM2
 # 2.6.1, by tests/test_signer_pkcs11_softhsm.py, on Linux x86_64 with CPython 3.10.12. No hardware token and

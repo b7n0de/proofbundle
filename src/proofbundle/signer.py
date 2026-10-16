@@ -79,7 +79,12 @@ class SignerError(ProofBundleError):
 
     Its message never carries a PIN, a value of a PKCS#11 URI, the name of the variable that holds a PIN, or
     the text of a token's or a provider's own error (only its type name): each of them can carry what was
-    typed in place of something else, and a refusal is printed and logged."""
+    typed in place of something else, and a refusal is printed and logged.
+
+    It never carries the foreign exception it replaces either, not even as ``__context__``: every refusal of
+    this module is raised after the ``except`` block that noted the failure, not inside it. A foreign
+    exception can hold what the message leaves out: a ``UnicodeEncodeError`` holds the whole text it failed
+    on, the PIN included (lens run 1, F8), and an ``OSError`` holds the path."""
 
 
 @dataclass(frozen=True)
@@ -241,12 +246,15 @@ class ExternalSigner(Signer):
     def sign(self, data: Any) -> bytes:
         from .signature import verify_ed25519_pinned  # noqa: PLC0415
         raw = _data(data)
+        failed = None
         try:
             signature = self._sign_external(raw)
         except SignerError:
             raise
         except Exception as exc:  # noqa: BLE001 - a key held elsewhere fails in its own ways; each is one refusal
-            raise SignerError(f"the external signer failed ({type(exc).__name__}); {_NO_FALLBACK}") from None
+            failed = type(exc).__name__
+        if failed is not None:
+            raise SignerError(f"the external signer failed ({failed}); {_NO_FALLBACK}")
         signature = _bytes_von(signature)
         if signature is None or len(signature) != 64:
             raise SignerError(f"the external signer returned no 64-byte Ed25519 signature; {_NO_FALLBACK}")
@@ -280,6 +288,20 @@ _TYPES = ("public", "private", "cert", "secret-key", "data")
 _DIGITS = re.compile(r"[0-9]+\Z")
 _VERSION = re.compile(r"([0-9]+)(?:\.([0-9]+))?\Z")
 _ULONG_MAX = (1 << 64) - 1
+
+
+def _decimal(text: str, limit: int) -> Optional[int]:
+    """The value of a run of decimal digits when it is at most ``limit``, else None. The significant digits
+    are counted before ``int()``: CPython refuses to convert more than 4300 digits with a raw ValueError
+    (lens run 1, F1), and a run with more digits than ``limit`` is over it anyway. Only the significant
+    digits are converted, because CPython counts leading zeros toward that limit too (measured on 3.10.12)."""
+    if _DIGITS.match(text) is None:
+        return None
+    significant = text.lstrip("0") or "0"
+    if len(significant) > len(str(limit)):
+        return None
+    number = int(significant)
+    return number if number <= limit else None
 
 
 @dataclass(frozen=True)
@@ -342,12 +364,24 @@ def _text_value(name: str, value: str) -> str:
     if raw is None:
         raise SignerError(f"the value of {name} holds a character that must be percent-encoded, or a malformed "
                           "percent-encoding (RFC 7512 2.3)")
+    text = None
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        raise SignerError(f"the value of {name} is not UTF-8 (RFC 7512 2.3)") from None
+        pass
+    if text is None:
+        raise SignerError(f"the value of {name} is not UTF-8 (RFC 7512 2.3)")
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in text):
         raise SignerError(f"the value of {name} holds a control character")
+    # A field of the token, the slot or the module is compared as python-pkcs11 0.10.0 gives it: bytes that are
+    # not UTF-8 replaced by U+FFFD and all trailing whitespace removed (`types._CK_UTF8CHAR_to_str`, read in its
+    # source). A value with U+FFFD would also match a field whose bytes are not UTF-8, and one that ends in
+    # whitespace would match no field at all, so both are refused (lens run 1, F3). `object` is compared by the
+    # token itself, byte for byte, and keeps both.
+    if name != "object" and ("\ufffd" in text or text[-1:].isspace()):
+        raise SignerError(f"the value of {name} holds U+FFFD or ends in whitespace; python-pkcs11 gives the "
+                          "token's fields with bytes that are not UTF-8 replaced by U+FFFD and trailing "
+                          "whitespace removed, so the value could not be told apart from another field")
     size = _PATH_TEXT[name]
     if size is not None and len(raw) > size:
         raise SignerError(f"the value of {name} is longer than its {size}-byte PKCS#11 field (RFC 7512 2.3)")
@@ -361,9 +395,11 @@ def parse_pkcs11_uri(uri: Any) -> Pkcs11Uri:
     """Read a PKCS#11 URI (RFC 7512) that selects a key, strictly.
 
     Refused, each with :class:`SignerError`: a value that is no text; a scheme other than ``pkcs11:`` (in
-    any case, RFC 3986 3.1); any character outside the grammar of RFC 7512 2.3, whitespace and ``#``
-    included; a malformed percent-encoding; a text value that is not UTF-8, holds a control character or
-    exceeds its PKCS#11 field; a path attribute named twice (2.3, MUST NOT); a ``type``,
+    any case of its ASCII letters, RFC 3986 3.1); any character outside the grammar of RFC 7512 2.3,
+    whitespace and ``#`` included; a malformed percent-encoding; a text value that is not UTF-8, holds a
+    control character or exceeds its PKCS#11 field; a value of a token, slot or module field that holds
+    U+FFFD or ends in whitespace, which python-pkcs11 could not tell apart; a path attribute named twice
+    (2.3, MUST NOT); a ``type``,
     ``library-version`` or ``slot-id`` outside its grammar; a path attribute this reader does not know,
     vendor attributes included (2.5 reads it as matching nothing, so it can never select a key).
 
@@ -379,7 +415,9 @@ def parse_pkcs11_uri(uri: Any) -> Pkcs11Uri:
     text = _zeichen_von(uri)
     if text is None:
         raise SignerError(f"a PKCS#11 URI is text, got {type(uri).__name__}")
-    if text[:7].lower() != "pkcs11:":
+    # ASCII before the case is folded: `str.lower` folds U+212A KELVIN SIGN to "k", so "p\u212acs11:" passed as
+    # the scheme (lens run 1, F2). RFC 3986 3.1 folds the ASCII letters of a scheme only.
+    if not text[:7].isascii() or text[:7].lower() != "pkcs11:":
         raise SignerError("a PKCS#11 URI begins with 'pkcs11:' (RFC 7512)")
     path, has_query, query = text[7:].partition("?")
     found: dict = {}
@@ -404,13 +442,16 @@ def parse_pkcs11_uri(uri: Any) -> Pkcs11Uri:
                 found[name] = value
             elif name == "library-version":
                 m = _VERSION.match(value)
-                if m is None or int(m.group(1)) > 255 or int(m.group(2) or 0) > 255:
+                major = _decimal(m.group(1), 255) if m is not None else None
+                minor = _decimal(m.group(2) or "0", 255) if m is not None else None
+                if major is None or minor is None:
                     raise SignerError("library-version is M or M.N, two decimal numbers of one byte each")
-                found[name] = (int(m.group(1)), int(m.group(2) or 0))
+                found[name] = (major, minor)
             else:   # slot-id
-                if _DIGITS.match(value) is None or int(value) > _ULONG_MAX:
+                slot_id = _decimal(value, _ULONG_MAX)
+                if slot_id is None:
                     raise SignerError("slot-id is a decimal number of a CK_SLOT_ID")
-                found[name] = int(value)
+                found[name] = slot_id
     module_path = None
     if has_query and query:
         for name, value in _attributes(query, "&", "query"):
@@ -476,17 +517,25 @@ def pin_from_env(name: Any) -> Callable[[], str]:
 def pin_from_prompt(prompt: str = "PKCS#11 user PIN: ") -> Callable[[], str]:
     """A PIN source that asks on the terminal, without echo (``getpass``). Without a terminal it does not
     fall back to reading standard input, where a PIN could come from a pipe or a file: it raises
-    :class:`SignerError` and names ``--pin-env``."""
+    :class:`SignerError` and names ``--token-pin-env``. The end of input (Ctrl-D) and an interrupt (Ctrl-C)
+    at the prompt are refusals too, each with its own message, not a traceback (lens run 1, F10)."""
     def ask() -> str:
         import getpass  # noqa: PLC0415
         import warnings  # noqa: PLC0415
+        failure = None
         with warnings.catch_warnings():
             warnings.simplefilter("error", getpass.GetPassWarning)
             try:
                 value = getpass.getpass(prompt)
-            except (getpass.GetPassWarning, EOFError, OSError):
-                raise SignerError("there is no terminal to ask for the PIN; name an environment variable that "
-                                  "holds it with --pin-env (in the library: pin_from_env)") from None
+            except (getpass.GetPassWarning, OSError):
+                failure = ("there is no terminal to ask for the PIN; name an environment variable that holds it "
+                           "with --token-pin-env (in the library: pin_from_env)")
+            except EOFError:
+                failure = "no PIN was entered (the input ended at the prompt)"
+            except KeyboardInterrupt:
+                failure = "the PIN entry was interrupted"
+        if failure is not None:
+            raise SignerError(failure)
         if not value:
             raise SignerError("no PIN was entered")
         return value
@@ -501,12 +550,15 @@ _ED25519_PARAMS = frozenset({bytes.fromhex("06032b6570"), b"\x13\x0cedwards25519
 
 
 def _import_pkcs11() -> Any:
+    missing = False
     try:
         import pkcs11  # noqa: PLC0415
         import pkcs11.defaults  # noqa: PLC0415
     except ImportError:
+        missing = True
+    if missing:
         raise SignerError("PKCS#11 signing needs the optional extra: pip install 'proofbundle[pkcs11]' "
-                          "(python-pkcs11)") from None
+                          "(python-pkcs11)")
     # The signer calls `key.sign(data)` and lets python-pkcs11 choose the mechanism by the key type; 0.10.0
     # chooses CKM_EDDSA for an Edwards key (`pkcs11/defaults.py`). A version that chose another is refused here,
     # so the mechanism is a checked fact and no second argument names it (an argument there is how an ECDSA call
@@ -518,16 +570,20 @@ def _import_pkcs11() -> Any:
 
 
 def _module(pkcs11: Any, path: str) -> Any:
+    failed = None
     try:
         mode = os.stat(path).st_mode
     except OSError as exc:
-        raise SignerError(f"the module named by module-path cannot be read ({type(exc).__name__})") from None
+        failed = type(exc).__name__
+    if failed is not None:
+        raise SignerError(f"the module named by module-path cannot be read ({failed})")
     if not stat.S_ISREG(mode):
         raise SignerError("module-path names no regular file")
     try:
         return pkcs11.lib(path)
     except Exception as exc:  # noqa: BLE001 - loading a foreign module fails in its own ways
-        raise SignerError(f"the PKCS#11 module could not be loaded ({type(exc).__name__})") from None
+        failed = type(exc).__name__
+    raise SignerError(f"the PKCS#11 module could not be loaded ({failed})")
 
 
 def _text(value: Any) -> Optional[str]:
@@ -552,10 +608,13 @@ def _token(pkcs11: Any, lib: Any, sel: Pkcs11Uri) -> Any:
             and _same(sel.library_description, _text(lib.library_description))
             and _same(sel.library_version, tuple(lib.library_version))):
         raise SignerError("the module named by module-path does not match the URI's library attributes")
+    failed = None
     try:
         slots = list(lib.get_slots(token_present=True))
     except pkcs11.exceptions.PKCS11Error as exc:
-        raise SignerError(f"the module could not list its slots ({type(exc).__name__}); {_NO_FALLBACK}") from None
+        failed = type(exc).__name__
+    if failed is not None:
+        raise SignerError(f"the module could not list its slots ({failed}); {_NO_FALLBACK}")
     matches = []
     for slot in slots:
         try:
@@ -564,9 +623,11 @@ def _token(pkcs11: Any, lib: Any, sel: Pkcs11Uri) -> Any:
             fields = (slot.slot_id, _text(slot.slot_description), _text(slot.manufacturer_id), _text(token.label),
                       _text(token.manufacturer_id), _text(token.model), _text(token.serial))
         except pkcs11.exceptions.PKCS11Error as exc:
-            raise SignerError(f"a slot of the module could not be read ({type(exc).__name__}); no token is chosen "
-                              f"while a slot is unreadable; {_NO_FALLBACK}") from None
-        wanted = (sel.slot_id, sel.slot_description, sel.slot_manufacturer, sel.token, sel.manufacturer,
+            failed = type(exc).__name__
+        if failed is not None:
+            raise SignerError(f"a slot of the module could not be read ({failed}); no token is chosen while a "
+                              f"slot is unreadable; {_NO_FALLBACK}")
+        wanted =(sel.slot_id, sel.slot_description, sel.slot_manufacturer, sel.token, sel.manufacturer,
                   sel.model, sel.serial)
         if initialised and all(_same(w, a) for w, a in zip(wanted, fields)):
             matches.append(token)
@@ -578,12 +639,15 @@ def _token(pkcs11: Any, lib: Any, sel: Pkcs11Uri) -> Any:
 
 
 def _mechanism(pkcs11: Any, token: Any) -> None:
+    failed = None
     try:
         mechanisms = token.slot.get_mechanisms()
         signs = (pkcs11.Mechanism.EDDSA in mechanisms
                  and pkcs11.MechanismFlag.SIGN in token.slot.get_mechanism_info(pkcs11.Mechanism.EDDSA).flags)
     except pkcs11.exceptions.PKCS11Error as exc:
-        raise SignerError(f"the token's mechanisms could not be read ({type(exc).__name__}); {_NO_FALLBACK}") from None
+        failed = type(exc).__name__
+    if failed is not None:
+        raise SignerError(f"the token's mechanisms could not be read ({failed}); {_NO_FALLBACK}")
     if not signs:
         raise SignerError("the token offers no CKM_EDDSA signing mechanism; proofbundle signs with Ed25519 only, the "
                           "one algorithm its verifier checks")
@@ -596,7 +660,15 @@ _PIN_REFUSALS = {
     "PinInvalid": "the token refused the form of the PIN (CKR_PIN_INVALID)",
     "PinLenRange": "the token refused the length of the PIN (CKR_PIN_LEN_RANGE)",
     "UserPinNotInitialized": "the token has no user PIN set (CKR_USER_PIN_NOT_INITIALIZED)",
+    # The login of PKCS#11 holds for the token and the whole process: a second signer on a token whose first
+    # is still open finds the user logged in (measured with SoftHSM2 2.6.1, lens run 1, F6).
+    "UserAlreadyLoggedIn": ("this process is already logged in to the token (CKR_USER_ALREADY_LOGGED_IN): "
+                            "another signer on it is still open; close it first"),
 }
+
+# A lone surrogate, which no UTF-8 encoder takes: a PIN with one would fail inside python-pkcs11 with a
+# UnicodeEncodeError that holds the whole PIN (lens run 1, F8), so it is refused before.
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 def _login(pkcs11: Any, token: Any, pin: Callable[[], Any]) -> Any:
@@ -616,14 +688,18 @@ def _login(pkcs11: Any, token: Any, pin: Callable[[], Any]) -> Any:
     value = raw = None
     if pin_value is None or not pin_value:
         raise SignerError("the PIN source gave no PIN")
+    if _SURROGATE.search(pin_value) is not None:
+        text = pin_value = None
+        raise SignerError("the PIN is no UTF-8 text (it holds a lone surrogate), so no token can take it")
+    failed = ""   # set below: past the `try`, only its `except` leads here
     try:
         return token.open(user_pin=pin_value)
     except pkcs11.exceptions.PKCS11Error as exc:
-        name = type(exc).__name__
-        reason = _PIN_REFUSALS.get(name, f"the token could not open a session ({name})")
-        raise SignerError(f"{reason}; {_NO_FALLBACK}") from None
+        failed = type(exc).__name__
     finally:
         text = pin_value = None
+    reason = _PIN_REFUSALS.get(failed, f"the token could not open a session ({failed})")
+    raise SignerError(f"{reason}; {_NO_FALLBACK}")
 
 
 def _private_key(pkcs11: Any, session: Any, sel: Pkcs11Uri) -> Tuple[Any, bytes]:
@@ -634,6 +710,7 @@ def _private_key(pkcs11: Any, session: Any, sel: Pkcs11Uri) -> Tuple[Any, bytes]
         template[Attribute.LABEL] = sel.object
     if sel.id is not None:
         template[Attribute.ID] = sel.id
+    failed = None
     try:
         keys = list(session.get_objects(template))
         if not keys:
@@ -665,10 +742,18 @@ def _private_key(pkcs11: Any, session: Any, sel: Pkcs11Uri) -> Tuple[Any, bytes]
             raise SignerError("the public key object of the selected key is not on Ed25519")
         point = bytes(publics[0][Attribute.EC_POINT])
     except pkcs11.exceptions.PKCS11Error as exc:
-        raise SignerError(f"the token could not show the selected key ({type(exc).__name__}); {_NO_FALLBACK}") from None
+        failed = type(exc).__name__
+    if failed is not None:
+        raise SignerError(f"the token could not show the selected key ({failed}); {_NO_FALLBACK}")
     if len(point) == 34 and point[:2] == b"\x04\x20":   # DER OCTET STRING of the 32 key bytes (PKCS#11 3.0)
         point = point[2:]
     return key, point   # any other length is refused by ExternalSigner, which takes 32 raw bytes only
+
+
+#: The fixed text of the challenge :meth:`Pkcs11Signer.open` signs to check that the public key object belongs
+#: to the private key. A NUL and 32 random bytes follow it, so no format of this package reads the signed
+#: bytes: they are no JSON, no DSSE PAE and no line of text.
+_PAIR_CHALLENGE = b"proofbundle: the public key object belongs to the private key\x00"
 
 
 class Pkcs11Signer(ExternalSigner):
@@ -676,8 +761,11 @@ class Pkcs11Signer(ExternalSigner):
 
     Each signature is made by the token with CKM_EDDSA and checked against the token's public key before it
     is returned (:class:`ExternalSigner`). A token that fails raises :class:`SignerError`, and nothing is
-    signed: there is no fallback to a key file. Close the signer when done (it is a context manager); the
-    session ends with the process otherwise."""
+    signed: there is no fallback to a key file. Close the signer when done (it is a context manager): the
+    login of PKCS#11 holds for the token and the whole process, so a second signer on the same token cannot
+    log in while the first is open. A signer dropped without ``close`` closes when it is collected."""
+
+    _closed: bool = True   # until `__init__` has run to its end, so a half-made signer closes nothing
 
     def __init__(self, public_key_raw: bytes, *, _session: Any, _key: Any, _pkcs11: Any):
         super().__init__(public_key_raw)
@@ -695,7 +783,12 @@ class Pkcs11Signer(ExternalSigner):
         ``uri`` must name the module with ``module-path`` (:func:`parse_pkcs11_uri`), and it may select only
         private keys (no ``type``, or ``type=private``). ``pin`` is a function that returns the PIN
         (:func:`pin_from_env`, :func:`pin_from_prompt`); it is called once, after the token is found and
-        before the key is searched, and the PIN is not kept. Raises :class:`SignerError` for every refusal."""
+        before the key is searched, and the PIN is not kept.
+
+        Before it returns, the signer signs one challenge (``_PAIR_CHALLENGE``, a NUL and 32 random bytes)
+        and checks the signature against the public key object, so the key it states is the key that signs:
+        a public object of another key is refused here, not at the first signature (lens run 1, F5). The
+        challenge signature is dropped. Raises :class:`SignerError` for every refusal."""
         sel = parse_pkcs11_uri(uri)
         if sel.type not in (None, "private"):
             raise SignerError(f"the URI selects type={sel.type} objects; a signature needs a private key "
@@ -711,6 +804,7 @@ class Pkcs11Signer(ExternalSigner):
         # python-pkcs11 raises more than its own PKCS11Error: a PIN given as bytes ended in a raw AttributeError
         # inside `Token.open` (measured on 0.10.0). Each step below names its own refusals; anything else that
         # comes out of the token dialog, or out of the caller's PIN source, is one refusal that names its type.
+        failed = None
         try:
             token = _token(pkcs11, lib, sel)
             _mechanism(pkcs11, token)
@@ -718,27 +812,49 @@ class Pkcs11Signer(ExternalSigner):
         except SignerError:
             raise
         except Exception as exc:  # noqa: BLE001 - see above; the refusal names only the type
-            raise SignerError(f"the token could not be opened ({type(exc).__name__}); {_NO_FALLBACK}") from None
+            failed = type(exc).__name__
+        if failed is not None:
+            raise SignerError(f"the token could not be opened ({failed}); {_NO_FALLBACK}")
+        signer = None
         try:
             key, public_raw = _private_key(pkcs11, session, sel)
-            return Pkcs11Signer(public_raw, _session=session, _key=key, _pkcs11=pkcs11)
+            signer = Pkcs11Signer(public_raw, _session=session, _key=key, _pkcs11=pkcs11)
+            signer._check_pair()
+            return signer
         except BaseException as exc:  # the session is closed on every way out but the return
             try:
-                session.close()
+                if signer is not None:
+                    signer.close()
+                else:
+                    session.close()
             except Exception:  # noqa: BLE001 - the refusal is the error to report
                 pass
             if isinstance(exc, SignerError) or not isinstance(exc, Exception):
                 raise
-            raise SignerError(f"the token could not show the selected key ({type(exc).__name__}); "
-                              f"{_NO_FALLBACK}") from None
+            failed = type(exc).__name__
+        raise SignerError(f"the token could not show the selected key ({failed}); {_NO_FALLBACK}")
+
+    def _check_pair(self) -> None:
+        """One signature over ``_PAIR_CHALLENGE`` and 32 random bytes, checked against the public key."""
+        from .signature import verify_ed25519_pinned  # noqa: PLC0415
+        challenge = _PAIR_CHALLENGE + os.urandom(32)
+        signature = _bytes_von(self._sign_external(challenge))
+        if signature is None or len(signature) != 64 or not verify_ed25519_pinned(self._public_raw, signature,
+                                                                                   challenge):
+            raise SignerError("a test signature made when the signer was opened does not verify under the public "
+                              "key object the token holds for the selected key (the object belongs to another "
+                              "key, or the token signs wrongly); no receipt was signed, and there is no fallback "
+                              "to a key file")
 
     def _sign_external(self, data: bytes) -> bytes:
         if self._closed:
             raise SignerError(f"the PKCS#11 signer is closed; {_NO_FALLBACK}")
+        failed = ""   # set below: past the `try`, only its `except` leads here
         try:
             return self._key.sign(data)   # CKM_EDDSA, checked in `_import_pkcs11`
         except self._pkcs11.exceptions.PKCS11Error as exc:
-            raise SignerError(f"the token did not sign ({type(exc).__name__}); {_NO_FALLBACK}") from None
+            failed = type(exc).__name__
+        raise SignerError(f"the token did not sign ({failed}); {_NO_FALLBACK}")
 
     def close(self) -> None:
         """End the session with the token. A closed signer does not sign."""
@@ -748,6 +864,9 @@ class Pkcs11Signer(ExternalSigner):
                 self._session.close()
             except Exception:  # noqa: BLE001 - a token already gone has no session to close
                 pass
+
+    def __del__(self) -> None:
+        self.close()
 
     def __enter__(self) -> "Pkcs11Signer":
         return self

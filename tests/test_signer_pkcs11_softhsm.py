@@ -17,7 +17,9 @@ What is measured:
   two apart and needs nothing new;
 * the negative cases of the order: a wrong PIN, a missing object, a wrong mechanism (an RSA, a P-256 and an
   Ed448 key), and a token that is gone while its session is open; plus an ambiguous selection, a private key
-  without its public object, and a URI that selects a public object;
+  without its public object, a public object of another key, and a URI that selects a public object;
+* the session: a second signer on an open token is refused naming the first, and a signer closes when the
+  command ends or when it is collected;
 * no case falls back to a key file, and the PIN appears in no output.
 """
 from __future__ import annotations
@@ -167,6 +169,16 @@ def _populate(token: _Token) -> None:
                          Attribute.ID: b"\x0a",
                          Attribute.EC_POINT: b"\x04\x20" + mixed.public_key().public_bytes(Encoding.Raw,
                                                                                         PublicFormat.Raw)})
+        # an Ed25519 private key whose one public object (same id) is that of another key
+        signing, stated = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+        s.create_object({**common, Attribute.CLASS: ObjectClass.PRIVATE_KEY, Attribute.PRIVATE: True,
+                         Attribute.SENSITIVE: True, Attribute.SIGN: True, Attribute.LABEL: "xpair",
+                         Attribute.ID: b"\x0c",
+                         Attribute.VALUE: signing.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())})
+        s.create_object({**common, Attribute.CLASS: ObjectClass.PUBLIC_KEY, Attribute.VERIFY: True,
+                         Attribute.LABEL: "xpair", Attribute.ID: b"\x0c",
+                         Attribute.EC_POINT: b"\x04\x20" + stated.public_key().public_bytes(Encoding.Raw,
+                                                                                         PublicFormat.Raw)})
 
 
 @pytest.fixture(scope="module")
@@ -249,8 +261,8 @@ def test_cli_round_trip_emit_eval_show_eval_emit_verify(token, tmp_path):
     claim.write_text(json.dumps(_claim()), encoding="utf-8")
     receipt = tmp_path / "receipt.json"
     uri = _uri(token="pb-test", object="known")
-    r = _run(token, "emit-eval", "--claim", str(claim), "--out", str(receipt), "--key-uri", uri,
-             "--pin-env", PIN_VAR, pin_value=token.pin)
+    r = _run(token, "emit-eval", "--claim", str(claim), "--out", str(receipt), "--token-uri", uri,
+             "--token-pin-env", PIN_VAR, pin_value=token.pin)
     assert r.returncode == 0, r.stderr
     assert token.pin not in r.stdout + r.stderr
     file_receipt = tmp_path / "file_receipt.json"
@@ -263,8 +275,8 @@ def test_cli_round_trip_emit_eval_show_eval_emit_verify(token, tmp_path):
     payload = tmp_path / "payload.bin"
     payload.write_bytes(b"artifact bytes")
     bundle = tmp_path / "bundle.json"
-    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(bundle), "--key-uri",
-             _uri(token="pb-test", object="ed"), "--pin-env", PIN_VAR, pin_value=token.pin)
+    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(bundle), "--token-uri",
+             _uri(token="pb-test", object="ed"), "--token-pin-env", PIN_VAR, pin_value=token.pin)
     assert r.returncode == 0, r.stderr
     assert _run(token, "verify", str(bundle)).returncode == 0
 
@@ -274,7 +286,7 @@ def test_cli_round_trip_decision_emit_verify(token, tmp_path):
     assert _run(token, "decision", "init", "--out", str(predicate)).returncode == 0
     envelope = tmp_path / "decision.json"
     r = _run(token, "decision", "emit", str(predicate), "--out", str(envelope), "--lenient",
-             "--key-uri", _uri(token="pb-test", object="known"), "--pin-env", PIN_VAR, pin_value=token.pin)
+             "--token-uri", _uri(token="pb-test", object="known"), "--token-pin-env", PIN_VAR, pin_value=token.pin)
     assert r.returncode == 0, r.stderr
     import base64
     pub = base64.b64encode(token.known.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
@@ -293,8 +305,8 @@ def test_wrong_pin_is_refused_and_not_shown(token, monkeypatch, tmp_path):
     payload = tmp_path / "p.bin"
     payload.write_bytes(b"x")
     out = tmp_path / "b.json"
-    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(out), "--key-uri",
-             _uri(token="pb-test", object="ed"), "--pin-env", PIN_VAR, pin_value=wrong)
+    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(out), "--token-uri",
+             _uri(token="pb-test", object="ed"), "--token-pin-env", PIN_VAR, pin_value=wrong)
     assert r.returncode == 2 and not out.exists()
     assert wrong not in r.stdout + r.stderr and "Traceback" not in r.stderr
 
@@ -401,6 +413,71 @@ def test_a_raw_error_of_the_token_dialog_is_one_refusal(token, pin, monkeypatch,
     with pytest.raises(SignerError, match=f"{reason} .AttributeError") as info:
         Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin)
     assert "secret-detail" not in str(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+def test_a_public_object_of_another_key_is_refused_at_open(token, pin):
+    """The signer states the key of the public object. One that belongs to another key was stated until the first
+    signature failed, so an anchor check before signing passed (lens run 1, F5). `open` signs a challenge and
+    checks it, and the refusal comes there."""
+    with pytest.raises(SignerError, match="test signature made when the signer was opened does not verify") as info:
+        Pkcs11Signer.open(_uri(token="pb-test", object="xpair"), pin=pin)
+    assert info.value.__context__ is None
+    with Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin) as signer:   # the session was closed
+        assert len(signer.sign(b"x")) == 64
+
+
+def test_a_pin_with_a_lone_surrogate_is_refused_and_held_by_no_exception(token):
+    """python-pkcs11 failed on such a PIN with a UnicodeEncodeError that held the whole PIN, kept as the context
+    of the refusal (lens run 1, F8)."""
+    marker = "\udc80" + token.pin
+    with pytest.raises(SignerError, match="lone surrogate") as info:
+        Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=lambda: marker)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert token.pin not in str(info.value)
+
+
+def test_a_second_signer_on_an_open_token_names_the_first(token, pin):
+    """The PKCS#11 login holds for the token and the whole process (measured with SoftHSM2 2.6.1, lens run 1, F6)."""
+    first = Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin)
+    try:
+        with pytest.raises(SignerError, match="another signer on it is still open"):
+            Pkcs11Signer.open(_uri(token="pb-test", object="known"), pin=pin)
+    finally:
+        first.close()
+    with Pkcs11Signer.open(_uri(token="pb-test", object="known"), pin=pin) as second:
+        assert len(second.sign(b"x")) == 64
+
+
+def test_a_signer_dropped_without_close_closes_when_collected(token, pin):
+    import gc
+    signer = Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin)
+    del signer
+    gc.collect()
+    with Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin) as again:
+        assert len(again.sign(b"x")) == 64
+
+
+def test_the_command_line_closes_its_signer_when_the_command_ends(token, monkeypatch, tmp_path, capsys):
+    """A reference held past `main` keeps the signer alive, so only `main` itself can have closed it."""
+    opened = []
+    real = Pkcs11Signer.open.__func__
+
+    def spy(cls, uri, *, pin):
+        signer = real(cls, uri, pin=pin)
+        opened.append(signer)
+        return signer
+    monkeypatch.setattr(Pkcs11Signer, "open", classmethod(spy))
+    monkeypatch.setenv(PIN_VAR, token.pin)
+    payload = tmp_path / "p.bin"
+    payload.write_bytes(b"x")
+    for i in (1, 2):
+        assert cli.main(["emit", "--payload-file", str(payload), "--out", str(tmp_path / f"b{i}.json"), "--token-uri",
+                         _uri(token="pb-test", object="ed"), "--token-pin-env", PIN_VAR]) == 0, capsys.readouterr().err
+    assert len(opened) == 2
+    for signer in opened:
+        with pytest.raises(SignerError, match="is closed"):
+            signer.sign(b"x")
 
 
 def test_a_closed_signer_does_not_sign(token, pin):
@@ -438,12 +515,12 @@ def test_token_gone_during_the_session_is_an_error_and_never_a_fallback(token, m
     payload = tmp_path / "p.bin"
     payload.write_bytes(b"x")
     out = tmp_path / "b.json"
-    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(out), "--key-uri",
-             _uri(token="pb-gone", object="gone"), "--pin-env", PIN_VAR, pin_value=token.pin)
+    r = _run(token, "emit", "--payload-file", str(payload), "--out", str(out), "--token-uri",
+             _uri(token="pb-gone", object="gone"), "--token-pin-env", PIN_VAR, pin_value=token.pin)
     assert r.returncode == 2 and not out.exists() and "Traceback" not in r.stderr
 
 
-def test_cli_without_a_terminal_and_without_pin_env_does_not_read_stdin(token, tmp_path):
+def test_cli_without_a_terminal_and_without_token_pin_env_does_not_read_stdin(token, tmp_path):
     payload = tmp_path / "p.bin"
     payload.write_bytes(b"x")
     out = tmp_path / "b.json"
@@ -451,11 +528,11 @@ def test_cli_without_a_terminal_and_without_pin_env_does_not_read_stdin(token, t
     env = token.env()
     env["PYTHONPATH"] = os.pathsep.join([str(REPO / "src"), str(Path(_p.__file__).resolve().parent.parent)])
     r = subprocess.run([sys.executable, "-m", "proofbundle.cli", "emit", "--payload-file", str(payload),
-                        "--out", str(out), "--key-uri", _uri(token="pb-test", object="ed")],
+                        "--out", str(out), "--token-uri", _uri(token="pb-test", object="ed")],
                        input=token.pin + "\n", capture_output=True, text=True, cwd=REPO, env=env,
                        start_new_session=True)
     assert r.returncode == 2 and not out.exists(), r.stderr
-    assert "--pin-env" in r.stderr and token.pin not in r.stdout + r.stderr
+    assert "--token-pin-env" in r.stderr and token.pin not in r.stdout + r.stderr
 
 
 def test_in_process_cli_token_failure_touches_no_key_file(token, monkeypatch, tmp_path, capsys):
@@ -469,8 +546,8 @@ def test_in_process_cli_token_failure_touches_no_key_file(token, monkeypatch, tm
     payload = tmp_path / "p.bin"
     payload.write_bytes(b"x")
     out = tmp_path / "b.json"
-    assert cli.main(["emit", "--payload-file", str(payload), "--out", str(out), "--key-uri",
-                     _uri(token="pb-test", object="ed"), "--pin-env", PIN_VAR]) == 2
+    assert cli.main(["emit", "--payload-file", str(payload), "--out", str(out), "--token-uri",
+                     _uri(token="pb-test", object="ed"), "--token-pin-env", PIN_VAR]) == 2
     assert not out.exists()
     err = capsys.readouterr().err
     assert token.pin not in err and "Traceback" not in err
