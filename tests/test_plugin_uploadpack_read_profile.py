@@ -12,7 +12,8 @@ without a value started no program and opened no connection, with the exit code 
 
 The five keys join the read profile one by one. Unchanged: uploadpack.packObjectsHook (it names a program) and every
 other uploadpack.* or uploadpackfilter.* key ask; Codex; every other finding of the read profile; the state check of
-add, commit -m and worktree add (K-NW-2 B, D3, D40), which this order does not touch (O19-1 of the report).
+add, commit -m and worktree add (K-NW-2 B, D3, D40), which this order did not touch (O19-1 of the report); since
+Nachtrag 20 the five keys are on its list as well (D47).
 
 RED at 1db350a1 for each freed case and for the cases where another finding stands after the key (there the key was
 named first); the controls answer the same at both heads.
@@ -213,11 +214,11 @@ def test_N19_control_a_key_set_by_the_command_keeps_its_ask(tmp_path, main, comm
 
 
 @pytest.mark.parametrize("command", ["git add README.md", "git commit -m one-more"])
-def test_N19_control_the_state_check_is_not_changed(tmp_path, main, command):
-    """K-NW-2 B (D3) keeps its own list; whether the five keys join it is O19-1 of the report."""
+def test_N19_the_state_check_takes_the_keys_since_N20(tmp_path, main, command):
+    """K-NW-2 B (D3) kept its own list in Nachtrag 19; the owner chose O19-1, and since Nachtrag 20 (D47) the five keys
+    are on it too (tests/test_plugin_n20_state_check_uploadpack.py)."""
     if command.startswith("git commit"):
         w.git(main, "add", "README.md")
     assert _answer(main, command, **DELTA) == (0, None, "")
     w.git(main, "config", "uploadpack.allowAnySHA1InWant", "true")
-    code, decision, reason = _answer(main, command, **DELTA)
-    assert (code, decision) == (0, "ask") and "uploadpack.allowanysha1inwant" in reason, reason
+    assert _answer(main, command, **DELTA) == (0, None, "")

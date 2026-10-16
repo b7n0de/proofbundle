@@ -3221,3 +3221,20 @@ stay as they were.
   with origin on a local path is such a command: its fetch is not free (D45) and is named first.
 - Every reason keeps the house prefix and its evidence, failure and next step (D19).
 Under Codex the texts stay as they were (D37 fixes them word for word). A single command keeps its text.
+
+## D47. The uploadpack keys of D44 in the state check of add, commit and worktree add (Nachtrag 20, 2026-10-16)
+
+D44 freed the five uploadpack keys for the read forms of class a and left the state check of K-NW-2 B (D3) and of the
+checkout of worktree add (D40) as it was; there the keys still asked, and in the corpus with the keys in every
+.git/config 6 rows asked only for them (O19-1 of Nachtrag 19). Owner choice of 2026-10-16, 18:3x Berlin: yes.
+
+The rule: _STATE_INERT_KEYS takes in _READ_UPLOADPACK_KEYS, the same five names, by name. The value is not judged.
+Under Codex the same state check runs, so the keys are inert there too. Every other finding of the state check is read
+on and still counts.
+
+Evidence, measured in Nachtrag 19 with git 2.43.0 under strace -f, stdout a pipe, a fresh HOME, no system
+configuration, no network (truth_n19_state.py, truth_n19_state.jsonl, 45 runs plus three without a key): `git add`,
+`git commit -m` and `git worktree add -q` with each of the five keys set true, false or `bogus` started the same programs
+as without the key and opened no connection.
+
+Not changed: uploadpack.packObjectsHook and every neighbouring name keep asking, as in D44.

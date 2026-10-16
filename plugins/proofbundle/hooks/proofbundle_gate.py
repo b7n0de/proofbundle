@@ -931,6 +931,20 @@ def _redirection_present(command: str) -> bool:
     return False
 
 
+#: The uploadpack keys git reads only in upload-pack, the serving side of a fetch from this repository (DECISIONS.md
+#: D44, Nachtrag 19): which objects a client may ask for by id (allowTipSHA1InWant, allowReachableSHA1InWant,
+#: allowAnySHA1InWant) or by ref (allowRefInWant), and whether a filter is served (allowFilter). Each is a boolean and
+#: names no program, and no read form of the grammar starts upload-pack for its own repository. Measured with git 2.43.0
+#: under strace: the read forms with each key set true, false, to an invalid value or without a value started no
+#: program and opened no connection, with the exit code and output of the run without it; a fetch from the repository
+#: started upload-pack, which ended on the invalid value. Named one by one: uploadpack.packObjectsHook names a program,
+#: and every other uploadpack.* or uploadpackfilter.* key keeps the form not free. Since Nachtrag 20 (O19-1,
+#: D47) the state check of add, commit -m and the checkout of worktree add knows them too: measured with the same
+#: git, those forms started the same programs with each key as without it (truth_n19_state.jsonl, 45 runs).
+_READ_UPLOADPACK_KEYS = frozenset({
+    "uploadpack.allowanysha1inwant", "uploadpack.allowtipsha1inwant", "uploadpack.allowreachablesha1inwant",
+    "uploadpack.allowrefinwant", "uploadpack.allowfilter",
+})
 #: The configuration keys the state check positively understands as starting no program for `git add` and for
 #: `git commit -m` (DECISIONS.md D3, K-NW-2 B). Any other key leaves the form not free, so the list frees only what it
 #: names, in the spirit of Nachtrag 37. Each group is inert for these two forms: the repository format and the stat and
@@ -941,7 +955,8 @@ def _redirection_present(command: str) -> bool:
 #: inert because neither form talks to a remote: a partial clone's lazy fetch is excluded, since its promisor keys are
 #: not on the list, and so is prefetch, since maintenance.* is refused; git's own default maintenance after a commit
 #: runs only its gc task (git-maintenance(1)). include.path and includeIf.*.path are read through: git reads the
-#: included files into the same list the check reads, and every entry they add is judged like any other.
+#: included files into the same list the check reads, and every entry they add is judged like any other. The uploadpack
+#: keys of D44 are on the list since Nachtrag 20 (D47): neither form serves a fetch.
 _STATE_INERT_KEYS = frozenset({
     "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates", "core.ignorecase",
     "core.precomposeunicode", "core.symlinks", "core.autocrlf", "core.eol", "core.safecrlf", "core.checkstat",
@@ -949,7 +964,7 @@ _STATE_INERT_KEYS = frozenset({
     "extensions.objectformat", "user.name", "user.email", "user.signingkey", "author.name", "author.email",
     "committer.name", "committer.email", "init.defaultbranch", "safe.directory", "gpg.format", "tag.gpgsign",
     "commit.gpgsign", "core.fsmonitor", "include.path", "core.sshcommand", "core.askpass",
-})
+}) | _READ_UPLOADPACK_KEYS
 _STATE_INERT_PATTERN = re.compile(r"(remote\.[^\n]*\.(url|pushurl|fetch)|branch\.[^\n]*\.(remote|merge)"
                                   r"|includeif\.[^\n]*\.path|push\.[a-z0-9]+|pull\.[a-z0-9]+|http\.[^\n]+"
                                   r"|color\.[^\n]+|advice\.[a-z0-9]+|alias\.[^\n]+|credential\.[^\n]+"
@@ -1443,18 +1458,6 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
     return not (sub == "branch" and positional and not listing)
 
 
-#: The uploadpack keys git reads only in upload-pack, the serving side of a fetch from this repository (DECISIONS.md
-#: D44, Nachtrag 19): which objects a client may ask for by id (allowTipSHA1InWant, allowReachableSHA1InWant,
-#: allowAnySHA1InWant) or by ref (allowRefInWant), and whether a filter is served (allowFilter). Each is a boolean and
-#: names no program, and no read form of the grammar starts upload-pack for its own repository. Measured with git 2.43.0
-#: under strace: the read forms with each key set true, false, to an invalid value or without a value started no
-#: program and opened no connection, with the exit code and output of the run without it; a fetch from the repository
-#: started upload-pack, which ended on the invalid value. Named one by one: uploadpack.packObjectsHook names a program,
-#: and every other uploadpack.* or uploadpackfilter.* key keeps the form not free.
-_READ_UPLOADPACK_KEYS = frozenset({
-    "uploadpack.allowanysha1inwant", "uploadpack.allowtipsha1inwant", "uploadpack.allowreachablesha1inwant",
-    "uploadpack.allowrefinwant", "uploadpack.allowfilter",
-})
 #: The configuration keys the read profile positively understands as starting no program for a read form of the
 #: grammar: the keys K-NW-2 B knows (D3) less the pager, which a read form starts on a terminal, and fsmonitor, which
 #: the profile judges by form; the keys Teil 1 measured for read forms (sequence.editor, gc.auto with maintenance.auto,
