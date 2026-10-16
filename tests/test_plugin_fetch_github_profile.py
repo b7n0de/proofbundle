@@ -205,7 +205,7 @@ CONFIG_ASKS = {
     "proxy of the remote": [("remote.origin.proxy", "http://127.0.0.1:3128")],
     "pushurl of the remote": [("remote.origin.pushurl", "https://github.com/o/r")],
     "insteadOf": [("url.https://other.example/.insteadOf", "https://github.com/")],
-    "pushInsteadOf": [("url.https://other.example/.pushInsteadOf", "https://github.com/")],
+    # pushInsteadOf never acts on a fetch: free since Ergänzung 1 to Nachtrag 20 (D51)
     "http.proxy": [("http.proxy", "http://127.0.0.1:3128")],
     "http.sslVerify": [("http.sslVerify", "false")],
     "http.extraHeader": [("http.extraHeader", "X: y")],

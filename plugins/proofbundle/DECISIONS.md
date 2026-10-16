@@ -3286,3 +3286,21 @@ reads (_config_entries), named those keys with the scope worktree; with the key 
 
 The rule: extensions.worktreeconfig joins _STATE_INERT_KEYS, and with it the read profile (D34) and the fetch profile
 (D45), which take that list in. Every key of config.worktree stays in the listing and is judged like any other.
+
+## D51. url.<base>.insteadOf counts for the fetch of D45 only where it acts on it (Ergänzung 1 to Nachtrag 20, 2026-10-16)
+
+D45 let any url.* key ask, because an insteadOf took a fetch to another host (measured). delta measured at a8ca017a that
+every fetch in 2bedone asked for url.https://github.com/.insteadof in the global configuration. Owner order of
+2026-10-16, 18:4x Berlin.
+
+Evidence, at the stand-in for github.com, git 2.43.0 under strace -f, no network (truth_n20_fetch.py): git puts the
+base in place of the longest insteadOf value that is a prefix of the URL. An entry whose value is no prefix of
+https://github.com/o/r (git@github.com:, ssh://git@github.com/, both on one base, delta's form in the global file) left
+the fetch as it was: the same programs, connection, requests and written refs. A matching prefix took the fetch to
+another host or to another repository on github.com; an empty base and a base without a scheme made the URL a local path
+that git served with upload-pack through a shell; pushInsteadOf on a matching prefix left the fetch as it was.
+
+The rule, in the fetch profile: url.<base>.pushInsteadOf does not count; url.<base>.insteadOf counts when its value is a
+prefix of the remote's URL (an entry without a value and an empty value included), or when its base is empty or has no
+scheme; every other url.* key asks. The profile reads the values and names none of them (D49). Under Codex the fetch
+keeps its ask (D41).

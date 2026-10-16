@@ -1735,7 +1735,8 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     - the target: remote.<remote>.url other than exactly one https://github.com/<owner>/<repo>[.git], a fetch rule other
       than exactly +refs/heads/*:refs/remotes/<remote>/* (another rule writes another branch into the tracking ref the
       push check reads), and every other key of that remote (uploadpack, vcs, which starts a remote helper: measured,
-      proxy, pushurl, …); any url.* key (insteadOf took the fetch to another host: measured), any http.* key
+      proxy, pushurl, …); a url.<base>.insteadOf whose value is a prefix of the remote's URL, or whose base is empty
+      or has no scheme (D51), and any other url.* key but pushInsteadOf, which rewrites only a push; any http.* key
       (http.proxy took it to the proxy: measured), a proxy name in the environment;
     - programs: a hook fetch or its maintenance runs (_HOOKS_NOT_RUN_BY_FETCH), fsmonitor that git does not read as
       false (measured: the fetch started it), core.sshCommand, core.askPass, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS,
@@ -1760,6 +1761,7 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
         return f"the gate cannot read the effective configuration ({why})"
     urls, rules, recurse_off = [], [], False
     url_where: list = []      # where each URL and rule stands: a reason names the key and its file, never the value (D49)
+    rewrites: list = []       # (base, value, where) of each url.<base>.insteadOf (D51)
     rule_where: list = []
     for scope, origin, key, value in entries:
         lowered, where = key.lower(), f"{_shown_key(key)} in the {scope} configuration {origin.removeprefix('file:')}"
@@ -1791,6 +1793,11 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
                     f"github.com: {where}")
         if section == "remote" and subsection and variable in ("url", "pushurl", "fetch", "push"):
             continue        # another remote's address and rules, which a fetch from this remote does not read
+        if section == "url" and variable == "pushinsteadof":
+            continue        # D51: pushInsteadOf rewrites a push, never a fetch (measured)
+        if section == "url" and variable == "insteadof":
+            rewrites.append((subsection, value, where))    # judged against the remote's URL below (D51)
+            continue
         if section == "credential" and variable == "helper":
             if value in _FETCH_HELPERS:
                 continue
@@ -1812,6 +1819,14 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     matched = _FETCH_GITHUB_URL.fullmatch(urls[0] or "")
     if matched is None or matched.group(2) in (".", "..", ".git"):
         return f"the URL of the remote {remote} is not https://github.com/<owner>/<repo>: {url_where[0]}"
+    for base, value, where in rewrites:
+        # D51: git puts base in place of the longest insteadOf value that is a prefix of the URL; an entry whose value is
+        # no prefix of this remote's URL does not act on this fetch (measured). An empty base or one without a scheme
+        # made the URL a local path that git served with upload-pack through a shell (measured), so it asks either way.
+        if not base or not re.match(r"[a-z][a-z0-9+.-]*://", base, re.IGNORECASE):
+            return f"a URL rewrite with an empty base or a base without a scheme: {where}"
+        if value is None or urls[0].startswith(value):
+            return f"a URL rewrite that acts on the URL of the remote {remote}: {where}"
     if rules != [f"+refs/heads/*:refs/remotes/{remote}/*"]:
         return (f"the fetch rules of the remote {remote} are not the one rule +refs/heads/*:refs/remotes/{remote}/*: "
                 f"{'; '.join(rule_where) or f'no remote.{remote}.fetch'}")
