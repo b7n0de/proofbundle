@@ -24,3 +24,5 @@ RESTRISIKO_600_OBJEKTKLASSEN.json -text
 examples/verdict_contract/out/* -text
 examples/verdict_contract/reply.txt -text
 examples/verdict_contract/verdict_contract.py -text
+# The test report vectors are byte-exact inputs: their SHA-256 is signed into receipts by the tests.
+tests/fixtures/test_reports/** -text

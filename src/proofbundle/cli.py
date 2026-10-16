@@ -550,6 +550,56 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
+    """A JUnit XML or CTRF JSON report to a signed eval receipt (adapters/junit_ctrf.py). The report is
+    read and refused before a key is touched, so a refused report writes neither a receipt nor a key."""
+    from .adapters.junit_ctrf import REPORT_MAX_BYTES, from_ctrf_json, from_junit_xml  # noqa: PLC0415
+    from .evalclaim import EvalClaimError, emit_eval_receipt  # noqa: PLC0415
+    report, build = (args.junit, from_junit_xml) if args.junit is not None else (args.ctrf, from_ctrf_json)
+    max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
+    try:
+        claim, _ = build(report, commit=args.commit, suite=args.suite, timestamp=args.timestamp,
+                         max_bytes=max_bytes)
+    except (EvalClaimError, ValueError) as exc:
+        _err(exc)
+        return 2
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        bundle = emit_eval_receipt(claim, signer)
+    except (EvalClaimError, ValueError) as exc:
+        _err(exc)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as handle:
+        json.dump(bundle, handle, indent=2)
+        handle.write("\n")
+    p = claim["provenance"]
+    print(_safe_line(f"wrote test receipt {args.out} ({p['report_format']}: {p['tests_total']} tests, "
+                     f"{p['tests_passed']} passed, {p['tests_failed']} failed, {p['tests_errors']} errors, "
+                     f"{p['tests_skipped']} skipped; passed={claim['passed']})"))
+    return 0
+
+
+def _cmd_check_test_receipt(args: argparse.Namespace) -> int:
+    from .adapters.junit_ctrf import verify_test_receipt  # noqa: PLC0415
+    try:
+        _refuse_weak_issuer_pins(getattr(args, "expect_issuer", None) or [])
+    except ValueError as exc:
+        _err(exc)
+        return 2
+    result = verify_test_receipt(args.receipt, args.report, expected_issuers=args.expect_issuer)
+    if not result["ok"]:
+        print(_safe_line(f"=> FAILED: {result['reason']}"), file=sys.stderr)
+        return 1
+    print(_safe_line(result["reason"]))
+    print(_safe_line(f"issuer     {result['claim']['issuer']}"))
+    print("note       a receipt proves which report was signed by which key, not that the tests are meaningful "
+          "or that the report came from the real run")
+    print("=> OK")
+    return 0
+
+
 def _evaluate_anchor_requirement(bundle: dict, *, require: str, allow_pending: bool,
                                  require_target=None, rp_trust=None) -> dict:
     """Evaluate a ``--require-anchor`` gate over a receipt's ``anchors`` (WP4), wired to the existing
@@ -3199,6 +3249,37 @@ def build_parser() -> argparse.ArgumentParser:
                                 "pass; with it, an issuer mismatch fails with exit 1. A pin naming a "
                                 "low-order or non-canonical Ed25519 key is refused (exit 2, SPEC 4b)")
     show_eval.set_defaults(func=_cmd_show_eval)
+
+    emit_test = sub.add_parser(
+        "emit-test-receipt",
+        help="sign a JUnit XML or CTRF JSON test report into an eval receipt (pass_rate >= 1: no failure, no "
+             "error, at least one passed test); verify it with show-eval and check-test-receipt")
+    emit_report = emit_test.add_mutually_exclusive_group(required=True)
+    emit_report.add_argument("--junit", default=None, metavar="FILE", help="a JUnit XML report")
+    emit_report.add_argument("--ctrf", default=None, metavar="FILE", help="a CTRF JSON report (specVersion 0.2.x)")
+    emit_test.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
+    emit_test.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
+    emit_test.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_test.add_argument("--commit", default=None, metavar="SHA",
+                           help="the full git object name (40 or 64 lowercase hex) the report is about, e.g. "
+                                "$GITHUB_SHA or $CI_COMMIT_SHA")
+    emit_test.add_argument("--suite", default=None,
+                           help="the suite name in the claim (default: the report's own name)")
+    emit_test.add_argument("--timestamp", default=None, metavar="ISO8601",
+                           help="the claim timestamp (default: now, UTC)")
+    emit_test.add_argument("--max-report-bytes", dest="max_report_bytes", type=int, default=None,
+                           metavar="N", help="refuse a larger report (default 64 MiB)")
+    emit_test.set_defaults(func=_cmd_emit_test_receipt)
+
+    check_test = sub.add_parser(
+        "check-test-receipt",
+        help="verify a test receipt and check it against the report it names: the digest, every count and the "
+             "verdict (exit 0 ok, 1 mismatch or invalid receipt, 2 malformed input)")
+    check_test.add_argument("receipt", help="path to the receipt bundle JSON")
+    check_test.add_argument("--report", required=True, help="path to the JUnit XML or CTRF JSON report")
+    check_test.add_argument("--expect-issuer", dest="expect_issuer", action="append", default=None,
+                            metavar="ISSUER", help="pin the accepted issuer ('ed25519:…'), repeatable, as in show-eval")
+    check_test.set_defaults(func=_cmd_check_test_receipt)
 
     verify_proof = sub.add_parser(
         "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")
