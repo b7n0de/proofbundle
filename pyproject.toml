@@ -131,7 +131,29 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # stops inside 0.3.264. The one entry marked breaking (0.3.266, the score payload of `inspect ctl`)
 # concerns a control channel this package does not call.
 # The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
-inspect = ['inspect_ai>=0.3.112,<=0.3.266']
+#
+# 2026-10-16, THE MEASURED BUMP 0.3.266 -> 0.3.281 (6.3.1, IA1). The line above was true until this
+# paragraph. 0.3.281 is the newest release on PyPI that day (uploaded 2026-10-15). Each of 0.3.267 to
+# 0.3.281 (there is no 0.3.274) in its own FRESH venv on python 3.12.3, 0.3.281 again on 3.11.17 and
+# 3.13.16, and 0.3.266 and 0.3.280 on 3.10.20, with this package as a wheel built from 7fb7f0b2, whose
+# src is that of main 22aa954e, no mocks. The command, per version and interpreter:
+#   uv venv --python <python> <venv>
+#   uv pip install --python <venv>/bin/python "proofbundle[eval] @ file://<wheel>" \
+#       "inspect_ai==<version>" "pytest==9.1.1"
+#   PROOFBUNDLE_RELEASE_LANE=1 <venv>/bin/python -m pytest -q tests/test_inspect_hook.py \
+#       tests/test_adapters.py
+# and, in the same venv, a probe of the entry points and of the `Hooks` API:
+#   * entry-point discovery finds `proofbundle` and it loads, `ProofbundleHooks` is a `Hooks` subclass,
+#     the API still has 17 `on_*` methods, and `on_task_end`, the one this package overrides, is among them
+#   * the two test files, run together: 19 passed, nothing skipped, nothing failed, in every version and
+#     interpreter named above; under PROOFBUNDLE_RELEASE_LANE=1 an absent inspect_ai fails, never skips
+# 0.3.281 is the first release that requires python >=3.11; 0.3.280 and the ones before require >=3.10.
+# The floor here is python 3.10, so under this ceiling a 3.10 install resolves 0.3.280 and 3.11 to 3.14
+# resolve 0.3.281 (`uv pip compile --python-version <v>`, 2026-10-16); both are measured above, and
+# 0.3.281 itself does not install on 3.10 (measured). The changelogs of 0.3.267 to 0.3.281 were NOT read
+# for this bump: what is admitted is what was run.
+# The ceiling still stays a ceiling: 0.3.282 and later are UNMEASURED and therefore excluded.
+inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -187,7 +209,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.281']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
