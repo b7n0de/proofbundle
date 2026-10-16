@@ -968,6 +968,18 @@ _HOOKS_NOT_RUN_BY_ADD_COMMIT = frozenset({
 _STATE_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|COUNT|KEY_[0-9]+|VALUE_[0-9]+)"
                               r"|(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|TERMINAL_PROMPT|EDITOR|SEQUENCE_EDITOR|PAGER"
                               r"|ASKPASS|SSH|SSH_COMMAND|SSH_VARIANT|SSL_[A-Z_]+|HTTP_[A-Z_]+)")
+#: GIT_* names the Bash tool of Claude Code sets, each with the one value at which it starts no program for a form the
+#: read profile, K-NW-2 B or the checkout check frees (D41, part 1 of Nachtrag 16). GIT_OPTIONAL_LOCKS=0 turns off the
+#: optional index refresh of `git status` (measured with git 2.43.0: the five forms of the pilot started the same
+#: programs with it unset and with 0, `git status` one fewer, no post-index-change). Any other value, and any GIT_* name
+#: neither this table nor the lists name, keeps the form not free.
+_TOOL_INERT_ENV = {"GIT_OPTIONAL_LOCKS": frozenset({"0"})}
+
+
+def _tool_inert(name: str, value: str | None) -> bool:
+    """Whether name=value is a setting of the Bash tool that starts no program (_TOOL_INERT_ENV); value None, a value
+    the caller does not know, never is."""
+    return value is not None and value in _TOOL_INERT_ENV.get(name, ())
 
 
 def _git_false(directory: str, value: str | None, deadline: float) -> bool:
@@ -1127,7 +1139,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
             if not name.endswith(".sample") and name not in hooks_not_run:
                 return f"a hook: {os.path.join(hooks, name)}"
     for name in sorted(environ):
-        if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name):
+        if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name) and not _tool_inert(name, environ[name]):
             return f"an environment setting the check does not know to start no program: {name}"
     return None
 
@@ -1415,14 +1427,15 @@ _READ_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|CO
                              r"|ASKPASS|SSH|SSH_COMMAND|SSH_VARIANT|SSL_[A-Z_]+|HTTP_[A-Z_]+)")
 
 
-def _read_env_problem(name: str) -> str | None:
+def _read_env_problem(name: str, value: str | None = None) -> str | None:
     """What an environment name means for a read form, set in the hook's environment or by a prefix assignment of the
     command alike: GIT_PAGER and PAGER, the names git reads to choose the pager, count like a pager key (owner answer
     3; review Runde 6, point 1: a program-selecting variable counts like its key), and so does a GIT_* name the
-    profile does not know. None for any other name."""
+    profile does not know, unless the Bash tool sets it with the value at which it starts no program (_tool_inert,
+    D41; value None, as for a prefix assignment, never is). None for any other name."""
     if name in ("GIT_PAGER", "PAGER"):
         return f"a pager: {name}"
-    if name.startswith("GIT_") and not _READ_INERT_ENV.fullmatch(name):
+    if name.startswith("GIT_") and not _READ_INERT_ENV.fullmatch(name) and not _tool_inert(name, value):
         return f"an environment setting the read profile does not know to start no program: {name}"
     return None
 
@@ -1527,7 +1540,7 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
                 if not name.endswith(".sample"):
                     return f"a hook: {os.path.join(hooks, name)}"
     for name in sorted(environ):
-        problem = _read_env_problem(name)
+        problem = _read_env_problem(name, environ[name])
         if problem is not None:
             return f"{problem} in the hook's environment"
     if walks:

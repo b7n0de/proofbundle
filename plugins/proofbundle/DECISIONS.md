@@ -2881,3 +2881,32 @@ form not free until the list names it. The checkout check reads the state when t
 writes between the answer and the run is not seen (D27). Where git-lfs is installed its filter keys keep `worktree add`
 asked; whether a filter counts only where an attribute assigns it, as for `git diff` in D39, is an owner question and
 not built.
+
+## D41. The Bash tool's own environment, the pager of gh reads, the reasons for fetch and worktree add (Nachtrag 16, 2026-10-16)
+
+Measured by Cowork at 82255a7c under Claude Code, after Nachtrag 17 (pilot count 71 gate lines, 19 asks, 0 denies):
+with GIT_OPTIONAL_LOCKS=0 in the environment, five forms asked with "an environment setting the check does not know":
+`git log -3 --oneline`, `git -C <abs> diff --no-ext-diff --no-textconv --stat`, `git -C <abs> add`,
+`git -C <abs> commit -F <file>` and `git -C <abs> worktree add …`.
+
+Part 1, GIT_OPTIONAL_LOCKS=0 (owner choice of Nachtrag 16):
+- The read profile (D34), K-NW-2 B (D3, D40 part 1) and the checkout check (D40 part 3) accept GIT_OPTIONAL_LOCKS in the
+  hook's environment with the value `0` (_TOOL_INERT_ENV, _tool_inert). Any other value, `1` and the empty value among
+  them, and every GIT_* name the lists do not name keep the form not free, as before.
+- Evidence that it starts no program: git reads it as a boolean, and with 0 git leaves out the optional work that takes
+  a lock, the index refresh of `git status`. Measured with git 2.43.0 (measure/optional_locks_starts.py of Nachtrag 16):
+  with a proxy for every hook, fsmonitor, a clean and a smudge filter an attribute assigns, diff.external and core.pager,
+  the five forms started the same programs with it unset, 0 and 1; `git status` with 0 started one fewer (no
+  post-index-change: the index is not written).
+- A prefix assignment of the command (`GIT_OPTIONAL_LOCKS=0 git log`) keeps its answer: the prefix rules of _assign_class
+  are unchanged. Whether the value 0 counts as neutral there is an owner question and not built.
+- What else the Bash tool sets, read in the binary of Claude Code 2.1.301 and in a session's shell of 2026-10-16: the
+  environment the host process carries, then SHELL, GIT_EDITOR=true, CLAUDECODE=1, CLAUDE_CODE_SESSION_ID,
+  CLAUDE_CODE_CHILD_SESSION, CLAUDE_CODE_SESSION_ATTENDED, CLAUDE_PID, AI_AGENT, CLAUDE_EFFORT and, with tracing on,
+  TRACEPARENT. A hook gets the same names but SHELL and GIT_EDITOR, and CLAUDE_PROJECT_DIR besides. None is added:
+  GIT_EDITOR is on both lists already (the forms start no editor: D3, D34), and the other names are neither GIT_* nor
+  PAGER, so no check reads them and none hinders a form today.
+- In 2.1.301 the binary names GIT_OPTIONAL_LOCKS only for Claude Code's own git calls (one with 0, a `git status` with
+  1), and the session's shell did not carry it. D35 recorded GIT_OPTIONAL_LOCKS=0 in the Bash tool's shell in a session
+  of 2026-10-14 (_HOST_SHELL_INERT), and Cowork measured it on its host. Where it comes from there is NOT MEASURED; the
+  rule judges the name and the value, wherever they come from.
