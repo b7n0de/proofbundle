@@ -149,7 +149,7 @@ def allowed_push(env, tmp_path) -> tuple[pathlib.Path, str, dict]:
 def test_an_allowed_push_that_arrives_gets_an_outcome_bound_to_its_decision(env, tmp_path):
     start = now_plus(-60)
     records, sent, decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(1))])
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(0))])
     summary = run_observer(records, folder, start, now_plus(120))
     assert (summary["effects"], summary["M5"], summary["M6"]) == (1, 0, 0)
     ((envelope, scope),) = outcomes(records)
@@ -171,7 +171,7 @@ def test_an_allowed_push_that_arrives_gets_an_outcome_bound_to_its_decision(env,
 def test_every_response_is_kept_as_returned_with_the_time_it_was_asked(env, tmp_path):
     start = now_plus(-60)
     records, sent, _decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(1))])
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(0))])
     run_observer(records, folder, start, now_plus(120))
     run = json.loads((records / "api" / "run-1" / "run.json").read_text(encoding="utf-8"))
     assert [r["path"] for r in run["requests"]] == [f"/repos/{REPO}/events?per_page=100&page=1",
@@ -186,7 +186,7 @@ def test_every_response_is_kept_as_returned_with_the_time_it_was_asked(env, tmp_
 def test_an_effect_of_another_identity_or_outside_the_window_is_not_read(env, tmp_path):
     start = now_plus(-60)
     records, sent, _decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [push_event(1, PERSON_GITHUB_ID, sent, now_plus(1)),
+    folder = recorded(tmp_path, [push_event(1, PERSON_GITHUB_ID, sent, now_plus(0)),
                                  push_event(2, AGENT_GITHUB_ID, sent, now_plus(-3600))])
     summary = run_observer(records, folder, start, now_plus(120))
     assert (summary["effects"], summary["outcomes"], summary["M5"]) == (0, [], 0)   # a person's push is no agent write
@@ -199,7 +199,7 @@ def test_a_refused_push_that_arrives_gets_an_outcome_and_counts_under_m6(env, tm
     r.make("missing")
     records = start_records(env, tmp_path)
     assert p1.level2(env, r.path).returncode == 1
-    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, pd._rev(r.path, "HEAD"), now_plus(1))])
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, pd._rev(r.path, "HEAD"), now_plus(0))])
     summary = run_observer(records, folder, start, now_plus(120))
     assert (summary["M5"], summary["M6"], len(summary["outcomes"])) == (1, 1, 1)
     ((envelope, _scope),) = outcomes(records)
@@ -211,7 +211,7 @@ def test_a_refused_push_that_arrives_gets_an_outcome_and_counts_under_m6(env, tm
 def test_an_effect_without_a_decision_counts_under_m5_and_gets_no_outcome(env, tmp_path):
     start = now_plus(-60)
     records, _sent, _decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [comment_event(1, AGENT_GITHUB_ID, 279, "unasked", now_plus(1))])
+    folder = recorded(tmp_path, [comment_event(1, AGENT_GITHUB_ID, 279, "unasked", now_plus(0))])
     summary = run_observer(records, folder, start, now_plus(120))
     assert (summary["effects"], summary["M5"], summary["M6"], summary["outcomes"]) == (1, 1, 0, [])
 
@@ -219,7 +219,7 @@ def test_an_effect_without_a_decision_counts_under_m5_and_gets_no_outcome(env, t
 def test_a_run_is_kept_as_it_was(env, tmp_path):
     start = now_plus(-60)
     records, sent, _decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(1))])
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(0))])
     run_observer(records, folder, start, now_plus(120))
     with pytest.raises(ValueError, match="exists already"):
         run_observer(records, folder, start, now_plus(120))
@@ -249,7 +249,7 @@ def test_the_live_path_is_the_same_code_and_sends_no_credential_of_the_environme
     token only from the operator's file."""
     start = now_plus(-60)
     records, sent, _decision = allowed_push(env, tmp_path)
-    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(1))])
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(0))])
     run_observer(records, folder, start, now_plus(120), run="recorded")
     monkeypatch.setenv("GITHUB_TOKEN", "ghs_PLANTEDobserverZ405")
     handler = type("Handler", (_Server,), {"folder": folder, "seen": []})

@@ -295,6 +295,7 @@ def effects_of_run(run: dict, agent_of: dict) -> list[dict]:
             effect = _event_effect(event) if isinstance(event, dict) else None
             if effect is None or effect["actor"] not in agent_of:
                 continue
+            effect["observedAt"], effect["response"] = request["requestedAt"], request["file"]
             at = instant_key(effect["performedAt"])
             if start_key <= at <= end_key:
                 found.append(effect)

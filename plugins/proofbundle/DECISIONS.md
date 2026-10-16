@@ -3489,6 +3489,34 @@ The rule:
   operator gives one, is read from the operator's file, never from the environment. Its key is the operator's; the
   probe label derives a key from a public label for tests only.
 
+## D57. The reconciliation of the pilot, from the records alone (Z405, part 3, 2026-10-16)
+
+The contract joins decision and outcome per action and measures M1 to M8 (section 5), and a person who was not part of
+the sessions reruns it from the records and from nothing else (criterion 4).
+
+The rule:
+- `reconcile.py` reads the records folder of D56 and nothing else: the decisions, the responses the observer kept, the
+  outcomes, and the inputs `pilot_start.json` keeps, each checked against its digest. It recomputes the match of the
+  contract, section 5, from the kept responses, an event listed by two runs counted once, so its classes come from the
+  files and not from the observer's own match. The same records give the same bytes.
+- A decision whose signature does not verify with the pinned gate key takes part in no match, and is named. An effect
+  it would have taken counts under M5.
+- Per decision: M1 arrived, not arrived, ambiguous, not yet observed (no run whose window holds its decidedAt), or
+  unknown (no target the gate resolved); M2, M3 and M4 only for an approval that arrived, else `not measured`; M4 against
+  the closing rules whose digest the decision names, the stored bytes ending with the rule's lines, a null rule
+  requiring none; M7 the seconds from decidedAt to the first reading of the effect, recorded and never judged; M8 the
+  decisions that share the action id. Over the window: M5 and M6 as counts, `not measured` without a run, never 0.
+- The class names the mismatch: an approval arrived as approved, not arrived, before the approval (GitHub dates the
+  effect before decidedAt), with other bytes, on another surface, without its closing lines; a refusal not arrived, or refused but arrived; an escalation arrived without an approval of
+  the gate; an ambiguous effect; a receipt that does not verify; and where the observer's outcome and the records'
+  match disagree (an outcome bound to a decision no effect of the records took, or an effect with no outcome bound),
+  that class, whatever the profile answers.
+- Beside the measures each decision carries the answer of the profile the records keep, for the decision and the
+  outcome bound to it: accepted, not accepted or unknown, with the reasons.
+- `plugins/proofbundle/pilot/RUNBOOK.md` names what the operator sets up at delta (the two keys, the signer behind an
+  account of the operator, the roster, the closing rules, the records, pilot.json, Level 2), how the observer runs, and
+  how someone else reruns the reconciliation; names and places, no values.
+
 ## D59. git ls-remote from github.com after the fetch profile of D45 (Nachtrag 22, part 3, 2026-10-17)
 
 Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
