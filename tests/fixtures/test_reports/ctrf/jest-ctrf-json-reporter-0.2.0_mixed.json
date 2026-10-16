@@ -1,0 +1,90 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.2.0",
+  "reportId": "5057e913-4886-44e0-bb98-ebdcd61cb62c",
+  "timestamp": "2026-10-16T07:20:50.154Z",
+  "generatedBy": "jest-ctrf-json-reporter",
+  "results": {
+    "tool": {
+      "name": "jest"
+    },
+    "summary": {
+      "tests": 4,
+      "passed": 1,
+      "failed": 1,
+      "pending": 1,
+      "skipped": 0,
+      "other": 1,
+      "start": 1792135250156,
+      "stop": 1792135250716
+    },
+    "tests": [
+      {
+        "testId": "ctrf:jest:v1:b9ffb835decc8dc7ffbf840a02efe378ee1b0cb19ec0f1b583bf99938a8e3d2c",
+        "executionId": "e4b67f1d-fde3-42fa-82bb-a138995ee651",
+        "attemptId": "17f43a51-d6fb-4a86-b961-1f78427c6ac5",
+        "name": "passes",
+        "duration": 3,
+        "status": "passed",
+        "rawStatus": "passed",
+        "type": "unit",
+        "filePath": "/work/jsgen/mixed/__tests__/a.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "a.test.js"
+        ]
+      },
+      {
+        "testId": "ctrf:jest:v1:8bfa4c3d6d515ec0d87ad394b1f7e30d8265416f98e0b6c90d62c6d8d8f7e33d",
+        "executionId": "110822a2-d473-4aea-a762-06e8141c98ac",
+        "attemptId": "6c811641-b565-44c1-aca9-8e9af15d0904",
+        "name": "fails",
+        "duration": 3,
+        "status": "failed",
+        "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n",
+        "trace": "at Object.toBe (/work/jsgen/mixed/__tests__/a.test.js:2:33)\nat Promise.then.completed (/work/jsgen/node_modules/jest-circus/build/utils.js:298:28)\nat new Promise (<anonymous>)\nat callAsyncCircusFn (/work/jsgen/node_modules/jest-circus/build/utils.js:231:10)\nat _callCircusTest (/work/jsgen/node_modules/jest-circus/build/run.js:316:40)\nat processTicksAndRejections (node:internal/process/task_queues:105:5)\nat _runTest (/work/jsgen/node_modules/jest-circus/build/run.js:252:3)\nat _runTestsForDescribeBlock (/work/jsgen/node_modules/jest-circus/build/run.js:126:9)\nat run (/work/jsgen/node_modules/jest-circus/build/run.js:71:3)\nat runAndTransformResultsToJestFormat (/work/jsgen/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\nat jestAdapter (/work/jsgen/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\nat runTestInternal (/work/jsgen/node_modules/jest-runner/build/runTest.js:367:16)\nat runTest (/work/jsgen/node_modules/jest-runner/build/runTest.js:444:34)\nat Object.worker (/work/jsgen/node_modules/jest-runner/build/testWorker.js:106:12)",
+        "rawStatus": "failed",
+        "type": "unit",
+        "filePath": "/work/jsgen/mixed/__tests__/a.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "a.test.js"
+        ]
+      },
+      {
+        "testId": "ctrf:jest:v1:876473102ca0abb0da8c13a5b6d2b6ac2bc2c7ca2fcc4ea7d1287930e6e0e896",
+        "executionId": "3d84582f-7c20-4166-b655-227e71fc2505",
+        "attemptId": "424ac871-7ced-4a01-ad15-9d101283c841",
+        "name": "is skipped",
+        "duration": 0,
+        "status": "pending",
+        "rawStatus": "pending",
+        "type": "unit",
+        "filePath": "/work/jsgen/mixed/__tests__/a.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "a.test.js"
+        ]
+      },
+      {
+        "testId": "ctrf:jest:v1:647f0b4716fa8d85a2fac3de73f9ed2615c551d68828cd7f0cba4f3238c22cb2",
+        "executionId": "536354dc-403a-4563-8b91-75950e87cde0",
+        "attemptId": "176570a4-2abd-4287-9788-73ebdbbda680",
+        "name": "is todo",
+        "duration": 0,
+        "status": "other",
+        "rawStatus": "todo",
+        "type": "unit",
+        "filePath": "/work/jsgen/mixed/__tests__/a.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "a.test.js"
+        ]
+      }
+    ]
+  }
+}

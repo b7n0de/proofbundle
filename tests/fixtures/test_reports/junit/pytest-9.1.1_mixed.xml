@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="4" failures="3" skipped="2" tests="10" time="0.045" timestamp="2026-10-16T09:22:34.738372+02:00" hostname="ci-host"><testcase classname="" name="test_collect_error" time="0.000"><error message="collection failure">ImportError while importing test module '/work/pygen/mixed/test_collect_error.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.10/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+test_collect_error.py:1: in &lt;module&gt;
+    import does_not_exist_module  # noqa
+E   ModuleNotFoundError: No module named 'does_not_exist_module'</error></testcase><testcase classname="test_mixed" name="test_xpass_strict" time="0.000"><failure message="[XPASS(strict)] strict">[XPASS(strict)] strict</failure></testcase><testcase classname="test_mixed" name="test_fail_then_teardown_error" time="0.000"><failure message="assert False">broken_teardown = None
+
+    def test_fail_then_teardown_error(broken_teardown):
+&gt;       assert False
+E       assert False
+
+test_mixed.py:37: AssertionError</failure></testcase><testcase classname="test_mixed" name="test_fail_then_teardown_error" time="0.000"><error message="failed on teardown with &quot;RuntimeError: teardown fails&quot;">@pytest.fixture
+    def broken_teardown():
+        yield
+&gt;       raise RuntimeError("teardown fails")
+E       RuntimeError: teardown fails
+
+test_mixed.py:10: RuntimeError</error></testcase><testcase classname="test_mixed" name="test_pass_then_teardown_error" time="0.000"><error message="failed on teardown with &quot;RuntimeError: teardown fails&quot;">@pytest.fixture
+    def broken_teardown():
+        yield
+&gt;       raise RuntimeError("teardown fails")
+E       RuntimeError: teardown fails
+
+test_mixed.py:10: RuntimeError</error></testcase><testcase classname="test_mixed" name="test_skip" time="0.000"><skipped type="pytest.skip" message="skipped on purpose">/work/pygen/mixed/test_mixed.py:18: skipped on purpose</skipped></testcase><testcase classname="test_mixed" name="test_pass" time="0.000" /><testcase classname="test_mixed" name="test_setup_error" time="0.000"><error message="failed on setup with &quot;RuntimeError: setup fails&quot;">@pytest.fixture
+    def broken_setup():
+&gt;       raise RuntimeError("setup fails")
+E       RuntimeError: setup fails
+
+test_mixed.py:5: RuntimeError</error></testcase><testcase classname="test_mixed" name="test_fail" time="0.000"><failure message="assert 1 == 2">def test_fail():
+&gt;       assert 1 == 2
+E       assert 1 == 2
+
+test_mixed.py:16: AssertionError</failure></testcase><testcase classname="test_mixed" name="test_xfail" time="0.000"><skipped type="pytest.xfail" message="known bug" /></testcase></testsuite></testsuites>

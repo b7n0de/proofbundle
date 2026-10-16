@@ -1,0 +1,47 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.2.5",
+  "extra": {
+    "org.example": {
+      "anything": [
+        1,
+        2
+      ]
+    }
+  },
+  "results": {
+    "tool": {
+      "name": "synthetic",
+      "version": "1.2.3",
+      "extra": {
+        "org.example.k": true
+      }
+    },
+    "summary": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "pending": 0,
+      "skipped": 0,
+      "other": 0,
+      "start": 1,
+      "stop": 2,
+      "extra": {
+        "org.example.s": "v"
+      }
+    },
+    "tests": [
+      {
+        "name": "a",
+        "status": "passed",
+        "duration": 1,
+        "extra": {
+          "org.example.t": null
+        }
+      }
+    ],
+    "extra": {
+      "org.example.r": {}
+    }
+  }
+}

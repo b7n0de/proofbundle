@@ -1,0 +1,56 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.2.0",
+  "reportId": "3e1897fe-320e-4f9c-a46c-a5bbdafe3adc",
+  "timestamp": "2026-10-16T07:20:51.862Z",
+  "generatedBy": "jest-ctrf-json-reporter",
+  "results": {
+    "tool": {
+      "name": "jest"
+    },
+    "summary": {
+      "tests": 2,
+      "passed": 0,
+      "failed": 0,
+      "pending": 2,
+      "skipped": 0,
+      "other": 0,
+      "start": 1792135251864,
+      "stop": 1792135252068
+    },
+    "tests": [
+      {
+        "testId": "ctrf:jest:v1:807d7e7b88d95fcd7b587969bd97c8ebd9bd9d9c06160507f54d527c300f8121",
+        "executionId": "49494719-0b8d-4e98-b501-0551cd8741e3",
+        "attemptId": "1f322804-0a80-4efa-98da-88512b14d92f",
+        "name": "s1",
+        "duration": 0,
+        "status": "pending",
+        "rawStatus": "pending",
+        "type": "unit",
+        "filePath": "/work/jsgen/onlyskip/__tests__/c.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "c.test.js"
+        ]
+      },
+      {
+        "testId": "ctrf:jest:v1:b3c4368d6743a404389ea7d36a1f40cf8f33c5c5e7fbc78e02302296616ad3a3",
+        "executionId": "49c6e62d-7282-4efe-862a-0edffe2d6cb1",
+        "attemptId": "0270257a-22dc-4d0d-95be-ebb4102ccbf7",
+        "name": "s2",
+        "duration": 0,
+        "status": "pending",
+        "rawStatus": "pending",
+        "type": "unit",
+        "filePath": "/work/jsgen/onlyskip/__tests__/c.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "c.test.js"
+        ]
+      }
+    ]
+  }
+}

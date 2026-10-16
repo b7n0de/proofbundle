@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.acme.FlakyTest" tests="2" errors="0" skipped="0" failures="0" flakes="1"><properties><property name="java.version" value="21"/></properties><testcase name="testFlaky" classname="org.acme.FlakyTest" time="0.034"><flakyFailure message="expected 1" type="AssertionFailedError"><stackTrace>trace</stackTrace><system-out>out</system-out></flakyFailure></testcase><testcase name="testStable" classname="org.acme.FlakyTest" time="0.001"/></testsuite>
