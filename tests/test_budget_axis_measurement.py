@@ -259,7 +259,9 @@ def test_stdout_nennt_die_gefallene_zusicherung_nicht_nur_ihre_zahl(monkeypatch,
              "meldung": "1 von 6 nicht bestanden — kurve_ist_nicht_ueberlinear: GERISSEN "
                         "— AssertionError: Zeit-Exponent 1.31 > 1.2"},
         ],
-        "kombis": [{"name": "alle_zusammen", "urteil": "BESTANDEN", "meldung": "3 Zusicherungen, alle bestanden"}],
+        # BA1 (6.3.1): the field messe() writes; the hand-built `kombis` here hid that main() read a name no run wrote
+        "kombinationen": [{"name": "alle_zusammen", "urteil": "BESTANDEN",
+                           "meldung": "3 Zusicherungen, alle bestanden"}],
         "achsen_bestanden": 1, "achsen_uebersprungen": 0, "achsen_gerissen": 1,
         "maschinenfaktor_schnellstes_ende": 1.0, "ist_referenzmessung": True, "ok": False,
     })
