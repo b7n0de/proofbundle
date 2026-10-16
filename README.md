@@ -175,7 +175,7 @@ GitLab CI, with the same seed in the masked variable `PROOFBUNDLE_KEY`:
 - k=$(mktemp) && echo "$PROOFBUNDLE_KEY" | base64 -d > "$k" && pip install 'proofbundle[eval]' && proofbundle emit-test-receipt --junit report.xml --commit "$CI_COMMIT_SHA" --key "$k" --out test-receipt.json
 ```
 
-Pass `--ctrf ctrf-report.json` instead of `--junit` for a CTRF report. `proofbundle show-eval test-receipt.json --expect-issuer <issuer>` verifies the receipt offline, and `proofbundle check-test-receipt test-receipt.json --report report.xml` checks it against the report: the digest, every count and the verdict.
+Pass `--ctrf ctrf-report.json` instead of `--junit` for a CTRF report. `proofbundle show-eval test-receipt.json --expect-issuer <issuer>` verifies the receipt offline, and `proofbundle check-test-receipt test-receipt.json --report report.xml` checks it against the report: the digest, the whole provenance and the verdict.
 
 The receipt proves which report was signed by which key. It does not prove that the tests are meaningful, that the report came from the real run, or that the report lists every test, because a test file that fails to load can be missing from a report without a trace. A report that contradicts itself, such as a count attribute that disagrees with its testcases, is refused.
 

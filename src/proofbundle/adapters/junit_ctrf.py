@@ -44,10 +44,12 @@ load was missing from both the jest-junit and the CTRF report of the same run.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import re
 import stat
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -63,13 +65,17 @@ from ._provenance import bind_reported_version
 
 __all__ = [
     "FORMAT_JUNIT", "FORMAT_CTRF", "REPORT_MAX_BYTES", "XML_MAX_DEPTH", "CTRF_SPEC_VERSION", "VERDICT_RULE",
-    "NON_CLAIMS", "ReportRefused", "ReportCounts", "read_junit_xml", "read_ctrf_json", "from_junit_xml",
-    "from_ctrf_json", "verify_test_receipt",
+    "NON_CLAIMS", "RECEIPT_PROFILE", "ReportRefused", "ReportCounts", "read_junit_xml", "read_ctrf_json",
+    "from_junit_xml", "from_ctrf_json", "verify_test_receipt",
 ]
 
 FORMAT_JUNIT = "junit-xml"
 FORMAT_CTRF = "ctrf"
+#: Names the provenance this adapter writes. `verify_test_receipt` rebuilds that provenance from the report and
+#: compares all of it, so a receipt of another profile is not read as one of this.
+RECEIPT_PROFILE = "proofbundle/test-report-receipt/v1"
 REPORT_MAX_BYTES = 64 * 1024 * 1024
+_READ_CHUNK = 1024 * 1024
 XML_MAX_DEPTH = 64
 JSON_MAX_NODES = 5_000_000
 #: The CTRF specification version this reader follows: ctrf-io/ctrf spec/ctrf.md, version 0.2.0 dated
@@ -143,6 +149,16 @@ def _refuse_size(raw: bytes, max_bytes: int) -> None:
         raise ReportRefused("too_large", f"the report has {len(raw)} bytes, more than the limit of {max_bytes}")
 
 
+def _refuse_nul(raw: bytes) -> None:
+    """Neither XML nor JSON text holds a NUL character, and UTF-8 encodes one only as the byte 0. UTF-16 and UTF-32
+    text without a byte order mark is full of zero bytes and decodes as valid UTF-8, so this is where the UTF-8
+    promise holds for such a file: measured, expat read a UTF-16-LE report without a mark and counted it."""
+    if b"\x00" in raw:
+        raise ReportRefused("encoding", f"the report holds a NUL byte (at {raw.index(0)}), which UTF-8 XML and JSON "
+                                        "text cannot hold; a UTF-16 or UTF-32 file without a byte order mark looks "
+                                        "like this")
+
+
 def _read_file(path: Any, max_bytes: int) -> bytes:
     """The report's bytes, read once. The file is opened without blocking and judged by the descriptor it
     opened, so a path swapped for a FIFO or a device between a check and the open is refused, not read."""
@@ -162,13 +178,23 @@ def _read_file(path: Any, max_bytes: int) -> bytes:
     if not regular:
         os.close(fd)
         raise ReportRefused("not_a_file", f"{render_safe(str(path))} is not a regular file")
+    # Read in pieces, never more than the limit plus one byte: a single read of `max_bytes + 1` allocates that much
+    # up front, and a large limit then ends in MemoryError or OverflowError instead of a reading.
+    stuecke: list = []
+    gelesen = 0
     try:
         with handle:
-            raw = handle.read(max_bytes + 1)
+            while True:
+                stueck = handle.read(min(_READ_CHUNK, max_bytes + 1 - gelesen))
+                if not stueck:
+                    break
+                stuecke.append(stueck)
+                gelesen += len(stueck)
+                if gelesen > max_bytes:
+                    raise ReportRefused("too_large", f"the report has more than the limit of {max_bytes} bytes")
     except OSError as exc:
         raise ReportRefused("unreadable", f"cannot read the report {render_safe(str(path))}: {exc}") from exc
-    _refuse_size(raw, max_bytes)
-    return raw
+    return b"".join(stuecke)
 
 
 # ── JUnit XML ────────────────────────────────────────────────────────────────────────────────────────────
@@ -346,8 +372,11 @@ def read_junit_xml(data: bytes, *, max_bytes: int = REPORT_MAX_BYTES) -> ReportC
         (raw[len(_UTF8_BOM):] if raw.startswith(_UTF8_BOM) else raw).decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ReportRefused("encoding", f"the report is not UTF-8 (byte {exc.start})") from None
+    _refuse_nul(raw)
     reading = _JunitReading()
-    parser = expat.ParserCreate("UTF-8")
+    # With namespace processing the parser itself refuses an unbound prefix and two attributes that name the same
+    # expanded name; a namespaced element reaches the structure check as "uri name" and is refused there.
+    parser = expat.ParserCreate("UTF-8", " ")
     parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
     parser.XmlDeclHandler = reading.xml_declaration
     parser.StartDoctypeDeclHandler = _refuse_doctype
@@ -366,57 +395,130 @@ def read_junit_xml(data: bytes, *, max_bytes: int = REPORT_MAX_BYTES) -> ReportC
 
 # ── CTRF JSON ────────────────────────────────────────────────────────────────────────────────────────────
 
-# The fields CTRF 0.2.0 defines (spec/ctrf.md, Appendix A); anything else must sit inside an `extra`.
-_CTRF_ROOT = frozenset({"reportFormat", "specVersion", "reportId", "runId", "timestamp", "generatedBy", "results",
-                        "insights", "baseline", "extra"})
-_CTRF_RESULTS = frozenset({"tool", "summary", "tests", "environment", "extra"})
-_CTRF_TOOL = frozenset({"name", "version", "extra"})
-_CTRF_SUMMARY = frozenset({"tests", "passed", "failed", "pending", "skipped", "other", "flaky", "suites", "start",
-                           "stop", "duration", "extra"})
-_CTRF_TEST = frozenset({"id", "testId", "executionId", "attemptId", "name", "status", "duration", "start", "stop",
-                        "suite", "message", "trace", "snippet", "ai", "line", "rawStatus", "tags", "labels", "type",
-                        "filePath", "retries", "retryAttempts", "flaky", "stdout", "stderr", "threadId", "browser",
-                        "device", "screenshot", "attachments", "parameters", "steps", "insights", "extra"})
+# The fields CTRF 0.2.0 defines for the five objects this adapter reads (spec/ctrf.md sections 5 to 9, Appendix A),
+# each with the kind of value the schema and the prose require. A POSITIVE LIST: a field not named here must sit
+# inside an `extra` object, and a named field of another kind is refused. The objects named only as `obj` or `arr_obj`
+# (environment, insights, baseline, labels' values aside, retry attempts, attachments, steps) are not read further.
+_CTRF_ROOT = {"reportFormat": "ctrf", "specVersion": "semver", "reportId": "uuid", "runId": "str1",
+              "timestamp": "datetime", "generatedBy": "str", "results": "obj", "insights": "obj", "baseline": "obj",
+              "extra": "obj"}
+_CTRF_RESULTS = {"tool": "obj", "summary": "obj", "tests": "arr_obj", "environment": "obj", "extra": "obj"}
+_CTRF_TOOL = {"name": "str1", "version": "str", "extra": "obj"}
+_CTRF_SUMMARY = {"tests": "uint", "passed": "uint", "failed": "uint", "pending": "uint", "skipped": "uint",
+                 "other": "uint", "flaky": "uint", "suites": "uint", "start": "int", "stop": "int", "duration": "int",
+                 "extra": "obj"}
+_CTRF_TEST = {"id": "uuid", "testId": "str1", "executionId": "str1", "attemptId": "str1", "name": "str1",
+              "status": "status", "duration": "int", "start": "int", "stop": "int", "suite": "arr_str1",
+              "message": "str", "trace": "str", "snippet": "str", "ai": "str", "line": "int", "rawStatus": "str",
+              "tags": "arr_str", "labels": "labels", "type": "str", "filePath": "str", "retries": "uint",
+              "retryAttempts": "arr_obj1", "flaky": "bool", "stdout": "arr_str", "stderr": "arr_str",
+              "threadId": "str", "browser": "str", "device": "str", "screenshot": "str", "attachments": "arr_obj",
+              "parameters": "obj", "steps": "arr_obj", "insights": "obj", "extra": "obj"}
+_CTRF_REQUIRED = {"the document": ("reportFormat", "specVersion", "results"),
+                  "results": ("tool", "summary", "tests"),
+                  "results.tool": ("name",),
+                  "results.summary": ("tests", "passed", "failed", "pending", "skipped", "other", "start", "stop"),
+                  "test": ("name", "status", "duration")}
 _CTRF_STATUSES = ("passed", "failed", "skipped", "pending", "other")
 _CTRF_SUMMARY_COUNTS = ("tests", "passed", "failed", "pending", "skipped", "other")
-_SEMVER = re.compile(r"\A([0-9]+)\.([0-9]+)\.([0-9]+)\Z")
+# SemVer 2.0.0 core without leading zeros, each part at most nine digits: a longer one is no version this reader
+# needs, and it never reaches int() (more than 4300 digits raised a bare ValueError there).
+_SEMVER = re.compile(r"\A(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\Z")
 _SUPPORTED = tuple(int(x) for x in CTRF_SPEC_VERSION.split(".")[:2])
 _MAX_COUNT = 2 ** 53 - 1
+_UUID = re.compile(r"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+_RFC3339 = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]+)?"
+                      r"([Zz]|[+-]([0-9]{2}):([0-9]{2}))\Z")
 
 
-def _only_known(obj: dict, known: frozenset, where: str) -> None:
+def _is_rfc3339(text: str) -> bool:
+    m = _RFC3339.match(text)
+    if m is None:
+        return False
+    jahr, monat, tag, stunde, minute, sekunde = (int(m.group(i)) for i in range(1, 7))
+    try:
+        datetime(jahr, monat, tag)
+    except ValueError:
+        return False
+    versatz_ok = m.group(9) is None or (int(m.group(9)) <= 23 and int(m.group(10)) <= 59)
+    return stunde <= 23 and minute <= 59 and sekunde <= 60 and versatz_ok
+
+
+def _is_label_value(value: Any) -> bool:
+    def primitiv(v: Any) -> bool:
+        return type(v) in (str, bool, int, float)
+    if type(value) is list:
+        return bool(value) and all(primitiv(v) for v in value)
+    return primitiv(value)
+
+
+def _kind_ok(kind: str, value: Any) -> bool:
+    if kind == "str":
+        return type(value) is str
+    if kind == "str1":
+        return type(value) is str and bool(value)
+    if kind == "int":
+        return type(value) is int and -_MAX_COUNT <= value <= _MAX_COUNT
+    if kind == "uint":
+        return type(value) is int and 0 <= value <= _MAX_COUNT
+    if kind == "bool":
+        return type(value) is bool
+    if kind == "obj":
+        return type(value) is dict
+    if kind == "arr_obj":
+        return type(value) is list and all(type(v) is dict for v in value)
+    if kind == "arr_obj1":
+        return type(value) is list and bool(value) and all(type(v) is dict for v in value)
+    if kind == "arr_str":
+        return type(value) is list and all(type(v) is str for v in value)
+    if kind == "arr_str1":
+        return type(value) is list and bool(value) and all(type(v) is str for v in value)
+    if kind == "uuid":
+        return type(value) is str and _UUID.match(value) is not None
+    if kind == "datetime":
+        return type(value) is str and _is_rfc3339(value)
+    if kind == "labels":
+        return type(value) is dict and all(_is_label_value(v) for v in value.values())
+    if kind == "status":
+        return type(value) is str and is_member(value, _CTRF_STATUSES)
+    raise AssertionError(f"unknown field kind {kind}")
+
+
+_KIND_TEXT = {"str": "a string", "str1": "a non-empty string", "int": "an integer of magnitude at most 2**53-1",
+              "uint": "a non-negative integer of at most 2**53-1", "bool": "a boolean", "obj": "an object",
+              "arr_obj": "an array of objects", "arr_obj1": "a non-empty array of objects",
+              "arr_str": "an array of strings", "arr_str1": "a non-empty array of strings",
+              "uuid": "a UUID (RFC 4122)", "datetime": "an RFC 3339 date-time",
+              "labels": "an object of strings, numbers, booleans or non-empty arrays of those",
+              "status": f"one of {list(_CTRF_STATUSES)}"}
+
+
+def _check_fields(obj: dict, fields: dict, where: str, required_key: str) -> None:
+    """Every field of `obj` named in `fields` and of its kind, every required one present. The two fields with a
+    reason code of their own (`reportFormat`, `specVersion`) are judged by the caller first."""
     for key in obj:
-        if not is_member(key, known):
+        if type(key) is not str or not is_member(key, fields):
             raise ReportRefused("unknown_field", f"{where} has the field {render_safe(key)}, which CTRF does not "
                                                  "define outside an extra object")
-    if "extra" in obj and type(obj["extra"]) is not dict:
-        raise ReportRefused("bad_value", f"{where}.extra must be an object")
+    for key in _CTRF_REQUIRED[required_key]:
+        if key not in obj:
+            raise ReportRefused("missing_field", f"{where} has no {key}, which CTRF requires")
+    for key, value in obj.items():
+        kind = fields[key]
+        if kind in ("ctrf", "semver"):
+            continue
+        if not _kind_ok(kind, value):
+            raise ReportRefused("bad_value", f"{where}.{key} must be {_KIND_TEXT[kind]}, got {render_safe(value)}")
 
 
-def _field(obj: dict, key: str, where: str) -> Any:
-    if key not in obj:
-        raise ReportRefused("missing_field", f"{where} has no {key}, which CTRF requires")
-    return obj[key]
-
-
-def _object(obj: dict, key: str, where: str) -> dict:
-    value = _field(obj, key, where)
-    if type(value) is not dict:
-        raise ReportRefused("bad_value", f"{where}.{key} must be an object")
-    return value
-
-
-def _integer(value: Any, where: str, *, non_negative: bool) -> int:
-    if type(value) is not int or abs(value) > _MAX_COUNT or (non_negative and value < 0):
-        kind = "a non-negative integer" if non_negative else "an integer"
-        raise ReportRefused("bad_value", f"{where} must be {kind}, got {render_safe(value)}")
-    return value
-
-
-def _text(value: Any, where: str) -> str:
-    if type(value) is not str or not value:
-        raise ReportRefused("bad_value", f"{where} must be a non-empty string, got {render_safe(value)}")
-    return value
+def _check_retries(test: dict, where: str) -> None:
+    """Section 9.20: retryAttempts present means retries present and equal to its length; retries above 0 needs
+    retryAttempts, retries 0 forbids them."""
+    if "retryAttempts" in test and test.get("retries") != len(test["retryAttempts"]):
+        raise ReportRefused("contradiction", f"{where}.retries must be present and equal the "
+                                             f"{len(test['retryAttempts'])} entries of retryAttempts")
+    if test.get("retries", 0) > 0 and "retryAttempts" not in test:
+        raise ReportRefused("contradiction", f"{where}.retries is {test['retries']} but there is no retryAttempts")
 
 
 def _refuse_non_finite(doc: Any) -> None:
@@ -441,6 +543,7 @@ def _parse_ctrf(raw: bytes, max_bytes: int) -> Any:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ReportRefused("encoding", f"the report is not UTF-8 (byte {exc.start})") from None
+    _refuse_nul(raw)
     budget = replace(DEFAULT_BUDGET, input_bytes=max_bytes, json_nodes=JSON_MAX_NODES, string_len=max_bytes)
     try:
         doc = loads_strict(text, budget=budget)
@@ -471,55 +574,33 @@ def read_ctrf_json(data: bytes, *, max_bytes: int = REPORT_MAX_BYTES) -> ReportC
         raise ReportRefused("not_ctrf", "a CTRF document is one JSON object")
     if doc.get("reportFormat") != "CTRF":
         raise ReportRefused("not_ctrf", f"reportFormat must be \"CTRF\", got {render_safe(doc.get('reportFormat'))}")
-    _only_known(doc, _CTRF_ROOT, "the document")
-    version = _field(doc, "specVersion", "the document")
+    version = doc.get("specVersion")
     match = _SEMVER.match(version) if type(version) is str else None
     if match is None or (int(match.group(1)), int(match.group(2))) != _SUPPORTED:
         raise ReportRefused("unsupported_version", f"specVersion {render_safe(version)} is not read; this adapter "
                                                    f"reads CTRF {_SUPPORTED[0]}.{_SUPPORTED[1]}.x")
-    results = _object(doc, "results", "the document")
-    _only_known(results, _CTRF_RESULTS, "results")
-    tool = _object(results, "tool", "results")
-    _only_known(tool, _CTRF_TOOL, "results.tool")
-    tool_name = _text(_field(tool, "name", "results.tool"), "results.tool.name")
-    tool_version = tool.get("version")
-    if tool_version is not None and type(tool_version) is not str:
-        raise ReportRefused("bad_value", "results.tool.version must be a string")
-    summary = _object(results, "summary", "results")
-    _only_known(summary, _CTRF_SUMMARY, "results.summary")
-    declared = {k: _integer(_field(summary, k, "results.summary"), f"results.summary.{k}", non_negative=True)
-                for k in _CTRF_SUMMARY_COUNTS}
-    for k in ("start", "stop"):
-        _integer(_field(summary, k, "results.summary"), f"results.summary.{k}", non_negative=False)
-    for k in ("flaky", "suites"):
-        if k in summary:
-            _integer(summary[k], f"results.summary.{k}", non_negative=True)
-    if "duration" in summary:
-        _integer(summary["duration"], "results.summary.duration", non_negative=False)
-    tests = _field(results, "tests", "results")
-    if type(tests) is not list:
-        raise ReportRefused("bad_value", "results.tests must be an array")
+    _check_fields(doc, _CTRF_ROOT, "the document", "the document")
+    results = doc["results"]
+    _check_fields(results, _CTRF_RESULTS, "results", "results")
+    tool = results["tool"]
+    _check_fields(tool, _CTRF_TOOL, "results.tool", "results.tool")
+    summary = results["summary"]
+    _check_fields(summary, _CTRF_SUMMARY, "results.summary", "results.summary")
+    tests = results["tests"]
     by_status = dict.fromkeys(_CTRF_STATUSES, 0)
     for i, test in enumerate(tests):
         where = f"results.tests[{i}]"
-        if type(test) is not dict:
-            raise ReportRefused("bad_value", f"{where} must be an object")
-        _only_known(test, _CTRF_TEST, where)
-        _text(_field(test, "name", where), f"{where}.name")
-        status = _field(test, "status", where)
-        if type(status) is not str or not is_member(status, _CTRF_STATUSES):
-            raise ReportRefused("bad_value", f"{where}.status must be one of {list(_CTRF_STATUSES)}, got "
-                                             f"{render_safe(status)}")
-        _integer(_field(test, "duration", where), f"{where}.duration", non_negative=False)
-        by_status[status] += 1
+        _check_fields(test, _CTRF_TEST, where, "test")
+        _check_retries(test, where)
+        by_status[test["status"]] += 1
     counted = {"tests": len(tests), **by_status}
     for k in _CTRF_SUMMARY_COUNTS:
-        if declared[k] != counted[k]:
-            raise ReportRefused("count_mismatch", f"results.summary.{k} is {declared[k]}, but the tests array holds "
+        if summary[k] != counted[k]:
+            raise ReportRefused("count_mismatch", f"results.summary.{k} is {summary[k]}, but the tests array holds "
                                                   f"{counted[k]}; the report contradicts itself")
     n_pass, n_failed, n_skipped, n_pending, n_other = (by_status[s] for s in _CTRF_STATUSES)
     return ReportCounts(fmt=FORMAT_CTRF, tests=len(tests), passed=n_pass, failed=n_failed, errors=n_other,
-                        skipped=n_skipped + n_pending, name=tool_name, tool_version=tool_version,
+                        skipped=n_skipped + n_pending, name=tool["name"], tool_version=tool.get("version"),
                         spec_version=version, other=n_other, pending=n_pending)
 
 
@@ -540,21 +621,30 @@ def _pass_rate_floor(passed: int, executed: int) -> str:
     return ("0." + str(six).rjust(6, "0")).rstrip("0").rstrip(".")
 
 
-def _claim_from_counts(counts: ReportCounts, digest_hex: str, *, commit: Optional[str], suite: Optional[str],
-                       timestamp: Optional[str], model_salt: Optional[bytes], dataset_salt: Optional[bytes]):
+def _require_nfc(text: Optional[str], where: str) -> None:
+    """The eval claim signs NFC text only (EVAL_CLAIM.md section 4). A report string that is not NFC is refused here,
+    with the field that holds it, rather than by the canonicalizer with a message that names none."""
+    if text is not None and unicodedata.normalize("NFC", text) != text:
+        raise ReportRefused("not_nfc", f"{where} is not NFC-normalized text, and the eval claim signs NFC text only")
+
+
+def _provenance(counts: ReportCounts, digest_hex: str, commit: Optional[str]) -> dict:
+    """THE ONE PROVENANCE of a test receipt. The producer signs what this returns and `verify_test_receipt` compares
+    the signed provenance with what this returns for the report, all of it, so the check cannot cover less than the
+    producer writes."""
     if commit is not None and (type(commit) is not str or not _COMMIT.match(commit)):
         raise ValueError("commit must be a full git object name: 40 or 64 lowercase hex characters, got "
                          f"{render_safe(commit)}")
     executed = counts.executed
-    score = _pass_rate_floor(counts.passed, executed)
     provenance: dict = {
+        "receipt_profile": RECEIPT_PROFILE,
         "harness": counts.fmt, "report_format": counts.fmt, "report_sha256": digest_hex,
         "tests_total": counts.tests, "tests_passed": counts.passed, "tests_failed": counts.failed,
         "tests_errors": counts.errors, "tests_skipped": counts.skipped,
         "verdict_rule": VERDICT_RULE, "non_claims": NON_CLAIMS,
     }
     if executed:
-        provenance["pass_rate_floor"] = score
+        provenance["pass_rate_floor"] = _pass_rate_floor(counts.passed, executed)
     if commit is not None:
         provenance["commit"] = commit
     if counts.fmt == FORMAT_CTRF:
@@ -567,14 +657,34 @@ def _claim_from_counts(counts: ReportCounts, digest_hex: str, *, commit: Optiona
     else:
         bind_reported_version(provenance, "harness_version", None, bound=False,
                               reason="JUnit XML has no field for the version of the tool that wrote it")
+    return provenance
+
+
+def _suite_version(counts: ReportCounts) -> str:
+    return FORMAT_JUNIT if counts.fmt == FORMAT_JUNIT else f"ctrf-{counts.spec_version}"
+
+
+def _claim_from_counts(counts: ReportCounts, digest_hex: str, *, commit: Optional[str], suite: Optional[str],
+                       timestamp: Optional[str], model_salt: Optional[bytes], dataset_salt: Optional[bytes]):
+    provenance = _provenance(counts, digest_hex, commit)
+    if suite is not None:
+        if type(suite) is not str or not suite:
+            raise ValueError(f"suite must be a non-empty string, got {render_safe(suite)}")
+        _require_nfc(suite, "the suite argument")
+    elif counts.fmt == FORMAT_JUNIT:
+        _require_nfc(counts.name, "the name attribute of the report's root element (pass suite= to name the suite)")
+    if counts.fmt == FORMAT_CTRF:
+        _require_nfc(counts.name, "results.tool.name")
+        _require_nfc(counts.tool_version, "results.tool.version")
     if timestamp is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    suite_version = FORMAT_JUNIT if counts.fmt == FORMAT_JUNIT else f"ctrf-{counts.spec_version}"
+    executed = counts.executed
     claim, salts = build_eval_claim(
-        suite=suite if suite is not None else (counts.name or counts.fmt), suite_version=suite_version,
-        metric="pass_rate", comparator=">=", threshold="1", score=score, n=executed,
-        model_id=f"git:{commit}" if commit is not None else "git:not-given", dataset_id=f"sha256:{digest_hex}",
-        issuer="", timestamp=timestamp, provenance=provenance, model_salt=model_salt, dataset_salt=dataset_salt)
+        suite=suite if suite is not None else (counts.name or counts.fmt), suite_version=_suite_version(counts),
+        metric="pass_rate", comparator=">=", threshold="1", score=_pass_rate_floor(counts.passed, executed),
+        n=executed, model_id=f"git:{commit}" if commit is not None else "git:not-given",
+        dataset_id=f"sha256:{digest_hex}", issuer="", timestamp=timestamp, provenance=provenance,
+        model_salt=model_salt, dataset_salt=dataset_salt)
     if claim["passed"] is not counts.verdict:
         # The builder computes `passed` from the score; the receipt signs only the counts' verdict.
         raise ReportRefused("verdict_mismatch", f"the claim's verdict {claim['passed']!r} is not the verdict of the "
@@ -608,30 +718,59 @@ def from_ctrf_json(path, *, commit: Optional[str] = None, suite: Optional[str] =
 _READERS = {FORMAT_JUNIT: read_junit_xml, FORMAT_CTRF: read_ctrf_json}
 
 
+def _as_json(value: Any) -> str:
+    """One text per JSON value, by type: `true` and `1`, `1` and `1.0` are different texts, as they are different
+    values in a signed claim."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _provenance_difference(signed: dict, expected: dict) -> Optional[str]:
+    for key in sorted(set(signed) | set(expected), key=str):
+        if key not in expected:
+            return f"the receipt signs provenance.{render_safe(key, quote=False)}, which a test receipt does not carry"
+        if key not in signed:
+            return f"the receipt lacks provenance.{key}, which the report gives as {render_safe(expected[key])}"
+        if _as_json(signed[key]) != _as_json(expected[key]):
+            return (f"the receipt signs provenance.{key}={render_safe(signed[key])}, the report gives "
+                    f"{render_safe(expected[key])}")
+    return None
+
+
 @_ein_stand(aussen={"report": "pfad"})
 def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = None,
                         max_bytes: int = REPORT_MAX_BYTES) -> dict:
     """Check a test receipt against the report it names, offline.
 
-    Verifies the receipt (`decode_eval_claim`: signature, Merkle inclusion, issuer binding), then that
-    the report's SHA-256 is the signed ``report_sha256``, then reads the report again with this adapter
-    and compares every signed count and the verdict. Returns ``{"ok", "reason", "claim"}``; ``claim`` is
-    None when the receipt itself does not verify. Never raises for a malformed receipt or report."""
-    from ..evalclaim import decode_eval_claim  # noqa: PLC0415
+    Verifies the receipt (`decode_eval_claim`: signature, Merkle inclusion, issuer binding) and the pinned issuers,
+    each pin judged by the trust-anchor rule `show-eval --expect-issuer` applies; then that the report's SHA-256 is the
+    signed ``report_sha256``; then reads the report again with this adapter, rebuilds the provenance a receipt of
+    ``RECEIPT_PROFILE`` carries for it (`_provenance`) and compares ALL of it, field by field and by type, and the
+    claim's suite version, metric, comparator, threshold, ``n`` and verdict. Not checked, because the report does not
+    give them: the suite name, the timestamp, the two salted commitments and the assurance level.
+
+    Returns ``{"ok", "reason", "claim"}``; ``claim`` is None when the receipt itself does not verify. Never raises for
+    a malformed receipt, report or pin."""
+    from ..evalclaim import _issuer_key_weakness, decode_eval_claim  # noqa: PLC0415
     claim = decode_eval_claim(bundle)
     if claim is None:
         return {"ok": False, "reason": "not a valid, issuer-bound eval receipt", "claim": None}
     if expected_issuers is not None:
         if type(expected_issuers) not in (list, tuple) or not all(type(p) is str for p in expected_issuers):
             return {"ok": False, "reason": "expected_issuers must be a list of issuer strings", "claim": claim}
+        for pin in expected_issuers:
+            schwaeche = _issuer_key_weakness(pin)
+            if schwaeche is not None:
+                return {"ok": False, "reason": f"the pin {render_safe(pin)} names a {schwaeche} Ed25519 key, which is "
+                                               "refused as a trusted key", "claim": claim}
         if claim["issuer"] not in expected_issuers:
             return {"ok": False, "reason": f"the receipt is signed by {claim['issuer']}, not by a pinned issuer",
                     "claim": claim}
     provenance = claim.get("provenance") or {}
     fmt = provenance.get("report_format")
-    if type(fmt) is not str or not is_member(fmt, _READERS):
+    if (type(fmt) is not str or not is_member(fmt, _READERS)
+            or _as_json(provenance.get("receipt_profile")) != _as_json(RECEIPT_PROFILE)):
         return {"ok": False, "reason": "the receipt is not a test-report receipt (no report_format junit-xml or "
-                                       "ctrf in its provenance)", "claim": claim}
+                                       f"ctrf of the profile {RECEIPT_PROFILE} in its provenance)", "claim": claim}
     try:
         raw = _read_file(report, _check_limit(max_bytes))
         digest = hashlib.sha256(raw).hexdigest()
@@ -639,21 +778,22 @@ def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = No
             return {"ok": False, "reason": f"the report's digest {digest} is not the signed report_sha256 "
                                            f"{render_safe(provenance.get('report_sha256'))}", "claim": claim}
         counts = _READERS[fmt](raw, max_bytes=max_bytes)
+        expected = _provenance(counts, digest, provenance.get("commit"))
     except (ReportRefused, ValueError) as exc:
         return {"ok": False, "reason": str(exc), "claim": claim}
-    expected = {"tests_total": counts.tests, "tests_passed": counts.passed, "tests_failed": counts.failed,
-                "tests_errors": counts.errors, "tests_skipped": counts.skipped}
-    for key, value in expected.items():
-        if type(provenance.get(key)) is not int or provenance.get(key) != value:
-            return {"ok": False, "reason": f"the receipt signs {key}={render_safe(provenance.get(key))}, the report "
-                                           f"reads as {value}", "claim": claim}
+    unterschied = _provenance_difference(provenance, expected)
+    if unterschied is not None:
+        return {"ok": False, "reason": unterschied, "claim": claim}
     signed_verdict = claim["passed"]
     if not is_bool(signed_verdict):
         return {"ok": False, "reason": "the receipt's passed is not a boolean", "claim": claim}
-    shape = (claim["metric"], claim["comparator"], claim["threshold"], claim["n"], signed_verdict)
-    if shape != ("pass_rate", ">=", "1", counts.executed, counts.verdict):
-        return {"ok": False, "reason": f"the receipt signs {render_safe(list(shape))}, the report gives pass_rate >= 1 "
-                                       f"over n={counts.executed} with passed={counts.verdict}", "claim": claim}
+    shape = (claim["suite_version"], claim["metric"], claim["comparator"], claim["threshold"], claim["n"],
+             signed_verdict)
+    if _as_json(list(shape)) != _as_json([_suite_version(counts), "pass_rate", ">=", "1", counts.executed,
+                                          counts.verdict]):
+        return {"ok": False, "reason": f"the receipt signs {render_safe(list(shape))}, the report gives "
+                                       f"{_suite_version(counts)}, pass_rate >= 1 over n={counts.executed} with "
+                                       f"passed={counts.verdict}", "claim": claim}
     return {"ok": True, "reason": f"the receipt is about this report: {counts.tests} tests, {counts.passed} passed, "
                                   f"{counts.failed} failed, {counts.errors} errors, {counts.skipped} skipped, "
                                   f"passed={counts.verdict}", "claim": claim}

@@ -137,8 +137,16 @@ failed + errors. Passed means no failure, no error and at least one passed test,
 and a report of skipped tests only do not pass. The provenance carries `report_sha256` (the SHA-256
 of the report's bytes), the optional `commit`, the counts as `tests_total`, `tests_passed`,
 `tests_failed`, `tests_errors` and `tests_skipped`, the pass rate rounded down to six places,
-`verdict_rule` and `non_claims`. The dataset commitment is over `sha256:<report digest>` and the
-model commitment over `git:<commit>`.
+`verdict_rule`, `non_claims` and `receipt_profile` (`proofbundle/test-report-receipt/v1`). The dataset
+commitment is over `sha256:<report digest>` and the model commitment over `git:<commit>`.
+
+**The check.** `check-test-receipt` and `verify_test_receipt` verify the receipt, then that the report's
+SHA-256 is the signed one, then read the report again, rebuild the provenance a receipt of this profile
+carries for it and compare all of it, field by field and by type, together with the suite version,
+metric, comparator, threshold, `n` and verdict. The suite name, the timestamp, the two salted
+commitments and the assurance level are not checked, because the report does not give them. An
+`--expect-issuer` pin is judged by the same trust-anchor rule as in `show-eval`, in the library too.
+A receipt made under a raised `--max-report-bytes` needs the same option on the check.
 
 **What is refused.** Every refusal is a `ReportRefused` with a stable `code` and a sentence naming
 the reason; the CLI exits 2 and writes no receipt.
@@ -147,17 +155,19 @@ the reason; the CLI exits 2 and writes no receipt.
 |---|---|
 | `doctype`, `entity`, `processing_instruction` | an XML document type declaration (DTD, entity declarations, external references, parameter entities), an undefined entity, a processing instruction |
 | `duplicate_attribute`, `duplicate_key` | a duplicated XML attribute, a duplicated JSON key at any depth |
-| `encoding` | anything but UTF-8; an XML declaration naming another encoding; a byte order mark in CTRF |
+| `encoding` | anything but UTF-8; an XML declaration naming another encoding; a byte order mark in CTRF; a NUL byte, which is how UTF-16 or UTF-32 without a byte order mark looks |
 | `trailing_content`, `malformed` | bytes after the one root element or JSON value; not well-formed; `NaN`, `Infinity` or a lone surrogate in JSON |
-| `structure` | a JUnit element where the formats above have none, such as a `<testcase>` inside `<system-out>` or an unknown outcome inside a `<testcase>` |
+| `structure` | a JUnit element where the formats above have none, such as a `<testcase>` inside `<system-out>`, an unknown outcome inside a `<testcase>`, or any element in a namespace; namespace processing is on, so an unbound prefix (`malformed`) and two attributes with one expanded name (`duplicate_attribute`) are refused too |
 | `count_mismatch`, `bad_count`, `contradiction` | a `tests`, `failures`, `errors` or `skipped` attribute or a CTRF summary count that disagrees with what it counts; a count that is not a non-negative integer; a rerun record without a final failure, or a flaky mark beside one |
-| `not_ctrf`, `unsupported_version`, `unknown_field`, `missing_field`, `bad_value` | not a CTRF document; a `specVersion` other than 0.2.x; a field CTRF does not define outside `extra` in the root, `results`, `tool`, `summary` or a test; a required field missing or of the wrong type |
+| `not_ctrf`, `unsupported_version`, `unknown_field`, `missing_field`, `bad_value` | not a CTRF document; a `specVersion` other than 0.2.x or not SemVer (leading zeros, more than nine digits a part); a field CTRF does not define outside `extra` in the root, `results`, `tool`, `summary` or a test; a required field missing; any field of those five objects not of the kind the schema and the prose give it (strings, non-empty strings, integers within 2**53-1, non-negative counts, booleans, arrays of strings, UUIDs, RFC 3339 date-times, label values); `retries` and `retryAttempts` that disagree (`contradiction`) |
+| `not_nfc` | a string the claim would sign that is not NFC: the JUnit root name (pass `--suite`), the CTRF tool name or version, or `--suite` itself |
 | `too_large`, `too_deep`, `not_a_file`, `unreadable` | past 64 MiB (`--max-report-bytes`) or 64 levels of nesting; a path that is not a regular file |
 
 Two real reports are refused for contradicting themselves: jest-junit 17.0.0 writes a `test.todo` as
 a testcase without a child and leaves it out of `tests`, and an older Surefire writer counted one test
-for two testcases. The objects CTRF defines but this adapter does not read (`environment`,
-`insights`, `baseline`, and a test's retry attempts, attachments and steps) are not validated; use a
+for two testcases. The contents of the objects CTRF defines but this adapter does not read
+(`environment`, `insights`, `baseline`, and a test's retry attempts, attachments and steps) are not
+validated beyond their being objects; use a
 JSON Schema validator against the CTRF schema for full conformance. The CTRF reader follows
 `spec/ctrf.md` of `ctrf-io/ctrf`, version 0.2.0 of 2026-10-10. The vectors, real and synthetic, are in
 `tests/fixtures/test_reports`.

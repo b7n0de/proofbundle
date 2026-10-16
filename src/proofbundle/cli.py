@@ -555,8 +555,12 @@ def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
     read and refused before a key is touched, so a refused report writes neither a receipt nor a key."""
     from .adapters.junit_ctrf import REPORT_MAX_BYTES, from_ctrf_json, from_junit_xml  # noqa: PLC0415
     from .evalclaim import EvalClaimError, emit_eval_receipt  # noqa: PLC0415
+    import os  # noqa: PLC0415
     report, build = (args.junit, from_junit_xml) if args.junit is not None else (args.ctrf, from_ctrf_json)
     max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
+    if os.path.realpath(args.out) == os.path.realpath(report):
+        _err("--out names the report itself; the receipt would overwrite the report it is about")
+        return 2
     try:
         claim, _ = build(report, commit=args.commit, suite=args.suite, timestamp=args.timestamp,
                          max_bytes=max_bytes)
@@ -586,13 +590,14 @@ def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
 
 
 def _cmd_check_test_receipt(args: argparse.Namespace) -> int:
-    from .adapters.junit_ctrf import verify_test_receipt  # noqa: PLC0415
+    from .adapters.junit_ctrf import REPORT_MAX_BYTES, verify_test_receipt  # noqa: PLC0415
     try:
         _refuse_weak_issuer_pins(getattr(args, "expect_issuer", None) or [])
     except ValueError as exc:
         _err(exc)
         return 2
-    result = verify_test_receipt(args.receipt, args.report, expected_issuers=args.expect_issuer)
+    max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
+    result = verify_test_receipt(args.receipt, args.report, expected_issuers=args.expect_issuer, max_bytes=max_bytes)
     if not result["ok"]:
         print(_safe_line(f"=> FAILED: {result['reason']}"), file=sys.stderr)
         return 1
@@ -3275,14 +3280,16 @@ def build_parser() -> argparse.ArgumentParser:
                            metavar="N", help="refuse a larger report (default 64 MiB)")
     emit_test.set_defaults(func=_cmd_emit_test_receipt)
 
-    check_test = sub.add_parser(
-        "check-test-receipt",
-        help="verify a test receipt and check it against the report it names: the digest, every count and the "
-             "verdict (exit 0 ok, 1 mismatch or invalid receipt, 2 malformed input)")
+    _check_test_text = ("verify a test receipt and check it against the report it names: the digest, the whole "
+                        "provenance and the verdict (exit 0 ok; 1 not ok, for any reason, an unreadable receipt or "
+                        "report included; 2 a refused --expect-issuer pin or a malformed option)")
+    check_test = sub.add_parser("check-test-receipt", help=_check_test_text, description=_check_test_text)
     check_test.add_argument("receipt", help="path to the receipt bundle JSON")
     check_test.add_argument("--report", required=True, help="path to the JUnit XML or CTRF JSON report")
     check_test.add_argument("--expect-issuer", dest="expect_issuer", action="append", default=None,
                             metavar="ISSUER", help="pin the accepted issuer ('ed25519:…'), repeatable, as in show-eval")
+    check_test.add_argument("--max-report-bytes", dest="max_report_bytes", type=int, default=None, metavar="N",
+                            help="refuse a larger report (default 64 MiB); give the limit the receipt was made with")
     check_test.set_defaults(func=_cmd_check_test_receipt)
 
     verify_proof = sub.add_parser(
