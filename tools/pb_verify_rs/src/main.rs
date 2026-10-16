@@ -2467,42 +2467,45 @@ fn run_verify_relation(
 /// engine, print the lineage as a JSON report (so crosscheck.py maps it through the ONE
 /// common_vocabulary.label_from_verify) and exit with the 0/1/2/3 contract.
 fn dispatch_verify_relation(args: &[OsString], cmd: &str, statement_mode: bool) -> ! {
+    // Z381 G1: the words after the subcommand are read as `proofbundle decision verify` and
+    // `proofbundle relation-statement verify` read them, with argparse, the key as `--pub B64`
+    // (required there). The form this verifier had before, the key as the word right after the
+    // envelope (`verify-relation ENV KEY ...`), stays accepted while `--pub` is absent, because
+    // the differential (crosscheck.py) and the Python test suite call it so. Python refuses that
+    // form, exit 2 ("unrecognized arguments"); the divergence is reported, not hidden.
     let opts = if statement_mode {
         PY_RELATION_STATEMENT_VERIFY
     } else {
         PY_DECISION_VERIFY
     };
-    let path = args
-        .get(2)
-        .unwrap_or_else(|| fatal(&format!("{cmd} needs an envelope file")));
-    let pub_b64 = text(
-        args.get(3)
-            .unwrap_or_else(|| fatal(&format!("{cmd} needs a base64 public key"))),
-        "the public key",
-    );
-    let mut related_paths: Vec<PathBuf> = Vec::new();
-    let mut related_pubs: Vec<String> = Vec::new();
-    let mut policy_path: Option<PathBuf> = None;
-    let mut i = 4;
-    while i < args.len() {
-        match text(&args[i], &format!("a {cmd} flag")) {
-            "--with-related" => {
-                related_paths.push(PathBuf::from(py_wert(args, i, opts, "--with-related")));
-                i += 2;
-            }
-            "--related-pub" => {
-                related_pubs.push(
-                    text(py_wert(args, i, opts, "--related-pub"), "--related-pub").to_string(),
-                );
-                i += 2;
-            }
-            "--policy" => {
-                policy_path = Some(PathBuf::from(py_wert(args, i, opts, "--policy")));
-                i += 2;
-            }
-            other => fatal(&format!("unknown {cmd} flag: {other}")),
+    let words = &args[2..];
+    let p = py_parse(words, opts);
+    let legacy = !p.gesehen("--pub") && matches!(p.positional, Some((0, _))) && p.extras == [1];
+    let pub_b64: &str = if legacy {
+        text(&words[1], "the public key")
+    } else {
+        py_rest(&p, words, "envelope");
+        match p.werte("--pub").last() {
+            Some(w) => w.text("--pub"),
+            None => fatal("the following arguments are required: --pub"),
         }
-    }
+    };
+    p.nur_python(
+        &["--pub", "--policy", "--with-related", "--related-pub"],
+        cmd,
+    );
+    let (_, path) = p.positional.expect("py_rest refuses a missing envelope");
+    let related_paths: Vec<PathBuf> = p
+        .werte("--with-related")
+        .iter()
+        .map(|w| PathBuf::from(w.os()))
+        .collect();
+    let related_pubs: Vec<String> = p
+        .werte("--related-pub")
+        .iter()
+        .map(|w| w.text("--related-pub").to_string())
+        .collect();
+    let policy_path: Option<PathBuf> = p.werte("--policy").last().map(|w| PathBuf::from(w.os()));
     let env = match strict_parse(&read_file(path)) {
         Ok(v) => v,
         Err(e) => {
@@ -3134,70 +3137,223 @@ fn py_dezimal(c: char) -> Option<u32> {
         .map(|&z| u - z)
 }
 
+/// What argparse does with an option once it consumes it (Z381 G1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PyArt {
+    /// `-h` / `--help`: prints the help and exits 0
+    Hilfe,
+    /// `store_true`: takes no value
+    Schalter,
+    /// `store` / `append`: takes exactly one value
+    Wert,
+}
+
+/// One option of a Python command, by name and arity.
+struct PyOpt {
+    name: &'static str,
+    art: PyArt,
+}
+
 /// `proofbundle verify` (22aa954e), in its declaration order.
-const PY_VERIFY: &[&str] = &[
-    "-h",
-    "--help",
-    "--json",
-    "--matrix",
-    "--verbose",
-    "--aud",
-    "--nonce",
-    "--expected-root",
-    "--expected-tree-size",
-    "--trusted-checkpoint",
-    "--checkpoint-vkey",
-    "--expected-origin",
-    "--verification-time",
-    "--policy",
-    "--require-anchor",
-    "--anchor-type",
-    "--anchor-target",
-    "--allow-pending",
-    "--trusted-tsa-root",
-    "--bitcoin-header",
+const PY_VERIFY: &[PyOpt] = &[
+    PyOpt {
+        name: "-h",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--help",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--json",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--matrix",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--verbose",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--aud",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--nonce",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--expected-root",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--expected-tree-size",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--trusted-checkpoint",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--checkpoint-vkey",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--expected-origin",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--verification-time",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--policy",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--require-anchor",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--anchor-type",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--anchor-target",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--allow-pending",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--trusted-tsa-root",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--bitcoin-header",
+        art: PyArt::Wert,
+    },
 ];
 
 /// `proofbundle decision verify` (22aa954e), in its declaration order.
-const PY_DECISION_VERIFY: &[&str] = &[
-    "-h",
-    "--help",
-    "--pub",
-    "--policy",
-    "--json",
-    "--strict",
-    "--aud",
-    "--nonce",
-    "--anchors",
-    "--trusted-tsa-root",
-    "--bitcoin-header",
-    "--with-related",
-    "--related-pub",
-    "--require-derived-subject",
-    "--verification-time",
+const PY_DECISION_VERIFY: &[PyOpt] = &[
+    PyOpt {
+        name: "-h",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--help",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--pub",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--policy",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--json",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--strict",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--aud",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--nonce",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--anchors",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--trusted-tsa-root",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--bitcoin-header",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--with-related",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--related-pub",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--require-derived-subject",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--verification-time",
+        art: PyArt::Wert,
+    },
 ];
 
 /// `proofbundle relation-statement verify` (22aa954e), in its declaration order.
-const PY_RELATION_STATEMENT_VERIFY: &[&str] = &[
-    "-h",
-    "--help",
-    "--pub",
-    "--json",
-    "--strict",
-    "--policy",
-    "--with-related",
-    "--related-pub",
-    "--require-derived-subject",
+const PY_RELATION_STATEMENT_VERIFY: &[PyOpt] = &[
+    PyOpt {
+        name: "-h",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--help",
+        art: PyArt::Hilfe,
+    },
+    PyOpt {
+        name: "--pub",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--json",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--strict",
+        art: PyArt::Schalter,
+    },
+    PyOpt {
+        name: "--policy",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--with-related",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--related-pub",
+        art: PyArt::Wert,
+    },
+    PyOpt {
+        name: "--require-derived-subject",
+        art: PyArt::Schalter,
+    },
 ];
+
+/// One interpretation of an option word: the option's index in the table and its explicit value
+/// (after `=`, or after a single-dash option's two characters).
+type PyDeutung<'a> = (usize, Option<&'a [u8]>);
 
 /// What argparse makes of one word (`_parse_optional`).
 #[derive(Debug, PartialEq)]
 enum PyWort<'a> {
     /// an argument: a positional, or the value of the option before it
     Argument,
-    /// an option word; every interpretation (option index, explicit `=` value). More than one:
-    /// ambiguous. None: no option of this command, refused as unrecognized.
-    Option(Vec<(usize, Option<&'a [u8]>)>),
+    /// an option word with every interpretation. More than one: ambiguous. None: no option of
+    /// this command, an unrecognized argument.
+    Option(Vec<PyDeutung<'a>>),
 }
 
 /// argparse's `_negative_number_matcher`, `^-\d+$|^-\d*\.\d+$`, with Python's `\d` and Python's
@@ -3220,11 +3376,11 @@ fn py_negative_zahl(w: &[u8]) -> bool {
     }
 }
 
-fn py_wort<'a>(w: &'a [u8], opts: &[&str]) -> PyWort<'a> {
+fn py_wort<'a>(w: &'a [u8], opts: &[PyOpt]) -> PyWort<'a> {
     if w.is_empty() || w[0] != b'-' {
         return PyWort::Argument;
     }
-    if let Some(i) = opts.iter().position(|o| o.as_bytes() == w) {
+    if let Some(i) = opts.iter().position(|o| o.name.as_bytes() == w) {
         return PyWort::Option(vec![(i, None)]);
     }
     if w.len() == 1 {
@@ -3235,14 +3391,14 @@ fn py_wort<'a>(w: &'a [u8], opts: &[&str]) -> PyWort<'a> {
         None => (w, None),
     };
     if nach.is_some() {
-        if let Some(i) = opts.iter().position(|o| o.as_bytes() == vor) {
+        if let Some(i) = opts.iter().position(|o| o.name.as_bytes() == vor) {
             return PyWort::Option(vec![(i, nach)]);
         }
     }
     let mut treffer = Vec::new();
     if w[1] == b'-' {
         for (i, o) in opts.iter().enumerate() {
-            if o.as_bytes().starts_with(vor) {
+            if o.name.as_bytes().starts_with(vor) {
                 treffer.push((i, nach));
             }
         }
@@ -3253,9 +3409,9 @@ fn py_wort<'a>(w: &'a [u8], opts: &[&str]) -> PyWort<'a> {
         // an option name.
         let kurz: &[u8] = if w[1].is_ascii() { &w[..2] } else { &[] };
         for (i, o) in opts.iter().enumerate() {
-            if o.as_bytes() == kurz {
+            if o.name.as_bytes() == kurz {
                 treffer.push((i, Some(&w[2..])));
-            } else if o.as_bytes().starts_with(vor) {
+            } else if o.name.as_bytes().starts_with(vor) {
                 treffer.push((i, nach));
             }
         }
@@ -3269,16 +3425,229 @@ fn py_wort<'a>(w: &'a [u8], opts: &[&str]) -> PyWort<'a> {
     PyWort::Option(Vec::new())
 }
 
-/// The value of the option at `args[i]` (Z381 G2): argparse gives an option that takes a value the
-/// NEXT word only when that word is an argument; a missing word, an option word or an unknown word
-/// starting with `-` is "expected one argument", exit 2.
-fn py_wert<'a>(args: &'a [OsString], i: usize, opts: &[&str], name: &str) -> &'a OsString {
-    match args.get(i + 1) {
-        Some(w) if py_wort(w.as_encoded_bytes(), opts) == PyWort::Argument => w,
-        _ => fatal(&format!("argument {name}: expected one argument")),
+/// One value an option took: the word it stands in and the byte where it starts there (0 for a
+/// whole word, past the `=` for `--name=value`).
+#[derive(Clone, Copy)]
+struct PyWert<'a> {
+    wort: &'a OsStr,
+    ab: usize,
+}
+
+impl<'a> PyWert<'a> {
+    fn bytes(&self) -> &'a [u8] {
+        &self.wort.as_encoded_bytes()[self.ab..]
+    }
+
+    /// The value as an `OsStr`, for a path. The cut is right after an ASCII `=`, so the tail is
+    /// a whole `OsStr`; std converts raw bytes only on Unix, elsewhere a tail that is not UTF-8
+    /// is refused, exit 2.
+    fn os(&self) -> &'a OsStr {
+        if self.ab == 0 {
+            return self.wort;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            OsStr::from_bytes(self.bytes())
+        }
+        #[cfg(not(unix))]
+        {
+            OsStr::new(
+                std::str::from_utf8(self.bytes())
+                    .unwrap_or_else(|_| fatal("an option value is not valid UTF-8")),
+            )
+        }
+    }
+
+    fn text(&self, what: &str) -> &'a str {
+        std::str::from_utf8(self.bytes()).unwrap_or_else(|_| {
+            fatal(&format!(
+                "{what} is not valid UTF-8: {}",
+                String::from_utf8_lossy(self.bytes())
+            ))
+        })
     }
 }
 
+/// What argparse made of the words after the subcommand, for a command with ONE positional of
+/// `nargs=None` (the bundle, the envelope), as all three Python commands here have.
+struct PyArgs<'a> {
+    opts: &'static [PyOpt],
+    /// per option of the table, the values it took in order; a switch takes an empty value
+    werte: Vec<Vec<PyWert<'a>>>,
+    /// the positional and the index of its word, if one was consumed
+    positional: Option<(usize, &'a OsStr)>,
+    /// indices of the words argparse could not place ("unrecognized arguments", exit 2)
+    extras: Vec<usize>,
+}
+
+impl<'a> PyArgs<'a> {
+    fn werte(&self, name: &str) -> &[PyWert<'a>] {
+        let i = self
+            .opts
+            .iter()
+            .position(|o| o.name == name)
+            .expect("an option of the table");
+        &self.werte[i]
+    }
+
+    fn gesehen(&self, name: &str) -> bool {
+        !self.werte(name).is_empty()
+    }
+
+    /// Options the Python command reads and this verifier does not: refused, exit 2, so that
+    /// no verdict here stands for a check that did not run (6.3.1 line P2-1).
+    fn nur_python(&self, gelesen: &[&str], cmd: &str) {
+        for (o, w) in self.opts.iter().zip(&self.werte) {
+            if !w.is_empty() && !gelesen.contains(&o.name) {
+                fatal(&format!(
+                    "{cmd}: {} is an option of the Python verifier this verifier does not \
+                     implement",
+                    o.name
+                ));
+            }
+        }
+    }
+}
+
+/// Z381 G1: argparse's `_parse_known_args` (CPython 3.13.16, `Lib/argparse.py`, read) over
+/// `words`. Every argparse error ends here with exit 2, as it ends Python. A help option ends
+/// here too, with exit 2: Python prints the help and exits 0, which is its PASS code; this
+/// verifier does not give a PASS for a run that verified nothing.
+fn py_parse<'a>(words: &'a [OsString], opts: &'static [PyOpt]) -> PyArgs<'a> {
+    let n = words.len();
+    // the pattern: 'O' an option word, 'A' an argument, '-' the first `--`, after it only 'A'
+    let mut muster = vec![b'A'; n];
+    let mut deutungen: Vec<Vec<PyDeutung<'a>>> = vec![Vec::new(); n];
+    for (i, w) in words.iter().enumerate() {
+        let b = w.as_encoded_bytes();
+        if b == b"--" {
+            muster[i] = b'-';
+            break;
+        }
+        if let PyWort::Option(d) = py_wort(b, opts) {
+            muster[i] = b'O';
+            deutungen[i] = d;
+        }
+    }
+    let mut p = PyArgs {
+        opts,
+        werte: opts.iter().map(|_| Vec::new()).collect(),
+        positional: None,
+        extras: Vec::new(),
+    };
+    // the one positional, `(-*A-*)` from `start`; the first `--` is not part of its value
+    let positionals = |p: &mut PyArgs<'a>, start: usize| -> usize {
+        if p.positional.is_some() {
+            return start;
+        }
+        let mut j = start;
+        while j < n && muster[j] == b'-' {
+            j += 1;
+        }
+        if j == n || muster[j] != b'A' {
+            return start;
+        }
+        p.positional = Some((j, words[j].as_os_str()));
+        j += 1;
+        while j < n && muster[j] == b'-' {
+            j += 1;
+        }
+        j
+    };
+    let optional = |p: &mut PyArgs<'a>, start: usize| -> usize {
+        let d = &deutungen[start];
+        if d.len() > 1 {
+            fatal(&format!(
+                "ambiguous option: {}",
+                words[start].to_string_lossy()
+            ));
+        }
+        let Some(&(oi, explizit)) = d.first() else {
+            p.extras.push(start);
+            return start + 1;
+        };
+        let wort = words[start].as_os_str();
+        match (opts[oi].art, explizit) {
+            (PyArt::Hilfe, _) => fatal(&format!(
+                "{}: a help request is not a verification (Python prints the help, exit 0)",
+                opts[oi].name
+            )),
+            (PyArt::Schalter, None) => {
+                p.werte[oi].push(PyWert { wort, ab: 0 });
+                start + 1
+            }
+            // every switch of the three tables is a double-dash option: a value is "ignored
+            // explicit argument"
+            (PyArt::Schalter, Some(e)) => fatal(&format!(
+                "argument {}: ignored explicit argument '{}'",
+                opts[oi].name,
+                String::from_utf8_lossy(e)
+            )),
+            (PyArt::Wert, Some(e)) => {
+                p.werte[oi].push(PyWert {
+                    wort,
+                    ab: wort.as_encoded_bytes().len() - e.len(),
+                });
+                start + 1
+            }
+            (PyArt::Wert, None) => {
+                if muster.get(start + 1) != Some(&b'A') {
+                    fatal(&format!(
+                        "argument {}: expected one argument",
+                        opts[oi].name
+                    ));
+                }
+                p.werte[oi].push(PyWert {
+                    wort: words[start + 1].as_os_str(),
+                    ab: 0,
+                });
+                start + 2
+            }
+        }
+    };
+    let mut start = 0;
+    if let Some(max) = muster.iter().rposition(|&m| m == b'O') {
+        while start <= max {
+            let mut naechste = start;
+            while muster[naechste] != b'O' {
+                naechste += 1;
+            }
+            if start != naechste {
+                let ende = positionals(&mut p, start);
+                if ende > start {
+                    start = ende;
+                    continue;
+                }
+            }
+            if muster[start] != b'O' {
+                p.extras.extend(start..naechste);
+                start = naechste;
+            }
+            start = optional(&mut p, start);
+        }
+    }
+    let stop = positionals(&mut p, start);
+    p.extras.extend(stop..n);
+    p
+}
+
+/// "unrecognized arguments", or no positional: argparse's exit 2.
+fn py_rest(p: &PyArgs, words: &[OsString], positional: &str) {
+    if p.positional.is_none() {
+        fatal(&format!(
+            "the following arguments are required: {positional}"
+        ));
+    }
+    if !p.extras.is_empty() {
+        let w: Vec<_> = p
+            .extras
+            .iter()
+            .map(|&i| words[i].to_string_lossy())
+            .collect();
+        fatal(&format!("unrecognized arguments: {}", w.join(" ")));
+    }
+}
 /// Unicode whitespace above U+007E as CPython 3.13 knows it (`str.isspace`, measured over every
 /// code point): `int()` turns each of these into a space before it parses. Below U+007F it skips
 /// only the six ASCII spaces; U+001C..U+001F are `isspace` but refused by `int()`, measured.
@@ -3456,79 +3825,64 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
             }
         }
         "verify-bundle" => {
-            let path = args
-                .get(2)
-                .unwrap_or_else(|| fatal("verify-bundle needs a bundle file"));
-            let mut expected_root: Option<String> = None;
+            // Z381 G1: the words after the subcommand are read as `proofbundle verify` reads them,
+            // with argparse: options before or after the path, unique abbreviations,
+            // `--name=value`, `--`. Until Z381 the path had to be the first word and every other
+            // word a whole flag of this verifier: `verify-bundle --require-anchor b.json` was a
+            // usage error (exit 2) where Python answered 3, measured.
+            let words = &args[2..];
+            let p = py_parse(words, PY_VERIFY);
+            py_rest(&p, words, "bundle");
+            p.nur_python(
+                &[
+                    "--expected-root",
+                    "--expected-tree-size",
+                    "--require-anchor",
+                    "--anchor-type",
+                    "--anchor-target",
+                    "--allow-pending",
+                ],
+                "verify-bundle",
+            );
+            let (_, path) = p.positional.expect("py_rest refuses a missing bundle");
+            // `store`: the last value counts, every value is converted (Python converts each
+            // one as argparse consumes it)
+            let expected_root: Option<String> = p
+                .werte("--expected-root")
+                .last()
+                .map(|w| w.text("--expected-root").to_string());
+            // Z381 G4: Python reads the value with `int()`: a sign, Unicode digits, single
+            // underscores and surrounding whitespace are an integer, and one that no tree_size can
+            // equal (below zero, above u64::MAX) fails the comparison, exit 1. This verifier read
+            // it with `u64::from_str` and refused all of them, exit 2, measured.
             let mut expected_tree_size: Option<ExpectedTreeSize> = None;
-            let mut require_anchor = false;
-            let mut allow_pending = false;
-            let mut i = 3;
-            while i < args.len() {
-                match text(&args[i], "a verify-bundle flag") {
-                    "--expected-root" => {
-                        expected_root = Some(
-                            text(
-                                py_wert(&args, i, PY_VERIFY, "--expected-root"),
-                                "--expected-root",
-                            )
-                            .to_string(),
-                        );
-                        i += 2;
-                    }
-                    // Z381 G4: Python reads the value with `int()`: a sign, Unicode digits, single
-                    // underscores and surrounding whitespace are an integer, and one that no
-                    // tree_size can equal (below zero, above u64::MAX) fails the comparison, exit
-                    // 1. This verifier read it with `u64::from_str` and refused all of them, exit
-                    // 2, measured.
-                    "--expected-tree-size" => {
-                        let w = py_wert(&args, i, PY_VERIFY, "--expected-tree-size");
-                        expected_tree_size =
-                            Some(py_int(text(w, "--expected-tree-size")).unwrap_or_else(|| {
-                                fatal(&format!(
-                                    "argument --expected-tree-size: invalid int value: {}",
-                                    w.to_string_lossy()
-                                ))
-                            }));
-                        i += 2;
-                    }
-                    // --anchor-type / --anchor-target imply --require-anchor (WP-A1).
-                    "--require-anchor" => {
-                        require_anchor = true;
-                        i += 1;
-                    }
-                    "--allow-pending" => {
-                        allow_pending = true;
-                        i += 1;
-                    }
-                    "--anchor-type" => {
-                        // the value is not read (any type string is a requirement), but it must be
-                        // there and be an argument (Z381 G2)
-                        py_wert(&args, i, PY_VERIFY, "--anchor-type");
-                        require_anchor = true;
-                        i += 2;
-                    }
-                    // Z381 F5: Python's argparse lets --anchor-target take exactly the three
-                    // values of `choices` and refuses any other with exit 2; this verifier took
-                    // any word and answered POLICY_UNMET (3), measured.
-                    "--anchor-target" => {
-                        let ziel = py_wert(&args, i, PY_VERIFY, "--anchor-target");
-                        if !ANCHOR_TARGETS
-                            .iter()
-                            .any(|t| ziel.as_encoded_bytes() == t.as_bytes())
-                        {
-                            fatal(&format!(
-                                "--anchor-target: invalid choice: {} (choose from {})",
-                                ziel.to_string_lossy(),
-                                ANCHOR_TARGETS.join(", ")
-                            ));
-                        }
-                        require_anchor = true;
-                        i += 2;
-                    }
-                    other => fatal(&format!("unknown verify-bundle flag: {other}")),
+            for w in p.werte("--expected-tree-size") {
+                expected_tree_size =
+                    Some(py_int(w.text("--expected-tree-size")).unwrap_or_else(|| {
+                        fatal(&format!(
+                            "argument --expected-tree-size: invalid int value: {}",
+                            String::from_utf8_lossy(w.bytes())
+                        ))
+                    }));
+            }
+            // Z381 F5: Python's argparse lets --anchor-target take exactly the three values of
+            // `choices` and refuses any other with exit 2; this verifier took any word and
+            // answered POLICY_UNMET (3), measured.
+            for w in p.werte("--anchor-target") {
+                if !ANCHOR_TARGETS.iter().any(|t| w.bytes() == t.as_bytes()) {
+                    fatal(&format!(
+                        "--anchor-target: invalid choice: {} (choose from {})",
+                        String::from_utf8_lossy(w.bytes()),
+                        ANCHOR_TARGETS.join(", ")
+                    ));
                 }
             }
+            // --anchor-type / --anchor-target imply --require-anchor (WP-A1). The value of
+            // --anchor-type is not read: any type string is a requirement.
+            let require_anchor = p.gesehen("--require-anchor")
+                || p.gesehen("--anchor-type")
+                || p.gesehen("--anchor-target");
+            let allow_pending = p.gesehen("--allow-pending");
             // Z381 G3: `--allow-pending` only means something beside an anchor requirement. Python
             // refuses the lone flag, exit 2, before it reads the bundle (`cli._cmd_verify`); this
             // verifier skipped it and answered the verdict of the bundle, 0 where Python says 2.

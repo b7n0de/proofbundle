@@ -54,6 +54,17 @@ impl Files {
         // files whose names start with `-`: a word argparse never takes as a value or a path
         std::fs::copy(case.join("related_b.json"), dir.join("-b.json")).unwrap();
         std::fs::write(dir.join("-x.json"), &ex).unwrap();
+        // a standalone relation statement, its target, and the same statement with a broken
+        // signature (`relation-statement verify` / `verify-relation-statement`)
+        let case = repo().join("conformance/relation/statement-retracts-verified-visible");
+        let st = std::fs::read(case.join("receipt.json")).unwrap();
+        std::fs::write(dir.join("s.json"), &st).unwrap();
+        let mut env: serde_json::Value = serde_json::from_slice(&st).unwrap();
+        let s = env["signatures"][0]["sig"].as_str().unwrap().to_string();
+        let first = if s.starts_with('A') { "B" } else { "A" };
+        env["signatures"][0]["sig"] = serde_json::json!(format!("{first}{}", &s[1..]));
+        std::fs::write(dir.join("sbad.json"), serde_json::to_vec(&env).unwrap()).unwrap();
+        std::fs::copy(case.join("related_t.json"), dir.join("t.json")).unwrap();
         Files { dir }
     }
 
@@ -65,6 +76,15 @@ impl Files {
 
     fn pub_b64(&self) -> String {
         let case = repo().join("conformance/relation/relation-signer-same-key-explicit");
+        String::from_utf8(std::fs::read(case.join("pub.b64")).unwrap())
+            .unwrap()
+            .trim()
+            .to_string()
+    }
+
+    /// The key of the relation statement `s.json`; its target `t.json` is signed by the same key.
+    fn statement_pub(&self) -> String {
+        let case = repo().join("conformance/relation/statement-retracts-verified-visible");
         String::from_utf8(std::fs::read(case.join("pub.b64")).unwrap())
             .unwrap()
             .trim()
@@ -511,4 +531,255 @@ fn g4_tree_size_is_read_as_python_int_reads_it() {
         .map(|(n, (a, e))| (n.as_str(), a, e))
         .collect();
     check(&f, "verify-bundle", &cases);
+}
+
+#[test]
+fn g1_bundle_words_are_read_as_argparse_reads_them() {
+    let f = Files::new("g1");
+    let r = f.root();
+    let er = format!("--expected-root={r}");
+    let s = |x: &str| x.to_string();
+    check(
+        &f,
+        "verify-bundle",
+        &[
+            (
+                "require-anchor before path",
+                v(&["--require-anchor", "ok.json"]),
+                3,
+            ),
+            (
+                "expected-root before path",
+                v(&["--expected-root", &r, "ok.json"]),
+                0,
+            ),
+            (
+                "expected-tree-size before path",
+                v(&["--expected-tree-size", "4", "ok.json"]),
+                0,
+            ),
+            (
+                "abbreviation --expected-r",
+                v(&["ok.json", "--expected-r", &r]),
+                0,
+            ),
+            (
+                "abbreviation --expected, ambiguous",
+                v(&["ok.json", "--expected", &r]),
+                2,
+            ),
+            (
+                "abbreviation --allow-p",
+                v(&["ok.json", "--require-anchor", "--allow-p"]),
+                3,
+            ),
+            ("--expected-root=R", vec![s("ok.json"), er.clone()], 0),
+            (
+                "--expected-root= empty",
+                v(&["ok.json", "--expected-root="]),
+                1,
+            ),
+            (
+                "--require-anchor=1",
+                v(&["ok.json", "--require-anchor=1"]),
+                2,
+            ),
+            ("-- then path", v(&["--", "ok.json"]), 0),
+            ("path then --", v(&["ok.json", "--"]), 0),
+            (
+                "-- then flag as path",
+                v(&["ok.json", "--", "--require-anchor"]),
+                2,
+            ),
+            (
+                "trailing -- after option value",
+                v(&["ok.json", "--expected-root", &r, "--"]),
+                2,
+            ),
+            ("two paths", v(&["ok.json", "ok.json"]), 2),
+            ("no path", v(&["--require-anchor"]), 2),
+            ("no argument", v(&[]), 2),
+            ("unknown flag", v(&["ok.json", "--bogus"]), 2),
+            ("single dash unknown", v(&["ok.json", "-x"]), 2),
+            ("-=x, ambiguous", v(&["ok.json", "-=x"]), 2),
+            ("-1 as path", v(&["-1"]), 2),
+            ("path is a file named -x.json", v(&["-x.json"]), 2),
+            (
+                "flag between path and value",
+                v(&["ok.json", "--anchor-type", "x", "--require-anchor"]),
+                3,
+            ),
+            (
+                "Python-only --policy",
+                v(&["ok.json", "--policy", "p.json"]),
+                2,
+            ),
+            (
+                "non-UTF-8 flag",
+                v(&["ok.json", "--require-anchor\u{FFFF}"]),
+                2,
+            ),
+            (
+                "--expected-tree-size=4",
+                v(&["ok.json", "--expected-tree-size=4"]),
+                0,
+            ),
+            (
+                "--expected-tree-size=-1",
+                v(&["ok.json", "--expected-tree-size=-1"]),
+                1,
+            ),
+            (
+                "--expected-tree-size=4.0",
+                v(&["ok.json", "--expected-tree-size=4.0"]),
+                2,
+            ),
+            (
+                "--expected-tree-size= empty",
+                v(&["ok.json", "--expected-tree-size="]),
+                2,
+            ),
+            (
+                "--expected-tree-size==4",
+                v(&["ok.json", "--expected-tree-size==4"]),
+                2,
+            ),
+        ],
+    );
+}
+
+#[test]
+fn g1_relation_words_are_read_as_argparse_reads_them() {
+    let f = Files::new("g1r");
+    let s = |x: &str| x.to_string();
+    // `verify-relation` against `decision verify`, on a decision receipt with a policy
+    let k = f.pub_b64();
+    let rp = f.related_pub();
+    let rest = |mut a: Vec<String>| {
+        a.extend([
+            s("--with-related"),
+            s("b.json"),
+            s("--related-pub"),
+            rp.clone(),
+            s("--policy"),
+            s("p.json"),
+        ]);
+        a
+    };
+    // `verify-relation-statement` against `relation-statement verify`, on a relation statement
+    let sk = f.statement_pub();
+    let srest = |mut a: Vec<String>| {
+        a.extend([
+            s("--with-related"),
+            s("t.json"),
+            s("--related-pub"),
+            sk.clone(),
+        ]);
+        a
+    };
+    let k31 = s("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==");
+    for (sub, env, envbad, k, rest) in [
+        (
+            "verify-relation",
+            "r.json",
+            "rbad.json",
+            &k,
+            &rest as &dyn Fn(Vec<String>) -> Vec<String>,
+        ),
+        (
+            "verify-relation-statement",
+            "s.json",
+            "sbad.json",
+            &sk,
+            &srest,
+        ),
+    ] {
+        check(
+            &f,
+            sub,
+            &[
+                ("--pub form", rest(vec![s(env), s("--pub"), k.clone()]), 0),
+                ("--pub first", rest(vec![s("--pub"), k.clone(), s(env)]), 0),
+                ("--pub=", rest(vec![s(env), format!("--pub={k}")]), 0),
+                (
+                    "--pu abbreviation",
+                    rest(vec![s(env), s("--pu"), k.clone()]),
+                    0,
+                ),
+                ("no key", rest(vec![s(env)]), 2),
+                (
+                    "two envelopes",
+                    vec![s(env), s(env), s("--pub"), k.clone()],
+                    2,
+                ),
+                ("empty --pub", vec![s(env), s("--pub"), s("")], 2),
+                (
+                    "--pub of 31 bytes",
+                    vec![s(env), s("--pub"), k31.clone()],
+                    1,
+                ),
+                (
+                    "bad signature",
+                    rest(vec![s(envbad), s("--pub"), k.clone()]),
+                    1,
+                ),
+                ("--p, ambiguous", vec![s(env), s("--p"), k.clone()], 2),
+            ],
+        );
+    }
+    check(
+        &f,
+        "verify-relation-statement",
+        &[(
+            "-- then envelope",
+            vec![s("--pub"), sk.clone(), s("--"), s("s.json")],
+            0,
+        )],
+    );
+}
+
+/// Five forms where this verifier answers differently from Python ON PURPOSE (Z381 G1, owner
+/// questions in the report). Pinned so a change is a decision, not a drift.
+#[test]
+fn g1_the_residual_forms_stay_as_decided() {
+    let f = Files::new("g1rest");
+    let k = f.pub_b64();
+    let s = |x: &str| x.to_string();
+    // a help request: Python prints the help and exits 0, its PASS code; here a usage error
+    check(&f, "verify-bundle", &[("-h", v(&["ok.json", "-h"]), 2)]);
+    check(&f, "verify-bundle", &[("--he", v(&["ok.json", "--he"]), 2)]);
+    // an option this verifier does not implement (Python 0): refused
+    check(
+        &f,
+        "verify-bundle",
+        &[("--json", v(&["ok.json", "--json"]), 2)],
+    );
+    check(
+        &f,
+        "verify-relation",
+        &[(
+            "--json",
+            vec![s("r.json"), s("--pub"), k.clone(), s("--json")],
+            2,
+        )],
+    );
+    // the key as the word after the envelope, this verifier's own form (Python 2)
+    check(
+        &f,
+        "verify-relation",
+        &[(
+            "legacy key",
+            vec![
+                s("r.json"),
+                k.clone(),
+                s("--with-related"),
+                s("b.json"),
+                s("--related-pub"),
+                k.clone(),
+                s("--policy"),
+                s("p.json"),
+            ],
+            0,
+        )],
+    );
 }
