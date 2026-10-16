@@ -30,8 +30,8 @@ from proofbundle.emit import emit_bundle, load_signer, save_signer
 from proofbundle.errors import ProofBundleError
 from proofbundle.evalclaim import (CLAIM_VALID, build_eval_claim, classify_eval_claim, decode_eval_claim,
                                    emit_eval_receipt, issuer_fingerprint)
-from proofbundle.signer import (SIGNER_ALGORITHMS, ExternalSigner, FileSigner, SignatureRecord, SignerError,
-                                key_id_of, parse_pkcs11_uri, pin_from_env)
+from proofbundle.signer import (SIGNER_ALGORITHMS, ExternalSigner, FileSigner, Pkcs11Signer, SignatureRecord,
+                                SignerError, key_id_of, parse_pkcs11_uri, pin_from_env)
 from proofbundle.signature import verify_ed25519
 
 
@@ -138,7 +138,7 @@ def test_external_signer_receipt_verifies_and_equals_the_file_receipt():
     claim = _claim()
     bundle = emit_eval_receipt(claim, remote)
     assert bundle == emit_eval_receipt(claim, key)
-    assert classify_eval_claim(bundle) == CLAIM_VALID
+    assert classify_eval_claim(bundle)[0] == CLAIM_VALID
     assert decode_eval_claim(bundle)["issuer"] == remote.key_id
 
 
@@ -151,11 +151,11 @@ def test_external_signer_checks_every_signature_before_it_is_used():
         emit_eval_receipt(_claim(), remote)
 
 
-@pytest.mark.parametrize("answer", [lambda d: b"\x00" * 63, lambda d: "x" * 64, lambda d: None,
-                                    lambda d: bytearray(64)])
-def test_external_signer_refuses_a_signature_of_the_wrong_form(answer):
+@pytest.mark.parametrize("answer,reason", [(lambda d: b"\x00" * 63, "no 64-byte"), (lambda d: "x" * 64, "no 64-byte"),
+                                           (lambda d: None, "no 64-byte"), (lambda d: bytearray(64), "does not verify")])
+def test_external_signer_refuses_a_signature_of_the_wrong_form(answer, reason):
     remote = _Remote(Ed25519PrivateKey.generate(), answer=answer)
-    with pytest.raises(SignerError):
+    with pytest.raises(SignerError, match=reason):
         remote.sign(b"payload")
 
 
@@ -196,6 +196,12 @@ def test_external_signer_is_a_proofbundle_error():
     assert issubclass(SignerError, ProofBundleError)
 
 
+@pytest.mark.parametrize("value", ["seed", b"\x00" * 32, None, Ed25519PrivateKey.generate().public_key()])
+def test_file_signer_holds_only_an_ed25519_private_key(value):
+    with pytest.raises(SignerError, match="Ed25519 private key"):
+        FileSigner(value)
+
+
 # ── the RFC 7512 URI ──────────────────────────────────────────────────────────────────────────────────
 
 _MOD = "?module-path=/usr/lib/softhsm/libsofthsm2.so"
@@ -218,8 +224,13 @@ def test_uri_reads_the_rfc_examples():
     assert u.id == bytes.fromhex("010203baddcafe040506")
     assert parse_pkcs11_uri("pkcs11:token=A%20name%20with%20a%20substring%20%25%3B;object=c;type=cert").token \
         == "A name with a substring %;"
-    assert parse_pkcs11_uri("pkcs11:token=Name%20with%20a%20small%20A%20with%20acute:%20%C3%A1").token \
+    # RFC 7512 section 3 spells this one as a token label, but it is 34 bytes and CK_TOKEN_INFO.label has 32:
+    # section 2.3 says such a value MUST be refused, so the encoding is read here as an object label (CKA_LABEL
+    # has no fixed size), and the token form is a refusal below.
+    assert parse_pkcs11_uri("pkcs11:object=Name%20with%20a%20small%20A%20with%20acute:%20%C3%A1").object \
         == "Name with a small A with acute: á"
+    with pytest.raises(SignerError, match="32-byte"):
+        parse_pkcs11_uri("pkcs11:token=Name%20with%20a%20small%20A%20with%20acute:%20%C3%A1")
     u = parse_pkcs11_uri("pkcs11:object=my-sign-key;type=private?module-path=/mnt/libmypkcs11.so.1")
     assert u.module_path == "/mnt/libmypkcs11.so.1"
     assert u.token is None and u.id is None
@@ -238,48 +249,53 @@ def test_uri_empty_query_is_grammatical():
     assert parse_pkcs11_uri("pkcs11:token=x?").token == "x"
 
 
-@pytest.mark.parametrize("uri", [
-    "",
-    "pkcs11",
-    "file:token=x",
-    " pkcs11:token=x",
-    "pkcs11:token=x ",
-    "pkcs11:token=a b",
-    "pkcs11:token=x\n",
-    "pkcs11:token=x#frag",
-    "pkcs11:token=x;token=y",                     # duplicate path attribute (RFC 7512 2.3, MUST NOT)
-    "pkcs11:token=x;;object=y",                   # empty attribute
-    "pkcs11:token=x;",                            # trailing separator
-    "pkcs11:token",                               # no value
-    "pkcs11:=x",                                  # no name
-    "pkcs11:token=%G1",                           # malformed escape
-    "pkcs11:token=%4",
-    "pkcs11:token=x%",
-    "pkcs11:token=%FF",                           # not UTF-8
-    "pkcs11:token=%C3",                           # truncated UTF-8
-    "pkcs11:token=a/b",                           # '/' must be escaped in the path
-    "pkcs11:token=a?b?c",                         # a second '?'
-    "pkcs11:vendor-attr=x",                       # unknown path attribute: matches nothing
-    "pkcs11:Token=x",                             # attribute names are case-sensitive
-    "pkcs11:type=key",
-    "pkcs11:library-version=1.2.3",
-    "pkcs11:library-version=256",
-    "pkcs11:library-version=",
-    "pkcs11:slot-id=",
-    "pkcs11:slot-id=-1",
-    "pkcs11:slot-id=0x1",
-    "pkcs11:token=x?pin-value=1234",              # never a PIN in the URI
-    "pkcs11:token=x?pin-source=file:/etc/pin",    # never a PIN from a file
-    "pkcs11:token=x?module-name=softhsm2",        # a name to search for: refused, give the path
-    "pkcs11:token=x?module-path=libsofthsm2.so",  # relative module path (RFC 7512 2.4, SHOULD reject)
-    "pkcs11:token=x?module-path=",
-    "pkcs11:token=x?module-path=/a&module-path=/b",
-    "pkcs11:token=x?vendor-q=1",                  # unknown query attribute: refused, not ignored
-    "pkcs11:token=x?module-path=/a&",
-    "pkcs11:token=x?module-path=/a%00b",          # NUL in a path
+@pytest.mark.parametrize("uri,reason", [
+    ("", "begins with 'pkcs11:'"),
+    ("pkcs11", "begins with 'pkcs11:'"),
+    ("file:token=x", "begins with 'pkcs11:'"),
+    (" pkcs11:token=x", "begins with 'pkcs11:'"),
+    ("pkcs11:token=x ", "must be percent-encoded"),
+    ("pkcs11:token=a b", "must be percent-encoded"),
+    ("pkcs11:token=x\n", "must be percent-encoded"),
+    ("pkcs11:token=x#frag", "must be percent-encoded"),
+    ("pkcs11:token=a/b", "must be percent-encoded"),                    # '/' must be escaped in the path
+    ("pkcs11:token=x;token=y", "token twice"),                          # RFC 7512 2.3, MUST NOT
+    ("pkcs11:token=x;;object=y", "attribute=value pair"),               # empty element
+    ("pkcs11:token=x;", "attribute=value pair"),                        # trailing separator
+    ("pkcs11:token", "attribute=value pair"),                           # no value
+    ("pkcs11:=x", "attribute=value pair"),                              # no name
+    ("pkcs11:token=a?b?c", "attribute=value pair"),                     # the query 'b?c' has no '='
+    ("pkcs11:token=%G1", "malformed percent-encoding"),
+    ("pkcs11:token=%4", "malformed percent-encoding"),
+    ("pkcs11:token=x%", "malformed percent-encoding"),
+    ("pkcs11:id=%ZZ", "malformed percent-encoding"),
+    ("pkcs11:token=%FF", "not UTF-8"),
+    ("pkcs11:token=%C3", "not UTF-8"),                                  # truncated UTF-8
+    ("pkcs11:token=a%0Ab", "control character"),
+    ("pkcs11:serial=%C3%A1", "printable ASCII"),
+    ("pkcs11:vendor-attr=7", "does not know"),                          # unknown path attribute: matches nothing
+    ("pkcs11:Token=x", "does not know"),                                # attribute names are case-sensitive
+    ("pkcs11:type=key", "none of public"),
+    ("pkcs11:library-version=1.2.3", "library-version is M or M.N"),
+    ("pkcs11:library-version=256", "library-version is M or M.N"),
+    ("pkcs11:library-version=", "library-version is M or M.N"),
+    ("pkcs11:slot-id=", "slot-id is a decimal"),
+    ("pkcs11:slot-id=-1", "slot-id is a decimal"),
+    ("pkcs11:slot-id=0x1", "slot-id is a decimal"),
+    ("pkcs11:slot-id=18446744073709551616", "slot-id is a decimal"),     # one more than a 64-bit CK_ULONG
+    ("pkcs11:token=x?pin-value=1234", "a PIN never stands"),            # never a PIN in the URI
+    ("pkcs11:token=x?pin-source=file:/etc/pin", "a PIN never stands"),  # never a PIN from a file
+    ("pkcs11:token=x?module-name=softhsm2", "module-name is not taken"),
+    ("pkcs11:token=x?module-path=libsofthsm2.so", "absolute path"),     # RFC 7512 2.4, SHOULD reject
+    ("pkcs11:token=x?module-path=", "absolute path"),
+    ("pkcs11:token=x?module-path=/a%00b", "absolute path"),             # NUL in a path
+    ("pkcs11:token=x?module-path=/a%FF", "absolute path"),              # not UTF-8
+    ("pkcs11:token=x?module-path=/a&module-path=/b", "module-path twice"),
+    ("pkcs11:token=x?vendor-q=1", "does not know"),                     # unknown query attribute: refused
+    ("pkcs11:token=x?module-path=/a&", "attribute=value pair"),
 ])
-def test_uri_refuses_what_it_cannot_read_as_one_selection(uri):
-    with pytest.raises(SignerError):
+def test_uri_refuses_what_it_cannot_read_as_one_selection(uri, reason):
+    with pytest.raises(SignerError, match=reason):
         parse_pkcs11_uri(uri)
 
 
@@ -323,7 +339,7 @@ def test_pin_from_env_reads_the_named_variable(monkeypatch):
 
 @pytest.mark.parametrize("name", ["1234", "", "A B", "PIN=1", "a-b", "ä"])
 def test_pin_from_env_takes_a_name_and_never_shows_a_wrong_one(name):
-    with pytest.raises(SignerError) as info:
+    with pytest.raises(SignerError, match="environment variable name") as info:
         pin_from_env(name)
     assert (name not in str(info.value)) or name == ""
 
@@ -335,9 +351,39 @@ def test_pin_from_env_refuses_an_unset_or_empty_variable_without_naming_it(monke
         monkeypatch.delenv(name, raising=False)
     else:
         monkeypatch.setenv(name, value)
-    with pytest.raises(SignerError) as info:
+    with pytest.raises(SignerError, match="unset or empty") as info:
         pin_from_env(name)()
     assert _MARKER not in str(info.value)
+
+
+def test_pin_from_env_checks_the_variable_when_it_is_named(monkeypatch):
+    """An unset variable is refused where it is named, before a module is loaded or a token is opened."""
+    monkeypatch.delenv("PB_TEST_PIN_UNSET", raising=False)
+    with pytest.raises(SignerError, match="unset or empty"):
+        pin_from_env("PB_TEST_PIN_UNSET")
+
+
+def test_pin_from_env_checks_the_variable_again_when_it_is_read(monkeypatch):
+    monkeypatch.setenv("PB_TEST_PIN_GONE", "4711")
+    read = pin_from_env("PB_TEST_PIN_GONE")
+    monkeypatch.setenv("PB_TEST_PIN_GONE", "")
+    with pytest.raises(SignerError, match="unset or empty"):
+        read()
+    monkeypatch.delenv("PB_TEST_PIN_GONE")
+    with pytest.raises(SignerError, match="unset or empty"):
+        read()
+
+
+@pytest.mark.parametrize("uri,pin,reason", [
+    ("pkcs11:token=x?module-path=/nonexistent/x.so", "1234", "function that returns the PIN"),
+    ("pkcs11:token=x;type=public?module-path=/nonexistent/x.so", lambda: "1", "private key"),
+    ("pkcs11:token=x;type=cert?module-path=/nonexistent/x.so", lambda: "1", "private key"),
+    ("pkcs11:token=x", lambda: "1", "no module-path"),
+])
+def test_open_refuses_before_any_module_is_loaded(uri, pin, reason):
+    """These refusals come before the extra is imported, so they hold without python-pkcs11 as well."""
+    with pytest.raises(SignerError, match=reason):
+        Pkcs11Signer.open(uri, pin=pin)
 
 
 # ── the command line ──────────────────────────────────────────────────────────────────────────────────
@@ -372,17 +418,18 @@ def _emit_args(tmp_path, *extra):
     return ["emit", "--payload-file", str(payload), "--out", str(tmp_path / "b.json"), *extra]
 
 
-@pytest.mark.parametrize("extra", [
-    ["--key", "k", "--key-uri", "pkcs11:token=x" + _MOD],
-    ["--new-key", "k", "--key-uri", "pkcs11:token=x" + _MOD],
-    ["--pin-env", "PB_PIN"],
-    ["--key", "k", "--pin-env", "PB_PIN"],
-    ["--key-uri", ""],
+@pytest.mark.parametrize("extra,reason", [
+    (["--key", "k", "--key-uri", "pkcs11:token=x" + _MOD], "not both"),
+    (["--new-key", "k", "--key-uri", "pkcs11:token=x" + _MOD], "not both"),
+    (["--pin-env", "PB_PIN"], "applies to --key-uri only"),
+    (["--key", "k", "--pin-env", "PB_PIN"], "applies to --key-uri only"),
+    (["--key-uri", ""], "begins with 'pkcs11:'"),
 ])
-def test_cli_refuses_a_key_uri_combination_that_would_be_applied_by_nothing(tmp_path, capsys, extra):
+def test_cli_refuses_a_key_uri_combination_that_would_be_applied_by_nothing(tmp_path, capsys, extra, reason):
     assert cli.main(_emit_args(tmp_path, *extra)) == 2
     assert not (tmp_path / "b.json").exists()
-    assert "Traceback" not in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert reason in err and "Traceback" not in err
 
 
 def test_cli_key_uri_with_a_pin_in_it_is_refused_and_the_pin_not_shown(tmp_path, capsys):

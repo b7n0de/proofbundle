@@ -2059,6 +2059,9 @@ _AUFRUFE_VON_PARAMETERN = {
     ("cap1.py", "_r8_supports_bounds_citation", "f"): "the finding recorder `check_cap1_document` passes",
     ("intoto.py", "_judge_claim_fields", "felder_von"): "a field reader of this package its two callers pass",
     ("merkle.py", "_hashes_of", "lesen"): "a byte reader of this package (`_bytes_von`, `_puffer_von`)",
+    ("signer.py", "_login", "pin"): ("the caller's PIN source, run as the caller's code (`canonical._draussen`): its "
+                                     "answer is read once as exact text or bytes and handed to the token for the "
+                                     "login; it enters no verdict of this package"),
 }
 
 

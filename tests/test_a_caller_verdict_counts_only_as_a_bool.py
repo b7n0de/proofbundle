@@ -1470,6 +1470,7 @@ _OPTIONAL_EXTRAS = {
     "rootcommit": {"ecdsa": "ecdsa"},
     "formal": {"z3-solver": "z3"},
     "pytest": {"pytest": "pytest"},
+    "pkcs11": {"python-pkcs11": "pkcs11"},
     "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
              "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},
     "inspect": {"inspect-ai": "inspect_ai"},

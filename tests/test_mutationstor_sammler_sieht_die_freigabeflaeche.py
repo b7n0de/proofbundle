@@ -128,7 +128,12 @@ def test_der_neue_sammler_ist_eine_echte_obermenge():
 #: Dateien, die absichtlich keinen Test liefern duerfen — je mit Grund. Eine leere Liste ist die
 #: richtige Vorgabe: wer eine Datei hier eintraegt, muss sagen warum, und der Grund steht dann im
 #: Repo statt in einem Kopf.
-_OHNE_TESTS_ERLAUBT: dict[str, str] = {}
+_OHNE_TESTS_ERLAUBT: dict[str, str] = {
+    "test_signer_pkcs11_softhsm.py": (
+        "needs python-pkcs11 (the [pkcs11] extra) and a SoftHSM2 module, and skips at module level where either "
+        "is missing, as here and in CI; its rules are measured by the order's own mutant runner against a token "
+        "the run creates (KRAXO-SIGNER-PKCS11-01). tests/test_signer_interface.py holds the token-free rules."),
+}
 
 
 def _gesehene_dateien() -> set[str]:

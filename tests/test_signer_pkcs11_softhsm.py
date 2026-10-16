@@ -146,6 +146,27 @@ def _populate(token: _Token) -> None:
         ec.generate_keypair(store=True, label="p256", id=b"\x04")
         e448 = s.create_domain_parameters(KeyType.EC_EDWARDS, {Attribute.EC_PARAMS: ed448}, local=True)
         e448.generate_keypair(store=True, label="ed448", id=b"\x08")
+        # an Ed25519 key that may not sign (CKA_SIGN false), with its public object
+        quiet = Ed25519PrivateKey.generate()
+        s.create_object({**common, Attribute.CLASS: ObjectClass.PRIVATE_KEY, Attribute.PRIVATE: True,
+                         Attribute.SENSITIVE: True, Attribute.SIGN: False, Attribute.LABEL: "nosign",
+                         Attribute.ID: b"\x0b",
+                         Attribute.VALUE: quiet.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())})
+        s.create_object({**common, Attribute.CLASS: ObjectClass.PUBLIC_KEY, Attribute.VERIFY: True,
+                         Attribute.LABEL: "nosign", Attribute.ID: b"\x0b",
+                         Attribute.EC_POINT: b"\x04\x20" + quiet.public_key().public_bytes(Encoding.Raw,
+                                                                                        PublicFormat.Raw)})
+        # an Ed25519 private key whose public object claims another curve
+        mixed = Ed25519PrivateKey.generate()
+        s.create_object({**common, Attribute.CLASS: ObjectClass.PRIVATE_KEY, Attribute.PRIVATE: True,
+                         Attribute.SENSITIVE: True, Attribute.SIGN: True, Attribute.LABEL: "mixed",
+                         Attribute.ID: b"\x0a",
+                         Attribute.VALUE: mixed.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())})
+        s.create_object({Attribute.KEY_TYPE: KeyType.EC_EDWARDS, Attribute.TOKEN: True, Attribute.EC_PARAMS: ed448,
+                         Attribute.CLASS: ObjectClass.PUBLIC_KEY, Attribute.VERIFY: True, Attribute.LABEL: "mixed",
+                         Attribute.ID: b"\x0a",
+                         Attribute.EC_POINT: b"\x04\x20" + mixed.public_key().public_bytes(Encoding.Raw,
+                                                                                        PublicFormat.Raw)})
 
 
 @pytest.fixture(scope="module")
@@ -156,6 +177,8 @@ def token(tmp_path_factory):
     os.environ["SOFTHSM2_CONF"] = str(tok.conf)
     tok.init("pb-test")
     tok.init("pb-gone")
+    tok.init("pb-twin")
+    tok.init("pb-twin")
     lib = pkcs11.lib(LIB)
     lib.reinitialize()   # the module reads SOFTHSM2_CONF when it is initialised
     _populate(tok)
@@ -198,7 +221,7 @@ def test_token_receipt_is_judged_by_the_existing_verifier(token, pin):
         bundle = emit_eval_receipt(_claim(), signer)
         record = signer.sign_bytes(b"raw bytes")
     assert verify_bundle(bundle).ok
-    assert classify_eval_claim(bundle) == CLAIM_VALID
+    assert classify_eval_claim(bundle)[0] == CLAIM_VALID
     assert decode_eval_claim(bundle)["issuer"] == signer.key_id == record.key_id
     assert record.algorithm == "ed25519" and len(record.signature) == 64
 
@@ -264,7 +287,7 @@ def test_cli_round_trip_decision_emit_verify(token, tmp_path):
 def test_wrong_pin_is_refused_and_not_shown(token, monkeypatch, tmp_path):
     wrong = "0" + token.pin[1:] if token.pin[0] != "0" else "1" + token.pin[1:]
     monkeypatch.setenv(PIN_VAR, wrong)
-    with pytest.raises(SignerError, match="PIN") as info:
+    with pytest.raises(SignerError, match="refused the PIN") as info:
         Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin_from_env(PIN_VAR))
     assert wrong not in str(info.value) and token.pin not in str(info.value)
     payload = tmp_path / "p.bin"
@@ -276,18 +299,48 @@ def test_wrong_pin_is_refused_and_not_shown(token, monkeypatch, tmp_path):
     assert wrong not in r.stdout + r.stderr and "Traceback" not in r.stderr
 
 
-@pytest.mark.parametrize("attrs", [{"token": "pb-test", "object": "no-such-key"},
-                                   {"token": "pb-test", "id": "%7F"},
-                                   {"token": "no-such-token", "object": "ed"}])
-def test_missing_object_or_token_is_refused(token, pin, attrs):
-    with pytest.raises(SignerError, match="no "):
+@pytest.mark.parametrize("attrs,reason", [({"token": "pb-test", "object": "no-such-key"}, "no private key"),
+                                          ({"token": "pb-test", "id": "%7F"}, "no private key"),
+                                          ({"token": "no-such-token", "object": "ed"}, "no initialised token")])
+def test_missing_object_or_token_is_refused(token, pin, attrs, reason):
+    with pytest.raises(SignerError, match=reason):
         Pkcs11Signer.open(_uri(**attrs), pin=pin)
 
 
-@pytest.mark.parametrize("label", ["rsa", "p256", "ed448"])
-def test_a_key_of_another_mechanism_is_refused_naming_ed25519(token, pin, label):
-    with pytest.raises(SignerError, match="Ed25519"):
+@pytest.mark.parametrize("label,reason", [("rsa", "key type RSA"), ("p256", "key type EC"),
+                                          ("ed448", "another curve")])
+def test_a_key_of_another_mechanism_is_refused_naming_ed25519(token, pin, label, reason):
+    with pytest.raises(SignerError, match=f"{reason}.*Ed25519 only"):
         Pkcs11Signer.open(_uri(token="pb-test", object=label), pin=pin)
+
+
+def test_a_key_that_may_not_sign_is_refused(token, pin):
+    with pytest.raises(SignerError, match="may not sign"):
+        Pkcs11Signer.open(_uri(token="pb-test", object="nosign"), pin=pin)
+
+
+def test_a_public_object_on_another_curve_is_refused(token, pin):
+    with pytest.raises(SignerError, match="public key object .* not on Ed25519"):
+        Pkcs11Signer.open(_uri(token="pb-test", object="mixed"), pin=pin)
+
+
+def test_two_tokens_of_one_name_are_refused(token, pin):
+    with pytest.raises(SignerError, match="more than one token"):
+        Pkcs11Signer.open(_uri(token="pb-twin"), pin=pin)
+
+
+def test_an_uninitialised_token_is_never_chosen(token, pin):
+    """SoftHSM2 always shows one free slot whose token has an empty label and is not initialised."""
+    with pytest.raises(SignerError, match="no initialised token"):
+        Pkcs11Signer.open(_uri(token=""), pin=pin)
+
+
+def test_the_library_attributes_must_match_the_module(token, pin):
+    with pytest.raises(SignerError, match="library attributes"):
+        Pkcs11Signer.open(_uri(**{"library-manufacturer": "Other", "token": "pb-test", "object": "ed"}), pin=pin)
+    with Pkcs11Signer.open(_uri(**{"library-manufacturer": "SoftHSM", "token": "pb-test", "object": "ed"}),
+                           pin=pin) as signer:
+        assert len(signer.sign(b"x")) == 64
 
 
 def test_an_ambiguous_selection_is_refused(token, pin):
@@ -313,16 +366,47 @@ def test_a_uri_without_module_path_is_refused(token, pin):
         Pkcs11Signer.open("pkcs11:token=pb-test;object=ed", pin=pin)
 
 
-@pytest.mark.parametrize("path", ["/nonexistent/libsofthsm2.so", "/etc"])
-def test_a_module_path_that_is_no_module_file_is_refused(token, pin, path):
-    with pytest.raises(SignerError):
+@pytest.mark.parametrize("path,reason", [("/nonexistent/libsofthsm2.so", "cannot be read"),
+                                         ("/etc", "no regular file"), ("/etc/hostname", "could not be loaded")])
+def test_a_module_path_that_is_no_module_file_is_refused(token, pin, path, reason):
+    with pytest.raises(SignerError, match=reason):
         Pkcs11Signer.open(f"pkcs11:token=pb-test;object=ed?module-path={path}", pin=pin)
+
+
+def test_a_library_whose_edwards_default_is_not_eddsa_is_refused(monkeypatch):
+    from proofbundle.signer import _import_pkcs11
+    monkeypatch.setitem(pkcs11.defaults.DEFAULT_SIGN_MECHANISMS, pkcs11.KeyType.EC_EDWARDS, pkcs11.Mechanism.ECDSA)
+    with pytest.raises(SignerError, match="CKM_EDDSA"):
+        _import_pkcs11()
+
+
+def test_a_pin_source_gives_text_or_bytes(token, pin):
+    with Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=lambda: token.pin.encode()) as signer:
+        assert len(signer.sign(b"x")) == 64
+    for answer in (["x"], None, "", b"", 1234, b"\xff\xfe"):   # the last is no UTF-8
+        with pytest.raises(SignerError, match="gave no PIN"):
+            Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=lambda a=answer: a)
+
+
+@pytest.mark.parametrize("step,reason", [("_token", "could not be opened"), ("_mechanism", "could not be opened"),
+                                         ("_private_key", "could not show the selected key")])
+def test_a_raw_error_of_the_token_dialog_is_one_refusal(token, pin, monkeypatch, step, reason):
+    """python-pkcs11 raises more than PKCS11Error (a PIN as bytes ended in a raw AttributeError in `Token.open`,
+    measured on 0.10.0). Planted at each step of `open`: the error is a SignerError naming only its type."""
+    from proofbundle import signer as signer_module
+
+    def boom(*a, **k):
+        raise AttributeError("secret-detail-of-the-library")
+    monkeypatch.setattr(signer_module, step, boom)
+    with pytest.raises(SignerError, match=f"{reason} .AttributeError") as info:
+        Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin)
+    assert "secret-detail" not in str(info.value)
 
 
 def test_a_closed_signer_does_not_sign(token, pin):
     signer = Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin)
     signer.close()
-    with pytest.raises(SignerError):
+    with pytest.raises(SignerError, match="is closed"):
         signer.sign(b"x")
 
 
@@ -342,8 +426,12 @@ def test_token_gone_during_the_session_is_an_error_and_never_a_fallback(token, m
     signer = Pkcs11Signer.open(_uri(token="pb-gone", object="gone"), pin=pin_from_env(PIN_VAR))
     try:
         token.delete("pb-gone")
-        with pytest.raises(SignerError, match="no fallback"):
+        with pytest.raises(SignerError, match="did not sign .ObjectHandleInvalid.*no fallback"):
             emit_eval_receipt(_claim(), signer)
+        # The deleted token leaves a slot that cannot be read in this process: no token is chosen then,
+        # not even another one, so a second token of the same name cannot hide behind the unreadable slot.
+        with pytest.raises(SignerError, match="could not be read"):
+            Pkcs11Signer.open(_uri(token="pb-test", object="ed"), pin=pin_from_env(PIN_VAR))
     finally:
         signer.close()
         pkcs11.lib(LIB).reinitialize()   # SoftHSM keeps a stale slot until the module is initialised again
@@ -386,3 +474,31 @@ def test_in_process_cli_token_failure_touches_no_key_file(token, monkeypatch, tm
     assert not out.exists()
     err = capsys.readouterr().err
     assert token.pin not in err and "Traceback" not in err
+
+
+def test_a_token_without_ckm_eddsa_is_refused_naming_ed25519():
+    """A unit case: SoftHSM2 offers CKM_EDDSA, so a token without it is a stand-in here, with the
+    mechanism enums and exception classes of the real python-pkcs11."""
+    from proofbundle.signer import _mechanism
+
+    class _Info:
+        flags = pkcs11.MechanismFlag.VERIFY
+
+    class _Slot:
+        def __init__(self, mechanisms):
+            self._mechanisms = mechanisms
+
+        def get_mechanisms(self):
+            return self._mechanisms
+
+        def get_mechanism_info(self, mechanism):
+            return _Info()
+
+    class _Tok:
+        def __init__(self, mechanisms):
+            self.slot = _Slot(mechanisms)
+
+    with pytest.raises(SignerError, match="no CKM_EDDSA.*Ed25519"):
+        _mechanism(pkcs11, _Tok({pkcs11.Mechanism.ECDSA, pkcs11.Mechanism.RSA_PKCS}))
+    with pytest.raises(SignerError, match="no CKM_EDDSA"):
+        _mechanism(pkcs11, _Tok({pkcs11.Mechanism.EDDSA}))   # offered, but not for signing

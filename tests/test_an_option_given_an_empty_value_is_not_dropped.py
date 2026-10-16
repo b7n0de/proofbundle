@@ -229,7 +229,11 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
         basis = ["emit", "--payload-file", b.nutzlast, "--out", aus]
         for label, extra in (("--key K --new-key ''", ["--key", b.seed, "--new-key", ""]),
                              ("--key '' --new-key N", ["--key", "", "--new-key", neu]),
-                             ("--key ''", ["--key", ""]), ("--new-key ''", ["--new-key", ""])):
+                             ("--key ''", ["--key", ""]), ("--new-key ''", ["--new-key", ""]),
+                             *((f"--key-uri {w!r}", ["--key-uri", w]) for w in _LEERRAUM),
+                             ("--key-uri '' --key K", ["--key-uri", "", "--key", b.seed]),
+                             ("--key-uri U --pin-env ''", ["--key-uri", "pkcs11:token=x?module-path=/nonexistent/x.so",
+                                                           "--pin-env", ""])):
             with self.subTest(case=label):
                 self.assertEqual(_run(basis + extra), 2)
         with self.subTest(case="--payload-file ''"):
@@ -611,6 +615,9 @@ class ARelationsSectionIsHeldOnlyWhenTheCommandAppliesARuleOfIt(unittest.TestCas
 #: (exit 2), and so is every content of `_DATEI_INHALTE`.
 _OHNE_ABWESENHEIT = "no absent state: without it the command is refused (exit 2), and so is every content"
 _PFLICHT = "required: argparse refuses a call without it, so there is no absent state a content could reach"
+_KEIN_DATEIPFAD = ("no file: a PKCS#11 URI (RFC 7512), seen as a file option only because the signer it reaches is "
+                   "opened by `Pkcs11Signer.open`; no content of a file is read, and the empty value and its "
+                   "whitespace spellings are refused (exit 2, test_an_empty_signer_option_is_refused)")
 _DATEI_OPTIONEN_OHNE_FALL = {
     ("emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("emit-eval", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
@@ -619,6 +626,8 @@ _DATEI_OPTIONEN_OHNE_FALL = {
     ("decision emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("outcome emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("relation-statement emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    **{(befehl, "--key-uri"): _KEIN_DATEIPFAD for befehl in (
+        "emit", "emit-eval", "intoto", "svr", "decision emit", "outcome emit", "relation-statement emit")},
     ("anchor upgrade", "--target-file"): ("no absent state a content could reach: without it the command is refused "
                                           "(exit 2, provide --target-file or --canonical-root-hex), and with it the "
                                           "file's bytes are the target itself, whose hash the proof must commit to, so "

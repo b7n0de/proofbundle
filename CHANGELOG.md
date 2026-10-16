@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Added
+
+- Add a signer interface, `proofbundle.signer`: `sign_bytes` takes bytes and returns the signature, the algorithm and the key id. The key file stays the default and signs exactly as before. An optional PKCS#11 signer (the `[pkcs11]` extra) signs with an Ed25519 key held in a token, selected by an RFC 7512 URI with `--key-uri` on every command that signs; the PIN comes from a prompt or from the environment variable `--pin-env` names, never from the URI or the command line. A token that fails ends the command with exit 2, and there is no fallback to a key file. Only Ed25519 is signed: a token key of another kind is refused. `ExternalSigner` is the interface for a key management service; no provider is included. See `docs/SIGNERS.md`.
+
 ## [6.3.0] - 2026-10-14
 
 Three entries change existing behaviour for package users. By default, DSSE signing adds a key ID when the signer exposes its Ed25519 public key (Changed). The pytest plugin skips receipt generation for metric names other than `pass_rate` and bases threshold decisions on exact test counts rather than a pass rate rounded to six decimal places (Fixed). The remaining entries add material or concern the project's CI.

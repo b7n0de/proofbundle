@@ -413,6 +413,7 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
     from proofbundle.adapters import eee
     from proofbundle.policy_profiles import instantiate_template
     from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
+    from proofbundle.signer import key_id_of
     f = fx()
 
     def ident(o):
@@ -608,6 +609,7 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
         ("run_ledger.link_runs, default statuses", run_ledger.link_runs,
          {"result_digests": ("a" * 64,)}, ("result_digests",), _json),
         ("evalclaim.canonicalize", ec.canonicalize, {"claim": f.claim_in}, ("claim",), ident),
+        ("signer.key_id_of", key_id_of, {"public_key_raw": _raw(f.sk)}, ("public_key_raw",), ident),
     ]
     if eee_path.is_file():
         c.append(("adapters.eee.from_eee_dataset", eee.from_eee_dataset,
@@ -1111,6 +1113,7 @@ _SWEEP = {
     ("src/proofbundle/run_ledger.py", "emit_run_ledger"): _c("run_ledger.emit_run_ledger"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): _c("sdjwt_issue.issue_sd_jwt"),
     ("src/proofbundle/sdjwt_issue.py", "present_with_key_binding"): _c("sdjwt_issue.present_with_key_binding"),
+    ("src/proofbundle/signer.py", "key_id_of"): _c("signer.key_id_of"),
     ("src/proofbundle/statuslist.py", "status_claim"): _c("statuslist.status_claim"),
     ("src/proofbundle/statuslist.py", "issue_status_list_token"): _c("statuslist.issue_status_list_token"),
     ("src/proofbundle/subject_binding.py", "derive_subject_digest"): "not affected: hashes, checks nothing",

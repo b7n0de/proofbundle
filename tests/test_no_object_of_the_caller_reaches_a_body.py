@@ -150,6 +150,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("outcome.verify_outcome_receipt_or_raise", "evidence_resolver"): _RUECKRUF,
     ("outcome.verify_outcome_receipt_or_raise", "receiver_attestation_resolver"): _RUECKRUF,
     ("renewal.verify_sequence", "anchor_verifier"): _RUECKRUF,
+    ("signer.Pkcs11Signer.open", "pin"): _RUECKRUF,   # the PIN source, run as the caller's code at the login
     ("agent_review.emit_agent_review", "signer"): _SIGNIERER,
     ("checkpoint.cosign_checkpoint", "witness_signer"): _SIGNIERER,
     ("checkpoint.cosign_checkpoint_mldsa", "witness_signer"): _SIGNIERER,
@@ -194,6 +195,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("evalcard.verify_evaluation_card", "card_path"): _PFAD,
     ("prereg.prereg_hash", "protocol_path"): _PFAD,
     ("prereg.verify_prereg", "protocol_path"): _PFAD,
+    ("signer.FileSigner.load", "path"): _PFAD,
     ("verifier_block.measure_build", "package_dir"): _PFAD,
     ("verifier_block.measure_vector_set", "conformance_dir"): _PFAD,
     ("verifier_block.measure_verifier_block", "conformance_dir"): _PFAD,
