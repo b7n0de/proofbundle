@@ -3250,3 +3250,22 @@ The rule: for the fetch form of D45, core.pager (any scope) and PAGER and GIT_PA
 in the pass text and do not count. Only what was measured: a pager.<command> key of git and the pager of gh in the gh
 helper's gh profile (D43) keep the rule of D42, since the measurement did not cover them. Every read form of class a
 keeps D34 and D42, a fetch under Codex keeps its ask (D41), and a prefix assignment of PAGER is not the form.
+
+## D49. No reason names a value from the configuration, the environment or a file (Nachtrag 20, 2026-10-16)
+
+Found by Cowork reading a8ca017a: the fetch profile gave the URL of the remote and the value of a credential helper
+word for word in its reason. A URL can carry a user and a token, and a reason is text the session reads.
+
+The rule: a reason names the key, its scope and its file, never the value. For a URL it says at most which form the
+profile asks for and did not find. A key whose subsection holds an @ (url.<base>.insteadOf, credential.<url>.*,
+http.<url>.*, includeIf.hasconfig:…) is named by its section and variable, without the subsection (_shown_key). Words
+of the command itself stay. A value the gate names only after it matched a closed form of its own (AI_AGENT of the
+bound host, GH_TELEMETRY false or 0, DO_NOT_TRACK true or 1, push.recurseSubmodules on-demand or only) stays (O20-1);
+numbers the gate checks as counts stay.
+
+The class was searched over every f-string of the gate at a8ca017a (1265 interpolations); the list of what changed and
+what stays, with lines, is in the report of Nachtrag 20 (klassenliste_teil3.md). Changed: the state check, the read
+profile and the fetch profile (keys with a user), the filter an attribute names, the credential helper, the URL and the
+fetch rules of the fetch profile and its pass, the paths of the declaration, a push setting, the URL rewrites of a push,
+the programs and URLs of the transport binding, the URLs and the exec path of the Level 2 hand-over, the value of an
+include, the pytest arguments and PYTEST_ADDOPTS of a receipt, a count of a test report.

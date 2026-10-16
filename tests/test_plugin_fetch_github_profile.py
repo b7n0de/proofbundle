@@ -131,7 +131,9 @@ def test_E1B_deltas_chain_is_free_through_the_hook(tmp_path, repo):
 
 def test_E1B_the_pass_names_the_url_the_rule_and_D45(tmp_path, repo):
     detail = _decide(repo, "git -C {a} fetch -q origin main").verdicts[0].detail
-    for named in ("git fetch origin is free", "at https://github.com/o/r", "the one fetch rule of a clone",
+    # since Nachtrag 20 (D49) the pass names the form of the URL, not the URL
+    for named in ("git fetch origin is free", "at a URL of the form https://github.com/<owner>/<repo>",
+                  "the one fetch rule of a clone",
                   "A pager is named (PAGER in the hook's environment)", "git fetch starts no pager", "D48", "D45"):
         assert named in detail, (named, detail)   # since Nachtrag 20 (O19-2) git's pager counts under no host (D48)
 
@@ -307,7 +309,8 @@ NAMED = [("@url", "{tmp}/origin", "the URL of the remote origin is not https://g
          ("http.proxy", "http://127.0.0.1:3128", "http.proxy"),
          ("url.https://other.example/.insteadOf", "https://github.com/", "insteadof"),
          ("remote.origin.vcs", "probe", "remote.origin.vcs"),
-         ("credential.helper", "cache", "a credential helper the fetch profile does not know: 'cache'"),
+         ("credential.helper", "cache", "a credential helper the fetch profile does not know: credential.helper "
+                                        "in the local configuration"),   # the key and its file, never the value (D49)
          ("core.fsmonitor", "{tmp}/fsm", "fsmonitor, which the fetch starts"),
          ("@hook", "reference-transaction", "a hook the fetch or its maintenance may start"),
          ("@env", "HTTPS_PROXY", "a proxy, which takes the fetch to another host first: HTTPS_PROXY"),

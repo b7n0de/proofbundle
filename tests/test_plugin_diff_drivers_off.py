@@ -141,7 +141,7 @@ def test_P2_the_ask_names_the_path_an_attribute_assigns_a_filter_to(tmp_path):
     repo = _repo(tmp_path)
     _assigned(tmp_path, repo, "work_tree")
     reason = _answer(repo, SWITCHED)[2]
-    assert "assigned to a.txt (filter=probe)" in reason, reason
+    assert "assigned to a.txt by an attribute" in reason and "probe" not in reason, reason   # no value (D49)
 
 
 def test_P2_control_fsmonitor_asks_and_starts_in_bash(tmp_path):

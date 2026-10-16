@@ -557,7 +557,7 @@ def _rewrite_record(env: dict, change) -> None:
     (lambda rec: rec.update(created=int(time.time()) + 3600), "written in the future"),
     (lambda rec: rec.update(schema="proofbundle-plugin/handover/v0"), "not a hand-over of this plugin"),
     (lambda rec: rec.update(repo="/elsewhere"), "another repository"),
-    (lambda rec: rec.update(url="/elsewhere/remote.git"), "the hand-over names remote"),
+    (lambda rec: rec.update(url="/elsewhere/remote.git"), "at another URL than the one the hand-over records"),
     (lambda rec: rec["binding"].update(plugin_version="9.9.9"), "the hand-over records 9.9.9"),
     (lambda rec: rec["binding"].update(hook_sha256="0" * 64), "or its bytes changed"),
     (lambda rec: rec["binding"].update(gate_sha256="0" * 64), "or its bytes changed"),

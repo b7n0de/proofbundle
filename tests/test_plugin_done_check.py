@@ -457,13 +457,13 @@ def test_a_receipt_of_one_check_does_not_stand_for_another(env, ordered, keys):
     _run(ordered, keys.signer, UNIT)
     _run(ordered, keys.signer, UNIT, out=ordered / INTEGRATION["receipt"])
     reason = blocked(stop(env, ordered)[1])
-    assert 'check integration is other selection: the receipt\'s run had the pytest arguments ["tests/unit"]' in reason
+    assert "check integration is other selection: the receipt's run had other pytest arguments" in reason
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
-    ({"pytest_addopts": "-k fast"}, "PYTEST_ADDOPTS '-k fast'"),
+    ({"pytest_addopts": "-k fast"}, "PYTEST_ADDOPTS set"),   # since Nachtrag 20 the reason names no value (D49)
     ({"n_deselected": 2}, "deselected 2 tests"),
-    ({"pytest_args": ["tests/unit", "-k", "fast"]}, '["tests/unit", "-k", "fast"]'),
+    ({"pytest_args": ["tests/unit", "-k", "fast"]}, "other pytest arguments than the check asks for"),
 ])
 def test_a_run_with_another_selection_blocks(env, ordered, keys, changes, expected):
     _run(ordered, keys.signer, INTEGRATION)

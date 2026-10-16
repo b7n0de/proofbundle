@@ -1126,6 +1126,18 @@ def _fetch_form(args: list[str], rewrites: list[bool] | None = None) -> str | No
     return args[k]
 
 
+def _shown_key(key: str) -> str:
+    """A configuration key as a reason names it (Nachtrag 20, D49): the key, never its value. A subsection can be a URL
+    (url.<base>.insteadOf, credential.<url>.helper, http.<url>.*, includeIf.hasconfig:remote.*.url:<url>.path), and a
+    URL can carry a user and a token before an @; a key that holds an @ is named by its section and variable with the
+    subsection left out."""
+    if "@" not in key:
+        return key
+    section, _dot, rest = key.partition(".")
+    _subsection, _dot, variable = rest.rpartition(".")
+    return f"{section}.<a subsection that names a user>.{variable}"
+
+
 def _checkout_state_problem(directory: str, target: str, deadline: float, environ: dict | None = None) -> str | None:
     """None when `git worktree add` of the repository at directory into target starts no program and writes nothing the
     gate guards, else what was found (D40, part 3 of Nachtrag 15). The target must not exist, and must be no path a
@@ -1177,13 +1189,14 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     for scope, origin, key, value in entries:
         source = _program_source(key.lower(), value, directory, deadline)
         if source is not None and not (signing_inert and source == "signature program"):
-            return f"a {source}: {key} {origin_of(scope, origin)}"
+            return f"a {source}: {_shown_key(key)} {origin_of(scope, origin)}"
     for scope, origin, key, value in entries:
         lowered = key.lower()
         if signing_inert and lowered.startswith("gpg."):
             continue
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
-            return f"a configuration key the check does not know to start no program: {key} {origin_of(scope, origin)}"
+            return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
+                    f"{origin_of(scope, origin)}")
     hooks = paths["hooks"]
     if hooks and os.path.lexists(hooks):
         if not os.path.isdir(hooks):
@@ -1538,8 +1551,7 @@ def _filter_assigned(directory: str, configured: str, deadline: float) -> str | 
     for k in range(0, len(fields) - 1, 3):
         value = fields[k + 2]
         if value not in (b"unspecified", b"unset"):
-            return (f"a filter: {configured}, assigned to {_git_text(fields[k])} "
-                    f"(filter={value.decode('utf-8', 'replace')})")
+            return f"a filter: {configured}, assigned to {_git_text(fields[k])} by an attribute"
     return None
 
 
@@ -1571,7 +1583,7 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     if entries is None:
         return f"the gate cannot read the effective configuration ({why})"
     for scope, origin, key, value in entries:
-        lowered, where = key.lower(), f"{key} in the {scope} configuration {origin.removeprefix('file:')}"
+        lowered, where = key.lower(), f"{_shown_key(key)} in the {scope} configuration {origin.removeprefix('file:')}"
         if re.match(_PARTIAL_CLONE_KEYS, lowered):
             return f"a lazy fetch from a promisor remote: {where}"
         if lowered == "core.pager" or lowered.startswith("pager."):
@@ -1699,15 +1711,14 @@ def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: l
         words = []
     if len(words) != 3 or words[1:] != ["auth", "git-credential"] or os.path.basename(words[0]) != "gh" \
             or (words[0] != "gh" and not os.path.isabs(words[0])):
-        return f"a credential helper the fetch profile does not know: {value!r}"
+        return "a credential helper the fetch profile does not know"
     on_path = shutil.which("gh", path=environ.get("PATH"))
     named = on_path if words[0] == "gh" else words[0]
     if on_path is None or not os.path.exists(named) or os.path.realpath(named) != os.path.realpath(on_path):
-        return (f"the credential helper {value!r} names a gh that is not the gh on PATH, the one the gh profile "
-                "checks")
+        return "the credential helper names a gh that is not the gh on PATH, the one the gh profile checks"
     problem = _gh_profile_problem(environ, deadline, inert_pagers, [])
     if problem is not None:
-        return f"the credential helper {value!r} starts gh, and the gh profile found {problem}"
+        return f"the credential helper starts gh, and the gh profile found {problem}"
     return None
 
 
@@ -1745,8 +1756,10 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     if entries is None:
         return f"the gate cannot read the effective configuration ({why})"
     urls, rules, recurse_off = [], [], False
+    url_where: list = []      # where each URL and rule stands: a reason names the key and its file, never the value (D49)
+    rule_where: list = []
     for scope, origin, key, value in entries:
-        lowered, where = key.lower(), f"{key} in the {scope} configuration {origin.removeprefix('file:')}"
+        lowered, where = key.lower(), f"{_shown_key(key)} in the {scope} configuration {origin.removeprefix('file:')}"
         section, _dot, rest = key.partition(".")
         subsection, _dot, variable = rest.rpartition(".")
         section, variable = section.lower(), variable.lower()
@@ -1765,9 +1778,11 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
         if section == "remote" and subsection == remote:
             if variable == "url":
                 urls.append(value)
+                url_where.append(where)
                 continue
             if variable == "fetch":
                 rules.append(value)
+                rule_where.append(where)
                 continue
             return (f"a setting of the remote {remote} the fetch profile does not know to keep the fetch on "
                     f"github.com: {where}")
@@ -1793,10 +1808,10 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
                 f"the remote {remote} has {len(urls)} URLs, and the profile knows a fetch from one")
     matched = _FETCH_GITHUB_URL.fullmatch(urls[0] or "")
     if matched is None or matched.group(2) in (".", "..", ".git"):
-        return f"the URL of the remote {remote} is not https://github.com/<owner>/<repo>: {urls[0]!r}"
+        return f"the URL of the remote {remote} is not https://github.com/<owner>/<repo>: {url_where[0]}"
     if rules != [f"+refs/heads/*:refs/remotes/{remote}/*"]:
         return (f"the fetch rules of the remote {remote} are not the one rule +refs/heads/*:refs/remotes/{remote}/*: "
-                f"{rules!r}")
+                f"{'; '.join(rule_where) or f'no remote.{remote}.fetch'}")
     hooks = paths["hooks"]
     if hooks and os.path.lexists(hooks):
         if not os.path.isdir(hooks):
@@ -1848,7 +1863,8 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
                    f"the host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal "
                    "(DECISIONS.md D42)." if bound_pagers else "")
         return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of the repository at {directory} "
-                               f"found the remote {remote} at {url[0]} with the one fetch rule of a clone, no URL "
+                               f"found the remote {remote} at a URL of the form https://github.com/<owner>/<repo> "
+                               "with the one fetch rule of a clone, no URL "
                                "rewrite, proxy, transport helper, ssh or askpass setting, no credential helper but "
                                "those it knows, no hook the fetch or its maintenance starts, no fsmonitor, no "
                                "submodule it would fetch, and every key and environment setting it read is one it "
@@ -3846,10 +3862,10 @@ def _relative(value: object, where: str) -> str:
         raise GateError(f"{where} must be a non-empty path string")
     parts = value.split("/")
     if value.startswith("/") or "\\" in value or any(p in ("", ".", "..") for p in parts):
-        raise GateError(f"{where} must be a normalised path inside the repository: {value!r}")
+        raise GateError(f"{where} must be a normalised path inside the repository")
     if not value.startswith(EVIDENCE_DIR) or value == EVIDENCE_DIR:
         raise GateError(f"{where} must lie under {EVIDENCE_DIR}, which the tree digest leaves out; evidence "
-                        f"elsewhere would be part of the tree it names: {value!r}")
+                        "elsewhere would be part of the tree it names")
     return value
 
 
@@ -4634,7 +4650,7 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
                 continue
             false = None if value is None else is_false(value)
             if false is None or (key == "push.recursesubmodules" and not false):
-                return f"git push stops at the value {value!r} of {key}"
+                return f"git push stops at the value of {key}, which the gate does not read as true or false"
     options = entries("^push[.]pushoption$")
     if options is None or any(value is None for _name, value in options):
         return "push.pushOption is set without a value, and git push stops there"
@@ -4725,12 +4741,12 @@ def _applicable_rewrites(repo: str, remote: str, deadline: float) -> list[str]:
     for url in [*urls, *pushurls]:
         hit = _longest_rule(url, instead)
         if hit is not None:
-            applied.append(f"url.{hit[0]}.insteadOf = {hit[1]} rewrites {url}")
+            applied.append(f"{_shown_key(f'url.{hit[0]}.insteadOf')} rewrites a URL of remote {remote}")
     if not pushurls:
         for url in urls:
             hit = _longest_rule(url, push_instead)
             if hit is not None:
-                applied.append(f"url.{hit[0]}.pushInsteadOf = {hit[1]} rewrites the push to {url}")
+                applied.append(f"{_shown_key(f'url.{hit[0]}.pushInsteadOf')} rewrites the push URL of remote {remote}")
     return applied
 
 
@@ -7539,39 +7555,38 @@ def _named_program(key: str, value: str | None) -> tuple[str | None, str | None]
         return None, None
     if name in _UNSHELLED_PROGRAMS:
         if not _PLAIN_WORD.fullmatch(value):
-            return None, f"{key} names a program path the gate does not model ({value!r})"
+            return None, f"{key} names a program path the gate does not model"
         if value.startswith("/") and _process_dependent(value):
-            return None, (f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves "
-                          "for itself")
+            return None, f"{key} names a program under /proc or /dev/fd, which each process resolves for itself"
         return value, None
     command = value[1:] if helper and value.startswith("!") else value
     words = command.split(" ")
     program_at = 0
     if _ASSIGNMENT.match(words[0]):
-        return None, (f"{key} sets an environment name in front of its program ({value!r}), which can choose another "
+        return None, (f"{key} sets an environment name in front of its program, which can choose another "
                       "program or library than the one the gate binds")
     for i, word in enumerate(words):
         plain = word[2:] if i == program_at and word.startswith("~/") else word
         if not _PLAIN_WORD.fullmatch(plain):
-            return None, (f"{key} is a shell command the gate does not model ({value!r}): a quote, an expansion, a "
+            return None, (f"{key} is a shell command the gate does not model: a quote, an expansion, a "
                           "glob, an operator or a redirection decides there which program runs")
     program = words[program_at]
     if helper and not value.startswith("!") and not os.path.isabs(program):
         program = f"git-credential-{program}"
     if program.startswith(("/", "~/")) and _process_dependent(os.path.expanduser(program)):
-        return None, f"{key} names a program under /proc or /dev/fd ({value!r}), which each process resolves for itself"
+        return None, f"{key} names a program under /proc or /dev/fd, which each process resolves for itself"
     return program, None
 
 
 def _handover_url_problem(url: str, vcs: str | None) -> str | None:
     """Why a hand-over does not model the transport git chooses for `url` (_HANDOVER_SCHEMES), or None."""
     if vcs is not None:
-        return f"remote.<name>.vcs ({vcs!r}) starts a remote helper"
+        return "remote.<name>.vcs starts a remote helper"
     if "::" in url.split("/", 1)[0]:
-        return f"the URL {url!r} names a remote helper (`<transport>::<address>`)"
+        return "the URL of the remote names a remote helper (`<transport>::<address>`)"
     if url.startswith(_HANDOVER_SCHEMES) or "://" not in url:
         return None
-    return f"the URL {url!r} has a scheme git hands to a remote helper"
+    return "the URL of the remote has a scheme git hands to a remote helper"
 
 
 def _ssh_config_files() -> list[str]:
@@ -7596,7 +7611,7 @@ def _local_remote(url: str, toplevel: str) -> tuple[str | None, str | None]:
     if url.startswith("file://"):
         path = url[len("file://"):]
         if not path.startswith("/") or any(c in path for c in "#?%[]\0"):
-            return None, f"the file URL {url!r} is not of the plain form file:///<path> a hand-over models"
+            return None, "the file URL of the remote is not of the plain form file:///<path> a hand-over models"
     elif "://" in url or _ssh_url(url):
         return None, None
     elif "\0" in url:
@@ -7668,7 +7683,7 @@ def _transport_parts(repo: str, remote: str, url: str, deadline: float,
         program, why = _named_program(key, value)
         found = _program_file(program, toplevel, exec_path, environ)
         if why is None and program is not None and (found[1] is None or found[2] is None):
-            why = f"{key} names the program {program!r}, which the gate resolves to no file it can hash"
+            why = f"{key} names a program the gate resolves to no file it can hash"
         if why is not None:
             problems.append(why)
         bound.append([key, found])
@@ -8025,7 +8040,7 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
         command = _shell_command("python3", os.path.realpath(__file__), "transport-digest", "--repo", repo, "--remote",
                                  remote)
         return (f"the transport is not approved: {approvals} holds no entry for repository {common}, remote {remote} and "
-                f"URL {url} with transport digest {transport}. The transport (its programs, credentials and proxy) "
+                f"its URL with transport digest {transport}. The transport (its programs, credentials and proxy) "
                 f"starts before Level 2 judges (G18-1), so only a person approves it; `{command}` prints the entry"), False
     level2, why = _bound_level2(paths["hooks"], deadline)
     if level2 is None:
@@ -8062,7 +8077,7 @@ def _handover_offer(repo: str, head_commit: str, push_args: list[str] | None, ha
             "decision of its own: the gate never answers allow, and the host's own permission settings decide whether "
             f"it asks. Checked here: {_sources_clean(sources)}; the one reason left open is the destination, which "
             "git's pre-push hook reads from the remote's own answer to the push. The transport of remote "
-            f"{remote} ({url}) is approved in {_file_stamp(approvals)}. The pre-push hook at {level2['hook']} is this "
+            f"{remote} is approved in {_file_stamp(approvals)}. The pre-push hook at {level2['hook']} is this "
             f"plugin's wrapper and runs this gate ({level2['gate']}, version {GATE_VERSION}). Level 2 checks the actual "
             f"update against hand-over {record['nonce']} ({updates}), consumes it, and blocks the push where anything "
             "differs; its verdict decides, not this message, and a Level 2 pass is no successful remote update. Valid "
@@ -8161,13 +8176,14 @@ def _handover_mismatch(repo: str, paths: dict, record: dict, remote: str | None,
             (record["repo"], record["worktree"], record["gitdir"]):
         return "it was written for another repository, worktree or git directory"
     if (remote, url) != (record["remote"], record["url"]):
-        return (f"git pushes to remote {remote!r} at {url!r}, and the hand-over names remote {record['remote']!r} at "
-                f"{record['url']!r}")
+        return (f"git pushes to remote {remote!r}, and the hand-over names remote {record['remote']!r}"
+                if remote != record["remote"] else
+                f"git pushes to remote {remote!r} at another URL than the one the hand-over records")
     binding = record["binding"]
     exec_path = os.environ.get("GIT_EXEC_PATH")
     if not exec_path or os.path.realpath(exec_path) != binding["exec_path"]:
-        return (f"the git that runs this hook has the exec path {exec_path!r} (GIT_EXEC_PATH), and the hand-over "
-                f"records {binding['exec_path']!r}")
+        return ("the git that runs this hook has another exec path (GIT_EXEC_PATH) than the one the hand-over "
+                "records")
     measurable, parent = _parent_git_sha256()
     if measurable and parent != binding["git_sha256"]:
         return "the git program that started this hook is not the git program the hand-over records (sha256 differs)"
@@ -10096,13 +10112,14 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
             included = _git_path(directory, value, deadline)   # git's interpolation, `%(prefix)/` included (R3-3)
             if included is None:
-                return files, dirs, f"git cannot resolve the include {value!r} from {origin or 'an unnamed origin'}"
+                return files, dirs, (f"git cannot resolve the include {_shown_key(key)} from "
+                                     f"{origin or 'an unnamed origin'}")
             if os.path.isabs(included):
                 files.add(included)   # an absolute include, also one from the command scope or standard input
             elif sources:
                 files.update(os.path.join(os.path.dirname(s), included) for s in sources)   # beside the including file
             else:   # git-config(1): a relative include must come from a file, so git itself refuses it
-                return files, dirs, f"the include {value!r} from {origin or 'an unnamed origin'} names no file"
+                return files, dirs, f"the include {_shown_key(key)} from {origin or 'an unnamed origin'} names no file"
     # git reads ~/.gitconfig and the XDG file at $HOME (git-config(1)) and neither when HOME is unset (measured with
     # git 2.43); os.path.expanduser reads HOME as well and falls back to the password database only when HOME is
     # unset, where it protects a file git does not read.
@@ -11056,10 +11073,9 @@ def selection_problem(check: dict, provenance: dict) -> str | None:
             and type(deselected) is int):
         return "the receipt does not name how pytest was asked to run (pytest_args, pytest_addopts, n_deselected)"
     if args != check["args"]:
-        return _short(f"the receipt's run had the pytest arguments {json.dumps(args)}, the check asks for "
-                      f"{json.dumps(check['args'])}")
+        return "the receipt's run had other pytest arguments than the check asks for"
     if addopts.strip():
-        return _short(f"the receipt's run had PYTEST_ADDOPTS {addopts!r}, which the check does not allow")
+        return "the receipt's run had PYTEST_ADDOPTS set, which the check does not allow"
     if deselected != 0:
         return f"the receipt's run deselected {deselected} tests"
     return None
@@ -13136,7 +13152,7 @@ def _junit_counts(path: str, suite_name: str) -> tuple[dict, str]:
         for name in totals:
             value = suite.get(name, "0")
             if not re.fullmatch(r"[0-9]{1,15}", value):
-                raise GateError(f"the report's {name} is not a count: {value!r}")
+                raise GateError(f"the report's {name} is not a count")
             totals[name] += int(value)
     counts = {"tests": totals["tests"], "failed": totals["failures"], "errors": totals["errors"],
               "skipped": totals["skipped"]}
