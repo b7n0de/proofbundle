@@ -1,10 +1,14 @@
 // Z381 Kani harnesses. `build.rs` appends this file INSIDE the proof subject (under `cfg(kani)`),
 // so the harnesses reach the verifier's private functions without any change to the verifier.
 //
-// STATUS: written for Kani 0.67.0, NOT RUN in the Z381 session (the tool could not be installed
-// there, see the report). Run with:
-//   cargo kani --harness-timeout 3600s
+// STATUS: written for Kani 0.67.0 in the Z381 session and not run there. First run in the Z381
+// continuation; the verdict of each harness, its time and its memory stand in that report, not
+// here. The stub of k5 needs the unstable stubbing feature (without it the crate does not
+// compile under Kani, measured), so run one harness at a time with:
+//   cargo kani -Z stubbing --harness <name>
 // Each harness states its input bound. Nothing here is counted as proven until a run says so.
+// `PB_Z381_MUTANT=kani_underflow|kani_two_lines|kani_parse_counter` plants the counter-check of
+// P1 (k5), P2 (k1) and P3 (k3); see build.rs.
 
 use super::*;
 use std::ffi::OsString;
@@ -31,11 +35,30 @@ fn symbolic_bytes<const N: usize>() -> Vec<u8> {
     buf[..len].to_vec()
 }
 
-/// P1 + P2 over every file content of at most 4 bytes, real parser, real crypto, no flags.
+/// P1 + P2 over every file content of at most `N` bytes, real parser, real crypto, no flags.
+fn k1_decision_every_file<const N: usize>() {
+    run_main(bundle_argv(), Some(symbolic_bytes::<N>()));
+}
+
+// Z381 continuation: one harness per byte bound, so a bound the machine cannot decide (CBMC out
+// of memory, or out of time) does not hide a smaller bound it can. The report names, per harness,
+// VERIFIED, FAILED or not decided, and the largest decided bound.
+#[kani::proof]
+#[kani::unwind(12)]
+fn k1_decision_every_file_up_to_1_byte() {
+    k1_decision_every_file::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k1_decision_every_file_up_to_2_bytes() {
+    k1_decision_every_file::<2>();
+}
+
 #[kani::proof]
 #[kani::unwind(12)]
 fn k1_decision_every_file_up_to_4_bytes() {
-    run_main(bundle_argv(), Some(symbolic_bytes::<4>()));
+    k1_decision_every_file::<4>();
 }
 
 /// P1 + P2 over argv: up to 3 words after `verify-bundle`, each from the flag alphabet or a
@@ -69,22 +92,48 @@ fn k2_decision_every_argv_up_to_3_words() {
     run_main(argv, Some(b"{}".to_vec()));
 }
 
-/// P3 for the parser: two runs on the same bytes give the same result.
-#[kani::proof]
-#[kani::unwind(12)]
-fn k3_strict_parse_deterministic_up_to_4_bytes() {
-    let b = symbolic_bytes::<4>();
+/// P3 for the parser: two runs on the same bytes (at most `N`) give the same result.
+fn k3_strict_parse_deterministic<const N: usize>() {
+    let b = symbolic_bytes::<N>();
     assert_eq!(strict_parse(&b), strict_parse(&b));
 }
 
-/// P3 for the bundle decision on every parsed value of at most 6 bytes.
 #[kani::proof]
-#[kani::unwind(14)]
-fn k4_verify_bundle_deterministic_up_to_6_bytes() {
-    let b = symbolic_bytes::<6>();
+#[kani::unwind(12)]
+fn k3_strict_parse_deterministic_up_to_1_byte() {
+    k3_strict_parse_deterministic::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k3_strict_parse_deterministic_up_to_2_bytes() {
+    k3_strict_parse_deterministic::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(12)]
+fn k3_strict_parse_deterministic_up_to_4_bytes() {
+    k3_strict_parse_deterministic::<4>();
+}
+
+/// P3 for the bundle decision on every parsed value of at most `N` bytes.
+fn k4_verify_bundle_deterministic<const N: usize>() {
+    let b = symbolic_bytes::<N>();
     if let Ok(v) = strict_parse(&b) {
         assert_eq!(verify_bundle(&v, None, None), verify_bundle(&v, None, None));
     }
+}
+
+#[kani::proof]
+#[kani::unwind(14)]
+fn k4_verify_bundle_deterministic_up_to_2_bytes() {
+    k4_verify_bundle_deterministic::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(14)]
+fn k4_verify_bundle_deterministic_up_to_6_bytes() {
+    k4_verify_bundle_deterministic::<6>();
 }
 
 fn node_hash_abstract(l: &[u8], r: &[u8]) -> Vec<u8> {
@@ -94,22 +143,59 @@ fn node_hash_abstract(l: &[u8], r: &[u8]) -> Vec<u8> {
     h.to_vec()
 }
 
-/// P1 for the inclusion walk over EVERY u64 leaf index and tree size and every proof of at most
-/// 4 entries: no overflow, no panic, always a result (SHA-256 abstracted, assumption A1).
-#[kani::proof]
-#[kani::unwind(70)]
-#[kani::stub(node_hash, node_hash_abstract)]
-fn k5_root_from_inclusion_total() {
+/// P1 for the inclusion walk over EVERY u64 leaf index and tree size and every proof of exactly
+/// `N` entries: no overflow, no panic, always a result (SHA-256 abstracted, assumption A1).
+///
+/// Z381 continuation: the first form left the proof length symbolic (0..=4) under one unwind bound
+/// of 70; CBMC then unrolls the inner `while` (up to 63 shifts of a u64) inside each of 70 copies
+/// of the outer loop and ran out of memory after 15 minutes (measured, about 15 GB). One harness
+/// per length keeps the outer loop at exactly `N` turns; the bound 66 covers the inner loop
+/// (at most 63 turns, plus the exit test) and the 32-byte copies, and Kani's unwinding assertions
+/// turn a bound that is too small into a failure, never into a silent cut.
+fn k5_root_from_inclusion_total_len<const N: usize>() {
     let idx: u64 = kani::any();
     let size: u64 = kani::any();
-    let n: usize = kani::any();
-    kani::assume(n <= 4);
-    let mut proof = Vec::new();
-    for _ in 0..n {
+    let mut proof = Vec::with_capacity(N);
+    for _ in 0..N {
         let p: [u8; 32] = kani::any();
         proof.push(p.to_vec());
     }
     let leaf: [u8; 32] = kani::any();
     let r = root_from_inclusion(idx, size, leaf.to_vec(), &proof);
     assert!(r.is_ok() || r.is_err());
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_abstract)]
+fn k5_root_from_inclusion_total_len0() {
+    k5_root_from_inclusion_total_len::<0>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_abstract)]
+fn k5_root_from_inclusion_total_len1() {
+    k5_root_from_inclusion_total_len::<1>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_abstract)]
+fn k5_root_from_inclusion_total_len2() {
+    k5_root_from_inclusion_total_len::<2>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_abstract)]
+fn k5_root_from_inclusion_total_len3() {
+    k5_root_from_inclusion_total_len::<3>();
+}
+
+#[kani::proof]
+#[kani::unwind(66)]
+#[kani::stub(node_hash, node_hash_abstract)]
+fn k5_root_from_inclusion_total_len4() {
+    k5_root_from_inclusion_total_len::<4>();
 }

@@ -66,6 +66,33 @@ fn plant(src: &str, mutant: &str) -> String {
             1,
             "mutant nondeterministic",
         ),
+        // Kani counter-checks (Z381 continuation), one per property, each inside the reach of the
+        // harness that must find it.
+        // P1, harness k5: the subtraction moves in front of its range check, so a tree_size of 0
+        // underflows.
+        "kani_underflow" => replace_exact(
+            src,
+            "    if fnn >= tree_size {\n        return Err(\"leaf_index out of range for tree_size\".into());\n    }\n    let mut sn = tree_size - 1;\n",
+            "    let mut sn = tree_size - 1;\n    if fnn >= tree_size {\n        return Err(\"leaf_index out of range for tree_size\".into());\n    }\n",
+            1,
+            "mutant kani_underflow",
+        ),
+        // P2, harness k1: the strict-parse failure of verify-bundle prints a second stdout line.
+        "kani_two_lines" => replace_exact(
+            src,
+            "                    println!(\"MALFORMED: {e}\");\n                    exit(2);\n                }\n            };\n            match verify_bundle(&v, expected_root.as_deref(), expected_tree_size) {",
+            "                    println!(\"MALFORMED: {e}\");\n                    println!(\"MALFORMED\");\n                    exit(2);\n                }\n            };\n            match verify_bundle(&v, expected_root.as_deref(), expected_tree_size) {",
+            1,
+            "mutant kani_two_lines",
+        ),
+        // P3, harness k3: the parse result depends on how often the parser ran.
+        "kani_parse_counter" => replace_exact(
+            src,
+            "fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {\n",
+            "fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {\n    static AUFRUFE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);\n    if AUFRUFE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 2 == 1 {\n        return Err(\"second call\".into());\n    }\n",
+            1,
+            "mutant kani_parse_counter",
+        ),
         "" => src.to_string(),
         other => panic!("z381 build: unknown PB_Z381_MUTANT `{other}`"),
     }
