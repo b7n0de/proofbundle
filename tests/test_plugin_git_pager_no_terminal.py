@@ -93,7 +93,7 @@ def test_N18_all_four_sources_at_once_are_free_and_the_pass_names_them(tmp_path,
     assert "no promisor remote, pager," not in text, text
 
 
-@pytest.mark.parametrize("agent", [None, "", "claude-code_2-1-301_agent", "claude-code_2-1-300_harness",
+@pytest.mark.parametrize("agent", [None, "", "claude-code_2-1-301_agent", "claude-code_2-0-301_harness",
                                    "claude-code_2-2-0_harness", "claude-code_2-1-301_harness ", "codex"])
 @pytest.mark.parametrize("source", SOURCES)
 def test_N18_control_without_the_bound_host_a_pager_asks(tmp_path, main, source, agent):

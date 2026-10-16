@@ -2961,6 +2961,14 @@ Part 3, the reasons of fetch, ls-remote and worktree add (owner choice of Nachtr
   worktree add is free only as the whole command (D40), so these keep `directory_unresolved`, which was never the push
   text. send-pack, a per-command alias, pull, clone and remote update keep the push text; pull, clone and remote update
   read a remote too, and whether they get the same text is an owner question.
+- Owner choice of 2026-10-16 (Ergänzung 1 to Nachtrag 18): the binding holds for the series 2.1.x, as Claude Code
+  updates itself on delta's machine (2.1.299 and 2.1.301 ran there between 2026-10-14 and 2026-10-16). _NO_TERMINAL_HOSTS
+  is a pattern: AI_AGENT exactly `claude-code_2-1-<ASCII digits>_harness`, nothing before or after it. Only under Claude
+  Code, never under Codex; `_agent` for `_harness`, another series (2.2.x, 3.x), a space or line end around the value,
+  a prefix, a suffix, a letter or a digit that is no ASCII digit keep the ask. Measured is 2.1.301 only (by the cloud
+  session, D41 and D42). Condition of the choice: delta probes on each run of its plugin balance, on the real host,
+  whether a command of the Bash tool has a terminal, and reports a card at once if one does; the binding is then taken
+  back.
 
 ## D42. git's pager under a host whose Bash tool gives no terminal: class a (Nachtrag 18, 2026-10-16)
 
@@ -2971,7 +2979,8 @@ the hook's environment"; add, commit -F and worktree add were free. Owner answer
 O16-2 a prefix assignment `GIT_OPTIONAL_LOCKS=0` keeps asking; O16-3 pull, clone and remote update keep the push text.
 
 The rule (owner choice of Nachtrag 18): under Claude Code, when _no_terminal_host holds (the hook's AI_AGENT names a
-host of _NO_TERMINAL_HOSTS, D41: only claude-code_2-1-301_harness), a pager does not count in the read profile of class
+host _NO_TERMINAL_HOSTS names, D41: claude-code_2-1-301_harness when this rule was built, the series 2.1.x
+since Ergänzung 1), a pager does not count in the read profile of class
 a (D34): PAGER and GIT_PAGER in the hook's environment, core.pager and pager.<command> in the configuration
 (_read_profile_problem, _read_free_verdict). The pass names each pager and the host. Every other finding of the read
 profile is read on and still counts.
@@ -2996,6 +3005,7 @@ tmux, `exec >` or a redirection onto /dev/pts, a group or subshell with a redire
 a class c step that asks; and every other finding (an unknown key or GIT_* name, GIT_OPTIONAL_LOCKS other than 0, a
 promisor remote, fsmonitor, a hook, a filter, a submodule).
 
-Limits, in plain words: the binding is to 2.1.301 only; delta reports its version with Nachtrag 5, and another version
-gets its binding in a Nachtrag of its own. AI_AGENT names a version, not an origin (D27). git's pager selection was
+Limits, in plain words: since Ergänzung 1 the binding holds for the series 2.1.x (D41, owner choice of 2026-10-16),
+measured with 2.1.301 only; the condition is delta's probe for a terminal on each run of its plugin balance, and the
+binding is taken back when it finds one. AI_AGENT names a version, not an origin (D27). git's pager selection was
 measured with git 2.43.0 (delta: 2.51.1).

@@ -2043,13 +2043,19 @@ def _gh_profile_problem(environ: dict, deadline: float, inert_pagers: list | Non
 #: AI_AGENT=claude-code_2-1-301_harness, the command claude-code_2-1-301_agent. gh 2.89.0 started the pager PAGER,
 #: GH_PAGER or its configuration named there for none of these, and on a terminal of script(1) for each. git 2.43.0
 #: did the same for log, show, diff and grep with PAGER, GIT_PAGER, core.pager and pager.<command>, a program or true
-#: (D42, Nachtrag 18, host/host_cases_n18.py).
-_NO_TERMINAL_HOSTS = frozenset({"claude-code_2-1-301_harness"})
+#: (D42, Nachtrag 18, host/host_cases_n18.py). Owner choice of 2026-10-16 (Ergänzung 1 to Nachtrag 18): the binding
+#: holds for the series 2.1.x, as Claude Code updates itself on delta's machine; delta probes on each run of its plugin
+#: balance whether a command of the Bash tool has a terminal and reports at once if one does, and the binding is taken
+#: back. The value must be exactly claude-code_2-1-<digits>_harness, ASCII digits only, nothing before or after it (no
+#: space, no line end): the command's own _agent, another series (2.2.x, 3.x) and every other value keep the ask.
+_NO_TERMINAL_HOSTS = re.compile(r"claude-code_2-1-[0-9]+_harness")
 
 
 def _no_terminal_host(host: str, environ: dict) -> bool:
-    """Whether the hook runs under a host of _NO_TERMINAL_HOSTS: Claude Code (never Codex), named in AI_AGENT."""
-    return host == "claude" and environ.get("AI_AGENT") in _NO_TERMINAL_HOSTS
+    """Whether the hook runs under a host _NO_TERMINAL_HOSTS names: Claude Code (never Codex), its AI_AGENT a value the
+    pattern matches whole."""
+    agent = environ.get("AI_AGENT")
+    return host == "claude" and isinstance(agent, str) and _NO_TERMINAL_HOSTS.fullmatch(agent) is not None
 
 
 #: The default of _strict_git's free_base: the call is the whole command, headed by a bare `git` (from

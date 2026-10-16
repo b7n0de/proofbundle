@@ -92,7 +92,7 @@ def test_P2_the_pass_names_the_pager_and_the_host(tmp_path, monkeypatch):
     assert "no pager, forced terminal" not in text, text
 
 
-@pytest.mark.parametrize("agent", [None, "", "claude-code_2-1-301_agent", "claude-code_2-1-300_harness",
+@pytest.mark.parametrize("agent", [None, "", "claude-code_2-1-301_agent", "claude-code_2-0-301_harness",
                                    "claude-code_2-2-0_harness", "claude-code_2-1-301_harness ", "codex"])
 def test_P2_control_without_the_bound_host_the_pager_asks(tmp_path, monkeypatch, agent):
     """No AI_AGENT, the value the command gets (_agent), another version and any other value: today's answer."""
