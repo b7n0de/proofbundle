@@ -550,20 +550,50 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _same_file(first, second) -> bool:
+    """Whether two CLI paths name one file: the same real path, or, when both exist, the same inode (a hard link)."""
+    import os  # noqa: PLC0415
+    try:
+        if os.path.realpath(first) == os.path.realpath(second):
+            return True
+        return os.path.exists(first) and os.path.exists(second) and os.path.samefile(first, second)
+    except (OSError, ValueError):
+        return False
+
+
+def _print_written(line: str) -> None:
+    """The success line of a command whose files are already written. A stdout that cannot encode a character of a
+    path gets the escaped form, never an exception that would turn written files into exit 2."""
+    text = _safe_line(line)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", "backslashreplace").decode("ascii"))
+
+
 def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
-    """A JUnit XML or CTRF JSON report to a signed eval receipt (adapters/junit_ctrf.py). The report is
-    read and refused before a key is touched, so a refused report writes neither a receipt nor a key."""
+    """A JUnit XML or CTRF JSON report to a signed eval receipt (adapters/junit_ctrf.py). The report is read, the
+    claim built and a whole emission run with a throwaway key before the real key is touched, so a refused report or
+    claim writes neither a receipt nor a key."""
     from .adapters.junit_ctrf import REPORT_MAX_BYTES, from_ctrf_json, from_junit_xml  # noqa: PLC0415
     from .evalclaim import EvalClaimError, emit_eval_receipt  # noqa: PLC0415
-    import os  # noqa: PLC0415
     report, build = (args.junit, from_junit_xml) if args.junit is not None else (args.ctrf, from_ctrf_json)
+    if args.max_report_bytes is not None and args.max_report_bytes < 1:
+        _err(f"--max-report-bytes must be at least 1, got {args.max_report_bytes}")
+        return 2
     max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
-    if os.path.realpath(args.out) == os.path.realpath(report):
+    if _same_file(args.out, report):
         _err("--out names the report itself; the receipt would overwrite the report it is about")
+        return 2
+    if args.new_key is not None and (_same_file(args.new_key, report) or _same_file(args.new_key, args.out)):
+        _err("--new-key names the report or the output; the key would overwrite it")
         return 2
     try:
         claim, _ = build(report, commit=args.commit, suite=args.suite, timestamp=args.timestamp,
                          max_bytes=max_bytes)
+        # The same emission with a key nobody keeps: every refusal of the emitter (a verifier limit, a string it
+        # cannot canonicalise) comes here, before `--new-key` writes a key file.
+        emit_eval_receipt(claim, generate_signer())
     except (EvalClaimError, ValueError) as exc:
         _err(exc)
         return 2
@@ -583,9 +613,9 @@ def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
         _err(exc)
         return 2
     p = claim["provenance"]
-    print(_safe_line(f"wrote test receipt {args.out} ({p['report_format']}: {p['tests_total']} tests, "
-                     f"{p['tests_passed']} passed, {p['tests_failed']} failed, {p['tests_errors']} errors, "
-                     f"{p['tests_skipped']} skipped; passed={claim['passed']})"))
+    _print_written(f"wrote test receipt {args.out} ({p['report_format']}: {p['tests_total']} tests, "
+                   f"{p['tests_passed']} passed, {p['tests_failed']} failed, {p['tests_errors']} errors, "
+                   f"{p['tests_skipped']} skipped; passed={claim['passed']})")
     return 0
 
 
@@ -596,6 +626,9 @@ def _cmd_check_test_receipt(args: argparse.Namespace) -> int:
     except ValueError as exc:
         _err(exc)
         return 2
+    if args.max_report_bytes is not None and args.max_report_bytes < 1:
+        _err(f"--max-report-bytes must be at least 1, got {args.max_report_bytes}")
+        return 2
     max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
     result = verify_test_receipt(args.receipt, args.report, expected_issuers=args.expect_issuer, max_bytes=max_bytes)
     if not result["ok"]:
@@ -603,6 +636,8 @@ def _cmd_check_test_receipt(args: argparse.Namespace) -> int:
         return 1
     print(_safe_line(result["reason"]))
     print(_safe_line(f"issuer     {result['claim']['issuer']}"))
+    print(_safe_line(f"verdict    passed={result['claim']['passed']} (exit 0 says the receipt is about this report, "
+                     "not that the run passed)"))
     print("note       a receipt proves which report was signed by which key, not that the tests are meaningful "
           "or that the report came from the real run")
     print("=> OK")

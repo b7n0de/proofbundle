@@ -162,10 +162,18 @@ def _refuse_nul(raw: bytes) -> None:
 def _read_file(path: Any, max_bytes: int) -> bytes:
     """The report's bytes, read once. The file is opened without blocking and judged by the descriptor it
     opened, so a path swapped for a FIFO or a device between a check and the open is refused, not read."""
+    # The path is read ONCE as the plain text or bytes it names: `os.open` would call the caller's own `__fspath__`, and
+    # a never-raise check runs no code of the caller's that can raise out of it (lens run 1, iteration 2, N9).
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+        pfad = os.fspath(path)
+    except Exception as exc:  # noqa: BLE001 - whatever the caller's __fspath__ raises, the answer is a refusal
+        raise ReportRefused("unreadable", f"the report path cannot be read as a path ({type(exc).__name__})") from None
+    if type(pfad) is not str and type(pfad) is not bytes:
+        raise ReportRefused("unreadable", f"the report path must be text or bytes, got {type(pfad).__name__}")
+    try:
+        fd = os.open(pfad, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
     except (OSError, TypeError, ValueError) as exc:
-        raise ReportRefused("unreadable", f"cannot open the report {render_safe(str(path))}: {exc}") from exc
+        raise ReportRefused("unreadable", f"cannot open the report {render_safe(pfad)}: {exc}") from exc
     try:
         # The descriptor is judged before a file object is made of it: `os.fdopen` itself refuses a
         # directory with a raw IsADirectoryError.
@@ -177,7 +185,7 @@ def _read_file(path: Any, max_bytes: int) -> bytes:
         raise
     if not regular:
         os.close(fd)
-        raise ReportRefused("not_a_file", f"{render_safe(str(path))} is not a regular file")
+        raise ReportRefused("not_a_file", f"{render_safe(pfad)} is not a regular file")
     # Read in pieces, never more than the limit plus one byte: a single read of `max_bytes + 1` allocates that much
     # up front, and a large limit then ends in MemoryError or OverflowError instead of a reading.
     stuecke: list = []
@@ -193,7 +201,7 @@ def _read_file(path: Any, max_bytes: int) -> bytes:
                 if gelesen > max_bytes:
                     raise ReportRefused("too_large", f"the report has more than the limit of {max_bytes} bytes")
     except OSError as exc:
-        raise ReportRefused("unreadable", f"cannot read the report {render_safe(str(path))}: {exc}") from exc
+        raise ReportRefused("unreadable", f"cannot read the report {render_safe(pfad)}: {exc}") from exc
     return b"".join(stuecke)
 
 
@@ -431,14 +439,19 @@ _RFC3339 = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{
                       r"([Zz]|[+-]([0-9]{2}):([0-9]{2}))\Z")
 
 
+_TAGE_IM_MONAT = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+
 def _is_rfc3339(text: str) -> bool:
     m = _RFC3339.match(text)
     if m is None:
         return False
     jahr, monat, tag, stunde, minute, sekunde = (int(m.group(i)) for i in range(1, 7))
-    try:
-        datetime(jahr, monat, tag)
-    except ValueError:
+    # The calendar by hand: RFC 3339 allows the year 0000, which `datetime` cannot hold (lens iteration 2, N8).
+    if not 1 <= monat <= 12:
+        return False
+    schaltjahr = jahr % 4 == 0 and (jahr % 100 != 0 or jahr % 400 == 0)
+    if not 1 <= tag <= (29 if monat == 2 and schaltjahr else _TAGE_IM_MONAT[monat - 1]):
         return False
     versatz_ok = m.group(9) is None or (int(m.group(9)) <= 23 and int(m.group(10)) <= 59)
     return stunde <= 23 and minute <= 59 and sekunde <= 60 and versatz_ok
@@ -452,15 +465,23 @@ def _is_label_value(value: Any) -> bool:
     return primitiv(value)
 
 
+def _integral(value: Any, lowest: int) -> bool:
+    """A JSON integer as the CTRF schema (JSON Schema draft 7) reads one: an int, or a number with no fractional part
+    such as 1.0 or 1e3, within 2**53-1. A bool is no integer (lens iteration 2, N2)."""
+    if type(value) is int:
+        return lowest <= value <= _MAX_COUNT
+    return type(value) is float and value.is_integer() and lowest <= value <= _MAX_COUNT
+
+
 def _kind_ok(kind: str, value: Any) -> bool:
     if kind == "str":
         return type(value) is str
     if kind == "str1":
         return type(value) is str and bool(value)
     if kind == "int":
-        return type(value) is int and -_MAX_COUNT <= value <= _MAX_COUNT
+        return _integral(value, -_MAX_COUNT)
     if kind == "uint":
-        return type(value) is int and 0 <= value <= _MAX_COUNT
+        return _integral(value, 0)
     if kind == "bool":
         return type(value) is bool
     if kind == "obj":
@@ -678,6 +699,10 @@ def _claim_from_counts(counts: ReportCounts, digest_hex: str, *, commit: Optiona
         _require_nfc(counts.tool_version, "results.tool.version")
     if timestamp is None:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif type(timestamp) is not str or not timestamp:
+        raise ValueError(f"timestamp must be a non-empty string, got {render_safe(timestamp)}")
+    else:
+        _require_nfc(timestamp, "the timestamp argument")
     executed = counts.executed
     claim, salts = build_eval_claim(
         suite=suite if suite is not None else (counts.name or counts.fmt), suite_version=_suite_version(counts),
@@ -716,6 +741,12 @@ def from_ctrf_json(path, *, commit: Optional[str] = None, suite: Optional[str] =
 
 
 _READERS = {FORMAT_JUNIT: read_junit_xml, FORMAT_CTRF: read_ctrf_json}
+#: The claim fields a test receipt carries, exactly: what `build_eval_claim` writes for `_claim_from_counts` and
+#: `emit_eval_receipt` adds. A field beyond these (ci95, prereg_sha256, samples, context_binding, ...) is signed but
+#: never compared with the report, so a receipt that carries one is not a test receipt (lens iteration 2, N1).
+_CLAIM_KEYS = frozenset({"schema", "suite", "suite_version", "metric", "comparator", "threshold", "passed", "n",
+                         "model_id_commit", "dataset_id_commit", "commit_alg", "issuer", "timestamp",
+                         "assurance_level", "provenance"})
 
 
 def _as_json(value: Any) -> str:
@@ -745,8 +776,12 @@ def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = No
     each pin judged by the trust-anchor rule `show-eval --expect-issuer` applies; then that the report's SHA-256 is the
     signed ``report_sha256``; then reads the report again with this adapter, rebuilds the provenance a receipt of
     ``RECEIPT_PROFILE`` carries for it (`_provenance`) and compares ALL of it, field by field and by type, and the
-    claim's suite version, metric, comparator, threshold, ``n`` and verdict. Not checked, because the report does not
-    give them: the suite name, the timestamp, the two salted commitments and the assurance level.
+    claim's suite version, metric, comparator, threshold, ``n`` and verdict. A claim field a test receipt does not carry
+    is refused, and the assurance level must be ``self_attested``. Not checked, because the report does not give them:
+    the suite name, the timestamp and the two salted commitments.
+
+    ``ok`` True says the receipt is about this report. It does not say that the run passed: that is the signed
+    ``passed`` in the returned claim.
 
     Returns ``{"ok", "reason", "claim"}``; ``claim`` is None when the receipt itself does not verify. Never raises for
     a malformed receipt, report or pin."""
@@ -765,6 +800,13 @@ def verify_test_receipt(bundle, report, *, expected_issuers: Optional[list] = No
         if claim["issuer"] not in expected_issuers:
             return {"ok": False, "reason": f"the receipt is signed by {claim['issuer']}, not by a pinned issuer",
                     "claim": claim}
+    fremd = sorted(k for k in claim if not is_member(k, _CLAIM_KEYS))
+    if fremd:
+        return {"ok": False, "reason": f"the receipt signs claim fields a test receipt does not carry and the check "
+                                       f"cannot compare with a report: {render_safe(fremd)}", "claim": claim}
+    if claim.get("assurance_level") != "self_attested":
+        return {"ok": False, "reason": f"the receipt signs the assurance level {render_safe(claim.get('assurance_level'))}"
+                                       "; a test receipt is self_attested, and no report can show more", "claim": claim}
     provenance = claim.get("provenance") or {}
     fmt = provenance.get("report_format")
     if (type(fmt) is not str or not is_member(fmt, _READERS)

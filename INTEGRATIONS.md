@@ -144,7 +144,10 @@ commitment is over `sha256:<report digest>` and the model commitment over `git:<
 SHA-256 is the signed one, then read the report again, rebuild the provenance a receipt of this profile
 carries for it and compare all of it, field by field and by type, together with the suite version,
 metric, comparator, threshold, `n` and verdict. The suite name, the timestamp, the two salted
-commitments and the assurance level are not checked, because the report does not give them. An
+commitments are not checked, because the report does not give them; a claim field a test receipt does
+not carry (`ci95`, `prereg_sha256`, `samples`, ...) and an assurance level other than `self_attested`
+are refused. Exit 0 says the receipt is about this report, not that the run passed: that is the
+signed `passed`, which the check prints. An
 `--expect-issuer` pin is judged by the same trust-anchor rule as in `show-eval`, in the library too.
 A receipt made under a raised `--max-report-bytes` needs the same option on the check.
 

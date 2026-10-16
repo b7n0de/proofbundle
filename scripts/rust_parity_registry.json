@@ -23,7 +23,7 @@
       "status": "PENDING",
       "rust_subcommands": [],
       "crosscheck_refs": [],
-      "notes": "Checks a test receipt against its JUnit XML or CTRF JSON report: the receipt through decode_eval_claim, the report's SHA-256, every signed count and the verdict, read again by adapters/junit_ctrf.py (KRAXO-ADAPTER-JUNIT-CTRF-01, 2026-10-16). Python-only; no Rust reader of JUnit XML or CTRF exists. Parity decision: PENDING."
+      "notes": "Checks a test receipt against its JUnit XML or CTRF JSON report: the receipt through decode_eval_claim, the report's SHA-256, the claim's field set and assurance level, and the whole provenance and the verdict, rebuilt from the report by adapters/junit_ctrf.py (KRAXO-ADAPTER-JUNIT-CTRF-01, 2026-10-16). Python-only; no Rust reader of JUnit XML or CTRF exists. Parity decision: PENDING."
     },
     "proofbundle.agent_review.validate_agent_review_predicate": {
       "status": "PENDING",
