@@ -3225,10 +3225,12 @@ _NET_CMD_START = frozenset({";", "&&", "||", "|", "&", "(", "{"})
 
 
 def _unquoted_active_expansion(raw: str) -> bool:
-    """Whether a word's raw text carries an unquoted active expansion: a pathname glob (`*`, `?`, `[`) or a brace
-    group with a top-level `,` or `..` (`{a,b}`, `{1..9}`). A quoted metacharacter is literal, `${…}` is a
-    parameter expansion not a brace, and a `{…}` with neither `,` nor `..` is a literal brace (review Runde 14,
-    R13-4)."""
+    """Whether a word's raw text carries an unquoted active expansion: a pathname glob (`*`, `?`, or a `[` with a `]`
+    after it) or a brace group with a top-level `,` or `..` (`{a,b}`, `{1..9}`). A quoted metacharacter is literal,
+    `${…}` is a parameter expansion not a brace, and a `{…}` with neither `,` nor `..` is a literal brace (review Runde
+    14, R13-4). A `[` with no `]` after it in the word opens no bracket expression: bash matches it literally, so the
+    word `[` is the shell's test command and `[[` its keyword, never a glob that could name git (Nachtrag 23, part 1,
+    DECISIONS.md D60)."""
     i, n = 0, len(raw)
     while i < n:
         c = raw[i]
@@ -3255,8 +3257,12 @@ def _unquoted_active_expansion(raw: str) -> bool:
                         break
                 j += 1
             i = j + 1
-        elif c in "*?[":
+        elif c in "*?":
             return True
+        elif c == "[":
+            if "]" in raw[i + 1:]:
+                return True   # a bracket expression may close; a quoted `]` counts too, which only asks more often
+            i += 1
         elif c == "{":
             depth, j, active = 0, i, False
             while j < n:

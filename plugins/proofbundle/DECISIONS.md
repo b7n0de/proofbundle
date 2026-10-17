@@ -3465,6 +3465,28 @@ Tests: tests/test_plugin_n22_ls_remote_d59.py (the form and each option free, ea
 with D41, the whole command only, Codex with D41, each finding of the profile asking with what it found, the short
 line in English and German).
 
+## D60. The shell's test command `[` is no glob for the safety net (Nachtrag 23, part 1, 2026-10-17)
+
+Counted at delta (gate log 09:33Z, balance 07:32Z; 183 asks in 1457 gate lines since 2026-10-15): `until [ -s <file> ];
+do sleep 3; done` asked with D27, and so did `while [ … ]` and `if [ … ]`, with no git or gh word in them, while
+`test -s <file>`, a for loop and `head` stayed silent. The net (D27, review Runde 14, R14-1) asks where an active
+expansion stands in the program position, as it could name git; it read the word `[` as a pathname glob. bash opens a
+bracket expression only where a `]` follows in the same word, and matches a `[` without one literally: `[` is the
+shell's test command and `[[` its keyword. Owner choice of 2026-10-17, 12:3x and 13:0x Berlin.
+
+The rule (_unquoted_active_expansion): a `[` is an active glob only where a `]` follows it in the word, a quoted `]`
+included (that only asks more often); `*`, `?` and a brace group with `,` or `..` stay active as before. So a bracket
+test without git or gh is silent, `[[ … ]]` too (its words stay data after the keyword; a glob among them still asks,
+as `[[` leaves the program position unproven). Unchanged: a bracket test with git or gh in it or beside it asks
+(`[ -n "$(git status)" ]`, `if [ … ]; then git push …; fi`, `[ -x git ]`), and so does a glob in the program word
+(`g[i]t status`).
+
+Found beside it and not changed here: a parameter expansion as the program word (`$CMD status`, `CMD=git; $CMD push
+origin main`) is silent at 9f578c2a and before; a bracket test before it had made such a command ask only by the
+reading of `[` this decision corrects. Named as an owner question in the delivery.
+
+Tests: tests/test_plugin_n23_bracket_test_d60.py.
+
 ## D61. A push that creates a branch in a repository of b7n0de, against the remote's refs the gate measures (Ergänzung 1 to Nachtrag 23, 2026-10-17)
 
 Measured on delta's screen on 2026-10-17 at 13:45Z and 13:54Z: `git -C <abs> push origin <sha>:refs/heads/<new>` and
