@@ -6,6 +6,7 @@ records, as its bytes, before the first decision, so that a person who was not p
 reconciliation from them alone (criterion 4). This module holds that folder:
 
     pilot_start.json            what was kept before the first decision, each file with its sha256
+    gate/proofbundle_gate.py    the gate file the signer service decides with (D58), the same bytes as its copy
     keys/gate.pub, observer.pub the two public keys, hex
     roster.json                 the agent identities: GitHub's numeric id, the login, the agent's name
     profile/github_write_profile.py   the profile github-write/1 as the reconciliation applies it
@@ -20,7 +21,7 @@ It reads GitHub's events into effects, and it matches effects to decisions by th
 which the observer applies to bind an outcome and the reconciliation applies again from the records.
 
     pilot_records.py start --records DIR --contract F --profile F --agents F --closing-rules F --roster F
-                           --gate-public HEX --observer-public HEX --verifier WHEEL --environment F
+                           --gate-public HEX --observer-public HEX --verifier WHEEL --environment F --gate F
 """
 from __future__ import annotations
 
@@ -90,9 +91,11 @@ def write_json(path: pathlib.Path, value: object) -> None:
 
 def start(records: pathlib.Path, *, contract: pathlib.Path, profile: pathlib.Path, agents: pathlib.Path,
           closing_rules: pathlib.Path, roster: pathlib.Path, gate_public: str, observer_public: str,
-          verifier: pathlib.Path, environment: pathlib.Path, gate_id: str, observer_id: str) -> dict:
+          verifier: pathlib.Path, environment: pathlib.Path, gate_id: str, observer_id: str,
+          gate: pathlib.Path) -> dict:
     """Copy every input the reconciliation reads into the records and write pilot_start.json with their digests.
-    Refused once a decision exists: the contract keeps them before the first decision."""
+    Refused once a decision exists: the contract keeps them before the first decision. gate is the gate file the
+    signer service decides with; its sha256 here is the one the service checks its own copy against (D58)."""
     if (records / "decisions").exists() and any((records / "decisions").iterdir()):
         raise RecordsError("the records already hold a decision; the inputs are kept before the first one")
     if (records / START).exists():
@@ -103,7 +106,7 @@ def start(records: pathlib.Path, *, contract: pathlib.Path, profile: pathlib.Pat
     kept = {"contract": ("contract/pilot_contract.md", contract), "profile": ("profile/github_write_profile.py", profile),
             "agents": ("rules/AGENTS.md", agents), "closing_rules": ("closing_rules.json", closing_rules),
             "roster": ("roster.json", roster), "verifier": (f"verifier/{verifier.name}", verifier),
-            "environment": ("verifier/environment.json", environment)}
+            "environment": ("verifier/environment.json", environment), "gate": ("gate/proofbundle_gate.py", gate)}
     files = {}
     for name, (relative, source) in kept.items():
         target = records / relative
@@ -141,7 +144,7 @@ class Records:
         self.start = read_json(start_file)
         self.files = self.start["files"]
         for name in ("contract", "profile", "agents", "closing_rules", "roster", "verifier", "environment",
-                     "gate_key", "observer_key"):
+                     "gate_key", "observer_key", "gate"):
             self.kept(name)
         self.gate_id, self.observer_id = self.start["gate_id"], self.start["observer_id"]
         self.roster = read_json(self.kept_path("roster"))
@@ -348,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("start", help="keep the inputs of the reconciliation before the first decision")
     s.add_argument("--records", required=True, type=pathlib.Path)
-    for name in ("contract", "profile", "agents", "closing-rules", "roster", "verifier", "environment"):
+    for name in ("contract", "profile", "agents", "closing-rules", "roster", "verifier", "environment", "gate"):
         s.add_argument(f"--{name}", required=True, type=pathlib.Path)
     s.add_argument("--gate-public", required=True)
     s.add_argument("--observer-public", required=True)
@@ -359,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         document = start(args.records, contract=args.contract, profile=args.profile, agents=args.agents,
                          closing_rules=args.closing_rules, roster=args.roster, gate_public=args.gate_public,
                          observer_public=args.observer_public, verifier=args.verifier, environment=args.environment,
-                         gate_id=args.gate_id, observer_id=args.observer_id)
+                         gate_id=args.gate_id, observer_id=args.observer_id, gate=args.gate)
     except (RecordsError, OSError, ValueError) as exc:
         print(f"pilot_records start: {exc}", file=sys.stderr)
         return 1

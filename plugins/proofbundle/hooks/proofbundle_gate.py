@@ -21172,8 +21172,14 @@ INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 PILOT_SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pullRequestBody", "git.push",
                   "github.merge")
-#: How long the gate waits for the signer of the operator before it gives up on one receipt.
+#: How long the gate waits for the signer of the operator before it gives up on one receipt. Since D58 the signer is a
+#: service that decides the call again with its own copy of the gate before it signs; its whole path stays within this.
 PILOT_SIGNER_SECONDS = 10.0
+#: The request the gate hands the signer service (D58): the hook event as the host gave it, the host and the working
+#: directory at Level 1, the remote, the URL, git's ref lines and the line at Level 2, and the proposed statement.
+PILOT_SIGN_REQUEST = "proofbundle/pilot-sign-request/v1"
+#: The exit status by which the signer service refuses, with one reason name on stdout (D58).
+PILOT_SIGNER_REFUSES = 3
 #: The decisions of the gate at Level 1 and the verdicts of decision-receipt/v0.1 they are recorded as. pass approves;
 #: deny refuses; ask hands the call to a person, whose answer the gate does not see. inactive, handover and warn get no
 #: receipt: there the gate leaves the write to another check (D5, D35, D12), and Level 2 decides a push it hands over.
@@ -21442,11 +21448,21 @@ def _pilot_journal(folder: str, entry: dict) -> None:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
-def _pilot_sign(config: dict, message: bytes) -> bytes:
-    """The Ed25519 signature the operator's signer makes over `message` (the DSSE PAE): the signer reads it on stdin
-    and writes the 64-byte signature in base64 on stdout. The gate holds no key (D55)."""
-    proc = subprocess.run(config["signer"], input=message, capture_output=True, timeout=PILOT_SIGNER_SECONDS,
-                          env={"PATH": os.defpath, "LANG": "C"}, check=False)
+def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:
+    """The Ed25519 signature the operator's signer makes over the DSSE PAE of `body`, the canonical statement. The
+    gate holds no key (D55). Since D58 the signer is a service of the operator that decides the call again: it reads
+    the request (PILOT_SIGN_REQUEST: `context`, the call as the hook saw it, and the statement in base64) on stdin and
+    writes the 64-byte signature in base64 on stdout, or exits PILOT_SIGNER_REFUSES with one reason name."""
+    request = {"schema": PILOT_SIGN_REQUEST, **context, "statement": base64.b64encode(body).decode("ascii")}
+    try:
+        proc = subprocess.run(config["signer"], input=json.dumps(request, sort_keys=True).encode("utf-8"),
+                              capture_output=True, timeout=PILOT_SIGNER_SECONDS, env={"PATH": os.defpath, "LANG": "C"},
+                              check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise GateError("signer_timeout") from exc   # killed after PILOT_SIGNER_SECONDS: no receipt (N405-b)
+    refused = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode == PILOT_SIGNER_REFUSES and re.fullmatch(r"[a-z_]{1,48}", refused):
+        raise GateError(f"signer_refused_{refused}")
     if proc.returncode != 0 or len(proc.stdout) > 256:
         raise GateError("signer_failed")
     try:
@@ -21458,16 +21474,23 @@ def _pilot_sign(config: dict, message: bytes) -> bytes:
     return signature
 
 
-def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: str, reasons: list[str]) -> None:
-    """Write one decision receipt of github-write/1 into <receipts>/decisions (D55), signed by the operator's signer.
-    decisionId is `<action id>#<attempt>`: the action id is a digest of the surface, the target, the bytes and the
-    agent, so a retried action keeps its id; the attempt is the first number no receipt of that id holds yet."""
-    folder, decided_ns = config["receipts"], time.time_ns()
+def _pilot_action_id(config: dict, action: dict, key: str) -> str:
+    """The action id of a decision (D55): a digest of the surface, the target, the bytes and the agent, so a retried
+    action keeps its id; where the gate resolves no target or no bytes, of the surface, the key of the call and the
+    agent."""
+    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
+    named = [action["surface"], action["target"], digest, config["agent_id"]] if action["target"] and digest else \
+        [action["surface"], "unresolved", key, config["agent_id"]]
+    return "a-" + hashlib.sha256("\0".join(named).encode("ascii")).hexdigest()[:32]
+
+
+def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, reasons: list[str], decision_id: str,
+                     decided_ns: int) -> dict:
+    """The in-toto Statement of one decision receipt of github-write/1 (D55), as the gate proposes it and as the signer
+    service builds it again from its own decision before it signs (D58): everything but the decision's id and instant
+    follows from the pilot's configuration, the action, the verdict and the reasons."""
     digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
     surface, target = action["surface"], action["target"]
-    named = [surface, target, digest, config["agent_id"]] if target and digest else \
-        [surface, "unresolved", key, config["agent_id"]]
-    action_id = "a-" + hashlib.sha256("\0".join(named).encode("ascii")).hexdigest()[:32]
     closing = None
     if config["closing_rules"] is not None:
         try:
@@ -21477,6 +21500,53 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
         if len(raw) > MAX_CLOSING_RULES_BYTES:
             raise GateError("closing_rules_unread")
         closing = hashlib.sha256(raw).hexdigest()
+    proposed = {"actionType": surface, "method": "write",
+                "target": {"name": target, "uri": target} if target else {"name": "not resolved by the gate"}}
+    if digest is not None:
+        proposed["parametersDigest"] = {"sha256": digest}
+    else:
+        proposed["parametersRef"] = {"uri": "urn:proofbundle:pilot:not-resolved"}
+    snapshot = ([{"name": "approved bytes" if verdict == "ALLOW" else "proposed bytes",
+                  "digest": {"sha256": digest}, "mediaType": action["media"]}] if digest else []) + \
+        ([{"name": "closing rules", "digest": {"sha256": closing}, "mediaType": "application/json"}]
+         if closing else [])
+    not_checked = [{"field": "content", "reason": "the gate does not judge whether the text is true",
+                    "impact": "an approved text can be wrong"}]
+    if target is None or digest is None:
+        not_checked.append({"field": "proposedAction", "reason": "the gate does not resolve the target or the "
+                            "bytes of this form", "impact": "an effect cannot be matched to this decision by them"})
+    predicate = {
+        "schemaVersion": "0.1.0", "decisionId": decision_id, "decisionType": "preActionAuthorization",
+        "decidedAt": _pilot_instant(decided_ns), "decisionMaker": {"id": config["gate_id"]},
+        "agent": {"id": config["agent_id"]}, "principal": {"id": config["principal_id"]},
+        "proposedAction": proposed, "inputSnapshot": snapshot,
+        "policyBoundary": {"policyEngine": PILOT_ENGINE, "policyId": "outbound-gate-rules",
+                           "decisionPath": f"outbound-gate/{verdict.lower()}-write",
+                           "policyDigest": {"sha256": _pilot_policy_digest(environ)},
+                           "bundleRevision": PILOT_REVISION},
+        "evidenceRefs": [], "decision": {"verdict": verdict, "reasonCodes": reasons or ["no_reason_named"]},
+        "notChecked": not_checked,
+        "decisionChangeConditions": [{"conditionType": "ruleChange",
+                                      "description": "a changed gate, mode or rule of the gate"}],
+        "privacy": {"rawInputsIncluded": False},
+        "validity": {"audience": [config["observer_id"]], "nonce": decision_id,
+                     "expiresAt": _pilot_instant(decided_ns + config["validity_seconds"] * 1_000_000_000)},
+    }
+    return {"_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"name": f"decision:{decision_id}",
+                         "digest": {"sha256": hashlib.sha256(_pilot_canonical(predicate)).hexdigest()}}],
+            "predicateType": DECISION_RECEIPT_TYPE, "predicate": predicate}
+
+
+def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: str, reasons: list[str],
+                 context: dict | None = None) -> None:
+    """Write one decision receipt of github-write/1 into <receipts>/decisions (D55), signed by the operator's signer.
+    decisionId is `<action id>#<attempt>` (_pilot_action_id); the attempt is the first number no receipt of that id
+    holds yet. context goes to the signer service with the statement (D58)."""
+    folder, decided_ns = config["receipts"], time.time_ns()
+    action_id = _pilot_action_id(config, action, key)
+    if config["closing_rules"] is not None:
+        _pilot_statement(config, environ, action, verdict, reasons, "a-0#0", decided_ns)   # an unread file: no slot
     decisions = os.path.join(folder, "decisions")
     os.makedirs(decisions, exist_ok=True)
     for attempt in range(1, 100_000):
@@ -21490,46 +21560,8 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
         raise GateError("attempts_exhausted")
     try:
         decision_id = f"{action_id}#{attempt}"
-        proposed = {"actionType": surface, "method": "write",
-                    "target": {"name": target, "uri": target} if target else {"name": "not resolved by the gate"}}
-        if digest is not None:
-            proposed["parametersDigest"] = {"sha256": digest}
-        else:
-            proposed["parametersRef"] = {"uri": "urn:proofbundle:pilot:not-resolved"}
-        snapshot = ([{"name": "approved bytes" if verdict == "ALLOW" else "proposed bytes",
-                      "digest": {"sha256": digest}, "mediaType": action["media"]}] if digest else []) + \
-            ([{"name": "closing rules", "digest": {"sha256": closing}, "mediaType": "application/json"}]
-             if closing else [])
-        not_checked = [{"field": "content", "reason": "the gate does not judge whether the text is true",
-                        "impact": "an approved text can be wrong"}]
-        if target is None or digest is None:
-            not_checked.append({"field": "proposedAction", "reason": "the gate does not resolve the target or the "
-                                "bytes of this form", "impact": "an effect cannot be matched to this decision by them"})
-        predicate = {
-            "schemaVersion": "0.1.0", "decisionId": decision_id, "decisionType": "preActionAuthorization",
-            "decidedAt": _pilot_instant(decided_ns), "decisionMaker": {"id": config["gate_id"]},
-            "agent": {"id": config["agent_id"]}, "principal": {"id": config["principal_id"]},
-            "proposedAction": proposed, "inputSnapshot": snapshot,
-            "policyBoundary": {"policyEngine": PILOT_ENGINE, "policyId": "outbound-gate-rules",
-                               "decisionPath": f"outbound-gate/{verdict.lower()}-write",
-                               "policyDigest": {"sha256": _pilot_policy_digest(environ)},
-                               "bundleRevision": PILOT_REVISION},
-            "evidenceRefs": [], "decision": {"verdict": verdict, "reasonCodes": reasons or ["no_reason_named"]},
-            "notChecked": not_checked,
-            "decisionChangeConditions": [{"conditionType": "ruleChange",
-                                          "description": "a changed gate, mode or rule of the gate"}],
-            "privacy": {"rawInputsIncluded": False},
-            "validity": {"audience": [config["observer_id"]], "nonce": decision_id,
-                         "expiresAt": _pilot_instant(decided_ns + config["validity_seconds"] * 1_000_000_000)},
-        }
-        statement = {"_type": INTOTO_STATEMENT_TYPE,
-                     "subject": [{"name": f"decision:{decision_id}",
-                                  "digest": {"sha256": hashlib.sha256(_pilot_canonical(predicate)).hexdigest()}}],
-                     "predicateType": DECISION_RECEIPT_TYPE, "predicate": predicate}
-        body = _pilot_canonical(statement)
-        kind = INTOTO_PAYLOAD_TYPE.encode("ascii")
-        message = b"DSSEv1 %d %s %d %s" % (len(kind), kind, len(body), body)
-        signature = _pilot_sign(config, message)
+        body = _pilot_canonical(_pilot_statement(config, environ, action, verdict, reasons, decision_id, decided_ns))
+        signature = _pilot_sign(config, body, context or {})
         envelope = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": INTOTO_PAYLOAD_TYPE,
                     "signatures": [{"keyid": _pilot_keyid(bytes.fromhex(config["public_key"])),
                                     "sig": base64.b64encode(signature).decode("ascii")}]}
@@ -21545,15 +21577,22 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
                             "file": os.path.join("decisions", os.path.basename(path))})
 
 
+def _pilot_reasons(reasons: list) -> list[str]:
+    """The reason ids a receipt names: the gate's own ids of the decision, each once, in order (D55)."""
+    return sorted({r for r in reasons if isinstance(r, str) and _PILOT_REASON.fullmatch(r)})
+
+
 def _pilot_issue_all(config: dict | None, environ: dict, actions: list[tuple[dict, str]], verdict: str | None,
-                     reasons: list[str]) -> None:
-    """Issue a receipt for each action; a failure is a journal line with its fixed name and never an answer (D55)."""
+                     reasons: list[str], context: dict | None = None) -> None:
+    """Issue a receipt for each action; a failure is a journal line with its fixed name and never an answer (D55).
+    context is the call as the signer service needs it to decide again (D58); at Level 2 each receipt names its line."""
     if config is None or verdict is None:
         return
-    reasons = sorted({r for r in reasons if isinstance(r, str) and _PILOT_REASON.fullmatch(r)})
-    for action, key in actions:
+    reasons = _pilot_reasons(reasons)
+    for index, (action, key) in enumerate(actions):
         try:
-            _pilot_issue(config, environ, action, key, verdict, reasons)
+            _pilot_issue(config, environ, action, key, verdict, reasons,
+                         {**(context or {}), **({"line": index} if (context or {}).get("level") == 2 else {})})
         except Exception as exc:  # noqa: BLE001 - a receipt never changes the answer (D55)
             why = str(exc) if isinstance(exc, GateError) and _PILOT_REASON.fullmatch(str(exc)) else \
                 f"internal_{type(exc).__name__}"
@@ -21563,37 +21602,56 @@ def _pilot_issue_all(config: dict | None, environ: dict, actions: list[tuple[dic
                 pass
 
 
-def pilot_after_tool(event: object, outcome: "Outcome", environ: dict, host: str = "claude") -> None:
-    """Level 1 (D55): after the gate's verdict on a tool call, a receipt for the GitHub write the call makes, when the
-    pilot is on and the pilot reads the form. The receipt records what the host enforces: Codex has no dialog, and the
-    gate answers an ask there as a refusal (answer, D4), so the receipt says DENY."""
+def _pilot_tool_verdict(outcome: "Outcome", host: str) -> str | None:
+    """The verdict a Level 1 receipt records for an outcome (D55): what the host enforces. Codex has no dialog, and the
+    gate answers an ask there as a refusal (answer, D4), so the receipt says DENY. None where no receipt is written."""
     decision = "deny" if host == "codex" and outcome.decision == "ask" else outcome.decision
-    verdict = _PILOT_VERDICTS.get(decision)
+    return _PILOT_VERDICTS.get(decision)
+
+
+def _pilot_tool_action(event: object) -> tuple[dict | None, str]:
+    """The GitHub write a hook event makes as the pilot reads it, and the key of the call (D55): (None, "") for an event
+    that is no such write, a file tool's included."""
+    if not isinstance(event, dict):
+        return None, ""
+    tool = event.get("tool_name")
+    if isinstance(tool, str) and tool.startswith("mcp__"):
+        key = hashlib.sha256(json.dumps(event.get("tool_input"), sort_keys=True, ensure_ascii=True,
+                                        default=str).encode("ascii")).hexdigest()
+        return _pilot_mcp_action(tool, event.get("tool_input")), key
+    if isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+        return None, ""
+    command, _cwd = _command_from_event(event)
+    return _pilot_shell_action(command), hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def pilot_after_tool(event: object, outcome: "Outcome", environ: dict, host: str = "claude",
+                     event_text: str | None = None) -> None:
+    """Level 1 (D55): after the gate's verdict on a tool call, a receipt for the GitHub write the call makes, when the
+    pilot is on and the pilot reads the form (_pilot_tool_action, _pilot_tool_verdict). The signer service gets the
+    event as the host gave it, event_text, to decide again (D58)."""
+    verdict = _pilot_tool_verdict(outcome, host)
     config = _pilot_config(environ) if verdict is not None else None
     if config is None or not isinstance(event, dict):
         return
-    tool = event.get("tool_name")
-    if isinstance(tool, str) and tool.startswith("mcp__"):
-        action = _pilot_mcp_action(tool, event.get("tool_input"))
-        key = hashlib.sha256(json.dumps(event.get("tool_input"), sort_keys=True, ensure_ascii=True,
-                                        default=str).encode("ascii")).hexdigest()
-    elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
-        return
-    else:
-        command, _cwd = _command_from_event(event)
-        action = _pilot_shell_action(command)
-        key = hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    action, key = _pilot_tool_action(event)
     if action is not None:
-        _pilot_issue_all(config, environ, [(action, key)], verdict, [v.reason_id for v in outcome.verdicts])
+        text = event_text if isinstance(event_text, str) else json.dumps(event)
+        _pilot_issue_all(config, environ, [(action, key)], verdict, [v.reason_id for v in outcome.verdicts],
+                         {"level": 1, "host": host, "event": text})
 
 
-def pilot_after_push(url: str | None, lines: list[tuple], decision: str, reasons: list[str], environ: dict) -> None:
+def pilot_after_push(url: str | None, lines: list[tuple], decision: str, reasons: list[str], environ: dict,
+                     remote: str | None = None, cwd: str | None = None) -> None:
     """Level 2 (D55): after the pre-push verdict, a receipt per ref line. pass approves the push and every other
-    verdict but inactive denies it, as the hook's exit code does; inactive gets no receipt."""
+    verdict but inactive denies it, as the hook's exit code does; inactive gets no receipt. The signer service gets the
+    remote, the URL, git's ref lines and the repository to decide the push again (D58)."""
     if decision == "inactive":
         return
     _pilot_issue_all(_pilot_config(environ), environ, _pilot_push_actions(url, lines),
-                     "ALLOW" if decision == "pass" else "DENY", reasons)
+                     "ALLOW" if decision == "pass" else "DENY", reasons,
+                     {"level": 2, "cwd": cwd or os.getcwd(), "remote": remote, "url": url,
+                      "lines": [list(line) for line in lines]})
 
 
 def pre_push_command(argv: list[str]) -> int:
@@ -21622,13 +21680,13 @@ def pre_push_command(argv: list[str]) -> int:
         verdict = pre_push_verdict(os.getcwd(), lines, deadline, argv[0] if argv else None, url)
     except GateError as exc:
         try:
-            pilot_after_push(url, lines, "deny", ["pre_push_gate_error"], os.environ)
+            pilot_after_push(url, lines, "deny", ["pre_push_gate_error"], os.environ, argv[0] if argv else None)
         except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
             pass
         sys.stderr.write(f"proofbundle pre-push (prototype): {exc}. The push is denied.\n")
         return 1
     try:
-        pilot_after_push(url, lines, verdict.decision, [verdict.reason_id], os.environ)
+        pilot_after_push(url, lines, verdict.decision, [verdict.reason_id], os.environ, argv[0] if argv else None)
     except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
         pass
     sys.stderr.write(verdict.text() + "\n")
@@ -21809,55 +21867,14 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["hook-state"]:
         return hook_state_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
-    host, event, actions = "claude", None, []
+    host, event, actions, event_text = "claude", None, [], None
     try:
         host = _host(argv)
-        try:
-            event = strict_json(sys.stdin.read())
-        except AmbiguousJSON as exc:
-            raise GateError(f"the hook input {exc}, so the gate cannot tell which call it describes") from exc
-        except ValueError as exc:
-            raise GateError("the hook input is not JSON") from exc
-        tool = event.get("tool_name") if isinstance(event, dict) else None
-        command = None
-        if isinstance(tool, str) and tool.startswith("mcp__"):
-            cwd = event.get("cwd")
-            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
-            actions = [f"MCP {tool}"] if mcp_gated(tool) else []
-            verdict = decide_mcp(tool, cwd, deadline, host=host)
-        elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
-            cwd = event.get("cwd")
-            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
-            verdict = decide_write(tool, event.get("tool_input"), cwd, deadline, host=host)
-            actions = [f"file {tool}"] if verdict is not None else []
-        elif isinstance(tool, str) and tool in READ_TOOLS:
-            cwd = event.get("cwd")
-            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
-            verdict = decide_read(tool, event.get("tool_input"), cwd, deadline, host=host)   # D102
-            actions = [f"read {tool}"] if verdict is not None else []
-        else:
-            tool = "Bash"
-            command, cwd = _command_from_event(event)
-            actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
-            verdict = decide(command, cwd, deadline, host=host)
-        if AUTONOMOUS_FLAG in argv and host == "claude" and verdict is not None and verdict.decision == "ask":
-            try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
-                verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool)
-            except Exception:  # noqa: BLE001 - the ask of decide() stands
-                pass
-    except GateError as exc:
-        failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
-                          "hook_input", evidence="none, the gate could not read the call", failed=str(exc),
-                          next_step="check the plugin's hook command and the host version")
-        verdict = Outcome("deny", failure.text(), [failure])
     except Exception as exc:  # noqa: BLE001 - any failure inside the gate denies, it never allows
-        failure = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
-                                  "The call is denied because the gate reached no verdict.", "internal_error",
-                          evidence="none, the gate failed before a verdict", failed=f"{type(exc).__name__}: {exc}",
-                          next_step="report this error; the gate denies until it is fixed",
-                          digests=getattr(exc, "digests", ()), head=getattr(exc, "head", None),
-                          reads=getattr(exc, "reads", ()))   # R12-2: what an exception carries stays in the log
-        verdict = Outcome("deny", failure.text(), [failure])
+        verdict = _failure_outcome(exc)
+    else:
+        event_text = sys.stdin.read()
+        event, verdict, actions = tool_outcome(event_text, host, deadline, autonomous=AUTONOMOUS_FLAG in argv)
     # D81: under Claude Code a Bash command that reads its evidence wrongly gets a hint as additional context, the one
     # output of a PreToolUse hook measured to reach the model without a question; it never changes the decision, and a
     # call that is denied gets none.
@@ -21886,7 +21903,7 @@ def main(argv: list[str] | None = None) -> int:
     printed = None
     if verdict is not None:
         try:
-            pilot_after_tool(event, verdict, os.environ, host)
+            pilot_after_tool(event, verdict, os.environ, host, event_text)
         except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
             pass
         try:
@@ -21905,6 +21922,68 @@ def main(argv: list[str] | None = None) -> int:
     if printed is not None:
         sys.stdout.write(json.dumps(printed) + "\n")
     return 0
+
+def _failure_outcome(exc: BaseException) -> "Outcome":
+    """The deny of a call the gate reached no verdict on: a GateError names what it could not read, any other failure
+    is an internal error. Any failure inside the gate denies, it never allows."""
+    if isinstance(exc, GateError):
+        failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
+                          "hook_input", evidence="none, the gate could not read the call", failed=str(exc),
+                          next_step="check the plugin's hook command and the host version")
+    else:
+        failure = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
+                                  "The call is denied because the gate reached no verdict.", "internal_error",
+                          evidence="none, the gate failed before a verdict", failed=f"{type(exc).__name__}: {exc}",
+                          next_step="report this error; the gate denies until it is fixed",
+                          digests=getattr(exc, "digests", ()), head=getattr(exc, "head", None),
+                          reads=getattr(exc, "reads", ()))   # R12-2: what an exception carries stays in the log
+    return Outcome("deny", failure.text(), [failure])
+
+
+def tool_outcome(event_text: str, host: str, deadline: float,
+                 autonomous: bool = False) -> tuple[object, "Outcome | None", list[str]]:
+    """The decision of the PreToolUse hook on one event as the host gave it: (the event read, the outcome, the gated
+    actions the log names), without an answer, a log line or a receipt. main decides with it, and so does the signer
+    service of the pilot on its own copy of the gate before it signs (D58). autonomous is the hook's --autonomous
+    (D85): an ask under Claude Code gets the autonomous answer; the service decides without it."""
+    event, actions = None, []
+    try:
+        try:
+            event = strict_json(event_text)
+        except AmbiguousJSON as exc:
+            raise GateError(f"the hook input {exc}, so the gate cannot tell which call it describes") from exc
+        except ValueError as exc:
+            raise GateError("the hook input is not JSON") from exc
+        tool = event.get("tool_name") if isinstance(event, dict) else None
+        command = None
+        if isinstance(tool, str) and tool.startswith("mcp__"):
+            cwd = event.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+            actions = [f"MCP {tool}"] if mcp_gated(tool) else []
+            verdict = decide_mcp(tool, cwd, deadline, host=host)
+        elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+            cwd = event.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+            verdict = decide_write(tool, event.get("tool_input"), cwd, deadline, host=host)
+            actions = [f"file {tool}"] if verdict is not None else []
+        elif isinstance(tool, str) and tool in READ_TOOLS:
+            cwd = event.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+            verdict = decide_read(tool, event.get("tool_input"), cwd, deadline, host=host)   # D102
+            actions = [f"read {tool}"] if verdict is not None else []
+        else:
+            tool = "Bash"
+            command, cwd = _command_from_event(event)
+            actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
+            verdict = decide(command, cwd, deadline, host=host)
+        if autonomous and host == "claude" and verdict is not None and verdict.decision == "ask":
+            try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
+                verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool)
+            except Exception:  # noqa: BLE001 - the ask of decide() stands
+                pass
+    except Exception as exc:  # noqa: BLE001 - any failure inside the gate denies, it never allows
+        verdict = _failure_outcome(exc)
+    return event, verdict, actions
 
 
 def _step_of_event(event: object) -> str | None:

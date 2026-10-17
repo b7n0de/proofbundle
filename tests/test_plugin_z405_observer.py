@@ -28,6 +28,7 @@ from proofbundle.outcome import verify_outcome_receipt
 pd, gate = p1.pd, p1.gate
 ROOT = p1.ROOT
 PILOT = ROOT / "plugins" / "proofbundle" / "pilot"
+GATE_FILE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
 sys.path.insert(0, str(PILOT))
 import observer  # noqa: E402
 import pilot_records as pr  # noqa: E402
@@ -75,7 +76,8 @@ def start_records(env: dict, tmp_path: pathlib.Path, roster: list | None = None)
              closing_rules=sources / "closing_rules.json", roster=sources / "roster.json",
              gate_public=p1.public_key(), observer_public=probe_signer.public_hex(observer_key()),
              verifier=sources / "verifier-stand-in.txt", environment=sources / "environment.json",
-             gate_id=p1.GATE_ID, observer_id=p1.OBSERVER_ID)
+             gate_id=p1.GATE_ID, observer_id=p1.OBSERVER_ID,
+             gate=GATE_FILE)
     receipts = p1.pilot_on(env, tmp_path)
     config_path = pathlib.Path(env["PROOFBUNDLE_GATE_DIR"]) / "pilot.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -294,7 +296,7 @@ def test_the_inputs_are_kept_before_the_first_decision_only(env, tmp_path):
                  closing_rules=records / "closing_rules.json", roster=records / "roster.json",
                  gate_public=p1.public_key(), observer_public=probe_signer.public_hex(observer_key()),
                  verifier=records / "roster.json", environment=records / "roster.json", gate_id=p1.GATE_ID,
-                 observer_id=p1.OBSERVER_ID)
+                 observer_id=p1.OBSERVER_ID, gate=GATE_FILE)
 
 
 def test_the_outcome_names_the_approved_bytes_as_requested_and_the_stored_ones_as_its_effect(env, tmp_path):

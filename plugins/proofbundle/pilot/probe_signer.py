@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """A signer for the pilot's PROBES only (Z405, DECISIONS.md D55), never the signer of the pilot.
 
-The gate holds no key. It hands the DSSE pre-authentication bytes of a decision receipt to the signer the operator
-names in pilot.json, which writes the 64-byte Ed25519 signature in base64 on stdout. In the pilot that signer is the
-operator's, and its key is out of reach of the agent session (RUNBOOK.md). This one derives its key from a public
-label, as the vectors of the pilot profile do (tools/pilot/github_write_profile.py on main, test_key), so anyone can
-make the same key: it shows that the plumbing works and says nothing about who signed.
+The gate holds no key. It hands the signer the operator names in pilot.json a request with the proposed statement of a
+decision receipt (D58, the gate's PILOT_SIGN_REQUEST), and the signer writes the 64-byte Ed25519 signature over its
+DSSE pre-authentication bytes in base64 on stdout. In the pilot that signer is the operator's signer service
+(signer_service.py), which decides the call again before it signs, and its key is out of reach of the agent session
+(RUNBOOK.md). This one decides nothing and signs any request: it is for tests only (owner choice O405-1 of
+2026-10-17). It derives its key from a public label, as the vectors of the pilot profile do
+(tools/pilot/github_write_profile.py on main, test_key), so anyone can make the same key: it shows that the plumbing
+works and says nothing about who signed.
 
-    probe_signer.py --label LABEL            sign stdin, write the signature in base64
+    probe_signer.py --label LABEL            sign the statement of the request on stdin (other bytes: sign them as
+                                             they are), write the signature in base64
     probe_signer.py --label LABEL --public   write the public key in hex
 """
 from __future__ import annotations
@@ -15,6 +19,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import json
 import sys
 
 from cryptography.hazmat.primitives import serialization
@@ -22,6 +27,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 #: The prefix of every probe key: whoever reads a label reads the key.
 PREFIX = b"proofbundle pilot probe key, never a key of the pilot: "
+#: The payload type of the statement the gate proposes (DSSE, in-toto).
+PAYLOAD_TYPE = b"application/vnd.in-toto+json"
+
+
+def message_of(data: bytes) -> bytes:
+    """The bytes to sign: the DSSE PAE of the statement a request carries, or the input itself where it is no request."""
+    try:
+        request = json.loads(data)
+        body = base64.b64decode(request["statement"], validate=True)
+    except (ValueError, KeyError, TypeError):
+        return data
+    return b"DSSEv1 %d %s %d %s" % (len(PAYLOAD_TYPE), PAYLOAD_TYPE, len(body), body)
 
 
 def probe_key(label: str) -> Ed25519PrivateKey:
@@ -41,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.public:
         print(public_hex(key))
         return 0
-    sys.stdout.write(base64.b64encode(key.sign(sys.stdin.buffer.read())).decode("ascii") + "\n")
+    sys.stdout.write(base64.b64encode(key.sign(message_of(sys.stdin.buffer.read()))).decode("ascii") + "\n")
     return 0
 
 
