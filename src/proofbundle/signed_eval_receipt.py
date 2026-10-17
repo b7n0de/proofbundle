@@ -27,9 +27,14 @@ mixed order), are refused before the signature equation is checked. With A and R
 cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept exactly the same signatures;
 each signature is checked on its own, never by a batch.
 
-A RESOURCE LIMIT IS NO VERDICT. A receipt nested deeper than this reader's limits (the interpreter's
-recursion limit, unchanged) stops the procedure: the verdict says ``resource_limit``, with no step, and is
-neither PASS nor the failure of a step (the draft's Section 5). The verifier still never raises.
+A RESOURCE LIMIT IS NO VERDICT. A receipt, or a B, that nests arrays and objects deeper than 64 stops the
+procedure: the verdict says ``resource_limit``, with no step, and is neither PASS nor the failure of a step
+(the draft's Section 5). The depth is counted in the text before the text is parsed, as the draft's own
+checkers count it (``MAX_DEPTH`` 64 in ``drafts/ser/examples/check_receipts.py`` and in the checker written
+from the text), so the same bytes stop at the same place on every interpreter. Until 2026-10-17 the
+interpreter's recursion limit decided instead, and CPython 3.12 and later parse and serialize deeper than
+3.11: B 450 deep was a resource limit on 3.11 and a FAIL at step 5 on 3.12 and 3.13. The verifier still never
+raises; a stack the caller has nearly used up still ends as a resource limit, never as an exception.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
@@ -72,6 +77,12 @@ _DECIMAL_RE = re.compile(r"\A-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\Z")
 _COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 _TIMESTAMP_RE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z\Z")
 _MAX_SAFE = 2 ** 53
+#: The deepest nesting of arrays and objects steps 1 and 4 read; a top-level array or object is depth 1. The limit
+#: of the draft's own checkers, counted in the text before it is parsed (``_deeper_than_limit``), so that the parser
+#: and the serializer here never follow more levels than this and no interpreter's recursion limit decides.
+_MAX_DEPTH = 64
+#: The characters the depth count looks at, each matched alone, as in the draft's checker.
+_DEPTH_CHARS = re.compile(r'[\\"\[\]{}]')
 
 # RFC 8032 Section 5.1: the field prime, the group order and the curve constant d.
 _P = 2 ** 255 - 19
@@ -126,6 +137,31 @@ class _Number:
 
 
 # ---- I-JSON (RFC 7493) ----------------------------------------------------------------------------
+def _deeper_than_limit(text: str) -> bool:
+    """Whether TEXT nests arrays and objects deeper than ``_MAX_DEPTH``, brackets inside strings skipped. Counted
+    without recursion and without parsing, so it answers for a text that is no JSON as well."""
+    depth, in_string, skip = 0, False, -1
+    for m in _DEPTH_CHARS.finditer(text):
+        i = m.start()
+        if i == skip:   # the character after a backslash inside a string
+            continue
+        c = m.group()
+        if in_string:
+            if c == "\\":
+                skip = i + 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c in "[{":
+            depth += 1
+            if depth > _MAX_DEPTH:
+                return True
+        elif c in "]}":
+            depth -= 1
+    return False
+
+
 def _check_text(s: str, what: str, step: int) -> None:
     for ch in s:
         c = ord(ch)
@@ -145,6 +181,8 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
         text = raw.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         raise _Fail(step, f"{what} is not UTF-8") from None
+    if _deeper_than_limit(text):
+        raise _Limit(f"{what} nests arrays and objects deeper than {_MAX_DEPTH}")
 
     def pairs(items):
         seen: dict = {}
@@ -163,8 +201,8 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
                            parse_constant=no_constant)
     except _Fail:
         raise
-    except (RecursionError, MemoryError) as exc:
-        raise _Limit(f"{what} nests deeper than this reader's limit ({type(exc).__name__})") from None
+    except (RecursionError, MemoryError) as exc:   # the caller's own stack or memory, not the text's depth
+        raise _Limit(f"{what} could not be read here ({type(exc).__name__})") from None
     except ValueError as exc:
         raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
 
@@ -525,11 +563,14 @@ def names_receipt_type(raw: bytes) -> bool:
     dispatch question only, asked leniently (a byte order mark, bytes that are not UTF-8, trailing data
     and a repeated name do not hide the schema), so that such a file reaches the receipt procedure and
     fails there at the step the draft names, or stops there at a resource limit, instead of being judged
-    as another format. A receipt too deep for the JSON decoder is still told apart: its top-level members
-    are then read without recursion. It vouches for nothing."""
+    as another format. A receipt deeper than ``_MAX_DEPTH`` is still told apart: its top-level members are
+    then read without recursion, by the same count on every interpreter, and the procedure stops it at that
+    limit. It vouches for nothing."""
     if type(raw) is not bytes:
         return False
     text, start = _dispatch_text(raw)
+    if _deeper_than_limit(text):
+        return _names_receipt_type_by_scan(text, start)
     try:
         obj, _end = json.JSONDecoder().raw_decode(text, start)
     except ValueError:
