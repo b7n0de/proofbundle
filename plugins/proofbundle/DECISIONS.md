@@ -3494,7 +3494,7 @@ Measured on delta's screen on 2026-10-17 at 13:45Z and 13:54Z: `git -C <abs> pus
 R9-1 Level 1 resolves no push, because git resolves the destination against refs of the remote the gate did not read,
 and a branch the remote does not have is never resolved (TARGET_ABSENT_TEXT). Every new pull request starts with such
 a push. Owner words of 15:45 and 15:54 Berlin; owner choice of 15:5x Berlin: this part first and alone. D60 is the
-number of Nachtrag 23, which this file does not hold yet.
+number of part 1 of Nachtrag 23, the shell's test command `[`.
 
 Resolved now, under Claude Code and never under Codex: `git -C <literal absolute path> push <remote>
 <source>:refs/heads/<name>` as the whole command (_new_branch_push_form): every word literal as written, no option,
