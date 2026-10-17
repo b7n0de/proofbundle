@@ -145,6 +145,39 @@ def test_the_probe_signer_is_for_tests_only():
     assert "for tests only" in _flat(probe.split('"""')[1])
 
 
+@pytest.mark.parametrize("choice", ["O405S-1", "O405S-2", "O405S-3", "O405S-4", "O405S-5", "O405S-6"])
+def test_each_owner_choice_on_the_service_stands_in_both_files(choice):
+    owner = _section(RUNBOOK, "## The owner's choices on the signer service")
+    assert "2026-10-17" in owner.splitlines()[0]
+    assert f"- {choice}: " in owner
+    assert f"- {choice}: " in D64 or (choice == "O405S-6" and "owner choice O405S-6" in D64.splitlines()[0])
+
+
+def test_the_owner_choices_on_the_service_say_what_was_chosen():
+    owner = _flat(_section(RUNBOOK, "## The owner's choices on the signer service"))
+    for text in (_flat(D64), owner):
+        assert "sudo rules onto exactly one command each" in text
+        assert "`window_seconds` is 10" in text and "equal to" in text and "PILOT_SIGNER_SECONDS" in text
+        assert "once per ref line, one call and one receipt each" in text
+        assert "never signed by the service and never a record of the pilot" in text
+        assert "the list of the pilot repositories, never `*`" in text
+
+
+def test_the_runbook_sets_up_three_accounts_with_two_sudo_rules():
+    text = _flat(RUNBOOK)
+    assert "the deciding account and the key account" in text
+    assert ("<agent user> ALL=(<deciding account>) NOPASSWD: <python> -I <the copy>/pilot/signer_service.py --config "
+            "<configuration>") in RUNBOOK
+    assert ("<deciding account> ALL=(<key account>) NOPASSWD: <python> -I <key folder>/key_signer.py --config "
+            "<key configuration>") in RUNBOOK
+    assert "The agent's user has no rule onto the key account." in text
+    assert '"proofbundle/pilot-signer-config/v2"' in RUNBOOK and '"proofbundle/pilot-key-config/v1"' in RUNBOOK
+    assert RUNBOOK.count('"window_seconds": 10}') == 2
+    assert "`key_signer.py --config <key configuration> --public`, run as the key account" in text
+    assert "--public`, run as the signer account" not in text and '"key_file": "<key file>",' in RUNBOOK
+    assert "a signed line without one is a signature the deciding account obtained outside a decision" in text
+
+
 def test_the_runbook_keeps_the_gate_file_and_names_no_value():
     assert "--gate <the service's copy of hooks/proofbundle_gate.py>" in RUNBOOK
     # measured with two accounts: a signer named without its absolute path is no pilot, a repository of another account

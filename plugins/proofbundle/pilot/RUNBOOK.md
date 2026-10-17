@@ -2,25 +2,32 @@
 
 How the operator runs the first pilot of decision and outcome receipts (docs/pilot/pilot_contract.md, profile
 github-write/1) with the plugin's gate, and how a person who was not part of the sessions reruns its reconciliation
-from the records alone (criterion 4). The decisions behind it are DECISIONS.md D55 to D57 and D58. This runbook names
-keys and places, never a value: no key, no token and no path of a real machine stands here.
+from the records alone (criterion 4). The decisions behind it are DECISIONS.md D55 to D57, D58 and D64. This runbook
+names keys and places, never a value: no key, no token and no path of a real machine stands here.
 
 ## Who runs what
 
 | role | runs as | holds | writes |
 |---|---|---|---|
 | gate (decider) | the agent session's user, as a hook of Claude Code or Codex | no key | `decisions/` and `journal.jsonl` in the records |
-| signer service (D58) | an account of the operator, not the agent session's user | the gate's Ed25519 key and its own copy of the plugin | its own journal; it answers a signature or a refusal |
+| signer service (D58, D64) | the deciding account: an account of the operator, not the agent session's user | no key; its own copy of the plugin | its own journal; it answers a signature or a refusal |
+| key signer (D64) | the key account: a second account of the operator, neither of the two above | the gate's Ed25519 key and key_signer.py | its own journal; it answers a signature or a refusal |
 | observer | an account of the operator, not the agent session's user | the observer's Ed25519 key, and a read token only if the operator wants one | `api/` and `outcomes/` in the records |
 | reconciliation | anyone, from a copy of the records | nothing but the records | `reconciliation/` in its copy |
 
 The gate runs inside the agent session, under the agent's user. A key that user can read can sign anything, so the
 gate holds none: it hands the call and the statement it proposes to the program `pilot.json` names, the signer service
-(owner choice O405-1 of 2026-10-17, D58). The service runs under the signer account, which alone reads the gate key,
-and decides the call again with its own copy of the gate file, whose sha256 pilot_start.json keeps. It signs only where
-its own verdict, reasons, action and statement are the proposal's, byte for byte, and decidedAt lies in its window;
-otherwise it signs nothing and names why, by a fixed name, in its journal and in the gate's (`signer_refused_<name>`).
-The agent can call the service too, and gets a signature only for what the service's copy of the gate decides so.
+(owner choice O405-1 of 2026-10-17, D58). The service runs under the deciding account and decides the call again with
+its own copy of the gate file, whose sha256 pilot_start.json keeps. It goes on only where its own verdict, reasons,
+action and statement are the proposal's, byte for byte, and decidedAt lies in its window; otherwise it signs nothing and
+names why, by a fixed name, in its journal and in the gate's (`signer_refused_<name>`). The agent can call the service
+too, and gets a signature only for what the service's copy of the gate decides so.
+
+The deciding account holds no key (owner choice O405S-6, D64). It runs git, the gate's decision code and the verifier
+on repositories the agent writes, so a configuration the agent planted there reaches at most that account. It hands
+the canonical statement, and nothing else, to the key signer under the key account, which alone reads the gate key,
+runs neither git nor any code of the gate and reads nothing of a repository; the key signer checks the statement's
+form, its gate and its time, signs, and writes one line per request into its own journal.
 
 What it cannot close: the service decides the state it sees when it runs. If the agent changes the working tree, the
 configuration or the evidence between the gate's verdict and the service's decision, the service decides on the new
@@ -31,44 +38,61 @@ another surface (M3), a write without an approval (M5), a refused write that arr
 
 1. Two Ed25519 key pairs, one for the gate signer and one for the observer, each private key readable only by its own
    account. Names used below: the gate key and the observer key; their public halves as 64 hex digits.
-2. The signer service (D58), in place before the pilot starts at delta:
-   - a signer account of the operator, not the agent's user;
-   - a copy of this plugin's folder (hooks/, pilot/, server/) owned by the signer account and not writable by the
-     agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's;
-   - the gate key as 64 hex digits in a key file only the signer account reads (mode 600);
-   - the service's configuration, in a folder only the signer account reads:
+2. The signer service (D58) and its key signer (D64), in place before the pilot starts at delta, under two accounts of
+   the operator that are neither the agent's user nor each other: the deciding account and the key account.
+   - The key signer, under the key account:
+     - a copy of `pilot/key_signer.py` in a folder only the key account reads and writes;
+     - the gate key as 64 hex digits in a key file there that only the key account reads (mode 600);
+     - the key signer's configuration there:
+
+       ```
+       {"schema": "proofbundle/pilot-key-config/v1", "key_file": "<key file>",
+        "journal": "<the key signer's journal file>", "gate_id": "<the gate's name>", "window_seconds": 10}
+       ```
+
+     - the public key for step 6: `key_signer.py --config <key configuration> --public`, run as the key account.
+   - The service, under the deciding account, which holds no key:
+     - a copy of this plugin's folder (hooks/, pilot/, server/) owned by the deciding account and not writable by the
+       agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's;
+     - the service's configuration, in a folder only the deciding account reads:
+
+       ```
+       {"schema": "proofbundle/pilot-signer-config/v2", "gate_file": "<the copy>/hooks/proofbundle_gate.py",
+        "records": "<records folder>", "gate_dir": "<the gate directory of step 7>",
+        "key_signer": ["<sudo, by its absolute path>", "-n", "-u", "<key account>", "<python>", "-I",
+                       "<key folder>/key_signer.py", "--config", "<key configuration>"],
+        "journal": "<the service's journal file>", "environment": {"PATH": "<the deciding account's PATH>",
+        "HOME": "<the deciding account's home>"}, "window_seconds": 10}
+       ```
+
+       `environment` is the whole environment the service decides in: values of the deciding account, never one of
+       the agent's session. `window_seconds` is how old a decidedAt may be when the service, and then the key signer,
+       reads it; the gate sets it just before it calls the service, and both use 10, the gate's PILOT_SIGNER_SECONDS
+       (O405S-2);
+     - read access for the deciding account to every repository the agents work in, to the gate directory and to the
+       records, and its own uv cache for the verifier the gate runs on an approval; what it cannot read gets no
+       signature (workdir_unreadable, pilot_config_unread), never a guessed one;
+     - each pilot repository of step 8 as one `safe.directory` line in the git configuration the service's
+       `environment` names (GIT_CONFIG_GLOBAL), the list of the pilot repositories and never `*` (O405S-5): git
+       refuses a repository another account owns without it, and a push decided there gets no signature
+       (repository_not_safe); `*` would let git read every repository in the deciding account.
+   - The crossings, two sudo rules (O405S-1), each onto exactly one command and nothing else: the agent's user onto the
+     service as the deciding account, the deciding account onto the key signer as the key account. The agent's user
+     has no rule onto the key account.
 
      ```
-     {"schema": "proofbundle/pilot-signer-config/v1", "gate_file": "<the copy>/hooks/proofbundle_gate.py",
-      "records": "<records folder>", "gate_dir": "<the gate directory of step 7>", "key_file": "<key file>",
-      "journal": "<the service's journal file>", "environment": {"PATH": "<the signer account's PATH>",
-      "HOME": "<the signer account's home>"}, "window_seconds": <seconds>}
+     <agent user> ALL=(<deciding account>) NOPASSWD: <python> -I <the copy>/pilot/signer_service.py --config <configuration>
+     <deciding account> ALL=(<key account>) NOPASSWD: <python> -I <key folder>/key_signer.py --config <key configuration>
      ```
 
-     `environment` is the whole environment the service decides in: values of the signer account, never one of the
-     agent's session. `window_seconds` is how old a decidedAt may be when the service reads it; the gate sets it
-     just before it calls the service, so a few seconds suffice (the tests use 10);
-   - read access for the signer account to every repository the agents work in, to the gate directory and to the
-     records, and its own uv cache for the verifier the gate runs on an approval; what it cannot read gets no
-     signature (workdir_unreadable, pilot_config_unread), never a guessed one;
-   - each of those repositories as `safe.directory` in the git configuration the service's `environment` names
-     (GIT_CONFIG_GLOBAL): git refuses a repository another account owns without it, and a push decided there gets no
-     signature (repository_not_safe);
-   - the crossing, a sudo rule that lets the agent's user run exactly this one command as the signer account and
-     nothing else:
-
-     ```
-     <agent user> ALL=(<signer account>) NOPASSWD: <python> -I <the copy>/pilot/signer_service.py --config <configuration>
-     ```
-
-     and `"signer": ["<sudo, by its absolute path>", "-n", "-u", "<signer account>", "<python>", "-I",
+     and `"signer": ["<sudo, by its absolute path>", "-n", "-u", "<deciding account>", "<python>", "-I",
      "<the copy>/pilot/signer_service.py", "--config", "<configuration>"]` in pilot.json; the gate reads no pilot.json
-     whose signer program is not an absolute path. A socket of the signer account is the other crossing D58 allows;
-     this plugin ships no client for it.
-   - the public key for step 6: `signer_service.py --config <configuration> --public`, run as the signer account.
+     whose signer program is not an absolute path, and the service reads no key_signer program that is not one. A
+     socket is the other crossing D58 allows; it is not measured, and this plugin ships no client for it.
 
    `probe_signer.py` in this folder signs whatever it is handed, with a key derived from a public label; it is for
-   tests only, never for the pilot.
+   tests only, never for the pilot. The counter-probe of the surface (M3) keeps it as a test of the reconciliation,
+   never signed by the service and never a record of the pilot (O405S-4).
 3. The roster: the GitHub accounts or apps that only agent sessions write under, one per agent, each by the numeric id
    GitHub gives it (a rename does not change it), its login, and the agent's name the gate writes into `agent.id`:
    `[{"id": <numeric id>, "login": "<login>", "agent": "<agent name>"}]`. No person writes under them during the pilot.
@@ -115,6 +139,24 @@ another surface (M3), a write without an approval (M5), a refused write that arr
 - O405-4: the contract and the profile are byte-identical copies of main, without pilot_profile.md.
 - O405-5: the pilot repositories declare a check and have Level 2.
 
+## The owner's choices on the signer service (2026-10-17, Nachtrag 24)
+
+Each as recommended in the report of the signer service:
+
+- O405S-1: the crossings are sudo rules onto exactly one command each, measured with real accounts; a socket is not
+  used in the first pilot.
+- O405S-2: `window_seconds` is 10 in the service's and in the key signer's configuration, equal to the gate's
+  PILOT_SIGNER_SECONDS.
+- O405S-3: at Level 2 the service decides the push once per ref line, one call and one receipt each, as measured
+  (about half a second a line); one call per push that signs every line waits until pushes with many refs occur.
+- O405S-4: the probe signer stays only as a test of the reconciliation (the counter-probe of the surface, M3), never
+  signed by the service and never a record of the pilot.
+- O405S-5: `safe.directory` in the deciding account's git configuration is the list of the pilot repositories, never
+  `*`.
+- O405S-6: deciding and signing run under two accounts: the deciding account holds no key and hands the canonical
+  bytes on; only the key account reads the key and signs, and it runs neither git nor the gate's decision code on
+  repositories the agent writes (D64).
+
 ## While the pilot runs
 
 The gate writes a receipt for each GitHub write it decides and reads (D55); `journal.jsonl` names every receipt it could
@@ -129,6 +171,10 @@ python observer.py --records <records folder> --run <run name> --repo <owner>/<r
 It needs no credential of an agent session: the events of a public repository need none; `--token-file` reads a read
 token from the operator's file, never from the environment. Each run keeps every response as GitHub returned it, with
 the time it asked, and signs an outcome per effect that takes a decision.
+
+The key signer's journal names each signature the gate key made, by decisionId and the sha256 of the statement. Every
+signed line has its receipt in `decisions/` with that id and a payload of that digest; a signed line without one is a
+signature the deciding account obtained outside a decision of the gate (D64).
 
 ## The reconciliation, and its rerun by someone else
 
@@ -151,9 +197,12 @@ The reconciliation reads nothing the records do not keep, and checks every kept 
 
 - A receipt proves that the service's copy of the gate decided the call so, on the state the service saw when it
   ran (above); not that the host ran exactly that call.
-- Time (D58, N405-b): at Level 1 the gate's 90 s and the service's 10 s stay within the hook's 120 s; at Level 2 each
-  ref line is one call of the service, and git sets no limit. A service slower than 10 s is stopped and the call gets
-  no receipt (`signer_timeout` in the journal).
+- The key signer checks a statement's form, its gate and its time, not its verdict: whoever holds the deciding account
+  gets signatures for statements of the gate within the window, whatever verdict they name, and never the key (D64).
+  Each is one line of the key signer's journal (above).
+- Time (D58, N405-b, D64): at Level 1 the gate's 90 s and the service's 10 s stay within the hook's 120 s, and the key
+  signer answers within the service's 10 s; at Level 2 each ref line is one call of the service (O405S-3), and git
+  sets no limit. A service slower than 10 s is stopped and the call gets no receipt (`signer_timeout` in the journal).
 - The events API lists at most 300 events and 90 days; a write it does not list is not counted. "None found" in M5 and
   M6 is bounded by what it returned (contract, section 7).
 - A write the gate does not read gets no receipt (D55); if it arrives it counts under M5, which is how it is found.

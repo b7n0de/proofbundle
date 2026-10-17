@@ -3824,6 +3824,15 @@ the records keep is the same bytes.
 Tests: tests/test_plugin_z405_key_signer.py; tests/test_plugin_z405_signer_service.py with the service and its key
 signer.
 
+The other owner choices on the service, of 2026-10-17 (Nachtrag 24), each as recommended; the runbook says how:
+- O405S-1: the crossings are sudo rules onto exactly one command each; a socket is not used in the first pilot.
+- O405S-2: `window_seconds` is 10 for the service and for the key signer, equal to PILOT_SIGNER_SECONDS.
+- O405S-3: at Level 2 the service decides the push once per ref line, one call and one receipt each.
+- O405S-4: the probe signer stays only as a test of the reconciliation (the counter-probe of the surface, M3), never
+  signed by the service and never a record of the pilot.
+- O405S-5: `safe.directory` in the deciding account's git configuration is the list of the pilot repositories, never
+  `*`.
+
 ## D66. A command whose every program only reads calls no done-order: D38 does not ask for it (Nachtrag 26, 2026-10-17)
 
 Measured at delta on 2026-10-17, 20:54Z (gate at 9f578c2a), and again at 3694e34e: a find over a session folder under
