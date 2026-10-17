@@ -2367,6 +2367,15 @@ def _gh_env_problem(name: str, value: str) -> str | None:
     return None
 
 
+def _gh_keys_shown(keys: tuple, where: str) -> str:
+    """A key of gh's configuration as a reason names it (D63, O22-5 of R25-1): in hosts.yml the host and the user are
+    names read from the file and are shown as <host> and <user>; every other part is the name of a key and stays."""
+    if where != "hosts.yml":
+        return ".".join(keys)
+    return ".".join("<host>" if k == 0 else "<user>" if (k == 2 and keys[1] == "users") else part
+                    for k, part in enumerate(keys))
+
+
 def _gh_config_named(environ: dict, name: str) -> str:
     """gh's configuration file `name` as a reason names it (D49, Nachtrag 21): by the setting that places its folder,
     as _gh_config_dir reads them, never by the path that setting resolves to."""
@@ -2477,12 +2486,13 @@ def _gh_config_problem(environ: dict, inert_pagers: list | None = None, settings
                          or (len(keys) == 3 and keys[1] == "users")
                          or (len(keys) == 4 and keys[1] == "users" and keys[3] == "oauth_token"))
             if not known:
-                return f"a key the gh profile does not know: {'.'.join(keys)} in {_gh_config_named(environ, name)}"
+                return (f"a key the gh profile does not know: {_gh_keys_shown(keys, where)} in "
+                        f"{_gh_config_named(environ, name)}")
             if keys[-1] in _GH_PROGRAM_KEYS and value and not (keys[-1] == "pager" and "GH_PAGER" in environ):
                 if keys[-1] == "pager" and inert_pagers is not None:
-                    inert_pagers.append(f"{'.'.join(keys)} in {_gh_config_named(environ, name)}")
+                    inert_pagers.append(f"{_gh_keys_shown(keys, where)} in {_gh_config_named(environ, name)}")
                     continue
-                return (f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {'.'.join(keys)} in "
+                return (f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {_gh_keys_shown(keys, where)} in "
                         f"{_gh_config_named(environ, name)}")
     return None
 
@@ -2587,8 +2597,9 @@ def _gh_extension_problem(environ: dict, version: str) -> str | None:
         return (f"the gh on PATH is version {version}, which starts git in its extension folder, and {named} cannot "
                 f"be read ({_os_error(exc)}; DECISIONS.md D43)")
     if names:
+        # D63 (O22-4 of R25-1): the folder by its role, never the name of an entry read from it
         return (f"the gh on PATH is version {version}, which starts git in each extension folder on every command: "
-                f"{names[0]} in {named} (DECISIONS.md D43)")
+                f"an entry in {named} (DECISIONS.md D43)")
     return None
 
 
@@ -4828,7 +4839,8 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
         if out.returncode != 0:
             return f"git cannot read every value of {key} as a boolean, and git push stops there"
         if key == "submodule.recurse" and b"true" in out.stdout.split(b"\n"):
-            return "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED."
+            # D63 (O22-2 of R25-1): the key, not the value read; the wording of R8-5 named the value
+            return "The configuration sets submodule.recurse; submodule push behavior is NOT MEASURED."
     for key, word_ok in (("push.recursesubmodules", ("check",)), ("push.gpgsign", ("if-asked",))):
         values = entries(f"^{key.replace('.', '[.]')}$")
         if values is None:
@@ -4837,8 +4849,9 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
             if value is None and key == "push.gpgsign":
                 continue   # a key without `=` is true: sign the push
             if value is not None and key == "push.recursesubmodules" and value in ("on-demand", "only"):
-                return (f"The configuration contains push.recurseSubmodules={value}; submodule push behavior is NOT "
-                        "MEASURED.")
+                # D63 (O22-3 of R25-1): the key and that its value recurses, never the value read
+                return ("The configuration sets push.recurseSubmodules to a value that recurses; submodule push "
+                        "behavior is NOT MEASURED.")
             if value is not None and (value in word_ok if key == "push.recursesubmodules"
                                       else value.lower() in word_ok):
                 continue

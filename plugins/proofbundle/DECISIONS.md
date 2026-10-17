@@ -3558,3 +3558,26 @@ that is the ask of D3 (git_form_not_free), under Claude Code and under Codex. Ke
 `--config-env` override before any subcommand.
 
 Tests: tests/test_plugin_n23_hookspath_read_d62.py.
+
+## D63. The class of R25-1 at four more sites: a reason names the key, never the value read (Nachtrag 23, part 3, 2026-10-17)
+
+The class search of R25-1 (review Runde 25: a reason gives a value the gate read, also as a fixed text) found four more
+sites at 9f578c2a, each measured, owner questions O22-2 to O22-5 of the report of R25-1. Owner choice of 2026-10-17,
+12:3x and 13:0x Berlin: each as recommended, each with a marker case. The verdicts do not change.
+- O22-2, the push check (_push_config_problem): `The configuration contains submodule.recurse=true; submodule push
+  behavior is NOT MEASURED.` is now `The configuration sets submodule.recurse; submodule push behavior is NOT
+  MEASURED.` For the review round: the old text is the wording owner choice B: A of 2026-10-10 took from review round 8
+  (R8-5) word for word; this decision replaces that wording, and its tests
+  (test_plugin_review_fix8_r5_recursion_reason.py, test_plugin_review_fix9_r3_unresolved_answer.py) now hold the new
+  one.
+- O22-3, the same check: `The configuration contains push.recurseSubmodules=<value>; …`, the value read after it
+  matched on-demand or only, is now `The configuration sets push.recurseSubmodules to a value that recurses; submodule
+  push behavior is NOT MEASURED.` D49 of Nachtrag 20 had let this value stand (O20-1); its sharpening by Nachtrag 21
+  names AI_AGENT, GH_TELEMETRY and DO_NOT_TRACK only, and this key now joins them as named, not valued.
+- O22-4, the gh profile (_gh_extension_problem): the first entry of gh's extension folder was named by its name, read
+  from the folder; now `an entry in <the folder by the setting that places it>`.
+- O22-5, the gh profile (_gh_config_problem): an unknown key, a pager or a unix socket of hosts.yml was named by its
+  key path, whose first part is a host and, under users, whose third part is a user, both read from the file; now they
+  stand as `<host>` and `<user>` (_gh_keys_shown). A key of config.yml stays named, as D49 names keys.
+Tests: tests/test_plugin_n23_class_r25_1_d63.py, one marker case per site, under Claude Code and Codex where both
+answer.

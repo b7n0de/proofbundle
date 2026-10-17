@@ -150,7 +150,7 @@ def test_a_a_configured_submodule_push_is_not_exempted(env, tmp_path):
     work, _remote, _a = _undeclared(tmp_path)
     _git(work, "config", "push.recurseSubmodules", "on-demand")
     answer, entry, text = _l1(env, work)
-    _assert_exception_refused(answer, entry, text, "push.recurseSubmodules=on-demand")
+    _assert_exception_refused(answer, entry, text, "push.recurseSubmodules to a value that recurses")   # D63
 
 
 @pytest.mark.parametrize("command", ["git push --recurse-submodules=on-demand origin main",

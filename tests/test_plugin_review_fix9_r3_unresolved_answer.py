@@ -18,7 +18,7 @@ env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
-R8_5 = "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED."
+R8_5 = "The configuration sets submodule.recurse; submodule push behavior is NOT MEASURED."   # D63 (O22-2 of R25-1)
 
 
 def test_the_answer_names_the_source_check_and_does_not_say_it_checked_nothing(env, tmp_path):

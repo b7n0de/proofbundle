@@ -26,7 +26,9 @@ _git = n2c._git
 
 #: NOT MEASURED at the submodule setting, before the destination check.
 NOT_MEASURED = ("ask", ["push_not_measured"], False)
-VERBATIM = "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED."
+#: The wording of R8-5 named the value read ("contains submodule.recurse=true"); D63 (Nachtrag 23, O22-2 of R25-1)
+#: names the key and keeps the verdict, NOT MEASURED.
+VERBATIM = "The configuration sets submodule.recurse; submodule push behavior is NOT MEASURED."
 
 
 def _repo(tmp_path, *pairs: tuple[str, str]) -> n2c.Repo:
@@ -71,7 +73,7 @@ def test_a_present_recursion_word_is_named_as_present_and_stays_not_measured(env
     """The sibling: push.recurseSubmodules, where git also takes the last value (on-demand, then check, pushes no
     submodule commit)."""
     r = _repo(tmp_path, *(("push.recurseSubmodules", v) for v in values))
-    assert _reason(r.path) == (f"The configuration contains push.recurseSubmodules={values[0]}; submodule push "
+    assert _reason(r.path) == ("The configuration sets push.recurseSubmodules to a value that recurses; submodule push "
                                "behavior is NOT MEASURED.")
     assert _verdict(env, r.path) == NOT_MEASURED
 
