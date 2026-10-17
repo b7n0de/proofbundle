@@ -21168,8 +21168,7 @@ MAX_CLOSING_RULES_BYTES = 64 * 1024
 PILOT_PROFILE = "github-write/1"
 PILOT_ENGINE, PILOT_REVISION = "proofbundle-pilot/github-write", "1"
 DECISION_RECEIPT_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
-INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
-INTOTO_PAYLOAD_TYPE = "application/vnd.in-toto+json"
+# INTOTO_STATEMENT_TYPE and INTOTO_PAYLOAD_TYPE are those of the done check's statement (D29), bound once above
 PILOT_SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pullRequestBody", "git.push",
                   "github.merge")
 #: How long the gate waits for the signer of the operator before it gives up on one receipt. Since D58 the signer is a
@@ -21193,7 +21192,10 @@ _PILOT_OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.ASCII)
 _GH_OWNER = r"[A-Za-z0-9][A-Za-z0-9-]{0,38}"
 _GH_REPO = r"[A-Za-z0-9._-]{1,100}?"
 _GH_SLUG = re.compile(rf"({_GH_OWNER})/({_GH_REPO})\Z", re.ASCII)
-_GH_NUMBER = re.compile(r"[1-9][0-9]{0,9}\Z", re.ASCII)
+#: The number of a pull request as the pilot reads it (no leading zero, at most ten digits). Its own name (N405-a): the
+#: read forms of class b keep _GH_NUMBER, bound once; a second binding of that name rebound it for every reader at call
+#: time, while _GH_READ_ARGS kept the first.
+_PILOT_GH_NUMBER = re.compile(r"[1-9][0-9]{0,9}\Z", re.ASCII)
 _GH_PULL_URL = re.compile(rf"https://github\.com/({_GH_OWNER})/({_GH_REPO})/pull/([1-9][0-9]{{0,9}})\Z", re.ASCII)
 _GH_REPLIES = re.compile(rf"/?repos/({_GH_OWNER})/({_GH_REPO})/pulls/([1-9][0-9]{{0,9}})/comments/[1-9][0-9]{{0,19}}"
                          r"/replies\Z", re.ASCII)
@@ -21325,7 +21327,7 @@ def _pilot_pull_target(positional: list, found: dict) -> str | None:
         owner, repo, number = match.groups()
     else:
         slug = _GH_SLUG.fullmatch(found.get("repo", ""))
-        if not (slug and _GH_NUMBER.fullmatch(positional[0])):
+        if not (slug and _PILOT_GH_NUMBER.fullmatch(positional[0])):
             return None
         (owner, repo), number = slug.groups(), positional[0]
     return None if repo in (".", "..") else f"https://github.com/{owner}/{repo}/pull/{number}"
@@ -21408,7 +21410,7 @@ def _pilot_mcp_action(tool: str, tool_input: object) -> dict | None:
         number = tool_input.get("pullNumber", tool_input.get("pull_number"))
         number = str(number) if type(number) is int else number
         target = (f"https://github.com/{owner}/{repo}/pull/{number}"
-                  if isinstance(number, str) and _GH_NUMBER.fullmatch(number) else None)
+                  if isinstance(number, str) and _PILOT_GH_NUMBER.fullmatch(number) else None)
         return {"surface": "github.merge", "target": target, "bytes": b"", "media": "text/plain"}
     if name in ("push_files", "create_or_update_file"):
         branch = tool_input.get("branch")
