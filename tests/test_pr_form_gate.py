@@ -16,6 +16,7 @@ red instead of hiding behind a neighbour.
 The tool and address names in the cases are placeholders. The rules are written against the form
 of an attribution and of a session link, not against a list of names.
 """
+import datetime
 import importlib.util
 import itertools
 import json
@@ -42,9 +43,15 @@ TEXT = "`abc1234` carries every change below.\n\n## Marking"
 BODY = TEXT + "\n\n" + FOOTER
 OLD_BODY = TEXT + "\n\n" + OLD_FOOTER
 MILESTONE = {"number": 2, "title": "6.3.0", "state": "open"}
-#: A pull request opened the evening before the change, and one opened at the moment of it.
+#: Pull requests opened on the evening before the owner's word, while the rule was being written, one second before the
+#: transition moment, at it, one second after it and a year after it. The last four come from the gate's constant.
+_GITHUB_TIME = "%Y-%m-%dT%H:%M:%SZ"
 OPENED_BEFORE = "2026-10-16T22:28:28Z"
-OPENED_AT_THE_CHANGE = "2026-10-17T09:30:00Z"
+OPENED_WHILE_THE_RULE_WAS_WRITTEN = "2026-10-17T09:38:37Z"
+OPENED_ONE_SECOND_BEFORE_THE_CHANGE = (GATE.NEW_FOOTER_FROM - datetime.timedelta(seconds=1)).strftime(_GITHUB_TIME)
+OPENED_AT_THE_CHANGE = GATE.NEW_FOOTER_FROM.strftime(_GITHUB_TIME)
+OPENED_ONE_SECOND_AFTER_THE_CHANGE = (GATE.NEW_FOOTER_FROM + datetime.timedelta(seconds=1)).strftime(_GITHUB_TIME)
+OPENED_A_YEAR_AFTER_THE_CHANGE = (GATE.NEW_FOOTER_FROM + datetime.timedelta(days=365)).strftime(_GITHUB_TIME)
 
 RETIRED_1 = ("Written by the operating agent under a standing owner authorisation for Codex threads; "
              "measurements are its own, at the head named above.")
@@ -203,8 +210,18 @@ def test_green_b_the_old_footer_on_a_pull_request_opened_before_the_change(tmp_p
     assert out.splitlines()[0] == "pr-form: green"
 
 
-@pytest.mark.parametrize("created_at", [OPENED_AT_THE_CHANGE, "2026-10-17T09:30:01Z", "2026-10-17T09:38:37Z"],
-                         ids=["at-the-change", "one-second-after", "while-the-rule-was-written"])
+@pytest.mark.parametrize("created_at", [OPENED_WHILE_THE_RULE_WAS_WRITTEN, OPENED_ONE_SECOND_BEFORE_THE_CHANGE],
+                         ids=["while-the-rule-was-written", "one-second-before-the-change"])
+def test_green_b_the_old_footer_on_a_pull_request_opened_before_the_rule_landed(tmp_path, capsys, created_at):
+    """Until the rule is on main a pull request runs the old gate, which requires the old lines, so one opened before
+    the transition moment carries them and stays green after the landing."""
+    code, out = _judge(tmp_path, capsys, body=OLD_BODY, created_at=created_at)
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("created_at", [OPENED_AT_THE_CHANGE, OPENED_ONE_SECOND_AFTER_THE_CHANGE,
+                                        OPENED_A_YEAR_AFTER_THE_CHANGE],
+                         ids=["at-the-change", "one-second-after", "a-year-after"])
 def test_red_b_the_old_footer_on_a_pull_request_opened_from_the_change_on(tmp_path, capsys, created_at):
     code, out = _judge(tmp_path, capsys, body=OLD_BODY, created_at=created_at)
     assert code == 1
@@ -233,8 +250,8 @@ def test_green_b_the_sentence_whatever_the_age_of_the_pull_request(tmp_path, cap
     assert code == 0, out
 
 
-def test_the_transition_moment_is_the_one_the_tests_name():
-    assert GATE.NEW_FOOTER_FROM.isoformat() == "2026-10-17T09:30:00+00:00"
+def test_the_transition_moment_is_the_one_the_change_names():
+    assert GATE.NEW_FOOTER_FROM == datetime.datetime(2026, 10, 20, tzinfo=datetime.timezone.utc)
 
 
 # ------------------------------------------------------------------------------------------------

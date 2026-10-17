@@ -84,9 +84,10 @@ FOOTER = "Assisted by little helpers."
 OLD_FOOTER = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
 _OLD_FOOTER_TEXT = OLD_FOOTER[0] + "\n\n" + OLD_FOOTER[1]
 #: From this moment on a pull request ends with the sentence; one whose `created_at` lies before it may still end with
-#: the old lines. The half hour in which this rule was written, not the moment it lands: a pull request opened in
-#: between keeps the old footer only until its next event after the landing.
-NEW_FOOTER_FROM = datetime.datetime(2026, 10, 17, 9, 30, 0, tzinfo=datetime.timezone.utc)
+#: the old lines. It lies after the landing of this rule, not at the moment it was written: until the rule is on main,
+#: the gate a pull request runs is the old one and requires the old lines, so a pull request opened in between carries
+#: them. If the rule lands later than this moment, a pull request opened in between turns red on its next event.
+NEW_FOOTER_FROM = datetime.datetime(2026, 10, 20, 0, 0, 0, tzinfo=datetime.timezone.utc)
 #: `created_at` as GitHub writes it into the payload.
 _CREATED_AT = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 

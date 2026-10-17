@@ -271,7 +271,19 @@ class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
 
 
 def _last_text_line(text: str) -> str:
-    return next(z.strip() for z in reversed(text.splitlines()) if z.strip())
+    return next((z.strip() for z in reversed(text.splitlines()) if z.strip()), "")
+
+
+_OLD_LINES = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
+
+
+def _footer_findings(text: str, *, ends_with_footer: bool) -> list[str]:
+    """What the guard below finds in the text of one surface: the old lines anywhere, and for a template an end that is
+    not the gate's footer. The tests and the planted counter-probe call this one function."""
+    found = [f"carries the old line {zeile[:24]!r}" for zeile in _OLD_LINES if zeile in text]
+    if ends_with_footer and _last_text_line(text) != _gate.FOOTER:
+        found.append("does not end with the footer the gate requires")
+    return found
 
 
 class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
@@ -279,8 +291,6 @@ class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
     renderer that writes bodies, the pull request template and the issue template, and the change of 2026-10-17
     touched all four by hand. The invariant is one value: every surface that writes the footer writes the one the gate
     requires, and none of them still writes the old lines, so a later change to one place alone turns red here."""
-
-    OLD_LINES = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
 
     def test_the_renderer_writes_the_gates_footer(self):
         self.assertEqual(_rp.FUSSBLOCK, _gate.FOOTER)
@@ -292,21 +302,21 @@ class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertTrue(_gate.ends_with_footer(_rp.rendere(daten, kind)))
 
-    def test_both_templates_end_with_the_gates_footer(self):
+    def test_both_templates_end_with_the_gates_footer_and_carry_no_old_line(self):
         for vorlage in (PR_TEMPLATE, ISSUE_TEMPLATE):
             with self.subTest(vorlage=vorlage.name):
-                self.assertEqual(_last_text_line(vorlage.read_text(encoding="utf-8")), _gate.FOOTER)
+                self.assertEqual(_footer_findings(vorlage.read_text(encoding="utf-8"), ends_with_footer=True), [])
 
-    def test_no_surface_writes_the_old_lines(self):
-        for datei in (PR_TEMPLATE, ISSUE_TEMPLATE, SKRIPT):
-            text = datei.read_text(encoding="utf-8")
-            for zeile in self.OLD_LINES:
-                with self.subTest(datei=datei.name, zeile=zeile[:20]):
-                    self.assertNotIn(zeile, text)
+    def test_the_renderer_carries_no_old_line(self):
+        self.assertEqual(_footer_findings(SKRIPT.read_text(encoding="utf-8"), ends_with_footer=False), [])
 
-    def test_meta_a_template_left_on_the_old_lines_is_caught(self):
-        """The planted counter-probe: the pull request template as it stood before 2026-10-17 fails both template
-        checks above."""
-        alt = PR_TEMPLATE.read_text(encoding="utf-8").replace(_gate.FOOTER, "\n\n".join(self.OLD_LINES))
-        self.assertNotEqual(_last_text_line(alt), _gate.FOOTER)
-        self.assertIn(self.OLD_LINES[0], alt)
+    def test_meta_a_surface_left_on_the_old_lines_is_caught(self):
+        """The planted counter-probes, through the same function the tests above call: each template as it stood before
+        2026-10-17, and the renderer with its old constant, is found with every finding it carries."""
+        alt = "\n\n".join(_OLD_LINES)
+        for vorlage in (PR_TEMPLATE, ISSUE_TEMPLATE):
+            with self.subTest(vorlage=vorlage.name):
+                text = vorlage.read_text(encoding="utf-8").replace(_gate.FOOTER, alt)
+                self.assertEqual(len(_footer_findings(text, ends_with_footer=True)), 3)
+        skript = SKRIPT.read_text(encoding="utf-8").replace(f'"{_gate.FOOTER}"', f'"{alt}"')
+        self.assertEqual(len(_footer_findings(skript, ends_with_footer=False)), 2)
