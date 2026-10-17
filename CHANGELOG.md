@@ -17,7 +17,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - **Every tool that reads a path list from git reads it as git names the paths**
   (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,
   `scripts/verify_pre_tag_receipt.py`, `scripts/neue_zeilen_sind_englisch.py`). The mutant guard's
-  fix above was one instance of a class: without `-z`, git quotes a path that holds a byte outside
+  fix below was one instance of a class: without `-z`, git quotes a path that holds a byte outside
   ASCII, and the quoted string opens no file. Measured in throwaway repositories, each against the
   state before: the version gate's sweep for undeclared release claims skipped `docs/prüfung.md`;
   the digest-resolvability check said `NICHT_AUFLOESBAR` for a tracked record under such a name and
@@ -28,7 +28,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   gate's list through its text decoder), and the language gate decodes a diff header with the
   mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
   to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
-  whose listing is hashed and never opened. 0 of the 1705 tracked paths at this change need quoting, so no
+  whose listing is hashed and never opened. 0 of the 2035 tracked paths at this change need quoting, so no
   verdict on this repository changes. A name that is not UTF-8 decodes to a lone surrogate, and each of
   the four tools raised on one while writing its report, with exit 1, the exit code of a finding
   (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that

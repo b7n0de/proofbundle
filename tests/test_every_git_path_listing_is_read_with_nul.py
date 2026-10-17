@@ -60,9 +60,9 @@ QUOTED_FORM_ALLOWED = {
         "the output is compared as a whole, before against after; no name is read from it.",
     ("scripts/render_site_data.py", "_source_time", "status"):
         "only whether the output is empty is read.",
-    ("scripts/verify_pre_tag_receipt.py", "_measure", "status"):
-        "the entries are counted and the first is shown; the quoted form keeps one entry per line, "
-        "so the count holds.",
+    ("scripts/cargo_audit_gate.py", "status_problem", "status"):
+        "only whether the output is empty is read; its first line is shown in the refusal and "
+        "decides nothing.",
 }
 
 

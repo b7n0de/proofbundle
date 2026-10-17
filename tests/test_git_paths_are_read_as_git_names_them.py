@@ -184,16 +184,26 @@ def test_the_resolver_reports_a_name_that_is_not_utf8(tmp_path, form):
 
 @pytest.mark.parametrize("form", [["--json"], []], ids=["json", "text"])
 def test_the_verifier_reports_a_name_that_is_not_utf8(tmp_path, form):
-    """The same for the receipt verifier: the rejection is reported, the name escaped."""
-    repo = _repo(tmp_path, {"audit_artifacts/999/.keep": ""})
+    """The same for the receipt verifier: the rejection is reported, the name escaped.
+
+    The verifier judges only the checkout it runs from, so it runs from the built repository, which
+    carries its scripts and the package, the way tests/test_verify_pre_tag_receipt_third_party.py
+    builds one."""
+    repo = _repo(tmp_path, {"audit_artifacts/999/.keep": "", ".gitignore": "__pycache__/\n"})
     name = _write_bytes_name(repo, b"audit_artifacts/999/\xff.json", b"not json")
     (repo / "scripts").mkdir()
-    shutil.copy(REPO / "scripts" / "pre_tag_audit_gate.py", repo / "scripts" / "pre_tag_audit_gate.py")
+    for script in ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
+                   "sign_readiness_artifact.py", "verify_pre_tag_receipt.py"):
+        shutil.copy(REPO / "scripts" / script, repo / "scripts" / script)
+    shutil.copytree(REPO / "src" / "proofbundle", repo / "src" / "proofbundle",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "a receipt whose name is not UTF-8")
     commit = _git(repo, "rev-parse", "HEAD").strip()
-    p = _cli("scripts/verify_pre_tag_receipt.py", "--repo", str(repo), "--commit", commit,
-             "--version", "9.9.9", *form, cwd=repo)
+    env = dict(os.environ, PYTHONPATH=f"{repo}/src:{repo}/scripts")
+    p = subprocess.run([sys.executable, "-B", "scripts/verify_pre_tag_receipt.py", "--repo", ".",
+                        "--commit", commit, "--version", "9.9.9", *form], capture_output=True,
+                       cwd=str(repo), env=env)
     assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
     out = p.stdout.decode("utf-8")
     assert p.returncode == 1, out
