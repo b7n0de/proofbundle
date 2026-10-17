@@ -50,7 +50,12 @@ else:
     # module, whose regex sweep and end-to-end cases do not
     from _schema_oracle import EcmaValidator, ecma_pattern, mutations, schema_accepts
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
+REPO =pathlib.Path(__file__).resolve().parents[1]
 SCHEMAS = REPO / "schemas"
 H = lambda c: c * 64  # noqa: E731 - a 64-hex digest of one repeated character
 T = "2026-09-26T00:00:00Z"
@@ -393,9 +398,9 @@ class TheMeasuredConsequencesAreGone(unittest.TestCase):
                 except SystemExit as e:
                     rc = e.code
             self.assertEqual((rc, json.loads(out.getvalue())["ok"]), (2, False))
-            rust = REPO / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
-            if not rust.exists():
-                self.skipTest("NOT MEASURABLE here: the Rust binary is not built; the Python half ran")
+            # Through tests/_pb_verify_rs.py, as every test that needs the binary (tests/test_pb_verify_rs_seam.py);
+            # the Python half above has run either way.
+            rust = _pb_verify_rs.binary_or_skip()
             p = subprocess.run([str(rust), "verify-relation-statement", str(path), pub],
                                capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
