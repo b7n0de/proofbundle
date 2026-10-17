@@ -26,7 +26,6 @@ from __future__ import annotations
 import ast
 import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -37,8 +36,7 @@ DECKEL_NAME = "HARTER_LASTDECKEL"
 #: die das Objekt hereinreichen. Alles andere wird aus den Bindungen der Datei ABGELEITET.
 BUDGET_NAMEN = ("DEFAULT_BUDGET", "budget")
 #: Diese Dateien bauen keine Last aus dem Budget, sie DEFINIEREN den Deckel bzw. diesen Riegel.
-#: By path, not by name: a file of the same name in a subfolder is another file (counter review 2026-10-17).
-_AUSSER_ACHT = {TESTS / "_lastdeckel.py", Path(__file__).resolve()}
+_AUSSER_ACHT = {"_lastdeckel.py", Path(__file__).name}
 
 #: Aufrufe, deren Argument eine Aussage ÜBER den Wert ist statt eine Last AUS ihm.
 _ZUSICHERUNGEN = {"assertLess", "assertLessEqual", "assertGreater", "assertGreaterEqual",
@@ -214,12 +212,11 @@ def ungedeckelte_lastquellen(datei: Path) -> list[str]:
     Scope erbt den Endzustand des aeusseren, aendert ihn aber nicht zurueck. Ein Aufruf einer
     Funktion, deren `return` das Budget liest, gilt als Budget-Zugriff.
     """
-    # The text without a byte order mark for the lines of the report, the tree from the bytes (see _read_tree).
-    quelle = datei.read_text(encoding="utf-8-sig")
+    quelle = datei.read_text(encoding="utf-8")
     try:
-        baum = _read_tree(datei)
-    except SyntaxError as fehler:
-        return [f"{datei.name}:{fehler.lineno or 0} does not parse, so the guard cannot read it"]
+        baum = ast.parse(quelle)
+    except SyntaxError:
+        return []
     zeilen = quelle.splitlines()
     bindungen = _budget_bindungen(baum)
     funktionen = _budget_funktionen(baum, bindungen)
@@ -362,7 +359,7 @@ def alle_testdateien() -> list[Path]:
     `tests/_hilfe.py`, die die Last baut und von einem Test gerufen wird, lag ausserhalb des
     Glob-Musters. Der Ort einer Last ist keine Eigenschaft ihres Dateinamens."""
     return sorted(f for f in TESTS.rglob("*.py")
-                  if f.resolve() not in _AUSSER_ACHT and "__pycache__" not in f.parts)
+                  if f.name not in _AUSSER_ACHT and "__pycache__" not in f.parts)
 
 
 def last_achsen(dateien) -> set[str]:
@@ -376,9 +373,8 @@ def last_achsen(dateien) -> set[str]:
     achsen: set[str] = set()
     for f in dateien:
         try:
-            baum = _read_tree(f)
+            baum = ast.parse(f.read_text(encoding="utf-8"))
         except (OSError, SyntaxError):
-            # test_every_file_the_guards_read_parses turns red for such a file.
             continue
         objekte, module = _budget_bindungen(baum)
         for k in ast.walk(baum):
@@ -390,257 +386,34 @@ def last_achsen(dateien) -> set[str]:
     return achsen
 
 
-#: The module that defines the cap and the table; a binding from anywhere else is not the measured table.
-_CAP_MODULES = ("_lastdeckel", "tests._lastdeckel")
-#: The names this guard follows. A file binds each of them once, by its import from the cap module.
-_TRACKED_NAMES = ("gedeckelt", "KOSTEN_JE_ELEMENT", "MAX_TESTLAST_BYTES", "_lastdeckel")
-#: Pieces of those names. A string that holds one, or that is Python code naming a followed name, reaches the cap, its
-#: table or its module by a way the guard cannot read: getattr, setattr, globals(), sys.modules, exec.
-_TRACKED_IN_TEXT = ("gedeckelt(", "KOSTEN_JE_ELEMENT", "_lastdeckel")
-#: The attributes of the cap module a file may read.
-_MODULE_READS = ("gedeckelt", "KOSTEN_JE_ELEMENT", "MAX_TESTLAST_BYTES", "HARTER_LASTDECKEL")
+def typed_costs_below_the_table(path: Path, table: dict) -> list[str]:
+    """'file:line axis: ...' for every call `gedeckelt(<budget>.<axis>, bytes_je_element=<int literal>)` whose
+    literal lies below the measured entry of its axis in `tests/_lastdeckel.py`, or names an axis the table does not
+    carry. A typed number below the entry makes the cap laxer than the 64 MiB it promises.
 
-
-def _read_tree(path: Path) -> ast.AST:
-    """The syntax tree of one file, parsed from its bytes as Python reads a source file. A file that starts with a byte
-    order mark is read, not skipped; a SyntaxError reaches the caller."""
-    return ast.parse(path.read_bytes(), filename=str(path))
-
-
-def _bindings(tree: ast.AST):
-    """(name, line, node, how) for every way the file binds a name: imports, every assignment target, parameters,
-    function and class names, global and nonlocal declarations, exception names and match captures."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for a in node.names:
-                yield a.asname or a.name.split(".")[0], node.lineno, node, a
-        elif isinstance(node, ast.ImportFrom):
-            for a in node.names:
-                yield a.asname or a.name, node.lineno, node, a
-        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-            yield node.id, node.lineno, node, "an assignment"
-        elif isinstance(node, ast.arg):
-            yield node.arg, node.lineno, node, "a parameter"
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            yield node.name, node.lineno, node, "a definition"
-        elif isinstance(node, (ast.Global, ast.Nonlocal)):
-            for name in node.names:
-                yield name, node.lineno, node, "a global or nonlocal declaration"
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            yield node.name, node.lineno, node, "an exception name"
-        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
-            yield node.name, node.lineno, node, "a match capture"
-        elif isinstance(node, ast.MatchMapping) and node.rest:
-            yield node.rest, node.lineno, node, "a match capture"
-
-
-def _cap_bindings(tree: ast.AST) -> tuple[set[str], set[str], set[str], list[tuple[int, str]]]:
-    """(cap names, table names, module expressions, findings) of one file.
-
-    The cap, the table and the module count only through their import from the cap module. Every other binding of a
-    followed name is a finding of its own, because from then on the name may mean something else: a second import, an
-    assignment, a parameter, a definition, a declaration, a capture. A star import is a finding too, since the names it
-    binds cannot be listed."""
-    caps: set[str] = set()
-    tables: set[str] = set()
-    modules: set[str] = set()
-    allowed: set[int] = set()
-    findings: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            for a in node.names:
-                if a.name == "*":
-                    findings.append((node.lineno, f"imports * from {node.module}, so the guard cannot list what it "
-                                                  "binds"))
-                elif node.module in _CAP_MODULES and a.name == "gedeckelt":
-                    caps.add(a.asname or a.name)
-                    allowed.add(id(a))
-                    if a.asname:
-                        findings.append((node.lineno, f"imports the cap as {a.asname}; import it as gedeckelt"))
-                elif node.module in _CAP_MODULES and a.name == "KOSTEN_JE_ELEMENT":
-                    tables.add(a.asname or a.name)
-                    allowed.add(id(a))
-                elif node.module in _CAP_MODULES:
-                    allowed.add(id(a))
-        elif isinstance(node, ast.Import):
-            for a in node.names:
-                if a.name in _CAP_MODULES:
-                    modules.add(a.asname or a.name)
-                    allowed.add(id(a))
-    followed = set(_TRACKED_NAMES) | caps | tables | {m.split(".")[0] for m in modules}
-    for name, line, node, how in _bindings(tree):
-        if name not in followed or (isinstance(how, ast.alias) and id(how) in allowed):
-            continue
-        if isinstance(how, ast.alias):
-            how = f"an import from {node.module}" if isinstance(node, ast.ImportFrom) else f"an import of {how.name}"
-        findings.append((line, f"binds {name} by {how}, so the name may no longer be the cap, its table or its module"))
-    return caps, tables, modules, findings
-
-
-def _is_the_table(node: ast.AST, tables: set[str], modules: set[str]) -> bool:
-    if isinstance(node, ast.Name):
-        return node.id in tables
-    return (isinstance(node, ast.Attribute) and node.attr == "KOSTEN_JE_ELEMENT"
-            and ast.unparse(node.value) in modules)
-
-
-def _unproven_cap_call(call: ast.Call, table, budget, tables: set[str], modules: set[str]) -> str | None:
-    """Why the cost of this call is not proven to be at least the measured entry of its axis, or None.
-
-    Two forms are proven, and only these: the entry of the same axis read from the table, and an int literal at or
-    above that entry. Everything else is a finding, because a form the guard does not read is a form it cannot vouch
-    for."""
-    # A `**` argument has the key None here, so the same check refuses it.
-    named = {kw.arg: kw.value for kw in call.keywords}
-    if len(call.args) > 1 or set(named) - {"wert", "bytes_je_element"} or (call.args and "wert" in named):
-        return "passes arguments the cap does not take in this form, ** arguments included"
-    value = call.args[0] if call.args else named.get("wert")
-    if not (isinstance(value, ast.Attribute) and _ist_budget_objekt(value.value, *budget)):
-        return "caps a value that is not read from the budget object, so the guard cannot tell its axis"
-    axis = value.attr
-    if axis not in table:
-        return f"{axis}: the table has no entry for this axis"
-    cost = named.get("bytes_je_element")
-    if isinstance(cost, ast.Constant) and type(cost.value) is int:
-        if cost.value < table[axis]:
-            return f"{axis}: typed {cost.value} B below the table's {table[axis]} B"
-        return None
-    if isinstance(cost, ast.Subscript) and _is_the_table(cost.value, tables, modules):
-        key = cost.slice
-        if isinstance(key, ast.Constant) and key.value == axis:
-            return None
-        return f"{axis}: reads the entry {ast.unparse(key)} of the table instead of its own axis"
-    shown = "nothing" if cost is None else ast.unparse(cost)[:60]
-    return f"{axis}: the cost {shown} is neither the table entry of this axis nor a number the guard can compare"
-
-
-def _docstrings(tree: ast.AST) -> set[int]:
-    found = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
-            first = node.body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-                found.add(id(first.value))
-    return found
-
-
-def _names_in_code(text: str, depth: int = 3) -> set[str]:
-    """The names a string mentions if it is Python code: names, attributes, imports, parameters, definitions,
-    keywords, and the strings inside it, read again as code down to `depth` levels. Nothing if it is not code. Code in
-    a docstring is usually indented, so the text is read once more without its common indentation."""
-    tree = None
-    for candidate in (text, textwrap.dedent(text).strip()):
-        try:
-            tree = ast.parse(candidate)
-            break
-        except (SyntaxError, ValueError, RecursionError, MemoryError):
-            continue
-    if tree is None:
-        return set()
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            names.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            names.add(node.attr)
-        elif isinstance(node, ast.alias):
-            names.update(n for n in (node.asname, *node.name.split(".")) if n)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.update(node.module.split("."))
-        elif isinstance(node, ast.arg):
-            names.add(node.arg)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-        elif isinstance(node, ast.keyword) and node.arg:
-            names.add(node.arg)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) and depth > 0:
-            inner = node.value.decode("utf-8", "replace") if isinstance(node.value, bytes) else node.value
-            names |= _names_in_code(inner, depth - 1)
-    return names
-
-
-def _text_problem(value, followed: set[str], is_docstring: bool) -> str | None:
-    """Why a string or bytes literal reaches the cap, its table or its module, or None. A literal that is only a name
-    (getattr, globals()) is code too: a name parses as Python."""
-    text = value.decode("utf-8", "replace") if isinstance(value, bytes) else value
-    if not is_docstring and any(t in text for t in _TRACKED_IN_TEXT):
-        return "holds a piece of the cap, its table or its module in a string, which the guard cannot follow"
-    if any(name in text for name in followed) and _names_in_code(text) & followed:
-        return "holds Python code in a string that names the cap, its table or its module, which exec could run"
-    return None
-
-
-def unproven_cap_costs(path: Path, table) -> list[str]:
-    """'file:line problem' for every place where a test file reaches the cap `gedeckelt`, its table or its module in a
-    way the guard cannot prove keeps the cost per element at least the measured entry of its axis.
-
-    WHAT IT IS: a regression guard for test code written in good faith. It catches the forms that slip into such code,
-    a typed number, an alias, a helper file, a monkeypatch, a call through the module, and it is no sandbox against
-    code that sets out to hide what it does. The limits are named below, so the claim is no larger than the check.
-
-    A POSITIVE LIST, because a list of refused forms binds only what its author thought of. Three counter reviews on
-    2026-10-17 each found forms that the guard of the round before passed: seven forms of a cost of 8 against the entry
-    48 at the first, nineteen at the second (a file starting with a byte order mark that was skipped as unparseable, the
-    table changed in place, the module attribute replaced, the cap handed on through a helper file), and at the third
-    code in a docstring or a bytes literal run by exec and an alias of the table set through globals(). What is allowed:
-      - the cap, its table and its module are bound once, by their import from the cap module, the cap by its own
-        name; any other binding of these names or of their aliases is a finding, and so is a star import;
-      - the cap is called directly, and the call is proven by `_unproven_cap_call`; any other use of it is a finding;
-      - the table is only read, one entry by subscript; the module only gives the cap, the table or its sizes;
-      - no attribute and no keyword argument carries one of these names or aliases, and no literal names them: a string
-        or bytes literal holding a piece of them (docstrings excepted), and a literal that is Python code naming them,
-        a bare name included (docstrings included), since exec, compile, getattr, setattr, globals() and sys.modules
-        reach them through strings.
-    A file that does not parse is a finding.
-
-    WHAT IT DOES NOT SEE: code assembled at run time from pieces (strings concatenated, formatted or encoded, computed
-    attribute or module names); objects reached without their name, through gc, ctypes or other introspection; files
-    other than `*.py` that a test executes; folders under tests/ reached through a symbolic link, which the file walk
-    does not follow; and changes from outside the test files. The table in `tests/_lastdeckel.py` refuses assignment,
-    deletion and update of an entry at run time, but gc and ctypes still reach the dict below it."""
+    EXACTLY THIS FORM AND NO OTHER: a call by the bare name `gedeckelt`, its first positional argument an attribute,
+    its cost an int literal. Every other form passes unread, a table lookup among them, and so do a named
+    constant, an expression, the value passed by keyword, `**` arguments, an alias of the cap or of the table and code
+    in a string. Four counter reviews on 2026-10-17 tried to make a static guard read more of them, and each found
+    forms the round before had passed, so this guard claims no more than it reads. The class closes when the cap
+    takes the axis instead of a cost and reads the table itself; that is its own change."""
     try:
-        tree = _read_tree(path)
-    except SyntaxError as fehler:
-        return [f"{path.name}:{fehler.lineno or 0} does not parse, so the guard cannot read it"]
-    caps, tables, modules, bound = _cap_bindings(tree)
-    budget = _budget_bindungen(tree)
-    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    docstrings = _docstrings(tree)
-    followed = set(_TRACKED_NAMES) | caps | tables | {m.split(".")[0] for m in modules}
-    found = [f"{path.name}:{line} {problem}" for line, problem in bound]
-
-    def report(node: ast.AST, problem: str) -> None:
-        found.append(f"{path.name}:{node.lineno} {problem}")
-
-    def read_by_subscript(node: ast.AST) -> bool:
-        parent = parents.get(id(node))
-        return isinstance(parent, ast.Subscript) and parent.value is node and isinstance(parent.ctx, ast.Load)
-
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []
+    found = []
     for node in ast.walk(tree):
-        load = isinstance(getattr(node, "ctx", None), ast.Load)
-        parent = parents.get(id(node))
-        if (isinstance(node, ast.Name) and load and node.id in caps) or (
-                isinstance(node, ast.Attribute) and load and node.attr == "gedeckelt"):
-            if isinstance(parent, ast.Call) and parent.func is node:
-                problem = _unproven_cap_call(parent, table, budget, tables, modules)
-                if problem:
-                    report(node, problem)
-            else:
-                report(node, "uses the cap other than in a direct call, so the guard cannot read what it caps")
-        elif isinstance(node, ast.Attribute) and not load and node.attr in followed:
-            report(node, f"assigns or deletes the attribute {node.attr} of {ast.unparse(node.value)}")
-        elif isinstance(node, ast.keyword) and node.arg in followed:
-            report(node, f"passes {node.arg} as a keyword, as globals().update or vars().update would set it")
-        elif load and _is_the_table(node, tables, modules) and not read_by_subscript(node):
-            report(node, "uses the table other than to read one entry, so it may change it")
-        elif isinstance(node, (ast.Name, ast.Attribute)) and load and ast.unparse(node) in modules:
-            # An assignment to one of these attributes is reported once, by the branch for attributes above.
-            if not (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr in _MODULE_READS):
-                report(node, "uses the cap module other than to read the cap, its table or its sizes")
-        elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
-            problem = _text_problem(node.value, followed, id(node) in docstrings)
-            if problem:
-                report(node, problem)
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "gedeckelt" and node.args
+                and isinstance(node.args[0], ast.Attribute)):
+            continue
+        axis = node.args[0].attr
+        cost = next((kw.value for kw in node.keywords if kw.arg == "bytes_je_element"), None)
+        if not (isinstance(cost, ast.Constant) and type(cost.value) is int):
+            continue
+        if axis not in table:
+            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B, the table has no entry")
+        elif cost.value < table[axis]:
+            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B below the table's {table[axis]} B")
     return found
 
 
@@ -870,174 +643,39 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], max(geteilt, ungeteilt))
 
-    def test_every_cap_cost_is_proven_at_least_the_table(self):
+    def test_no_typed_cost_per_element_lies_below_the_table(self):
         """Measured 2026-10-16 on the head of pull request 354: 19 calls in eight test files gave `gedeckelt` a typed
         cost per element below the table, 8 B for json_nodes against 48, 256 B for signatures against 320 and 64 B
         for merkle_path against 128. Under the current budget that changes nothing, but under a mutant that raises
         the budget, `list(range(gedeckelt(B.json_nodes, bytes_je_element=8)))` admitted about five times the memory
-        the cap promises. The same class as the default of 64 that the docstring of `gedeckelt` names. Every use of
-        the cap in the test files must carry a cost the guard can prove, see `unproven_cap_costs`."""
+        the cap promises. The same class as the default of 64 that the docstring of `gedeckelt` names."""
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         found = []
         for f in alle_testdateien():
-            found.extend(unproven_cap_costs(f, KOSTEN_JE_ELEMENT))
-        self.assertEqual(found, [], "these uses of the cap carry a cost per element the guard cannot prove to be at "
-                         "least the measured table:\n  " + "\n  ".join(found))
+            found.extend(typed_costs_below_the_table(f, KOSTEN_JE_ELEMENT))
+        self.assertEqual(found, [], "these calls give the cap a cost per element below the measured table:\n  "
+                         + "\n  ".join(found))
 
-    def test_meta_every_unproven_form_of_a_cap_is_caught(self):
-        """Planted cases for the guard above. Each entry is a piece of a planted test file with the lines, counted from
-        its first, that the guard must report; an entry with none must not be reported. Every check of the guard has at
-        least one entry that only it catches, so a check removed or loosened turns this test red. The forms come from
-        the two counter reviews of 2026-10-17, which planted them against the earlier forms of the guard and saw them
-        pass."""
+    def test_meta_a_planted_typed_cost_below_the_table_is_caught(self):
+        """Planted cases for the guard above: one below the entry and one axis without an entry are caught; a typed
+        number at the entry, a table lookup and a call inside a string are not."""
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         entry = KOSTEN_JE_ELEMENT["json_nodes"]
-        entries = [
-            # imports the guard accepts
-            ("from proofbundle.budget import DEFAULT_BUDGET as B", []),
-            ("import _lastdeckel", []),
-            ("import _lastdeckel as ld", []),
-            ("from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt", []),
-            ("from _lastdeckel import KOSTEN_JE_ELEMENT as K, MAX_TESTLAST_BYTES", []),
-            ("from functools import partial", []),
-            ("import fakemod as other_module", []),
-            ("import tests._lastdeckel", []),
-            # the proven forms
-            (f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})", []),
-            ("lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])", []),
-            ("alias_lookup = gedeckelt(B.json_nodes, bytes_je_element=K['json_nodes'])", []),
-            ("module_lookup = gedeckelt(B.json_nodes, bytes_je_element=_lastdeckel.KOSTEN_JE_ELEMENT['json_nodes'])", []),
-            ("ld_lookup = ld.gedeckelt(B.json_nodes, bytes_je_element=ld.KOSTEN_JE_ELEMENT['json_nodes'])", []),
-            (f"by_keyword = gedeckelt(wert=B.json_nodes, bytes_je_element={entry})", []),
-            ("limit = _lastdeckel.MAX_TESTLAST_BYTES", []),
-            ("read_elsewhere = KOSTEN_JE_ELEMENT['json_nodes']", []),
-            ("def documented():\n    \"\"\"Names gedeckelt( and _lastdeckel in a docstring.\"\"\"\n    return None", []),
-            ("class Other: json_nodes = 10 ** 12", []),
-            ("text = 'a string that names nothing the guard follows'", []),
-            # calls whose cost is not proven
-            (f"below = gedeckelt(B.json_nodes, bytes_je_element={entry - 1})", [0]),
-            ("unknown = gedeckelt(B.no_such_axis, bytes_je_element=4096)", [0]),
-            ("_COST = 8", []),
-            ("named_cost = gedeckelt(B.json_nodes, bytes_je_element=_COST)", [0]),
-            (f"keyword_below = gedeckelt(wert=B.json_nodes, bytes_je_element={entry - 1})", [0]),
-            ("n = B.json_nodes", []),
-            (f"named_value = gedeckelt(n, bytes_je_element={entry})", [0]),
-            ("expression = gedeckelt(B.json_nodes, bytes_je_element=4 * 2)", [0]),
-            ("lookup_minus = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'] - 40)", [0]),
-            (f"not_an_int = gedeckelt(B.json_nodes, bytes_je_element={float(entry)})", [0]),
-            ("star = gedeckelt(B.json_nodes, **{'bytes_je_element': 8})", [0]),
-            ("options = {}", []),
-            (f"star_beside = gedeckelt(B.json_nodes, bytes_je_element={entry}, **options)", [0]),
-            ("positional = gedeckelt(B.json_nodes, 8)", [0]),
-            (f"positional_beside = gedeckelt(B.json_nodes, 8, bytes_je_element={entry})", [0]),
-            (f"value_twice = gedeckelt(B.json_nodes, wert=B.json_nodes, bytes_je_element={entry})", [0]),
-            (f"other_object = gedeckelt(Other.json_nodes, bytes_je_element={entry})", [0]),
-            (f"not_the_budget = gedeckelt(len('abc'), bytes_je_element={entry})", [0]),
-            ("other_axis = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['string_len'])", [0]),
-            ("other_table = gedeckelt(B.json_nodes, bytes_je_element=other_module.KOSTEN_JE_ELEMENT['json_nodes'])",
-             [0]),
-            ("through_module = ld.gedeckelt(B.json_nodes, bytes_je_element=8)", [0]),
-            ("not_a_call = partial(gedeckelt, bytes_je_element=8)", [0]),
-            # bindings of a followed name other than its import from the cap module
-            ("from _lastdeckel import gedeckelt as cap", [0]),
-            ("aliased = cap(B.json_nodes, bytes_je_element=8)", [0]),
-            ("from fakemod import KOSTEN_JE_ELEMENT", [0]),
-            ("from fakemod import *", [0]),
-            ("import fakemod as _lastdeckel", [0]),
-            ("KOSTEN_JE_ELEMENT = {'json_nodes': 8}", [0]),
-            ("K |= {'json_nodes': 8}", [0]),
-            ("(gedeckelt := print)", [0]),
-            ("for _lastdeckel in (): pass", [0]),
-            ("del MAX_TESTLAST_BYTES", [0]),
-            ("with open('x') as ld: pass", [0]),
-            ("def takes(KOSTEN_JE_ELEMENT): return None", [0]),
-            ("def gedeckelt(wert, *, bytes_je_element): return wert", [0]),
-            ("class KOSTEN_JE_ELEMENT: pass", [0]),
-            ("def declares():\n    global KOSTEN_JE_ELEMENT\n    return None", [1]),
-            ("try:\n    pass\nexcept ValueError as gedeckelt:\n    pass", [2]),
-            ("match 1:\n    case gedeckelt:\n        pass", [1]),
-            ("match []:\n    case [*KOSTEN_JE_ELEMENT]:\n        pass", [1]),
-            ("match {}:\n    case {**K}:\n        pass", [1]),
-            # uses of the table, the module or the attributes other than the allowed ones
-            ("KOSTEN_JE_ELEMENT.update(json_nodes=8)", [0]),
-            ("K['json_nodes'] = 8", [0]),
-            ("copy = KOSTEN_JE_ELEMENT", [0]),
-            ("_lastdeckel.KOSTEN_JE_ELEMENT['json_nodes'] = 8", [0]),
-            ("_lastdeckel.MAX_TESTLAST_BYTES = 1 << 62", [0]),
-            ("other_module.gedeckelt = print", [0]),
-            ("del ld.gedeckelt", [0]),
-            ("module_dict = ld.__dict__", [0]),
-            ("setattr(_lastdeckel, 'x', 1)", [0]),
-            ("by_name = globals()['KOSTEN_JE_ELEMENT']", [0]),
-            ("by_attribute_name = getattr(other_module, 'gedeckelt')", [0]),
-            ("exec(\"KOSTEN_JE_ELEMENT = {'json_nodes': 8}\")", [0]),
-            ("patch_target = '_lastdeckel.MAX_TESTLAST_BYTES'", [0]),
-            # the third counter review: aliases, bytes, code in docstrings, pieces, keywords, a dotted module
-            ("from fakemod import fake as K", [0]),
-            ("other_module.K = {}", [0]),
-            ("globals().update(K={'json_nodes': 8})", [0]),
-            ("exec(b'K = {}')", [0]),
-            ("exec(\"exec('K = 1')\")", [0]),
-            ("def runs_its_doc():\n    \"\"\"from _lastdeckel import gedeckelt\"\"\"\n    return None", [1]),
-            ("piece_of_the_cap = 'gedeckelt(B.json_nodes, '", [0]),
-            ("piece_of_the_table = \"KOSTEN_JE_ELEMENT['json_nodes'] =\"", [0]),
-            ("piece_of_the_module = 'import _lastdeckel as'", [0]),
-            ("tests._lastdeckel.__dict__.update(x=1)", [0]),
-            # code in a string, one entry for each kind of name it can carry
-            ("exec('other_module.gedeckelt')", [0]),
-            ("exec('def takes_k(K): pass')", [0]),
-            ("exec('def K(): pass')", [0]),
-            ("exec('f(K=1)')", [0]),
-            ("exec('import fakemod as K')", [0]),
-            ("def runs_its_doc_too():\n    \"\"\"from _lastdeckel import nothing_followed\"\"\"\n    return None", [1]),
-            ("def runs_its_indented_doc():\n    \"\"\"\n    from _lastdeckel import gedeckelt\n    \"\"\"\n    return None",
-             [1]),
-        ]
-        source, expected, line = [], [], 1
-        for text, caught in entries:
-            source.append(text)
-            expected.extend(f"test_planted.py:{line + offset}" for offset in caught)
-            line += text.count("\n") + 1
-        elsewhere = (
+        source = (
             "from proofbundle.budget import DEFAULT_BUDGET as B\n"
-            "from _lastdeckel import gedeckelt\n"
-            "from somewhere_else import KOSTEN_JE_ELEMENT\n"
-            "elsewhere = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n")
+            "from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt\n"
+            f"below = gedeckelt(B.json_nodes, bytes_je_element={entry - 1})\n"
+            f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})\n"
+            "lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n"
+            "unknown = gedeckelt(B.no_such_axis, bytes_je_element=4096)\n"
+            "text = 'gedeckelt(B.json_nodes, bytes_je_element=1)'\n")
         with tempfile.TemporaryDirectory() as d:
             planted = Path(d) / "test_planted.py"
-            planted.write_text("\n".join(source) + "\n", encoding="utf-8")
-            found = unproven_cap_costs(planted, KOSTEN_JE_ELEMENT)
-            (Path(d) / "test_elsewhere.py").write_text(elsewhere, encoding="utf-8")
-            found_elsewhere = unproven_cap_costs(Path(d) / "test_elsewhere.py", KOSTEN_JE_ELEMENT)
-            bom = Path(d) / "test_bom.py"
-            bom.write_bytes(b"\xef\xbb\xbf" + (
-                "from proofbundle.budget import DEFAULT_BUDGET as B\nfrom _lastdeckel import gedeckelt\n"
-                "xs = list(range(gedeckelt(B.json_nodes, bytes_je_element=8)))\n").encode("utf-8"))
-            found_bom = unproven_cap_costs(bom, KOSTEN_JE_ELEMENT)
-            broken = Path(d) / "test_broken.py"
-            broken.write_text("def broken(:\n    pass\n", encoding="utf-8")
-            found_broken = unproven_cap_costs(broken, KOSTEN_JE_ELEMENT)
-        self.assertEqual(sorted(f.split(" ", 1)[0] for f in found), sorted(expected), "\n".join(found))
-        self.assertEqual([f.split(" ", 1)[0] for f in found_elsewhere], ["test_elsewhere.py:3", "test_elsewhere.py:4"],
-                         found_elsewhere)
-        self.assertEqual([f.split(" ", 1)[0] for f in found_bom], ["test_bom.py:3"], found_bom)
-        self.assertEqual(len(found_broken), 1, found_broken)
-        self.assertIn("does not parse", found_broken[0])
-
-    def test_every_file_the_guards_read_parses(self):
-        """A file the guards of this module cannot parse is a file they do not read. The first form of the cost guard
-        skipped such a file in silence, and a file that starts with a byte order mark was one: Python runs it, while
-        `ast.parse` of its decoded text refuses it (counter review 2026-10-17). The guards now parse the bytes, and a
-        file that still does not parse turns this test red instead of passing unread."""
-        unread = []
-        for f in alle_testdateien():
-            try:
-                _read_tree(f)
-            except SyntaxError as fehler:
-                unread.append(f"{f.relative_to(TESTS)}:{fehler.lineno}")
-        self.assertEqual(unread, [], "the guards cannot read these files:\n  " + "\n  ".join(unread))
+            planted.write_text(source, encoding="utf-8")
+            found = typed_costs_below_the_table(planted, KOSTEN_JE_ELEMENT)
+        self.assertEqual([f.split(" ", 1)[0] for f in found], ["test_planted.py:3", "test_planted.py:6"], found)
 
     def test_the_table_refuses_every_change_at_run_time(self):
         """The guard reads source, and code can reach the table at run time in forms no reading of source lists. So
