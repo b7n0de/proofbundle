@@ -50,6 +50,7 @@ HARTER_LASTDECKEL = MAX_TESTLAST_BYTES // 64
 #:
 #: Read-only at run time (counter review 2026-10-17): a test that changed an entry in place lowered the cap for every
 #: test after it, in a form no reading of the source lists. A mapping proxy refuses assignment, deletion and update.
+#: It is no wall: gc and ctypes still reach the dict below it (third counter review, 2026-10-17).
 KOSTEN_JE_ELEMENT = types.MappingProxyType({
     "data_digests": 128,  # ["%064x" % i ...]: 121,9 B/Element gemessen (str-Objekt + Zeiger)
     "disclosures": 256,  # sd-jwt-Disclosure

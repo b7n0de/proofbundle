@@ -26,6 +26,7 @@ from __future__ import annotations
 import ast
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -393,8 +394,8 @@ def last_achsen(dateien) -> set[str]:
 _CAP_MODULES = ("_lastdeckel", "tests._lastdeckel")
 #: The names this guard follows. A file binds each of them once, by its import from the cap module.
 _TRACKED_NAMES = ("gedeckelt", "KOSTEN_JE_ELEMENT", "MAX_TESTLAST_BYTES", "_lastdeckel")
-#: A string that is one of the names above or holds one of these reaches the cap, its table or its module by a way
-#: the guard cannot read: getattr, setattr, globals(), sys.modules, exec.
+#: Pieces of those names. A string that holds one, or that is Python code naming a followed name, reaches the cap, its
+#: table or its module by a way the guard cannot read: getattr, setattr, globals(), sys.modules, exec.
 _TRACKED_IN_TEXT = ("gedeckelt(", "KOSTEN_JE_ELEMENT", "_lastdeckel")
 #: The attributes of the cap module a file may read.
 _MODULE_READS = ("gedeckelt", "KOSTEN_JE_ELEMENT", "MAX_TESTLAST_BYTES", "HARTER_LASTDECKEL")
@@ -523,24 +524,80 @@ def _docstrings(tree: ast.AST) -> set[int]:
     return found
 
 
+def _names_in_code(text: str, depth: int = 3) -> set[str]:
+    """The names a string mentions if it is Python code: names, attributes, imports, parameters, definitions,
+    keywords, and the strings inside it, read again as code down to `depth` levels. Nothing if it is not code. Code in
+    a docstring is usually indented, so the text is read once more without its common indentation."""
+    tree = None
+    for candidate in (text, textwrap.dedent(text).strip()):
+        try:
+            tree = ast.parse(candidate)
+            break
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            continue
+    if tree is None:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.update(n for n in (node.asname, *node.name.split(".")) if n)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.update(node.module.split("."))
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.keyword) and node.arg:
+            names.add(node.arg)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) and depth > 0:
+            inner = node.value.decode("utf-8", "replace") if isinstance(node.value, bytes) else node.value
+            names |= _names_in_code(inner, depth - 1)
+    return names
+
+
+def _text_problem(value, followed: set[str], is_docstring: bool) -> str | None:
+    """Why a string or bytes literal reaches the cap, its table or its module, or None. A literal that is only a name
+    (getattr, globals()) is code too: a name parses as Python."""
+    text = value.decode("utf-8", "replace") if isinstance(value, bytes) else value
+    if not is_docstring and any(t in text for t in _TRACKED_IN_TEXT):
+        return "holds a piece of the cap, its table or its module in a string, which the guard cannot follow"
+    if any(name in text for name in followed) and _names_in_code(text) & followed:
+        return "holds Python code in a string that names the cap, its table or its module, which exec could run"
+    return None
+
+
 def unproven_cap_costs(path: Path, table) -> list[str]:
     """'file:line problem' for every place where a test file reaches the cap `gedeckelt`, its table or its module in a
     way the guard cannot prove keeps the cost per element at least the measured entry of its axis.
 
-    A POSITIVE LIST, because a list of refused forms binds only what its author thought of. Two counter reviews on
-    2026-10-17 showed it twice: the first form of this guard read only `bytes_je_element=<int>` and passed seven other
-    forms of a cost of 8 against the entry 48, and the second still passed nineteen, among them a file starting with a
-    byte order mark that it skipped as unparseable, the table changed in place, the module attribute replaced, and the
-    cap handed on through a helper file. What is allowed now:
+    WHAT IT IS: a regression guard for test code written in good faith. It catches the forms that slip into such code,
+    a typed number, an alias, a helper file, a monkeypatch, a call through the module, and it is no sandbox against
+    code that sets out to hide what it does. The limits are named below, so the claim is no larger than the check.
+
+    A POSITIVE LIST, because a list of refused forms binds only what its author thought of. Three counter reviews on
+    2026-10-17 each found forms that the guard of the round before passed: seven forms of a cost of 8 against the entry
+    48 at the first, nineteen at the second (a file starting with a byte order mark that was skipped as unparseable, the
+    table changed in place, the module attribute replaced, the cap handed on through a helper file), and at the third
+    code in a docstring or a bytes literal run by exec and an alias of the table set through globals(). What is allowed:
       - the cap, its table and its module are bound once, by their import from the cap module, the cap by its own
-        name; any other binding of these names is a finding, and so is a star import;
+        name; any other binding of these names or of their aliases is a finding, and so is a star import;
       - the cap is called directly, and the call is proven by `_unproven_cap_call`; any other use of it is a finding;
       - the table is only read, one entry by subscript; the module only gives the cap, the table or its sizes;
-      - no attribute of that name is assigned or deleted on any object, and no string other than a docstring names
-        them, since getattr, setattr, globals(), sys.modules and exec reach them through strings.
-    A file that does not parse is a finding. What the guard does not see: code assembled at run time from pieces (a
-    string concatenated to `gedeckelt`, a computed attribute or module name), and a change made from outside the test
-    files. The table itself is read-only at run time (`tests/_lastdeckel.py`), so no form lowers one of its entries."""
+      - no attribute and no keyword argument carries one of these names or aliases, and no literal names them: a string
+        or bytes literal holding a piece of them (docstrings excepted), and a literal that is Python code naming them,
+        a bare name included (docstrings included), since exec, compile, getattr, setattr, globals() and sys.modules
+        reach them through strings.
+    A file that does not parse is a finding.
+
+    WHAT IT DOES NOT SEE: code assembled at run time from pieces (strings concatenated, formatted or encoded, computed
+    attribute or module names); objects reached without their name, through gc, ctypes or other introspection; files
+    other than `*.py` that a test executes; folders under tests/ reached through a symbolic link, which the file walk
+    does not follow; and changes from outside the test files. The table in `tests/_lastdeckel.py` refuses assignment,
+    deletion and update of an entry at run time, but gc and ctypes still reach the dict below it."""
     try:
         tree = _read_tree(path)
     except SyntaxError as fehler:
@@ -549,6 +606,7 @@ def unproven_cap_costs(path: Path, table) -> list[str]:
     budget = _budget_bindungen(tree)
     parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     docstrings = _docstrings(tree)
+    followed = set(_TRACKED_NAMES) | caps | tables | {m.split(".")[0] for m in modules}
     found = [f"{path.name}:{line} {problem}" for line, problem in bound]
 
     def report(node: ast.AST, problem: str) -> None:
@@ -569,17 +627,20 @@ def unproven_cap_costs(path: Path, table) -> list[str]:
                     report(node, problem)
             else:
                 report(node, "uses the cap other than in a direct call, so the guard cannot read what it caps")
-        elif isinstance(node, ast.Attribute) and not load and node.attr in _TRACKED_NAMES:
+        elif isinstance(node, ast.Attribute) and not load and node.attr in followed:
             report(node, f"assigns or deletes the attribute {node.attr} of {ast.unparse(node.value)}")
+        elif isinstance(node, ast.keyword) and node.arg in followed:
+            report(node, f"passes {node.arg} as a keyword, as globals().update or vars().update would set it")
         elif load and _is_the_table(node, tables, modules) and not read_by_subscript(node):
             report(node, "uses the table other than to read one entry, so it may change it")
         elif isinstance(node, (ast.Name, ast.Attribute)) and load and ast.unparse(node) in modules:
             # An assignment to one of these attributes is reported once, by the branch for attributes above.
             if not (isinstance(parent, ast.Attribute) and parent.value is node and parent.attr in _MODULE_READS):
                 report(node, "uses the cap module other than to read the cap, its table or its sizes")
-        elif (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
-              and (node.value in _TRACKED_NAMES or any(t in node.value for t in _TRACKED_IN_TEXT))):
-            report(node, "names the cap, its table or its module in a string, which the guard cannot follow")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+            problem = _text_problem(node.value, followed, id(node) in docstrings)
+            if problem:
+                report(node, problem)
     return found
 
 
@@ -842,6 +903,7 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             ("from _lastdeckel import KOSTEN_JE_ELEMENT as K, MAX_TESTLAST_BYTES", []),
             ("from functools import partial", []),
             ("import fakemod as other_module", []),
+            ("import tests._lastdeckel", []),
             # the proven forms
             (f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})", []),
             ("lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])", []),
@@ -912,6 +974,26 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             ("by_attribute_name = getattr(other_module, 'gedeckelt')", [0]),
             ("exec(\"KOSTEN_JE_ELEMENT = {'json_nodes': 8}\")", [0]),
             ("patch_target = '_lastdeckel.MAX_TESTLAST_BYTES'", [0]),
+            # the third counter review: aliases, bytes, code in docstrings, pieces, keywords, a dotted module
+            ("from fakemod import fake as K", [0]),
+            ("other_module.K = {}", [0]),
+            ("globals().update(K={'json_nodes': 8})", [0]),
+            ("exec(b'K = {}')", [0]),
+            ("exec(\"exec('K = 1')\")", [0]),
+            ("def runs_its_doc():\n    \"\"\"from _lastdeckel import gedeckelt\"\"\"\n    return None", [1]),
+            ("piece_of_the_cap = 'gedeckelt(B.json_nodes, '", [0]),
+            ("piece_of_the_table = \"KOSTEN_JE_ELEMENT['json_nodes'] =\"", [0]),
+            ("piece_of_the_module = 'import _lastdeckel as'", [0]),
+            ("tests._lastdeckel.__dict__.update(x=1)", [0]),
+            # code in a string, one entry for each kind of name it can carry
+            ("exec('other_module.gedeckelt')", [0]),
+            ("exec('def takes_k(K): pass')", [0]),
+            ("exec('def K(): pass')", [0]),
+            ("exec('f(K=1)')", [0]),
+            ("exec('import fakemod as K')", [0]),
+            ("def runs_its_doc_too():\n    \"\"\"from _lastdeckel import nothing_followed\"\"\"\n    return None", [1]),
+            ("def runs_its_indented_doc():\n    \"\"\"\n    from _lastdeckel import gedeckelt\n    \"\"\"\n    return None",
+             [1]),
         ]
         source, expected, line = [], [], 1
         for text, caught in entries:
