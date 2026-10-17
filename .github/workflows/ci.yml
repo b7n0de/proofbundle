@@ -213,6 +213,45 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python scripts/neue_zeilen_sind_englisch.py --base "$PR_BASE_SHA"
 
+  pr-language-gate:
+    # R2 of the standard "on GitHub we always write English". It belongs in the FAST layer: it needs no
+    # install, no matrix and no shards, and it should report before anyone sends a text out.
+    #
+    # OCCASION, measured on 2026-09-13: PR 201 was entirely German, PR 200 carried a German title over
+    # an English body. Both were repaired by hand. A rule that lives only in prose is followed until
+    # someone is in a hurry.
+    #
+    # ONLY ON pull_request: a push has no PR title and no PR body, and a job that then checks an empty
+    # string reports green without having measured anything.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Collect the commit messages of this pull request
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git log --format=%B%x00 "$BASE_SHA..$HEAD_SHA" > /tmp/pr_commits.txt
+      - name: Write the pull request body to a file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" > /tmp/pr_body.md
+      - name: On GitHub we always write English
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: >-
+          python scripts/pr_language_gate.py
+          --title "$PR_TITLE"
+          --body-file /tmp/pr_body.md
+          --commits-file /tmp/pr_commits.txt
+
   rust-parity:
     # ADVISORY only (Finding 11, 2026-07-15), same project-style precedent as branch-base above.
     # tools/pb_verify_rs is a SECOND, independent implementation of a small slice of the verifier —
