@@ -234,6 +234,12 @@ measured.
 | The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks (D20). A fetch does not make a push measurable under Level 1 (D3). |
 | The evidence at the commits the push sends shows no failure, and the push names a destination: git push also looks that destination up among other refs of the remote (for `main` also refs/tags/refs/heads/main and refs/refs/heads/main), and two matches make git refuse the push | NOT MEASURED, and the call asks, for every push under Level 1: the gate does not read the remote, and no fetch rule shows that the remote lacks such a ref (D3). A person reviews the push. Level 2, where installed, runs on the ref lines git hands it, independent of this answer (D24). The one exception is a push handed over to Level 2 (D35, above): no permission decision, and the pre-push hook checks the actual update against the hand-over. |
 
+**What a silent pass costs (D53).** A free call shows nothing: neither the person nor the model learns at the call
+why the gate let it through. The log keeps the verdict and the reason ids of the call, with the repositories, HEAD and
+digests (D21), not the long reason, so what a profile read and found is not kept (owner question O20-2). The silence
+removes no duty to approve: a pass carries no permission decision (D4), and the host's normal permission flow decides
+the call as it would without the gate.
+
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
 It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
 carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts

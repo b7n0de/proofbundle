@@ -3385,6 +3385,13 @@ The rule:
   else, an absent file or an unreadable one gives English, the default of the public repository. The model cannot set
   it: decide_write denies every write to the gate directory (D25). The owner sets it for delta and echo, in their gate
   directory, not in the code.
+- What the silence costs (Nachtrag 21, part 4; review Runde 24, question 3). A free call shows no explanation at the
+  call any more: neither the person nor the model learns there why the gate let it through. The log keeps the verdict
+  and the reason ids of the call, with the repositories, HEAD and digests (D21), not the long reason: what a profile
+  read and found is not kept, and a later reading of the log says that a call was free and by which reason id, not what
+  the profile saw (owner question O20-2). The silence removes no duty to approve: a pass carries no permission decision
+  (D4), so the host's normal permission flow decides the call as it would without the gate, and the gate answered allow
+  before D53 no more than after it. Visibility was never a power to decide.
 
 ## D54. The gh helper of D45 only in its two literal forms (Nachtrag 21, review Runde 24, R24-1, 2026-10-16)
 
