@@ -123,6 +123,28 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     for name, count in (("scored_samples", scored_samples), ("unscored_samples", unscored_samples)):
         if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
             provenance[name] = count
+    # COMPLETENESS OF THE RUN, bound instead of left out. Found by Codex round one on PR 195
+    # (2026-09-14) and measured here against the code AND the installed library.
+    #
+    # What already held, so the strong form of the finding does not: `n` is `scored_samples`, not
+    # `total_samples` (see the reasoning further down), and `unscored_samples` stands beside it. A
+    # run that resolved 50 of 100 never signed a complete-looking 100.
+    #
+    # What was missing is the case that LOOKS complete without these three fields: a run stopped
+    # early that scored everything it attempted. Then `unscored_samples` is zero, and nothing says
+    # the intended population was larger. `early_stopping` says exactly that.
+    #
+    # AND THE GAP IS OLDER THAN ITS OCCASION: measured, `EvalResults` already carries these fields
+    # in inspect_ai 0.3.244, below the version ceiling whose raise surfaced the finding. Holding the
+    # ceiling lower would not have closed it.
+    for _feld in ("total_samples", "completed_samples"):
+        _wert = getattr(results, _feld, None)
+        if isinstance(_wert, int) and not isinstance(_wert, bool) and _wert >= 0:
+            provenance[_feld] = _wert
+    _frueh = getattr(results, "early_stopping", None)
+    if isinstance(_frueh, bool):
+        provenance["early_stopping"] = _frueh
+
     params = getattr(matched_score, "params", None)
     if isinstance(params, dict) and params:
         from ._provenance import config_hash
