@@ -3464,3 +3464,55 @@ environment:
 Tests: tests/test_plugin_n22_ls_remote_d59.py (the form and each option free, each excluded option and word asking
 with D41, the whole command only, Codex with D41, each finding of the profile asking with what it found, the short
 line in English and German).
+
+## D61. A push that creates a branch in a repository of b7n0de, against the remote's refs the gate measures (Ergänzung 1 to Nachtrag 23, 2026-10-17)
+
+Measured on delta's screen on 2026-10-17 at 13:45Z and 13:54Z: `git -C <abs> push origin <sha>:refs/heads/<new>` and
+`git -C <abs> push origin HEAD:refs/heads/fix/<new>`, the push form the gate itself names (D32), asked with D3. Since
+R9-1 Level 1 resolves no push, because git resolves the destination against refs of the remote the gate did not read,
+and a branch the remote does not have is never resolved (TARGET_ABSENT_TEXT). Every new pull request starts with such
+a push. Owner words of 15:45 and 15:54 Berlin; owner choice of 15:5x Berlin: this part first and alone. D60 is the
+number of Nachtrag 23, which this file does not hold yet.
+
+Resolved now, under Claude Code and never under Codex: `git -C <literal absolute path> push <remote>
+<source>:refs/heads/<name>` as the whole command (_new_branch_push_form): every word literal as written, no option,
+one refspec without `+`, the source HEAD, a branch of the repository or a literal full object name, the name read like
+a branch of D45 (_fetch_branch) and not main, release, release/… or HEAD. In order (_new_branch_push):
+- a remote the configuration names, with no push list, mirror setting, push.followTags, pushurl or URL rewrite, and a
+  push configuration git reads (as resolve_push_targets: _push_config_problem, _push_adds_unnamed_refs,
+  _endpoint_consistent);
+- the fetch profile of D45 finds nothing for the remote, so the gate's own ls-remote is the form D59 measured, and the
+  URL is https://github.com/b7n0de/<repo>[.git] (NEW_BRANCH_OWNER);
+- the source names one commit as git push reads it (_push_source); a source that is not HEAD or a full object name must
+  be a branch of the repository;
+- the gate measures the remote's branches and tags with its own `git -C <repo> ls-remote --heads --tags <remote>`, in
+  the hook's environment with GIT_TERMINAL_PROMPT=0, at most 20 s (_measured_remote_refs); the destination is not
+  among them;
+- the commits the push sends are those the source reaches and no measured branch or tag reaches:
+  `rev-list <source> --not <every measured object that is a commit in the repository>`, from a full clone, at most 64
+  (_new_branch_range), and at least one commit on the remote they start from (rev-list --boundary).
+Then the checks of a push to an existing branch (_evaluate_targets), unchanged: the evidence at every sent commit and at
+the source, where a missing or failing piece denies (D26); the done check at the source (owner choice N2 C); an ask at
+a sent commit asks; the evidence rules at every sent commit equal to those at the commits on the remote it starts
+from, else rules_changed asks; starting commits whose rules differ keep the ask of D3. A pass is verified_new_branch,
+silent as every pass (D53); a push whose commits declare nothing is inactive as before.
+
+Why the measured refs and not `rev-list <source> --not --remotes=<remote>`, the expression of the order: a tracking ref
+can name a commit the remote no longer holds. GitHub deletes the branch of a merged pull request, and without `fetch
+--prune` its tracking ref stays; `--remotes` leaves its commits out, while git push sends them unchecked. With the
+measured refs they are checked (tests/test_plugin_n23_push_new_branch_d61.py: a stale tracking ref's commit with
+evidence that does not verify denies). Where the tracking refs equal the remote's branches, both expressions give the
+same commits. A measured tip the clone does not hold is not subtracted, as git push does not subtract it either. Only
+branches and tags are subtracted: refs/pull/* is left out, so the gate checks more commits, never fewer.
+
+Keeps the answer of D3, which then names why D61 did not apply: main, a release branch, a tag, a force (`+`, --force,
+--force-with-lease), more than one refspec, any option, a destination that is not written in full, a URL or path as
+the remote, a remote outside b7n0de, a finding of the fetch profile, a remote whose refs the gate cannot measure (no
+answer in time, an exit status other than 0; git's own text is not quoted, D49), a destination the remote already has,
+a shallow clone, more than 64 commits, a history that shares no commit with the remote's branches and tags, every
+longer command (a chain, a pipeline, a redirection, a prefix assignment) and every push under Codex.
+
+Not changed: Level 2. The pre-push hook still answers target_ref_absent for a branch the remote does not have; where it
+is installed, a push D61 resolves at Level 1 still stops there. The remote can change between the gate's measurement
+and the push; a branch or tag deleted in that window makes git send commits the gate did not check, at most those that
+branch or tag alone held.
