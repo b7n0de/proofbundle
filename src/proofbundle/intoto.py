@@ -22,6 +22,7 @@ from collections import Counter
 from typing import Any, Optional
 
 from ._membership import require_switch, type_name
+from ._statement_payload import statement_type_problem
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._wire_b64 import decode_b64
 from ._strict_json import loads_strict
@@ -522,11 +523,54 @@ def _signed_body_refusal(wo: str, exc: BaseException) -> BundleFormatError:
         f"{wo}: the statement cannot be serialized: {render_safe(str(exc), quote=False)}")
 
 
+def _statement_layer_problem(statement: Any) -> str:
+    """'' when ``statement`` has the in-toto Statement v1 layer, else what is wrong with it: ``_type``
+    is Statement v1 (`_statement_payload.statement_type_problem`, the one ``_type`` oracle of the
+    package), and ``subject`` is a non-empty array whose every entry is an object carrying a usable
+    ``digest`` (`_digest_set_problem`, the one DigestSet rule of this module).
+
+    in-toto Statement v1 (spec/v1/statement.md) requires ``_type`` and ``subject``, and each subject
+    element MUST have ``digest`` set, because subject artifacts are matched purely by digest. A
+    statement without one names no artifact a relying party could match it against.
+
+    Until 2026-10-17 only eval-result v0.2 checked this layer (`classify_eval_result_v02_predicate`).
+    Measured on main 570dd164: a validly signed eval-result v0.1 or test-result statement without a
+    subject, with an empty subject, with a subject entry that has no digest, without ``_type`` or with
+    another ``_type`` verified ok=True, an SVR also with ``subject`` null, and ``proofbundle intoto
+    --verify`` printed PASS for an eval-result attestation without a subject. The exporters of this
+    package always write the layer. An absent field and a present one of the wrong form are named
+    apart."""
+    if not isinstance(statement, dict):
+        return f"statement must be a JSON object, got {type(statement).__name__}"
+    typ_problem = statement_type_problem(statement)
+    if typ_problem is not None:
+        return typ_problem
+    if "subject" not in statement:
+        return "subject is required: a non-empty array of ResourceDescriptors, each with a digest"
+    subject = statement["subject"]
+    if not isinstance(subject, list):
+        return f"subject must be an array of ResourceDescriptors, got {type(subject).__name__}"
+    if not subject:
+        return "subject must name at least one artifact, got an empty array"
+    for i, eintrag in enumerate(subject):
+        if not isinstance(eintrag, dict):
+            return f"subject[{i}] must be a ResourceDescriptor object, got {type(eintrag).__name__}"
+        if "digest" not in eintrag:
+            return f"subject[{i}] MUST carry digest (subject artifacts are matched by digest alone)"
+        problem = _digest_set_problem(eintrag["digest"])
+        if problem:
+            return f"subject[{i}]: {problem}"
+    return ""
+
+
 def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
     """Shared verify-result builder for the three DSSE verify functions (WP-I1). ``ok`` conjuncts the
-    signature, the content-root binding, AND — unless ``expected_predicate_type`` is None — that the
-    statement's ``predicateType`` equals it (predicate-confusion defense). ``predicate_type_ok`` carries
-    the granular verdict; ``predicate_type`` the value found."""
+    signature, the content-root binding, the in-toto Statement v1 layer (`_statement_layer_problem`),
+    AND — unless ``expected_predicate_type`` is None — that the statement's ``predicateType`` equals it
+    (predicate-confusion defense). ``predicate_type_ok`` and ``statement_ok`` carry the granular
+    verdicts; ``predicate_type`` the value found. ``statement_ok`` is None when no statement was read
+    (the payload was rejected or is JSON null; ``ok`` is then False through the binding), and its
+    reason is ``statement_detail``, also appended to ``content_root_detail``."""
     got = statement.get("predicateType") if isinstance(statement, dict) else None
     if expected_predicate_type is None:
         type_ok = None
@@ -537,10 +581,15 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
             (detail + "; " if detail else "")
             + f"predicateType {render_safe(got)} != expected {render_safe(expected_predicate_type)} "
               "(confusion attack?)")
-    ok = bool(sig_ok) and binding_ok and (type_ok is not False)
+    schicht = "" if statement is None else _statement_layer_problem(statement)
+    statement_ok = None if statement is None else not schicht
+    if schicht:
+        merged_detail = (merged_detail + "; " if merged_detail else "") + schicht
+    ok = bool(sig_ok) and binding_ok and (type_ok is not False) and (statement_ok is not False)
     return {"ok": ok, "statement": statement, "predicate_type": got,
-            "predicate_type_ok": type_ok, "content_root_alg": alg,
-            "content_root_ok": binding_ok, "content_root_detail": merged_detail}
+            "predicate_type_ok": type_ok, "statement_ok": statement_ok, "statement_detail": schicht,
+            "content_root_alg": alg, "content_root_ok": binding_ok,
+            "content_root_detail": merged_detail}
 
 
 def _commit_field(value: Any) -> Any:
@@ -843,10 +892,12 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
-    {ok, statement, predicate_type, predicate_type_ok, content_root_alg, content_root_ok,
-    content_root_detail}. ``ok`` is True iff the Ed25519 signature over the DSSE PAE verifies, the
-    payloadType is the pinned test-result media type, the payload is canonical for its DECLARED
-    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's ``predicateType`` equals
+    {ok, statement, predicate_type, predicate_type_ok, statement_ok, statement_detail,
+    content_root_alg, content_root_ok, content_root_detail, predicate_claim_ok}. ``ok`` is True iff
+    the Ed25519 signature over the DSSE PAE verifies, the payloadType is the pinned test-result media
+    type, the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the
+    statement has the in-toto Statement v1 layer (``_type``, and a subject whose every entry carries a
+    digest; ``statement_ok``, see `_statement_layer_problem`), AND the statement's ``predicateType`` equals
     ``expected_predicate_type`` (WP-I1: the type was previously only RETURNED, so ``ok`` was True for a
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
@@ -1153,10 +1204,13 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: Optional[str] = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
-    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail, predicate_claim_ok,
-    predicate_shape_ok, predicate_shape_detail}. `ok` is True iff the Ed25519 signature over the DSSE PAE
-    verifies, payloadType is the pinned in-toto Statement media type, the payload is canonical for its
-    DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the statement's `predicateType` equals
+    predicate_type_ok, statement_ok, statement_detail, content_root_alg, content_root_ok,
+    content_root_detail, predicate_claim_ok, predicate_shape_ok, predicate_shape_detail}. `ok` is True
+    iff the Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement
+    media type, the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002),
+    the statement has the in-toto Statement v1 layer (`_type`, and a subject whose every entry carries
+    a digest; `statement_ok`, see `_statement_layer_problem`, for v0.1 and v0.2 alike), the
+    statement's `predicateType` equals
     `expected_predicate_type` (WP-I1: predicate-confusion defense — the type was previously only returned,
     so a swapped SVR/test-result envelope was accepted as an eval-result), AND, for a statement that
     declares `EVAL_RESULT_V02_PREDICATE_TYPE`, its predicate has the v0.2 shape
@@ -1894,8 +1948,11 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,
-    content_root_alg, content_root_ok, content_root_detail}. `ok` requires the signature, the canonical
-    contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
+    statement_ok, statement_detail, content_root_alg, content_root_ok, content_root_detail,
+    predicate_shape_ok}. `ok` requires the signature, the canonical contentRootAlg (absent ⇒ legacy;
+    ADR 0002), the in-toto Statement v1 layer (`_type`, and a subject whose every entry carries a
+    digest; `statement_ok`, see `_statement_layer_problem`), AND the statement's `predicateType` == the
+    SVR type
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
     SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out. It must
     be a string or None, and the envelope is read once, as for `verify_intoto_dsse`."""

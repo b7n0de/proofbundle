@@ -1957,6 +1957,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
         print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
         print("=> OK" if ok else "=> FAILED")
@@ -2053,6 +2055,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):

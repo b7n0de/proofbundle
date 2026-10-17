@@ -108,7 +108,11 @@ its own digest.
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.1`. Emitted and signed by released
 versions and still the CLI default. It is verified under its own contract, unchanged: signature, content
-root, type; no shape check (`predicate_shape_ok` is `None`). Fields:
+root, type; no shape check (`predicate_shape_ok` is `None`). Like every in-toto statement this package
+verifies, it must also have the Statement v1 layer: `_type` is `https://in-toto.io/Statement/v1`, and
+`subject` is a non-empty list whose every entry carries a usable `digest`, because in-toto matches subject
+artifacts by digest alone. A statement without that layer names no artifact and does not verify
+(`statement_ok` is `False`); the exporters always write it. Fields:
 
 | field | meaning |
 |---|---|

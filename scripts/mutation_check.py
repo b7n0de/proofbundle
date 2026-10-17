@@ -264,6 +264,12 @@ MUTATIONS = [
      "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
      "    ok = bool(sig_ok) and binding_ok",
      "intoto: predicateType-confusion enforcement disabled", True),
+    # L5-03 (2026-10-17) — the in-toto Statement v1 layer (`_type`, a subject whose every entry carries a
+    # digest) is part of the verdict of the three in-toto verifiers; dropping it must go red.
+    ("src/proofbundle/intoto.py",
+     " and (type_ok is not False) and (statement_ok is not False)",
+     " and (type_ok is not False)",
+     "intoto: Statement v1 layer dropped from the verdict (subjectless statement verifies)", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",

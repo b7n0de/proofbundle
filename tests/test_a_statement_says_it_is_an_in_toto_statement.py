@@ -15,8 +15,10 @@ trust-pack threshold subcommand. A sweep fails when a module that reports struct
 Statement parses without the oracle, and a second one when a Rust function parses a DSSE payload
 without `statement_typ_problem`.
 
-WHAT IS NOT IN SCOPE. `intoto --verify` and `svr --verify` list what their `ok` covers, `_type` is not on
-that list, and they report no structure_ok; the jury refuted L3-Z195-02 for that reason.
+WHAT IS NOT IN SCOPE HERE. `intoto --verify` and `svr --verify` list what their `ok` covers and report
+no structure_ok; the jury refuted L3-Z195-02 because `_type` was not on that list. Since 2026-10-17 it
+is: the three in-toto verifiers read `_type` through `statement_type_problem`, the oracle of this file,
+as part of the Statement layer (tests/test_every_in_toto_verifier_reads_the_statement_layer.py).
 """
 from __future__ import annotations
 

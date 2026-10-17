@@ -56,8 +56,10 @@ defect (`TestAFlagIsReadAsABoolean.test_the_bytes_path_refuses_a_flag_that_is_no
 first commit of that round, and is run against that commit.
 Run against its reference commit, every case whose name does not start with `test_control` fails;
 the controls pass there and here. One round-3 control changed in round 4
-(`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring). The counts are in
-the commit messages.
+(`TestResultAndPassedAgree.test_control_agreement_verifies`, see its docstring), and one round-4
+control lost two of its cases on 2026-10-17, when the verifiers began to read the Statement layer
+(`TestTheSubjectIsJudgedByTheOwnershipRule.test_control_a_subject_that_is_not_ours_makes_no_claim`).
+The counts are in the commit messages.
 """
 import base64
 import collections
@@ -1075,15 +1077,18 @@ class TestTheSubjectIsJudgedByTheOwnershipRule(_Basis):
         self.assertNotIn("[PASS]", r.stdout)
 
     def test_control_a_subject_that_is_not_ours_makes_no_claim(self):
-        """The subjects the package writes, a generic digest, an entry without a digest, and an absent
-        subject verify, and so does every statement the two exporters produce for a passing and a
-        failing claim, over the three subject profiles and both content-root algorithms."""
+        """The subjects the package writes and a generic digest verify, and so does every statement
+        the two exporters produce for a passing and a failing claim, over the three subject profiles
+        and both content-root algorithms.
+
+        Until 2026-10-17 an entry without a digest and an absent subject verified here too. They make
+        no claim under the ownership rule, and they still make none, but in-toto Statement v1 requires
+        a subject whose every entry carries a digest, and the three verifiers now refuse a statement
+        without that layer (tests/test_every_in_toto_verifier_reads_the_statement_layer.py)."""
         for art in self.ARTEN:
             for name, veraendere in (
                     ("as written", lambda st: None),
-                    ("generic digest", lambda st: st.update(subject=[{"name": "m", "digest": {"x": "y"}}])),
-                    ("entry without digest", lambda st: st.update(subject=[{"name": "m", "uri": "https://x"}])),
-                    ("no subject", lambda st: st.pop("subject"))):
+                    ("generic digest", lambda st: st.update(subject=[{"name": "m", "digest": {"x": "y"}}]))):
                 with self.subTest(art=art, fall=name):
                     res = self._verifiziert(art, veraendere)
                     self.assertTrue(res["ok"], res["content_root_detail"])

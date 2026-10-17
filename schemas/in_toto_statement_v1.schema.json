@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://in-toto.io/Statement/v1",
   "title": "in-toto Statement v1",
-  "description": "Faithful JSON Schema of the in-toto attestation Statement v1 (spec/v1/statement.md). Subjects are ResourceDescriptors; each MUST carry at least a digest or a name/uri.",
+  "description": "Faithful JSON Schema of the in-toto attestation Statement v1 (spec/v1/statement.md). Subjects are ResourceDescriptors, and each subject element MUST have digest set, because subject artifacts are matched purely by digest. The verifiers of this package also judge the digest of a known hash algorithm by its length and lowercase hex (intoto._digest_set_problem).",
   "type": "object",
   "additionalProperties": true,
   "required": ["_type", "subject", "predicateType"],
@@ -13,16 +13,17 @@
       "minItems": 1,
       "items": {
         "type": "object",
+        "required": ["digest"],
         "properties": {
           "name": {"type": "string"},
           "uri": {"type": "string"},
           "digest": {
             "type": "object",
             "minProperties": 1,
-            "additionalProperties": {"type": "string"}
+            "propertyNames": {"minLength": 1},
+            "additionalProperties": {"type": "string", "minLength": 1}
           }
-        },
-        "anyOf": [{"required": ["digest"]}, {"required": ["name"]}, {"required": ["uri"]}]
+        }
       }
     },
     "predicateType": {"type": "string", "minLength": 1},
