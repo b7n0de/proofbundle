@@ -14,6 +14,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
+  path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
+  header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
+  that text as the path, it matched no security path, and a staged `if False:` in such a file was
+  reported clean with exit 0 (measured in a throwaway repository; plain names and names with a
+  space were caught). The header path is decoded now, the self-test plants a mutant under a
+  non-ASCII name, and the tests cover a non-ASCII name, a double quote and a backslash in both
+  modes. No file under `src/proofbundle` carries such a name today.
 - The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
 
 ## [6.3.0] - 2026-10-14
