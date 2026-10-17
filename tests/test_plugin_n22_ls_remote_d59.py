@@ -291,3 +291,15 @@ def test_D59_an_excluded_option_asks_with_the_D41_line_naming_ls_remote(tmp_path
     rc, decision, shown = _hook(tmp_path, tmp_path, f"git -C {repo} ls-remote --symref origin")
     assert (rc, decision, shown) == \
         (0, "ask", "Gate asks at git ls-remote because this ls-remote is not the form the gate frees (D41)."), shown
+
+
+def test_D59_the_form_reads_no_word_the_shell_may_rewrite():
+    """The contract of _ls_remote_form as of _fetch_form: a word flagged as rewritten by the shell, or one holding `$`,
+    is never the form. Through decide() the character classes of the remote and the patterns already refuse every such
+    word (the mutant run of the delivery: taking this check back changed no answer there); this holds the check
+    itself."""
+    assert gate._ls_remote_form(["--heads", "origin", "main"]) == "origin"
+    assert gate._ls_remote_form(["--heads", "origin", "main"], [False, False, False]) == "origin"
+    assert gate._ls_remote_form(["--heads", "origin", "main"], [False, False, True]) is None
+    assert gate._ls_remote_form(["--heads", "origin", "main"], [False, True, False]) is None
+    assert gate._ls_remote_form(["origin", "ma$in"]) is None
