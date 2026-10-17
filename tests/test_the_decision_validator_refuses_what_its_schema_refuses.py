@@ -229,9 +229,9 @@ class NullIsNotAValue(unittest.TestCase):
         sk = generate_signer()
         pub_b64 = base64.b64encode(sk.public_key().public_bytes_raw()).decode()
         stmt = decision.build_decision_statement(DENY)
+        # Only rules `decision verify` applies: a policy that sets a rule its check does not apply is
+        # refused as a whole, so the bundle-level rules (schema versions, signature algorithms) stay out.
         policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
-                  "allowed_schema_versions": ["proofbundle/v0.1"],
-                  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
                   "decision_receipt": {"accepted_predicate_types": [stmt["predicateType"]],
                                        "trusted_decision_makers": [{"id": DENY["decisionMaker"]["id"],
                                                                     "public_key_b64": pub_b64}],
