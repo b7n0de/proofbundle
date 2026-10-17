@@ -256,3 +256,12 @@ def test_D61_control_under_codex_it_is_never_free(env, r, tmp_path):
     stand_in = {**_stand_in(tmp_path, env)}
     _answer, entry = _push(stand_in, r, "git -C {a} push origin HEAD:refs/heads/topic", host="codex")
     assert entry["verdict"] != "pass" and FREE_ID not in entry["reason_ids"], entry
+
+
+def test_D61_an_ask_at_a_sent_commit_asks_with_its_own_reason(env, r, tmp_path):
+    """A sent commit whose declaration holds an empty evidence list and no done check: its own ask (empty_declaration)
+    is the push's answer, before the rules are compared (as in _evaluate_targets; the mutant run of the delivery)."""
+    n2c._write(r.path / gate.DECLARATION, {"schema": gate.DECLARATION_SCHEMA, "evidence": []})
+    n2c._commit(r.path, "an empty evidence list and no done check")
+    _answer, entry = _push(_stand_in(tmp_path, env), r, "git -C {a} push origin HEAD:refs/heads/topic")
+    assert (entry["verdict"], entry["reason_ids"]) == ("ask", ["empty_declaration"]), entry
