@@ -20,6 +20,7 @@ PLUGIN = ROOT / "plugins" / "proofbundle"
 DECISIONS = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
 RUNBOOK = (PLUGIN / "pilot" / "RUNBOOK.md").read_text(encoding="utf-8")
 SERVICE = (PLUGIN / "pilot" / "signer_service.py").read_text(encoding="utf-8")
+KEY_SIGNER = (PLUGIN / "pilot" / "key_signer.py").read_text(encoding="utf-8")
 gate = f.gate
 
 
@@ -30,6 +31,7 @@ def _section(text: str, heading: str) -> str:
 
 
 D58 = _section(DECISIONS, "## D58. ")
+D64 = _section(DECISIONS, "## D64. ")
 
 
 def _flat(text: str) -> str:
@@ -50,13 +52,38 @@ def test_d58_is_dated_and_the_last_decision_of_z405():
     assert after.startswith("## D59. "), after[:40]
 
 
-def test_every_refusal_name_of_the_service_stands_in_d58_and_no_other():
+def _names(section: str, lead: str) -> set[str]:
+    return set(re.search(rf"{lead} ([a-z_, ]+)\.", _flat(section)).group(1).replace(" ", "").split(","))
+
+
+def test_every_refusal_name_of_the_service_stands_in_d58_or_d64_and_no_other():
+    """D58 lists the names of the deciding service; D64 adds those it gives for what the key signer answered, and the
+    key signer's own refusals reach the gate as key_<name>."""
     raised = set(re.findall(r'Refused\("([a-z_]+)"', SERVICE))
     differs = set(re.findall(r'"([a-z_]+_differs?)"', SERVICE))
     names = raised | differs | {"internal_error"}
     assert {"workdir_unreadable", "outside_window", "verdict_differs", "gate_file_differs", "repository_not_safe"} <= names
-    listed = set(re.search(r"The names: ([a-z_, ]+)\.", _flat(D58)).group(1).replace(" ", "").split(","))
-    assert listed == names
+    listed, added = _names(D58, "The names:"), _names(D64, "its own names for what the key signer gave it:")
+    assert listed | added == names and not listed & added
+    assert 'Refused(f"key_{answer}")' in SERVICE and "`key_<name>`" in D64
+
+
+def test_d64_says_the_time_of_the_key_signer_with_the_constants():
+    assert (_constant("MARGIN_SECONDS"), _constant("KEY_MARGIN_SECONDS")) == (1.0, 0.5)
+    text = _flat(D64)
+    assert "PILOT_SIGNER_SECONDS - MARGIN_SECONDS = 9 s" in text
+    assert "PILOT_SIGNER_SECONDS - KEY_MARGIN_SECONDS = 9.5 s" in text and "at least 0.5 s" in text
+
+
+def test_d64_says_what_the_second_account_does_not_close():
+    text = _flat(D64)
+    assert "the key signer checks the form, the gate and the time, not the verdict" in text
+    assert "a line without a receipt in the records shows it" in text
+
+
+def test_every_refusal_name_of_the_key_signer_stands_in_d64_and_no_other():
+    names = set(re.findall(r'Refused\("([a-z_]+)"', KEY_SIGNER)) | {"internal_error"}
+    assert _names(D64, "The key signer's names:") == names
 
 
 def test_the_gate_names_the_refusal_and_the_timeout_as_d58_says():

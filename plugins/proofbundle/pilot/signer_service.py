@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The signer of the pilot as a service of the operator: it decides the call again and signs only its own verdict (D58).
+"""The signer service of the pilot: it decides the call again and has only its own verdict signed (D58, D64).
 
 Owner choice O405-1 of 2026-10-17: the signer runs under an account of the operator, decides from the hook event with
 the same gate file and signs only its own verdict. A receipt then shows that the gate's code, in the state the service
@@ -14,9 +14,16 @@ statement it proposes. The service:
    it names), never with a value of the agent's session: at Level 1 with the gate's tool_outcome, at Level 2 with
    pre_push_verdict; it computes the surface, the target, the bytes, the verdict and the reasons itself;
 3. builds the statement again from that decision, the pilot's configuration in the gate directory and the decision's
-   id and instant the proposal names, and signs only where every byte is the same and decidedAt lies within
+   id and instant the proposal names, and goes on only where every byte is the same and decidedAt lies within
    `window_seconds` before now (and at most CLOCK_SKEW_SECONDS after it);
-4. else signs nothing, exits REFUSED and writes one fixed reason name on stdout.
+4. hands those canonical bytes, and nothing else, to the key signer its configuration names (`key_signer`, the program
+   key_signer.py under a second account, D64), and passes its signature on only where it verifies with the gate's
+   public key of pilot.json;
+5. else signs nothing, exits REFUSED and writes one fixed reason name on stdout.
+
+Owner choice O405S-6 of 2026-10-17 (D64): the service holds no key. It runs git, the gate's decision code and the
+verifier on repositories the agent writes, so a configuration the agent planted there reaches at most this account;
+the key lies with the key signer's account, which runs none of them.
 
 What the service cannot see gives no signature with its reason, never a guessed one: a working directory its account
 does not read (`workdir_unreadable`), a repository git refuses for its account, owned by another account and not named
@@ -25,14 +32,15 @@ directory or pilot.json it does not read (`pilot_config_unread`), a decision tha
 session held a value the service does not have (`verdict_differs`).
 Each request is one line of the service's journal: the fixed names and numbers, no path, no command, no value.
 
-    signer_service.py --config FILE            decide the request on stdin, sign or refuse
-    signer_service.py --config FILE --public   write the public key in hex
+    signer_service.py --config FILE            decide the request on stdin, have it signed or refuse
 
-The configuration is the operator's file, in a folder only the signer account reads:
-    {"schema": "proofbundle/pilot-signer-config/v1", "gate_file": <the service's copy of proofbundle_gate.py, in a
+The configuration is the operator's file, in a folder only the deciding account reads:
+    {"schema": "proofbundle/pilot-signer-config/v2", "gate_file": <the service's copy of proofbundle_gate.py, in a
      plugin folder beside its server/>, "records": <the records folder, for pilot_start.json>, "gate_dir": <the gate
-     directory the gate reads: mode, rules.json, pilot.json>, "key_file": <64 hex digits, the Ed25519 private key>,
-     "journal": <the service's journal>, "environment": {<name>: <value>, ...}, "window_seconds": <1 to 300>}
+     directory the gate reads: mode, rules.json, pilot.json>, "key_signer": [<the program, by its absolute path>,
+     <its arguments>...], "journal": <the service's journal>, "environment": {<name>: <value>, ...},
+     "window_seconds": <1 to 300>}
+A configuration of v1, which named a key file, is no configuration of this service.
 """
 from __future__ import annotations
 
@@ -49,19 +57,24 @@ import subprocess
 import sys
 import time
 
-CONFIG_SCHEMA = "proofbundle/pilot-signer-config/v1"
-CONFIG_KEYS = frozenset({"schema", "gate_file", "records", "gate_dir", "key_file", "journal", "environment",
+CONFIG_SCHEMA = "proofbundle/pilot-signer-config/v2"
+CONFIG_KEYS = frozenset({"schema", "gate_file", "records", "gate_dir", "key_signer", "journal", "environment",
                          "window_seconds"})
 #: The exit status of a refusal; the gate reads the one reason name on stdout (its PILOT_SIGNER_REFUSES).
 REFUSED = 3
 #: How far a decidedAt may lie after the service's own clock: the two clocks are the same machine's.
 CLOCK_SKEW_SECONDS = 2
-#: The time the service keeps for itself out of the gate's PILOT_SIGNER_SECONDS: loading, building and signing.
+#: The time the service keeps for itself out of the gate's PILOT_SIGNER_SECONDS: loading, building and the key signer.
 MARGIN_SECONDS = 1.0
+#: The time the service keeps after the key signer answered, out of the gate's PILOT_SIGNER_SECONDS: its journal line
+#: and its answer (D64). The key signer gets what is left up to it, at least MARGIN_SECONDS - KEY_MARGIN_SECONDS.
+KEY_MARGIN_SECONDS = 0.5
+#: The request the service hands the key signer (key_signer.py, D64): the canonical statement in base64, nothing else.
+KEY_SIGN_REQUEST = "proofbundle/pilot-key-request/v1"
+PAYLOAD_TYPE = b"application/vnd.in-toto+json"
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 _DECISION_ID = re.compile(r"(a-[0-9a-f]{32})#([1-9][0-9]{0,5})\Z", re.ASCII)
 _INSTANT = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z\Z", re.ASCII)
-_HEX_KEY = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 
 
 class Refused(Exception):
@@ -80,30 +93,19 @@ def load_config(path: str) -> dict:
     config = _read_json(path)
     if not isinstance(config, dict) or set(config) != CONFIG_KEYS or config["schema"] != CONFIG_SCHEMA:
         raise ValueError("not a configuration of the signer service")
-    for name in ("gate_file", "records", "gate_dir", "key_file", "journal"):
+    for name in ("gate_file", "records", "gate_dir", "journal"):
         if not (isinstance(config[name], str) and os.path.isabs(config[name])):
             raise ValueError(f"{name} is not an absolute path")
+    signer = config["key_signer"]
+    if not (isinstance(signer, list) and 1 <= len(signer) <= 32 and all(isinstance(w, str) and w for w in signer)
+            and os.path.isabs(signer[0]) and not any(ord(c) < 32 for w in signer for c in w)):
+        raise ValueError("key_signer is not a program by its absolute path with its arguments")
     if not (isinstance(config["environment"], dict) and all(isinstance(k, str) and isinstance(v, str)
                                                             for k, v in config["environment"].items())):
         raise ValueError("environment is not a mapping of names to values")
     if type(config["window_seconds"]) is not int or not 1 <= config["window_seconds"] <= 300:
         raise ValueError("window_seconds is not a whole number from 1 to 300")
     return config
-
-
-def private_key(config: dict):
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    with open(config["key_file"], encoding="ascii") as handle:
-        text = handle.read().strip()
-    if not _HEX_KEY.fullmatch(text):
-        raise ValueError("the key file is not 64 hex digits")
-    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(text))
-
-
-def public_hex(config: dict) -> str:
-    from cryptography.hazmat.primitives import serialization
-    return private_key(config).public_key().public_bytes(serialization.Encoding.Raw,
-                                                         serialization.PublicFormat.Raw).hex()
 
 
 def _instant_ns(text: object) -> int:
@@ -215,9 +217,10 @@ def _differs(proposed: dict, expected: dict) -> str:
     return "statement_differs"
 
 
-def judge(config: dict, request: object, now_ns: int, started: float, note: dict) -> bytes:
-    """The canonical statement the service signs; Refused where it signs nothing. `note` gathers what the journal names,
-    as far as the service came, a refusal included."""
+def judge(config: dict, request: object, now_ns: int, started: float, note: dict) -> tuple[bytes, str, float]:
+    """The canonical statement the service has signed, the gate's public key of pilot.json and the instant (monotonic)
+    by which the service answers; Refused where it signs nothing. `note` gathers what the journal names, as far as the
+    service came, a refusal included."""
     if not isinstance(request, dict) or not isinstance(request.get("statement"), str):
         raise Refused("request_malformed")
     note["level"] = request.get("level") if request.get("level") in (1, 2) else None
@@ -254,7 +257,43 @@ def judge(config: dict, request: object, now_ns: int, started: float, note: dict
         # a decision that came out otherwise because git refuses the repository for this account is named so: the
         # service did not see it, it did not judge it otherwise
         raise Refused("repository_not_safe" if _git_refuses(cwd, deadline) else _differs(predicate, expected["predicate"]))
-    return body
+    return body, pilot["public_key"], started + gate.PILOT_SIGNER_SECONDS - KEY_MARGIN_SECONDS
+
+
+def signed_by_the_key_signer(config: dict, body: bytes, public: str, end: float) -> bytes:
+    """The signature the key signer makes over the DSSE PAE of `body` (D64). The service holds no key: it hands the
+    canonical bytes, and nothing else, to the program `key_signer` names, a second account through sudo, from the root
+    folder and with no value of its own environment, and passes the answer on only where it verifies with `public`,
+    the gate's public key of pilot.json."""
+    request = json.dumps({"schema": KEY_SIGN_REQUEST, "statement": base64.b64encode(body).decode("ascii")},
+                         sort_keys=True).encode("ascii")
+    remaining = end - time.monotonic()
+    if remaining <= 0:
+        raise Refused("out_of_time")
+    try:
+        proc = subprocess.run(config["key_signer"], input=request, capture_output=True, cwd="/",
+                              env={"PATH": os.defpath, "LANG": "C"}, timeout=remaining, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise Refused("key_signer_timeout") from exc
+    except (OSError, ValueError) as exc:
+        raise Refused("key_signer_failed") from exc
+    answer = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode == REFUSED and re.fullmatch(r"[a-z_]{1,40}", answer):
+        raise Refused(f"key_{answer}")   # the key signer's own name: key_outside_window, key_gate_differs, ...
+    if proc.returncode != 0 or len(proc.stdout) > 256:
+        raise Refused("key_signer_failed")
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        signature = base64.b64decode(answer, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise Refused("key_signer_answer") from exc
+    try:
+        Ed25519PublicKey.from_public_bytes(bytes.fromhex(public)).verify(
+            signature, b"DSSEv1 %d %s %d %s" % (len(PAYLOAD_TYPE), PAYLOAD_TYPE, len(body), body))
+    except (ValueError, InvalidSignature) as exc:
+        raise Refused("key_differs") from exc   # signed with another key than the gate key pilot.json names
+    return signature
 
 
 def journal(config: dict, entry: dict) -> None:
@@ -266,12 +305,8 @@ def journal(config: dict, entry: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", required=True)
-    parser.add_argument("--public", action="store_true")
     args = parser.parse_args(argv)
     config = load_config(args.config)
-    if args.public:
-        print(public_hex(config))
-        return 0
     started, now_ns = time.monotonic(), time.time_ns()
     note: dict = {}
     try:
@@ -282,9 +317,8 @@ def main(argv: list[str] | None = None) -> int:
             request = json.loads(raw)
         except ValueError as exc:
             raise Refused("request_malformed") from exc
-        body = judge(config, request, now_ns, started, note)
-        kind = b"application/vnd.in-toto+json"
-        signature = private_key(config).sign(b"DSSEv1 %d %s %d %s" % (len(kind), kind, len(body), body))
+        body, public, end = judge(config, request, now_ns, started, note)
+        signature = signed_by_the_key_signer(config, body, public, end)
         reason = None
     except Refused as exc:
         reason, signature = str(exc), None

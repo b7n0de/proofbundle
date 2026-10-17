@@ -3768,6 +3768,62 @@ sites at 9f578c2a, each measured, owner questions O22-2 to O22-5 of the report o
 Tests: tests/test_plugin_n23_class_r25_1_d63.py, one marker case per site, under Claude Code and Codex where both
 answer.
 
+## D64. Deciding and signing under two accounts: the account that decides holds no key (Z405, owner choice O405S-6, 2026-10-17)
+
+Owner choice O405S-6 of 2026-10-17 (Nachtrag 24, part 4 of Nachtrag 22), owner question of the delivery of the signer
+service: the service of D58 ran the gate's decision code, git and the verifier on repositories the agent writes, in
+the account that read the gate key. The read hardening of the gate (no fsmonitor, no hook, no pager, the D series) was
+then the only wall between a configuration the agent planted in such a repository and the key.
+
+The rule:
+- `plugins/proofbundle/pilot/signer_service.py` decides as D58 says, under an account of the operator that holds no
+  key, the deciding account. Its configuration is `proofbundle/pilot-signer-config/v2`: `key_signer`, a program by its
+  absolute path and its arguments, takes the place of `key_file`; a configuration of v1 is no configuration of the
+  service, and it has no `--public` any more.
+- Where D58 signed, the service hands the key signer a request on stdin (KEY_SIGN_REQUEST,
+  `proofbundle/pilot-key-request/v1`): the canonical statement it decided, in base64, and nothing else; from the root
+  folder, with PATH set to os.defpath and LANG to C, no value of its own environment. It passes the answer on only
+  where it is a signature that verifies over the DSSE pre-authentication bytes with the gate's public key of
+  pilot.json.
+- `plugins/proofbundle/pilot/key_signer.py` runs under a second account, the key account, and only that account reads
+  the key. It imports nothing that starts a process and runs neither git nor any code of the gate: it reads its
+  configuration (`proofbundle/pilot-key-config/v1`: key_file, journal, gate_id, window_seconds), its key and the
+  request, and writes its journal; nothing of a repository.
+- It signs where the request holds exactly the schema and the statement; the statement is ASCII, at most 64 KiB, JSON
+  without a repeated key and in the canonical form the gate writes, byte for byte; it is an in-toto Statement v1 of
+  decision-receipt/v0.1 with exactly the fields the gate writes; its one subject is `decision:<decisionId>` with the
+  sha256 of the canonical predicate; its decision's maker is the gate_id of its configuration; and decidedAt lies
+  within `window_seconds` before its clock and at most CLOCK_SKEW_SECONDS (2) after it.
+- Otherwise it signs nothing, exits 3 with one fixed name on stdout and writes a journal line. The key signer's names:
+  request_malformed, statement_malformed, statement_not_canonical, statement_type, subject_differs, gate_differs,
+  outside_window, internal_error. The service passes such a refusal on as `key_<name>`; its own names for what the key
+  signer gave it: key_signer_timeout, key_signer_failed, key_signer_answer, key_differs. The gate journals
+  `signer_refused_<name>` as D58 says.
+- The key signer's journal line names the instant, whether it signed, the reason, the milliseconds, the decisionId and
+  the sha256 of the statement: no path, no value. Each signature the key makes is one line there, out of reach of the
+  deciding account.
+- The crossings are fixed programs: the agent's user reaches the deciding account only through the service's command
+  (D58); the deciding account reaches the key account only through the key signer's command. The agent's user has no
+  way onto the key account.
+
+What it closes, and what not, said as it is:
+- A configuration the agent plants in a repository reaches at most the deciding account. That account can be made to
+  run a program; it does not read the key, and the key account runs no program a repository names.
+- Whoever holds the deciding account still gets signatures for statements of the gate within the window, whatever
+  verdict they name: the key signer checks the form, the gate and the time, not the verdict; judging the verdict is the
+  deciding account's (D58). Such a signature is one line of the key signer's journal, and a line without a receipt in
+  the records shows it. The remaining limit of D58 holds unchanged.
+
+Time: the decision ends by PILOT_SIGNER_SECONDS - MARGIN_SECONDS = 9 s after the service started (D58); the key
+signer's answer by PILOT_SIGNER_SECONDS - KEY_MARGIN_SECONDS = 9.5 s, which leaves the key signer at least 0.5 s and
+0.5 s for the journal line and the answer. A key signer that does not answer by then is stopped (key_signer_timeout).
+The gate's PILOT_SIGNER_SECONDS and the calculation N405-b of D58 are unchanged.
+
+The gate is unchanged: the request it hands the service and the answer it reads are those of D58, and the gate file
+the records keep is the same bytes.
+Tests: tests/test_plugin_z405_key_signer.py; tests/test_plugin_z405_signer_service.py with the service and its key
+signer.
+
 ## D66. A command whose every program only reads calls no done-order: D38 does not ask for it (Nachtrag 26, 2026-10-17)
 
 Measured at delta on 2026-10-17, 20:54Z (gate at 9f578c2a), and again at 3694e34e: a find over a session folder under

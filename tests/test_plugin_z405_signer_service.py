@@ -7,9 +7,10 @@ as the hook saw it and the statement it proposes, and the service (plugins/proof
 the call with its own copy of the gate, whose sha256 pilot_start.json keeps, and signs only where its own statement is
 the same byte for byte and decidedAt lies within its window. Else it signs nothing and names one reason.
 
-Here the service runs under the same account as the test, with a key from a public label (a probe key, never a key of
-the pilot); the two accounts of the pilot, with a sudo rule onto the one program, are measured by the probe of the
-delivery. RED at 5840e5aa, the head of Nachtrag 21, where the gate hands the signer bytes and no request.
+Here the service and its key signer (key_signer.py, D64) run under the same account as the test, with a key from a
+public label (a probe key, never a key of the pilot); the three accounts of the pilot, each crossing a sudo rule onto
+one program, are measured by the probe of the delivery. RED at 5840e5aa, the head of Nachtrag 21, where the gate hands
+the signer bytes and no request.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ import test_plugin_z405_observer as o
 gate = pd.gate
 ROOT = p1.ROOT
 SERVICE = ROOT / "plugins" / "proofbundle" / "pilot" / "signer_service.py"
+KEY_SIGNER = ROOT / "plugins" / "proofbundle" / "pilot" / "key_signer.py"
 GATE_FILE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
 SERVICE_LABEL = "z405 signer service probe"
 PAYLOAD_TYPE = b"application/vnd.in-toto+json"
@@ -48,23 +50,32 @@ def env(tmp_path):
 
 
 class Service:
-    """The records as the runbook starts them, with the service's key as the gate key, the service's configuration and
-    pilot.json naming the service as the signer."""
+    """The records as the runbook starts them, with the key signer's key as the gate key, the configurations of the
+    service and of its key signer, and pilot.json naming the service as the signer."""
 
-    def __init__(self, env: dict, tmp_path: pathlib.Path, gate_file: pathlib.Path = GATE_FILE, window: int = 30):
+    def __init__(self, env: dict, tmp_path: pathlib.Path, gate_file: pathlib.Path = GATE_FILE, window: int = 30,
+                 key_signer: list[str] | None = None):
         self.folder = tmp_path / "signer"
         self.folder.mkdir()
+        self.key_folder = tmp_path / "key_signer"
+        self.key_folder.mkdir()
         seed = o.probe_signer.probe_key(SERVICE_LABEL).private_bytes_raw()
-        (self.folder / "key.hex").write_text(seed.hex() + "\n", encoding="ascii")
+        (self.key_folder / "key.hex").write_text(seed.hex() + "\n", encoding="ascii")
+        self.key_config = self.key_folder / "config.json"
+        self.key_journal = self.key_folder / "journal.jsonl"
+        self.key_config.write_text(json.dumps({
+            "schema": "proofbundle/pilot-key-config/v1", "key_file": str(self.key_folder / "key.hex"),
+            "journal": str(self.key_journal), "gate_id": p1.GATE_ID, "window_seconds": window}), encoding="utf-8")
         self.config = self.folder / "config.json"
         self.records = tmp_path / "records"
         self.journal = self.folder / "journal.jsonl"
         environment = {k: v for k, v in env.items() if k != "PROOFBUNDLE_GATE_DIR"}
         self.config.write_text(json.dumps({
-            "schema": "proofbundle/pilot-signer-config/v1", "gate_file": str(gate_file), "records": str(self.records),
-            "gate_dir": env["PROOFBUNDLE_GATE_DIR"], "key_file": str(self.folder / "key.hex"),
+            "schema": "proofbundle/pilot-signer-config/v2", "gate_file": str(gate_file), "records": str(self.records),
+            "gate_dir": env["PROOFBUNDLE_GATE_DIR"],
+            "key_signer": key_signer or [sys.executable, "-I", str(KEY_SIGNER), "--config", str(self.key_config)],
             "journal": str(self.journal), "environment": environment, "window_seconds": window}), encoding="utf-8")
-        self.public = subprocess.run([sys.executable, str(SERVICE), "--config", str(self.config), "--public"],
+        self.public = subprocess.run([sys.executable, str(KEY_SIGNER), "--config", str(self.key_config), "--public"],
                                      capture_output=True, text=True, check=True, timeout=60).stdout.strip()
         sources = tmp_path / "sources"
         sources.mkdir()
@@ -88,6 +99,10 @@ class Service:
     def lines(self) -> list[dict]:
         return [json.loads(x) for x in self.journal.read_text(encoding="utf-8").splitlines()] \
             if self.journal.exists() else []
+
+    def key_lines(self) -> list[dict]:
+        return [json.loads(x) for x in self.key_journal.read_text(encoding="utf-8").splitlines()] \
+            if self.key_journal.exists() else []
 
     def ask(self, request: dict) -> subprocess.CompletedProcess:
         """The service called directly, as the agent can call the one program."""
