@@ -74,7 +74,9 @@ The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/
   inclusion root as their newer root (-05 section 5: all proofs in a receipt recompute the same
   root). Their older roots and anchors are not evaluated in the statement verdict, because that
   needs an older root the caller holds (`verify_consistency_receipt`, Decision 15). A vdp key other
-  than -1 and -2 is outside the -05 CDDL and `malformed`. (Codex, PR 278 rounds three and four;
+  than -1 and -2 is outside the -05 CDDL and `malformed`, and so is a present vdp, -1 or -2 whose
+  value is null: presence decides, not the value, so null is never read as an absent key. The same
+  holds for crit (`outside_profile`) and for a COSE_Key's kid (the key is dropped). (Codex, PR 278 rounds three and four;
   until then -2 was reported and not parsed.)
 
 The value 2 is a requested assignment (`TBD_1`), not yet made by IANA (-05, section "Description
@@ -463,10 +465,30 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 | `consistency_proof_missing` | no `vdp`, no -2, or an empty -2 (4.1, 4.2) |
 | `consistency_payload_attached` | the newer root is not detached (4.1) |
 | `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
+| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given or taken from the header (4) |
+| `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -05 (G5) |
+| `consistency_path_not_canonical` | with both sizes: a proof's path describes no node of the tree of n leaves |
+| `consistency_anchor_position_mismatch` | with both sizes: a proof's tags are not those of RFC 9162 2.1.4.1 for m and n (for a proof that does not recompute the older root, for the m its anchor implies), so its anchor is not the root of T[m-2^t] .. T[m-1] (4) |
+| `consistency_left_siblings_mismatch` | with the older size alone: the proof that recomputes the older root has not popcount(m) - 1 left siblings, the complete subtrees left of the anchor section 4 requires (4) |
 | `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
 | `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
 | `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
 | `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
+
+`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that the implemented checks
+passed without both tree sizes being available. It does not establish strict growth or the full
+anchor rule. `confirmed` requires both sizes and the corresponding checks; the sizes must be bound
+to the roots under the caller's trust model and our local txid-to-size rule. The older size is the caller's (`older_size`), bound
+like `older_root` to the state it came from, typically the seqno of the txid of the inclusion
+receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
+none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
+is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement of -05
+(`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
+exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it
+does not establish canonical tags. Without sizes, an anchor that is no node of the newer tree,
+such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5
+and passes the first tag; with them it is `consistency_anchor_position_mismatch` (vector S4-10 in
+`tools/scitt_ccf_external/section4_vectors/`).
 
 `malformed` and `outside_profile` keep their meaning; the protected header rules are those of
 inclusion receipts, as 4.1 says. Two of these go further than the 4.2 pseudo-code. That code accepts
