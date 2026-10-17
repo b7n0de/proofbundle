@@ -32,6 +32,7 @@ def _section(text: str, heading: str) -> str:
 
 D58 = _section(DECISIONS, "## D58. ")
 D64 = _section(DECISIONS, "## D64. ")
+D65 = _section(DECISIONS, "## D65. ")
 
 
 def _flat(text: str) -> str:
@@ -56,16 +57,23 @@ def _names(section: str, lead: str) -> set[str]:
     return set(re.search(rf"{lead} ([a-z_, ]+)\.", _flat(section)).group(1).replace(" ", "").split(","))
 
 
-def test_every_refusal_name_of_the_service_stands_in_d58_or_d64_and_no_other():
+def _dropped(text: str) -> set[str]:
+    """The names a signature is dropped with after it was made: a journal that cannot take its line (D65)."""
+    return set(re.findall(r'signature, reason = None, "([a-z_]+)"', text))
+
+
+def test_every_refusal_name_of_the_service_stands_in_d58_d64_or_d65_and_no_other():
     """D58 lists the names of the deciding service; D64 adds those it gives for what the key signer answered, and the
-    key signer's own refusals reach the gate as key_<name>."""
+    key signer's own refusals reach the gate as key_<name>; D65 adds the one for its own journal."""
     raised = set(re.findall(r'Refused\("([a-z_]+)"', SERVICE))
     differs = set(re.findall(r'"([a-z_]+_differs?)"', SERVICE))
-    names = raised | differs | {"internal_error"}
-    assert {"workdir_unreadable", "outside_window", "verdict_differs", "gate_file_differs", "repository_not_safe"} <= names
+    names = raised | differs | _dropped(SERVICE) | {"internal_error"}
+    assert {"workdir_unreadable", "outside_window", "verdict_differs", "gate_file_differs", "repository_not_safe",
+            "journal_unwritable"} <= names
     listed, added = _names(D58, "The names:"), _names(D64, "its own names for what the key signer gave it:")
-    assert listed | added == names and not listed & added
-    assert 'Refused(f"key_{answer}")' in SERVICE and "`key_<name>`" in D64
+    journaled = _names(D65, "The service's name for a journal it cannot write:")
+    assert listed | added | journaled == names and not listed & added and not (listed | added) & journaled
+    assert 'Refused(f"key_{answer}")' in SERVICE and "`key_<name>`" in D64 and "key_journal_unwritable" in D65
 
 
 def test_d64_says_the_time_of_the_key_signer_with_the_constants():
@@ -81,9 +89,20 @@ def test_d64_says_what_the_second_account_does_not_close():
     assert "a line without a receipt in the records shows it" in text
 
 
-def test_every_refusal_name_of_the_key_signer_stands_in_d64_and_no_other():
-    names = set(re.findall(r'Refused\("([a-z_]+)"', KEY_SIGNER)) | {"internal_error"}
-    assert _names(D64, "The key signer's names:") == names
+def test_every_refusal_name_of_the_key_signer_stands_in_d64_or_d65_and_no_other():
+    names = set(re.findall(r'Refused\("([a-z_]+)"', KEY_SIGNER)) | _dropped(KEY_SIGNER) | {"internal_error"}
+    assert "journal_unwritable" in names
+    listed = _names(D64, "The key signer's names:")
+    journaled = _names(D65, "The key signer's name for a journal it cannot write:")
+    assert listed | journaled == names and not listed & journaled
+
+
+def test_d65_says_the_journal_comes_before_the_signature():
+    text = _flat(D65)
+    assert "is appended and synced to the disk (fsync" in text and "before a byte of the signature is written" in text
+    assert '`"handedOut": false`' in text and "unconfirmed and counts as handed out" in text
+    for source in (SERVICE, KEY_SIGNER):
+        assert "os.fsync(fd)" in source and "except OSError:\n        pass   # a journal" not in source
 
 
 def test_the_gate_names_the_refusal_and_the_timeout_as_d58_says():

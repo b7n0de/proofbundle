@@ -3833,6 +3833,33 @@ The other owner choices on the service, of 2026-10-17 (Nachtrag 24), each as rec
 - O405S-5: `safe.directory` in the deciding account's git configuration is the list of the pilot repositories, never
   `*`.
 
+## D65. No signature without a durable journal line, and the key signer's journal in the reconciliation (Nachtrag 25, 2026-10-17)
+
+Nachtrag 25 (CLOUD-KRAXO-FIX18-TEIL-B-NACHTRAG-25): finding T4-a of the re-measurement of the delivery of Teil 4, read
+and not tried there, and owner choice of 2026-10-17, 22:3x Berlin on O24-1: both now, before the pilot starts at delta.
+
+T4-a, the rule:
+- Before: the key signer signed, then wrote its journal line, and passed over a journal it could not write
+  (`except OSError: pass`). On a full disk or with its rights taken away there was a signature without a line, while
+  D64 rests on every signature being one line of that journal.
+- Now the line that names a signature (decisionId, the sha256 of the statement, the instant) is appended and synced to
+  the disk (fsync, and for a file it created, its folder as well) before a byte of the signature is written on stdout.
+  A journal the key signer cannot write gives no signature: it exits 3 with one name. The key signer's name for a
+  journal it cannot write: journal_unwritable.
+- After the signature is out, a second line names the decisionId and the sha256 with `handedOut` true or false: a
+  signature stdout did not take is recognizable by `"handedOut": false`. A signed line without its second line is
+  unconfirmed and counts as handed out.
+- A line an earlier write left without its end is closed first, so it stands alone and the next line reads.
+- The service keeps the same rule for its own journal: its line is synced before its signature is written, a journal
+  it cannot write gives no signature, and a second line names `handedOut`. The service's name for a journal it cannot
+  write: journal_unwritable. The key signer's journal_unwritable reaches the gate as key_journal_unwritable (D64's
+  `key_<name>`), and the gate journals `signer_refused_<name>` as D58 says.
+- A refusal is journaled as before, as far as the journal takes it; a journal that cannot take a refusal leaves it a
+  refusal.
+- The gate is unchanged.
+Tests: tests/test_plugin_z405_journal_first.py; the journal helpers of tests/test_plugin_z405_signer_service.py and
+tests/test_plugin_z405_key_signer.py read the decision lines and the `handedOut` lines apart.
+
 ## D66. A command whose every program only reads calls no done-order: D38 does not ask for it (Nachtrag 26, 2026-10-17)
 
 Measured at delta on 2026-10-17, 20:54Z (gate at 9f578c2a), and again at 3694e34e: a find over a session folder under

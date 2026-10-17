@@ -74,8 +74,13 @@ def run_key_signer(config: pathlib.Path, request: object, cwd: pathlib.Path | No
                           capture_output=True, timeout=60, check=False, cwd=str(cwd) if cwd else None)
 
 
-def key_lines(journal: pathlib.Path) -> list[dict]:
+def all_key_lines(journal: pathlib.Path) -> list[dict]:
     return [json.loads(x) for x in journal.read_text(encoding="utf-8").splitlines()] if journal.exists() else []
+
+
+def key_lines(journal: pathlib.Path) -> list[dict]:
+    """The decision lines of the key signer's journal; since D65 a signed one is followed by its handedOut line."""
+    return [x for x in all_key_lines(journal) if "signed" in x]
 
 
 class Key:
@@ -381,6 +386,7 @@ def test_the_key_signer_starts_no_process_and_opens_nothing_of_the_repository_it
     assert [e for e in seen if e[0] != "open"] == []
     opened = {pathlib.Path(e[1]) for e in seen}
     own = {key.config, key.folder / "key.hex", key.journal, KEY_SIGNER}
+    opened.discard(key.folder)   # its journal's folder, opened once to sync the new file's name to the disk (D65)
     assert own - {KEY_SIGNER} <= opened, opened
     python = [pathlib.Path(p) for p in {sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix}]
     others = {p for p in opened if p not in own and not any(p.is_relative_to(x) for x in python)
@@ -396,8 +402,8 @@ def test_the_journal_of_the_key_signer_names_no_path_and_no_value(env, tmp_path)
     run_key_signer(key.config, {"schema": k.KEY_SIGN_REQUEST, "statement": "not base64!"})
     text = key.journal.read_text(encoding="utf-8")
     assert str(tmp_path) not in text and "Round four of five" not in text and "gh pr comment" not in text
-    assert set().union(*(set(x) for x in key_lines(key.journal))) <= {"at", "signed", "reason", "elapsedMs",
-                                                                       "decisionId", "statementSha256"}
+    assert set().union(*(set(x) for x in all_key_lines(key.journal))) <= {"at", "signed", "reason", "elapsedMs",
+                                                                           "decisionId", "statementSha256", "handedOut"}
 
 
 def test_the_key_signer_keeps_the_types_and_the_form_of_the_gate(env):

@@ -96,13 +96,17 @@ class Service:
                         public_key=self.public)
         pilot.write_text(json.dumps(settings), encoding="utf-8")
 
-    def lines(self) -> list[dict]:
+    def all_lines(self) -> list[dict]:
         return [json.loads(x) for x in self.journal.read_text(encoding="utf-8").splitlines()] \
             if self.journal.exists() else []
 
+    def lines(self) -> list[dict]:
+        """The decision lines of the service's journal; since D65 a signed one is followed by its handedOut line."""
+        return [x for x in self.all_lines() if "signed" in x]
+
     def key_lines(self) -> list[dict]:
-        return [json.loads(x) for x in self.key_journal.read_text(encoding="utf-8").splitlines()] \
-            if self.key_journal.exists() else []
+        return [x for x in (json.loads(y) for y in self.key_journal.read_text(encoding="utf-8").splitlines())
+                if "signed" in x] if self.key_journal.exists() else []
 
     def ask(self, request: dict) -> subprocess.CompletedProcess:
         """The service called directly, as the agent can call the one program."""
@@ -381,8 +385,9 @@ def test_the_journal_of_the_service_names_no_path_no_command_and_no_value(env, t
     text = service.journal.read_text(encoding="utf-8")
     for word in (str(tmp_path), "Round four of five", "gh pr comment", env["PATH"]):
         assert word not in text, word
-    assert set().union(*(set(line) for line in service.lines())) <= {"at", "signed", "reason", "elapsedMs", "level",
-                                                                     "decisionId", "surface", "verdict"}
+    assert set().union(*(set(line) for line in service.all_lines())) <= {"at", "signed", "reason", "elapsedMs",
+                                                                         "level", "decisionId", "surface", "verdict",
+                                                                         "handedOut"}
 
 
 def test_a_service_slower_than_pilot_signer_seconds_is_stopped_and_named(monkeypatch):

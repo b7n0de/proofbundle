@@ -30,7 +30,11 @@ does not read (`workdir_unreadable`), a repository git refuses for its account, 
 as safe.directory in its git configuration, where the decision then came out otherwise (`repository_not_safe`), a gate
 directory or pilot.json it does not read (`pilot_config_unread`), a decision that came out otherwise because the agent's
 session held a value the service does not have (`verdict_differs`).
-Each request is one line of the service's journal: the fixed names and numbers, no path, no command, no value.
+Each request is one line of the service's journal: the fixed names and numbers, no path, no command, no value. No
+signature leaves the service without that line (D65): it is written and synced to the disk before the signature is
+written on stdout; a journal the service cannot write gives no signature and the name journal_unwritable. A second line
+says whether stdout took the signature (`handedOut`). The key signer keeps the same rule for its own journal, and its
+journal_unwritable reaches the gate as key_journal_unwritable.
 
     signer_service.py --config FILE            decide the request on stdin, have it signed or refuse
 
@@ -297,9 +301,34 @@ def signed_by_the_key_signer(config: dict, body: bytes, public: str, end: float)
 
 
 def journal(config: dict, entry: dict) -> None:
-    os.makedirs(os.path.dirname(config["journal"]), exist_ok=True)
-    with open(config["journal"], "a", encoding="ascii") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    """Append one line to the journal and sync it to the disk before returning (D65); OSError where it cannot. A line
+    an earlier write left without its end is closed first, so it stands alone and the next line reads."""
+    path = config["journal"]
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    data = (json.dumps(entry, sort_keys=True) + "\n").encode("ascii")
+    created = not os.path.lexists(path)
+    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        size = os.fstat(fd).st_size
+        if size and os.pread(fd, 1, size - 1) != b"\n":
+            data = b"\n" + data
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if created:
+        directory = os.open(folder, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+
+def _instant() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -325,16 +354,31 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:  # noqa: BLE001 - whatever else happens, nothing is signed
         reason, signature = "internal_error", None
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    try:
-        journal(config, {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "signed": signature is not None,
-                         "reason": reason, "elapsedMs": elapsed_ms, **note})
-    except OSError:
-        pass   # a journal the service cannot write never turns a refusal into a signature, nor the reverse
+    if signature is not None:
+        try:
+            journal(config, {"at": _instant(), "signed": True, "reason": None, "elapsedMs": elapsed_ms, **note})
+        except OSError:
+            # no line, no signature (D65): the signature is dropped before a byte of it is written
+            signature, reason = None, "journal_unwritable"
     if signature is None:
+        try:
+            journal(config, {"at": _instant(), "signed": False, "reason": reason, "elapsedMs": elapsed_ms, **note})
+        except OSError:
+            pass   # a refusal the journal cannot take stays a refusal
         sys.stdout.write(f"{reason}\n")
         return REFUSED
-    sys.stdout.write(base64.b64encode(signature).decode("ascii") + "\n")
-    return 0
+    try:
+        sys.stdout.write(base64.b64encode(signature).decode("ascii") + "\n")
+        sys.stdout.flush()
+        handed_out = True
+    except OSError:
+        handed_out = False
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())   # what stdout keeps of it is never written
+    try:
+        journal(config, {"at": _instant(), "handedOut": handed_out, "decisionId": note.get("decisionId")})
+    except OSError:
+        pass   # the signed line stands; without this one it reads as unconfirmed
+    return 0 if handed_out else REFUSED
 
 
 if __name__ == "__main__":
