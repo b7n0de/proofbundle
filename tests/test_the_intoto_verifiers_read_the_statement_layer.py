@@ -1,4 +1,4 @@
-"""Every in-toto verifier of this package reads the Statement v1 layer before it says ok.
+"""The three in-toto verifiers of intoto.py read the Statement v1 layer before they say ok.
 
 in-toto Statement v1 (spec/v1/statement.md) requires `_type`, which is always
 `https://in-toto.io/Statement/v1`, and `subject`, a list of ResourceDescriptors in which each element
@@ -7,15 +7,22 @@ MUST have `digest` set, because subject artifacts are matched purely by digest. 
 validly signed statement without a subject, with an empty subject, with a subject entry that has no
 digest, without `_type` or with another `_type`; `verify_svr_dsse` did so for `subject` null as well;
 and `proofbundle intoto --verify` printed `[PASS] eval-result attestation` with exit 0 for an
-eval-result attestation without a subject. Only eval-result v0.2 read the layer, in its shape check.
+eval-result attestation without a subject. Only eval-result v0.2 read the layer as a whole, in its
+shape check; for eval-result v0.1 and test-result the ownership rule of the subject walk refused a
+subject that is no array or holds an entry or a digest that is no object.
+
+WHAT IS NOT HERE. The six verifiers that report structure_ok (decision, outcome, relation statement,
+verification summary, run ledger, trust pack) read `_type` through `_statement_payload` and do not
+read the subject; that is a question of its own and this file does not claim it.
 
 The rule stands once, in `intoto._statement_layer_problem`, which the verdict builder shared by the
-three verifiers calls. A subject entry's DigestSet is judged by the module's one DigestSet rule
-(`_digest_set_problem`, which eval-result v0.2 uses too).
+three verifiers calls. `_type` is read through `_statement_payload.statement_type_problem`, and a
+subject entry's DigestSet through the module's one DigestSet rule (`_digest_set_problem`, which
+eval-result v0.2 uses too).
 
-THE CASES ARE THIS FILE'S OWN: each one names the statement it signs and the words the verdict must
-give, written from the spec text and not from the module's function. Run against main 570dd164, every
-case whose name does not start with `test_control` fails; the controls pass there and here.
+THE CASES ARE THIS FILE'S OWN: each one names the statement it signs, chosen from the spec text, and a
+fragment of the refusal the verdict must give. Run against main 570dd164, every case whose name does
+not start with `test_control` fails; the controls pass there and here.
 """
 import base64
 import json
@@ -121,6 +128,19 @@ class TestEachVerifierRefusesAStatementWithoutTheLayer(_Basis):
                     self.assertIn(worte, res.get("statement_detail", ""))
                     self.assertIn(worte, res["content_root_detail"])
                     self.assertIs(res["content_root_ok"], True, "the binding holds; the layer refuses")
+
+    def test_a_payload_that_is_no_object_is_no_statement(self):
+        """A signed payload that is a JSON array, number, string or boolean has no Statement layer at all.
+        `ok` is False through the content-root binding as well; `statement_ok` says what is missing (the
+        second reading planted a layer rule that answered '' for a non-object, and it survived every other
+        case of this file)."""
+        for flaeche in FLAECHEN:
+            for wert in ([], [dict(EINTRAG)], 5, "statement", True):
+                with self.subTest(flaeche=flaeche, wert=wert):
+                    res = self._verifiziere(flaeche, wert)
+                    self.assertIs(res["ok"], False)
+                    self.assertIs(res.get("statement_ok"), False)
+                    self.assertIn("statement must be a JSON object", res.get("statement_detail", ""))
 
     def test_opting_out_of_the_type_check_does_not_opt_out_of_the_layer(self):
         for flaeche in FLAECHEN:

@@ -3297,7 +3297,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 

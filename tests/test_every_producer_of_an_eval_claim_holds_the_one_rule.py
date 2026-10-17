@@ -1084,7 +1084,7 @@ class TestTheSubjectIsJudgedByTheOwnershipRule(_Basis):
         Until 2026-10-17 an entry without a digest and an absent subject verified here too. They make
         no claim under the ownership rule, and they still make none, but in-toto Statement v1 requires
         a subject whose every entry carries a digest, and the three verifiers now refuse a statement
-        without that layer (tests/test_every_in_toto_verifier_reads_the_statement_layer.py)."""
+        without that layer (tests/test_the_intoto_verifiers_read_the_statement_layer.py)."""
         for art in self.ARTEN:
             for name, veraendere in (
                     ("as written", lambda st: None),

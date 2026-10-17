@@ -18,7 +18,7 @@ without `statement_typ_problem`.
 WHAT IS NOT IN SCOPE HERE. `intoto --verify` and `svr --verify` list what their `ok` covers and report
 no structure_ok; the jury refuted L3-Z195-02 because `_type` was not on that list. Since 2026-10-17 it
 is: the three in-toto verifiers read `_type` through `statement_type_problem`, the oracle of this file,
-as part of the Statement layer (tests/test_every_in_toto_verifier_reads_the_statement_layer.py).
+as part of the Statement layer (tests/test_the_intoto_verifiers_read_the_statement_layer.py).
 """
 from __future__ import annotations
 
