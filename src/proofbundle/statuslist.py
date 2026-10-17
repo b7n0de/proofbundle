@@ -242,8 +242,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if not isinstance(sl, dict):
         result["detail"] = "status_list claim missing"
         return result
-    bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
+    # L2-01 (never-raise): a float bits (e.g. 2.0) satisfies `2.0 in (1,2,4,8)` and slipped through, then
+    # `_status_at` did `8 // bits` and byte indexing on a float, a raw TypeError instead of a fail-closed
+    # verdict. The width is read the way the issue side below reads it, as an exact int (not a bool, not
+    # a float, not a subclass), and only then checked against the allowed set.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    bits = plain_int(sl.get("bits"))
+    if bits is None or bits not in _ALLOWED_BITS:
         result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
         return result
     if not isinstance(sl.get("lst"), str):
