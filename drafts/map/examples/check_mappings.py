@@ -212,7 +212,7 @@ def match(citation, receipt: bytes) -> str:
     return "MATCH" if hashlib.sha256(b).hexdigest() == citation["hex"] else "NO_MATCH"
 
 
-# RFC 3986 absolute-URI = scheme ":" hier-part [ "?" query ], with the four forms of hier-part (Section 3) and "["
+# RFC 3986 absolute-URI = scheme ":" `hier-part` [ "?" query ], with the four forms of `hier-part` (Section 3) and "["
 # "]" only around an IP-literal (Section 3.2.2).
 _U, _SD, _PCT = r"A-Za-z0-9\-._~", r"!$&'()*+,;=", r"%[0-9A-Fa-f]{2}"
 _PCH = rf"(?:[{_U}{_SD}:@]|{_PCT})"
