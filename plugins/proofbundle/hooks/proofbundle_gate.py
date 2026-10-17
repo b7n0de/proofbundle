@@ -837,6 +837,37 @@ def _hooks_off(key: str) -> bool:
     return key.strip().lower() == "core.hookspath"
 
 
+#: The read actions of `git config` (Nachtrag 23, part 2, DECISIONS.md D62) and the switches that change only how a
+#: read reads or prints (scope, origin, type, separators). Any other option, `--file`, `--blob`, `--default`, `--add`,
+#: `--unset`, `--replace-all` and `--edit` among them, is not a read here.
+_CONFIG_READ_ACTIONS = frozenset({"--get", "--get-all", "--get-regexp", "-l", "--list"})
+_CONFIG_READ_SWITCHES = frozenset({"--show-origin", "--show-scope", "-z", "--null", "--name-only", "--includes",
+                                   "--no-includes", "--local", "--global", "--system", "--worktree", "--bool", "--int",
+                                   "--bool-or-int", "--path", "--expiry-date", "--type=bool", "--type=int",
+                                   "--type=bool-or-int", "--type=path", "--type=expiry-date", "--type=color"})
+
+
+def _config_reads_only(args: list[str], rewrites: list[bool] | None = None) -> bool:
+    """Whether `git config <args>` only reads (D62): every option one of _CONFIG_READ_ACTIONS and _CONFIG_READ_SWITCHES
+    and at most one action; with --get, --get-all or --get-regexp one name and at most one value pattern, with --list
+    or -l no word, with no action exactly one word, the name git prints the value of. Every word literal: no `$`, no
+    word the shell may rewrite (a `--g*` may become `--global` or `--add`). A read of core.hooksPath turns no hook off;
+    setting, unsetting, adding, replacing and editing do, and keep the deny of _HOOKS_DISABLE."""
+    if (rewrites is not None and any(rewrites[:len(args)])) or any("$" in a for a in args):
+        return False
+    if any(a.startswith("-") and a not in _CONFIG_READ_ACTIONS and a not in _CONFIG_READ_SWITCHES for a in args):
+        return False
+    actions = [a for a in args if a in _CONFIG_READ_ACTIONS]
+    names = [a for a in args if not a.startswith("-")]
+    if len(actions) > 1:
+        return False
+    if not actions:
+        return len(names) == 1
+    if actions[0] in ("-l", "--list"):
+        return not names
+    return 1 <= len(names) <= 2
+
+
 #: The options of the two forms K-NW-2 B frees (DECISIONS.md D3). `git add` takes pathspecs and -A/--all/-u/--update;
 #: `git commit` takes at least one message (-m, --message, a -m inside a cluster of a and q, and since D40 `-F <file>`
 #: or `--file=<file>` with a literal file other than `-`), -a/--all, -q/--quiet and pathspecs. Every other option of
@@ -2676,7 +2707,9 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         else:
             not_measured = True  # --git-dir, --work-tree, --namespace, --exec-path, --no-pager, a 2nd -C, …
         i += 2 if (has_value and not eq) else 1
-    if i < len(words) and words[i] == "config" and any(_hooks_off(w) for w in words[i + 1:]):
+    if i < len(words) and words[i] == "config" and any(_hooks_off(w) for w in words[i + 1:]) \
+            and not _config_reads_only(words[i + 1:], None if rewrites is None else rewrites[i + 1:]):
+        # D62 (Nachtrag 23, part 2): a read of core.hooksPath turns no hook off and is judged as any read form
         return "git config core.hooksPath", directory, [_HOOKS_DISABLE]
     if deny:  # a `-c core.hooksPath=…` override would turn the hook off, whatever the subcommand is (Punkt 5)
         return "git push", directory, [_HOOKS_DISABLE]

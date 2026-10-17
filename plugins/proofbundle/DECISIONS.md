@@ -3538,3 +3538,23 @@ Not changed: Level 2. The pre-push hook still answers target_ref_absent for a br
 is installed, a push D61 resolves at Level 1 still stops there. The remote can change between the gate's measurement
 and the push; a branch or tag deleted in that window makes git send commits the gate did not check, at most those that
 branch or tag alone held.
+
+## D62. A read of core.hooksPath turns no hook off and is not denied (Nachtrag 23, part 2, 2026-10-17)
+
+Counted at delta: `git config --get core.hooksPath`, a pure read, was denied with hooks_disabled since 2026-10-16
+17:42Z, a false alarm. Since Punkt 5 every `git config` whose words named core.hooksPath was denied, because setting it
+redirects or turns off the pre-push hook. Owner choice of 2026-10-17, 12:3x and 13:0x Berlin.
+
+The rule (_config_reads_only): a `git config` that only reads is no hook-disabling form. A read is: every option one of
+the read actions `--get`, `--get-all`, `--get-regexp`, `-l`/`--list` or the switches of scope, origin, type and
+separators (`--local`, `--global`, `--system`, `--worktree`, `--show-origin`, `--show-scope`, `-z`/`--null`,
+`--name-only`, `--includes`, `--no-includes`, `--type=…` and the older type switches), at most one action; with
+`--get`, `--get-all` or `--get-regexp` one name and at most one value pattern, with `--list` no word, with no action
+the name alone, which git reads. Every word literal: no `$` and no word the shell may rewrite (`--g*` may become
+`--global` or `--add`). Such a read is judged as any read form: for `git config`, which is no read form of class a,
+that is the ask of D3 (git_form_not_free), under Claude Code and under Codex. Keep the deny: a value after the name,
+`--unset`, `--unset-all`, `--add`, `--replace-all`, every option the gate does not read as a read (`--file`, `--blob`,
+`--default`, `--edit` when it names core.hooksPath, …), two actions, a rewritten word, and a `-c core.hooksPath=…` or
+`--config-env` override before any subcommand.
+
+Tests: tests/test_plugin_n23_hookspath_read_d62.py.
