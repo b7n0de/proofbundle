@@ -35,7 +35,15 @@ def ecma_pattern(pattern: str) -> re.Pattern:
     if not (pattern.startswith("^") and pattern.endswith("$") and _VOCABULARY.fullmatch(body)
             and "(?" not in body):
         raise ValueError(f"the ECMA oracle does not translate {pattern!r}; extend it deliberately")
-    return re.compile(r"\A" + body.replace(r"\d", "[0-9]") + r"\Z")
+    # The vocabulary is lexical: `a{3,1}`, `[9-0]` or an unbalanced group pass it, and so does a count
+    # Python's `re` cannot hold (`{4294967295}` is its MAXREPEAT; node compiles it). Whatever Python
+    # cannot compile, the oracle does not translate, with the error it promises (gate run 2 on
+    # 63ddaaab, lens B, 228bc-2B-01/02: an OverflowError and a re.error escaped instead).
+    try:
+        return re.compile(r"\A" + body.replace(r"\d", "[0-9]") + r"\Z")
+    except (re.error, OverflowError) as exc:
+        raise ValueError(f"the ECMA oracle does not translate {pattern!r} ({exc}); extend it "
+                         "deliberately") from exc
 
 
 def _pattern(validator, pattern, instance, schema):

@@ -17,7 +17,7 @@ in all five predicate schemas, and a check that reads only the `sha256` key acce
 MEASURED at 3562dc71 before this module existed: the digest checks of decision, outcome, run_ledger,
 verification_summary and trust_pack accepted a digest object with a second key; trust_pack still
 anchored with `^..$`, so a signed trust pack whose `expires` ended in a newline verified ok=True;
-every RFC3339 and 0.1.x pattern in nine modules took Unicode digits, so `validate_decision_predicate`
+every RFC3339 and 0.1.x pattern in eight modules took Unicode digits, so `validate_decision_predicate`
 in strict mode accepted a fullwidth `decidedAt`, and on one signed relation statement whose edge
 `declaredAt` used them the Python verifier said ok (exit 0) where the Rust verifier said FAIL (exit 2).
 
