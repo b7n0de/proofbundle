@@ -60,6 +60,7 @@ from typing import Any, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from .canonical import _ein_stand
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
 from .signed_eval_receipt import (RECEIPT_TYPE, _decode_point, _Fail, _has_order_l, _profile,
                                   verify_signed_eval_receipt)
@@ -189,6 +190,7 @@ def _sig_structure(protected_raw: bytes, payload: bytes) -> bytes:
     return _enc(["Signature1", protected_raw, b"", payload])
 
 
+@_ein_stand(fehler=ValueError)
 def cose_key_thumbprint(public_key: bytes) -> bytes:
     """RFC 9679 COSE Key Thumbprint with SHA-256 of a raw Ed25519 public key: SHA-256 over the deterministic
     encoding of the OKP key's required parameters {1 (kty): 1 (OKP), -1 (crv): 6 (Ed25519), -2 (x): key}."""
@@ -500,6 +502,7 @@ def _profile_holds(key: bytes, signature: bytes, message: bytes) -> bool:
 
 
 # ---- backward ----------------------------------------------------------------------------------------------
+@_ein_stand
 def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
                     statement_keys: Sequence[tuple[str, bytes]]) -> StatementCheck:
     """Check STATEMENT, a COSE_Sign1 under the rule of the module docstring, against RECEIPT, verified under
@@ -573,6 +576,7 @@ def _check(statement: bytes, *, receipt: bytes, receipt_key: bytes, statement_ke
 
 
 # ---- forward -----------------------------------------------------------------------------------------------
+@_ein_stand(aussen={"signer": "signierer"}, fehler=ReceiptCoseError)
 def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519PrivateKey, *, issuer: str,
                          alg: int = WRITE_ALG) -> bytes:
     """The COSE_Sign1 that cites RECEIPT under the rule of the module docstring, signed by SIGNER.

@@ -51,6 +51,7 @@ from typing import Any, Mapping, NamedTuple, Optional
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ._membership import is_member, require_switch
+from .canonical import _abbild_stand, _ein_stand
 from ._wire_b64 import decode_b64
 from .signature import plain_bytes, verify_ed25519_pinned
 
@@ -288,6 +289,7 @@ def _jcs(v: Any) -> str:
 
 
 # ---- pieces of the procedure ---------------------------------------------------------------------
+@_ein_stand
 def pae(typ: str, body: bytes) -> bytes:
     """The DSSE pre-authentication encoding, as the draft's Section 4.1 defines it."""
     t = typ.encode("utf-8")
@@ -474,6 +476,7 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
 
 
 # ---- public surface ---------------------------------------------------------------------------------
+@_ein_stand
 def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
     Section 5. Never raises. Each argument is read once, as the bytes it stores
@@ -498,6 +501,7 @@ def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     return ReceiptVerdict(True, None, None, "every step of Section 5 succeeds", b)
 
 
+@_ein_stand(fehler=ValueError, payload=_abbild_stand)
 def payload_bytes(payload: Mapping) -> bytes:
     """B for a payload given as a dict of str, bool and int: its RFC 8785 bytes, after the payload has
     passed steps 4 to 8 as a Receiver would apply them. Raises ValueError naming the first violation."""
@@ -532,6 +536,7 @@ def payload_bytes(payload: Mapping) -> bytes:
     return b
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=ValueError, payload=_abbild_stand)
 def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key_hint: bool = True) -> bytes:
     """The receipt bytes for PAYLOAD, signed by SIGNER. The receipt object is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
     returned, so this producer never hands out a receipt its own verifier refuses."""
@@ -558,6 +563,7 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key
     return out
 
 
+@_ein_stand
 def names_receipt_type(raw: bytes) -> bool:
     """True when RAW reads as a JSON object whose schema, after unescaping, is the receipt type. A
     dispatch question only, asked leniently (a byte order mark, bytes that are not UTF-8, trailing data
