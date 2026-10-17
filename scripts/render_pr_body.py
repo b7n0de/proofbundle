@@ -62,21 +62,12 @@ ISSUE_BLOECKE = (
     ("scope", "Scope"),
 )
 
-#: The footer, byte for byte, in every body this renderer writes. Owner order, section A: one line of
-#: marking, one line of measurement. It is a constant and not a template, because a footer that can be
-#: parameterised is a footer that will differ between two bodies and then means nothing.
-#:
-#: THE BLANK LINE BETWEEN THEM IS NOT DECORATION, and it is the one place where two of the order's
-#: own rules meet. Section A asks for two lines; the same order asks for one paragraph per line, and
-#: the checker that enforces it reads two adjacent non-empty prose lines as a wrapped paragraph.
-#: Measured on the first render: the checker reported the footer, and nothing else, as a hard wrap.
-#: Separating the two lines by a blank line keeps both lines and both rules, because the order says
-#: the footer is two lines and never says they are adjacent.
-FUSSBLOCK = (
-    "Written by an AI session of b7n0de under owner review.\n"
-    "\n"
-    "Measurement, not certification."
-)
+#: The footer, byte for byte, in every body this renderer writes. Owner word of 2026-10-17: one sentence,
+#: without brackets and without names; it replaced the two lines of 2026-09-27. It is a constant and not a
+#: template, because a footer that can be parameterised is a footer that will differ between two bodies
+#: and then means nothing. It is the footer `scripts/b7_pr_form_gate.py` requires, and
+#: tests/test_render_pr_body.py holds the two to one value.
+FUSSBLOCK = "Assisted by little helpers."
 
 #: Above this many lines an output block goes into a collapsed `details`, so a body stays readable.
 DETAILS_AB = 16
