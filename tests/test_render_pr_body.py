@@ -44,6 +44,15 @@ _rp = importlib.util.module_from_spec(_spec)
 sys.modules["_render_pr_body"] = _rp
 _spec.loader.exec_module(_rp)
 
+# The form gate in the same form, for the class guard at the end of this file: the footer stands in four places.
+FORM_GATE = REPO / "scripts" / "b7_pr_form_gate.py"
+_gate_spec = importlib.util.spec_from_file_location("_pr_form_gate_for_the_footer", FORM_GATE)
+_gate = importlib.util.module_from_spec(_gate_spec)
+sys.modules["_pr_form_gate_for_the_footer"] = _gate
+_gate_spec.loader.exec_module(_gate)
+PR_TEMPLATE = REPO / ".github" / "PULL_REQUEST_TEMPLATE" / "house.md"
+ISSUE_TEMPLATE = REPO / ".github" / "ISSUE_TEMPLATE" / "house_finding.yml"
+
 
 def _modul():
     return _rp
@@ -165,8 +174,7 @@ class TestDieTabelleUndDieGrenzen(unittest.TestCase):
 class TestDerFussblockIstEineKonstante(unittest.TestCase):
     def test_fussblock_byte_gleich(self):
         m = _modul()
-        erwartet = ("Written by an AI session of b7n0de under owner review.\n\n"
-                    "Measurement, not certification.")
+        erwartet = "Assisted by little helpers."
         self.assertEqual(m.FUSSBLOCK, erwartet)
         self.assertTrue(m.rendere(_quelle(), "pr").rstrip("\n").endswith(erwartet))
 
@@ -260,3 +268,45 @@ class TestDreiFundeAusDerDurchsichtVonPR261(unittest.TestCase):
         """GUARD in the counter-direction: the widening must not let real breaks through."""
         m = _modul()
         self.assertTrue(m._absatzfehler("f", "a paragraph that was wrapped\nby hand at some width"))
+
+
+def _last_text_line(text: str) -> str:
+    return next(z.strip() for z in reversed(text.splitlines()) if z.strip())
+
+
+class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
+    """Owner word of 2026-10-17: the footer is one sentence. It stands in four places, the gate that requires it, the
+    renderer that writes bodies, the pull request template and the issue template, and the change of 2026-10-17
+    touched all four by hand. The invariant is one value: every surface that writes the footer writes the one the gate
+    requires, and none of them still writes the old lines, so a later change to one place alone turns red here."""
+
+    OLD_LINES = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
+
+    def test_the_renderer_writes_the_gates_footer(self):
+        self.assertEqual(_rp.FUSSBLOCK, _gate.FOOTER)
+
+    def test_a_rendered_body_and_a_rendered_issue_pass_rule_b_of_the_gate(self):
+        quelle = {"kind": "issue", "observed": "One line.", "expected": "One line.", "scope": "One line.",
+                  "measured": [{"what": "a", "value": "b", "source": "c", "commit": "d"}]}
+        for kind, daten in (("pr", _quelle()), ("issue", quelle)):
+            with self.subTest(kind=kind):
+                self.assertTrue(_gate.ends_with_footer(_rp.rendere(daten, kind)))
+
+    def test_both_templates_end_with_the_gates_footer(self):
+        for vorlage in (PR_TEMPLATE, ISSUE_TEMPLATE):
+            with self.subTest(vorlage=vorlage.name):
+                self.assertEqual(_last_text_line(vorlage.read_text(encoding="utf-8")), _gate.FOOTER)
+
+    def test_no_surface_writes_the_old_lines(self):
+        for datei in (PR_TEMPLATE, ISSUE_TEMPLATE, SKRIPT):
+            text = datei.read_text(encoding="utf-8")
+            for zeile in self.OLD_LINES:
+                with self.subTest(datei=datei.name, zeile=zeile[:20]):
+                    self.assertNotIn(zeile, text)
+
+    def test_meta_a_template_left_on_the_old_lines_is_caught(self):
+        """The planted counter-probe: the pull request template as it stood before 2026-10-17 fails both template
+        checks above."""
+        alt = PR_TEMPLATE.read_text(encoding="utf-8").replace(_gate.FOOTER, "\n\n".join(self.OLD_LINES))
+        self.assertNotEqual(_last_text_line(alt), _gate.FOOTER)
+        self.assertIn(self.OLD_LINES[0], alt)

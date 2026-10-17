@@ -1,9 +1,11 @@
 """A pull request carries a milestone and ends its description with the house footer.
 
 Owner decision 2026-09-28: every pull request in this repository carries a milestone from the moment
-it opens. Its description ends with exactly the two lines of the house footer, and it carries no
-tool attribution, no session link and neither of the two retired closing sentences.
-`scripts/b7_pr_form_gate.py` judges the three from the event payload the runner writes.
+it opens. Its description ends with the house footer, and it carries no tool attribution, no session
+link and neither of the two retired closing sentences. Owner word of 2026-10-17: the footer is the one
+sentence `Assisted by little helpers.`; a pull request opened before the change may still end with the
+two lines of the old footer. `scripts/b7_pr_form_gate.py` judges the three from the event payload the
+runner writes.
 
 EVERY RULE HAS RED CASES ONLY IT CAN CATCH. An attribution placed before a correct footer is
 invisible to the footer rule, so only rule (c) can turn it red; a description with the footer and
@@ -32,20 +34,25 @@ _spec = importlib.util.spec_from_file_location(
 GATE = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(GATE)
 
+FOOTER = "Assisted by little helpers."
 LINE_1 = "Written by an AI session of b7n0de under owner review."
 LINE_2 = "Measurement, not certification."
-FOOTER = LINE_1 + "\n\n" + LINE_2
+OLD_FOOTER = LINE_1 + "\n\n" + LINE_2
 TEXT = "`abc1234` carries every change below.\n\n## Marking"
 BODY = TEXT + "\n\n" + FOOTER
+OLD_BODY = TEXT + "\n\n" + OLD_FOOTER
 MILESTONE = {"number": 2, "title": "6.3.0", "state": "open"}
+#: A pull request opened the evening before the change, and one opened at the moment of it.
+OPENED_BEFORE = "2026-10-16T22:28:28Z"
+OPENED_AT_THE_CHANGE = "2026-10-17T09:30:00Z"
 
 RETIRED_1 = ("Written by the operating agent under a standing owner authorisation for Codex threads; "
              "measurements are its own, at the head named above.")
 RETIRED_2 = "Prepared with AI agent involvement, reviewed and submitted under human oversight."
 
 
-def _judge(tmp_path, capsys, *, body=BODY, milestone=MILESTONE, drop=()):
-    pr = {"number": 1, "body": body, "milestone": milestone}
+def _judge(tmp_path, capsys, *, body=BODY, milestone=MILESTONE, drop=(), **extra):
+    pr = {"number": 1, "body": body, "milestone": milestone, **extra}
     for key in drop:
         del pr[key]
     event = tmp_path / "event.json"
@@ -150,23 +157,28 @@ def test_red_a_a_payload_without_the_milestone_field(tmp_path, capsys):
     None,
     "",
     TEXT,
-    TEXT + "\n\n" + LINE_2 + "\n\n" + LINE_1,
-    TEXT + "\n\n" + LINE_2,
-    TEXT + "\n\n" + LINE_1,
-    TEXT + "\n\n" + LINE_1 + "\n" + LINE_2,
-    TEXT + "\n\n" + LINE_1 + "\n\n\n" + LINE_2,
-    TEXT + "\n\n" + LINE_1 + "\n \n" + LINE_2,
+    TEXT + "\n\nAssisted by little helpers",
+    TEXT + "\n\nAssisted by little helpers (Claude).",
+    TEXT + "\n\nAssisted by little helpers (Claude, GPT).",
+    TEXT + "\n\nassisted by little helpers.",
+    TEXT + "\n\nAssisted  by little helpers.",
     BODY + " ",
     BODY + "\n\nThanks.",
     TEXT + "\n\n```\n" + FOOTER + "\n```",
     TEXT + "\n\nMarking: " + FOOTER,
-    BODY.replace("owner review", "owner review"),
-    BODY.replace("session", "ses​sion"),
-    BODY.replace("\n\n" + LINE_2, "\r\r" + LINE_2),
-    BODY.replace("certification", "certification\u0000"),
-], ids=["null", "empty", "no-footer", "swapped", "second-line-only", "first-line-only",
-        "no-blank-line", "two-blank-lines", "blank-line-with-space", "trailing-space", "text-after",
-        "in-a-code-fence", "glued-to-text", "no-break-space", "zero-width-space", "bare-cr", "nul"])
+    BODY.replace("little helpers", "little\u00a0helpers"),
+    BODY.replace("helpers", "hel\u200bpers"),
+    TEXT + "\r\r" + FOOTER,
+    BODY + "\u0000",
+    # the old lines in a form the old rule refused as well, whatever the pull request's age
+    TEXT + "\n\n" + LINE_2 + "\n\n" + LINE_1,
+    TEXT + "\n\n" + LINE_1,
+    TEXT + "\n\n" + LINE_1 + "\n" + LINE_2,
+    OLD_BODY + "\n\n" + "Thanks.",
+], ids=["null", "empty", "no-footer", "no-full-stop", "a-name-in-brackets", "two-names-in-brackets", "lower-case",
+        "two-spaces", "trailing-space", "text-after", "in-a-code-fence", "glued-to-text", "no-break-space",
+        "zero-width-space", "bare-cr", "nul", "old-lines-swapped", "old-first-line-only", "old-lines-no-blank-line",
+        "text-after-the-old-lines"])
 def test_red_b_the_description_does_not_end_with_the_footer(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 1
@@ -177,6 +189,52 @@ def test_red_b_a_description_of_another_type_is_not_measurable(tmp_path, capsys)
     code, out = _judge(tmp_path, capsys, body=["a", "list"])
     assert code == 1
     assert "(b)" in out and "NOT MEASURABLE" in out, out
+
+
+# ------------------------------------------------------------------------------------------------
+# (b) the transition from the two lines of the old footer to the one sentence
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body", [OLD_BODY, OLD_BODY + "\n", OLD_BODY.replace("\n", "\r\n"), OLD_FOOTER],
+                         ids=["old-body", "old-body-trailing-lf", "old-body-crlf", "old-footer-only"])
+def test_green_b_the_old_footer_on_a_pull_request_opened_before_the_change(tmp_path, capsys, body):
+    code, out = _judge(tmp_path, capsys, body=body, created_at=OPENED_BEFORE)
+    assert code == 0, out
+    assert out.splitlines()[0] == "pr-form: green"
+
+
+@pytest.mark.parametrize("created_at", [OPENED_AT_THE_CHANGE, "2026-10-17T09:30:01Z", "2026-10-17T09:38:37Z"],
+                         ids=["at-the-change", "one-second-after", "while-the-rule-was-written"])
+def test_red_b_the_old_footer_on_a_pull_request_opened_from_the_change_on(tmp_path, capsys, created_at):
+    code, out = _judge(tmp_path, capsys, body=OLD_BODY, created_at=created_at)
+    assert code == 1
+    assert _rules(out) == {"(b)"} and "opened after" in out and "NOT MEASURABLE" not in out, out
+
+
+@pytest.mark.parametrize("created_at", [None, "", "yesterday", 1760659708, "2026-10-16 22:28:28",
+                                        "2026-10-16T22:28:28+00:00", "2026-13-40T99:99:99Z"],
+                         ids=["null", "empty", "a-word", "a-number", "a-space-for-the-t", "an-offset", "no-date"])
+def test_red_b_the_old_footer_without_a_readable_created_at_is_not_measurable(tmp_path, capsys, created_at):
+    code, out = _judge(tmp_path, capsys, body=OLD_BODY, created_at=created_at)
+    assert code == 1
+    assert _rules(out) == {"(b)"} and "NOT MEASURABLE" in out, out
+
+
+def test_red_b_the_old_footer_in_a_payload_without_created_at_is_not_measurable(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, body=OLD_BODY)
+    assert code == 1
+    assert _rules(out) == {"(b)"} and "NOT MEASURABLE" in out, out
+
+
+@pytest.mark.parametrize("created_at", [OPENED_BEFORE, OPENED_AT_THE_CHANGE, None, "yesterday"],
+                         ids=["opened-before", "opened-at-the-change", "null", "unreadable"])
+def test_green_b_the_sentence_whatever_the_age_of_the_pull_request(tmp_path, capsys, created_at):
+    code, out = _judge(tmp_path, capsys, created_at=created_at)
+    assert code == 0, out
+
+
+def test_the_transition_moment_is_the_one_the_tests_name():
+    assert GATE.NEW_FOOTER_FROM.isoformat() == "2026-10-17T09:30:00+00:00"
 
 
 # ------------------------------------------------------------------------------------------------
@@ -451,4 +509,5 @@ def test_the_script_exits_0_and_1_when_the_step_runs_it(tmp_path):
 
 
 def test_the_footer_the_gate_holds_is_the_house_footer():
-    assert GATE.FOOTER == (LINE_1, LINE_2)
+    assert GATE.FOOTER == FOOTER
+    assert GATE.OLD_FOOTER == (LINE_1, LINE_2)
