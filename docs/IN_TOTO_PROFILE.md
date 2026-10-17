@@ -115,7 +115,9 @@ verifiers (eval-result, test-result, SVR) also require the Statement v1 layer un
 package knows must have that function's length in lowercase hex; under any other algorithm name it must be
 a non-empty string. A statement without that layer names no artifact and does not verify (`statement_ok`
 is `False`); every export function writes it, and verifying an attestation that released versions wrote
-gives the same verdict as before. Fields:
+gives the same verdict as before. The same rule judges the Statement of a decision, outcome, relation
+statement, verification summary, run ledger and trust pack, in the Python and the Rust verifier, since it
+stands in the one Statement oracle (`_statement_payload`). Fields:
 
 | field | meaning |
 |---|---|

@@ -22,7 +22,8 @@ from collections import Counter
 from typing import Any, Optional
 
 from ._membership import require_switch, type_name
-from ._statement_payload import statement_type_problem
+from ._statement_payload import (_HASH_FUNCTIONS, _LOWER_HEX_RE, _digest_set_problem, _nonempty_str,
+                                 statement_subject_problem, statement_type_problem)
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._wire_b64 import decode_b64
 from ._strict_json import loads_strict
@@ -527,9 +528,10 @@ def _signed_body_refusal(wo: str, exc: BaseException) -> BundleFormatError:
 
 def _statement_layer_problem(statement: Any) -> str:
     """'' when ``statement`` has the in-toto Statement v1 layer, else what is wrong with it: ``_type``
-    is Statement v1 (`_statement_payload.statement_type_problem`, the one ``_type`` oracle of the
-    package), and ``subject`` is a non-empty array whose every entry is an object carrying a usable
-    ``digest`` (`_digest_set_problem`, the one DigestSet rule of this module).
+    is Statement v1 (`_statement_payload.statement_type_problem`), and ``subject`` is a non-empty array
+    whose every entry is an object carrying a usable ``digest`` (`_statement_payload.statement_subject_problem`).
+    Both are the package's one Statement oracle, the rule every verifier that reads a Statement applies
+    since 2026-10-17; this function adds only the refusal of a statement that is no object.
 
     in-toto Statement v1 (spec/v1/statement.md) requires ``_type`` and ``subject``, and each subject
     element MUST have ``digest`` set, because subject artifacts are matched purely by digest. A
@@ -550,25 +552,7 @@ def _statement_layer_problem(statement: Any) -> str:
     this module does not know needs only a non-empty string (`_digest_set_problem`)."""
     if not isinstance(statement, dict):
         return f"statement must be a JSON object, got {type(statement).__name__}"
-    typ_problem = statement_type_problem(statement)
-    if typ_problem is not None:
-        return typ_problem
-    if "subject" not in statement:
-        return "subject is required: a non-empty array of ResourceDescriptors, each with a digest"
-    subject = statement["subject"]
-    if not isinstance(subject, list):
-        return f"subject must be an array of ResourceDescriptors, got {type(subject).__name__}"
-    if not subject:
-        return "subject must name at least one artifact, got an empty array"
-    for i, eintrag in enumerate(subject):
-        if not isinstance(eintrag, dict):
-            return f"subject[{i}] must be a ResourceDescriptor object, got {type(eintrag).__name__}"
-        if "digest" not in eintrag:
-            return f"subject[{i}] MUST carry digest (subject artifacts are matched by digest alone)"
-        problem = _digest_set_problem(eintrag["digest"])
-        if problem:
-            return f"subject[{i}]: {problem}"
-    return ""
+    return statement_type_problem(statement) or statement_subject_problem(statement) or ""
 
 
 def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
@@ -1288,29 +1272,16 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
 _URI_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z")
 _RFC3339_RE = re.compile(
     r"\A(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))\Z")
-_LOWER_HEX_RE = re.compile(r"\A[0-9a-f]+\Z")
 # The claim builder's grammar for a decimal string (evalclaim._DECIMAL_RE): the draft says "decimal
 # string" and gives no grammar, so this is the reading implemented (ambiguity A3, docs/IN_TOTO_PROFILE.md).
 _DECIMAL_STRING_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
-# ONE TABLE for the form of a digest and for its comparison with `content`: each hash function by the name hashlib
-# knows it under, beside the length of its hex output. A digest under one of these names that has another length,
-# or is not lowercase hex, names no content; with `content` present, its digest over the decoded bytes is
-# recomputed. Every other algorithm name only needs a non-empty string, and its digest is not compared with the
-# content (A9 in docs/IN_TOTO_PROFILE.md).
-# Until K1 of the Codex defect search of the 6.3.0 candidate 98b168b9 these were two tables: the form named twelve
-# functions, the comparison eight. Under md5, sha3_224, sha512_224 and sha512_256 a well-formed digest of other
-# bytes verified ok=True at subject, model, dataset and evidence, and the v0.2 exporter wrote such a descriptor.
-_HASH_FUNCTIONS = (("md5", 32), ("sha1", 40), ("sha224", 56), ("sha256", 64), ("sha384", 96),
-                   ("sha512", 128), ("sha512_224", 56), ("sha512_256", 64), ("sha3_224", 56),
-                   ("sha3_256", 64), ("sha3_384", 96), ("sha3_512", 128))
+# `_HASH_FUNCTIONS`, `_LOWER_HEX_RE`, `_nonempty_str` and `_digest_set_problem` stand in `_statement_payload`
+# since 2026-10-17, beside the Statement oracle that judges every subject by them: one table for the form of a
+# digest and for its comparison with `content`, and one DigestSet rule for every place a digest stands.
 _V02_COMPARATORS = (">=", ">", "<=", "<")
 _V02_ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
 _RD_STRING_FIELDS = ("name", "uri", "mediaType", "downloadLocation", "content")
 _MAX_SAFE_INT = 2 ** 53 - 1
-
-
-def _nonempty_str(value: Any) -> bool:
-    return isinstance(value, str) and bool(value)
 
 
 def _is_rfc3339(value: Any) -> bool:
@@ -1330,23 +1301,6 @@ def _is_rfc3339(value: Any) -> bool:
     if m.group(8) is not None and (int(m.group(8)) > 23 or int(m.group(9)) > 59):
         return False
     return True
-
-
-def _digest_set_problem(value: Any) -> str:
-    """'' for a usable DigestSet, else what is wrong with it."""
-    if not isinstance(value, dict):
-        return f"digest must be a DigestSet object, got {type(value).__name__}"
-    if not value:
-        return "digest is empty"
-    for alg, hexval in value.items():
-        if not _nonempty_str(alg):
-            return "digest has an empty algorithm name"
-        if not _nonempty_str(hexval):
-            return f"digest {alg[:40]!r} must be a non-empty string"
-        for name, length in _HASH_FUNCTIONS:
-            if alg == name and (len(hexval) != length or not _LOWER_HEX_RE.match(hexval)):
-                return f"digest {alg!r} must be {length} lowercase hex characters"
-    return ""
 
 
 def _descriptor_problem(value: Any, where: str) -> str:

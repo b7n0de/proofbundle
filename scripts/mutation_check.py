@@ -264,6 +264,12 @@ MUTATIONS = [
      "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
      "    ok = bool(sig_ok) and binding_ok",
      "intoto: predicateType-confusion enforcement disabled", True),
+    # The neighbour of L5-03 (2026-10-17) — the one Statement oracle reads the subject; dropping that check
+    # lets every structure_ok verifier accept a statement that names no artifact.
+    ("src/proofbundle/_statement_payload.py",
+     "    if subject_error is not None:",
+     "    if False:",
+     "statement oracle: subject rule dropped (a statement without a subject is a well-formed statement)", True),
     # L5-03 (2026-10-17) — the in-toto Statement v1 layer (`_type`, a subject whose every entry carries a
     # digest) is part of the verdict of the three in-toto verifiers; dropping it must go red.
     ("src/proofbundle/intoto.py",

@@ -153,7 +153,8 @@ SINGLE_SIGNER = {"decision": _decision, "outcome": _outcome, "relation_statement
 class TheOracle(unittest.TestCase):
 
     def test_the_right_type_passes_and_every_wrong_one_is_named(self):
-        good = {"_type": STATEMENT_TYPE, "subject": [], "predicateType": "x", "predicate": {}}
+        good = {"_type": STATEMENT_TYPE, "subject": [{"digest": {"sha256": "a" * 64}}],
+                "predicateType": "x", "predicate": {}}
         self.assertEqual(load_statement_strict(json.dumps(good).encode()), good)
         for label, value in WRONG_TYPES.items():
             with self.subTest(type=label), self.assertRaises(BundleFormatError) as ctx:

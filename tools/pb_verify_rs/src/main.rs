@@ -526,20 +526,141 @@ const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 /// read it back, so a receipt with `_type` absent, null or v0.1 reached structure_ok=true. Python now
 /// refuses such a payload before any predicate is read; this side does the same, or the two would
 /// disagree on exactly those bytes.
+///
+/// The subject is part of the same gate since 2026-10-17 (mirror of `statement_subject_problem`): on main
+/// 570dd164 this verifier exited 0 on both relation subcommands and on the trust-pack threshold for a
+/// statement without a subject, with an empty subject, with subject null and with an entry without a
+/// digest, and so did Python on the same bytes. Both now refuse them, word for word.
 fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
     if !statement.is_object() {
         return Some("DSSE payload is not a JSON object — not an in-toto Statement".into());
     }
     match statement.get("_type") {
-        None => Some(format!(
-            "DSSE payload is not an in-toto Statement v1: _type is absent, expected '{INTOTO_STATEMENT_TYPE}'"
-        )),
-        Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => None,
-        Some(v) => Some(format!(
-            "DSSE payload is not an in-toto Statement v1: _type is {}, expected '{INTOTO_STATEMENT_TYPE}'",
-            wie_python_zeigt(v)
-        )),
+        None => {
+            return Some(format!(
+                "DSSE payload is not an in-toto Statement v1: _type is absent, expected '{INTOTO_STATEMENT_TYPE}'"
+            ))
+        }
+        Some(serde_json::Value::String(s)) if s == INTOTO_STATEMENT_TYPE => {}
+        Some(v) => {
+            return Some(format!(
+                "DSSE payload is not an in-toto Statement v1: _type is {}, expected '{INTOTO_STATEMENT_TYPE}'",
+                wie_python_zeigt(v)
+            ))
+        }
     }
+    statement_subjekt_problem(statement)
+        .map(|p| format!("DSSE payload is not an in-toto Statement v1: {p}"))
+}
+
+/// The hash functions of Python `_statement_payload._HASH_FUNCTIONS`, by the name hashlib knows them
+/// under, beside the length of their hex output: the one table for the form of a subject digest. Every
+/// other algorithm name needs only a non-empty string.
+const HASH_FUNKTIONEN: &[(&str, usize)] = &[
+    ("md5", 32),
+    ("sha1", 40),
+    ("sha224", 56),
+    ("sha256", 64),
+    ("sha384", 96),
+    ("sha512", 128),
+    ("sha512_224", 56),
+    ("sha512_256", 64),
+    ("sha3_224", 56),
+    ("sha3_256", 64),
+    ("sha3_384", 96),
+    ("sha3_512", 128),
+];
+
+/// Python's `type(v).__name__` for a value as its strict JSON reader builds it.
+fn python_typname(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "NoneType",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "int",
+        serde_json::Value::Number(_) => "float",
+        serde_json::Value::String(_) => "str",
+        serde_json::Value::Array(_) => "list",
+        serde_json::Value::Object(_) => "dict",
+    }
+}
+
+/// Mirror of Python `_statement_payload._digest_set_problem`: what is wrong with a DigestSet, or None.
+fn digest_set_problem(v: &serde_json::Value) -> Option<String> {
+    let Some(obj) = v.as_object() else {
+        return Some(format!(
+            "digest must be a DigestSet object, got {}",
+            python_typname(v)
+        ));
+    };
+    if obj.is_empty() {
+        return Some("digest is empty".into());
+    }
+    for (alg, wert) in obj {
+        if alg.is_empty() {
+            return Some("digest has an empty algorithm name".into());
+        }
+        let hexwert = match wert {
+            serde_json::Value::String(s) if !s.is_empty() => s,
+            _ => {
+                let kurz: String = alg.chars().take(40).collect();
+                return Some(format!(
+                    "digest {} must be a non-empty string",
+                    python_repr(&kurz)
+                ));
+            }
+        };
+        for (name, laenge) in HASH_FUNKTIONEN {
+            if alg == name
+                && (hexwert.chars().count() != *laenge
+                    || !hexwert
+                        .bytes()
+                        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+            {
+                return Some(format!(
+                    "digest {} must be {laenge} lowercase hex characters",
+                    python_repr(alg)
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Mirror of Python `_statement_payload.statement_subject_problem`: why the subject of a Statement
+/// object names no artifact an in-toto consumer could match by digest, or None.
+fn statement_subjekt_problem(statement: &serde_json::Value) -> Option<String> {
+    let Some(subject) = statement.get("subject") else {
+        return Some(
+            "subject is required: a non-empty array of ResourceDescriptors, each with a digest"
+                .into(),
+        );
+    };
+    let Some(eintraege) = subject.as_array() else {
+        return Some(format!(
+            "subject must be an array of ResourceDescriptors, got {}",
+            python_typname(subject)
+        ));
+    };
+    if eintraege.is_empty() {
+        return Some("subject must name at least one artifact, got an empty array".into());
+    }
+    for (i, eintrag) in eintraege.iter().enumerate() {
+        let Some(obj) = eintrag.as_object() else {
+            return Some(format!(
+                "subject[{i}] must be a ResourceDescriptor object, got {}",
+                python_typname(eintrag)
+            ));
+        };
+        let Some(digest) = obj.get("digest") else {
+            return Some(format!(
+                "subject[{i}] MUST carry digest (subject artifacts are matched by digest alone)"
+            ));
+        };
+        if let Some(p) = digest_set_problem(digest) {
+            return Some(format!("subject[{i}]: {p}"));
+        }
+    }
+    None
 }
 
 /// A value as Python's `budget.render_safe` shows it in a refusal, for the cases this verifier meets:
@@ -3518,6 +3639,7 @@ mod tests {
             .collect();
         let statement = serde_json::json!({
             "_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"digest": {"sha256": "0".repeat(64)}}],
             "predicate": {"keys": keys, "roles": {"root": {"keyIds": kids, "threshold": 1}}}
         });
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3679,14 +3801,23 @@ mod tests {
         let e = verify_trust_pack_threshold(&leer)
             .expect_err("an empty signature list produced a threshold verdict");
         assert_eq!(e, LEERE_SIGNATURLISTE);
-        // With a list present, the statement is judged next: its `_type` first, then its predicate.
+        // With a list present, the statement is judged next: its `_type` first, then its subject (since
+        // 2026-10-17), then its predicate.
         let voll = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
                                       "payload": "e30=", "signatures": [{"keyid": "k", "sig": "AA=="}]});
         let e = verify_trust_pack_threshold(&voll).expect_err("a payload without _type passed");
         assert!(e.contains("_type is absent"), "{e}");
         let std = base64::engine::general_purpose::STANDARD;
-        let ohne_praedikat = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+        let ohne_subjekt = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
             "payload": std.encode(serde_json::to_vec(&serde_json::json!({"_type": INTOTO_STATEMENT_TYPE}))
+                .expect("json")),
+            "signatures": [{"keyid": "k", "sig": "AA=="}]});
+        let e = verify_trust_pack_threshold(&ohne_subjekt)
+            .expect_err("a statement without a subject passed");
+        assert!(e.contains("subject is required"), "{e}");
+        let ohne_praedikat = serde_json::json!({"payloadType": "application/vnd.in-toto+json",
+            "payload": std.encode(serde_json::to_vec(&serde_json::json!({"_type": INTOTO_STATEMENT_TYPE,
+                "subject": [{"digest": {"sha256": "0".repeat(64)}}]}))
                 .expect("json")),
             "signatures": [{"keyid": "k", "sig": "AA=="}]});
         let e = verify_trust_pack_threshold(&ohne_praedikat)
@@ -3778,6 +3909,76 @@ mod tests {
                 e.contains("not an in-toto Statement v1: _type is"),
                 "{name}: {e}"
             );
+        }
+    }
+
+    #[test]
+    fn a_statement_without_a_usable_subject_is_no_statement() {
+        // 2026-10-17, the neighbour of L5-03: the subject belongs to the one Statement gate, with the words of
+        // Python `_statement_payload.statement_subject_problem` (each expected text is Python's refusal).
+        let basis = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicateType": "x", "predicate": {}});
+        let mit = |subjekt: Option<serde_json::Value>| {
+            let mut s = basis.clone();
+            if let Some(v) = subjekt {
+                s["subject"] = v;
+            }
+            statement_typ_problem(&s)
+        };
+        let vorne = "DSSE payload is not an in-toto Statement v1: ";
+        for (subjekt, erwartet) in [
+            (
+                None,
+                "subject is required: a non-empty array of ResourceDescriptors, each with a digest",
+            ),
+            (
+                Some(serde_json::Value::Null),
+                "subject must be an array of ResourceDescriptors, got NoneType",
+            ),
+            (
+                Some(serde_json::json!([])),
+                "subject must name at least one artifact, got an empty array",
+            ),
+            (
+                Some(serde_json::json!(["a"])),
+                "subject[0] must be a ResourceDescriptor object, got str",
+            ),
+            (
+                Some(serde_json::json!([{"name": "a"}])),
+                "subject[0] MUST carry digest (subject artifacts are matched by digest alone)",
+            ),
+            (
+                Some(serde_json::json!([{"digest": 1.5}])),
+                "subject[0]: digest must be a DigestSet object, got float",
+            ),
+            (
+                Some(serde_json::json!([{"digest": {}}])),
+                "subject[0]: digest is empty",
+            ),
+            (
+                Some(serde_json::json!([{"digest": {"": "a"}}])),
+                "subject[0]: digest has an empty algorithm name",
+            ),
+            (
+                Some(serde_json::json!([{"digest": {"x'y": 5}}])),
+                "subject[0]: digest \"x'y\" must be a non-empty string",
+            ),
+            (
+                Some(serde_json::json!([{"digest": {"sha256": "A".repeat(64)}}])),
+                "subject[0]: digest 'sha256' must be 64 lowercase hex characters",
+            ),
+        ] {
+            assert_eq!(
+                mit(subjekt.clone()),
+                Some(format!("{vorne}{erwartet}")),
+                "{subjekt:?}"
+            );
+        }
+        // CONTROL: what the spec allows passes, an algorithm name this verifier does not know included.
+        for subjekt in [
+            serde_json::json!([{"digest": {"sha256": "a".repeat(64)}}]),
+            serde_json::json!([{"digest": {"x": "y"}}, {"name": "b", "digest": {"sha512": "b".repeat(128)}}]),
+        ] {
+            assert_eq!(mit(Some(subjekt.clone())), None, "{subjekt:?}");
         }
     }
 
@@ -3934,7 +4135,8 @@ mod tests {
         let mut i2 = identitaet();
         i2[31] = 0x80;
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"digest": {"sha256": "0".repeat(64)}}], "predicate": {
             "keys": {"l1": {"publicKey": std.encode(identitaet())}, "l2": {"publicKey": std.encode(i2)}},
             "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}});
         let body = serde_json::to_vec(&statement).expect("json");
@@ -3952,7 +4154,8 @@ mod tests {
     fn a_weak_key_in_any_role_refuses_the_pack() {
         // Lens 2 (L2-PK-01): a weak key outside the root role, next to a root the slice would accept.
         let std = base64::engine::general_purpose::STANDARD;
-        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE, "predicate": {
+        let statement = serde_json::json!({"_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"digest": {"sha256": "0".repeat(64)}}], "predicate": {
             "keys": {"r1": {"publicKey": gueltiger_pubkey_b64()},
                      "dm1": {"publicKey": std.encode([0u8; 32])}},
             "roles": {"root": {"keyIds": ["r1"], "threshold": 1},
