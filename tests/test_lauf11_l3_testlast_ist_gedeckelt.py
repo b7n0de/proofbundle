@@ -386,28 +386,117 @@ def last_achsen(dateien) -> set[str]:
     return achsen
 
 
-def typed_costs_below_the_table(path: Path, table: dict) -> list[str]:
-    """'file:line axis: ...' for every call `gedeckelt(<budget>.<axis>, bytes_je_element=<int literal>)` whose
-    literal lies below the measured entry of its axis in `tests/_lastdeckel.py`, or names an axis the table does not
-    carry. A typed number below the entry makes the cap laxer than the 64 MiB it promises; reading the table, or a
-    typed number at or above the entry, is allowed. Code inside string literals (planted cases) is not a call."""
+#: The module that defines the cap and the table; a binding from anywhere else is not the measured table.
+_CAP_MODULES = ("_lastdeckel", "tests._lastdeckel")
+
+
+def _cap_bindings(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
+    """(cap names, table names, module expressions) of one file, read from its imports.
+
+    A table name counts only when every binding of that name in the file is the import of `KOSTEN_JE_ELEMENT` from
+    the cap module. A file that also assigns, imports from elsewhere or takes a parameter of that name has a second
+    meaning for it, and the guard cannot tell which one a call reads."""
+    caps = {"gedeckelt"}
+    tables: set[str] = set()
+    modules: set[str] = set()
+    other: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                bound = a.asname or a.name
+                if node.module in _CAP_MODULES and a.name == "gedeckelt":
+                    caps.add(bound)
+                elif node.module in _CAP_MODULES and a.name == "KOSTEN_JE_ELEMENT":
+                    tables.add(bound)
+                else:
+                    other.add(bound)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in _CAP_MODULES:
+                    modules.add(a.asname or a.name)
+                else:
+                    other.add(a.asname or a.name.split(".")[0])
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            other.add(node.id)
+        elif isinstance(node, ast.arg):
+            other.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            other.add(node.name)
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            other.add(node.name)
+    return caps, tables - other, modules
+
+
+def _is_the_table(node: ast.AST, tables: set[str], modules: set[str]) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in tables
+    return (isinstance(node, ast.Attribute) and node.attr == "KOSTEN_JE_ELEMENT"
+            and ast.unparse(node.value) in modules)
+
+
+def _unproven_cap_call(call: ast.Call, table: dict, budget, tables: set[str], modules: set[str]) -> str | None:
+    """Why the cost of this call is not proven to be at least the measured entry of its axis, or None.
+
+    Two forms are proven, and only these: the entry of the same axis read from the table, and an int literal at or
+    above that entry. Everything else is a finding, because a form the guard does not read is a form it cannot vouch
+    for."""
+    # A `**` argument has the key None here, so the same check refuses it.
+    named = {kw.arg: kw.value for kw in call.keywords}
+    if len(call.args) > 1 or set(named) - {"wert", "bytes_je_element"} or (call.args and "wert" in named):
+        return "passes arguments the cap does not take in this form, ** arguments included"
+    value = call.args[0] if call.args else named.get("wert")
+    if not (isinstance(value, ast.Attribute) and _ist_budget_objekt(value.value, *budget)):
+        return "caps a value that is not read from the budget object, so the guard cannot tell its axis"
+    axis = value.attr
+    if axis not in table:
+        return f"{axis}: the table has no entry for this axis"
+    cost = named.get("bytes_je_element")
+    if isinstance(cost, ast.Constant) and type(cost.value) is int:
+        if cost.value < table[axis]:
+            return f"{axis}: typed {cost.value} B below the table's {table[axis]} B"
+        return None
+    if isinstance(cost, ast.Subscript) and _is_the_table(cost.value, tables, modules):
+        key = cost.slice
+        if isinstance(key, ast.Constant) and key.value == axis:
+            return None
+        return f"{axis}: reads the entry {ast.unparse(key)} of the table instead of its own axis"
+    shown = "nothing" if cost is None else ast.unparse(cost)[:60]
+    return f"{axis}: the cost {shown} is neither the table entry of this axis nor a number the guard can compare"
+
+
+def unproven_cap_costs(path: Path, table: dict) -> list[str]:
+    """'file:line problem' for every use of the cap `gedeckelt` whose cost per element the guard cannot prove to be
+    at least the measured entry of its axis in `tests/_lastdeckel.py`.
+
+    FAIL CLOSED. The first form of this guard checked only `gedeckelt(<budget>.<axis>, bytes_je_element=<int>)` and
+    passed every other form in silence; a counter review on 2026-10-17 planted a cost of 8 against the entry 48 in
+    seven forms it did not read (a named constant, the budget value by keyword or through a variable, an
+    expression, a table lookup minus a number, `**` arguments, an aliased import) and one lookup of the wrong axis,
+    and every one passed. So every use of the cap is judged here, a call through an imported alias or a module
+    attribute included, and a use that is not a direct call is a finding of its own. Code inside string literals
+    (planted cases) is not a use."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except SyntaxError:
         return []
+    caps, tables, modules = _cap_bindings(tree)
+    budget = _budget_bindungen(tree)
+    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     found = []
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "gedeckelt" and node.args
-                and isinstance(node.args[0], ast.Attribute)):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in caps:
+            pass
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load) and node.attr == "gedeckelt":
+            pass
+        else:
             continue
-        axis = node.args[0].attr
-        cost = next((kw.value for kw in node.keywords if kw.arg == "bytes_je_element"), None)
-        if not (isinstance(cost, ast.Constant) and type(cost.value) is int):
-            continue
-        if axis not in table:
-            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B, the table has no entry")
-        elif cost.value < table[axis]:
-            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B below the table's {table[axis]} B")
+        parent = parents.get(id(node))
+        if isinstance(parent, ast.Call) and parent.func is node:
+            problem = _unproven_cap_call(parent, table, budget, tables, modules)
+        else:
+            problem = "uses the cap other than in a direct call, so the guard cannot read what it caps"
+        if problem:
+            found.append(f"{path.name}:{node.lineno} {problem}")
     return found
 
 
@@ -637,39 +726,89 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], max(geteilt, ungeteilt))
 
-    def test_no_typed_cost_per_element_lies_below_the_table(self):
+    def test_every_cap_cost_is_proven_at_least_the_table(self):
         """Measured 2026-10-16 on the head of pull request 354: 19 calls in eight test files gave `gedeckelt` a typed
         cost per element below the table, 8 B for json_nodes against 48, 256 B for signatures against 320 and 64 B
         for merkle_path against 128. Under the current budget that changes nothing, but under a mutant that raises
         the budget, `list(range(gedeckelt(B.json_nodes, bytes_je_element=8)))` admitted about five times the memory
-        the cap promises. The same class as the default of 64 that the docstring of `gedeckelt` names."""
+        the cap promises. The same class as the default of 64 that the docstring of `gedeckelt` names. Every use of
+        the cap in the test files must carry a cost the guard can prove, see `unproven_cap_costs`."""
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         found = []
         for f in alle_testdateien():
-            found.extend(typed_costs_below_the_table(f, KOSTEN_JE_ELEMENT))
-        self.assertEqual(found, [], "these calls give the cap a cost per element below the measured table:\n  "
-                         + "\n  ".join(found))
+            found.extend(unproven_cap_costs(f, KOSTEN_JE_ELEMENT))
+        self.assertEqual(found, [], "these uses of the cap carry a cost per element the guard cannot prove to be at "
+                         "least the measured table:\n  " + "\n  ".join(found))
 
-    def test_meta_a_planted_typed_cost_below_the_table_is_caught(self):
-        """Planted cases for the guard above: one below the entry and one axis without an entry are caught; a typed
-        number at the entry, a table lookup and a call inside a string are not."""
+    def test_meta_every_unproven_form_of_a_cap_is_caught(self):
+        """Planted cases for the guard above, each with a cost below the entry or a form the guard cannot read: all of
+        them are caught, each on its own line. The forms come from the counter review of 2026-10-17, which planted
+        them against the first form of the guard and saw every one pass. The proven forms (a number at the entry, the
+        entry read from the table by its name, its alias or its module, the budget value by keyword) and a call inside
+        a string are not caught."""
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         entry = KOSTEN_JE_ELEMENT["json_nodes"]
-        source = (
+        lines = [
+            ("from proofbundle.budget import DEFAULT_BUDGET as B", False),
+            ("import _lastdeckel", False),
+            ("import _lastdeckel as ld", False),
+            ("from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt", False),
+            ("from _lastdeckel import KOSTEN_JE_ELEMENT as K, gedeckelt as cap", False),
+            ("from functools import partial", False),
+            (f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})", False),
+            ("lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])", False),
+            ("alias_lookup = gedeckelt(B.json_nodes, bytes_je_element=K['json_nodes'])", False),
+            ("module_lookup = gedeckelt(B.json_nodes, bytes_je_element=_lastdeckel.KOSTEN_JE_ELEMENT['json_nodes'])",
+             False),
+            (f"by_keyword = gedeckelt(wert=B.json_nodes, bytes_je_element={entry})", False),
+            ("text = 'gedeckelt(B.json_nodes, bytes_je_element=1)'", False),
+            (f"below = gedeckelt(B.json_nodes, bytes_je_element={entry - 1})", True),
+            ("unknown = gedeckelt(B.no_such_axis, bytes_je_element=4096)", True),
+            ("_COST = 8", False),
+            ("named_cost = gedeckelt(B.json_nodes, bytes_je_element=_COST)", True),
+            (f"keyword_below = gedeckelt(wert=B.json_nodes, bytes_je_element={entry - 1})", True),
+            ("n = B.json_nodes", False),
+            (f"named_value = gedeckelt(n, bytes_je_element={entry})", True),
+            ("expression = gedeckelt(B.json_nodes, bytes_je_element=4 * 2)", True),
+            ("lookup_minus = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'] - 40)", True),
+            ("star = gedeckelt(B.json_nodes, **{'bytes_je_element': 8})", True),
+            ("options = {}", False),
+            (f"star_beside = gedeckelt(B.json_nodes, bytes_je_element={entry}, **options)", True),
+            ("positional = gedeckelt(B.json_nodes, 8)", True),
+            (f"positional_beside = gedeckelt(B.json_nodes, 8, bytes_je_element={entry})", True),
+            (f"value_twice = gedeckelt(B.json_nodes, wert=B.json_nodes, bytes_je_element={entry})", True),
+            ("class Other: json_nodes = 10 ** 12", False),
+            (f"other_object = gedeckelt(Other.json_nodes, bytes_je_element={entry})", True),
+            ("aliased = cap(B.json_nodes, bytes_je_element=8)", True),
+            ("through_module = ld.gedeckelt(B.json_nodes, bytes_je_element=8)", True),
+            ("other_axis = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['string_len'])", True),
+            ("not_a_call = partial(gedeckelt, bytes_je_element=8)", True),
+            (f"not_the_budget = gedeckelt(len('abc'), bytes_je_element={entry})", True),
+        ]
+        shadowed = (
             "from proofbundle.budget import DEFAULT_BUDGET as B\n"
             "from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt\n"
-            f"below = gedeckelt(B.json_nodes, bytes_je_element={entry - 1})\n"
-            f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})\n"
-            "lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n"
-            "unknown = gedeckelt(B.no_such_axis, bytes_je_element=4096)\n"
-            "text = 'gedeckelt(B.json_nodes, bytes_je_element=1)'\n")
+            "KOSTEN_JE_ELEMENT = {'json_nodes': 8}\n"
+            "shadowed = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n")
+        elsewhere = (
+            "from proofbundle.budget import DEFAULT_BUDGET as B\n"
+            "from _lastdeckel import gedeckelt\n"
+            "from somewhere_else import KOSTEN_JE_ELEMENT\n"
+            "elsewhere = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n")
         with tempfile.TemporaryDirectory() as d:
             planted = Path(d) / "test_planted.py"
-            planted.write_text(source, encoding="utf-8")
-            found = typed_costs_below_the_table(planted, KOSTEN_JE_ELEMENT)
-        self.assertEqual([f.split(" ", 1)[0] for f in found], ["test_planted.py:3", "test_planted.py:6"], found)
+            planted.write_text("\n".join(line for line, _ in lines) + "\n", encoding="utf-8")
+            found = unproven_cap_costs(planted, KOSTEN_JE_ELEMENT)
+            (Path(d) / "test_shadowed.py").write_text(shadowed, encoding="utf-8")
+            (Path(d) / "test_elsewhere.py").write_text(elsewhere, encoding="utf-8")
+            found_shadowed = unproven_cap_costs(Path(d) / "test_shadowed.py", KOSTEN_JE_ELEMENT)
+            found_elsewhere = unproven_cap_costs(Path(d) / "test_elsewhere.py", KOSTEN_JE_ELEMENT)
+        expected = [f"test_planted.py:{i}" for i, (_, caught) in enumerate(lines, start=1) if caught]
+        self.assertEqual(sorted(f.split(" ", 1)[0] for f in found), sorted(expected), found)
+        self.assertEqual([f.split(" ", 1)[0] for f in found_shadowed], ["test_shadowed.py:4"], found_shadowed)
+        self.assertEqual([f.split(" ", 1)[0] for f in found_elsewhere], ["test_elsewhere.py:4"], found_elsewhere)
 
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle
