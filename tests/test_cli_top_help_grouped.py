@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import re
 
 import pytest
 
@@ -177,4 +178,9 @@ def test_a_missing_or_unknown_command_still_names_the_choices():
     with contextlib.redirect_stderr(err), pytest.raises(SystemExit) as ctx:
         cli.main(["no-such-command"])
     assert ctx.value.code == 2
-    assert "invalid choice" in err.getvalue() and "'verify'" in err.getvalue()
+    text = err.getvalue()
+    assert "invalid choice" in text, text
+    # argparse lists the choices bare under Python 3.12 and quoted under 3.10, 3.11, 3.13 and 3.14
+    # (measured 2026-10-17), so the command name is matched as a word of the list in either style.
+    choices = text.split("choose from", 1)[-1]
+    assert re.search(r"(?<![\w-])'?verify'?(?![\w-])", choices), text
