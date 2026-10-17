@@ -709,6 +709,9 @@ _RULE_SITES = {
                                                          "writes nothing"),
     ("src/proofbundle/policy.py", "evaluate_decision_policy"): (1, "verifier: the same"),
     ("src/proofbundle/policy_profiles.py", "instantiate_template"): (1, "PRODUCER, ProducersOfKeyText"),
+    ("src/proofbundle/receipt_cose.py", "_statement_keys"): (1, "verifier: the relying party's statement keys, "
+                                                                 "each read once by plain_bytes and used as "
+                                                                 "read; compared and verified, never written"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/signature.py", "verify_ed25519_pinned"): (1, "the verify primitive"),
     ("src/proofbundle/trust_pack.py", "validate_trust_pack_predicate"): (
