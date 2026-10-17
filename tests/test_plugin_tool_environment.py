@@ -49,7 +49,7 @@ def layout(tmp_path):
 
 def _command(form: str, layout, tmp_path) -> str:
     main, scope, message = layout
-    second = tmp_path / "mnt" / "bigstore" / "claude_worktrees" / "scope_632"
+    second = tmp_path / "mnt" / "speicher" / "claude_worktrees" / "scope_632"
     return {
         "log": "git log -3 --oneline",
         "diff": f"git -C {scope} diff --no-ext-diff --no-textconv --stat",

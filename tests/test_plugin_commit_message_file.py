@@ -1,6 +1,6 @@
 """D40, part 2 of Nachtrag 15: `git commit -F <literal file>` counts as a message, as `-m` does.
 
-Measured in the pilot at 14a5feb1: `git -C … commit -q -F /mnt/bigstore/claude_scratch/…/commit_message_scope_631.txt`
+Measured in the pilot at 14a5feb1: `git -C … commit -q -F /mnt/<speicher>/claude_scratch/…/commit_message_scope_631.txt`
 asked; _plain_add_commit knew only `-m`, and a message from a file is the house rule for longer commit texts. Now `-F
 <file>` and `--file=<file>` count as a message, with and without the `-C` of part 1, after the same state check. Not
 free stay: `-F -` (the message from standard input), a file the shell may rewrite, `--file <file>` as two words, an `F`

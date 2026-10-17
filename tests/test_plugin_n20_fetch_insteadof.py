@@ -1,7 +1,7 @@
 """D51, Ergänzung 1 to Nachtrag 20, part 5: url.<base>.insteadOf counts for the fetch of D45 only where it acts on it.
 
-Measured by delta at a8ca017a: `git -C /home/konrad/2bedone fetch -q github main` asked for
-url.https://github.com/.insteadof in the global configuration /home/konrad/.gitconfig.
+Measured by delta at a8ca017a: `git -C /home/<nutzer>/2bedone fetch -q github main` asked for
+url.https://github.com/.insteadof in the global configuration /home/<nutzer>/.gitconfig.
 
 Ground truth at the stand-in for github.com (truth_n20_fetch.py of the delivery, git 2.43.0 under strace -f): git puts
 the base in place of the longest insteadOf value that is a prefix of the URL. A value that is no prefix of

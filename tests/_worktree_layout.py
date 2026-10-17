@@ -1,7 +1,7 @@
 """The work-tree layout of the pilot of Nachtrag 15 under tmp_path, shared by the tests of D40.
 
-delta keeps the clone at /home/konrad/proofbundle and a linked work tree per order under /mnt/bigstore/claude_worktrees;
-commit messages lie under /mnt/bigstore/claude_scratch. The tests rebuild the same paths below tmp_path, with no remote:
+delta keeps the clone at /home/<nutzer>/proofbundle and a linked work tree per order under /mnt/<speicher>/claude_worktrees;
+commit messages lie under /mnt/<speicher>/claude_scratch. The tests rebuild the same paths below tmp_path, with no remote:
 `origin/main` is a remote-tracking ref set to the first commit. Every helper runs git and the gate with plugin_env().
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ def git(repo: pathlib.Path, *args: str) -> str:
 
 def main_repo(tmp_path: pathlib.Path) -> pathlib.Path:
     """The clone: one commit on main, `origin/main` at it, an identity, no remote."""
-    main = tmp_path / "home" / "konrad" / "proofbundle"
+    main = tmp_path / "home" / "nutzer" / "proofbundle"
     main.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main", str(main)], check=True, timeout=60, env=plugin_env())
     for key, value in (("user.name", "t"), ("user.email", "t@example.org"), ("commit.gpgsign", "false")):
@@ -51,7 +51,7 @@ def main_repo(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def worktree_target(tmp_path: pathlib.Path) -> pathlib.Path:
-    return tmp_path / "mnt" / "bigstore" / "claude_worktrees" / "scope_631"
+    return tmp_path / "mnt" / "speicher" / "claude_worktrees" / "scope_631"
 
 
 def linked_worktree(tmp_path: pathlib.Path, main: pathlib.Path) -> pathlib.Path:
@@ -64,7 +64,7 @@ def linked_worktree(tmp_path: pathlib.Path, main: pathlib.Path) -> pathlib.Path:
 
 
 def message_file(tmp_path: pathlib.Path) -> pathlib.Path:
-    path = tmp_path / "mnt" / "bigstore" / "claude_scratch" / "n15" / "commit_message_scope_631.txt"
+    path = tmp_path / "mnt" / "speicher" / "claude_scratch" / "n15" / "commit_message_scope_631.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("docs(release): scope 6.3.1\n")
     return path

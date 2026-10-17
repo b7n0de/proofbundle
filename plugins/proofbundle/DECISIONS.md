@@ -2822,13 +2822,13 @@ Part 2, git diff without diff drivers (owner choice of Nachtrag 14):
 
 Measured by delta in the pilot at 14a5feb1 under Claude Code, 23:01 to 23:13 Berlin, while setting up scope 6.3.1: four
 asks. Three came from a gap of the gate:
-- `git -C /mnt/bigstore/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md` asked: K-NW-2 B (D3, D33) freed add
+- `git -C /mnt/<speicher>/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md` asked: K-NW-2 B (D3, D33) freed add
   and commit only with no global option, while the read forms of class a take one literal `-C` and the gate's own
   answer tells the agent to name the repository with `git -C <absolute path>`; a `cd` before it stays unresolved. delta
-  works in linked work trees on bigstore and starts the session elsewhere, so add and commit had no free form.
+  works in linked work trees on <speicher> and starts the session elsewhere, so add and commit had no free form.
 - `git -C … commit -q -F <file>` asked: _plain_add_commit knew only `-m`, and a message from a file is the house rule
   for longer commit texts.
-- `git -C /home/konrad/proofbundle worktree add -q -b docs/release-scope-6-3-1 /mnt/bigstore/claude_worktrees/scope_631
+- `git -C /home/<nutzer>/proofbundle worktree add -q -b docs/release-scope-6-3-1 /mnt/<speicher>/claude_worktrees/scope_631
   origin/main` asked with the text for unresolved push forms; delta adds a work tree for every order.
 The fourth, a chain with `W=…`, `test -e` and `git fetch`, stays: delta writes paths literally from now on and runs
 fetch on its own, and fetch stays an ask (below).

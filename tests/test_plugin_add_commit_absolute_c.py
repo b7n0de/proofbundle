@@ -1,6 +1,6 @@
 """D40, part 1 of Nachtrag 15: `git add` and `git commit` after exactly one `-C` with a literal absolute path.
 
-Measured in the pilot at 14a5feb1: `git -C /mnt/bigstore/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md`
+Measured in the pilot at 14a5feb1: `git -C /mnt/<speicher>/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md`
 asked. K-NW-2 B (D3, D33) freed add and commit only with no global option, while the read forms of class a take one
 literal `-C`, and the gate's own answer tells the agent to name the repository with `git -C <absolute path>`. delta
 works in linked work trees and starts its sessions elsewhere. Now such a form is judged as the form without `-C` is: the
@@ -99,7 +99,7 @@ def test_P1_control_every_other_global_option_keeps_its_answer(tmp_path, layout,
     main, scope = layout
     command = {
         "two_dash_C": f"git -C {scope} -C {scope} add docs/release_scope/6.3.1.md",
-        "relative_dash_C": "git -C mnt/bigstore/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md",
+        "relative_dash_C": "git -C mnt/speicher/claude_worktrees/scope_631 add docs/release_scope/6.3.1.md",
         "tilde_dash_C": "git -C ~/scope_631 add docs/release_scope/6.3.1.md",
         "dash_c_before": f"git -c core.quotepath=false -C {scope} add docs/release_scope/6.3.1.md",
         "git_dir": f"git --git-dir={main / '.git'} -C {scope} add docs/release_scope/6.3.1.md",

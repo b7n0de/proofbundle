@@ -52,7 +52,7 @@ def clone(tmp_path):
     (origin / "a.txt").write_text("one\n")
     w.git(origin, "add", "a.txt")
     w.git(origin, "commit", "-q", "-m", "one\n\nbody 1\nbody 2\nbody 3")
-    repo = tmp_path / "home" / "konrad" / "2bedone"
+    repo = tmp_path / "home" / "nutzer" / "2bedone"
     repo.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True, timeout=60, env=plugin_env())
     return repo

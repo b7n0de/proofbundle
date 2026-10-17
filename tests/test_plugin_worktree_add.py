@@ -1,8 +1,8 @@
 """D40, part 3 of Nachtrag 15: `git -C <absolute path> worktree add [-q] [-b <name>] <absolute target> [<revision>]`
 after a checkout check.
 
-Measured in the pilot at 14a5feb1: `git -C /home/konrad/proofbundle worktree add -q -b docs/release-scope-6-3-1
-/mnt/bigstore/claude_worktrees/scope_631 origin/main` asked with the text for unresolved push forms; delta adds a work
+Measured in the pilot at 14a5feb1: `git -C /home/<nutzer>/proofbundle worktree add -q -b docs/release-scope-6-3-1
+/mnt/<speicher>/claude_worktrees/scope_631 origin/main` asked with the text for unresolved push forms; delta adds a work
 tree for every order. The form writes only locally: a branch, a folder and the records under .git/worktrees. Measured
 with git 2.43.0 (measure/worktree_add_starts.sh): it runs the hooks post-checkout, post-index-change and
 reference-transaction, from the hook directory and through core.hooksPath, a smudge or process filter an attribute

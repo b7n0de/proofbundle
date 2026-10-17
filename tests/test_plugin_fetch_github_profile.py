@@ -58,7 +58,7 @@ def _clean(monkeypatch, tmp_path):
 
 @pytest.fixture
 def repo(tmp_path):
-    clone = tmp_path / "home" / "konrad" / "2bedone"
+    clone = tmp_path / "home" / "nutzer" / "2bedone"
     clone.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main", str(clone)], check=True, timeout=60, env=plugin_env())
     for key, value in (("user.name", "t"), ("user.email", "t@example.org"), ("commit.gpgsign", "false")):
