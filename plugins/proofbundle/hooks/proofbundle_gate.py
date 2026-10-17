@@ -5645,6 +5645,245 @@ def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | 
                    repo=repo, head=head, reads=reads)
 
 
+# --- a push that creates a branch, resolved against the remote's refs the gate measures (DECISIONS.md D61) ------------
+
+#: The owner of the repositories on github.com in which a push may create a branch after the gate measured the remote's
+#: refs (Ergänzung 1 to Nachtrag 23, D61). Written as GitHub shows it; another spelling keeps the ask.
+NEW_BRANCH_OWNER = "b7n0de"
+#: The branch names that keep the ask even there: main and every release branch (release/…, AGENTS.md).
+_NEW_BRANCH_KEPT = ("main", "release", "HEAD")
+#: A literal full object name as the source of the push (SHA-1 or SHA-256, lower case).
+_FULL_OBJECT_NAME = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+#: The longest the gate's own `git ls-remote` of D61 may take, in seconds, within the call's deadline.
+NEW_BRANCH_LS_REMOTE_SECONDS = 20.0
+#: A line of `git ls-remote --heads --tags`: an object name, a tab and a branch or tag ref (a peeled tag ends in ^{}).
+_LS_REMOTE_LINE = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64})\t(refs/(?:heads|tags)/[^\t\n]+)")
+
+
+def _new_branch_push_form(command: str) -> tuple[str, str, str, str] | None:
+    """(directory, remote, source, name) where the whole command is `git -C <literal absolute path> push <remote>
+    <source>:refs/heads/<name>` (D61), else None: one simple command, every word literal as written (no quote, escape,
+    expansion or word the shell may rewrite), no operator, redirection, prefix assignment, option or second refspec; a
+    remote name (_FETCH_REMOTE_NAME), no `+`; the source HEAD, a branch name (_fetch_branch) or a literal full object
+    name; the destination a branch under refs/heads/ whose name _fetch_branch reads and that is not main, release,
+    release/…, or HEAD. Every other push keeps the answer of D3."""
+    toks = _lex(_drop_comments(command))
+    if toks is None or _expansion_present(command) or any(t[0] != "word" for t in toks):
+        return None
+    if any(subst or value != raw or _shell_rewrites(raw) for _kind, value, subst, raw in toks):
+        return None
+    words = [t[1] for t in toks]
+    if len(words) != 6 or words[0] != "git" or words[1] != "-C" or words[3] != "push":
+        return None
+    directory, remote, spec = words[2], words[4], words[5]
+    if not os.path.isabs(directory) or not _FETCH_REMOTE_NAME.fullmatch(remote):
+        return None
+    src, sep, dst = spec.partition(":")
+    if not sep or not dst.startswith("refs/heads/"):
+        return None
+    name = dst[len("refs/heads/"):]
+    if not _fetch_branch(name) or name in _NEW_BRANCH_KEPT or name.startswith("release/"):
+        return None
+    if not (src == "HEAD" or _FULL_OBJECT_NAME.fullmatch(src) or (_fetch_branch(src) and src != "HEAD")):
+        return None
+    return directory, remote, src, name
+
+
+def _measured_remote_refs(repo: str, remote: str, deadline: float) -> tuple[dict | None, str]:
+    """The branches and tags of `remote` as the remote answers now, {ref: object name}, read with the gate's own
+    `git -C <repo> ls-remote --heads --tags <remote>`, the form D59 measured, in the hook's environment with
+    GIT_TERMINAL_PROMPT=0; (None, why) where the gate cannot measure them: no answer in time, an exit status other than
+    0, or a line it does not read. git's own error text is not quoted (D49). Run only after the fetch profile of D45
+    found nothing for the remote (_new_branch_push)."""
+    left = min(deadline - time.monotonic(), NEW_BRANCH_LS_REMOTE_SECONDS)
+    if left <= 0:
+        return None, "the gate ran out of time"
+    env = _read_env(repo)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        proc = subprocess.run(["git", *_READ_ONLY_GIT, "-C", repo, "ls-remote", "--heads", "--tags", remote],
+                              capture_output=True, timeout=left, check=False, env=env, stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        return None, "git is not on PATH"
+    except subprocess.TimeoutExpired:
+        return None, "git ls-remote did not answer in time"
+    if proc.returncode != 0:
+        return None, f"git ls-remote ended with exit status {proc.returncode}"
+    refs: dict = {}
+    for line in proc.stdout.split(b"\n"):
+        if not line:
+            continue
+        matched = _LS_REMOTE_LINE.fullmatch(line)
+        if matched is None:
+            return None, "git ls-remote answered a line the gate does not read"
+        refs[matched.group(2).decode("utf-8", "surrogateescape")] = matched.group(1).decode("ascii")
+    return refs, ""
+
+
+def _new_branch_range(repo: str, source: str, refs: dict, deadline: float) -> tuple[list | None, list, str]:
+    """(sent, boundary, why): the commits the push sends, newest first, those `source` reaches and no branch or tag of
+    the remote reaches as measured (`rev-list <source> --not <every measured object that is a commit here>`), and the
+    commits on the remote the sent ones start from (rev-list --boundary). A measured object this repository does not
+    hold cannot be subtracted; git push cannot subtract it either and sends what it reaches. sent None, with why, for
+    a shallow repository or more than MAX_RANGE_COMMITS commits."""
+    shallow = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
+    if shallow.returncode != 0 or shallow.stdout.decode().strip() != "false":
+        return None, [], "the repository is shallow, so the commits the push sends cannot be listed"
+    names = sorted(set(refs.values()))
+    kinds = _git_stdin(repo, ("cat-file", "--batch-check=%(objectname) %(objecttype)"),
+                       "".join(f"{n}\n" for n in names).encode(), deadline) if names else b""
+    held = [line.split()[0].decode() for line in kinds.splitlines() if line.endswith(b" commit")]
+    stdin = (f"{source}\n" + "".join(f"^{n}\n" for n in held)).encode()
+    listing = _git_stdin(repo, ("rev-list", f"--max-count={MAX_RANGE_COMMITS + 1}", "--stdin"), stdin, deadline)
+    sent = listing.decode().split()
+    if len(sent) > MAX_RANGE_COMMITS:
+        return None, [], f"the push sends more than {MAX_RANGE_COMMITS} commits"
+    boundary = [line[1:] for line in _git_stdin(repo, ("rev-list", "--boundary", "--stdin"), stdin,
+                                                 deadline).decode().split() if line.startswith("-")]
+    return sent, boundary, ""
+
+
+def _git_stdin(repo: str, args: tuple, stdin: bytes, deadline: float) -> bytes:
+    """stdout of one git call of the gate with `stdin`; GateError where git does not exit 0."""
+    _refuse_partial_clone(repo, deadline)
+    out = _run_git(repo, args, deadline, stdin=stdin)
+    if out.returncode != 0:
+        raise GateError(f"git {args[0]} could not read the commits of the push")
+    return out.stdout
+
+
+def _new_branch_push(directory: str, push_args: list[str], deadline: float,
+                     environ: dict | None = None) -> tuple[Verdict | None, str | None]:
+    """D61 (Ergänzung 1 to Nachtrag 23): the verdict for the form _new_branch_push_form names, (verdict, None), or
+    (None, why) where the gate does not resolve it and the push keeps the answer of D3 with why. In order: a remote the
+    configuration names, with no push list, pushurl, mirror, push.followTags or URL rewrite and a push configuration git
+    reads (as resolve_push_targets); the fetch profile of D45 finds nothing for it, so the gate's own ls-remote is the
+    form D59 measured; its URL names a repository of NEW_BRANCH_OWNER; the source names one commit as git push reads
+    it (_push_source); the gate measures the remote's branches and tags and the destination is not among them; the
+    commits the push sends are listed (_new_branch_range). Then the checks of a push to an existing branch
+    (_evaluate_targets): the evidence at every sent commit and at the source, the done check at the source, and the
+    evidence rules at every sent commit against those at the commits on the remote they start from, which must agree;
+    a push that sends commits sharing no history with the remote's refs has no such state and keeps the ask."""
+    environ = os.environ if environ is None else environ
+    repo, unreadable = _work_tree(directory, deadline)
+    if unreadable or repo is None:
+        return None, None
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    if head.returncode != 0:
+        return None, None
+    head_commit = head.stdout.decode().strip()
+    remote, spec = push_args
+    src, _sep, dest = spec.partition(":")
+    if _git_namespace() is not None:
+        return None, "GIT_NAMESPACE is set"
+    remotes = _remote_names(repo, deadline)
+    if remotes is None or remote not in remotes:
+        return None, f"{remote} is not a remote the configuration names"
+    if _push_config_problem(repo, deadline, []) is not None:
+        return None, "the push configuration stops git push or adds to what the command names"
+    if _push_adds_unnamed_refs(repo, remote, deadline) or not _endpoint_consistent(repo, remote, deadline):
+        return None, ("the remote has a push list, a mirror setting, push.followTags, a pushurl or a URL rewrite, so the "
+                      "push may go elsewhere or carry more than the command names")
+    url: list = []
+    problem = _fetch_profile_problem(repo, remote, deadline, environ, [], url,
+                                     [] if _no_terminal_host("claude", environ) else None)
+    if problem is not None:
+        return None, f"the fetch profile of D45 found {problem}, so the gate does not read the remote's refs (D59)"
+    matched = _FETCH_GITHUB_URL.fullmatch(url[0]) if url else None
+    if matched is None or matched.group(1) != NEW_BRANCH_OWNER:
+        return None, f"the remote {remote} is not a repository of {NEW_BRANCH_OWNER} on github.com"
+    source = _push_source(repo, src, deadline)
+    if source is None:
+        return None, "git names no single commit for the source of the push"
+    if src != "HEAD" and not _FULL_OBJECT_NAME.fullmatch(src):
+        named = _git(repo, "rev-parse", "--symbolic-full-name", src, deadline=deadline)
+        if named.returncode != 0 or named.stdout.decode("utf-8", "replace").strip() != f"refs/heads/{src}":
+            return None, "the source is neither HEAD, a branch of this repository nor a full object name"
+    refs, why = _measured_remote_refs(repo, remote, deadline)
+    if refs is None:
+        return None, f"the gate could not measure the remote's branches and tags: {why}"
+    if dest in refs:
+        return None, f"the remote already has {dest}, so the push updates a branch and creates none"
+    sent, boundary, why = _new_branch_range(repo, source, refs, deadline)
+    if sent is None:
+        return None, why
+    if sent and not boundary:
+        return None, ("the commits the push sends share no history with the remote's branches and tags, so there is "
+                      "no evidence rule on the remote they start from")
+    return _evaluate_new_branch(repo, head_commit, remote, source, dest, sent, boundary, deadline)
+
+
+def _evaluate_new_branch(repo: str, head_commit: str, remote: str, source: str, dest: str, sent: list,
+                         boundary: list, deadline: float) -> tuple[Verdict | None, str | None]:
+    """The checks of _evaluate_targets for one new branch whose sent commits and starting commits D61 measured: a deny at
+    any sent commit or of the done check at the source denies, an ask at a sent commit asks, the evidence rules at every
+    sent commit must equal those at the starting commits (which must agree among themselves), and the verdict is a pass
+    (verified_new_branch), or inactive or done where nothing is declared, as for a push to an existing branch."""
+    def where(commit: str) -> str:
+        return f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
+
+    order = list(dict.fromkeys([source, *sent]))
+    verdicts = {commit: _evaluate_tree(repo, commit, deadline, where(commit), "") for commit in order}
+    for commit in order:
+        if verdicts[commit].decision == "deny":
+            return verdicts[commit], None
+    done_denial, done_passes = _push_done(repo, [source], deadline)
+    if done_denial is not None:
+        return done_denial, None
+    done_tail = "".join(f" The done check passed at the pushed commit {v.head[:12]}: "
+                        f"{v.detail.removeprefix('proofbundle gate: ')}" for v in done_passes)
+    for commit in order:
+        if verdicts[commit].decision == "ask":
+            return verdicts[commit], None
+    bases = {}
+    for commit in (boundary or [source]):
+        rules = _rules_at(repo, commit, deadline)
+        if rules[0] == "unreadable":
+            return None, f"the gate cannot read the evidence rules at {commit[:12]} on the remote"
+        bases[rules] = commit
+    if len(bases) != 1:
+        return None, ("the commits on the remote the push starts from carry different evidence rules, so there is no "
+                      "one state to compare with")
+    base, start = next(iter(bases.items()))
+    for commit in dict.fromkeys([*sent, source]):
+        rules = _rules_at(repo, commit, deadline)
+        if rules[0] == "unreadable":
+            return None, f"the gate cannot read the evidence rules at {commit[:12]}"
+        if rules != base:
+            digests = verdicts[source].digests if verdicts[source].decision == "pass" else ()
+            return _rules_verdict(repo, head_commit, f"{_rules_difference(base, rules)} (at {commit[:12]}, against "
+                                  f"{start[:12]}, the commit on the remote the new branch {dest} starts from, as the "
+                                  "gate measured the remote's refs; DECISIONS.md D61)", digests), None
+    measured = (f"The push creates {dest} on the remote {remote}, a repository of {NEW_BRANCH_OWNER} on github.com, "
+                "whose branches and tags the gate read with git ls-remote after the fetch profile of D45 found nothing "
+                f"(DECISIONS.md D59, D61); it sends {len(sent)} commit(s), those its source reaches and no branch or tag "
+                f"of the remote holds, and the evidence rules at each match those at {start[:12]}, the commit on the "
+                "remote it starts from.")
+    declared = [verdicts[c] for c in order if verdicts[c].decision == "pass"]
+    if not declared:
+        done_only = [c for c in order if verdicts[c].reason_id == "done_only"]
+        nuance = (_absence_nuance(repo, head_commit, deadline)
+                  if head_commit in order and verdicts[head_commit].reason_id != "done_only" else None)
+        if nuance is not None:
+            return nuance, None
+        where_all = ", ".join(c[:12] for c in order)
+        if done_passes:
+            return Verdict("pass", f"proofbundle gate: this push declares no evidence (at {where_all}), only a done "
+                                   f"check.{done_tail} {measured}", "done", repo=repo, head=head_commit), None
+        if done_only:
+            return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}; {DECLARATION} "
+                                       f"at {', '.join(c[:12] for c in done_only)} declares only a done check for the "
+                                       f"end of a session, DECISIONS.md D26). Nothing was verified. {measured}",
+                           "done_only", repo=repo, head=head_commit), None
+        return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}, {DECLARATION} is "
+                                   "absent). The gate is not active in this repository, because nothing is declared. "
+                                   f"Nothing was verified. {measured}", "nothing_declared", repo=repo,
+                       head=head_commit), None
+    tip = verdicts[source] if verdicts[source].decision == "pass" else declared[0]
+    return Verdict("pass", f"{tip.detail} {measured}{done_tail}", "verified_new_branch", digests=tip.digests, repo=repo,
+                   head=head_commit), None
+
+
 # --- a push from a repository that declares nothing (owner choice 1 A of 2026-10-11, DECISIONS.md D5) ------
 
 #: The most commits owner choice 1 A reads for one push: the whole history every source of the push reaches. Without a
@@ -7020,7 +7259,31 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
 # --- a push, resolved to its targets and the commits it sends (DECISIONS.md, D3 option B, D20) --------
 
 def evaluate_push(directory: str, push_args: list[str] | None, deadline: float,
-                  environ: dict | None = None, plain_push: bool = False) -> Verdict:
+                  environ: dict | None = None, plain_push: bool = False, new_branch: bool = False) -> Verdict:
+    """The Level 1 verdict for a push. Since review round 9 (R9-1) every push whose earlier steps resolve ends NOT
+    MEASURED at the destination check (_evaluate_push_d3), with one exception: with new_branch (the whole command is the
+    form _new_branch_push_form names, DECISIONS.md D61) the gate first measures the remote's refs with its own ls-remote
+    and resolves a push that creates a branch (_new_branch_push). Where it does not, the push keeps the answer of
+    _evaluate_push_d3, and an ask of D3 names why D61 did not apply; a GateError in that attempt keeps that answer too."""
+    why = None
+    if new_branch and push_args is not None and len(push_args) == 2:
+        try:
+            decided, why = _new_branch_push(directory, push_args, deadline, environ)
+        except GateError as exc:
+            decided, why = None, f"the gate reached no result ({exc})"
+        if decided is not None:
+            return decided
+    verdict = _evaluate_push_d3(directory, push_args, deadline, environ, plain_push)
+    if why and verdict.reason_id == "push_not_measured":
+        said = (f"The push would create a branch, which the gate resolves only after it measured the remote's refs "
+                f"(DECISIONS.md D61), and here {why}.")
+        verdict.detail = f"{verdict.detail.rstrip()} {said}"
+        verdict.failed = f"{verdict.failed.rstrip('.')}; D61 did not apply: {why}"
+    return verdict
+
+
+def _evaluate_push_d3(directory: str, push_args: list[str] | None, deadline: float,
+                      environ: dict | None = None, plain_push: bool = False) -> Verdict:
     """The Level 1 verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
     branch to its upstream). Since review round 9 of 2026-10-11 (R9-1) every push whose earlier steps resolve ends
     NOT MEASURED at the destination check, because git resolves the destination against refs of the remote the gate
@@ -10157,7 +10420,8 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
     environ = os.environ if environ is None else environ
     whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
     if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
-            _BARE_VERSION.fullmatch(command) or _codex_plain_push(command):
+            _BARE_VERSION.fullmatch(command) or _codex_plain_push(command) or \
+            (host != "codex" and _new_branch_push_form(command) is not None):
         return whole
     return _stepwise_outcome(command, cwd, deadline, host, environ, whole,
                              lambda text, directory: _decide_outcome_whole(text, directory, deadline, host, environ,
@@ -10173,6 +10437,9 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
     # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D35).
     # Under Claude Code it decides nothing else, so a step of class c is judged as no plain form there.
     plain = _codex_plain_push(command) and (handover or host == "codex")
+    # D61: a push that creates a branch is resolved only as the whole command, under Claude Code; a step of class c
+    # (handover False) never is
+    new_branch = handover and host != "codex" and _new_branch_push_form(command) is not None
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ) if calls else None
@@ -10187,7 +10454,7 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
                 if (nw >= 1 or unresolved) else None)
     if nw > len(calls) or unresolved:
         return _judge(list(calls) + [net_call], cwd, deadline, host, plain_push=plain, environ=environ)
-    return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ)
+    return _judge(calls, cwd, deadline, host, plain_push=plain, environ=environ, new_branch=new_branch)
 
 
 def mcp_gated(tool: str) -> bool:
@@ -10444,7 +10711,7 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
 
 
 def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float,
-                   environ: dict | None = None, plain_push: bool = False) -> Verdict:
+                   environ: dict | None = None, plain_push: bool = False, new_branch: bool = False) -> Verdict:
     """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
     `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
     remote target the gate cannot read, is judged at HEAD with no range comparison. `environ` reaches the push path,
@@ -10458,7 +10725,7 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
                               "(--no-verify, or a core.hooksPath override)",
                        next_step="push without --no-verify and without setting core.hooksPath, or obtain a human review")
     if name == "git push":
-        return evaluate_push(directory, detail, deadline, environ, plain_push)
+        return evaluate_push(directory, detail, deadline, environ, plain_push, new_branch)
     if name.startswith("gh "):
         return evaluate_push(directory, detail, deadline)
     return evaluate_repository(directory, deadline)
@@ -10658,7 +10925,7 @@ def _unmodeled_read_or_checkout(name: str, host: str) -> Verdict:
 
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
            host: str = "claude", extra: list | None = None, plain_push: bool = False,
-           environ: dict | None = None) -> Outcome:
+           environ: dict | None = None, new_branch: bool = False) -> Outcome:
     verdicts = list(extra or [])
     seen = set()
     # A read step of a longer command (_READ_NOT_FREE) is the not-free form of D3 under Claude Code. Under Codex it
@@ -10808,7 +11075,8 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                                "a `cd`, a `pushd` or any chain before it stays unresolved")))
             continue
         try:
-            verdicts.append(_evaluate_call(name, resolved, detail, deadline, environ, plain_push))
+            verdicts.append(_evaluate_call(name, resolved, detail, deadline, environ, plain_push,
+                                           new_branch and name == "git push"))
         except GateError as exc:
             verdicts.append(Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached "
                                             "no verdict.", "gate_error",

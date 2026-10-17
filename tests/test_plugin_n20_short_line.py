@@ -281,7 +281,8 @@ def test_every_reason_id_the_gate_names_has_a_short_reason():
     named |= {"order_removed", "order_unreadable", gate.SANDBOX_REASON, "declaration_uncommitted",
               "absence_not_measured", "codex_context_unbound", "mcp_target_unbound", "write_to_repo_state"}
     passes = {"verified", "done", "approved_by_rule", "free_after_checkout_check", "free_after_fetch_profile",
-              "free_after_gh_profile", "free_after_read_profile", "free_after_state_check"}
+              "free_after_gh_profile", "free_after_read_profile", "free_after_state_check",
+              "verified_new_branch"}   # D61, Ergänzung 1 to Nachtrag 23
     missing = sorted(named - passes - set(gate._SHORT_REASONS) - {"green_run"})
     assert not missing, missing
 
