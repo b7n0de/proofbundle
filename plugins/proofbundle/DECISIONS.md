@@ -3581,3 +3581,30 @@ sites at 9f578c2a, each measured, owner questions O22-2 to O22-5 of the report o
   stand as `<host>` and `<user>` (_gh_keys_shown). A key of config.yml stays named, as D49 names keys.
 Tests: tests/test_plugin_n23_class_r25_1_d63.py, one marker case per site, under Claude Code and Codex where both
 answer.
+
+## D66. A command whose every program only reads calls no done-order: D38 does not ask for it (Nachtrag 26, 2026-10-17)
+
+Measured at delta on 2026-10-17, 20:54Z (gate at 9f578c2a), and again at 3694e34e: a find over a session folder under
+~/.claude-*/projects, `xargs grep -l "proofbundle_gate.py"` and a while loop that counts with
+`grep -c proofbundle_gate.py "$f"` asked with D38 ("the command changes a local done order"), under Codex it was denied.
+The cause: _done_order_run reads every word named proofbundle_gate.py as the gate's script, wherever it stands in a run,
+and in `grep -c proofbundle_gate.py "$f"` the word after it is one the shell builds, which D38 answers as a done-order
+call it cannot read whole (owner choice O2 of Nachtrag 13). The path under ~/.claude-*/projects plays no part; the
+pattern of `xargs grep -l` alone stayed silent there, because the redirection to /dev/null follows it.
+
+The rule: a command that is wholly of the closed read forms of _read_only_form runs no done-order, whatever words it
+names, and D38 does not ask for it:
+- find without -delete, -exec, -execdir, -ok, -okdir, -fprint, -fprint0, -fprintf and -fls, every word literal;
+- xargs that runs grep, with at most -0, --null, -r and --no-run-if-empty before it;
+- grep, read and echo; the words while, do and done of a loop around them;
+- a pipe or a list (`;`, a new line) between them; `&&`, `||`, `&`, a subshell, a process substitution and an input
+  redirection are outside the set;
+- an output redirection only to /dev/null, and a descriptor only onto 1 or 2;
+- every program word a literal bare name, and every command substitution such a command in turn.
+Every other command is read as before. The same command that writes a file (under ~/.claude-* or anywhere), removes,
+moves, edits in place, tees, or runs a program through -exec or xargs that is not grep, asks with D38 as it did, and
+under Codex is denied. Local writes the gate never asked for (`rm`, `xargs rm`, `find -delete` on their own) stay as
+they were: nothing is freed. The other answers of the gate are untouched; a find whose grep pattern names git still asks
+with D27.
+Strict stays the default; no check of the evidence falls away.
+Tests: tests/test_plugin_n26_read_only_d66.py.

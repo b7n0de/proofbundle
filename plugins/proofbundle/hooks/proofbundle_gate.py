@@ -13359,11 +13359,73 @@ def _done_order_calls(command: str, depth: int = 0) -> list[str]:
     return found
 
 
+#: The forms of a command that only reads (Nachtrag 26, D66), a closed set: find without an action that deletes, runs a
+#: program or writes a file; xargs that runs grep; grep; read and echo; the shell words of a while loop around them;
+#: a pipe or a list between them; an output redirection only to /dev/null or onto another descriptor. Every program
+#: word is a literal bare name. Nothing else reads as such a command, whatever it does.
+_READ_ONLY_FIND_ACTIONS = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf",
+                                     "-fls"})
+_READ_ONLY_XARGS_SWITCHES = frozenset({"-0", "--null", "-r", "--no-run-if-empty"})
+_READ_ONLY_KEYWORDS = frozenset({"while", "do", "done"})
+_READ_ONLY_SINKS = frozenset({">", "1>", "2>", ">>", "1>>", "2>>", "&>", "&>>"})
+_READ_ONLY_DUPLICATES = frozenset({">&", "1>&", "2>&"})
+
+
+def _read_only_run(run: list[tuple]) -> bool:
+    """Whether one run of words is one of the read forms of _read_only_form."""
+    words = list(run)
+    while words and not _unreadable_word(words[0]) and words[0][0] in _READ_ONLY_KEYWORDS:
+        words = words[1:]
+    if not words:
+        return True
+    program, args = words[0], words[1:]
+    if _unreadable_word(program):
+        return False
+    if program[0] == "find":
+        return not any(_unreadable_word(a) or a[0] in _READ_ONLY_FIND_ACTIONS for a in args)
+    if program[0] == "xargs":
+        i = 0
+        while i < len(args) and not _unreadable_word(args[i]) and args[i][0] in _READ_ONLY_XARGS_SWITCHES:
+            i += 1
+        return i < len(args) and not _unreadable_word(args[i]) and args[i][0] == "grep"
+    return program[0] in ("grep", "read", "echo")
+
+
+def _read_only_form(command: str, depth: int = 0) -> bool:
+    """Whether every program of a shell command only reads (D66): each run is a read form of the closed set above, each
+    output redirection goes to /dev/null or onto another descriptor, and each command substitution is such a command
+    in turn. Such a command runs no done-order and writes no file; a command the gate cannot read whole is none."""
+    text = _drop_comments(command)
+    toks = _lex(text)
+    if toks is None or depth > MAX_NESTING or "<(" in text or ">(" in text:
+        return False
+    run = []
+    for t in [*toks, ("op", ";")]:
+        if t[0] == "word":
+            run.append(t[1:])
+        elif t[0] == "redir":
+            op, target = t[1], t[2]
+            if target is None or _unreadable_word(target):
+                return False
+            if not ((op in _READ_ONLY_SINKS and target[0] == "/dev/null")
+                    or (op in _READ_ONLY_DUPLICATES and target[0] in ("1", "2"))):
+                return False
+        elif t[0] == "op" and t[1] in ("|", ";"):
+            if not _read_only_run(run):
+                return False
+            run = []
+        else:
+            return False
+    return all(_read_only_form(body, depth + 1) for body in _subst_bodies(text))
+
+
 def _done_order_verdict(command: str) -> Verdict | None:
     """The answer to a shell command that replaces or removes a local done order, or calls done-order in a form the gate
     cannot read whole (owner choice O2 of Nachtrag 13): ask under Claude Code, deny under Codex. A new order and the
-    list are free; None where the command makes no such call."""
-    if "change" not in _done_order_calls(command):
+    list are free; None where the command makes no such call. A command whose every program only reads
+    (_read_only_form, D66) calls no done-order, whatever words it names: the script's name as a pattern of grep or an
+    argument of echo is read, not run."""
+    if _read_only_form(command) or "change" not in _done_order_calls(command):
         return None
     return Verdict("ask", "NOT MEASURED: the command replaces or removes a local done order, or calls done-order in a "
                           "form the gate cannot read whole. A done order is a duty a person set (D38); a new order and "
