@@ -208,6 +208,22 @@ def test_the_runbook_sets_up_three_accounts_with_two_sudo_rules():
     assert "a signed line without one is a signature the deciding account obtained outside a decision" in text
 
 
+def test_the_runbook_says_how_the_key_signers_journal_reaches_the_reconciliation():
+    """D65: the records folder that keeps keysigner/ in place, the export at the end of each window by the key
+    account, the exit codes of the reconciliation, and the comparison by hand as the way back."""
+    text = _flat(RUNBOOK)
+    assert "owned by the operator (root)" in text and "with the sticky bit set" in text
+    assert "the folder `keysigner/`, owned by the key account, mode 755" in text
+    assert ("<python> -I <key folder>/key_signer.py --config <key configuration> --export <records folder>/keysigner"
+            in RUNBOOK)
+    assert "never through the deciding account" in text and "export_folder_unsafe" in text
+    assert "with 3 (KEY_JOURNAL_DISAGREES)" in text and "with 4 (KEY_JOURNAL_NOT_READ)" in text
+    assert "By hand, as the way back:" in text and '`"handedOut": false`' in text
+    assert "its journal starts as a new, empty file at the start of the pilot" in text
+    owner = _section(RUNBOOK, "## The owner's choice on the key signer's journal")
+    assert "2026-10-17" in owner.splitlines()[0] and "- O24-1, 22:3x Berlin:" in owner and "T4-a" in owner
+
+
 def test_the_runbook_keeps_the_gate_file_and_names_no_value():
     assert "--gate <the service's copy of hooks/proofbundle_gate.py>" in RUNBOOK
     # measured with two accounts: a signer named without its absolute path is no pilot, a repository of another account

@@ -2,8 +2,8 @@
 
 How the operator runs the first pilot of decision and outcome receipts (docs/pilot/pilot_contract.md, profile
 github-write/1) with the plugin's gate, and how a person who was not part of the sessions reruns its reconciliation
-from the records alone (criterion 4). The decisions behind it are DECISIONS.md D55 to D57, D58 and D64. This runbook
-names keys and places, never a value: no key, no token and no path of a real machine stands here.
+from the records alone (criterion 4). The decisions behind it are DECISIONS.md D55 to D57, D58, D64 and D65. This
+runbook names keys and places, never a value: no key, no token and no path of a real machine stands here.
 
 ## Who runs what
 
@@ -50,7 +50,10 @@ another surface (M3), a write without an approval (M5), a refused write that arr
         "journal": "<the key signer's journal file>", "gate_id": "<the gate's name>", "window_seconds": 10}
        ```
 
-     - the public key for step 6: `key_signer.py --config <key configuration> --public`, run as the key account.
+     - the public key for step 6: `key_signer.py --config <key configuration> --public`, run as the key account;
+     - its journal starts as a new, empty file at the start of the pilot: the reconciliation counts every signed line
+       in it (D65). The key signer writes each line and syncs it to the disk before a signature leaves it; a journal
+       it cannot write gives no signature (journal_unwritable, at the gate `signer_refused_key_journal_unwritable`).
    - The service, under the deciding account, which holds no key:
      - a copy of this plugin's folder (hooks/, pilot/, server/) owned by the deciding account and not writable by the
        agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's;
@@ -98,7 +101,12 @@ another surface (M3), a write without an approval (M5), a refused write that arr
    `[{"id": <numeric id>, "login": "<login>", "agent": "<agent name>"}]`. No person writes under them during the pilot.
 4. The closing rules: `{"<surface>": "<the closing lines the surface requires>" or null}` for the five surfaces of the
    profile, as they apply at approval time.
-5. The records folder, writable by the agent's user (the gate writes `decisions/` there) and by the observer account.
+5. The records folder, owned by the operator (root), writable by the agent's user (the gate writes `decisions/` there)
+   and by the observer account through a group, with the sticky bit set (mode 1770 or 1775), so that neither of them
+   can rename or remove what is not theirs. In it, before the first decision, the folder `keysigner/`, owned by the
+   key account, mode 755: there and only there the key signer exports its journal (D65). The key signer refuses any
+   other folder (export_folder_unsafe): one another account owns or may write, or whose parent another account may
+   write without the sticky bit.
 6. The records' inputs, kept before the first decision:
 
    ```
@@ -157,6 +165,12 @@ Each as recommended in the report of the signer service:
   bytes on; only the key account reads the key and signs, and it runs neither git nor the gate's decision code on
   repositories the agent writes (D64).
 
+## The owner's choice on the key signer's journal (2026-10-17, Nachtrag 25)
+
+- O24-1, 22:3x Berlin: the key signer's journal goes into the records at the end of each window, by the export above,
+  and the reconciliation counts it (D65); in the same Nachtrag, T4-a: no signature without a durable journal line,
+  for the key signer and for the service. The comparison by hand stays as the way back.
+
 ## While the pilot runs
 
 The gate writes a receipt for each GitHub write it decides and reads (D55); `journal.jsonl` names every receipt it could
@@ -172,9 +186,18 @@ It needs no credential of an agent session: the events of a public repository ne
 token from the operator's file, never from the environment. Each run keeps every response as GitHub returned it, with
 the time it asked, and signs an outcome per effect that takes a decision.
 
-The key signer's journal names each signature the gate key made, by decisionId and the sha256 of the statement. Every
-signed line has its receipt in `decisions/` with that id and a payload of that digest; a signed line without one is a
-signature the deciding account obtained outside a decision of the gate (D64).
+The key signer's journal names each signature the gate key made, by decisionId and the sha256 of the statement. At the
+end of each window, before the observer's last run of it and the reconciliation, the operator has the key account
+export it, as root with `runuser` or `sudo -u` onto the key account, never through the deciding account:
+
+```
+<python> -I <key folder>/key_signer.py --config <key configuration> --export <records folder>/keysigner
+```
+
+It writes `keysigner/journal.jsonl` and `keysigner/export.json` with the journal's sha256, each whole. The
+reconciliation reads them there (D65). By hand, as the way back: every signed line has its receipt in `decisions/` with
+that id and a payload of that digest; a signed line without one is a signature the deciding account obtained outside a
+decision of the gate (D64), and a line with `"handedOut": false` is one that never left the key signer.
 
 ## The reconciliation, and its rerun by someone else
 
@@ -182,14 +205,18 @@ signature the deciding account obtained outside a decision of the gate (D64).
 python reconcile.py --records <records folder>
 ```
 
-writes `reconciliation/reconciliation.json`: per decision the class, M1 to M4, M7, M8 and the profile's answer, and over
-the window M5 and M6 with each unapproved effect. A person who was not part of the sessions reruns it so:
+writes `reconciliation/reconciliation.json`: per decision the class, M1 to M4, M7, M8 and the profile's answer, over
+the window M5 and M6 with each unapproved effect, and under `keyJournal` the two counts of the key signer's journal
+(D65): signed lines without a receipt and receipts without a signed line. It ends with 0 where both are 0, with 3
+(KEY_JOURNAL_DISAGREES) where one is not, and with 4 (KEY_JOURNAL_NOT_READ) where `keysigner/` holds no export or not
+the bytes it names; the file is written in each case. A person who was not part of the sessions reruns it so:
 
 1. copy the records folder;
 2. make a fresh environment of the kept interpreter version and install the kept verifier file after checking its
    digest against `pilot_start.json`;
 3. run `reconcile.py --records <the copy>` from a checkout of this plugin;
-4. compare: the same records give the same bytes, and every class and measure must be the same.
+4. compare: the same records give the same bytes and the same exit code, and every class and measure must be the
+   same.
 
 The reconciliation reads nothing the records do not keep, and checks every kept file against its digest first.
 
@@ -199,7 +226,8 @@ The reconciliation reads nothing the records do not keep, and checks every kept 
   ran (above); not that the host ran exactly that call.
 - The key signer checks a statement's form, its gate and its time, not its verdict: whoever holds the deciding account
   gets signatures for statements of the gate within the window, whatever verdict they name, and never the key (D64).
-  Each is one line of the key signer's journal (above).
+  Each is one line of the key signer's journal, and the reconciliation counts it among the signed lines without a
+  receipt (D65).
 - Time (D58, N405-b, D64): at Level 1 the gate's 90 s and the service's 10 s stay within the hook's 120 s, and the key
   signer answers within the service's 10 s; at Level 2 each ref line is one call of the service (O405S-3), and git
   sets no limit. A service slower than 10 s is stopped and the call gets no receipt (`signer_timeout` in the journal).
