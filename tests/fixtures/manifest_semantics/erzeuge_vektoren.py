@@ -3,6 +3,7 @@
 Run with an interpreter whose setuptools can build this project (pyproject.toml requires >= 68):
 
     python3 tests/fixtures/manifest_semantics/erzeuge_vektoren.py
+    python3 tests/fixtures/manifest_semantics/erzeuge_vektoren.py --verzeichnisse   # the directory cases
 
 For each template below it writes a throwaway project (pyproject.toml, one package, the candidate files,
 the template as MANIFEST.in), calls `setuptools.build_meta.build_sdist` offline, and records which
@@ -82,16 +83,38 @@ TEMPLATES = {
 }
 
 
+#: DIRECTORY CASES (review round 22, R22-3), written with `--verzeichnisse` to verzeichnisse.json: templates whose
+#: directory part is a pattern, and the directories a real sdist then carries files under. The reader of a directory
+#: promise, `tests/conftest.py::_manifest_verspricht_verzeichnis`, is held against them. `inter*` matches three
+#: directories here, one of which (`internal/`) holds no `.py` file.
+VERZEICHNIS_KANDIDATEN = [
+    "README.md", "interop/a.py", "interop/sub/b.py", "interop/c.md", "internal/x.txt", "intern/y.py",
+    "docs/scitt/a.md", "docs/top.md", "tools/t.py", "outside/o.txt",
+]
+VERZEICHNISSE = ["interop", "interop/sub", "internal", "intern", "docs", "docs/scitt", "tools", "outside"]
+VERZEICHNIS_TEMPLATES = {
+    "graft_star": "graft inter*\n",
+    "graft_question_mark": "graft intero?\n",
+    "recursive_include_star": "recursive-include inter* *.py\n",
+    "include_star_directory": "include inter*/*.py\n",
+    "graft_literal": "graft interop\n",
+    "graft_below": "graft docs/scitt\n",
+    "no_template_lines": "# only a comment\n",
+}
+#: No package: the directory cases measure the template alone.
+VERZEICHNIS_PAKETE = "[tool.setuptools]\npackages = []\n"
+
+
 def _pyproject(pakete: str) -> str:
     return ('[build-system]\nrequires = ["setuptools>=68"]\nbuild-backend = "setuptools.build_meta"\n\n'
             '[project]\nname = "vektorprojekt"\nversion = "0.0.1"\nreadme = "README.md"\n\n' + pakete)
 
 
-def _messen(template: str, pyproject: str) -> list[str]:
+def _messen(template: str, pyproject: str, kandidaten: list[str] = KANDIDATEN) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         wurzel = pathlib.Path(tmp)
         (wurzel / "pyproject.toml").write_text(pyproject, encoding="utf-8")
-        for rel in KANDIDATEN:
+        for rel in kandidaten:
             if rel in ("MANIFEST.in", "pyproject.toml"):
                 continue
             p = wurzel / rel
@@ -107,10 +130,26 @@ def _messen(template: str, pyproject: str) -> list[str]:
         name = r.stdout.strip().splitlines()[-1]
         with tarfile.open(dist / name) as tar:
             glieder = [m.name.split("/", 1)[1] for m in tar.getmembers() if m.isfile() and "/" in m.name]
-        return sorted(k for k in KANDIDATEN if k in glieder)
+        return sorted(k for k in kandidaten if k in glieder)
+
+
+def verzeichnisse() -> None:
+    import setuptools
+    pyproject = _pyproject(VERZEICHNIS_PAKETE)
+    faelle = {name: {"template": t, "pyproject": pyproject,
+                     "shipped": _messen(t, pyproject, VERZEICHNIS_KANDIDATEN)}
+              for name, t in VERZEICHNIS_TEMPLATES.items()}
+    ziel = HIER / "verzeichnisse.json"
+    ziel.write_text(json.dumps({"setuptools": setuptools.__version__, "candidates": VERZEICHNIS_KANDIDATEN,
+                                "directories": VERZEICHNISSE, "cases": faelle}, indent=1, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+    print(f"{len(faelle)} directory cases written to {ziel} with setuptools {setuptools.__version__}")
 
 
 def main() -> None:
+    if "--verzeichnisse" in sys.argv[1:]:
+        verzeichnisse()
+        return
     import setuptools
     faelle = {}
     for name, t in TEMPLATES.items():
