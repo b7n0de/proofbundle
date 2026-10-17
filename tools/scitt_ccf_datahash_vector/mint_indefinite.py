@@ -27,13 +27,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 #: genau dann, wenn jemand vorher in dieses Verzeichnis gewechselt ist.
 HIER = pathlib.Path(__file__).resolve().parent
 import cbor_min as C                                                      # noqa: E402
+from json_strict import load_json                                          # noqa: E402
 import cryptography                                                       # noqa: E402
 from cryptography.exceptions import InvalidSignature                      # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (           # noqa: E402
     Ed25519PublicKey,
 )
 
-v1 = json.load(open(HIER / "data-hash-vector.json", encoding="utf-8"))
+v1 = load_json(HIER / "data-hash-vector.json")
 A = bytes.fromhex(v1["A_signed_statement_as_registered"]["bytes_hex"])
 seed_pub = bytes.fromhex(v1["test_key"]["public_key_hex"])
 

@@ -1,0 +1,93 @@
+{
+ "setuptools": "79.0.1",
+ "candidates": [
+  "README.md",
+  "interop/a.py",
+  "interop/sub/b.py",
+  "interop/c.md",
+  "internal/x.txt",
+  "intern/y.py",
+  "docs/scitt/a.md",
+  "docs/top.md",
+  "tools/t.py",
+  "outside/o.txt"
+ ],
+ "directories": [
+  "interop",
+  "interop/sub",
+  "internal",
+  "intern",
+  "docs",
+  "docs/scitt",
+  "tools",
+  "outside"
+ ],
+ "cases": {
+  "graft_star": {
+   "template": "graft inter*\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "intern/y.py",
+    "internal/x.txt",
+    "interop/a.py",
+    "interop/c.md",
+    "interop/sub/b.py"
+   ]
+  },
+  "graft_question_mark": {
+   "template": "graft intero?\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "interop/a.py",
+    "interop/c.md",
+    "interop/sub/b.py"
+   ]
+  },
+  "recursive_include_star": {
+   "template": "recursive-include inter* *.py\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "intern/y.py",
+    "interop/a.py",
+    "interop/sub/b.py"
+   ]
+  },
+  "include_star_directory": {
+   "template": "include inter*/*.py\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "intern/y.py",
+    "interop/a.py"
+   ]
+  },
+  "graft_literal": {
+   "template": "graft interop\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "interop/a.py",
+    "interop/c.md",
+    "interop/sub/b.py"
+   ]
+  },
+  "graft_below": {
+   "template": "graft docs/scitt\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md",
+    "docs/scitt/a.md"
+   ]
+  },
+  "no_template_lines": {
+   "template": "# only a comment\n",
+   "pyproject": "[build-system]\nrequires = [\"setuptools>=68\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"vektorprojekt\"\nversion = \"0.0.1\"\nreadme = \"README.md\"\n\n[tool.setuptools]\npackages = []\n",
+   "shipped": [
+    "README.md"
+   ]
+  }
+ }
+}

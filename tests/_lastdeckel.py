@@ -51,7 +51,9 @@ KOSTEN_JE_ELEMENT = {
     "input_bytes": 1,  # ein Byte
     "int_bits": 1,  # ein Bit
     "json_depth": 2,  # eine Klammer je Ebene
-    "json_nodes": 40,  # list(range(n)): 36,0 B/Element gemessen (PyLong + Zeiger)
+    # list(range(n)), a PyLong and a pointer: 36.0 B per element on CPython 3.10.12, 40.0 B on 3.11.15, 3.12.15 and
+    # 3.13.16, 39.8 B on 3.14.8 (2026-10-16). 40 sat exactly on the measurement from 3.11 on; 48 adds one pointer.
+    "json_nodes": 48,
     "merkle_path": 128,  # [bytes(32)]: 73,5 B gemessen; Hex-Form wie data_digests 121,9 B
     # [[ArchiveTimeStamp]] as in the cost curve: 356.6 B while the instance dicts share their keys, 572.6 B once
     # one instance of the class breaks the sharing in the process (CPython 3.10.12, 2026-10-08; CI 3.10 under
