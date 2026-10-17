@@ -471,6 +471,11 @@ _CHECKOUT_FREE = "\x00checkout-free"
 #: carries the remote. Under Claude Code the judge frees it only after the fetch profile of its repository
 #: (_fetch_profile_problem); under Codex it keeps the ask of D41.
 _FETCH_FREE = "\x00fetch-free"
+#: Detail marker for `git -C <literal absolute path> ls-remote [-q|--quiet] [--heads|--branches] [--tags] [--refs]
+#: <remote> [<pattern>…]` as the whole command (Nachtrag 22, part 3, DECISIONS.md D59). The name of the call carries the
+#: remote. Under Claude Code the judge frees it only after the fetch profile of D45 for that remote
+#: (_fetch_profile_problem); under Codex it keeps the ask of D41. It is never free as a step of a longer command.
+_LS_REMOTE_FREE = "\x00ls-remote-free"
 #: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
 #: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
 _CODEX_READ_FORM_EXPLANATION = (
@@ -493,7 +498,8 @@ _READ_NOT_FREE = "\x00read-not-free"
 #: The details that already carry their answer (deny, ask, a possible transfer, a state check, a read profile), which a
 #: redirection does not change into an unresolved push (R2-2).
 _MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_READ_FREE_DRIVERS_OFF],
-                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE], [_FETCH_FREE])
+                   [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE], [_FETCH_FREE],
+                   [_LS_REMOTE_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1124,6 +1130,35 @@ def _fetch_form(args: list[str], rewrites: list[bool] | None = None) -> str | No
     if k >= len(args) or not _FETCH_REMOTE_NAME.fullmatch(args[k]):
         return None
     if not all(_fetch_branch(w) for w in args[k + 1:]):
+        return None
+    return args[k]
+
+
+#: The options of the ls-remote form D59 frees, none of which takes a value (Nachtrag 22, part 3). git 2.43.0 does not
+#: know --branches (measured: exit 129, nothing started), so there git refuses it.
+_LS_REMOTE_FORM_OPTIONS = frozenset({"-q", "--quiet", "--heads", "--branches", "--tags", "--refs"})
+
+
+def _ls_remote_pattern(word: str) -> bool:
+    """Whether word is a pattern of the ls-remote form D59 frees: _FETCH_BRANCH_NAME (no `:`, `+`, `^`, glob, `@`,
+    space, `~`, `?`, `[` or backslash), no `..` and no `@{`; unlike a branch of D45 it may start with `refs/`."""
+    return _FETCH_BRANCH_NAME.fullmatch(word) is not None and ".." not in word and "@{" not in word
+
+
+def _ls_remote_form(args: list[str], rewrites: list[bool] | None = None) -> str | None:
+    """The remote of `ls-remote [-q|--quiet] [--heads|--branches] [--tags] [--refs] <remote> [<pattern>…]` (the words
+    after `ls-remote`; D59, Nachtrag 22 part 3), or None for any other form. The grammar of _fetch_form: the options
+    first and each without a value, then one remote name (_FETCH_REMOTE_NAME: a name, not a URL or a path) and patterns
+    (_ls_remote_pattern), every word literal, no expansion, no word the shell may rewrite and no `--`. Every other
+    option (--upload-pack, -o, --server-option, --get-url, --symref, --sort, --exit-code, …) stays at D41."""
+    if (rewrites is not None and any(rewrites[:len(args)])) or any("$" in a for a in args):
+        return None
+    k = 0
+    while k < len(args) and args[k] in _LS_REMOTE_FORM_OPTIONS:
+        k += 1
+    if k >= len(args) or not _FETCH_REMOTE_NAME.fullmatch(args[k]):
+        return None
+    if not all(_ls_remote_pattern(w) for w in args[k + 1:]):
         return None
     return args[k]
 
@@ -1928,6 +1963,46 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
         next_step=asked.next_step, repo=directory)
 
 
+def _ls_remote_free_verdict(name: str, directory: str | None, deadline: float, host: str = "claude") -> Verdict:
+    """The verdict for the ls-remote form of D59 under Claude Code: pass when the fetch profile of D45 finds nothing for
+    its remote, else the ask of D41 with what it found (Nachtrag 22, part 3). Measured with git 2.43.0 under strace
+    against a stand-in for github.com (truth_ls_remote_n22.py, 58 cases): the form from https://github.com/<owner>/<repo>
+    started git-remote-https only, connected only to github.com and wrote nothing under .git; each way that started
+    another program or reached another host is one the fetch profile finds. Pagers as measured there: PAGER, GIT_PAGER
+    and core.pager started nothing, on a terminal too, and do not count; pager.ls-remote started its pager on a
+    terminal and counts unless the host's Bash tool gives the command no terminal (D42)."""
+    remote = name.split(" ", 2)[2]
+    inert_pagers: list = []
+    bound_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
+    url: list = []
+    try:
+        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url, bound_pagers)
+                   if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
+    except GateError as exc:
+        problem = f"the fetch profile reached no result ({exc})"
+    if problem is None:
+        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not count: git ls-remote starts none of "
+                  "them, measured with PAGER, GIT_PAGER and core.pager on a terminal of script(1) (DECISIONS.md D59)."
+                  if inert_pagers else "")
+        pagers += (f" A pager is named ({'; '.join(bound_pagers)}) and does not count: AI_AGENT in the hook's "
+                   "environment names a host whose Bash tool gives the command no terminal "
+                   "(DECISIONS.md D42)." if bound_pagers else "")
+        return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of D45 for the repository at "
+                               f"{directory} found the remote {remote} at a URL of the form "
+                               "https://github.com/<owner>/<repo> with the one fetch rule of a clone, no URL "
+                               "rewrite, proxy, transport helper, ssh or askpass setting, no credential helper but "
+                               "those it knows, no hook, no fsmonitor, no submodule, and every key and environment "
+                               "setting it read is one it knows to keep git to its own programs and github.com; this "
+                               "ls-remote reads the remote's refs and writes nothing in the repository (DECISIONS.md "
+                               "D45, D59)." + pagers,
+                       "free_after_ls_remote_profile", repo=directory)
+    asked = _unmodeled_read_or_checkout("git ls-remote", host)
+    return Verdict(
+        "ask", f"{asked.detail} The fetch profile of D45 found {problem}, so this ls-remote is not the one D59 frees.",
+        "remote_read_not_modeled", evidence=asked.evidence, failed=f"{asked.failed}; the fetch profile found {problem}",
+        next_step=asked.next_step, repo=directory)
+
+
 # --- class b: gh read forms (DESIGN_ask_load.md 3.2, owner answers 4 and 5 of 2026-10-14, DECISIONS.md D36) --------
 
 #: The gh versions whose read forms the gate has measured: gh 2.89.0, against a local stand-in for github.com in a
@@ -2646,6 +2721,14 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
             # D45 (Ergänzung 1 to Nachtrag 19): the command fetches from one named remote with one absolute -C; the
             # judge frees it under Claude Code only after the fetch profile of the repository the -C path names.
             return f"git fetch {remote}", directory, [_FETCH_FREE]
+    if sub == "ls-remote" and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
+            and _one_absolute_c(words, i, c_count, not_measured, rewrites):
+        remote = _ls_remote_form(args, None if rewrites is None else rewrites[i + 1:])
+        if remote is not None:
+            # D59 (Nachtrag 22, part 3): the command lists the refs of one named remote with one absolute -C; the judge
+            # frees it under Claude Code only after the fetch profile of D45 for that remote in the repository the -C
+            # path names.
+            return f"git ls-remote {remote}", directory, [_LS_REMOTE_FREE]
     if sub is not None and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and not not_measured and c_count <= 1 \
             and _read_form(sub, args, None if rewrites is None else rewrites[i + 1:]):
@@ -2809,13 +2892,20 @@ def _resolve_single(words: list[tuple], directory: str | None,
         # a fetch that is not the form of D45 as the whole command keeps today's answer, a prefix assignment the fetch
         # profile does not accept included (it counts as the hook's environment does, as for class a, D34)
         return [("git fetch", UNKNOWN, None)]
+    if detail == [_LS_REMOTE_FREE] and (not (bare and neutral_only) or any(rewritten) or any(
+            _fetch_env_problem(w[0].partition("=")[0]) for w in words[:i])):
+        # D59: an ls-remote that is not the form as the whole command, a prefix assignment the fetch profile does not
+        # accept included, keeps the answer of D41 it had before: a possible transfer, or the unresolved call of an
+        # unvetted assignment
+        return [("git ls-remote", UNKNOWN, [_MAYBE_PUSH] if bare and neutral_only else None)]
     if detail in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE]) and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
     if detail in _READ_FREE_DETAILS and any(_read_env_problem(w[0].partition("=")[0]) for w in words[:i]):
         return [(name, UNKNOWN, [_NOT_FREE])]  # a prefix assignment counts as the hook's environment does (D34)
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
-    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE], [_FETCH_FREE]) \
+    if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE], [_FETCH_FREE],
+                                              [_LS_REMOTE_FREE]) \
             and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
@@ -3511,6 +3601,7 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
         if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE])
                      else ("git fetch", UNKNOWN, [_MAYBE_PUSH]) if d == [_FETCH_FREE]
+                     else ("git ls-remote", UNKNOWN, [_MAYBE_PUSH]) if d == [_LS_REMOTE_FREE]
                      else (n, c, d)
                      for n, c, d in calls if d != [_GH_READ_FREE]]
         if not _redirections_open_no_file(toks):
@@ -9857,6 +9948,9 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_checkout_check"
                                                          for v in answer.verdicts):
             raise _ShKeep("`git worktree add` is free only as the whole command (D40)")
+        if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_ls_remote_profile"
+                                                         for v in answer.verdicts):
+            raise _ShKeep("`git ls-remote` is free only as the whole command (D59)")
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
                                                          for v in answer.verdicts):
             # K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and, since the owner's choice of
@@ -10532,7 +10626,8 @@ def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str =
 #: under Codex), but the answer names what they may start instead of the commits a push sends (D41, part 3 of Nachtrag
 #: 16). Measured with git 2.43.0 from a remote given as a local path (measure/fetch_starts.sh of Nachtrag 16):
 #: ls-remote started the upload-pack remote.<name>.uploadpack names; fetch started it, fsmonitor and, where a ref
-#: changed, the reference-transaction hook.
+#: changed, the reference-transaction hook. The forms D45 (fetch) and D59 (ls-remote) free after the fetch profile have
+#: markers of their own; every other form keeps this answer.
 _REMOTE_READS = frozenset({"git fetch", "git ls-remote"})
 
 
@@ -10645,6 +10740,12 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             # of D41
             verdicts.append(_unmodeled_read_or_checkout("git fetch", host) if host == "codex" else
                             _fetch_free_verdict(name, resolved, deadline, host))
+            continue
+        if detail == [_LS_REMOTE_FREE]:
+            # D59 (Nachtrag 22, part 3): free under Claude Code after the fetch profile of D45, under Codex the ask of
+            # D41
+            verdicts.append(_unmodeled_read_or_checkout("git ls-remote", host) if host == "codex" else
+                            _ls_remote_free_verdict(name, resolved, deadline, host))
             continue
         if detail == [_CHECKOUT_FREE]:
             verdicts.append(_checkout_free_verdict(name, resolved, deadline, host))
@@ -10874,6 +10975,9 @@ _SHORT_REASONS = {
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
                    "git ein Programm starten kann, das das Tor nicht sieht")
+#: The reason of an ls-remote that asks (D41, D59): the entry of remote_read_not_modeled names a fetch.
+_SHORT_LS_REMOTE = ("this ls-remote is not the form the gate frees", "dieses ls-remote nicht die Form ist, die das Tor "
+                    "freigibt")
 #: The reason of a read form under Codex, where class a is off (D37).
 _SHORT_CODEX_READ = ("D37", "under Codex no read form is free", "unter Codex keine Leseform frei ist")
 #: An id the table does not know: the long reason, which goes to the model, says why (D19).
@@ -10910,6 +11014,9 @@ def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
         return _SHORT_CODEX_READ
     if verdict.reason_id == "git_form_not_free" and verdict.evidence.startswith("none, the gate reads no repository"):
         return _SHORT_GIT_FORM
+    if verdict.reason_id == "remote_read_not_modeled" and (verdict.failed or "").startswith("git ls-remote "):
+        named = _SHORT_LAST_D.findall(verdict.detail)
+        return (f"D{named[-1]}" if named else "D41",) + _SHORT_LS_REMOTE   # D59: the ask names ls-remote, not a fetch
     entry = _SHORT_REASONS.get(verdict.reason_id, _SHORT_UNKNOWN)
     if entry[0] is None:
         named = _SHORT_LAST_D.findall(verdict.detail)
