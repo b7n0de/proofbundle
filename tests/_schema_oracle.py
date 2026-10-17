@@ -20,7 +20,12 @@ import copy
 import functools
 import re
 
-import jsonschema
+import pytest
+
+# A bare install has no jsonschema (it is a dev extra), and collection must skip, not break
+# (tests/test_bare_install_degrades_to_clean_skips.py; the CI mimic of 9151e4ca found the plain
+# import here).
+jsonschema = pytest.importorskip("jsonschema")
 
 #: The whole vocabulary the oracle translates: literals, `\\d`, `\\.`, bracket ranges, counted and plain
 #: quantifiers, plain groups. Anything else (an alternation, an inline flag, `\\w`, a lookaround) is refused.
