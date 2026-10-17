@@ -3517,6 +3517,79 @@ The rule:
   account of the operator, the roster, the closing rules, the records, pilot.json, Level 2), how the observer runs, and
   how someone else reruns the reconciliation; names and places, no values.
 
+## D58. The signer of the pilot is a service that decides the call again and signs only its own verdict (Z405 signer service, 2026-10-17)
+
+Order CLOUD-KRAXO-Z405-SIGNIERER-DIENST-01, owner choices O405-1 to O405-5 of 2026-10-17, 02:2x Berlin. D55 left open
+whose signature a receipt carries: the gate runs as the agent session's user, and a signer that user can call signed
+whatever bytes it was handed, so a receipt proved that the operator's signer signed, not that the gate decided.
+
+The rule (O405-1):
+- The service, `plugins/proofbundle/pilot/signer_service.py`, runs under an account of the operator, and only that
+  account reads the private key. The agent's user reaches it only through one fixed program: a sudo rule on exactly
+  that program as the signer account, or a socket of the signer account. `signer` in pilot.json names that program.
+  It is in place before the pilot starts at delta.
+- The gate hands it a request on stdin (PILOT_SIGN_REQUEST, `proofbundle/pilot-sign-request/v1`): at Level 1 the hook
+  event as the host gave it and the host, the working directory being the event's; at Level 2 the repository, the
+  remote, the URL, git's ref lines and the line the receipt is for; and the statement the gate proposes, in base64.
+- The service checks its own copy of the gate file against the sha256 that pilot_start.json keeps under `files.gate`
+  (`pilot_records.py start --gate`), loads that copy, and decides the call with it in its own environment (`environment`
+  of its configuration and the gate directory it names), never with a value of the agent's session. Surface, target,
+  bytes, verdict and reasons are its own: at Level 1 the gate's tool_outcome, at Level 2 pre_push_verdict.
+- It builds the statement again from its own decision, the pilot's configuration in the gate directory and the
+  decision's id and instant the proposal names, and signs the DSSE pre-authentication bytes only where the action id is
+  the one of its own action, every byte equals the proposal, and decidedAt lies within `window_seconds` (1 to 300)
+  before its clock and at most CLOCK_SKEW_SECONDS (2) after it.
+- Otherwise it signs nothing, exits 3 (the gate's PILOT_SIGNER_REFUSES) with one fixed reason name on stdout, and
+  writes a journal line. The names: request_malformed, statement_malformed, start_unread, gate_file_unread,
+  gate_file_differs, pilot_config_unread, ids_differ, outside_window, workdir_unreadable, out_of_time,
+  not_a_pilot_write, no_receipt_for_this_decision, action_differs, repository_not_safe, verdict_differs,
+  reasons_differ, policy_differs, statement_differs, internal_error. The gate journals `signer_refused_<name>`, `signer_timeout` for a service it
+  stopped after PILOT_SIGNER_SECONDS, and answers the call as before: a receipt never changes the answer (D55).
+- What the service cannot see gives no signature with its reason, never a guessed one: a working directory its
+  account does not read is workdir_unreadable; a repository git refuses for its account (owned by another account and
+  not named as safe.directory in the service's git configuration), where the decision then came out otherwise, is
+  repository_not_safe; a gate directory or pilot.json it does not read is pilot_config_unread; a value only in the
+  agent's environment that changes the decision gives verdict_differs or reasons_differ, because the service decided
+  without it.
+- The gate file is one file: the service's copy and the agent's must be the same bytes. A gate changed on the agent's
+  side names another policy digest (policy_differs) or another verdict (verdict_differs); the service's verdict is its
+  own either way.
+- Its journal line names the instant, whether it signed, the reason, the milliseconds, the level, the decisionId, the
+  surface and the verdict: no path, no command, no value (the rule of D49).
+- N405-a: the pilot reads the number of a pull request with its own rule, `_PILOT_GH_NUMBER`; `_GH_NUMBER` keeps
+  `[0-9]+`, the rule of the read forms of class b (D36). No name is bound twice at module level of the plugin's code
+  (tests/test_plugin_z405_module_names.py).
+- The probe signer (`probe_signer.py`, a key derived from a public label) stays for tests only.
+
+The remaining limit, said as it is: the service decides the state it sees when it runs, not the state the gate saw.
+If the agent changes the working tree, the configuration or the evidence between the gate's verdict and the service's
+decision, the service decides on the new state, and a receipt it signs then names its verdict on the new state. The
+same holds for a call the agent makes to the service directly: it may hand over an event of its own making, and the
+service signs it only where its own copy of the gate decides that event so; the receipt says no more than that.
+Whether the host then runs exactly that call is what the observer measures (M2, M3, M5), not the receipt.
+
+Time, N405-b, as a calculation:
+- Level 1: hooks.json gives each PreToolUse hook 120 s. main sets the gate's deadline, DEADLINE_SECONDS = 90 s, before
+  it reads the event, and each git, gh or uv step gets at most the time left, so the decision ends within 90 s of that
+  point. A Level 1 call is at most one GitHub write the pilot reads, so one receipt and one call of the service, which
+  the gate stops after PILOT_SIGNER_SECONDS = 10 s. 90 s + 10 s = 100 s < 120 s: 20 s remain for the interpreter's
+  start before the deadline is set, pilot.json, the closing rules, the receipt, the journal and the answer. The
+  service decides within its own deadline of PILOT_SIGNER_SECONDS - MARGIN_SECONDS = 9 s; a decision that takes
+  longer is refused as out_of_time, never signed late.
+- Level 2: git runs the pre-push hook without a timeout. A push of n ref lines is decided within 90 s, then each line
+  is one call of the service of at most 10 s, which decides the whole push again: at most 90 s + n x 10 s, and no host
+  limit. A push the service decides in more than 9 s gets no receipt.
+- The measured times per surface (median and maximum of the service's elapsedMs) stand in the delivery's report, not
+  here.
+
+The other owner choices of 2026-10-17, 02:2x Berlin:
+- O405-2: criterion 1 of the contract counts only for git.push in the first pilot; the other four surfaces are
+  covered by M5 and M6.
+- O405-3: the pilot's verifier is a published proofbundle whose decision verifier takes `now=`, 6.3.1 or later; until
+  one is published, the wheel built from main's src.
+- O405-4: the contract and the profile in the records are byte-identical copies of main, without pilot_profile.md.
+- O405-5: the pilot repositories declare a check and have Level 2 (install-pre-push, D24B).
+
 ## D59. git ls-remote from github.com after the fetch profile of D45 (Nachtrag 22, part 3, 2026-10-17)
 
 Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
