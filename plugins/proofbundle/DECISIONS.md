@@ -3594,8 +3594,8 @@ The other owner choices of 2026-10-17, 02:2x Berlin:
 
 Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
 09:09Z. Owner choice of 2026-10-17, 11:1x Berlin: the gate frees ls-remote in the form and with the profile of the fetch
-of D45, in round 26 with the quick round. D55 to D58 are the numbers of Z405 and its signer service, which follow this
-quick round (part 4 of the addendum); this file lacks them until then.
+of D45, in round 26 with the quick round. D55 to D58 are the numbers of Z405 and its signer service, which came over
+this quick round with part 4 of the addendum (Nachtrag 24) and stand before D59.
 
 Free now, under Claude Code and never under Codex: `git -C <literal absolute path> ls-remote [-q|--quiet]
 [--heads|--branches] [--tags] [--refs] <remote> [<pattern>…]` as the whole command, when the fetch profile of D45
