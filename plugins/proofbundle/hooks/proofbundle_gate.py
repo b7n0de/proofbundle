@@ -2444,14 +2444,15 @@ def _gh_telemetry_off(environ: dict, telemetry: str | None) -> str | None:
     """How the telemetry of gh 2.92.0 is off, or None where it is on, in gh's own order (gh help environment and
     config, each measured with the sample rate forced: no `gh send-telemetry`, no device id): GH_TELEMETRY decides when
     set, false and 0 turn it off; else DO_NOT_TRACK true or 1; else `telemetry: disabled` in config.yml. Other values
-    gh read as off (GH_TELEMETRY off, no or empty, `telemetry: false`) are not relied on."""
+    gh read as off (GH_TELEMETRY off, no or empty, `telemetry: false`) are not relied on. Each way is named by its
+    setting and file, never by the value read (D49; review Runde 25, R25-1)."""
     if "GH_TELEMETRY" in environ:
         value = environ["GH_TELEMETRY"]
         return "GH_TELEMETRY in the hook's environment" if value in ("false", "0") else None
     if environ.get("DO_NOT_TRACK") in ("true", "1"):
         return "DO_NOT_TRACK in the hook's environment"
     if telemetry == "disabled":
-        return "telemetry: disabled in gh's config.yml"
+        return "telemetry in gh's config.yml"
     return None
 
 

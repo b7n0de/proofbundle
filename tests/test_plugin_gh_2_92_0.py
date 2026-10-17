@@ -125,7 +125,7 @@ def test_E2_the_case_measured_at_delta_is_free_with_telemetry_off(tmp_path, monk
 def test_E2_the_pass_names_the_version_and_its_conditions(tmp_path, monkeypatch):
     _set(tmp_path, monkeypatch, {}, "telemetry: disabled\n")
     detail = _decide(tmp_path).verdicts[0].detail
-    for named in ("gh 2.92.0", "its telemetry is off (telemetry: disabled in gh's config.yml)",
+    for named in ("gh 2.92.0", "its telemetry is off (telemetry in gh's config.yml)",   # the key, not its value (R25-1)
                   "no extension is installed", "D43"):
         assert named in detail, (named, detail)
 
