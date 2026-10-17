@@ -67,7 +67,24 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if not re.search(r"^\s*(?:import\s+unittest|from\s+unittest\b)", text, re.MULTILINE):
+        # EVERY NAME OF THE STATEMENT, not only the first. Codex r3999288389, measured and
+        # confirmed: the old pattern required `unittest` DIRECTLY after `import` and did not see
+        # `import os, unittest`. The syntax tree saw it, the two derivations DISAGREED, and the
+        # equality check in `evaluate()` reported ok=False for a fully valid test module, so the
+        # gate refused a correct addition.
+        #
+        # NOT the other way, and this corrects an earlier answer of this house: REPLACING the text
+        # path with the AST path would have removed the second derivation, and that is no accident
+        # but the owner order of 2026-09-07 (guard sweep P1). Two readers with different failure
+        # geometry are the guard; whoever drops one keeps the count and loses the check. The right
+        # remedy is that both measure THE SAME property, so that their difference is again a
+        # statement about the subject instead of about the weaker reading.
+        #
+        # `\bunittest\b` holds the border to neighbouring names: `my_unittest_helper` and
+        # `unittest_extras` carry an underscore, so no word boundary, and do not fall in.
+        # `import unittest.mock` falls in, and the syntax tree sees it the same way.
+        if not re.search(r"^\s*(?:import\s+[^\n]*\bunittest\b|from\s+unittest\b)",
+                         text, re.MULTILINE):
             out.append(path.name)
     return out
 

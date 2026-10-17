@@ -1164,6 +1164,43 @@ _ABBRUCH_BANNER = re.compile(r"^!+ .* !+$", re.M)
 _RC_NICHT_MESSBAR = frozenset({2, 3, 4})
 
 
+#: The head of a section in which pytest reproduces a test's OWN output.
+_AUFGEFANGEN_AUF = re.compile(r"^-+ Captured [^\n]*-+\s*$")
+
+#: A line that opens a new top-level section and so closes the captured block. pytest draws its
+#: section separators from `=`, `_` and `-`.
+#:
+#: `!` IS DELIBERATELY NOT AMONG THEM, and the first version had it. With it, the captured
+#: diagnostic line `! ordinary diagnostic !` closed the block ITSELF, stayed in the text and was
+#: still read as a banner: the cut had no effect, and exactly the case it was built against got
+#: through. Found by its own property node, not while writing it.
+_ABSCHNITT_ZU = re.compile(r"^(?:={3,}|_{3,}|-{3,})")
+
+
+def _ohne_aufgefangene_ausgabe(text: str) -> str:
+    """The report text WITHOUT the sections pytest labels as the test's output.
+
+    WHY THIS SURFACE AND NOT THE WHOLE TEXT. What a test writes to stdout is text of the TEST, not
+    of the runner. pytest says so itself by framing it under `Captured stdout call`. A guard that
+    looks for the form of a runner banner has no business there, and that is exactly where it
+    misfired on 2026-09-13 (Codex r3999288387).
+
+    HONEST LIMIT: the sections pytest labels are recognised. If a test prints its lines without
+    capture, for example with `-s`, they stand on the top level and cannot be told apart from a
+    banner. The mutation run of this gate captures.
+    """
+    raus, drin = [], False
+    for zeile in text.splitlines(keepends=True):
+        if _AUFGEFANGEN_AUF.match(zeile.rstrip("\n")):
+            drin = True
+            continue
+        if drin and _ABSCHNITT_ZU.match(zeile):
+            drin = False
+        if not drin:
+            raus.append(zeile)
+    return "".join(raus)
+
+
 def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | None:
     """Das Urteil ueber einen Lauf: RUECKGABEWERT zuerst, dann die strukturierte Quelle, dann Text.
 
@@ -1186,9 +1223,34 @@ def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | Non
     # Deshalb jetzt die FORM statt des Wortlauts. Eine Aufzaehlung von Abbruchgruenden waere beim
     # naechsten stillschweigend zu kurz — dieselbe Lehre wie beim Ersatzwert in
     # `pre_tag_receipt_lib.verify_receipt`, wo eine Blockliste durch eine Formpruefung ersetzt wurde.
-    # Die fuenf Ausrufezeichen halten die Grenze zu einem Test, der das Wort in einem Traceback
-    # ausgibt: pytest rahmt seine Banner, gewoehnlicher Text tut das nicht.
-    if _ABBRUCH_BANNER.search(text) or re.search(r"^INTERNALERROR", text, re.M):
+    # A SENTENCE STOOD HERE THAT THE FORM DID NOT CARRY: it said five exclamation marks hold the
+    # border to a test that prints the word in a traceback. Five do not occur in the pattern, which
+    # asks for ONE on each side. The text told the hardening from wording to form and then described
+    # a property the form does not have. The return code draws the border, see above; the pattern
+    # is the fallback for when there is none.
+    # DO NOT SEARCH THE TEST'S CAPTURED OUTPUT. Codex r3999288387, measured and confirmed:
+    # `^!+ .* !+$` asks for ONE exclamation mark on each side, not five, and so it matches the
+    # ordinary diagnostic line of a FAILED test (`! ordinary diagnostic !`). pytest copies such a
+    # line from the captured stdout into its failure report. With rc=1 and a valid report the run
+    # then counted as NOT MEASURABLE and the mandatory gate aborted, although pytest finished
+    # normally. A measured red became an abort.
+    #
+    # THE FIRST REMEDY OF THE REPORT WOULD HAVE BEEN WRONG, and that is the actual finding here. It
+    # reads "apply the heuristic only when there is no return code". Measured,
+    # `tests/test_mutationstor_sammler_sieht_die_freigabeflaeche.py` holds a real counter-case:
+    # `pytest.exit()` writes its banner AND returns rc=1, the summary says `1 failed, 1 passed`, and
+    # the test that should have killed the mutant never ran. Switching the form check off whenever
+    # a return code is present loses exactly this protection. A repair that trades one measured
+    # case for another is none.
+    #
+    # The difference lies neither in the return code nor in the wording but in the PLACE: pytest
+    # writes its banners on the top level of the report, and what a test prints itself stands in a
+    # section that pytest EXPLICITLY labels as the test's output (`----- Captured stdout call
+    # -----`). Those sections are taken out before the form check. The FORM is still what is asked,
+    # only on the right surface, and there is no list of abort reasons that would silently be one
+    # short next time.
+    if _ABBRUCH_BANNER.search(_ohne_aufgefangene_ausgabe(text)) \
+            or re.search(r"^INTERNALERROR", text, re.M):
         return None
     aus_bericht = _rote_aus_bericht(bericht)
     return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
