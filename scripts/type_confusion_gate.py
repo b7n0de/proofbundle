@@ -130,6 +130,10 @@ def _benign_fixtures() -> dict[str, object]:
         # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
         "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
+        # The verification key a Receiver fixes, 32 raw bytes, as the SECOND parameter of
+        # signed_eval_receipt.verify_signed_eval_receipt(receipt, key): the receipt is the fuzzed primary.
+        # Without it the surface stood as NEEDS_FIXTURE, evaluated 71 of 72.
+        "key": pub,
     }
 
 
