@@ -29,6 +29,14 @@ line whose signature never left is one with `"handedOut": false`, and one whose 
 
     key_signer.py --config FILE            sign the statement of the request on stdin, or refuse
     key_signer.py --config FILE --public   write the public key in hex
+    key_signer.py --config FILE --export FOLDER   copy the journal and its sha256 into FOLDER of the records (D65)
+
+The export, at the end of each window, writes FOLDER/journal.jsonl and FOLDER/export.json
+(`proofbundle/pilot-key-journal-export/v1`: the file, its sha256, its lines, the instant), each replaced whole, and
+only where the agent's account cannot write there: FOLDER must be a folder the key account owns that no other account
+may write, and its parent must belong to root or to the key account and be writable by no one else, or carry the sticky
+bit, which keeps others from renaming or removing what is not theirs. Else it exports nothing and names
+export_folder_unsafe.
 
 The configuration is the operator's file, in a folder only the key account reads:
     {"schema": "proofbundle/pilot-key-config/v1", "key_file": <64 hex digits, the Ed25519 private key>,
@@ -45,6 +53,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import time
 
@@ -63,6 +72,8 @@ MAX_STATEMENT_BYTES = 64 * 1024
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PAYLOAD_TYPE = b"application/vnd.in-toto+json"
 DECISION_RECEIPT_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
+#: The form of the journal's export into the records (D65), which pilot_records.Records.key_journal reads.
+EXPORT_SCHEMA = "proofbundle/pilot-key-journal-export/v1"
 STATEMENT_KEYS = frozenset({"_type", "subject", "predicateType", "predicate"})
 PREDICATE_KEYS = frozenset({"schemaVersion", "decisionId", "decisionType", "decidedAt", "decisionMaker", "agent",
                             "principal", "proposedAction", "inputSnapshot", "policyBoundary", "evidenceRefs",
@@ -204,14 +215,66 @@ def _instant() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _replace(folder: str, name: str, data: bytes) -> None:
+    """Write `name` in `folder` whole: a new file beside it, synced, renamed over it, and the folder synced."""
+    temporary = os.path.join(folder, f".{name}.{os.getpid()}.new")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temporary, os.path.join(folder, name))
+    directory = os.open(folder, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def export(config: dict, folder: str) -> dict:
+    """Copy the journal and its sha256 into `folder` of the records (D65), only where no account but this one and root
+    can write there or rename the folder away; Refused("export_folder_unsafe") otherwise."""
+    if not os.path.isabs(folder):
+        raise Refused("export_folder_unsafe")
+    try:
+        own, parent = os.lstat(folder), os.lstat(os.path.dirname(folder.rstrip("/")) or "/")
+    except OSError as exc:
+        raise Refused("export_folder_unsafe") from exc
+    if not stat.S_ISDIR(own.st_mode) or own.st_uid != os.geteuid() or own.st_mode & 0o022:
+        raise Refused("export_folder_unsafe")
+    if parent.st_uid not in (0, os.geteuid()) or (parent.st_mode & 0o022 and not parent.st_mode & stat.S_ISVTX):
+        raise Refused("export_folder_unsafe")
+    try:
+        with open(config["journal"], "rb") as handle:
+            data = handle.read()
+    except FileNotFoundError:
+        data = b""
+    document = {"schema": EXPORT_SCHEMA, "file": "journal.jsonl", "sha256": hashlib.sha256(data).hexdigest(),
+                "lines": data.count(b"\n"), "exportedAt": _instant()}
+    _replace(folder, "journal.jsonl", data)
+    _replace(folder, "export.json", (json.dumps(document, indent=1, sort_keys=True) + "\n").encode("ascii"))
+    return document
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", required=True)
     parser.add_argument("--public", action="store_true")
+    parser.add_argument("--export", metavar="FOLDER")
     args = parser.parse_args(argv)
     config = load_config(args.config)
     if args.public:
         print(public_hex(config))
+        return 0
+    if args.export is not None:
+        try:
+            print(json.dumps(export(config, args.export), sort_keys=True))
+        except Refused as exc:
+            print(exc)
+            return REFUSED
         return 0
     started, now_ns = time.monotonic(), time.time_ns()
     note: dict = {}

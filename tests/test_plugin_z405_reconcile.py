@@ -102,7 +102,10 @@ def test_required_cases_rerun_offline_from_the_files_alone(env, tmp_path):
     shutil.copytree(records, copy, ignore=shutil.ignore_patterns("reconciliation"))
     again = subprocess.run([sys.executable, str(o.PILOT / "reconcile.py"), "--records", str(copy)],
                            capture_output=True, text=True, timeout=300, check=False, cwd=str(tmp_path))
-    assert first.returncode == again.returncode == 0, (first.stderr, again.stderr)
+    # records signed by the probe signer keep no export of a key signer's journal: since D65 the reconciliation says so
+    # with its own exit code, after it wrote the same file as before
+    assert first.returncode == again.returncode == rc.KEY_JOURNAL_NOT_READ, (first.stderr, again.stderr)
+    assert "key journal: not read, not in the records" in again.stdout
     assert (records / "reconciliation" / "reconciliation.json").read_bytes() == \
         (copy / "reconciliation" / "reconciliation.json").read_bytes()
     assert "reconciled: approved and arrived as approved" in again.stdout

@@ -3860,6 +3860,29 @@ T4-a, the rule:
 Tests: tests/test_plugin_z405_journal_first.py; the journal helpers of tests/test_plugin_z405_signer_service.py and
 tests/test_plugin_z405_key_signer.py read the decision lines and the `handedOut` lines apart.
 
+O24-1, the rule (the key signer's journal in the records and in the reconciliation):
+- At the end of each window, before the reconciliation, the key account exports its journal into keysigner/ of the
+  records: `key_signer.py --config <key configuration> --export <records>/keysigner` writes journal.jsonl and
+  export.json (`proofbundle/pilot-key-journal-export/v1`: the file, its sha256, its lines, the instant), each written
+  whole: a new file beside it, synced, renamed over it, the folder synced.
+- The way the agent's account cannot write: the key signer exports only into a folder it owns that no other account
+  may write, whose parent belongs to root or to the key account and is writable by no one else, or carries the sticky
+  bit, which keeps others from renaming or removing what is not theirs. The export's name for any other folder:
+  export_folder_unsafe. The records folder therefore belongs to the operator, the agent's user and the observer write
+  in it through a group, and its sticky bit keeps keysigner/ in place; the operator makes keysigner/ for the key
+  account before the first decision.
+- reconcile.py reads the journal only where it is the bytes export.json names by their sha256 and matches its lines to
+  the receipts in decisions/ by the sha256 of the statement each receipt carries. It names two counts of its own:
+  signed lines without a receipt (a signed line marked `"handedOut": false` never left the key signer and is counted
+  apart; one without its second line counts) and receipts without a signed line. Either count not 0 ends it with
+  KEY_JOURNAL_DISAGREES (3); a journal that is not in the records, or not the bytes of its export, ends it with
+  KEY_JOURNAL_NOT_READ (4). It writes reconciliation.json either way, `keyJournal` with the counts, the lines and
+  receipts they name, and the number of lines that do not read.
+- Records the probe signer signed keep no such export; their reconciliation ends with KEY_JOURNAL_NOT_READ.
+- The comparison by hand of D64 stays as the way back.
+Tests: tests/test_plugin_z405_key_journal_reconcile.py; tests/test_plugin_z405_reconcile.py reads the exit code of
+records without an export.
+
 ## D66. A command whose every program only reads calls no done-order: D38 does not ask for it (Nachtrag 26, 2026-10-17)
 
 Measured at delta on 2026-10-17, 20:54Z (gate at 9f578c2a), and again at 3694e34e: a find over a session folder under

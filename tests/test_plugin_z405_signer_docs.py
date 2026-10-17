@@ -94,7 +94,18 @@ def test_every_refusal_name_of_the_key_signer_stands_in_d64_or_d65_and_no_other(
     assert "journal_unwritable" in names
     listed = _names(D64, "The key signer's names:")
     journaled = _names(D65, "The key signer's name for a journal it cannot write:")
-    assert listed | journaled == names and not listed & journaled
+    exported = _names(D65, "The export's name for any other folder:")
+    assert listed | journaled | exported == names and not listed & journaled and not (listed | journaled) & exported
+
+
+def test_d65_says_how_the_reconciliation_ends_with_the_constants():
+    reconcile = (PLUGIN / "pilot" / "reconcile.py").read_text(encoding="utf-8")
+    text = _flat(D65)
+    for name in ("KEY_JOURNAL_DISAGREES", "KEY_JOURNAL_NOT_READ"):
+        value = re.search(rf"^{name} = ([0-9]+)$", reconcile, re.M).group(1)
+        assert f"{name} ({value})" in text, name
+    assert "signed lines without a receipt" in text and "receipts without a signed line" in text
+    assert "The comparison by hand of D64 stays as the way back." in text
 
 
 def test_d65_says_the_journal_comes_before_the_signature():

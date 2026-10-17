@@ -15,6 +15,8 @@ reconciliation from them alone (criterion 4). This module holds that folder:
     decisions/, journal.jsonl   written by the gate (D55)
     api/<run>/                  written by the observer: the window, every request and every response as returned
     outcomes/                   written by the observer: an action-outcome/v0.1 and its scope descriptor per effect
+    keysigner/journal.jsonl, export.json   the key signer's journal and its sha256, exported by the key account at the
+                                end of each window into a folder only it writes (D65)
     reconciliation/             written by the reconciliation
 
 It reads GitHub's events into effects, and it matches effects to decisions by the rule of the contract, section 5,
@@ -45,6 +47,10 @@ REFUSED = ("DENY", "REFUSE")
 _INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z\Z", re.ASCII)
 _SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}\Z", re.ASCII)
 _OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.ASCII)
+#: The key signer's journal in the records (D65): the folder the key account exports it into, and the export's form,
+#: which key_signer.py --export writes.
+KEY_JOURNAL_FOLDER = "keysigner"
+KEY_JOURNAL_SCHEMA = "proofbundle/pilot-key-journal-export/v1"
 
 
 class RecordsError(ValueError):
@@ -192,6 +198,34 @@ class Records:
 
     def runs(self) -> list[dict]:
         return [dict(read_json(p), folder=p.parent) for p in sorted((self.folder / "api").glob("*/run.json"))]
+
+    def key_journal(self) -> tuple[list | None, str | None, str]:
+        """The key signer's journal as its last export into the records keeps it (D65): (the lines, each a dict or None
+        where it does not read as one, the journal's sha256, "") or (None, None, why it is not read). The journal is
+        read only where it is the bytes the export names by their sha256."""
+        folder = self.folder / KEY_JOURNAL_FOLDER
+        if not (folder / "export.json").is_file():
+            return None, None, "not in the records"
+        try:
+            export = read_json(folder / "export.json")
+        except ValueError:
+            export = None
+        if not (isinstance(export, dict) and export.get("schema") == KEY_JOURNAL_SCHEMA
+                and export.get("file") == "journal.jsonl" and isinstance(export.get("sha256"), str)):
+            return None, None, "the export does not read"
+        path = folder / "journal.jsonl"
+        data = path.read_bytes() if path.is_file() else None
+        if data is None or sha256_hex(data) != export["sha256"]:
+            return None, None, "the journal differs from the sha256 of its export"
+        lines = []
+        for raw in data.split(b"\n"):
+            if raw:
+                try:
+                    value = json.loads(raw)
+                except ValueError:
+                    value = None
+                lines.append(value if isinstance(value, dict) else None)
+        return lines, export["sha256"], ""
 
     def outcomes(self) -> list[dict]:
         found = []

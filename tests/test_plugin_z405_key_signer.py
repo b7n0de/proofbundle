@@ -336,8 +336,8 @@ def test_the_key_signer_imports_nothing_that_starts_a_process_and_no_gate():
     tree = ast.parse(KEY_SIGNER.read_text(encoding="utf-8"))
     imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | \
         {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-    assert imported <= {"__future__", "argparse", "base64", "binascii", "calendar", "hashlib", "json", "os", "re", "sys",
-                        "time", "cryptography"}, imported
+    assert imported <= {"__future__", "argparse", "base64", "binascii", "calendar", "hashlib", "json", "os", "re", "stat",
+                        "sys", "time", "cryptography"}, imported
     assert not imported & set(_PROCESS)
     called = {n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
     assert not called & _PROCESS_CALLS, called & _PROCESS_CALLS

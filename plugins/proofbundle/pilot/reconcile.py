@@ -13,11 +13,21 @@ The measures (contract, section 5), each from a closed set; `unknown` and `not m
 M1 arrived, not arrived, ambiguous, not yet observed, unknown; M2 identical, different, not measured; M3 same,
 different, not measured; M4 yes, no, not measured; M5 and M6 counts over the window; M7 seconds from the decision to
 the first reading of its effect, or no observation; M8 the number of decisions that share the action id.
+
+The key signer's journal (D65), as the key account exported it into keysigner/ of the records at the end of the window,
+gives two counts of their own: signed lines without a receipt (a signature the gate key made that no receipt in
+decisions/ carries) and receipts without a signed line (a receipt whose statement the key signer's journal does not
+name). A signed line marked `"handedOut": false` never left the key signer and is counted apart. Either count not 0
+ends the reconciliation with KEY_JOURNAL_DISAGREES, a journal the records do not keep as exported with
+KEY_JOURNAL_NOT_READ; the file is written either way.
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -25,6 +35,10 @@ import pilot_records as pr  # noqa: E402
 
 APPROVE, ESCALATE = ("ALLOW",), ("ESCALATE", "DEFER")
 NOT_MEASURED, UNKNOWN = "not measured", "unknown"
+#: The exit codes of the key signer's journal (D65): a count not 0, and a journal the records do not keep as exported.
+KEY_JOURNAL_DISAGREES = 3
+KEY_JOURNAL_NOT_READ = 4
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 
 
 def _closing_lines(stored: bytes | None, rule: object) -> str:
@@ -68,6 +82,42 @@ def _class(verdict: str, m: dict, early: bool = False) -> str:
         return {"not arrived": "escalated, not arrived", "arrived": "escalated, arrived without an approval of the gate",
                 "not yet observed": "escalated, not yet observed"}.get(m["M1"], "escalated, not matchable")
     return f"verdict {verdict}, not read by the contract"
+
+
+def key_journal_check(records: pr.Records, entries: list[dict]) -> dict:
+    """The key signer's journal against the receipts (D65), matched by the sha256 of the statement each receipt carries.
+    A signed line counts as handed out unless its second line says `"handedOut": false`; one without its second line is
+    unconfirmed and counts as handed out."""
+    receipts = {}
+    for entry in entries:
+        try:
+            body = base64.b64decode(entry["envelope"]["payload"], validate=True)
+        except (KeyError, TypeError, ValueError, binascii.Error):
+            body = None
+        receipts[entry["file"]] = pr.sha256_hex(body) if body is not None else None
+    lines, journal_sha, why = records.key_journal()
+    if lines is None:
+        return {"read": False, "why": why, "signedWithoutReceipt": NOT_MEASURED,
+                "receiptsWithoutSignedLine": NOT_MEASURED}
+    signed, handed = {}, {}
+    for line in lines:
+        digest = line.get("statementSha256") if line is not None else None
+        if not (isinstance(digest, str) and _SHA256.fullmatch(digest)):
+            continue
+        if line.get("signed") is True:
+            signed[digest] = line.get("decisionId")
+        elif "handedOut" in line and "signed" not in line:
+            handed[digest] = handed.get(digest, True) and line["handedOut"] is True
+    out = {d for d in signed if handed.get(d) is not False}
+    taken = set(receipts.values())
+    without_receipt = sorted(d for d in out if d not in taken)
+    receipts_without = sorted(f for f, d in receipts.items() if d is None or d not in out)
+    return {"read": True, "sha256": journal_sha, "lines": len(lines), "unreadableLines": lines.count(None),
+            "signed": len(signed), "notHandedOut": sum(1 for d in signed if handed.get(d) is False),
+            "unconfirmed": sum(1 for d in signed if d not in handed),
+            "signedWithoutReceipt": len(without_receipt), "receiptsWithoutSignedLine": len(receipts_without),
+            "signedWithoutReceiptLines": [{"decisionId": signed[d], "statementSha256": d} for d in without_receipt],
+            "receiptsWithoutSignedLineFiles": receipts_without}
 
 
 def reconcile(records: pr.Records) -> dict:
@@ -162,7 +212,7 @@ def reconcile(records: pr.Records) -> dict:
     unmatched = [{k: r["effect"][k] for k in ("event", "type", "surface", "target", "performedAt", "response")}
                  for r in matched["rows"] if r["decision"] is None]
     inputs = {name: entry["sha256"] for name, entry in sorted(records.files.items())}
-    for folder in ("decisions", "outcomes", "api"):
+    for folder in ("decisions", "outcomes", "api", pr.KEY_JOURNAL_FOLDER):
         for path in sorted((records.folder / folder).rglob("*")):
             if path.is_file():
                 inputs[str(path.relative_to(records.folder))] = pr.sha256_hex(path.read_bytes())
@@ -170,7 +220,8 @@ def reconcile(records: pr.Records) -> dict:
             "verification": "each decision at one second before its decidedAt, each outcome as the kept profile "
                             "verifies it (strict, the derived subject, the observer as audience, the decision's nonce)",
             "window": window, "runs": [r["run"] for r in runs], "inputs": inputs, "unverified_receipts": unverified,
-            "M5": matched["M5"], "M6": matched["M6"], "unapproved_effects": unmatched, "decisions": rows}
+            "M5": matched["M5"], "M6": matched["M6"], "unapproved_effects": unmatched, "decisions": rows,
+            "keyJournal": key_journal_check(records, entries)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,6 +238,14 @@ def main(argv: list[str] | None = None) -> int:
     for row in result["decisions"]:
         print(f"{row.get('decisionId', row['file'])}: {row['class']} (profile: {row['profile']})")
     print(f"M5 {result['M5']}, M6 {result['M6']}")
+    journal = result["keyJournal"]
+    if not journal["read"]:
+        print(f"key journal: not read, {journal['why']}")
+        return KEY_JOURNAL_NOT_READ
+    print(f"key journal: {journal['signedWithoutReceipt']} signed lines without receipt, "
+          f"{journal['receiptsWithoutSignedLine']} receipts without signed line")
+    if journal["signedWithoutReceipt"] or journal["receiptsWithoutSignedLine"]:
+        return KEY_JOURNAL_DISAGREES
     return 0
 
 
