@@ -205,6 +205,7 @@ def _has_type(value: Any, kind: str) -> bool:
     raise ValueError(f"unknown type kind {kind!r} in a type map")
 
 
+@_ein_stand
 def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"]) -> list[str]:
     """Walk ``obj`` and report every value at a declared dotted path whose JSON type is not the declared one.
 
