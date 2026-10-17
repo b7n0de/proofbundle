@@ -3413,3 +3413,54 @@ ends in /gh, nothing before or after. No quote, $, backtick, backslash, space, t
 character. The check reads the text (_GH_HELPER_FORM), never the words of a split. Every other value asks with the
 reason of an unknown helper, a form the shell reads literally included. Then, as before, the gh it names must be the gh
 on PATH and the gh profile of D36 and D43 must be free for it.
+
+## D59. git ls-remote from github.com after the fetch profile of D45 (Nachtrag 22, part 3, 2026-10-17)
+
+Every ls-remote asked (_REMOTE_READS, D41), also where the fetch of D45 is free; delta stopped at it on 2026-10-17 at
+09:09Z. Owner choice of 2026-10-17, 11:1x Berlin: the gate frees ls-remote in the form and with the profile of the fetch
+of D45, in round 26 with the quick round. D55 to D58 are the numbers of Z405 and its signer service, which follow this
+quick round (part 4 of the addendum); this file lacks them until then.
+
+Free now, under Claude Code and never under Codex: `git -C <literal absolute path> ls-remote [-q|--quiet]
+[--heads|--branches] [--tags] [--refs] <remote> [<pattern>…]` as the whole command, when the fetch profile of D45
+(_fetch_profile_problem) finds nothing for that remote in the repository the -C path names. The grammar of _fetch_form
+(_ls_remote_form): the options first and each without a value, then a remote name (no URL, no path), every word
+literal, no `$`, no word the shell may rewrite, no `--`; a pattern (_ls_remote_pattern) may start with `refs/` and
+carries no `:`, `+`, `^`, `@`, `..`, glob, space or backslash. Every other option (--upload-pack, -o, --server-option,
+--get-url, --symref, --sort, --exit-code, …), an option after the remote, a URL or path as the remote, a prefix
+assignment the fetch profile does not accept, a redirection, another global option or `-C`, and every longer command
+that holds the form keep the answer of D41 (an ls-remote step stays a gated step, as in D33). A finding of the profile
+asks with the reason id and text of D41, what the profile found and "so this ls-remote is not the one D59 frees"; the
+short line of D53 names ls-remote, no longer a fetch: "this ls-remote is not the form the gate frees", with D59 for a
+finding of the profile and D41 for every other ask.
+
+Ground truth, measured with git 2.43.0 under strace -f (execve, connect) with no network, in a network and mount
+namespace of its own whose /etc/hosts names github.com, against the stand-in of D45 for github.com, a second host and a
+CONNECT proxy (truth_ls_remote_n22.py, 58 cases; each source set alone in a fresh copy of a clone under an absolute path,
+stdout a pipe or a terminal of script(1)), the fetch profile asked for each case in the same repository and
+environment:
+- The form from https://github.com/<owner>/<repo> (with and without `.git`, each option, patterns, on a terminal, from a
+  shallow clone) started git-remote-https only and connected only to github.com:443 (and tried nscd's socket). It wrote
+  nothing under .git in any of the 58 cases, so no reference-transaction hook, gc or maintenance ran. git 2.43.0 does
+  not know --branches: exit 129, nothing started.
+- Started a program or reached another host, and the profile found each: pager.ls-remote on a terminal (its pager),
+  remote.<name>.vcs (git-remote-<vcs>), url.*.insteadOf (the other host served it), http.proxy, HTTPS_PROXY,
+  https_proxy and ALL_PROXY (the proxy got CONNECT), on a 401 `!<program>`, a name on PATH, GIT_ASKPASS, SSH_ASKPASS
+  and core.askPass (their program), and a remote word with no remote of that name (git read it as the path of a local
+  repository and started upload-pack through a shell). On a 401 credential.helper=store started git credential-store
+  and the gh helper started gh, both admitted by the profile as for the fetch (D45, D54); credential.helper=cache
+  started git credential-cache, which the profile asks for as for the fetch (D45: its daemon outlives the call).
+- Started nothing for an https ls-remote, while the profile asks for it: all 28 hooks githooks(5) documents, also
+  through core.hooksPath and with gc due; core.fsmonitor; core.sshCommand, GIT_SSH, GIT_SSH_COMMAND, core.askPass and
+  GIT_ASKPASS on a public repository; remote.<name>.uploadpack; a remapped fetch rule; a submodule with the default
+  recursion and with submodule.recurse; a shallow clone's single-branch rule. A clean, smudge and process filter an
+  attribute assigns started nothing and does not count, as for the fetch.
+- Pagers: PAGER, GIT_PAGER and core.pager started nothing, on a terminal too, and do not count for this form (as D48
+  for the fetch); pager.ls-remote counts unless the host's Bash tool gives the command no terminal (D42).
+- Not covered: a redirect of github.com itself to another host was followed (http.followRedirects=initial), with
+  nothing in the configuration or the environment the profile could find; as for the fetch (O19-4), it is github.com's
+  answer, not a setting of the session.
+
+Tests: tests/test_plugin_n22_ls_remote_d59.py (the form and each option free, each excluded option and word asking
+with D41, the whole command only, Codex with D41, each finding of the profile asking with what it found, the short
+line in English and German).

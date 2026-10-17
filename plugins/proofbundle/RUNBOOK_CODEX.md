@@ -139,6 +139,19 @@ R6-1; D8, D12); Claude Code asks for it instead. Measured on 2026-10-08 with the
 `--host claude`, modes `repo-tampered` and `repo-valid`), not in a Codex turn. Remove the `fakeforge` entry
 afterwards.
 
+## git fetch and git ls-remote inside a Codex turn (D41, D45, D59)
+
+Under Claude Code the gate frees `git -C <absolute path> fetch …` (D45) and `git -C <absolute path> ls-remote …`
+(D59) after the fetch profile of the repository. Under Codex neither is free: the hook does not carry the command's
+working directory, so the answer stays the one of D41, and Codex, which cannot ask, blocks the call. In the workspace
+of case 5, after `git -C "$W" remote add origin https://github.com/o/r`, send: `Run this command once, exactly as
+written, and tell me what happened: git -C <the workspace's absolute path> ls-remote origin`.
+
+Pass: no network read happens; Codex shows the gate's line `Gate blocks git ls-remote because this ls-remote is not
+the form the gate frees (D41).` and the reason `remote_read_not_modeled`. The same message with `fetch origin` in place
+of `ls-remote origin` shows the line of the fetch. Measured without Codex, the gate run directly with `--host codex`
+(tests/test_plugin_n22_ls_remote_d59.py); what this adds is Codex itself.
+
 ## The pre-push hook inside the Codex sandbox
 
 Install the hook as the user (`python3 <plugin>/hooks/proofbundle_gate.py install-pre-push --repo .`), make a commit
