@@ -225,6 +225,12 @@ include scripts/type_confusion_gate.py
 # tests/test_verify_pre_tag_receipt_third_party.py ruft ihn -- die Skripte, die die Tests
 # aufrufen, gehoeren in den sdist (Zeile 1 dieser Datei).
 include scripts/verify_pre_tag_receipt.py
+# IN, decided the way its reader is (2026-10-17): scripts/verify_signing_package.py. It checks a
+# signing package offline with public keys only and carries no key-reading code path, it imports the
+# shipped scripts/pre_tag_receipt_lib.py, and the shipped test tests/test_verify_signing_package.py
+# loads it with spec_from_file_location, so left out it would fail from the sdist with
+# FileNotFoundError.
+include scripts/verify_signing_package.py
 
 # Never ship: the Rust verifier + build artifacts, repo/CI meta, caches, VCS, big review packs.
 prune tools
