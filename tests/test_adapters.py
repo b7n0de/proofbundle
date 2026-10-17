@@ -101,6 +101,65 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(claim["provenance"]["scored_samples"], 1)
         self.assertEqual(claim["provenance"]["unscored_samples"], 1)
 
+    def _inspect_log(self):
+        """The real fixture, read fresh and copied; only the copy is mutated."""
+        try:
+            from inspect_ai.log import read_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        return deepcopy(read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval"),
+                                      header_only=True))
+
+    def test_inspect_ai_binds_the_completeness_of_the_run(self):
+        """The three fields `EvalResults` carries and the adapter did not read until 2026-09-14."""
+        log = self._inspect_log()
+        log.results.total_samples = 10
+        log.results.completed_samples = 10
+        log.results.early_stopping = False
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        self.assertEqual(claim["provenance"]["total_samples"], 10)
+        self.assertEqual(claim["provenance"]["completed_samples"], 10)
+        self.assertIs(claim["provenance"]["early_stopping"], False)
+
+    def test_inspect_ai_an_early_stopped_run_is_told_apart_from_a_complete_one(self):
+        """THE CASE this is about, and it is the catch proof at the same time.
+
+        Two runs with IDENTICAL sample counts, the same `scored_samples`, the same
+        `unscored_samples` and the same `n`, and one of them was stopped early. Before the fix their
+        signed receipts could not be told apart, which was the finding. If this assertion falls, the
+        difference has gone from the signature again.
+        """
+        common = dict(comparator=">=", threshold="0.00", timestamp=TS,
+                      model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        complete = self._inspect_log()
+        complete.results.total_samples = 2
+        complete.results.completed_samples = 2
+        complete.results.early_stopping = False
+        early = deepcopy(complete)
+        early.results.early_stopping = True
+        a, _ = from_inspect_ai_log(complete, "accuracy", **common)
+        b, _ = from_inspect_ai_log(early, "accuracy", **common)
+        self.assertEqual(a["n"], b["n"], "the precondition of the case, the same sample count")
+        self.assertEqual(a["provenance"]["scored_samples"], b["provenance"]["scored_samples"])
+        self.assertNotEqual(a["provenance"], b["provenance"],
+                            "an early-stopped run looks like a complete one in the receipt")
+        self.assertIs(b["provenance"]["early_stopping"], True)
+
+    def test_inspect_ai_invents_no_completeness_where_the_log_carries_none(self):
+        """The other direction: absent fields are NOT invented as zeros or as False. An invented
+        value would be worse than a missing one, because it looks like a measurement."""
+        log = self._inspect_log()
+        for field in ("total_samples", "completed_samples", "early_stopping"):
+            try:
+                delattr(log.results, field)
+            except AttributeError:
+                setattr(log.results, field, None)
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        for field in ("completed_samples", "early_stopping"):
+            self.assertNotIn(field, claim["provenance"])
+
     def test_inspect_ai_scorer_change_changes_signed_provenance(self):
         try:
             from inspect_ai.log import read_eval_log
