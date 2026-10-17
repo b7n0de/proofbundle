@@ -88,7 +88,9 @@ def test_P2_the_pass_names_the_pager_and_the_host(tmp_path, monkeypatch):
     out = _out(tmp_path, "gh pr view 41")
     assert out.verdicts and out.verdicts[0].reason_id == "free_after_gh_profile"
     text = out.verdicts[0].detail
-    assert "A pager is named (PAGER)" in text and BOUND in text and "D41" in text, text
+    # D49 as sharpened by Nachtrag 21: the pass names AI_AGENT, never its value
+    assert "A pager is named (PAGER)" in text and "AI_AGENT in the hook's environment names a host" in text, text
+    assert BOUND not in text and "D41" in text, text
     assert "no pager, forced terminal" not in text, text
 
 

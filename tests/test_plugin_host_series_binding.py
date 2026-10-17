@@ -88,8 +88,10 @@ def test_E1_under_codex_a_version_of_the_series_binds_nothing(tmp_path, monkeypa
     assert codex() == before and before[0] == "ask", before
 
 
-def test_E1_the_pass_names_the_version_it_saw(tmp_path, monkeypatch):
+def test_E1_the_pass_names_the_binding_not_the_value_it_saw(tmp_path, monkeypatch):
+    """D49 as sharpened by Nachtrag 21: the pass names AI_AGENT, never its value."""
     monkeypatch.setenv("PAGER", "less")
     monkeypatch.setenv("AI_AGENT", "claude-code_2-1-302_harness")
     out = gate.decide("git log -3 --oneline", str(b._repo(tmp_path)), time.monotonic() + 120, "claude")
-    assert "claude-code_2-1-302_harness" in out.verdicts[0].detail, out.verdicts[0].detail
+    detail = out.verdicts[0].detail
+    assert "AI_AGENT in the hook's environment names a host" in detail and "2-1-302" not in detail, detail

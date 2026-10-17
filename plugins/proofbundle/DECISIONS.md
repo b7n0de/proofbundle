@@ -464,7 +464,7 @@ The state check (`_add_commit_state_problem`), in the hook's environment, so git
   false; ` no`, `no `, ` false`, `false ` and `0 ` are no boolean, and core.fsmonitor then names a program git starts
   (measured with git 2.43.0, review round 5 of 2026-10-09, the class of R5-1; a strip had read them as false, and
   `00` and the empty value, which start nothing, as on). An entry that came in through an include is named
-  with the included file. Every other key must be on the positive list `_STATE_INERT_KEYS` /
+  as such (since Nachtrag 21 by its scope, not the included file's path: D49). Every other key must be on the positive list `_STATE_INERT_KEYS` /
   `_STATE_INERT_PATTERN` (repository format, stat and line-ending options, identity, editor and pager, signing
   settings that act only when signing is on, the settings of other commands, the transport settings), or the form
   is not free;
@@ -3273,6 +3273,29 @@ profile and the fetch profile (keys with a user), the filter an attribute names,
 fetch rules of the fetch profile and its pass, the paths of the declaration, a push setting, the URL rewrites of a push,
 the programs and URLs of the transport binding, the URLs and the exec path of the Level 2 hand-over, the value of an
 include, the pytest arguments and PYTEST_ADDOPTS of a receipt, a count of a test report.
+
+Sharpened by Nachtrag 21 (review Runde 24, R24-2, owner choice of 2026-10-16: the class, one marker test). Found by
+the reviewer at 6459ff53: the fetch profile named the hook directory core.hooksPath resolves to, word for word. D49
+kept the values out and let the paths resolved from them in. The rule now: no reason, long, short or in the log, names
+a value from the configuration, the environment or a file, nor a path resolved from one. It names the key, the scope
+and the file by its role:
+- a configuration entry by its key and scope, and whether it stands in the scope's own file or in one an include
+  brings in (_origin_namer), never the file's path, which HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM,
+  GIT_DIR, a linked worktree's .git file or an include's value decides;
+- a hook by its file name and the directory by its role, the repository's own or the one core.hooksPath names;
+- gh's configuration file by the setting that places it (GH_CONFIG_DIR, XDG_CONFIG_HOME) or as ~/.config/gh, the gh
+  on PATH as such, the extension folder by its setting or as ~/.local/share/gh/extensions;
+- git's own error text is not quoted: it names the file and the value it refused; the reason gives the exit status;
+- a local done order by the first twelve characters of its file name, never the root, git directory or base it
+  records; `done-order --list` names them to a person;
+- the closed forms O20-1 let stand (AI_AGENT of the bound host, GH_TELEMETRY, DO_NOT_TRACK) are named, not their
+  values.
+Words of the command and fixed built-in default paths stay. The list of what changed and what stays, with lines, is
+in the report of Nachtrag 21 (klassenliste_teil2.md); its last table names what the class holds outside the profiles
+and was left as it is: the paths in the gate directory, the values of the declaration in the done check, the
+repository field of a local order's log line (D21). tests/test_plugin_n21_marker_in_no_reason.py puts one marker into
+every value a profile reads, under Claude Code, under Codex and through the hook with its log, and finds it in no
+text.
 
 ## D50. extensions.worktreeConfig in the read profile, the state check and the fetch profile (Ergänzung 1 to Nachtrag 20, 2026-10-16)
 

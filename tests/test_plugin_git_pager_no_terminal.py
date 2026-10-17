@@ -88,8 +88,9 @@ def test_N18_all_four_sources_at_once_are_free_and_the_pass_names_them(tmp_path,
     assert [v.reason_id for v in out.verdicts] == ["free_after_read_profile"], out.verdicts
     text = out.verdicts[0].detail
     for named in ("core.pager in the", "pager.log in the", "GIT_PAGER in the hook's environment",
-                  "PAGER in the hook's environment", BOUND, "D42"):
+                  "PAGER in the hook's environment", "AI_AGENT in the hook's environment names a host", "D42"):
         assert named in text, (named, text)
+    assert BOUND not in text, text   # D49 as sharpened by Nachtrag 21: AI_AGENT by name, never its value
     assert "no promisor remote, pager," not in text, text
 
 

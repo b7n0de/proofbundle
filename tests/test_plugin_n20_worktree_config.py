@@ -73,7 +73,8 @@ def test_N20_control_core_fsmonitor_in_config_worktree_asks(tmp_path, main, form
     _extension(main)
     w.git(main, "config", "--worktree", "core.fsmonitor", str(tmp_path / "fsm"))
     code, decision, reason = _answer(main, form, **DELTA)
-    assert (code, decision) == (0, "ask") and "core.fsmonitor" in reason and "config.worktree" in reason, reason
+    # D49 as sharpened by Nachtrag 21: the file by its scope, never its path
+    assert (code, decision) == (0, "ask") and "core.fsmonitor in the worktree configuration" in reason, reason
 
 
 def test_N20_control_diff_external_in_config_worktree_asks(tmp_path, main):

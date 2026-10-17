@@ -582,9 +582,8 @@ def _work_tree(directory: str, deadline: float, *flags: str) -> tuple[str | None
     if top.returncode != 0:
         if _NO_WORK_TREE.fullmatch(top.stderr):
             return None, ""
-        why = top.stderr.decode("utf-8", "replace").strip().splitlines()
-        return None, (f"git could not name the work tree of {directory}: "
-                      + (why[0] if why else f"git rev-parse exited {top.returncode}"))
+        # git's message may quote a value it refused (D49, Nachtrag 21)
+        return None, f"git could not name the work tree of {directory}: git rev-parse exited {top.returncode}"
     path = _git_value(top.stdout)
     if path is None or not os.path.isabs(path):
         return None, "git rev-parse --show-toplevel gave output the gate cannot read as one path"
@@ -692,8 +691,8 @@ def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
     Origins and values keep their bytes (_git_text, R4-2)."""
     out = _git(directory, "config", "--list", "--null", "--show-origin", "--show-scope", deadline=deadline)
     if out.returncode != 0:
-        why = out.stderr.decode("utf-8", "replace").strip().splitlines()
-        return None, (why[-1] if why else f"git config exited {out.returncode}")
+        # git's own message quotes the file and a value it refused; a reason names neither (D49, Nachtrag 21)
+        return None, f"git config --list exited {out.returncode}"
     parts = out.stdout.split(b"\0")
     if parts[-1] != b"" or (len(parts) - 1) % 3:
         return None, "git config --list --null --show-origin --show-scope gave output the gate cannot read"
@@ -713,7 +712,7 @@ def _repo_paths(directory: str, deadline: float) -> tuple[dict | None, str]:
     if out.returncode != 0:
         if _NO_WORK_TREE.fullmatch(out.stderr):
             return {"hooks": None, "common": None, "gitdir": None, "toplevel": None}, ""
-        return None, out.stderr.decode("utf-8", "replace").strip() or f"git rev-parse exited {out.returncode}"
+        return None, f"git rev-parse exited {out.returncode}"   # git's message may quote a value (D49)
     lines = _git_lines(out.stdout)
     if lines is None or len(lines) != 3 or not all(os.path.isabs(line) for line in lines):
         return None, "git rev-parse gave output the gate cannot read"
@@ -1141,6 +1140,58 @@ def _shown_key(key: str) -> str:
     return f"{section}.<a subsection that names a user>.{variable}"
 
 
+def _os_error(exc: OSError) -> str:
+    """An OSError as a reason names it (D49, Nachtrag 21): its message without the file name, which str(exc) carries."""
+    return exc.strerror or type(exc).__name__
+
+
+def _origin_namer(directory: str, deadline: float, paths: dict):
+    """A function (scope, origin) -> where a configuration entry stands, as a reason names it (D49, Nachtrag 21): the
+    scope, and for a file whether it is one git reads without an include (_standard_config_files) or one an include
+    brings in, never its path. git resolves that path from HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM,
+    GIT_DIR, a linked worktree's .git file or the value of an include; `git config --list --show-origin --show-scope`
+    names it to a person. The files git reads without an include are read once, at the first file named."""
+    standard: list = []
+
+    def named(scope: str, origin: str) -> str:
+        if not origin.startswith("file:"):
+            return f"in the {scope} configuration"
+        if not standard:
+            standard.append(_standard_config_files(directory, deadline, paths))
+        # git names a file relative to the directory it ran in (`git -C directory`), e.g. file:.git/config
+        if os.path.realpath(os.path.join(directory, origin[5:])) not in standard[0]:
+            return f"in a file an include brings into the {scope} configuration"
+        return f"in the {scope} configuration"
+    return named
+
+
+def _hook_directory_named(paths: dict) -> str:
+    """The hook directory as a reason names it (D49, Nachtrag 21): by where git takes it from, never by its path, which
+    core.hooksPath, GIT_DIR or a linked worktree's .git file decides."""
+    own = paths["common"] is not None and \
+        os.path.realpath(os.path.join(paths["common"], "hooks")) == os.path.realpath(paths["hooks"])
+    return "the repository's own hook directory" if own else "the hook directory core.hooksPath names"
+
+
+def _hook_problem(paths: dict, counts) -> str | None:
+    """The first hook of the effective hook directory that counts (counts(name) true; a .sample never does) as a reason
+    names it, or None: the hook's file name and the directory by its role (_hook_directory_named), no path."""
+    hooks = paths["hooks"]
+    if not hooks or not os.path.lexists(hooks):
+        return None
+    named = _hook_directory_named(paths)
+    if not os.path.isdir(hooks):
+        return f"a hook: {named} is not a directory"
+    try:
+        names = sorted(os.listdir(hooks))
+    except OSError as exc:
+        return f"a hook: {named} cannot be read ({_os_error(exc)})"
+    for name in names:
+        if not name.endswith(".sample") and counts(name):
+            return f"a hook: {name} in {named}"
+    return None
+
+
 def _checkout_state_problem(directory: str, target: str, deadline: float, environ: dict | None = None) -> str | None:
     """None when `git worktree add` of the repository at directory into target starts no program and writes nothing the
     gate guards, else what was found (D40, part 3 of Nachtrag 15). The target must not exist, and must be no path a
@@ -1181,13 +1232,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     if entries is None:
         return f"the gate cannot read the effective configuration ({why})"
 
-    def origin_of(scope: str, origin: str) -> str:
-        # git names a file relative to the directory it ran in (`git -C directory`), e.g. file:.git/config
-        where = origin.removeprefix("file:")
-        if origin.startswith("file:") and os.path.realpath(os.path.join(directory, where)) not in \
-                _standard_config_files(directory, deadline, paths):
-            return f"through an include, in {where}"
-        return f"in the {scope} configuration {where}"
+    origin_of = _origin_namer(directory, deadline, paths)
 
     for scope, origin, key, value in entries:
         source = _program_source(key.lower(), value, directory, deadline)
@@ -1200,17 +1245,9 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
                     f"{origin_of(scope, origin)}")
-    hooks = paths["hooks"]
-    if hooks and os.path.lexists(hooks):
-        if not os.path.isdir(hooks):
-            return f"a hook: the hook directory {hooks} is not a directory"
-        try:
-            names = sorted(os.listdir(hooks))
-        except OSError as exc:
-            return f"a hook: the hook directory {hooks} cannot be read ({exc})"
-        for name in names:
-            if not name.endswith(".sample") and name not in hooks_not_run:
-                return f"a hook: {os.path.join(hooks, name)}"
+    problem = _hook_problem(paths, lambda name: name not in hooks_not_run)
+    if problem is not None:
+        return problem
     for name in sorted(environ):
         if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name) and not _tool_inert(name, environ[name]):
             return f"an environment setting the check does not know to start no program: {name}"
@@ -1519,7 +1556,7 @@ def _has_submodule(directory: str, toplevel: str, deadline: float) -> str | None
     index. The index is listed through the gate's own git path with fsmonitor off and no hook directory (Q18-2:
     a check of the gate must not start what it checks for)."""
     if os.path.lexists(os.path.join(toplevel, ".gitmodules")):
-        return f"a submodule: {os.path.join(toplevel, '.gitmodules')}"
+        return "a submodule: .gitmodules at the top of the work tree"
     out = _git(directory, "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}", "ls-files", "--stage",
                "-z", deadline=deadline)
     if out.returncode != 0:
@@ -1585,8 +1622,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     entries, why = _config_entries(directory, deadline)
     if entries is None:
         return f"the gate cannot read the effective configuration ({why})"
+    origin_of = _origin_namer(directory, deadline, paths)
     for scope, origin, key, value in entries:
-        lowered, where = key.lower(), f"{_shown_key(key)} in the {scope} configuration {origin.removeprefix('file:')}"
+        lowered, where = key.lower(), f"{_shown_key(key)} {origin_of(scope, origin)}"
         if re.match(_PARTIAL_CLONE_KEYS, lowered):
             return f"a lazy fetch from a promisor remote: {where}"
         if lowered == "core.pager" or lowered.startswith("pager."):
@@ -1607,17 +1645,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
         if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
             return f"a configuration key the read profile does not know to start no program: {where}"
     if walks:
-        hooks = paths["hooks"]
-        if hooks and os.path.lexists(hooks):
-            if not os.path.isdir(hooks):
-                return f"a hook: the hook directory {hooks} is not a directory"
-            try:
-                names = sorted(os.listdir(hooks))
-            except OSError as exc:
-                return f"a hook: the hook directory {hooks} cannot be read ({exc})"
-            for name in names:
-                if not name.endswith(".sample"):
-                    return f"a hook: {os.path.join(hooks, name)}"
+        problem = _hook_problem(paths, lambda _name: True)
+        if problem is not None:
+            return problem
     for name in sorted(environ):
         problem = _read_env_problem(name, environ[name])
         if problem is not None and inert_pagers is not None and name in ("PAGER", "GIT_PAGER"):
@@ -1770,8 +1800,9 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     url_where: list = []      # where each URL and rule stands: a reason names the key and its file, never the value (D49)
     rewrites: list = []       # (base, value, where) of each url.<base>.insteadOf (D51)
     rule_where: list = []
+    origin_of = _origin_namer(directory, deadline, paths)
     for scope, origin, key, value in entries:
-        lowered, where = key.lower(), f"{_shown_key(key)} in the {scope} configuration {origin.removeprefix('file:')}"
+        lowered, where = key.lower(), f"{_shown_key(key)} {origin_of(scope, origin)}"
         section, _dot, rest = key.partition(".")
         subsection, _dot, variable = rest.rpartition(".")
         section, variable = section.lower(), variable.lower()
@@ -1839,17 +1870,9 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     if rules != [f"+refs/heads/*:refs/remotes/{remote}/*"]:
         return (f"the fetch rules of the remote {remote} are not the one rule +refs/heads/*:refs/remotes/{remote}/*: "
                 f"{'; '.join(rule_where) or f'no remote.{remote}.fetch'}")
-    hooks = paths["hooks"]
-    if hooks and os.path.lexists(hooks):
-        if not os.path.isdir(hooks):
-            return f"a hook: the hook directory {hooks} is not a directory"
-        try:
-            names = sorted(os.listdir(hooks))
-        except OSError as exc:
-            return f"a hook: the hook directory {hooks} cannot be read ({exc})"
-        for name in names:
-            if not name.endswith(".sample") and name not in _HOOKS_NOT_RUN_BY_FETCH:
-                return f"a hook the fetch or its maintenance may start: {os.path.join(hooks, name)}"
+    problem = _hook_problem(paths, lambda name: name not in _HOOKS_NOT_RUN_BY_FETCH)
+    if problem is not None:
+        return problem.replace("a hook: ", "a hook the fetch or its maintenance may start: ", 1)
     for name in sorted(environ):
         problem = _fetch_env_problem(name, environ[name])
         if problem is not None and inert_pagers is not None and name in ("PAGER", "GIT_PAGER"):
@@ -1859,7 +1882,7 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
             return f"{problem} in the hook's environment"
     if not recurse_off:
         if os.path.lexists(os.path.join(paths["gitdir"], "modules")):
-            return f"a submodule: {os.path.join(paths['gitdir'], 'modules')}"
+            return "a submodule: the folder modules in the git directory"
         problem = _has_submodule(directory, paths["toplevel"], deadline)
         if problem is not None:
             return f"{problem}, which the fetch may fetch from its own URL"
@@ -1886,8 +1909,8 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
         pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not count: git fetch starts no pager, "
                   "measured with PAGER, GIT_PAGER and core.pager on a terminal of script(1) (DECISIONS.md D48)."
                   if inert_pagers else "")
-        pagers += (f" A pager is named ({'; '.join(bound_pagers)}) and does not count: the hook's environment names "
-                   f"the host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal "
+        pagers += (f" A pager is named ({'; '.join(bound_pagers)}) and does not count: AI_AGENT in the hook's "
+                   "environment names a host whose Bash tool gives the command no terminal "
                    "(DECISIONS.md D42)." if bound_pagers else "")
         return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of the repository at {directory} "
                                f"found the remote {remote} at a URL of the form https://github.com/<owner>/<repo> "
@@ -2238,6 +2261,16 @@ def _gh_env_problem(name: str, value: str) -> str | None:
     return None
 
 
+def _gh_config_named(environ: dict, name: str) -> str:
+    """gh's configuration file `name` as a reason names it (D49, Nachtrag 21): by the setting that places its folder,
+    as _gh_config_dir reads them, never by the path that setting resolves to."""
+    if environ.get("GH_CONFIG_DIR"):
+        return f"gh's {name} in the folder GH_CONFIG_DIR names"
+    if environ.get("XDG_CONFIG_HOME"):
+        return f"gh's {name} in gh/ of the folder XDG_CONFIG_HOME names"
+    return f"gh's {name} in ~/.config/gh"
+
+
 def _gh_config_dir(environ: dict) -> str | None:
     """The folder gh reads its configuration from, as gh 2.89.0 names it (GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else
     $HOME/.config/gh); None where that is no absolute path, as a relative one is read from the directory the command
@@ -2310,13 +2343,13 @@ def _gh_config_problem(environ: dict, inert_pagers: list | None = None, settings
             # file is followed, as gh follows it
             data = _read_regular(path, _GH_CONFIG_MAX_BYTES + 1, follow=True)
         except OSError as exc:
-            return f"gh's configuration file {path} cannot be read ({exc.strerror or exc})"
+            return f"{_gh_config_named(environ, name)} cannot be read ({_os_error(exc)})"
         try:
             entries = _gh_yaml_entries(data.decode("utf-8")) if len(data) <= _GH_CONFIG_MAX_BYTES else None
         except UnicodeDecodeError:
             entries = None
         if entries is None:
-            return f"gh's configuration file {path} is not in the block form the gh profile reads"
+            return f"{_gh_config_named(environ, name)} is not in the block form the gh profile reads"
         for keys, value in entries:
             if name == "config.yml" and keys[0] == "hosts":
                 keys = keys[1:]   # the legacy place of the host entries
@@ -2338,12 +2371,13 @@ def _gh_config_problem(environ: dict, inert_pagers: list | None = None, settings
                          or (len(keys) == 3 and keys[1] == "users")
                          or (len(keys) == 4 and keys[1] == "users" and keys[3] == "oauth_token"))
             if not known:
-                return f"a key the gh profile does not know: {'.'.join(keys)} in {path}"
+                return f"a key the gh profile does not know: {'.'.join(keys)} in {_gh_config_named(environ, name)}"
             if keys[-1] in _GH_PROGRAM_KEYS and value and not (keys[-1] == "pager" and "GH_PAGER" in environ):
                 if keys[-1] == "pager" and inert_pagers is not None:
-                    inert_pagers.append(f"{'.'.join(keys)} in {path}")
+                    inert_pagers.append(f"{'.'.join(keys)} in {_gh_config_named(environ, name)}")
                     continue
-                return f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {'.'.join(keys)} in {path}"
+                return (f"{'a pager' if keys[-1] == 'pager' else 'a unix socket for HTTP'}: {'.'.join(keys)} in "
+                        f"{_gh_config_named(environ, name)}")
     return None
 
 
@@ -2376,21 +2410,21 @@ def _gh_version_problem(environ: dict, deadline: float, telemetry: str | None = 
     try:
         out = subprocess.run([gh, "--version"], capture_output=True, stdin=subprocess.DEVNULL, env=env, cwd="/",
                              timeout=min(left, 10.0), check=False)
-    except subprocess.TimeoutExpired:
-        return f"{gh} --version did not answer in time"
+    except subprocess.TimeoutExpired:   # the gh on PATH is named so, never by its path (D49, Nachtrag 21)
+        return "gh --version of the gh on PATH did not answer in time"
     except OSError as exc:
-        return f"{gh} --version could not be started ({exc.strerror or exc})"
+        return f"gh --version of the gh on PATH could not be started ({_os_error(exc)})"
     first = out.stdout.decode("utf-8", "replace").splitlines()[:1]
     m = re.match(r"gh version ([0-9]+\.[0-9]+\.[0-9]+) \(", first[0]) if first else None
     if out.returncode != 0 or m is None:
-        return f"{gh} --version named no gh version"
+        return "gh --version of the gh on PATH named no gh version"
     version = m.group(1)
     if version not in _GH_CHECKED_VERSIONS:
-        return f"the gh on PATH ({gh}) is version {version}, whose read forms the gate has not measured"
+        return f"the gh on PATH is version {version}, whose read forms the gate has not measured"
     if version in _GH_TELEMETRY_ON_BY_DEFAULT:
         off = _gh_telemetry_off(environ, telemetry)
         if off is None:
-            return (f"the gh on PATH ({gh}) is version {version}, whose telemetry is on: it writes a device id and "
+            return (f"the gh on PATH is version {version}, whose telemetry is on: it writes a device id and "
                     "sends a sample of its commands to GitHub; GH_TELEMETRY=false or 0, DO_NOT_TRACK=true or 1 in "
                     "the hook's environment, or telemetry: disabled in gh's config.yml turn it off (DECISIONS.md D43)")
         if notes is not None:
@@ -2413,9 +2447,9 @@ def _gh_telemetry_off(environ: dict, telemetry: str | None) -> str | None:
     gh read as off (GH_TELEMETRY off, no or empty, `telemetry: false`) are not relied on."""
     if "GH_TELEMETRY" in environ:
         value = environ["GH_TELEMETRY"]
-        return f"GH_TELEMETRY={value} in the hook's environment" if value in ("false", "0") else None
+        return "GH_TELEMETRY in the hook's environment" if value in ("false", "0") else None
     if environ.get("DO_NOT_TRACK") in ("true", "1"):
-        return f"DO_NOT_TRACK={environ['DO_NOT_TRACK']} in the hook's environment"
+        return "DO_NOT_TRACK in the hook's environment"
     if telemetry == "disabled":
         return "telemetry: disabled in gh's config.yml"
     return None
@@ -2429,10 +2463,12 @@ def _gh_extension_problem(environ: dict, version: str) -> str | None:
     relied on."""
     if environ.get("XDG_DATA_HOME"):
         folder = os.path.join(environ["XDG_DATA_HOME"], "gh", "extensions")
+        named = "gh/extensions in the folder XDG_DATA_HOME names"
     elif environ.get("HOME"):
         folder = os.path.join(environ["HOME"], ".local", "share", "gh", "extensions")
+        named = "~/.local/share/gh/extensions"
     else:
-        folder = ""
+        folder = named = ""
     if not os.path.isabs(folder):
         return (f"the gh on PATH is version {version}, which starts git in its extension folder, and the gate cannot "
                 "tell where that folder is (no absolute XDG_DATA_HOME or HOME; DECISIONS.md D43)")
@@ -2441,11 +2477,11 @@ def _gh_extension_problem(environ: dict, version: str) -> str | None:
     except FileNotFoundError:
         return None
     except OSError as exc:
-        return (f"the gh on PATH is version {version}, which starts git in its extension folder, and {folder} cannot "
-                f"be read ({exc.strerror or exc}; DECISIONS.md D43)")
+        return (f"the gh on PATH is version {version}, which starts git in its extension folder, and {named} cannot "
+                f"be read ({_os_error(exc)}; DECISIONS.md D43)")
     if names:
         return (f"the gh on PATH is version {version}, which starts git in each extension folder on every command: "
-                f"{os.path.join(folder, names[0])} (DECISIONS.md D43)")
+                f"{names[0]} in {named} (DECISIONS.md D43)")
     return None
 
 
@@ -10151,7 +10187,7 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         so a directory named `~` stays that directory."""
         return {name} if os.path.isabs(name) else {os.path.join(b, name) for b in bases}
 
-    for _scope, origin, key, value in entries:
+    for scope, origin, key, value in entries:
         sources: set[str] = set()
         if origin.startswith("file:"):
             sources = anchored(origin[5:])
@@ -10160,14 +10196,14 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
             included = _git_path(directory, value, deadline)   # git's interpolation, `%(prefix)/` included (R3-3)
             if included is None:
-                return files, dirs, (f"git cannot resolve the include {_shown_key(key)} from "
-                                     f"{origin or 'an unnamed origin'}")
+                return files, dirs, f"git cannot resolve the include {_shown_key(key)} in the {scope} configuration"
             if os.path.isabs(included):
                 files.add(included)   # an absolute include, also one from the command scope or standard input
             elif sources:
                 files.update(os.path.join(os.path.dirname(s), included) for s in sources)   # beside the including file
             else:   # git-config(1): a relative include must come from a file, so git itself refuses it
-                return files, dirs, f"the include {_shown_key(key)} from {origin or 'an unnamed origin'} names no file"
+                return files, dirs, (f"the include {_shown_key(key)} in the {scope} configuration names no file, as "
+                                     "it is relative and stands in no file")
     # git reads ~/.gitconfig and the XDG file at $HOME (git-config(1)) and neither when HOME is unset (measured with
     # git 2.43); os.path.expanduser reads HOME as well and falls back to the password database only when HOME is
     # unset, where it protects a file git does not read.
@@ -10222,7 +10258,7 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
     for directory in anchors | ({os.path.realpath(cwd)} if isinstance(cwd, str) and os.path.isdir(cwd) else set()):
         more_files, more_dirs, problem = _state_files(directory, deadline)
         if problem:
-            return f"{problem}, so the gate cannot tell whether {target} is part of it"
+            return f"{problem}, so the gate cannot tell whether {lexical} is part of it"
         files |= more_files
         dirs |= more_dirs
     def same(a: str, b: str) -> bool:
@@ -10230,25 +10266,25 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
 
     for f in files:
         if lexical == os.path.normpath(f) or target == os.path.realpath(f):
-            return f"{lexical} is the git configuration file {f}"
+            return f"{lexical} is a configuration file git reads for this repository"   # by role (D49)
         if same(target, os.path.realpath(f)):
-            return f"{target} is the same file as the git configuration file {f}"
+            return f"{lexical} is the same file as a configuration file git reads for this repository"
     for d in dirs:
         for root in {os.path.normpath(d), os.path.realpath(d)}:
             # The lexical path is a second lock: a hook entry is also caught by the resolved target against both
             # roots and by the entry identity below (review Runde 8, R8-3).
             for candidate in (lexical, target):
                 if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
-                    return f"{candidate} is in the hook directory {d}"
+                    return f"{lexical} is in, or resolves into, the effective hook directory"
         try:
             entries = [os.path.join(d, name) for name in os.listdir(d)]
         except FileNotFoundError:
             continue
         except OSError as exc:
-            return f"the hook directory {d} cannot be listed ({exc.strerror or exc}), so the gate cannot tell"
+            return f"the effective hook directory cannot be listed ({_os_error(exc)}), so the gate cannot tell"
         for hook in entries:
             if same(target, os.path.realpath(hook)):
-                return f"{target} is the file the hook entry {hook} resolves to"
+                return f"{lexical} is the file an entry of the effective hook directory resolves to"
     return None
 
 
@@ -10439,8 +10475,8 @@ def _read_free_verdict(name: str, directory: str | None, deadline: float, driver
         problem = f"the read profile reached no result ({exc})"
     if problem is None:
         found = "promisor remote" if inert_pagers else "promisor remote, pager"
-        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not start: the hook's environment names "
-                  f"the host {os.environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal, "
+        pagers = (f" A pager is named ({'; '.join(inert_pagers)}) and does not start: AI_AGENT in the hook's "
+                  "environment names a host whose Bash tool gives the command no terminal, "
                   "and git starts its pager only on a terminal (DECISIONS.md D42).") if inert_pagers else ""
         return Verdict("pass", f"proofbundle gate: {name} is free. The read profile of the repository at {directory} "
                                f"found no {found}, filter, fsmonitor, hook or submodule this form starts "
@@ -10470,8 +10506,8 @@ def _gh_read_free_verdict(name: str, deadline: float, environ: dict, host: str =
         problem = f"the gh profile reached no result ({exc})"
     if problem is None:
         found = "forced terminal" if inert_pagers else "pager, forced terminal"
-        pagers = (f" A pager is named ({', '.join(inert_pagers)}) and does not start: the hook's environment names the "
-                  f"host {environ.get('AI_AGENT')} (AI_AGENT), whose Bash tool gives the command no terminal, and gh "
+        pagers = (f" A pager is named ({', '.join(inert_pagers)}) and does not start: AI_AGENT in the hook's "
+                  "environment names a host whose Bash tool gives the command no terminal, and gh "
                   "starts its pager only on a terminal (DECISIONS.md D41).") if inert_pagers else ""
         if len(notes) > 1:
             pagers += f" For {notes[0]}, {' and '.join(notes[1:])} (DECISIONS.md D43)."
@@ -11802,9 +11838,9 @@ def _evaluate_rows(result: dict, repo: str, commit: str, head_commit: str, where
         if others:
             failed += "; also open: " + ", ".join(others)
         next_step = first["command"] if first["status"] in ("outside_paths", "no_change") else f"run {first['command']}"
-        if order is not None:   # D38: the end may be judged from another directory, so the repository is named
-            failed = f"the local done order for {repo}: {failed}"
-            next_step += f" in {repo}"
+        if order is not None:   # D38, D49: the end may be judged from another directory; the order is named, never
+            failed = f"{_order_label(order['file'])}: {failed}"   # the root it records (Nachtrag 21)
+            next_step += " in its repository, the root done-order --list names"
         result["verdict"] = Verdict("deny", f"proofbundle gate: {failed}.", _OPEN_REASON[first["status"]],
                                     evidence=f"the receipt {first['receipt']}" if "receipt" in first
                                     else "the working state", failed=failed, next_step=next_step, repo=repo,
@@ -11815,7 +11851,7 @@ def _evaluate_rows(result: dict, repo: str, commit: str, head_commit: str, where
     result["verdict"] = Verdict(
         "pass", f"proofbundle gate: done. {len(rows)} {'check' if len(rows) == 1 else 'checks'} ({names}): every "
                 f"receipt verifies under "
-                f"{done['policy'] if order is None else 'the policy of the local done order for ' + repo}, says every "
+                f"{done['policy'] if order is None else 'the policy of ' + _order_label(order['file'])}, says every "
                 f"one of its tests passed with exit status 0, was "
                 f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, {now}"
                 + ("" if at_commit is not None else f" ({'clean' if tested == state['tree'] else 'with uncommitted changes'})")
@@ -12138,6 +12174,13 @@ def _order_key(toplevel: str, gitdir: str) -> str:
     return hashlib.sha256(joined.encode("utf-8", "surrogateescape")).hexdigest()
 
 
+def _order_label(file: str) -> str:
+    """A local done order as a reason names it (D49, Nachtrag 21): by the first twelve characters of its file name, the
+    sha256 the gate makes of its root and git directory, never by the root, git directory or base it records, which
+    `done-order --list` names to a person."""
+    return f"the local done order {os.path.basename(file)[:12]}"
+
+
 def _orders_dir(environ) -> str | None:
     gate_dir = _gate_dir(environ)
     return None if gate_dir is None else os.path.join(gate_dir, DONE_ORDERS_DIR)
@@ -12268,10 +12311,10 @@ def _local_orders(environ, deadline: float) -> list[dict]:
             continue
         if not bound:
             entries.append({**entry, "refusal": _order_refusal(
-                entry, "order_unbound", f"git does not find the repository it names at {order['repo']} with the git "
-                                        f"directory {order['gitdir']}",
-                f"restore the repository, or have a person remove the order with done-order --remove --repo "
-                f"{order['repo']}")})
+                entry, "order_unbound", "git does not find the repository it names at the root and with the git "
+                                        "directory it records (done-order --list names them)",
+                "restore the repository, or have a person remove the order with done-order --remove --repo <the root "
+                "done-order --list names>")})
             continue
         entries.append({**entry, "order": {**order, "file": path, "sha256": digest,
                                            "replaced": len(seen["replaced"])}})
@@ -12283,7 +12326,7 @@ def _local_order_base(repo: str, order: dict, deadline: float) -> tuple[str | No
     names it as a commit of the repository."""
     proc = _git(repo, "rev-parse", "--verify", "-q", f"{order['base']}^{{commit}}", deadline=deadline)
     if proc.returncode != 0 or proc.stdout.decode("ascii", "replace").strip() != order["base"]:
-        return None, f"the base {order['base'][:12]} of the local done order is not a commit of the repository"
+        return None, "the base the local done order records is not a commit of the repository"
     return order["base"], ""
 
 
@@ -12388,10 +12431,9 @@ def done_evaluations(directory: str, deadline: float, environ: dict | None = Non
         try:
             results.append(done_evaluation(order["repo"], deadline, environ=environ, order=order))
         except GateError as exc:
-            verdict = Verdict("deny", f"proofbundle gate: the local done order for {order['repo']}: {exc}.",
-                              "gate_error", evidence="the done check", failed=f"the local done order for "
-                                                                              f"{order['repo']}: the check reached no "
-                                                                              f"verdict ({exc})",
+            verdict = Verdict("deny", f"proofbundle gate: {_order_label(order['file'])}: {exc}.",
+                              "gate_error", evidence="the done check", failed=f"{_order_label(order['file'])}: the "
+                                                                              f"check reached no verdict ({exc})",
                               next_step="fix the cause named here")
             results.append(_failed_result(exc, verdict, order["file"]))
     return results
@@ -12487,7 +12529,8 @@ def stop_command(argv: list[str]) -> int:
             message += (f" The hook could not record this end in its count: {counting}; the next stop reads the record "
                         "from before it.")
         for other, other_verdict, _limit, other_blocker, _counting in ended[1:]:
-            message += (f" Also ended without a done verdict: {other['repo'] or other['local']}, open points in "
+            shown = _order_label(other["local"]) if other.get("local") else other["repo"]
+            message += (f" Also ended without a done verdict: {shown}, open points in "
                         f"{other_blocker}: "
                         f"{other_verdict.failed.rstrip('.')}.")
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")

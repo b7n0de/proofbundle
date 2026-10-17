@@ -119,7 +119,7 @@ def test_P1_control_the_variable_hides_no_other_way_and_the_hook_starts_in_bash(
     monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "0")
     command = _command("add", layout, tmp_path)
     code, decision, reason = _answer(main, command)
-    assert (code, decision) == (0, "ask") and f"a hook: {hook}" in reason, reason
+    assert (code, decision) == (0, "ask") and f"a hook: {hook.name} in the repository's own hook directory" in reason, reason   # D49, N21
     assert w.started(tmp_path) == []
     w.bash(main, command)
     assert w.started(tmp_path) == ["post_index_change"]

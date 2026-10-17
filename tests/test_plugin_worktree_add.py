@@ -59,7 +59,8 @@ def test_P3_a_hook_the_checkout_runs_asks_and_starts_in_bash(tmp_path, main, hoo
     w.proxy(tmp_path, path, hook.replace("-", "_"))
     command = _pilot(main, tmp_path)
     code, decision, reason = w.answer(tmp_path, command)
-    assert (code, decision) == (0, "ask") and f"a hook: {path}" in reason, reason
+    # D49 as sharpened by Nachtrag 21: the hook by its name, the directory by its role, no path
+    assert (code, decision) == (0, "ask") and f"a hook: {path.name} in the repository's own hook directory" in reason, reason
     assert w.started(tmp_path) == []
     w.bash(tmp_path, command)
     assert hook.replace("-", "_") in w.started(tmp_path)
@@ -72,7 +73,7 @@ def test_P3_a_hook_of_a_linked_work_tree_lives_in_the_common_directory(tmp_path,
     w.proxy(tmp_path, path, "post_checkout")
     command = f"git -C {scope} worktree add -q -b second {tmp_path / 'second'} origin/main"
     code, decision, reason = w.answer(tmp_path, command)
-    assert (code, decision) == (0, "ask") and f"a hook: {path}" in reason, reason
+    assert (code, decision) == (0, "ask") and f"a hook: {path.name} in the repository's own hook directory" in reason, reason   # D49, N21
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["post_checkout"]
 
@@ -83,7 +84,7 @@ def test_P3_core_hooks_path_asks_and_starts_in_bash(tmp_path, main):
     w.git(main, "config", "core.hooksPath", str(hooks))
     command = _pilot(main, tmp_path)
     code, decision, reason = w.answer(tmp_path, command)
-    assert (code, decision) == (0, "ask") and f"a hook: {hooks / 'post-checkout'}" in reason, reason
+    assert (code, decision) == (0, "ask") and "a hook: post-checkout in the hook directory core.hooksPath names" in reason, reason   # D49, N21
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["hooks_path"]
 

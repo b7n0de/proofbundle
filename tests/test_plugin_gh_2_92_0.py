@@ -161,7 +161,11 @@ def test_E2_an_entry_in_the_extension_folder_keeps_the_ask(tmp_path, monkeypatch
             folder.mkdir(parents=True)
             (folder / "gh-link").symlink_to(tmp_path / "elsewhere" / "gh-foo")
     out = _decide(tmp_path)
-    assert out.decision == "ask" and str(folder) in out.text and "starts git" in out.text, (place, out.text)
+    # D49 as sharpened by Nachtrag 21: the folder by the setting that places it, never its path
+    named = ("in ~/.local/share/gh/extensions" if place == "home"
+             else "in gh/extensions in the folder XDG_DATA_HOME names")
+    assert out.decision == "ask" and named in out.text and "starts git" in out.text, (place, out.text)
+    assert str(folder) not in out.text, (place, out.text)
 
 
 def test_E2_xdg_data_home_decides_where_the_extensions_are(tmp_path, monkeypatch):
@@ -252,4 +256,5 @@ def test_E2_under_the_bound_host_the_pager_and_the_conditions_are_named(tmp_path
     out = _decide(tmp_path)
     assert _free(out), out.text
     detail = out.verdicts[0].detail
-    assert "D41" in detail and "DO_NOT_TRACK=1 in the hook's environment" in detail, detail
+    # D49 as sharpened by Nachtrag 21: the variable, not its value
+    assert "D41" in detail and "DO_NOT_TRACK in the hook's environment" in detail, detail

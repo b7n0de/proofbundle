@@ -60,7 +60,8 @@ def test_P1_a_hook_in_the_common_directory_of_a_linked_work_tree_asks_and_starts
     w.git(scope, "add", "docs/release_scope/6.3.1.md")
     command = f"git -C {scope} commit -q -m 'docs: scope'"
     code, decision, reason = w.answer(tmp_path, command, host)
-    assert (code, decision) == (0, expected) and f"a hook: {hook}" in reason, reason
+    # D49 as sharpened by Nachtrag 21: the hook by its name, the directory by its role, no path
+    assert (code, decision) == (0, expected) and f"a hook: {hook.name} in the repository's own hook directory" in reason, reason
     assert w.started(tmp_path) == []          # the gate's own check started nothing
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["pre_commit"]
@@ -74,7 +75,7 @@ def test_P1_core_hooks_path_of_a_linked_work_tree_asks_and_starts_in_bash(tmp_pa
     w.git(scope, "add", "docs/release_scope/6.3.1.md")
     command = f"git -C {scope} commit -q -m 'docs: scope'"
     code, decision, reason = w.answer(tmp_path, command)
-    assert (code, decision) == (0, "ask") and f"a hook: {hooks / 'pre-commit'}" in reason, reason
+    assert (code, decision) == (0, "ask") and "a hook: pre-commit in the hook directory core.hooksPath names" in reason, reason   # D49, Nachtrag 21
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["hooks_path"]
 
@@ -86,7 +87,8 @@ def test_P1_the_configuration_of_the_linked_work_tree_asks_and_starts_in_bash(tm
     w.git(scope, "config", "--worktree", "core.fsmonitor", w.proxy(tmp_path, tmp_path / "fsm.sh", "fsmonitor"))
     command = f"git -C {scope} add docs/release_scope/6.3.1.md"
     code, decision, reason = w.answer(tmp_path, command)
-    assert (code, decision) == (0, "ask") and "config.worktree" in reason and "fsmonitor" in reason, reason
+    # D49, Nachtrag 21: the file by its scope, never its path
+    assert (code, decision) == (0, "ask") and "core.fsmonitor in the worktree configuration" in reason, reason
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["fsmonitor"]
 

@@ -79,10 +79,12 @@ def test_D38_variant_E_a_local_order_ends_with_a_valid_receipt_and_blocks_withou
 
 @pytest.mark.parametrize("host", ["claude", "codex"])
 def test_D38_stop_from_a_directory_outside_the_clone_blocks_on_its_open_order(env, repo, keys, tmp_path, host):
-    _local_order(env, repo, keys.public)
+    order = _local_order(env, repo, keys.public)
     session = _session_dir(tmp_path)
     reason = d.blocked(_stop(env, session, host))
-    assert f"the local done order for {repo.resolve()}" in reason and "check tests is missing" in reason, reason
+    # D49 as sharpened by Nachtrag 21: the order by its name, never the root it records
+    assert f"the local done order {order.name[:12]}: check tests is missing" in reason, reason
+    assert str(repo.resolve()) not in reason, reason
     d._receipt(repo, keys.signer)
     answer = _stop(env, session, host)
     assert d.done_end(answer), answer
@@ -91,7 +93,7 @@ def test_D38_stop_from_a_directory_outside_the_clone_blocks_on_its_open_order(en
 def test_D38_task_completed_from_outside_the_clone_keeps_the_task_open(env, repo, keys, tmp_path):
     _local_order(env, repo, keys.public)
     proc = d.task_completed(env, _session_dir(tmp_path))
-    assert proc.returncode == 0 and proc.stdout.startswith("proofbundle done check: the local done order for"), proc
+    assert proc.returncode == 0 and proc.stdout.startswith("proofbundle done check: the local done order "), proc
     d._receipt(repo, keys.signer)
     proc = d.task_completed(env, _session_dir(tmp_path))
     assert (proc.returncode, proc.stdout) == (0, ""), proc

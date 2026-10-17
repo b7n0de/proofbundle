@@ -50,7 +50,7 @@ def test_P2_a_hook_that_reads_the_message_asks_and_starts_in_bash(tmp_path, layo
     w.proxy(tmp_path, hook, "commit_msg")
     command = f"git -C {scope} commit -q -F {message}"
     code, decision, reason = w.answer(tmp_path, command, host)
-    assert (code, decision) == (0, expected) and f"a hook: {hook}" in reason, reason
+    assert (code, decision) == (0, expected) and f"a hook: {hook.name} in the repository's own hook directory" in reason, reason   # D49, N21
     w.bash(tmp_path, command)
     assert w.started(tmp_path) == ["commit_msg"]
 

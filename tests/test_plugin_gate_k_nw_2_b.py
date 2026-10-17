@@ -208,7 +208,7 @@ def test_a_hook_the_form_runs_keeps_it_not_free(tmp_path, hook, command):
     repo = _repo(tmp_path)
     program, marker = _marker(tmp_path)
     shutil.copy(program, repo / ".git" / "hooks" / hook)
-    _refused(command, repo, f"a hook: {repo / '.git' / 'hooks' / hook}")
+    _refused(command, repo, f"a hook: {hook} in the repository's own hook directory")   # D49, Nachtrag 21: by name and role, no path
     _change(repo)
     _git(repo, *shlex.split(command)[1:])
     assert marker.exists(), f"git does not run {hook} for {command}; the case would be vacuous"
@@ -221,7 +221,7 @@ def test_a_hook_in_the_core_hooks_path_directory_keeps_git_commit_not_free(tmp_p
     program, marker = _marker(tmp_path)
     shutil.copy(program, hooks / "pre-commit")
     _git(repo, "config", "core.hooksPath", str(hooks))
-    _refused("git commit -am msg", repo, f"a hook: {hooks / 'pre-commit'}")
+    _refused("git commit -am msg", repo, "a hook: pre-commit in the hook directory core.hooksPath names")   # D49, Nachtrag 21
     _change(repo)
     _git(repo, "commit", "-q", "-am", "msg")
     assert marker.exists(), "git does not run the pre-commit hook; the case would be vacuous"
@@ -306,7 +306,8 @@ def test_an_include_onto_a_filter_keeps_git_add_not_free_and_names_the_include(t
     _git(repo, "config", "include.path", str(included))
     (repo / ".gitattributes").write_text("*.txt filter=f\n", encoding="utf-8")
     failed = _refused("git add a.txt", repo, "a filter: filter.f.clean")
-    assert f"through an include, in {included}" in failed, failed
+    # D49 as sharpened by Nachtrag 21: the include is named as such, its file not by its path
+    assert "filter.f.clean in a file an include brings into the local configuration" in failed and str(included) not in failed, failed
     _change(repo)
     _git(repo, "add", "a.txt")
     assert marker.exists(), "git does not start the included filter; the case would be vacuous"
@@ -319,7 +320,7 @@ def test_an_include_if_onto_a_signature_program_keeps_git_commit_not_free_and_na
     included.write_text(f"[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = {program}\n", encoding="utf-8")
     _git(repo, "config", f"includeIf.gitdir:{repo / '.git'}.path", str(included))
     failed = _refused("git commit -am msg", repo, "a signature program")
-    assert f"through an include, in {included}" in failed, failed
+    assert "in a file an include brings into the local configuration" in failed and str(included) not in failed, failed   # D49, Nachtrag 21
     _change(repo)
     _git(repo, "commit", "-q", "-am", "msg", check=False)
     assert marker.exists(), "git does not start the included signing program; the case would be vacuous"
@@ -334,7 +335,7 @@ def test_an_include_if_onto_a_hook_directory_keeps_git_commit_not_free(tmp_path)
     included = tmp_path / "hooks.cfg"
     included.write_text(f"[core]\n\thooksPath = {hooks}\n", encoding="utf-8")
     _git(repo, "config", f"includeIf.gitdir:{repo / '.git'}.path", str(included))
-    _refused("git commit -am msg", repo, f"a hook: {hooks / 'pre-commit'}")
+    _refused("git commit -am msg", repo, "a hook: pre-commit in the hook directory core.hooksPath names")   # D49, Nachtrag 21
     _change(repo)
     _git(repo, "commit", "-q", "-am", "msg")
     assert marker.exists(), "git does not run the included hook directory's pre-commit; the case would be vacuous"
