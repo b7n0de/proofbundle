@@ -15283,9 +15283,11 @@ _ReadGrammar = collections.namedtuple("_ReadGrammar", ("flags", "values", "optio
 #: started only itself, opened no file for writing but /dev/null, made no socket but a lookup of a user name over the
 #: local socket of nscd (ls -l), wrote no file and started no git or gh first on PATH. Left out on purpose: tail -f, -F,
 #: --follow, --retry, --pid, -s and an obsolete `+N` or `-Nf` (each follows a file and never ends); date -s, --set, -f,
-#: --file and an operand that is no format (a time to set); every option of ls, head and wc not named. sort is not
-#: among them: it wrote temporary files of its own, from a pipe of 0.8 MB on (truth_sort_temp_e1.sh, owner question
-#: O31E1-1). cd stays with D33.
+#: --file and an operand that is no format (a time to set); every option of ls, head and wc not named. sort came with
+#: owner choice O31E1-1 A (Nachtrag 34, D83), with the options measured there (-b -c -f -n -r -s -u -V -z, -k and -t) and
+#: one named exception: from a pipe of 0.8 MB on it writes temporary files of its own in TMPDIR, opened with O_EXCL and
+#: mode 0600 and removed by sort itself (truth_sort_temp_e1.sh); -o, -T, -S, -m, every long option and every option not
+#: measured stay out. cd stays with D33.
 _READ_TAIL = _ReadGrammar(frozenset("qvz"), frozenset("nc"), long_flags=frozenset({"--quiet", "--silent", "--verbose",
                                                                                    "--zero-terminated"}),
                           long_values=frozenset({"--lines", "--bytes"}), number=True)
@@ -15310,6 +15312,7 @@ _READ_PROGRAMS = {
                          long_values=frozenset({"--date", "--reference", "--rfc-3339"}),
                          long_optional=frozenset({"--iso-8601"})),
     "sleep": _ReadGrammar(frozenset()),
+    "sort": _ReadGrammar(frozenset("bcfnrsuVz"), frozenset("kt")),
 }
 #: The read programs xargs may start (D77): those none of whose options writes, follows a file or sets a time, as the
 #: words xargs reads from its input become their arguments too.

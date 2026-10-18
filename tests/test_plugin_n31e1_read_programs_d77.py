@@ -55,7 +55,7 @@ FREE = [
 #: Counter cases: each asks at 0c4e10e8 and at the head under Claude Code (an excluded switch, an output into a file, a
 #: program beside them that writes or is not in the set, a wrapper, a word the shell builds, git itself).
 KEEP = [
-    f"sort README.md; {SEARCH}", f"sort -o out.txt README.md; {SEARCH}", f"tail -f README.md; {SEARCH}",
+    f"sort -h README.md; {SEARCH}", f"sort -o out.txt README.md; {SEARCH}", f"tail -f README.md; {SEARCH}",
     f"tail -F README.md; {SEARCH}", f"tail --follow README.md; {SEARCH}", f"tail -5f README.md; {SEARCH}",
     f"tail +5f README.md; {SEARCH}", f"tail --pid=1 README.md; {SEARCH}", f"date -s 2020-01-01; {SEARCH}",
     f"date --set=2020-01-01; {SEARCH}", f"date 01011200; {SEARCH}", f"date -f dates.txt; {SEARCH}",
@@ -187,7 +187,7 @@ def test_D77_a_word_the_shell_builds_is_no_word_of_the_grammar():
 
 
 def test_D77_the_closed_sets_are_what_the_decision_names():
-    assert set(gate._READ_PROGRAMS) == {"head", "tail", "ls", "date", "sleep", "wc"}
+    assert set(gate._READ_PROGRAMS) == {"head", "tail", "ls", "date", "sleep", "wc", "sort"}   # sort since D83
     assert gate._READ_XARGS_PROGRAMS == {"head", "ls", "wc"}
     assert gate._READ_PROGRAM_VERSIONS == {"9.4"}
     assert gate._READ_D77_KEYWORDS == {"if", "then", "elif", "else", "fi"}

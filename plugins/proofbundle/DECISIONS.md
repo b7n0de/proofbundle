@@ -4153,3 +4153,17 @@ Nothing gets freer (messung/probe_fix.jsonl against messung/probe_89d2e8b7.jsonl
 held, none from held to free. Not modeled: an arithmetic over the value of a variable the command does not set
 (`$((X))`, `${!X}`), where the value comes from the environment of the host and the agent sets none in a read form
 (owner question). Tests: tests/test_plugin_n34_hidden_commands_d82.py.
+
+## D83. sort in a read-only chain under Claude Code (Nachtrag 34, owner choice O31E1-1 A, 2026-10-18)
+
+Measured in Ergänzung 1 to Nachtrag 31 under strace -f, GNU coreutils 9.4 (truth_readprog_e1.py): sort with -b, -c, -f,
+-n, -r, -s, -u, -V, -z, -k and -t started only itself, opened no file for writing and made no socket. From a pipe of 0.8
+MB on it writes temporary files of its own in TMPDIR, opened with O_EXCL and mode 0600 and removed by sort itself
+(truth_sort_temp_e1.sh); from a file it writes none up to 600 MB.
+
+The rule: sort is a read program of D77 under Claude Code, with exactly the options measured (short switches b c f n r s
+u V z without a value, k and t with one), the version check of D77 and the temporary files as the named exception of
+owner choice O31E1-1 A. -o, -T, -S, -m, -R, every long option and every option not measured stay out; sort behind xargs
+stays out (its input could become an option); under Codex nothing changes (D37). It frees a chain the steps of D72 do
+not free, such as `find … | xargs grep -l git | sort`; a chain of data steps alone was free before.
+Tests: tests/test_plugin_n34_sort_d83.py.
