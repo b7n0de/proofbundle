@@ -15,6 +15,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 from _plugin_env import plugin_env
@@ -240,7 +241,7 @@ def test_net_leaves_the_bare_version_free_and_non_git_commands_alone(tmp_path):
 # --- R10-1-C..F: the four comment-strip bounds -------------------------------------------------------------------
 
 _BOUNDS = [
-    ('echo "x" # git push origin main', "C-comment-after-non-plain"),
+    ('printf "x" # git push origin main', "C-comment-after-non-plain"),
     ("cat <<EOF # git push origin main", "D-here-document-stops"),
     ("x=1#; git push origin main", "E-comment-at-word-start"),
     ("git --version #x", "F-bare-version-held-to-raw-text"),
@@ -255,3 +256,15 @@ def test_r10_1_bounds_keep_the_structured_scan_honest(tmp_path, command, ident):
     shows that removing any one bound makes gated_calls miss its case (catch proof in the delivery)."""
     assert gate.gated_calls(command), command  # the structured scan finds it, it does not rely on the net
     _both_gate(_repo(tmp_path), tmp_path / "logs", command)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("host", ["claude", "codex"])
+def test_r10_1_c_an_echo_with_a_comment_is_a_read_form_of_d70(tmp_path, host):
+    """R10-1-C was `echo "x" # git push origin main`. Since D70 (Nachtrag 28, O26-2) a command wholly of the closed read
+    forms of D66 gets no answer, and this one is: bash starts no program for it (measured with strace and a stand-in git
+    first on PATH: only bash, no marker), whether `#` begins a comment or is a word of echo; zsh is not measured here.
+    The bound itself stays tested above with printf, which is no read form of D70."""
+    command = 'echo "x" # git push origin main'
+    assert gate.gated_calls(command), command  # the bound still holds for the structured scan
+    assert gate.decide(command, str(_repo(tmp_path)), time.monotonic() + 60, host) is None, host
