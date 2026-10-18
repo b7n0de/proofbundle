@@ -1,0 +1,193 @@
+{
+ "source": "A separate generator, 2026-10-14, archive PR31_sonden_24_mit_erzeuger.tar.gz (sha256 5db1444e11f34dacb2bac77ed52b3c63d08042a2091183cf91caad76ae4d9683). The bytes are taken unchanged; only the file names are English. original_name and original_sha256 are the generator's MANIFEST.sha256, so each file can be checked against it.",
+ "not_in_this_tree": {
+  "sonden.py": {
+   "what": "the generator, German prose; it needs cbor2",
+   "original_sha256": "08cf929c9a5b9639f3b3a9fdf63ed1fbf8aaaf1ba8a218dcdf4a69d9e0e4ea70"
+  },
+  "sonden/sonden.json": {
+   "what": "the generator's expected verdicts, carried below as expected_by_generator",
+   "original_sha256": "248dfa7b2502e8f455af886730a112f6a42f308c56cb89f43af748df015386dd"
+  },
+  "MANIFEST.sha256": {
+   "what": "the generator's manifest, carried below as original_name and original_sha256",
+   "sha256": "82c6bbd72a577d262c29eecafdb79b60a74dbeff9897ce8a7a20640495970bbf"
+  }
+ },
+ "data_hash_hex": "b111c6e1d318f203063e5c16bab43c108326af0aa2f7b65760c95547a43dbe52",
+ "keys": {
+  "file": "keys.cbor",
+  "original_name": "sonden/keys.cbor",
+  "original_sha256": "bd6b9ce39a330e664a292bc5add7264d88f266462042706da23dcf9bd7d1c8dc"
+ },
+ "probes": {
+  "baseline": {
+   "file": "baseline.cose",
+   "original_name": "sonden/grundfall.cose",
+   "original_sha256": "f9e4cd65ddae8b72b34620b444639fa17fb0ac1455b0e60c38ad9c41090f48e3",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "bool_as_1": {
+   "file": "bool_as_1.cose",
+   "original_name": "sonden/bool_als_1.cose",
+   "original_sha256": "00ce16f684ebf56c2ef816a4e8dbe96ddfefa3ed246cebdb036a82aea9ee5c4a",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "bytes_after_the_proof": {
+   "file": "bytes_after_the_proof.cose",
+   "original_name": "sonden/daten_nach_dem_beweis.cose",
+   "original_sha256": "0234601b1a04039ba07be73cee262526af6a9e49c40494e3a49a6343320db57b",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "duplicate_key_2": {
+   "file": "duplicate_key_2.cose",
+   "original_name": "sonden/doppelter_schluessel_2.cose",
+   "original_sha256": "9f793db48a48d493666487136faeae9d6ef035f09ee3695e01c5b0ee0e183dc1",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "evidence_0": {
+   "file": "evidence_0.cose",
+   "original_name": "sonden/evidence_0.cose",
+   "original_sha256": "88e8bf193ad450d7c2e4e36d2df917787236680e31b5a0f2c8f2824df3a7cefd",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "evidence_1024": {
+   "file": "evidence_1024.cose",
+   "original_name": "sonden/evidence_1024.cose",
+   "original_sha256": "6a0a7e9b378cb48d920f376e9d71c47e375c238c5e7cf4d73e448cf956389c3e",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "evidence_1025": {
+   "file": "evidence_1025.cose",
+   "original_name": "sonden/evidence_1025.cose",
+   "original_sha256": "d0e3bf328aa3c3dd5893cdb037edd548e4ef5926ffb7bae2ffc63c7ba0017391",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "evidence_invalid_utf8": {
+   "file": "evidence_invalid_utf8.cose",
+   "original_name": "sonden/evidence_ungueltiges_utf8.cose",
+   "original_sha256": "6178d71c50594953d13a351f3dca9e26ca172b25b729fdb1d3f9f80db2421d2b",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "extra_key_in_proof": {
+   "file": "extra_key_in_proof.cose",
+   "original_name": "sonden/zusatzschluessel_im_beweis.cose",
+   "original_sha256": "1b63638988b60371da1e1e45127eec24d25b1bbdae5409343a36765a5785b183",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "foreign_kid": {
+   "file": "foreign_kid.cose",
+   "original_name": "sonden/kid_fremd.cose",
+   "original_sha256": "ee96fea2b74f28fab60f7d595ade426b2b95acd4dac5fd49c694f990ed5fe509",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "foreign_label_unprotected": {
+   "file": "foreign_label_unprotected.cose",
+   "original_name": "sonden/fremdes_label_unprotected.cose",
+   "original_sha256": "fa73d19cfb266a5d4c6ee0d5738cde0f49035458c3dd5875a64f8fdee69a5c7b",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "hash_33": {
+   "file": "hash_33.cose",
+   "original_name": "sonden/hash_33.cose",
+   "original_sha256": "aa4723e170e023d81eb54e44c6c4c43d4bbeebee79b520470eaa2b48b1761373",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "path_element_of_three": {
+   "file": "path_element_of_three.cose",
+   "original_name": "sonden/pfadelement_drei.cose",
+   "original_sha256": "f2f85c42f6edcdde128eeefea3595b38e417c98e7300fba4ae10af5ec78524a3",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "path_empty": {
+   "file": "path_empty.cose",
+   "original_name": "sonden/leerer_pfad.cose",
+   "original_sha256": "d7daae5ba00c7227bbb47daa724f60320559b5710a6b39e8b09b46b71f00e17b",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "path_indefinite": {
+   "file": "path_indefinite.cose",
+   "original_name": "sonden/unbestimmter_pfad.cose",
+   "original_sha256": "b01a79604d39477bfa6c923e076af9a780e5d287ab7eeb3453756741d2e7e0ec",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "path_length_not_shortest": {
+   "file": "path_length_not_shortest.cose",
+   "original_name": "sonden/nichtminimale_laenge_pfad.cose",
+   "original_sha256": "7d87d35f8d1f1ee2bca545f28923175ef1b9505dc944abbdd2ffae44fc7d14b7",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "payload_instead_of_nil": {
+   "file": "payload_instead_of_nil.cose",
+   "original_name": "sonden/nutzlast_statt_nil.cose",
+   "original_sha256": "4a9ee8cd5aa122345724e187192d79f4cae12c741a513dcd15e7cba0682596de",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "plus_empty_consistency_array": {
+   "file": "plus_empty_consistency_array.cose",
+   "original_name": "sonden/zusaetzlich_consistency_leer.cose",
+   "original_sha256": "efd774fa51b4437400a78ee9b0ede4b8c545893dfea3927f962d0bdd2e1c6767",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "OPEN"
+  },
+  "tag_around_hash": {
+   "file": "tag_around_hash.cose",
+   "original_name": "sonden/tag_um_hash.cose",
+   "original_sha256": "6786a0da76d52f7b98f1a90146def678ac2062c1444f5f87adea8bcd06a3ac6f",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "two_proofs_different_roots": {
+   "file": "two_proofs_different_roots.cose",
+   "original_name": "sonden/zwei_beweise_verschiedene_wurzeln.cose",
+   "original_sha256": "08317ada72239a989655339de30d339a77993178498ae77e0705ea9d56d3afdc",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "two_proofs_same_root": {
+   "file": "two_proofs_same_root.cose",
+   "original_name": "sonden/zwei_beweise_gleiche_wurzel.cose",
+   "original_sha256": "e2624f603fd0fc32f1e51c2ab2d318141f580a48add1fe242f64170d7fa00f8c",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  },
+  "vds_3": {
+   "file": "vds_3.cose",
+   "original_name": "sonden/vds_3.cose",
+   "original_sha256": "f41ebcb291b9c73f96f0a49e224f99018c0c101b14918626b2634bcf50f1aab7",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "vds_missing": {
+   "file": "vds_missing.cose",
+   "original_name": "sonden/vds_fehlt.cose",
+   "original_sha256": "59474907a3e113911551ccb1010f35a808743d4c544d25487d6a2dcbb3128652",
+   "expected_strict": "FAIL",
+   "expected_by_generator": "FAIL"
+  },
+  "without_tag18": {
+   "file": "without_tag18.cose",
+   "original_name": "sonden/ohne_tag18.cose",
+   "original_sha256": "91a6576c5c24ea485350ab7739c6d17a33a95dd1a979b31f14ece8789104c823",
+   "expected_strict": "PASS",
+   "expected_by_generator": "PASS"
+  }
+ }
+}

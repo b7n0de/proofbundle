@@ -399,10 +399,17 @@ AUSGESCHLOSSEN = {
     # so `hermetic-cleanroom` went red on a collection error. The undecided file was the cause; the
     # broken collection was only where it became visible.
     "render_release.py": "renders a release note of this repository from release_notes/, which the sdist does not ship; no input inside a package",
+    # 2026-09-28: judges the milestone and the description of one pull request from the event
+    # payload the runner writes; its own workflow runs it on every pull request. An installed
+    # package has no pull request and no payload. Same reasoning as `b7_release_scope_title_gate.py`.
+    "b7_pr_form_gate.py": "judges one pull request of this repository from the runner's event payload; no pull request inside a package",
     # 2026-09-26: asks the GitHub API for the Codex threads, the issue comments and the head of one
     # pull request, and a workflow runs it on every pull request. An installed package has no pull
     # request and no repository to ask. Same reasoning as `required_context_presence_gate.py`.
     "codex_threads_check.py": "asks the GitHub API for the Codex threads of one pull request; no pull request inside a package",
+    # 2026-09-28: asks the GitHub API for the ci.yml runs and jobs of one pull request head, and
+    # landung.yml runs it before the mutation layer. Same reasoning as the sibling one line up.
+    "landung_waits_for_ci.py": "asks the GitHub API for the ci.yml jobs of one pull request head; no pull request inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

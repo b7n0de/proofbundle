@@ -1,7 +1,7 @@
 {
   "schema": "proofbundle.findings_register.v1",
-  "version": "6.2.0",
-  "generated_at": "2026-09-29T18:02:55Z",
+  "version": "6.3.0",
+  "generated_at": "2026-10-13T00:26:22Z",
   "findings": [
     {
       "id": "N1",
@@ -158,11 +158,71 @@
       "severity": "P3",
       "status": "open",
       "note": "promised in RESTRISIKO_600.md, paragraph 'A number in this section that a later commit makes stale' of the receipt-binding section: a head written into prose is stale the moment the commit carrying it exists, so the sheet states such figures as a measurement with date and object rather than as a claim about the current head. The class recurs: audit_artifacts/600/README.md caught itself twice (49 against 53 scanned docs, 20 against 21 register entries), and tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py now recomputes the register figures beside the register instead of trusting them. Open, because a guard exists for two numbers and the class lives in every number written into prose. Severity P3 assigned by the producer from the sheet's stated reach — a stale number misleads a reader, it decides nothing — not measured by a tool. Its state is 'open' by the producer's reading of the paragraph, which names no state of its own"
+    },
+    {
+      "id": "CODEX-630-K1",
+      "severity": "P1",
+      "status": "closed",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: the eval-result v0.2 verifier accepted evidence whose sha3_224, sha512_224 or sha512_256 digest did not match the supplied content, because the shape table knew those algorithms and the content check did not. CLOSED before the tag by pull request 346"
+    },
+    {
+      "id": "CODEX-630-K2",
+      "severity": "P1",
+      "status": "closed",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: the pytest plugin rounded the pass rate to six decimals before the threshold comparison, so two of three tests passed a threshold of 0.666667 and the signed claim said passed. CLOSED before the tag by pull request 347"
+    },
+    {
+      "id": "CODEX-630-K3",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: tools/pilot/github_write_profile.py reads payload again through an overridable __getitem__ after verification, so a dict subtype can make a refused outcome read as accepted; the outer envelope of tools/merkle_accumulator/accumulator.py has the same class. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K4",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: examples/verdict_contract/check_example.py takes publickey.hex from the directory it checks as its pin, so a set issued under another key passes with exit 0. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K5",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: the same example checker parses the envelope with json.loads, so a duplicated payload member is dropped before the strict check and the set passes with exit 0. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K6",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: scripts/core_layer_gate.py resolves earlier calls against the last import alias of a name, so an environment read before a later rebinding of the alias stays green. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K7",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: scripts/rust_parity_gate.py takes an empty coverage report as no evidence needed and still reports the binary and the registry as sound. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K8",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: scripts/b7_pr_form_gate.py reads Markdown paragraphs as separate runs, so the same rendered attribution is refused as HTML and passes as Markdown; the gate is advisory. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K9",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: interop/acde_01/acde01/reconcile.py filters a requested scope down to the population it knows, so an unknown scope member yields PASS and FULLY_SUPPORTED. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
+    },
+    {
+      "id": "CODEX-630-K10",
+      "severity": "P2",
+      "status": "open",
+      "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: interop/acde_01/acde01/report_check.py takes draft_equation_holds from the report it checks and accepts an unknown instruction class, so a report that breaks its conservation equation passes. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool"
     }
   ],
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "4Jv3dgYn2f/RYEVPsHpkDuRGXSIbXJEjRh4CDxCKW8ASJEuUG6gY0149p7+R3op3puDc+uueyVg9Zg3yQXCwCA=="
+    "sig_b64": "rPFxGb1feVPNy/HturjGZpx6sdMYwfrEfNp/E6fM13YZyqHPSpnrUqHIneNWbmGVV9gU5Pgypn6krrs/9kuhBQ=="
   }
 }

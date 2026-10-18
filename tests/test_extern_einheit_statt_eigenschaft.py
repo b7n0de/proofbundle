@@ -23,10 +23,6 @@ from proofbundle.errors import BundleFormatError
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_MANIFEST = ROOT / "tools" / "pb_verify_rs" / "Cargo.toml"
-# BEIDE Profile, wie `tests/test_relation_statement_rust_parity.py` es schon tut. Release zuerst,
-# weil CI dieses Profil baut.
-RUST_BIN_RELEASE = ROOT / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
-RUST_BIN_DEBUG = ROOT / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"
 
 
 def test_input_bytes_uses_encoded_bytes_not_codepoints():
@@ -43,7 +39,7 @@ def test_input_bytes_uses_encoded_bytes_not_codepoints():
 
 
 @pytest.fixture(scope="module")
-def rust_verifier() -> Path:
+def rust_verifier(pb_verify_rs) -> Path:
     """Der gebaute Verifizierer, egal unter welchem Cargo-Profil er liegt.
 
     GEAENDERT VON DER JURY (un_echoXX, 09.09.2026), und der Grund ist genau die Klasse, die
@@ -61,13 +57,16 @@ def rust_verifier() -> Path:
     Cache und Werkzeugkette abhaengig, und sein Fehlschlag wird zu einem stillen SKIP — dieselbe
     Klasse noch einmal. Wer den Differentialtest laufen sehen will, baut vorher:
     `cargo build --release --manifest-path tools/pb_verify_rs/Cargo.toml`.
+
+    THIRD CHANGE (owner note of 2026-09-28, Z281). Looking for the file made the verdict depend on
+    test order: under pytest-xdist this differential ran or skipped depending on whether another
+    module had built the binary first. The binary now comes from the session fixture
+    `pb_verify_rs` (tests/_pb_verify_rs.py): a binary CI pinned after building it in a step, or
+    one release build per process under a file lock, or a skip that names why. Where CI sets
+    PROOFBUNDLE_REQUIRE_PB_VERIFY_RS=1, a missing binary fails instead of skipping, so a failed
+    build can no longer turn into a silent skip there.
     """
-    for kandidat in (RUST_BIN_RELEASE, RUST_BIN_DEBUG):
-        if kandidat.exists():
-            return kandidat
-    pytest.skip("pb_verify_rs nicht gebaut (cargo build --release --manifest-path "
-                f"{RUST_MANIFEST.relative_to(ROOT)}) — Differential ehrlich ungemessen, nie gruen")
-    raise AssertionError("unerreichbar")   # nur fuer den Typpruefer
+    return pb_verify_rs
 
 
 @pytest.mark.parametrize("surplus_padding", [False, True], ids=["canonical", "surplus-padding"])

@@ -1252,7 +1252,10 @@ def _der_standard_im_baum(root: pathlib.Path, capsys, monkeypatch, git) -> str |
     _rc, d = _gate_without_version(root, capsys)
     v = d["version"]
     herkunft = str(d.get("version_herkunft") or "")
-    if v is None and "has its own scope file" in herkunft:
+    # The bump state is named by the gate's reason, whatever version a branch judgement then reached:
+    # since a next scope can be readable without a branch, the gate may name it here (see the case
+    # `test_between_the_bump_and_the_tag_a_readable_next_scope_is_NOT_MEASURED_either`).
+    if "has its own scope file" in herkunft:
         return f"between the bump and its tag the release being built is not decided here ({herkunft})"
     assert v, d["gruende"]
     assert (root / "docs" / "release_scope" / f"{v}.md").is_file(), v
@@ -1748,3 +1751,23 @@ def test_after_the_tag_a_declared_unstarted_next_scope_is_measured_with_zero_bra
     assert (card["zustand"], card["version"], card["umfang_nicht_begonnen"],
             card["zeilen_zaehlbar"]) == ("gemessen", "6.3.0", True, 0), card
     assert _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root)) is None
+
+
+def test_between_the_bump_and_the_tag_a_readable_next_scope_is_NOT_MEASURED_either(tmp_path, capsys,
+                                                                                   monkeypatch):
+    """THE BUMP STATE HAD A SECOND SHAPE, and the helper knew only the first. Since pull request 327
+    a next scope that declares itself not started is readable, so between the bump and its tag the
+    gate no longer answers no version for a branch that no scope names: it judges that branch by the
+    scope files and names the next one. The helper's exit asked for `v is None` and asserted on, and
+    the landing card, which counts one release and cannot choose by a branch, said NOT MEASURABLE in
+    a wording the helper's card exit did not read. Measured in the tree of 6.2.1 before its tag,
+    with the release tags this clone shows: red. The state is the same one the first exit names."""
+    root = _tree(tmp_path, "6.2.1", ("6.2.0", "6.2.1", "6.3.0"), ("v6.0.0", "v6.1.0", "v6.2.0"),
+                 branches={"6.2.0": "fix/old", "6.2.1": "release/6.2.1"})
+    (root / "docs" / "release_scope" / "6.3.0.md").write_text(
+        "# Release scope - 6.3.0 (not started)\n\n## In\n\n| Item | What it is |\n|---|---|\n"
+        "| P30 | something |\n\n## Out\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("## [6.2.1] - 2026-10-09\n\n## [6.2.0] - 2026-09-28\n",
+                                       encoding="utf-8")
+    grund = _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root))
+    assert grund and "between the bump and its tag" in grund, grund
