@@ -851,17 +851,23 @@ _CONFIG_READ_SWITCHES = frozenset({"--show-origin", "--show-scope", "-z", "--nul
 
 
 def _config_reads_only(args: list[str], rewrites: list[bool] | None = None) -> bool:
-    """Whether `git config <args>` only reads (D62): every option one of _CONFIG_READ_ACTIONS and _CONFIG_READ_SWITCHES
-    and at most one action; with --get, --get-all or --get-regexp one name and at most one value pattern, with --list
-    or -l no word, with no action exactly one word, the name git prints the value of. Every word literal: no `$`, no
-    word the shell may rewrite (a `--g*` may become `--global` or `--add`). A read of core.hooksPath turns no hook off;
-    setting, unsetting, adding, replacing and editing do, and keep the deny of _HOOKS_DISABLE."""
+    """Whether `git config <args>` only reads (D62): the options before the first other word each one of
+    _CONFIG_READ_ACTIONS and _CONFIG_READ_SWITCHES and at most one action; with --get, --get-all or --get-regexp one name
+    and at most one value pattern, with --list or -l no word, with no action exactly one word, the name git prints the
+    value of. git 2.43.0 reads every word after the first non-option as a name or a value, whatever it looks like
+    (measured: `git config core.hooksPath --show-origin` sets core.hooksPath to `--show-origin`), so a word that starts
+    with `-` after the name is a value, never a switch (Nachtrag 28, O27-2). Every word literal: no `$`, no word the
+    shell may rewrite (a `--g*` may become `--global` or `--add`). A read of core.hooksPath turns no hook off; setting,
+    unsetting, adding, replacing and editing do, and keep the deny of _HOOKS_DISABLE."""
     if (rewrites is not None and any(rewrites[:len(args)])) or any("$" in a for a in args):
         return False
-    if any(a.startswith("-") and a not in _CONFIG_READ_ACTIONS and a not in _CONFIG_READ_SWITCHES for a in args):
+    k = 0
+    while k < len(args) and args[k].startswith("-"):
+        k += 1
+    if any(a not in _CONFIG_READ_ACTIONS and a not in _CONFIG_READ_SWITCHES for a in args[:k]):
         return False
-    actions = [a for a in args if a in _CONFIG_READ_ACTIONS]
-    names = [a for a in args if not a.startswith("-")]
+    actions = [a for a in args[:k] if a in _CONFIG_READ_ACTIONS]
+    names = args[k:]
     if len(actions) > 1:
         return False
     if not actions:

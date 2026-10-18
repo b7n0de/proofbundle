@@ -3561,6 +3561,15 @@ are free under Claude Code after the read profile. Keep the deny: a value after 
 
 Tests: tests/test_plugin_n23_hookspath_read_d62.py.
 
+Corrected in Nachtrag 28 (O27-2, owner choice of 2026-10-18, 09:2x Berlin, as recommended): git 2.43.0 reads every word
+after the first non-option of `git config` as a name or a value, whatever it looks like. Measured in a fresh repository:
+`git config core.hooksPath --show-origin`, `--null`, `-z` and `--get` after the name each set core.hooksPath to that
+word; D62 read them as a read with a switch, so the gate asked with D3 under Claude Code instead of denying with D24.
+Now _config_reads_only reads a switch only before the first name, as _config_read_form of D68 does: these four forms,
+and every other value after the name, deny with D24 (hooks_disabled) under both hosts. A word after the name of a
+read with an action is its value pattern, as git reads it (`git config --get core.hooksPath --null` stays a read and is
+not denied). Tests: tests/test_plugin_n28_hookspath_position_d62.py.
+
 ## D63. The class of R25-1 at four more sites: a reason names the key, never the value read (Nachtrag 23, part 3, 2026-10-17)
 
 The class search of R25-1 (review Runde 25: a reason gives a value the gate read, also as a fixed text) found four more
