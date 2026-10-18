@@ -92,13 +92,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `dict.fromkeys(...)` over either, three spellings the review wrote past the guard. Measured on the
   tree after the fix: eleven membership tests stood in a derived container or a module-level set
   operation, and every one reads through `is_member` now: the live one, and ten whose value is a key
-  of a value checked to be a dict, so none of them could raise (`agent_review.py:374` and `:469`,
-  `outcome.py:107`, `run_ledger.py:62` and `:137`, `trust_pack.py:124`, `verification_summary.py:59`
-  and `:111`, `verifier_block.py:292` and `:312`). Two new reads are classified:
+  of a value checked to be a dict, so none of them could raise (on this tree `agent_review.py:434`
+  and `:529`, `outcome.py:116`, `run_ledger.py:69` and `:144`, `trust_pack.py:153`,
+  `verification_summary.py:65` and `:117`, `verifier_block.py:304` and `:324`; the branch of
+  2026-09-27 had them at other lines). Two new reads are classified:
   `set(predicate) - _ALLOWED_TOP` in `decision.validate_decision_predicate` (the keys of a value
   checked to be a dict) and `dict(PROFILE_ALIASES)` returned by `policy_profiles.profile_aliases`
-  (string literals of the package). `agent_review.py:495`, `k not in _DECLARATION_FIELDS | zusatz`, is
-  no derived container, because `zusatz` is a parameter; it stays an other use, and its reason now
+  (string literals of the package). `agent_review.py:555` on this tree, `k not in
+  _DECLARATION_FIELDS | zusatz`, is no derived container, because `zusatz` is a parameter; it stays
+  an other use, and its reason now
   says that the union is tested only with a key of a value checked to be a dict. The lookups stayed
   19 sites under 19 entries at that point.
 
@@ -131,19 +133,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   raised for `unexamined: 5`, which `check_cap1_document` reported as a rule it could not evaluate
   and agent-review v0.2 as `CAP1_DISPOSITION_NOT_CLOSED`; both read the wrong
   type as absent now (R1 names the non-list). The count reads `x or` with an empty list, tuple, set
-  or dict display, `""` or `0` as the last operand: 114 sites on c3bd89a4, 95 on 8ecb6edf, 93 now.
+  or dict display, `""` or `0` as the last operand: 114 sites on c3bd89a4, 95 on 8ecb6edf and 93 at
+  the end of that branch; on this tree 96, where main 570dd164 has 117.
   One, in `sd_jwt_hidden_count`, stays and reads through `as_dict` now. Of the other 94 on
   8ecb6edf, 20 sit in the four JSON adapters named below and can raise, and 74 sit behind a type
   check or a typed `except`, read a value the package built, or read caller arguments on a producer
   path. Two of those 74 were not safe in that way, and a lens on 8ecb6edf found both: the policy
   call of the v0.2 and v0.3 verifiers, `_praed or {}`, sat behind a broad `except` and held a
   predicate `[]` or `0` against the policy as `{}`, and the renderer's `limitations` read held only
-  while the validator stood in front of it. Both are gone, which is the step from 95 to 93 (see the
-  paragraph on that lens below); the rest of that group was not read again. Two carried entries of
-  `conformance/unguarded_hashing_constructions_baseline.json` are closed and leave it, and the
-  two renderer rung sets below close two more (seven to three). Contract
-  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 42 tests, all 42 red on
-  c3bd89a4. The two renderers read entries as the verifiers do: an entry that is no object, or an
+  while the validator stood in front of it. Both are gone, here as on that branch, where they were
+  the step from 95 to 93 (see the paragraph on that lens below); the rest of that group was not read
+  again. Two carried entries of `conformance/unguarded_hashing_constructions_baseline.json` are
+  closed and leave it, and the two renderer rung sets below close two more (six to two on this tree;
+  seven to three on that branch). Contract
+  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 42 tests on c3bd89a4, all 42
+  red there; on this tree 80, and 79 of them are red on main 570dd164 (the one green there is the
+  byte identity of the valid predicates). The two renderers read entries as the verifiers do: an
+  entry that is no object, or an
   `assurance` or `disposition` that is no string, names nothing. The validator in front refuses
   such a predicate, so no public call raised; with it taken away, `{"assurance": []}` raised
   `TypeError` and an entry `5` raised `AttributeError` (the three newest tests, red at f6d7cd7f).
@@ -319,9 +325,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   an object whose `__repr__`, `__str__` and `__format__` raise into every parameter, into every node
   of a dict or list argument and as a new key of every dict. Each call must return an answer that is
   no `internal_error`, or raise an exception class the package defines (or the builtin one its
-  module documents), with a message that renders. Measured before this change: 37 of 337 functions
-  let such a value out raw, in 997 of 58,082 calls; now 0 of 339 functions in 58,124 calls, under
-  CPython 3.10, 3.11, 3.12, 3.13 and 3.14. A forcing test turns red for a public function without a
+  module documents), with a message that renders. Measured with CPython 3.10, before this change 37
+  of 336 functions let such a value out raw, in 997 of 58,054 calls; now 0 of 338 functions in
+  58,096 calls. `pqsig.verify_slhdsa` is not measurable there, since its optional dependency is not
+  installed, and its 28 calls are named, not counted; the test passes under 3.11, 3.12, 3.13 and
+  3.14 as well. A forcing test turns red for a public function without a
   seed or a named reason, two plant-and-catch tests swap a bounded renderer of `explain_policy` and
   the serializer of the AGT receipt back for raw ones and require the sweep to report it, and a
   sweep with nothing to plant fails instead of passing. Every site renders through

@@ -48,11 +48,13 @@ WHAT A RAW RAISE IS, by kind:
   at baseline, so a gap that closes has to leave the list.
 
 MEASURED on main 570dd164 with the six commits carried before this change, the tree before it,
-2026-10-18, with CPython 3.10: 37 of 337 functions let a planted value out raw or answered
-`internal_error`, in 997 of 58,082 calls, and 39 of the 343 cases this file has there are red (37
+2026-10-18, with CPython 3.10: 37 of 336 functions let a planted value out raw or answered
+`internal_error`, in 997 of 58,054 calls, and 39 of the 343 cases this file has there are red (37
 with class escapes, `load_statement_strict` with its raw raises only, and the forcing test, since
-the two renderers this change adds do not exist there). After it: 0 of 339 functions, in 58,124
-calls, under CPython 3.10, 3.11, 3.12, 3.13 and 3.14. (On d6d89763, where this change was first
+the two renderers this change adds do not exist there). After it: 0 of 338 functions, in 58,096
+calls. `pqsig.verify_slhdsa` is not measurable there, its optional dependency not being installed,
+and its 28 calls are named, not counted; the file passes under 3.11, 3.12, 3.13 and 3.14 as well.
+(On d6d89763, where this change was first
 written, 52 of 307 functions escaped in 2,237 of 54,785 calls.)
 The meta tests show that the generator catches a planted raw renderer and a planted raw serializer,
 and that a generator with nothing to plant fails instead of passing.
