@@ -224,9 +224,10 @@ def test_D74_fsmonitor_counts_where_git_has_its_daemon(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(args, 1, b"", b"fsmonitor-daemon is not watching\n")
         return real(repo_, args, deadline_, stdin)
 
-    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, os.environ) is DAEMON_ABSENT
+    named = {k: os.environ[k] for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM") if k in os.environ}
+    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, named) is DAEMON_ABSENT
     monkeypatch.setattr(gate, "_run_git", with_daemon)
-    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, os.environ) is False
+    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, named) is False
     assert _decide(repo, "git -C {R} status --short", tmp_path)[0] == "ask"
 
 

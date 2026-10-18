@@ -197,7 +197,7 @@ def test_D77_a_read_chain_that_names_a_done_order_change(repo, tmp_path, host, e
         event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                  "tool_input": {"command": command}}
         assert out is not None and "done_order_change" in shown(out)[1], shown(out)
-        printed = gate.pre_tool_answer(out, host, event, gate._step_of_event(event), os.environ)
+        printed = gate.pre_tool_answer(out, host, event, gate._step_of_event(event), {})
         assert printed["hookSpecificOutput"]["permissionDecision"] == expected, printed
 
 
