@@ -3832,3 +3832,32 @@ the documentation, not measured). Strict stays the default for everything outsid
 away.
 Tests: tests/test_plugin_n29_work_profile_d71.py; tests/test_plugin_n20_short_line.py knows free_work_profile as a
 pass.
+
+## D72. The short line names the step that decides (Nachtrag 30, 2026-10-18)
+
+delta's review of the real mishaps from 2026-09-27 to 2026-10-18 at 0efaf38d: of 13 mishaps the gate sees before Bash it
+stopped 9; 7 at the step that was wrong but none with a reason that names the mishap, 2 at another step. The short line
+named only D3, D27 or D33, and at S1 (`gh pr checks … && gh pr merge … --admin --merge`) the harmless first step. Owner
+choice of 2026-10-18, 11:5x Berlin: the line names the danger.
+
+Every ask, deny and warning names the simple command whose answer decides and the word that carries it, under both
+hosts; the reason ids in the log stay as they are. Where several steps of a command carry the decision, the line names
+the heaviest; the decision first (deny before ask before warn), then the weight of the step (_d72_step_weight, read by
+the scan of the step's own text, no repository read): 5 a form that turns off the check of a push, 4 a push, a gated gh
+call or a gh call the gate does not model, 3 a local change, 2 a call that may transfer objects (fetch, ls-remote,
+worktree add), 1 a read (the read forms of D34 and those of D71: the tag and stash lists, bundle verify); the first of
+the heaviest by place. Class c names the heaviest step whose own answer decides
+(_sh_deciding); where class c keeps the whole command's answer, the line names the heaviest git or gh step
+(_sh_heaviest, the kept step where it weighs as much); where the step parser does not model the command, the heaviest
+call of the scan (_short_step_name). A gh step is named by its command words (`gh pr merge`, `gh pr checks`, `gh run
+view`, _gh_short_name), no longer by `gh` alone. The reason in the line is the one of that step (Outcome.cause): its own
+verdict in class c, else the verdict of the whole command that names it (_d72_cause: its failure starts with the step's
+name, or the verdict names it as the call it cannot place, or for a gh step the verdict of the net). The short reason of
+directory_unresolved says that the gate cannot tell which repository the step acts on; "after a cd" was wrong where no
+`cd` stands in the command (a push in a chain).
+Measured at the forms of the order (probe_lines_n30.py of the delivery): `git log -1 && git reset --hard HEAD~1` named
+`git log` and names `git reset`; `gh pr checks … && gh pr merge … --merge` named `gh` and names `gh pr merge` (D27);
+`git status && git push origin main` named `git push` with the reason of `git status` and names it with its own (D33
+under Claude Code, D12 under Codex).
+Tests: tests/test_plugin_n30_short_line_d72.py (the rows of the order, the gh names, class c, the heaviest of equal
+weight).

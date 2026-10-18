@@ -9309,14 +9309,16 @@ def _within_gate_dir(path: str, cwd: str, gate_dir: str) -> str | None:
 class Outcome:
     """The combined answer for one call: the decision, its text, the verdict of every repository, and, when a
     human rule freed the call, the applied-rule note for the log (N24). step names the step of a longer command that
-    has the decision on its own (D46), as the short line names it (D53); None where the reason names no one step."""
+    has the decision on its own (D46), as the short line names it (D53); None where the reason names no one step. cause
+    is the verdict whose reason the short line gives where it is not the first verdict with the decision: the one of
+    the step that decides (D72); None for the first."""
 
-    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step")
+    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause")
 
     def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None,
-                 step: str | None = None):
+                 step: str | None = None, cause: "Verdict | None" = None):
         self.decision, self.text, self.verdicts, self.applied_rule = decision, text, verdicts, applied_rule
-        self.step = step
+        self.step, self.cause = step, cause
 
     def __iter__(self):
         return iter((self.decision, self.text))
@@ -10223,9 +10225,10 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
                 (len(steps) < 2 and keep.step is None and not any(_sh_generic_chain_verdict(v)
                                                                    for v in whole.verdicts)):
             return whole
-        # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to
+        # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to; the
+        # short line names the heaviest git or gh step, the kept step where it weighs as much (D72)
         return Outcome(whole.decision, _sh_keep_reason(keep, steps, whole, judge_whole, cwd), whole.verdicts,
-                       whole.applied_rule, step=_sh_short_name(keep.step))
+                       whole.applied_rule, step=_sh_short_name(_sh_heaviest([keep.step, *steps])))
 
 
 #: How the reason says a decision of a step's own answer (D46).
@@ -10305,20 +10308,112 @@ def _sh_call_name(step: "_ShStep") -> str:
 
 
 def _sh_short_name(step: "_ShStep | None") -> str | None:
-    """The name of a git or gh step as the short line names it (D53): `git <subcommand>` or the gh call, no path, no
-    other word of the step; None for no step or a step of another program."""
+    """The name of a git or gh step as the short line names it (D53): `git <subcommand>`, or for gh the gated call or
+    its command words (D72, _gh_short_name), no path, no value of the step; None for no step or a step of another
+    program."""
     if step is None or step.kind not in ("git", "gh", "git-x"):
         return None
-    return _sh_call_name(step)
+    return _gh_short_name(step.words[1:]) if step.kind == "gh" else _sh_call_name(step)
+
+
+#: D72: a word of a gh call the short line names as a command word: lower-case letters, digits and hyphens.
+_GH_COMMAND_WORD = re.compile(r"[a-z][a-z0-9-]{0,30}")
+
+
+def _gh_short_name(words: list[str]) -> str:
+    """The name of a gh step for the short line (D72): the gated call where it is one (_gh_call), else `gh` with its
+    first two positional words where they are command words (`gh pr merge`, `gh run view`); an option and its value, a
+    number and an endpoint are none."""
+    gated = _gh_call(words)
+    if gated is not None:
+        return gated
+    named, i = [], 0
+    while i < len(words) and len(named) < 2:
+        word = words[i]
+        if word in _GH_OPTIONS_WITH_VALUE:
+            i += 2
+            continue
+        if word.startswith("-"):
+            i += 1
+            continue
+        if not _GH_COMMAND_WORD.fullmatch(word):
+            break
+        named.append(word)
+        i += 1
+    return " ".join(["gh", *named])
+
+
+#: D72: the markers of a call that changes the repository, and of one that may transfer objects.
+_D72_LOCAL = frozenset({_NOT_FREE, _STATE_FREE, _CHECKOUT_FREE})
+_D72_TRANSFER = frozenset({_MAYBE_PUSH, _FETCH_FREE, _LS_REMOTE_FREE})
+
+
+def _d72_call_weight(name: str, detail) -> int:
+    """How heavy a call of the scan (gated_calls) is for the short line (D72): 5 a form that turns off the check of a
+    push, 4 a call that sends or one the gate does not model (a push, a gated gh call, a gh call of the net), 3 a
+    local change, 2 a call that may transfer objects (fetch, ls-remote, worktree add), 1 a read."""
+    if detail is not None and _HOOKS_DISABLE in detail:
+        return 5
+    if name == "git push" or detail is None or _NET in detail:
+        return 4
+    if _D72_LOCAL & set(detail):
+        return 3
+    if _D72_TRANSFER & set(detail):
+        return 2
+    return 1
+
+
+def _d72_step_weight(step: "_ShStep") -> int:
+    """How heavy a git or gh step is for the short line (D72): the heaviest call of its own text, read by the scan
+    without a repository; a gh step the scan names no call of is a call of the net (4); a read form of the work profile
+    (the tag and stash lists, bundle verify, D71) is a read (1), though the scan names it no read form."""
+    if step.kind == "git-x":
+        return 4
+    text = _sh_step_text(step)
+    calls = gated_calls(text)
+    if not calls:
+        return 4 if step.kind == "gh" else 3
+    weight = max(_d72_call_weight(name, detail) for name, _c, detail in calls)
+    form = _work_form(text) if weight == 3 else None
+    return 1 if form is not None and form.kind == "read" else weight
+
+
+def _sh_heaviest(steps: list) -> "_ShStep | None":
+    """The heaviest of the git and gh steps (D72, _d72_step_weight), the first of them where several weigh the same;
+    None where there is none."""
+    named = [s for s in steps if s is not None and s.kind in ("git", "gh", "git-x")]
+    return max(named, key=_d72_step_weight) if named else None
+
+
+def _sh_deciding(own: list, decision: str) -> tuple[str | None, "Verdict | None"]:
+    """The step whose own answer has the decision and that weighs the most (D72), the first where several weigh the
+    same, by its name for the short line (D53), and the first verdict of its answer with the decision, whose reason the
+    line gives; (None, None) where no step has it."""
+    deciding = [(s, a) for s, a in own if a is not None and a.decision == decision]
+    if not deciding:
+        return None, None
+    s, a = max(deciding, key=lambda pair: _d72_step_weight(pair[0]))
+    return _sh_short_name(s), next((v for v in a.verdicts if v.decision == decision), None)
+
+
+def _d72_cause(verdicts: list, decision: str, name: str) -> "Verdict | None":
+    """The verdict with the decision that belongs to the step the short line names (D72): the one whose failure starts
+    with that step's name, else the one that names it as the call it cannot bind or place, else for a gh step the
+    verdict of the net, which found it; None where none does, and the line keeps the first verdict with the decision."""
+    mine = [v for v in verdicts if v.decision == decision]
+    for belongs in (lambda v: v.failed.startswith(f"{name} "),
+                    lambda v: f"`{name}" in v.failed or f"{name} acts on" in v.detail,
+                    lambda v: name.startswith("gh") and v.reason_id == "net_unmodeled_git"):
+        found = next((v for v in mine if belongs(v)), None)
+        if found is not None:
+            return found
+    return None
 
 
 def _sh_deciding_step(own: list, decision: str) -> str | None:
-    """The name of the first git or gh step whose own answer has the decision, the step the reason names first (D46),
-    for the short line (D53)."""
-    for s, a in own:
-        if a is not None and a.decision == decision:
-            return _sh_short_name(s)
-    return None
+    """The name of the step whose own answer has the decision and that weighs the most (D72), for the short line
+    (D53)."""
+    return _sh_deciding(own, decision)[0]
 
 
 def _sh_pushing(step: "_ShStep") -> bool:
@@ -10538,14 +10633,15 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
                 # (D46)
                 if host == "codex" or len(steps) < 2:
                     return whole
+                step, cause = _sh_deciding(own, whole.decision)
                 return Outcome(whole.decision, _sh_steps_reason(whole.decision, own, [
                     v for v in whole.verdicts if v.decision == whole.decision], kept=(
                         "a plain chain with `git add` or `git commit -m` that is not free keeps the answer of the "
-                        "whole command (D3, Nachtrag 2)")), whole.verdicts, whole.applied_rule,
-                    step=_sh_deciding_step(own, whole.decision))
+                        "whole command (D3, Nachtrag 2)")), whole.verdicts, whole.applied_rule, step=step, cause=cause)
             text = (" ".join(v.text() for v in chosen) if host == "codex" or len(steps) < 2 else
                     _sh_steps_reason(decision, own, chosen))
-            return Outcome(decision, text, verdicts, step=_sh_deciding_step(own, decision))
+            step, cause = _sh_deciding(own, decision)
+            return Outcome(decision, text, verdicts, step=step, cause=cause)
     combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
 
@@ -11091,7 +11187,9 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     Under Claude Code, in a repository that declares and whose every remote is a repository of b7n0de on github.com, an
     ask of the not-modeled kind for a form of the work profile becomes a pass where the profile of its class finds
     nothing: a read, a local change that can be taken back, a fetch or ls-remote, `gh pr merge --auto` and `gh pr edit`
-    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are."""
+    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are.
+
+    An ask, a deny or a warning names the step that decides, the heaviest, never the first by its place (D72)."""
     head = _interpreter_heredoc_head(command)
     written = command if head is None else head
     judged = _program_values(written)
@@ -11105,7 +11203,13 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
-    return _with_done_order(outcome, judged)
+    outcome = _with_done_order(outcome, judged)
+    if outcome is not None and outcome.decision in ("ask", "deny", "warn"):
+        # D72: the line names the heaviest git or gh step, not the first, with the reason of that step
+        outcome.step = outcome.step or _short_step_name(judged, cwd)
+        if outcome.cause is None and outcome.step is not None:
+            outcome.cause = _d72_cause(outcome.verdicts, outcome.decision, outcome.step)
+    return outcome
 
 
 def _narrower_spelling(command: str) -> str | None:
@@ -11942,7 +12046,8 @@ _SHORT_REASONS = {
                              "unter Codex nur das schlichte git push warnt"),
     "codex_context_unbound": ("D12", "the Codex hook does not carry the working directory",
                               "der Codex-Haken das Arbeitsverzeichnis nicht mitgibt"),
-    "directory_unresolved": ("D33", "the directory after a cd is unknown", "das Verzeichnis nach einem cd unbekannt ist"),
+    "directory_unresolved": ("D33", "the gate cannot tell which repository it acts on",
+                             "das Tor nicht weiß, in welchem Repository der Schritt arbeitet"),   # D72: no cd needed
     "done_order_change": ("D38", "the command changes a local done order",
                           "der Befehl einen lokalen Abschlussauftrag ändert"),
     "gh_form_not_free": (None, "a setting may make gh start a program or reach another host",
@@ -12065,19 +12170,21 @@ def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
 
 
 def _short_step_name(command: str | None, cwd: str) -> str | None:
-    """The name of the first git or gh step of a command, `git <subcommand>` or the gh call (D53), or None."""
+    """The name of the heaviest git or gh step of a command (D72, _sh_heaviest), the first where several weigh the same,
+    `git <subcommand>` or the gh call (D53), or None. A command the step parser does not model is named by the
+    heaviest git or gh call of the scan (gated_calls); one the scan reads no such call in is "this command"."""
     if not command:
         return None
     steps: list = []
     try:
         _sh_walk(_sh_parse(command), cwd, steps)
-    except Exception:  # noqa: BLE001 - a command the parser does not model is named as "this command"
-        return None
-    for s in steps:
-        name = _sh_short_name(s)
-        if name:
-            return name
-    return None
+    except Exception:  # noqa: BLE001 - a command the parser does not model is named by the scan
+        try:
+            calls = [c for c in gated_calls(command) if c[0].startswith(("git", "gh"))]
+        except Exception:  # noqa: BLE001 - a command the scan does not read either is named as "this command"
+            return None
+        return max(calls, key=lambda c: _d72_call_weight(c[0], c[2]))[0] if calls else None
+    return _sh_short_name(_sh_heaviest(steps))
 
 
 def short_line(decision: str, outcome: "Outcome | None", step: str | None, language: str, form: str | None = None,
@@ -12088,8 +12195,8 @@ def short_line(decision: str, outcome: "Outcome | None", step: str | None, langu
     language = language if language in _LANGUAGES else "en"
     lead = None
     if outcome is not None:
-        lead = next((v for v in outcome.verdicts if v.decision == decision), None) or \
-            (outcome.verdicts[0] if outcome.verdicts else None)
+        lead = outcome.cause or next((v for v in outcome.verdicts if v.decision == decision), None) or \
+            (outcome.verdicts[0] if outcome.verdicts else None)   # D72: the verdict of the step or rule that decides
     d, english, german = _short_reason(lead)
     name = step or _SHORT_NO_STEP[language]
     if len(name) > _SHORT_STEP_MAX:
