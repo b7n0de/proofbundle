@@ -134,3 +134,96 @@ def test_a_foreign_vector_set_digest_still_fails_the_join(vector_set):
     block = VB.build_verifier_block(build=BUILD, version="6.1.0", vector_set=foreign,
                                     test_result=VB.test_result_ref(s))
     assert VB.join_test_result(block, s)["ok"] is False
+
+
+# ── the lens on ca844d0c: a nameless entry, a falsy value in place of a list, and the export's neighbour ──
+
+NAMELESS = ("", " ", "\t\n", "\u200b", "\u00a0")
+
+
+@pytest.mark.parametrize("name", NAMELESS, ids=("empty", "space", "tab-newline", "zero-width-space", "no-break-space"))
+@pytest.mark.parametrize("where", LISTS)
+def test_an_entry_that_names_nothing_is_no_named_case(vector_set, where, name):
+    """P2 of the lens: ``passedTests: [""]`` (or a space, a tab, a zero-width or a no-break space) and no other
+    list counted as a named case, and the statement was signed and joined as a run over nothing."""
+    s = _without(_statement(vector_set), *LISTS)
+    s["predicate"][where] = [name]
+    s["predicate"]["result"] = {"passedTests": "PASSED", "warnedTests": "WARNED", "failedTests": "FAILED"}[where]
+    errs = VB.validate_test_result_statement(s)
+    assert any(f"predicate.{where} holds an entry that names no case" in e for e in errs), errs
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    with pytest.raises(VB.VerifierBlockError, match="names no case"):
+        VB.sign_test_result_statement(s, key)
+    assert VB.join_test_result(_block_citing(s, vector_set), s)["ok"] is False
+
+
+def test_a_named_entry_beside_a_nameless_one_is_still_refused(vector_set):
+    s = _statement(vector_set)
+    s["predicate"]["passedTests"] = ["a", " "]
+    assert any("holds an entry that names no case" in e for e in VB.validate_test_result_statement(s))
+
+
+@pytest.mark.parametrize("case_id", NAMELESS[1:])
+def test_the_producer_refuses_a_case_id_that_names_nothing(vector_set, case_id):
+    with pytest.raises(VB.VerifierBlockError, match="without a caseId"):
+        _statement(vector_set, (("a", True, "full"), (case_id, True, "full")))
+
+
+@pytest.mark.parametrize("value", (None, False, 0, "", {}), ids=("null", "false", "zero", "empty-text", "empty-object"))
+@pytest.mark.parametrize("where", ("warnedTests", "failedTests"))
+def test_a_falsy_value_in_place_of_a_list_is_not_an_empty_list(vector_set, where, value):
+    """P3 of the lens: a mutant that reads a falsy value that is no list as an empty list survived every test.
+    An absent list is an empty one; a present ``null`` or ``0`` is a list of the wrong type."""
+    s = _statement(vector_set)
+    s["predicate"][where] = value
+    assert f"predicate.{where} must be a list of strings" in VB.validate_test_result_statement(s)
+
+
+def _export_parts():
+    import base64
+    from proofbundle import intoto
+    from proofbundle.emit import generate_signer
+    from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
+    signer = generate_signer()
+    claim, _ = build_eval_claim(
+        suite="safety-refusal", suite_version="v1", metric="refusal_rate", comparator=">=", threshold="0.80",
+        score="0.92", n=500, model_id="acme/model-x", dataset_id="acme/dataset-y",
+        issuer=issuer_fingerprint(signer), timestamp="2026-07-01T12:00:00Z",
+        model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+    envelope = intoto.export_intoto_dsse(claim, signer)
+    statement = json.loads(base64.b64decode(envelope["payload"]))
+
+    def verify(changed: dict) -> dict:
+        body = intoto._serialize_statement(changed, changed.get("contentRootAlg", intoto.CONTENT_ROOT_ALG))
+        env = dsse.sign_envelope(body, signer, payload_type=intoto.TEST_RESULT_PAYLOAD_TYPE)
+        return intoto.verify_intoto_dsse(env, signer.public_key().public_bytes_raw())
+
+    return statement, verify
+
+
+def test_the_export_without_its_case_lists_or_its_result_does_not_verify():
+    """P2 of the lens, the neighbour `intoto._verdict_agreement`: with the case lists, or the lists and
+    ``result``, removed from an export and signed again, `verify_intoto_dsse` said ok=True, while three empty
+    lists failed. The unchanged export is the control."""
+    import copy
+    statement, verify = _export_parts()
+    assert verify(copy.deepcopy(statement))["ok"] is True
+    no_lists = copy.deepcopy(statement)
+    for name in LISTS:
+        no_lists["predicate"].pop(name, None)
+    assert verify(no_lists)["ok"] is False
+    no_result = copy.deepcopy(no_lists)
+    no_result["predicate"].pop("result")
+    assert verify(no_result)["ok"] is False
+    only_result_gone = copy.deepcopy(statement)
+    only_result_gone["predicate"].pop("result")
+    assert verify(only_result_gone)["ok"] is False
+
+
+def test_without_a_suite_the_export_writes_no_list_and_none_is_asked_for():
+    """The export writes a case list only when the claim has a suite, so a verdict of ours without a suite
+    and without lists is one the export produces; the rule asks for the list only when it knows the suite."""
+    from proofbundle import intoto
+    assert intoto._verdict_agreement({"result": "PASSED"}, [(True, None)]) == []
+    grund = intoto._verdict_agreement({"result": "PASSED"}, [(True, "safety-refusal")])
+    assert grund and grund[0][0] == "passedTests", grund
