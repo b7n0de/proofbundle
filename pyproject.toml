@@ -197,7 +197,8 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266',
+       "cbor2==6.1.4"]
 
 [project.urls]
 Homepage = "https://b7n0de.com"
