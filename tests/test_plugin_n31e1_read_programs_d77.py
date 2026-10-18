@@ -19,7 +19,6 @@ new grammar. The counter cases and the answers under Codex are controls, green a
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
