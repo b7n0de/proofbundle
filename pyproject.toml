@@ -160,7 +160,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (76 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (77 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -175,11 +175,13 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   requires a complete stream and nothing after it), and mypy **2.3.0** was re-run over the 73 and
 #   exits 0. On 2026-09-28 it became 74 (`src/proofbundle/_plain_value.py`, the one reader that copies
 #   a caller's value from its storage into exact built-in types), and mypy **2.3.0** was re-run over
-#   the 74 and exits 0. On 2026-10-02 it became 75 (`src/proofbundle/signed_eval_receipt.py`, the
-#   EXPERIMENTAL eval-receipt-v1 format behind its explicit switch), and mypy **2.3.0** was re-run over
-#   the 75 and exits 0. On 2026-10-03 it became 76 (`src/proofbundle/receipt_cose.py`, the EXPERIMENTAL
-#   translator between that format and a COSE_Sign1 Hash Envelope, behind the [scitt] extra), and mypy
-#   **2.3.0** was re-run over the 76 and exits 0. The other seven versions were NOT re-run for any of the six new files; that is the same boundary
+#   the 74 and exits 0. On a branch of 2026-10-02 it became 75 (`src/proofbundle/signed_eval_receipt.py`,
+#   the EXPERIMENTAL eval-receipt-v1 format behind its explicit switch), and on 2026-10-03 76
+#   (`src/proofbundle/receipt_cose.py`, the EXPERIMENTAL translator between that format and a COSE_Sign1
+#   Hash Envelope, behind the [scitt] extra). On main it became 75 on 2026-10-15
+#   (`src/proofbundle/_strict_cbor.py`, the strict CBOR reader beside `_strict_json`). The tree that
+#   carries all three has 77, and mypy **2.3.0** was re-run over the 77 and exits 0. The other
+#   seven versions were NOT re-run for any of the seven new files; that is the same boundary
 #   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
 #   than absorbed into the sentence above.
 #

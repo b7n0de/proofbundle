@@ -37,7 +37,7 @@ from proofbundle import trust_pack as tp
 from proofbundle.budget import DEFAULT_BUDGET
 from proofbundle.emit import generate_signer
 from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
-from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: the test load is capped by memory
 
 _NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -98,7 +98,7 @@ class TestDerSignaturdeckelDesTrustPacksBeisst(unittest.TestCase):
         Was sie unterscheidet, ist der Aufwand: mit Deckel null Pruefungen, ohne Deckel eine je
         Eintrag. Genau deshalb zaehlt dieser Fall und liest keinen Text.
         """
-        grenze = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256)
+        grenze = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"])
         pred, sks = _fixture(threshold=2)
         # VORBEDINGUNG, DIE DIESEM FALL VON EINER FREMDFAMILIAEREN LINSE AUFGEZWUNGEN WURDE
         # (Lauf 5, sechste Linse, 2026-09-07). Ohne sie war die Null hier eine FORM und keine
@@ -135,7 +135,7 @@ class TestDerSignaturdeckelDesTrustPacksBeisst(unittest.TestCase):
         Ohne diesen Fall bestuende der obige auch bei einem `verify_trust_pack`, das gar nichts mehr
         prueft.
         """
-        grenze = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256)
+        grenze = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"])
         pred, sks = _fixture(threshold=2)
         env = sign_trust_pack(pred, {"root-0": sks["root-0"], "root-1": sks["root-1"]})
         _aufblaehen(env, grenze - len(env["signatures"]))

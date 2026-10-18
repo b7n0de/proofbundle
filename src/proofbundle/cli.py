@@ -370,6 +370,13 @@ def _detect_features() -> list:
     return features
 
 
+#: How to update, said where a user looks (Z43). There is deliberately no self-update and no check
+#: at start-up: the tool promises to work offline, and a verifier that fetches and runs its own new
+#: version would verify with code nobody looked at. The installer is named because a plain `pip`
+#: into an externally managed Python is refused since PEP 668.
+UPDATE_HINT = "update with 'pipx upgrade proofbundle' or 'pip install -U proofbundle'"
+
+
 def _version_string() -> str:
     feature_line = ", ".join(_detect_features()) or "(none detected)"
     return (
@@ -377,12 +384,81 @@ def _version_string() -> str:
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
         f"features: {feature_line}\n"
-        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1\n"
+        f"{UPDATE_HINT}"
     )
 
 
+#: The top-level command list, grouped by what a reader wants to do (Z43, draft of 2026-09-10).
+#: Every short line is written out rather than cut from the long help: cutting once turned "pb1."
+#: into "pb1". `tests/test_cli_top_help_grouped.py` holds this table and the registered commands
+#: equal, so a command cannot be added without a line here, and a line cannot outlive its command.
+_COMMAND_GROUPS = (
+    ("Verify", (
+        ("verify", "verify an evidence bundle JSON file"),
+        ("verify-proof", "verify a C2SP .tlog-proof file offline"),
+        ("verify-opening", "verify one sample opening against a samples root"),
+        ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+    )),
+    ("Emit and commit", (
+        ("emit", "sign and anchor a payload into a bundle"),
+        ("emit-eval", "emit a signed eval receipt from a claim JSON"),
+        ("show-eval", "verify an eval receipt and print the claim"),
+        ("prereg", "hash an eval protocol to commit to it before the run"),
+        ("evalcard", "hash an external Eval Card to reference it from a claim"),
+        ("hf-token", "pack a receipt into a pb1. token, or verify one"),
+        ("audit-challenge", "derive k audit indices from a samples root"),
+    )),
+    ("Statements over a receipt", (
+        ("decision", "decision-receipt/v0.1: an agent decision"),
+        ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
+        ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
+    )),
+    ("Time anchors", (
+        ("anchor", "package, verify and inspect external time anchors  (experimental)"),
+    )),
+    ("Export to other formats", (
+        ("intoto", "DSSE-signed in-toto eval-result attestation  (proposed)"),
+        ("svr", "in-toto Summary Verification Result, svr/v0.1  (proposed)"),
+    )),
+    ("Try it", (
+        ("demo", "run the whole trust story in memory, offline"),
+    )),
+)
+
+
+def _grouped_epilog() -> str:
+    breite = max(len(name) for _titel, zeilen in _COMMAND_GROUPS for name, _text in zeilen)
+    out = ["commands"]
+    for titel, zeilen in _COMMAND_GROUPS:
+        out.append(f"  {titel}")
+        out.extend(f"    {name:<{breite}}   {text}" for name, text in zeilen)
+        out.append("")
+    out += ["run 'proofbundle <command> --help' for the options and exit codes of one command",
+            "run 'proofbundle --version' for version, spec revision and optional features",
+            UPDATE_HINT]
+    return "\n".join(out)
+
+
+class _TopHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Leaves out argparse's flat command list; the grouped list in the epilog replaces it (Z43).
+
+    WHY NOT ``help=argparse.SUPPRESS`` ON EACH SUBPARSER. Hiding a subparser that way is not honoured
+    the same way across the supported Pythons (3.10 to 3.14); some render the literal marker. This
+    formatter drops the one section and nothing else, and the epilog is raw so its layout survives.
+    """
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            return ""
+        return super()._format_action(action)
+
+
 class _VersionAction(argparse.Action):
-    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    """Like argparse's built-in ``action='version'``, but prints the raw multi-line block verbatim
+    (the version/build facts plus the upgrade hint; the number of lines is not a contract, and the
+    docstring said "4-line" while the block had grown — an adversarial lens measured six).
     The built-in action runs the string through HelpFormatter, which collapses embedded newlines
     into a single space-joined line — wrong for this multi-line output. Same external contract:
     ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
@@ -3165,9 +3241,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
+        formatter_class=_TopHelpFormatter,
+        epilog=_grouped_epilog(),
     )
     parser.add_argument("--version", action=_VersionAction)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     verify = sub.add_parser(
         "verify", help="verify an evidence bundle JSON file",
