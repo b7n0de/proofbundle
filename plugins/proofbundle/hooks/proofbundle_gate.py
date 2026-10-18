@@ -15383,13 +15383,26 @@ def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
     program, args = words[0], words[1:]
     if program[2] == "[" and used is not None:
         # the shell's test command (D60, D77): a builtin of bash, whose every operator only tests; its last word `]`;
-        # `-v` only before a plain name, as bash expands the index of a name as an expression (D82)
+        # `-v` only before a plain name, as bash expands the index of a name as an expression (D82); a function of the
+        # session may carry its name (B36-2)
+        used.add(("[", "builtin"))
         return bool(args) and args[-1][2] == "]" and not _test_names_an_expression([a[0] for a in args[:-1]])
     if program[2] == "test" and used is not None:
         # the same builtin written as test (owner choice O31E1-5, D84; measured as `[`, truth_test_n34.py)
+        used.add(("test", "builtin"))
         return not _test_names_an_expression([a[0] for a in args])
     if _unreadable_word(program):
         return False
+    if used is not None and program[2] == "command" and args and not _unreadable_word(args[0]) and \
+            args[0][0] in _READ_PROGRAMS and args[0][2] == args[0][0]:
+        # B36-2: `command <name>` starts the program past an alias and a function of the session (measured)
+        used.add((args[0][0], "command"))
+        return _read_program_args(args[0][0], args[1:])
+    if used is not None and program[2] == program[0] and os.path.isabs(program[0]) and \
+            os.path.basename(program[0]) in _READ_PROGRAMS:
+        # B36-2: a read program named by its absolute path, with the version check on that path
+        used.add((os.path.basename(program[0]), program[0]))
+        return _read_program_args(os.path.basename(program[0]), args)
     if program[0] == "read":
         return _read_names_plain(args)
     if program[0] == "find":
@@ -15401,11 +15414,11 @@ def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
         if i == len(args) or _unreadable_word(args[i]):
             return False
         if args[i][0] in _READ_XARGS_PROGRAMS and used is not None:
-            used.add(args[i][0])
+            used.add((args[i][0], "exec"))   # xargs starts it by its path, past the session's shell (B36-2, measured)
             return _read_program_args(args[i][0], args[i + 1:])
         return args[i][0] == "grep"
     if program[0] in _READ_PROGRAMS and used is not None:
-        used.add(program[0])
+        used.add((program[0], "word"))
         return _read_program_args(program[0], args)
     return program[0] in ("grep", "read", "echo")
 
@@ -15488,17 +15501,41 @@ def _read_only_form(command: str, depth: int = 0, used: set | None = None) -> bo
     return all(_read_only_form(body, depth + 1, used) for body in _subst_bodies(text))
 
 
-def _read_programs_measured(names: set, environ: dict, deadline: float) -> bool:
-    """Whether each read program of D77 the command starts is GNU coreutils of a measured version
-    (_READ_PROGRAM_VERSIONS): every PATH entry an absolute path that does not depend on the process (as for gh,
-    _gh_version_problem), and `<name> --version` of the program on that PATH names it. Measured with coreutils 9.4:
-    `--version` starts nothing and writes nothing. This shows a version, not an origin (D27): a program that prints
-    the line is not caught."""
+def _read_programs_measured(used: set, environ: dict, deadline: float) -> bool:
+    """Whether each read program of D77 the command starts runs as the program the gate measured. B36-2 (Nachtrag 36):
+    the word is not the program. A bare name, `[` and `test` count only where the session is measured
+    (_session_definitions) and defines none of them as an alias, a function or a hashed path; `command <name>` only
+    where a measured session neither defines `command` nor hashes the name; an absolute path only where a measured
+    session does not define that path as a name; a program xargs starts by its path counts whatever the session holds
+    (measured with bash 5.2.21, truth_alias_n36.sh). Then each program but the builtins is GNU coreutils of a measured
+    version (_READ_PROGRAM_VERSIONS): every PATH entry an absolute path that does not depend on the process (as for gh,
+    _gh_version_problem), where the program is found on PATH, and `<program> --version` names it. Measured with
+    coreutils 9.4: `--version` starts nothing and writes nothing. This shows a version, not an origin (D27): a program
+    that prints the line is not caught."""
+    names = {name for name, form in used if form in ("word", "builtin")}
+    names |= {form for _name, form in used if os.path.isabs(form)}
+    names |= {"command"} | {name for name, form in used if form == "command"}
+    defined = _session_definitions(names, environ)
+    for name, form in used:
+        if form in ("word", "builtin"):
+            if defined is None or defined.get(name):
+                return False
+        elif form == "command":
+            if defined is not None and (defined.get("command") or "hash" in defined.get(name, ())):
+                return False
+        elif form != "exec" and defined is not None and defined.get(form):
+            return False
+    searched = [(name, form) for name, form in sorted(used) if form in ("word", "command", "exec")]
     entries = environ.get("PATH", "").split(os.pathsep)
-    if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
+    if searched and any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
         return False
-    for name in sorted(names):
-        program = shutil.which(name, path=environ.get("PATH", ""))
+    for name, form in sorted(used):
+        if form == "builtin":
+            continue
+        if os.path.isabs(form):
+            program = form if not _process_dependent(form) and os.path.isfile(form) else None
+        else:
+            program = shutil.which(name, path=environ.get("PATH", ""))
         left = deadline - time.monotonic()
         if program is None:
             return False
@@ -15515,6 +15552,97 @@ def _read_programs_measured(names: set, environ: dict, deadline: float) -> bool:
         if out.returncode != 0 or m is None or m.group(1) not in _READ_PROGRAM_VERSIONS:
             return False
     return True
+
+
+#: B36-2 (Nachtrag 36): the snapshots of the session's shell that Claude Code keeps under its configuration folder and
+#: sources before each Bash command (measured with Claude Code 2.1.302 in this container: shell-snapshots/
+#: snapshot-bash-<time>-<id>.sh with aliases, functions written as `eval $'name () …'`, shell options and PATH), and how
+#: much of them the gate reads.
+SHELL_SNAPSHOTS = "shell-snapshots"
+MAX_SNAPSHOTS = 64
+MAX_SNAPSHOT_BYTES = 1024 * 1024
+#: The shells whose start for a command the gate models: bash, sh and dash read no file of the person for `-c` but the
+#: one BASH_ENV or ENV names; zsh also reads the zshenv files (zsh(1)); the global ones are read as snapshots are.
+_SESSION_SHELLS = frozenset({"bash", "sh", "dash", "zsh"})
+_ZSH_GLOBAL_ENV = ("/etc/zshenv", "/etc/zsh/zshenv")
+_DEFINE_LEAD = r"(?:^|(?<=[\s;&|({'\"`$]))"
+_DEFINE_END = r"(?=[\s;&|)]|$)"
+
+
+def _definition_kinds(text: str, name: str) -> set:
+    """The kinds of definition of `name` the shell text holds, read by pattern, never run: alias (alias, zsh's aliases
+    and galiases), function (`name ()`, `function name`, zsh's functions and autoload), hash (`hash … name`, BASH_CMDS)
+    and builtin (`enable … name`, zsh's builtins, zmodload). A pattern may find a name that the text only mentions,
+    which counts as defined: the reading errs toward the answer of today."""
+    n = re.escape(name)
+    kinds = set()
+    if re.search(rf"\balias\b[^\n]*?(?:\s|['\"]){n}=", text, re.M) or \
+            re.search(rf"\b(?:g?aliases)\[['\"]?{n}['\"]?\]", text):
+        kinds.add("alias")
+    if re.search(rf"{_DEFINE_LEAD}(?:function\s+)?{n}\s*\(\s*\)", text, re.M) or \
+            re.search(rf"\bfunction\s+{n}(?=[\s{{(]|$)", text, re.M) or \
+            re.search(rf"\bfunctions\[['\"]?{n}['\"]?\]", text) or \
+            re.search(rf"\bautoload\b[^\n;&|]*\s{n}{_DEFINE_END}", text, re.M):
+        kinds.add("function")
+    if re.search(rf"\bhash\b[^\n;&|]*\s{n}{_DEFINE_END}", text, re.M) or \
+            re.search(rf"\bBASH_CMDS\[['\"]?{n}", text):
+        kinds.add("hash")
+    if re.search(rf"\benable\b[^\n;&|]*\s{n}{_DEFINE_END}", text, re.M) or \
+            re.search(rf"\bbuiltins\[['\"]?{n}", text) or re.search(r"\bzmodload\b", text):
+        kinds.add("builtin")
+    return kinds
+
+
+def _session_definitions(names: set, environ: dict) -> dict | None:
+    """{name: kinds} of the names the session's shell defines (_definition_kinds), or None where the gate cannot
+    measure the session (B36-2, Nachtrag 36). Measured without running the shell: the snapshots Claude Code keeps
+    (SHELL_SNAPSHOTS under CLAUDE_CONFIG_DIR, else ~/.claude), every file of that folder, read for the definition of a
+    name and nothing else; under zsh also the global zshenv files; and the names of exported functions in the hook's
+    environment (BASH_FUNC_<name>%%), whose values the gate does not read. Not measured: a shell other than bash, sh,
+    dash and zsh; BASH_ENV or ENV set (a file the shell sources); a .zshenv of the person under zsh (the gate does not
+    read a person's own shell files, which may hold a credential); a snapshot folder that is no directory, more than
+    MAX_SNAPSHOTS files in it, one that is no regular file or is larger than MAX_SNAPSHOT_BYTES, and any error reading
+    them. No snapshot folder under bash, sh or dash is measured as nothing defined: the shell reads no file then."""
+    shell = os.path.basename(environ.get("SHELL") or "bash")
+    if shell not in _SESSION_SHELLS or environ.get("BASH_ENV") or environ.get("ENV"):
+        return None
+    home = environ.get("HOME")
+    config = environ.get("CLAUDE_CONFIG_DIR")
+    if config and os.path.isabs(config):
+        base = config
+    elif home and os.path.isabs(home):
+        base = os.path.join(home, ".claude")
+    else:
+        return None
+    texts: list = []
+    try:
+        if shell == "zsh":
+            own = environ.get("ZDOTDIR") or home
+            if not own or not os.path.isabs(own) or os.path.lexists(os.path.join(own, ".zshenv")):
+                return None
+            for path in _ZSH_GLOBAL_ENV:
+                if os.path.lexists(path):
+                    texts.append(_read_regular(path, MAX_SNAPSHOT_BYTES + 1, follow=True))
+        folder = os.path.join(base, SHELL_SNAPSHOTS)
+        if os.path.lexists(folder):
+            if os.path.islink(folder) or not os.path.isdir(folder):
+                return None
+            entries = sorted(os.listdir(folder))
+            if len(entries) > MAX_SNAPSHOTS:
+                return None
+            texts += [_read_regular(os.path.join(folder, entry), MAX_SNAPSHOT_BYTES + 1) for entry in entries]
+    except OSError:
+        return None
+    if any(len(text) > MAX_SNAPSHOT_BYTES for text in texts):
+        return None
+    decoded = [text.decode("utf-8", "surrogateescape") for text in texts]
+    defined = {name: set().union(*[_definition_kinds(text, name) for text in decoded]) for name in names}
+    for key in environ:
+        if key.startswith("BASH_FUNC_") and (key.endswith("%%") or key.endswith("()")):
+            exported = key[len("BASH_FUNC_"):-2]
+            if exported in defined:
+                defined[exported].add("function")
+    return defined
 
 
 def _read_only_command(command: str, host: str, environ: dict, deadline: float) -> bool:

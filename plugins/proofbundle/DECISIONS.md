@@ -4201,3 +4201,34 @@ document; point 5 of Nachtrag 33 is ordered for them. Tests: tests/test_plugin_n
 tests/test_plugin_n31e1_read_hooks_d78.py (its control of the old rule now states the new one) and
 tests/test_plugin_n21_marker_in_no_reason.py (two cases whose hook of another name no longer makes a read form ask
 add post-index-change beside it, so they still read a reason of the read profile).
+
+## D90. The word is not the program: D77 and the session's aliases and functions (Nachtrag 36, B36-2, 2026-10-18)
+
+Found by delta at the Farmer (gate 89d2e8b7, zsh 5.8.1): `ls` is an alias for colorls in the session's shell, so the
+command text `ls` starts another program than /usr/bin/ls, while D77 judged by the word.
+
+Measured with bash 5.2.21 as Claude Code runs a command (the snapshot sourced, the text evaluated), a marker program in
+place of the other one (messung/truth_alias_n36.tsv, truth_alias_n36.sh, 30 cases): a function, a `hash -p` entry, an
+exported function (BASH_FUNC_ls%%) and a function from BASH_ENV make a bare `ls` run another program, an alias does once
+expand_aliases is on (the snapshot of this container turns it off; zsh expands aliases, not installed here, NOT
+MEASURED); `command ls` runs its own program past an alias and a function, not past `hash -p ls`, a function named
+command or an alias `command='command '`; `/usr/bin/ls` runs another program only where a function carries that path as
+its name; functions named `test` and `[` replace the builtins; `xargs ls` runs its own program in every case.
+
+How the gate measures, without running the session's shell (_session_definitions): it reads every file of the folder in
+which Claude Code keeps the snapshots of the shell (shell-snapshots under CLAUDE_CONFIG_DIR, else ~/.claude; measured
+with Claude Code 2.1.302: aliases, functions written as `eval $'name () …'`, shell options and PATH) for the definition of
+the names it needs, by pattern, and the names of exported functions in its environment, not their values; under zsh also
+the global zshenv files. It keeps and logs nothing of what it read. Not measured: a shell other than bash, sh, dash and
+zsh; BASH_ENV or ENV set; a .zshenv of the person under zsh (the gate reads no shell file of the person, which may hold a
+credential); a snapshot folder that is no directory, more than 64 files in it, one that is no regular file or larger than
+1 MiB. No snapshot folder under bash, sh or dash is measured as nothing defined.
+
+The rule: a bare read program of D77, `[` and `test` are silent only where the session is measured and defines none of
+them (alias, function, hashed path, builtin); `command <name>` with a read program of D77 is silent unless a measured
+session defines `command` or hashes the name; a read program of D77 written as its absolute path is silent unless a
+measured session defines that path as a name, with the version check of D77 on that path; a program xargs starts counts
+whatever the session holds. Under Codex nothing changes (D37). Not changed here, the same class: the programs of D66
+(find, xargs, grep, echo, read), the data steps of D72 and git and gh themselves are judged by the word (owner question
+O36-3). Tests: tests/test_plugin_n36_session_names_b36_2.py; changed: tests/test_plugin_n31e1_read_programs_d77.py
+(`command head` is a read form now, its counter case is `command -p head`).

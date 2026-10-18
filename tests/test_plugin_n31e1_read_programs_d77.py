@@ -63,7 +63,9 @@ KEEP = [
     f"ls --dired; {SEARCH}", f"sleep infinity; {SEARCH}", f"sleep $T; {SEARCH}", f"head -n $N README.md; {SEARCH}",
     f"wc -l *.md; {SEARCH}", f"head -5 README.md > out.txt; {SEARCH}", f"ls | tee out.txt; {SEARCH}",
     f"head -5 README.md >> out.txt; {SEARCH}", f"cd src; {SEARCH}", f"rm -f out.txt; {SEARCH}",
-    f"timeout 5 head README.md; {SEARCH}", f"env head README.md; {SEARCH}", f"command head README.md; {SEARCH}",
+    # changed in Nachtrag 36 (B36-2, owner order): `command head` is a read form since then, as it starts head past an
+    # alias and a function of the session (measured); `command -p` searches another PATH and stays out
+    f"timeout 5 head README.md; {SEARCH}", f"env head README.md; {SEARCH}", f"command -p head README.md; {SEARCH}",
     f"$P -5 README.md; {SEARCH}", f"head -5 README.md & {SEARCH}", f"( head -5 README.md ); {SEARCH}",
     "find src | xargs tail -f | grep git", "find src | xargs sort | grep git", "find src | xargs date | grep gh",
     "find src | xargs -I{} head {} | grep git",
