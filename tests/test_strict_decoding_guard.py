@@ -203,9 +203,10 @@ NOT_DECODING = {
 #: path -> (number of lax decode references, reason they lie outside a verify path)
 EXCEPTIONS = {
     "src/proofbundle/_receipt_cose_cbor2.py": (
-        4, "the second reader of receipt_cose: a probe on the constant empty map that cbor2 refuses duplicate keys and "
-           "indefinite lengths, and cbor2 in that strict mode reading back the statement the forward direction has just "
-           "written; every verdict on a statement comes from receipt_cose's own strict reader"),
+        4, "the second reader of receipt_cose: a probe on the constant empty map that cbor2 takes the options to refuse "
+           "duplicate keys and indefinite lengths, and cbor2 in that strict mode reading back the statement the forward "
+           "direction has just written; the module object never leaves the file, and every verdict on a statement "
+           "comes from receipt_cose's own strict reader"),
     "src/proofbundle/signed_eval_receipt.py": (
         3, "names_receipt_type, a dispatch question asked leniently on purpose: it decides which procedure reads a "
            "file and vouches for nothing, and the receipt procedure it hands to refuses a repeated name at step 1"),

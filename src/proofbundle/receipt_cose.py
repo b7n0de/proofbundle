@@ -61,7 +61,7 @@ from typing import Any, NamedTuple, Optional, Sequence
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from . import _receipt_cose_cbor2 as _second
-from ._strict_json import loads_strict
+from ._strict_json import loads_reject_duplicate_keys
 from .canonical import _ein_stand
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
 from .signed_eval_receipt import (RECEIPT_TYPE, _decode_point, _Fail, _has_order_l, _profile,
@@ -547,7 +547,7 @@ def _check(statement: bytes, *, receipt: bytes, receipt_key: bytes, statement_ke
                                   ignored_keys=tuple(ignored), **seen)
         if hashlib.sha256(verdict.payload).digest() != st.payload:
             raise _Refused("digest_mismatch", "the payload is not SHA-256 over B of the presented receipt")
-        if loads_strict(verdict.payload)["model_id_commit"] != ph[_CWT][_SUB]:
+        if loads_reject_duplicate_keys(verdict.payload)["model_id_commit"] != ph[_CWT][_SUB]:
             raise _Refused("subject_mismatch", "sub is not the model commitment of the presented receipt")
         return StatementCheck(ACCEPTED, "the statement cites the presented receipt under a relying-party key",
                               ignored_keys=tuple(ignored), **seen)
@@ -595,7 +595,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
         raise ReceiptCoseError(f"the receipt does not verify (step {verdict.step_label}: {verdict.reason}); "
                                "no statement is made")
     digest = hashlib.sha256(verdict.payload).digest()
-    subject = loads_strict(verdict.payload)["model_id_commit"]
+    subject = loads_reject_duplicate_keys(verdict.payload)["model_id_commit"]
     public = signer.public_key().public_bytes_raw()
     protected = {_ALG: alg, _KID: cose_key_thumbprint(public), _CWT: {_ISS: issuer, _SUB: subject},
                  _HASH_ALG: _SHA256, _PREIMAGE_CTY: RECEIPT_TYPE}

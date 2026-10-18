@@ -350,3 +350,26 @@ def test_cbor2_is_named_only_by_the_scitt_extra():
     dependencies = re.search(r"^dependencies = \[(.*?)\]", text, re.M | re.S)
     assert dependencies and "cbor2" not in dependencies.group(1)
     assert re.search(r'^scitt = \["cbor2==6\.1\.4"\]$', text, re.M)
+
+
+@needs_cbor2
+def test_a_verified_receipt_with_a_long_string_member_gets_its_statement():
+    """The model commitment of B is read only for its subject, after the receipt verified: the read refuses a repeated
+    member name and holds no size budget of its own, as before the move of the second reader (lens of 2026-10-18 on
+    5525e209: read through loads_strict, a string member of 1,000,001 characters raised BudgetExceeded in the forward
+    direction, and check_statement called the receipt malformed)."""
+    from proofbundle import signed_eval_receipt as ser
+
+    payload = json.loads(DRAFT1["payloads"]["B1"]["text"])
+    payload["suite"] = "x" * 1_000_001
+    b = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    key = _issuer_key()
+    sig = key.sign(ser.pae(ser.RECEIPT_TYPE, b))
+    receipt = json.dumps({"payload_b64": base64.b64encode(b).decode(), "schema": ser.RECEIPT_TYPE,
+                          "signature": {"alg": "ed25519", "key": base64.b64encode(KEYS["issuer"]).decode(),
+                                        "sig": base64.b64encode(sig).decode()}},
+                         separators=(",", ":"), sort_keys=True).encode()
+    assert ser.verify_signed_eval_receipt(receipt, KEYS["issuer"]).ok
+    data = rc.receipt_to_statement(receipt, KEYS["issuer"], key, issuer=ISSUER, alg=-19)
+    result = rc.check_statement(data, receipt=receipt, receipt_key=KEYS["issuer"], statement_keys=PAIRS)
+    assert (result.status, result.ok) == (rc.ACCEPTED, True), result.detail
