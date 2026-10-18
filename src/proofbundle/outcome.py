@@ -922,6 +922,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
+    # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below. Bound
+    # here, before the block that reads the predicate: a signed statement whose predicate is no object skips that
+    # block, and the relations gate below raised UnboundLocalError for it (second reading of 4be8f120, F2).
+    _sw = None
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # decisionRef binding (replay against another decision fails).
         _dref = _as_dict(predicate.get("decisionRef")).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
@@ -963,7 +967,6 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
         from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _related_gelesen = _related_lesen(related)
-        _sw = None  # Nachtrag 46c: single reading of supersededByAttached, reused by the relation origin stamp below.
         if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             try:

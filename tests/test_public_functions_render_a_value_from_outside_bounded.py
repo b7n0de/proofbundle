@@ -891,12 +891,6 @@ _WRONG_TYPE_GAPS: dict = {
     "evidence_pack.build_evidence_pack": {
         "evidence_pack.py:build_evidence_pack TypeError", "evidence_pack.py:build_evidence_pack ValueError",
     },
-    "experimental.attested_inference.evidence_digest": {
-        "experimental/attested_inference.py:_without_credentials TypeError",
-    },
-    "experimental.attested_inference.normalise_provider_evidence": {
-        "experimental/attested_inference.py:_without_credentials TypeError",
-    },
     "experimental.enclave.issue_enclave_attestation": {
         "experimental/enclave.py:issue_enclave_attestation AttributeError",
     },

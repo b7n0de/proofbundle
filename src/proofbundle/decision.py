@@ -830,6 +830,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # whose signature failed (mirrors the anchors/policy gates below). On a forged envelope they all stay
     # None, so a consumer can never read e.g. audience_ok=True or action_outcome_proven=True on bytes
     # nobody signed (fix-review: action_outcome_proven was computed pre-auth before).
+    # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below. Bound
+    # here, before the block that reads the predicate: a signed statement whose predicate is no object skips that
+    # block, and the relations gate below raised UnboundLocalError for it (second reading of 4be8f120, F2).
+    _sw = None
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
         # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
@@ -906,7 +910,6 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
-        _sw = None  # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below.
         if _linie is not None:
             r["lineage"] = _linie
             # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine

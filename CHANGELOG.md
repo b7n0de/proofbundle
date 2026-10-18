@@ -364,7 +364,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   planted value out from these files (13 site and exception pairs, among them
   `_verdict.require_bool_verdict`, `evalclaim.build_eval_claim` and `check_freshness`, and
   `sdjwt_issue.present_with_key_binding`); they go to the next change of this class. A raw raise
-  outside the class is pinned per function instead, 156 pairs in 104 functions: a value of the
+  outside the class is pinned per function instead, 154 pairs in 102 functions: a value of the
   wrong type used in a computation or a third-party exception that crossed unmapped. The pin is an
   upper bound, so a new raw raise is red, and exact wherever every seed of the function returned at
   baseline, so a closed gap has to leave the list; the pins are written from a measured run, not by
@@ -383,6 +383,18 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   letter first, five planted texts, all five wrong on the pattern before this change. A name that
   starts with a digit stays a stated limit. The renderer contract names the nine modules it
   measures in its headline, and the claim for every public function is the new test's.
+
+  The second reading of 4be8f120 found two more, older than this change.
+  `decision.verify_decision_receipt` and `outcome.verify_outcome_receipt` raised `UnboundLocalError`
+  for a signed statement whose predicate is no object under a policy with a `relations` section, 14
+  of 42 cases, since the one reading of `supersededByAttached` was bound only in the block that
+  reads an object predicate; it is bound before that block now
+  (`tests/test_a_relations_policy_answers_a_predicate_that_is_no_object.py`).
+  `experimental.attested_inference.binding_present` raised for signed material without a JSON form
+  and answers `False` now, and `evidence_digest` refuses a tuple key by its typed error as it
+  already refused a value, so two pinned gaps leave the list. The freshness bound of
+  `evaluate_policy` and `anchors_chia_add._json_bytes`, which this change carries and which no test
+  held, have a case each (`tests/test_two_carried_bounds_have_their_case.py`).
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the

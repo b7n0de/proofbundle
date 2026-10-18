@@ -125,11 +125,13 @@ def evidence_digest(evidence: dict) -> str:
     """
     if not isinstance(evidence, dict):
         raise BundleFormatError("evidence_digest needs a dict")
-    clean = _without_credentials(evidence)
     # A MAPPING WITHOUT A JSON FORM is refused by this module's typed error, as a non-mapping already
     # is: `10**5000` (ValueError), a set, bytes or a tuple key (TypeError), or a lone surrogate
-    # (UnicodeEncodeError) escaped raw from `json.dumps` (lens run 10 generator on d6d89763).
+    # (UnicodeEncodeError) escaped raw from `json.dumps` (lens run 10 generator on d6d89763). The copy
+    # without credentials is made inside the same `try`: it refuses a tuple key itself, and that TypeError
+    # escaped raw before (second reading of 4be8f120, Z4).
     try:
+        clean = _without_credentials(evidence)
         text = json.dumps(clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
     except (ValueError, TypeError, RecursionError) as exc:
@@ -152,7 +154,14 @@ def binding_present(evidence: dict, expected_binding: str) -> bool:
         return False
     if not isinstance(evidence, dict):
         return False
-    return expected_binding in json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    # Signed material without a JSON form carries no text the binding could occur in, so it is not present:
+    # `10**5000`, bytes, a set or a tuple key raised raw out of here and out of normalise_provider_evidence
+    # (second reading of 4be8f120, F1), which now refuses such evidence by evidence_digest's typed error.
+    try:
+        text = json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    except (ValueError, TypeError, RecursionError):
+        return False
+    return expected_binding in text
 
 
 @_ein_stand
