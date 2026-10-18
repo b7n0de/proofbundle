@@ -14,7 +14,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Changed
 
-- `automation.referencesResolved` is `None`, no longer `True`, when every reference field it reads is `None` or absent: no reference check ran, as with no reference field at all. A signed decision receipt whose `evidenceRefs` is empty read `True`. `safeForAutomation` and `automationBlockers` do not change in any case; only an unresolved reference blocks, as before.
+- `automation.referencesResolved` is `None`, no longer `True`, when every reference field it reads is `None` or absent: no reference check ran, as with no reference field at all. A signed decision receipt whose `evidenceRefs` is empty read `True`. `safeForAutomation` and `automationBlockers` do not change in any case; only an unresolved reference blocks, as before. This is a fix, not a break, in the sense of COMPATIBILITY.md: the field already read `None` when no reference field was listed, so its values stay `True`, `False` and `None`, and a consumer that tests it with `is True` or by its truth now sees `None` for such a receipt and stops where it went on before, on a `True` that stood for no check.
 
 ### Fixed
 
