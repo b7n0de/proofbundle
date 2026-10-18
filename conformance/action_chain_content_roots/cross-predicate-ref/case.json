@@ -15,5 +15,5 @@
   "R51 gate: cross-predicate composition on one root"
  ],
  "rationale": "A decision statement references the evidence statement BY its content root; both roots recompute from the pinned bytes and the reference binds byte-for-byte.",
- "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — recomputed by the Rust verifier pb_verify_rs through its content-root subcommand (tools/pb_verify_rs/crosscheck.py)"
 }

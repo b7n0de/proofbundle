@@ -8,7 +8,8 @@ Three layers, mirroring the corpus rules:
    an under-declared expected block — must FAIL the same handler;
 3. the properties the vectors exist for hold across cases: an unknown top-level field CHANGES
    the root (silent dropping would collide two different statements), and the algorithm-confusion
-   payload is rejected while the identical bytes verify under the named legacy algorithm.
+   payload is rejected while the same sort-keys body, declared as the named legacy algorithm,
+   verifies (the two payloads differ only in their `contentRootAlg` field).
 
 All tampering happens on COPIES under tmp — the accepted corpus bytes are never edited in place
 (conformance/README.md rule: a fixture change is a new case, never an in-place edit).
