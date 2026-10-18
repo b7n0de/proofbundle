@@ -32,8 +32,9 @@ import importlib.util
 import json
 import pathlib
 import re
+import unicodedata
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO =pathlib.Path(__file__).resolve().parents[1]
 
 #: An identifier from the scope file: a letter, an optional dot or dash, an optional SECOND
 #: letter, digits, optionally a sub-part. Covers A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278, R-A1.
@@ -286,6 +287,16 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
                         "des Umfangs nicht bestimmbar, und die ganze Datei als Umfang zu lesen "
                         "waere eine Vergroesserung der Pruefmenge, keine Messung")
     im_umfang = text[: schnitt.start()]
+    # A BRANCH COLUMN THIS READER CANNOT READ IS NOT MEASURABLE, declared or not, and that is decided
+    # BEFORE any row is read. This reader takes the LAST cell of a row that starts with `|`. A header
+    # that names a branch column anywhere else, or a table in a form whose rows this reader skips,
+    # leaves the real branches unread, and what the reader does read there is another column.
+    # Measured by the lens on pull request 328, 2026-10-18: `| Item | Branch | Notes |` over
+    # `| A1 | fix/a1 | `main` |` read `main` as the branch of A1, and a pull request from `fix/a1`
+    # passed green, outside the scope.
+    unlesbar = _zweigspalte_unlesbar(im_umfang)
+    if unlesbar:
+        return {}, [], f"NICHT MESSBAR: {unlesbar}"
     zu_zweig: dict[str, list[str]] = {}
     mitlaeufer: list[str] = []
     for zeile in im_umfang.splitlines():
@@ -309,6 +320,15 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
             # scope line would have run through unchecked. Found by the contract itself, not by
             # reading the text.
             zu_zweig.setdefault(zweig.strip("`"), []).append(kennung)
+        elif _ZWEIGFORM.match(zweig.strip("*")):
+            # A BRANCH WITHOUT BACKTICKS IS NOT A RIDER. A rider says "with X" or "= X" or names
+            # no branch; a cell that IS a branch name, only unquoted, was read as one, so a pull
+            # request from that branch passed outside the scope (the sweep for the lens on pull
+            # request 328, 2026-10-18). Measured the same day over every scope file on main: no
+            # rider cell has this form, so this refuses only a branch the reader would have dropped.
+            return {}, [], (f"NICHT MESSBAR: the branch cell {zweig!r} of {kennung} names a branch "
+                            "without backticks; this reader reads a branch in backticks only and "
+                            "would have read this line as a rider")
         else:
             mitlaeufer.append(kennung)
     if not zu_zweig:
@@ -330,10 +350,86 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
 _NICHT_BEGONNEN = "(not started)"
 
 
-#: A header cell that names a branch column, in any position and in the forms a writer uses.
-_ZWEIGKOPF = re.compile(r"\b(?:branch(?:es)?|zweig(?:e)?)\b", re.IGNORECASE)
-#: The separator row under a markdown table header.
+#: The STEM by which a header cell names a branch column. A stem, not a word: `branch_name`,
+#: `Zweigname`, `HeadBranch`, `Branch1` and `Zweigen` name the same column as `Branch`, and the word
+#: boundaries of the first version let every one of them through (lens on pull request 328,
+#: 2026-10-18, case T1). A cell the stem matches by accident, such as `Branching`, turns a file NOT
+#: MEASURABLE rather than green, which is the only direction a guess may err in here.
+_ZWEIGSTAMM = re.compile(r"branch|zweig", re.IGNORECASE)
+#: A cell that is a branch name and nothing else, in the lower-case form the branches of this
+#: repository take (`fix/a1`, `claude/fix-631-teil2`). An upper-case pair such as `B1/B2` is a
+#: rider's reference to two lines, not a branch.
+_ZWEIGFORM = re.compile(r"^[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)+$")
+#: The delimiter row under a markdown table header.
 _TRENNZEILE = re.compile(r"^\|?(?:\s*:?-+:?\s*\|)+\s*:?-*:?\s*\|?$")
+#: What may stand in front of a table row on its line: indentation, quote markers, a list marker.
+_ZEILENVORSATZ = re.compile(r"^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?")
+
+
+def _zellen(rest: str) -> list[str]:
+    """The cells of a table row as a reader of the page sees them. Format characters such as a
+    zero-width space are taken out first: invisible on the page, they split the stem for the
+    expression (lens on pull request 328, case T1)."""
+    sichtbar = "".join(ch for ch in rest if unicodedata.category(ch) != "Cf")
+    return [s.strip() for s in sichtbar.strip().strip("|").split("|")]
+
+
+def _tabellenbloecke(im_umfang: str) -> list[list[tuple[str, str]]]:
+    """Every run of consecutive lines that carry a `|`, as (line, line without its prefix).
+
+    WIDER THAN THE READER ON PURPOSE. A table without a leading pipe, an indented one, one inside a
+    list or a quote, and a row without its trailing pipe are all tables on the page, and
+    `lies_umfang` skips every one of their rows. A guard that looked only at the rows the reader
+    reads could never see the rows the reader drops (lens on pull request 328, case T1)."""
+    bloecke: list[list[tuple[str, str]]] = []
+    akt: list[tuple[str, str]] = []
+    for zeile in im_umfang.splitlines():
+        rest = zeile[_ZEILENVORSATZ.match(zeile).end():]
+        if "|" in rest:
+            akt.append((zeile, rest))
+        elif akt:
+            bloecke.append(akt)
+            akt = []
+    if akt:
+        bloecke.append(akt)
+    return bloecke
+
+
+def _kopfzeilen(block: list[tuple[str, str]]) -> list[list[str]]:
+    """The header rows of one block, by STRUCTURE as GitHub renders a table: every row above the
+    block's FIRST delimiter row, or the first row when the block has none.
+
+    A ROW BELOW THAT DELIMITER IS DATA, also one that looks like a delimiter. The first version
+    asked every row above any delimiter-shaped row, so `| P30 | no frozen branch. |` over
+    `| - | - |` was read as a header and turned a real unstarted scope NOT MEASURABLE (lens on pull
+    request 328, case T2a)."""
+    erste = next((i for i, (_z, rest) in enumerate(block) if _TRENNZEILE.match(rest.strip())), None)
+    koepfe = block[:erste] if erste else block[:1]
+    return [_zellen(rest) for _z, rest in koepfe]
+
+
+def _zweigspalte_unlesbar(im_umfang: str) -> str | None:
+    """Why `lies_umfang` cannot read a branch column of the In section, or None.
+
+    Both shapes start from a header that names a branch column (`_ZWEIGSTAMM`). Either that column
+    is not the LAST cell of its header, which is the one cell the reader reads; or a row of that
+    table is in a form the reader skips (it does not start with `|`, or it carries fewer than three).
+    In both, the branches the file names are not the branches the reader returns."""
+    for block in _tabellenbloecke(im_umfang):
+        benannt = [k for k in _kopfzeilen(block) if any(_ZWEIGSTAMM.search(s) for s in k)]
+        for kopf in benannt:
+            stellen = [i for i, s in enumerate(kopf) if _ZWEIGSTAMM.search(s)]
+            if any(i != len(kopf) - 1 for i in stellen):
+                return (f"the table header {kopf} names a branch column in cell {stellen[0] + 1} "
+                        f"of {len(kopf)}, and this reader reads the last cell only, so the branches "
+                        "of that column are not the ones it would read")
+        if benannt:
+            for zeile, _rest in block:
+                if not zeile.startswith("|") or zeile.count("|") < 3:
+                    return (f"a table whose header names a branch column has a row this reader "
+                            f"skips ({zeile.strip()[:60]!r}); a row is read when it starts with `|` "
+                            "and carries at least three, and a row it skips is a branch it never reads")
+    return None
 
 
 def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
@@ -346,24 +442,21 @@ def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
     A BRANCH COLUMN IN ANY POSITION COUNTS (Codex on pull request 327, P2, measured at its head):
     the first version looked only at the LAST header cell, the one `lies_umfang` reads, so a
     declared file headed `| Item | Branch | Why |` counted as having no branch column and its
-    branch was judged outside the scope instead of NOT MEASURABLE. The reader reads the last
-    column; a branch column anywhere else is one it cannot read, and that is the malformed file
-    this rule must not loosen. Only HEADER rows are asked, the row above a separator, because the
-    rows of a real unstarted scope say "no frozen branch" in their prose."""
+    branch was judged outside the scope instead of NOT MEASURABLE.
+
+    ONE READING OF A HEADER FOR THE RULE AND FOR THE READER (lens on pull request 328, 2026-10-18).
+    The second version found headers by a word with boundaries, so `branch_name` and `Zweigname`
+    slipped; it asked every row above a delimiter-shaped row, so a data row over `| - | - |` turned a
+    real unstarted scope NOT MEASURABLE; it asked the last cell of EVERY row, so a data row ending in
+    `Branch` did the same; and it read only rows that start with `|`, so a table in any other form
+    was not seen. Header rows come from `_kopfzeilen` now, over the blocks of `_tabellenbloecke`, and
+    the reader refuses the branch columns it cannot read through `_zweigspalte_unlesbar`, so a file
+    is declared not started only where neither the rule nor the reader sees a branch column."""
     titel = next((z for z in text.splitlines() if z.startswith("# ")), "")
     if _NICHT_BEGONNEN not in titel:
         return False
-    zeilen = im_umfang.splitlines()
-    for i, zeile in enumerate(zeilen):
-        if not zeile.startswith("|") or zeile.count("|") < 3:
-            continue
-        spalten = [s.strip() for s in zeile.strip("|").split("|")]
-        if spalten and spalten[-1].lower() in _ZWEIGSPALTE:
-            return False
-        kopf = i + 1 < len(zeilen) and _TRENNZEILE.match(zeilen[i + 1].strip())
-        if kopf and any(_ZWEIGKOPF.search(s.strip("`*_ ")) for s in spalten):
-            return False
-    return True
+    return not any(_ZWEIGSTAMM.search(s) for block in _tabellenbloecke(im_umfang)
+                   for kopf in _kopfzeilen(block) for s in kopf)
 
 
 def umfang_nicht_begonnen(pfad: pathlib.Path) -> bool:
