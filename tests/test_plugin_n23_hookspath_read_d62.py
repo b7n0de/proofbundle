@@ -31,7 +31,10 @@ READS = ["config --get core.hooksPath", "config --get-all core.hooksPath", "conf
 #: The reads among them that are read forms of class a since D68 (Nachtrag 27, O23-7): free after the read profile.
 READS_D68 = {"config --get core.hooksPath", "config --get-all core.hooksPath", "config --get-regexp core.hooksPath",
              "config --get core.hookspath", "config --show-origin --get core.hooksPath",
-             "config --get core.hooksPath '^/'"}
+             "config --get core.hooksPath '^/'",
+             # the scope switches, -z and --show-scope since Nachtrag 28 (O27-4)
+             "config --local --get core.hooksPath", "config --global --get-all core.hooksPath",
+             "config -z --show-scope --get core.hooksPath"}
 DENIES = ["config core.hooksPath /x", "config core.hooksPath ''", "config --unset core.hooksPath",
           "config --unset-all core.hooksPath", "config --add core.hooksPath /x", "config --replace-all core.hooksPath /x",
           "config --file other --get core.hooksPath", "config --default /x --get core.hooksPath",

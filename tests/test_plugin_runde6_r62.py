@@ -127,7 +127,7 @@ def test_environment_and_config_writes_that_can_select_a_program_are_not_measure
 
 @pytest.mark.parametrize("command", [
     "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "git config user.name t", "git config get user.email",
-    "git config -l", "git config --show-scope --get remote.origin.url",
+    "git config --includes --get remote.origin.url", "git config --file x.cfg --list",
     "git status && git diff --stat",
 ])
 def test_vetted_assignments_and_config_reads_are_not_free(command):

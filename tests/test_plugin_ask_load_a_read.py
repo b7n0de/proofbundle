@@ -171,7 +171,7 @@ OPTIONS = {
     "shortlog": "git shortlog -s",
     "stdin": "git diff -",
     "unknown_form": "git whatchanged -1",
-    "config_read_class_g": "git config --show-scope --get user.name",   # a switch outside the two of D68
+    "config_read_class_g": "git config --includes --get user.name",   # a switch outside the set of D68
 }
 
 

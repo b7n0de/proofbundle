@@ -3691,6 +3691,17 @@ Tests: tests/test_plugin_n27_config_read_d68.py; the answers D68 changes on purp
 tests/test_plugin_n23_hookspath_read_d62.py, tests/test_plugin_runde6_r62.py, tests/test_plugin_gate_runde6b.py and
 tests/test_plugin_ask_load_a_read.py.
 
+Added in Nachtrag 28 (O27-4, owner choice of 2026-10-18, 09:2x Berlin, as recommended): `-l` (the same action as
+`--list`), and the switches `-z` (the same as `--null`), `--show-scope`, `--name-only`, `--local`, `--global`, `--system`
+and `--worktree`. Measured the same way first (truth_config_n28.py of the delivery, sixteen forms by 30 sources, the
+system configuration a file of the case's own): with standard output a pipe, 336 reads, none started a program or wrote a
+file under .git or HOME, but the trace targets, which keep asking; on a terminal the list forms start the pager as
+before, `--get` with a scope switch none. Every write form keeps its answer, with a scope switch or without
+(`git config --local user.name x`, `git config --global --add a.b c`); a type, `--includes`, `--file`, `--blob` and
+`--default` stay off the list. Tests: tests/test_plugin_n28_config_switches_d68.py; the answers this changes on purpose
+in tests/test_plugin_n27_config_read_d68.py, tests/test_plugin_n23_hookspath_read_d62.py, tests/test_plugin_runde6_r62.py
+and tests/test_plugin_ask_load_a_read.py.
+
 ## D69. A program word the line does not set asks before what Level 2 does not check (Nachtrag 28, O27-1 C, 2026-10-18)
 
 Measured in Nachtrag 27, Teil b: a parameter expansion at the program position whose value the command line does not

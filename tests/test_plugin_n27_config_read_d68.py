@@ -67,15 +67,9 @@ OTHERS = [
     "git config a.b --list",                        # sets a.b to --list (measured)
     "git config --get user.name --show-origin",     # --show-origin after the name is a value pattern
     "git config --get user.name --add",
-    "git config -l",
-    "git config -z --get user.name",
-    "git config --show-scope --get user.name",
-    "git config --name-only --list",
     "git config --includes --get user.name",
     "git config --type=bool --get a.b",
     "git config --bool --get a.b",
-    "git config --local --get user.name",
-    "git config --global --list",
     "git config --file other.cfg --get a.b",
     "git config --blob HEAD:x --list",
     "git config --default x --get a.b",
@@ -167,7 +161,7 @@ def test_D68_control_the_deny_of_core_hookspath_stays_as_d62_leaves_it(repo):
 @pytest.mark.parametrize("args, read", [
     (["--get", "a.b"], True), (["--get-all", "a.b", "x"], True), (["--get-regexp", "^a"], True), (["--list"], True),
     (["--show-origin", "--null", "--list"], True), (["--add", "a.b", "c"], False), (["a.b", "--get"], False),
-    (["--get", "a.b", "--null"], False), (["--list", "x"], False), (["--get"], False), (["-l"], False),
+    (["--get", "a.b", "--null"], False), (["--list", "x"], False), (["--get"], False), (["-l", "x"], False),
     (["--get", "--get-all", "a.b"], False), (["--get", "$X"], False), (["--get", "a", "b", "c"], False)])
 def test_D68_the_reads_of_the_form(args, read):
     assert gate._config_read_form(args, [False] * len(args)) is read, args
@@ -175,5 +169,6 @@ def test_D68_the_reads_of_the_form(args, read):
 
 
 def test_D68_the_closed_sets_are_what_the_decision_names():
-    assert gate._CONFIG_FREE_ACTIONS == {"--get", "--get-all", "--get-regexp", "--list"}
-    assert gate._CONFIG_FREE_SWITCHES == {"--show-origin", "--null"}
+    assert gate._CONFIG_FREE_ACTIONS == {"--get", "--get-all", "--get-regexp", "--list", "-l"}   # -l since Nachtrag 28
+    assert gate._CONFIG_FREE_SWITCHES == {"--show-origin", "--null", "-z", "--show-scope", "--name-only", "--local",
+                                          "--global", "--system", "--worktree"}   # the last seven since Nachtrag 28
