@@ -9546,12 +9546,13 @@ class Outcome:
     is the verdict whose reason the short line gives where it is not the first verdict with the decision: the one of
     the step that decides (D72) or of the house rule that decides (D73); None for the first."""
 
-    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause")
+    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause", "autonomy")
 
     def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None,
                  step: str | None = None, cause: "Verdict | None" = None):
         self.decision, self.text, self.verdicts, self.applied_rule = decision, text, verdicts, applied_rule
         self.step, self.cause = step, cause
+        self.autonomy = None   # D85: the record of the autonomous answer under Claude Code (autonomous_outcome)
 
     def __iter__(self):
         return iter((self.decision, self.text))
@@ -13186,6 +13187,11 @@ _SHORT_REASONS = {
                            "das Muster auch die eigene Befehlszeile treffen kann; führe ihn einzeln aus"),
     "house_kill_own": ("D73", "the target can be its own shell or the host; name the process id",
                        "das Ziel die eigene Shell oder der Wirt sein kann; nenne die Prozessnummer"),
+    # the autonomous answer under Claude Code (D85): deny
+    "autonomy_rewrite": ("D85", "the call is no external effect and a rewrite of it is free",
+                         "der Aufruf keine Außenwirkung ist und eine Umschreibung frei ist"),
+    "autonomy_blocked": ("D85", "the call is no external effect and no form of it is free",
+                         "der Aufruf keine Außenwirkung ist und keine Form frei ist"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
@@ -13205,13 +13211,17 @@ _SHORT_TEMPLATES = {
            "handover": "Gate hands {step} over to the pre-push check ({d}).",
            "inactive": "Gate is not active here because {reason} ({d}).",
            "stop": "Gate holds the end because {reason} ({d}).",
-           "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25)."},
+           "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25).",
+           "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
+           "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
            "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
            "handover": "Tor übergibt {step} an die Prüfung beim Push ({d}).",
            "inactive": "Tor ist hier nicht aktiv, weil {reason} ({d}).",
            "stop": "Tor hält das Ende auf, weil {reason} ({d}).",
-           "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25)."},
+           "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25).",
+           "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
+           "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d})."},
 }
 _SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
 _SHORT_UNKNOWN_TIME = {"en": "unknown", "de": "unbekannt"}
@@ -13258,7 +13268,7 @@ def _short_step_name(command: str | None, cwd: str) -> str | None:
 
 
 def short_line(decision: str, outcome: "Outcome | None", step: str | None, language: str, form: str | None = None,
-               suffix: str = "") -> str:
+               suffix: str = "", hint: str = "") -> str:
     """The one line the user sees for an answer that is no pass (D53): the step that has the decision, the reason in
     everyday words and the D number, at most SHORT_LINE_MAX characters, in the language a person set. The long reason
     goes on to the model and the log keeps what it kept."""
@@ -13273,7 +13283,7 @@ def short_line(decision: str, outcome: "Outcome | None", step: str | None, langu
         name = name[:_SHORT_STEP_MAX - 1] + "…"
     template = _SHORT_TEMPLATES[language][form or decision]
     when = max(_STAMP_TIME.findall(lead.detail if lead is not None else ""), default=_SHORT_UNKNOWN_TIME[language])
-    line = template.format(step=name, reason=german if language == "de" else english, d=d, when=when)
+    line = template.format(step=name, reason=german if language == "de" else english, d=d, when=when, hint=hint)
     line = f"{line} {suffix}" if suffix else line
     if len(line) > SHORT_LINE_MAX:
         line = line[:SHORT_LINE_MAX - 2] + "…."
@@ -13322,7 +13332,8 @@ def _inactive_seen_trim(folder: str) -> None:
         pass
 
 
-def answer(decision: str, reason: str, host: str = "claude", short: str | None = None) -> dict | None:
+def answer(decision: str, reason: str, host: str = "claude", short: str | None = None,
+           hint: dict | None = None) -> dict | None:
     """The PreToolUse answer (D53). A pass answers nothing: the hook prints nothing, carries no permission decision
     (D4) and its reason stays in the log as its reason ids. An inactive gate, a warn and a hand-over carry no permission
     decision either (D4, D5, D35).
@@ -13346,7 +13357,12 @@ def answer(decision: str, reason: str, host: str = "claude", short: str | None =
     if decision not in ("inactive", "warn", "handover"):   # D4: the gate never answers allow (D35 too)
         specific.update(permissionDecision=decision,
                         permissionDecisionReason=short if decision == "ask" or host == "codex" else reason)
-    return {"systemMessage": short, "hookSpecificOutput": specific}
+    printed = {"systemMessage": short, "hookSpecificOutput": specific}
+    if hint is not None and host == "claude":
+        # D85: the rewrite as a field of its own (Claude Code accepts it, measured; it does not reach the model, so the
+        # deny's reason, which does, leads with the same rewrite). Never under Codex, which rejects any other field.
+        printed["rewriteHint"] = hint
+    return printed
 
 
 def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | None,
@@ -13372,11 +13388,524 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
         return None
     language = _read_language(environ)
     name = outcome.step or step
+    autonomy = getattr(outcome, "autonomy", None) or {}
     if decision == "ask" and host == "codex":
         short = short_line("ask", outcome, name, language, form="deny", suffix=_SHORT_CODEX_DENY[language])
+    elif autonomy.get("klasse") in ("umweg", "sperre"):
+        # D85: the line names the rewrite (or that there is none) before the reason, so a cut keeps it
+        first = (autonomy.get("hinweise") or [None])[0]
+        label = _AUTONOMY_HINT_LABELS[first][1 if language == "de" else 0] if first else ""
+        short = short_line(decision, outcome, name, language, form=autonomy["klasse"], hint=label)
     else:
         short = short_line(decision, outcome, name, language)
-    return answer(decision, outcome.text, host=host, short=short)
+    hint = None
+    if autonomy.get("klasse") in ("umweg", "sperre"):
+        hint = {"ids": autonomy.get("hinweise", []) or ["kein_freier_weg"], "calls": autonomy.get("aufrufe", []),
+                "text": "; ".join(_AUTONOMY_HINTS[h][0] for h in autonomy.get("hinweise", [])) or _AUTONOMY_NO_WAY[0]}
+    return answer(decision, outcome.text, host=host, short=short, hint=hint)
+
+
+# --- D85: the autonomous answer under Claude Code (Nachtrag 35) ------------------------------------------------------
+
+#: D85: the command-line flag with which the plugin's hook of Claude Code (hooks.json) starts the gate for the autonomous
+#: answer. Started without it, the gate answers as decide() judges, as before Nachtrag 35; under Codex the flag changes
+#: nothing.
+AUTONOMOUS_FLAG = "--autonomous"
+#: D85 (Nachtrag 35, point 1): the closed list of external effects for which the gate still asks under Claude Code where
+#: no standing GO covers them; the list is owner question O35-1. Each with its words for the long reason (English) and
+#: the short line (German). Every other ask of decide() becomes a deny that names the rewrite the gate checked free.
+AUTONOMY_EFFECTS = {
+    "push": ("a push to a branch that is no own work branch under the standing GO",
+             "ein Push auf einen Zweig, der kein eigener Arbeitszweig unter dem stehenden GO ist"),
+    "push_delete": ("a push that deletes a branch of the remote", "ein Push, der einen entfernten Zweig löscht"),
+    "tag": ("a tag that is made, deleted or sent", "ein Tag, das angelegt, gelöscht oder gesendet wird"),
+    "release": ("a release", "eine Release"),
+    "merge": ("a merge of a pull request without --auto", "ein Merge eines PR ohne --auto"),
+    "pr": ("a pull request, an issue, a comment or a review", "ein PR, ein Issue, ein Kommentar oder ein Review"),
+    "settings": ("a setting of a repository", "eine Einstellung eines Repositorys"),
+    "gh_write": ("a call that writes on GitHub", "ein Aufruf, der auf GitHub schreibt"),
+    "done_order": ("a change of a local done order (D38)", "eine Änderung eines lokalen Abschlussauftrags (D38)"),
+}
+#: The gh pairs with an external effect, by the entry of AUTONOMY_EFFECTS (gh 2.89.0, `gh <command> --help`); every
+#: other pair is none. `gh api` is judged by its method (_autonomy_gh_api_writes).
+_AUTONOMY_GH = {
+    **{("pr", s): "pr" for s in ("create", "new", "comment", "review", "close", "reopen", "ready", "edit", "lock",
+                                  "unlock", "update-branch")},
+    ("pr", "merge"): "merge",
+    **{("issue", s): "pr" for s in ("create", "new", "comment", "close", "reopen", "edit", "delete", "transfer",
+                                     "lock", "unlock", "pin", "unpin", "develop")},
+    **{("release", s): "release" for s in ("create", "new", "edit", "delete", "upload", "delete-asset")},
+    **{("repo", s): "settings" for s in ("edit", "delete", "rename", "archive", "unarchive", "create", "fork",
+                                          "sync", "deploy-key", "set-default")},
+    **{(c, s): "settings" for c in ("secret", "variable") for s in ("set", "delete", "remove")},
+    **{("label", s): "settings" for s in ("create", "edit", "delete", "clone")},
+    ("workflow", "run"): "gh_write", ("workflow", "enable"): "settings", ("workflow", "disable"): "settings",
+    **{("run", s): "gh_write" for s in ("rerun", "cancel", "delete")},
+    ("cache", "delete"): "gh_write",
+    **{("gist", s): "gh_write" for s in ("create", "new", "edit", "delete", "rename")},
+}
+#: The MCP tools the gate gates (MCP_GATED_TOOLS), by their external effect.
+_AUTONOMY_MCP = {"create_pull_request": "pr", "create_merge_request": "pr", "create_release": "release",
+                 "push_files": "push", "create_or_update_file": "push", "merge_pull_request": "merge"}
+#: The rewrite hints of D85: (English for the long reason, German for the short line). Each names exactly what makes the
+#: form free; the gate names one only after it judged every call of the rewrite free or an external effect it asks for.
+_AUTONOMY_HINTS = {
+    "kette_teilen": ("split the chain, one git call per Bash call", "teile die Kette, ein git-Aufruf je Bash-Aufruf"),
+    "git_C_statt_cd": ("git -C <absolute path> instead of cd", "git -C <absoluter Pfad> statt cd"),
+    "git_nicht_in_subst": ("git not in $( ): run the call on its own and write its output into the next call",
+                           "git nicht in $( ), eigener Aufruf, Ausgabe in den nächsten"),
+    "pipe_teilen": ("run the git or gh call alone, without a pipe, and read its output yourself",
+                    "git- oder gh-Aufruf allein, ohne Pipe"),
+    "heredoc_als_datei": ("write the file with the Write tool, no here-document with git",
+                          "Datei mit Write, kein Heredoc mit git"),
+    "nachricht_als_datei": ("write the text to a file outside the repository with the Write tool and name that file in "
+                            "place of the here-document (git commit -F <file>, gh … --body-file <file>)",
+                            "Text als Datei statt Heredoc"),
+    "woertlich": ("write the words literally, as the call below names them", "wörtliche Schreibweise"),
+    "push_HEAD": ("push HEAD in place of the branch name from $( )", "HEAD statt Zweigname aus $( )"),
+}
+#: The rewrite hints as the short line names them (D53: one line, at most SHORT_LINE_MAX characters).
+_AUTONOMY_HINT_LABELS = {
+    "kette_teilen": ("split the chain", "Kette teilen"), "git_C_statt_cd": ("git -C instead of cd", "git -C statt cd"),
+    "git_nicht_in_subst": ("git not in $( )", "git nicht in $( )"), "pipe_teilen": ("no pipe", "ohne Pipe"),
+    "heredoc_als_datei": ("Write, no here-document", "Write statt Heredoc"),
+    "nachricht_als_datei": ("message as a file, commit -F", "Nachricht als Datei, commit -F"),
+    "woertlich": ("literal words", "wörtlich schreiben"), "push_HEAD": ("push HEAD", "Push von HEAD"),
+}
+_AUTONOMY_NO_WAY = ("no form of this call is free, and it is no external effect the gate asks the owner about. Do not "
+                    "try another spelling of the same call; tell the person what you wanted to run and why",
+                    "kein freier Weg")
+#: The why of a rewrite of several calls that are all external effects: the ask of the whole command stays.
+_AUTONOMY_ONLY_EXTERNAL = "every call of the rewrite is an external effect"
+#: The words of a git call whose output is the name of the current branch: in a push, HEAD names the same branch to git
+#: push, which pushes it under its own name (git-push(1), "HEAD" in <refspec>), so the rewrite writes HEAD (push_HEAD).
+_AUTONOMY_CURRENT_BRANCH = ("git rev-parse --abbrev-ref HEAD", "git branch --show-current",
+                            "git symbolic-ref --short HEAD", "git symbolic-ref --short -q HEAD")
+#: The mark of a `$(pwd)` or `$PWD` the rewrite wrote as the directory the command runs in (a key no variable has).
+_AUTONOMY_PWD = "\x00pwd"
+#: A value the rewrite leaves to the session (the output of an earlier call), as the gate judges it and as it names it.
+_AUTONOMY_HOLE = "PB_AUTONOMY_VALUE_{k}"
+_AUTONOMY_HOLE_SHOWN = "<output of call {k}>"
+#: The file a rewrite of D85 writes with the Write tool where the command named none (a commit message), as the gate
+#: judges it and as it names it.
+_AUTONOMY_FILE = "/tmp/pb-autonomy-commit-message.txt"
+_AUTONOMY_FILE_SHOWN = "<a file outside the repository>"
+#: The commit of a message written by a here-document in a command substitution, the form Claude Code writes itself.
+_AUTONOMY_COMMIT_MESSAGE = re.compile(
+    r"\A(?P<head>git(?: -C /[A-Za-z0-9_./+-]+)? commit(?: -[aqsn]+| --(?:all|amend|signoff|allow-empty|no-edit|quiet))*)"
+    r" (?:-m|--message) \"\$\(cat <<'?(?P<mark>[A-Za-z_][A-Za-z0-9_]*)'?\n(?:.*\n)?(?P=mark)\n *\)\" *\Z", re.DOTALL)
+_AUTONOMY_PARAM = re.compile(r'\A"?\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})"?\Z')
+#: The answers of decide() that let a call run.
+_AUTONOMY_FREE = ("pass", "inactive", "handover")
+
+
+def _autonomy_gh_api_writes(args: list[str]) -> bool:
+    """Whether `gh api <args>` writes: a method other than GET and HEAD, or a field or an input without a method (gh
+    then sends POST, `gh api --help`)."""
+    method, fields, i = None, False, 0
+    while i < len(args):
+        word = args[i]
+        if word in ("-X", "--method") and i + 1 < len(args):
+            method, i = args[i + 1].upper(), i + 2
+            continue
+        if word.startswith("--method="):
+            method = word.split("=", 1)[1].upper()
+        elif word.startswith("-X") and len(word) > 2:
+            method = word[2:].upper()
+        elif word in ("-f", "-F", "--field", "--raw-field", "--input"):
+            fields, i = True, i + 1
+        elif word.startswith(("--field=", "--raw-field=", "--input=")) or (word[:2] in ("-f", "-F") and len(word) > 2):
+            fields = True
+        i += 1
+    return (method or ("POST" if fields else "GET")) not in ("GET", "HEAD")
+
+
+def _autonomy_effect(words: list[str]) -> str | None:
+    """The entry of AUTONOMY_EFFECTS a git or gh call with these words has, or None."""
+    if not words:
+        return None
+    head = os.path.basename(words[0])
+    if head == "git":
+        i = 1
+        while i < len(words) and words[i].startswith("-"):
+            option, eq, _value = words[i].partition("=")
+            i += 2 if (option in _GIT_GLOBAL_VALUE and not eq) else 1
+        sub, rest = (words[i], words[i + 1:]) if i < len(words) else (None, [])
+        if sub in ("push", "send-pack"):
+            return "push"
+        if sub == "tag":
+            return None if _work_tag_list(rest) else "tag"
+        return None
+    if head == "gh" and len(words) >= 2:
+        if words[1] == "api":
+            return "gh_write" if _autonomy_gh_api_writes(words[2:]) else None
+        return _AUTONOMY_GH.get((words[1], words[2])) if len(words) >= 3 else None
+    return None
+
+
+def _autonomy_single(command: str) -> list[str] | None:
+    """The words of the command where it is one simple command with no substitution of any kind, here-document, pipe or
+    list, else None."""
+    try:
+        tree = _sh_parse(command)
+    except Exception:  # noqa: BLE001 - a command the parser does not model is no single call
+        return None
+    if len(tree.items) != 1 or len(tree.items[0][0]) != 1 or len(tree.items[0][0][0]) != 1:
+        return None
+    cmd = tree.items[0][0][0][0]
+    if not isinstance(cmd, _ShSimple) or not cmd.words:
+        return None
+    if any(w.subs for w in cmd.assigns + cmd.words) or \
+            any(isinstance(r.target, _ShHeredoc) or r.target.subs for r in cmd.redirs):
+        return None
+    return [w.value for w in cmd.words]
+
+
+def _autonomy_record(outcome: "Outcome", kind: str, **fields) -> "Outcome":
+    outcome.autonomy = {"klasse": kind, "vorher": "ask", **fields}
+    return outcome
+
+
+def _autonomy_external(outcome: "Outcome", command: str, cwd: str, deadline: float,
+                       environ: dict) -> "Outcome | None":
+    """The answer to a single call with an external effect of AUTONOMY_EFFECTS, or with a change of a done order (D38):
+    the ask kept; None for any other command."""
+    words = _autonomy_single(command)
+    if words is None:
+        return None
+    effects = ["done_order"] if any(v.reason_id == "done_order_change" for v in outcome.verdicts) else []
+    effect = _autonomy_effect(words)
+    if effect is not None:
+        effects.append(effect)
+    return _autonomy_record(outcome, "aussen", wirkung=sorted(set(effects))) if effects else None
+
+
+def _autonomy_call_words(cmd: "_ShSimple", directory: str | None, holes: dict, calls: list,
+                         here: str = "") -> list | None:
+    """The words of one simple command as a call of the rewrite: literal words as they are, a word that is exactly one
+    command substitution of a single literal git or gh call lifted into a call of its own before it (its output a hole),
+    a word that is exactly a variable a lifted call set, the hole; after a `cd`, `-C <directory>` after git. None where
+    the command is not of these words (an assignment, a redirection, any other expansion, gh or another program after a
+    `cd`)."""
+    if cmd.assigns or cmd.redirs or not cmd.words:
+        return None
+    if cmd.words[0].value not in ("git", "gh") and not _autonomy_reads(cmd, words_too=False):
+        return None   # its other words are read below: literal, a hole, a lifted call or the directory
+    words: list = []
+    pushing = bool(cmd.words) and cmd.words[0].value == "git" and any(x.value == "push" for x in cmd.words[1:3])
+    for w in cmd.words:
+        if w.literal:
+            words.append(w.value)
+            continue
+        if pushing and len(w.subs) == 1 and w.subs[0].kind == "cmd" and \
+                " ".join(w.subs[0].text.split()) in _AUTONOMY_CURRENT_BRANCH and \
+                w.raw in (f"$({w.subs[0].text})", f'"$({w.subs[0].text})"'):
+            words.append("HEAD")   # push_HEAD: the current branch under its own name
+            continue
+        if here and w.raw in ("$(pwd)", '"$(pwd)"', "$PWD", '"$PWD"', "${PWD}", '"${PWD}"'):
+            words.append(here)   # the directory the command runs in, which the hook names as cwd
+            holes[_AUTONOMY_PWD] = 0
+            continue
+        param = _AUTONOMY_PARAM.fullmatch(w.raw)
+        if param is not None and len(w.subs) == 1 and (param.group(1) or param.group(2)) in holes:
+            words.append(holes[param.group(1) or param.group(2)])
+            continue
+        lifted = _autonomy_lift(w, directory, calls)
+        if lifted is None:
+            return None
+        words.append(lifted)
+    if directory is not None:
+        if words[0] != "git" or (len(words) > 1 and words[1] == "-C"):
+            return None
+        words = ["git", "-C", directory] + words[1:]
+    return words
+
+
+def _autonomy_lift(w: "_ShWord", directory: str | None, calls: list) -> int | None:
+    """Lift the command substitution that is the whole word w into a call of its own; the number of that call, or None
+    where w is not exactly one `$( )` or backtick around one literal git or gh call."""
+    if len(w.subs) != 1 or w.subs[0].kind != "cmd" or w.subs[0].tree is None:
+        return None
+    text = w.subs[0].text
+    if w.raw not in (f"$({text})", f'"$({text})"', f"`{text}`", f'"`{text}`"'):
+        return None
+    tree = w.subs[0].tree
+    if len(tree.items) != 1 or len(tree.items[0][0]) != 1 or len(tree.items[0][0][0]) != 1:
+        return None
+    inner = tree.items[0][0][0][0]
+    if not isinstance(inner, _ShSimple) or inner.assigns or inner.redirs or not inner.words or \
+            not all(x.literal for x in inner.words) or inner.words[0].value not in ("git", "gh"):
+        return None
+    words = [x.value for x in inner.words]
+    if directory is not None:
+        if words[0] != "git" or (len(words) > 1 and words[1] == "-C"):
+            return None
+        words = ["git", "-C", directory] + words[1:]
+    calls.append({"kind": "bash", "words": words, "directory": directory})
+    return len(calls)
+
+
+def _autonomy_rewrite(command: str, cwd: str) -> tuple[list, list] | None:
+    """(hint ids, calls) of the rewrite of D85 for a command, before the gate judged any call, or None where the command
+    has none. A call is {"kind": "bash", "words": [...], "directory": dir or None} with an int for the output of an
+    earlier call, or {"kind": "write", "path": ...}. The rewrite only splits, lifts and drops: every git or gh call in it
+    stands in the command as written, with `-C` for a `cd` before it."""
+    matched = _AUTONOMY_COMMIT_MESSAGE.fullmatch(command)
+    if matched is not None:
+        return (["nachricht_als_datei"], [{"kind": "write", "path": None},
+                                         {"kind": "bash", "words": shlex.split(matched.group("head")) +
+                                          ["-F", _AUTONOMY_FILE], "directory": None}])
+    try:
+        tree = _sh_parse(command)
+    except Exception:  # noqa: BLE001 - a command the parser does not model has no rewrite
+        return None
+    hints, calls, holes, directory = [], [], {}, None
+    if len(tree.items) > 1 or any(len(pipes) > 1 for pipes, _ops in tree.items):
+        hints.append("kette_teilen")
+    for pipes, _ops in tree.items:
+        for pipeline in pipes:
+            if any(not isinstance(c, _ShSimple) for c in pipeline):
+                return None
+            if len(pipeline) > 1:
+                gated = [c for c in pipeline if c.words and c.words[0].value in ("git", "gh")]
+                if not gated:
+                    # a pipe of no git or gh call stays one call: every stage a data step that writes nothing, every
+                    # word literal
+                    if directory is not None or not all(_autonomy_reads(c) for c in pipeline):
+                        return None
+                    calls.append({"kind": "bash", "pipe": [[w.value for w in c.words] for c in pipeline],
+                                  "directory": None})
+                    continue
+                if len(gated) != 1 or pipeline[0] is not gated[0] or \
+                        not all(_autonomy_reads(c) for c in pipeline[1:]):
+                    return None
+                hints.append("pipe_teilen")
+                pipeline = gated
+            cmd = pipeline[0]
+            if not cmd.words and cmd.assigns:
+                if len(cmd.assigns) != 1 or cmd.redirs:
+                    return None
+                name, _eq, _value = cmd.assigns[0].raw.partition("=")
+                fake = _ShWord(cmd.assigns[0].raw[len(name) + 1:], "", cmd.assigns[0].subs, False, True)
+                k = _autonomy_lift(fake, directory, calls)
+                if k is None:
+                    return None
+                holes[name] = k
+                hints.append("git_nicht_in_subst")
+                continue
+            if cmd.words and cmd.words[0].value in ("cd", "pushd") and cmd.words[0].literal:
+                if len(cmd.words) != 2 or not cmd.words[1].literal or cmd.assigns or cmd.redirs or \
+                        cmd.words[1].value.startswith("-"):
+                    return None
+                directory = os.path.normpath(os.path.join(directory or cwd, cmd.words[1].value))
+                hints.append("git_C_statt_cd")
+                continue
+            heredoc = [r for r in cmd.redirs if isinstance(r.target, _ShHeredoc)]
+            stdin_text = _autonomy_stdin_text(cmd)
+            if stdin_text is not None:
+                # a text given on stdin by a here-document as `-F -` or `--body-file -`: a Write and the file
+                words = _autonomy_call_words(_ShSimple(cmd.assigns, cmd.words, []), directory, holes, calls,
+                                             directory or cwd)
+                if words is None:
+                    return None
+                calls.append({"kind": "write", "path": None})
+                calls.append({"kind": "bash", "words": [_AUTONOMY_FILE if k == stdin_text else w
+                                                        for k, w in enumerate(words)], "directory": directory})
+                hints.append("nachricht_als_datei")
+                continue
+            if heredoc:
+                path = _autonomy_heredoc_target(cmd, directory or cwd)
+                if path is None:
+                    return None
+                calls.append({"kind": "write", "path": path})
+                hints.append("heredoc_als_datei")
+                continue
+            lifted_before = len(calls)
+            words = _autonomy_call_words(cmd, directory, holes, calls, directory or cwd)
+            if words is None:
+                return None
+            if len(calls) > lifted_before:
+                hints.append("git_nicht_in_subst")
+            if holes.pop(_AUTONOMY_PWD, None) is not None:
+                hints.append("woertlich")
+            if "HEAD" in words and not all(w.literal for w in cmd.words):
+                hints.append("push_HEAD")
+            calls.append({"kind": "bash", "words": words, "directory": directory})
+    return (sorted(set(hints), key=_AUTONOMY_HINT_ORDER.index), calls) if calls else None
+
+
+#: The order in which a rewrite names its hints, the most particular first: the short line names the first.
+_AUTONOMY_HINT_ORDER = ("push_HEAD", "git_C_statt_cd", "git_nicht_in_subst", "nachricht_als_datei",
+                        "heredoc_als_datei", "pipe_teilen", "woertlich", "kette_teilen")
+
+
+def _autonomy_reads(cmd: "_ShSimple", words_too: bool = True) -> bool:
+    """Whether a simple command may stand in a rewrite beside its git and gh calls: a data step of D72 (_sh_kind) whose
+    program word is literal, with no assignment, no redirection and no tee, and with words_too every word literal. A
+    carrier, an interpreter, a program the gate does not know and a step that writes may run or change what a git call
+    reads (a script a Write wrote, a configuration), so a command with one has no rewrite."""
+    return bool(cmd.words) and not cmd.assigns and not cmd.redirs and cmd.words[0].literal and \
+        (not words_too or all(w.literal for w in cmd.words)) and cmd.words[0].value != "tee" and \
+        _ShStep(cmd, None, False, 1, []).kind == "data"
+
+
+def _autonomy_stdin_text(cmd: "_ShSimple") -> int | None:
+    """The position of the `-` that takes stdin as a text of a git commit (-F, --file) or of a gh call (-F, --body-file)
+    whose stdin is one here-document bash expands nothing in, with no other redirection; else None."""
+    docs = [r for r in cmd.redirs if isinstance(r.target, _ShHeredoc)]
+    if len(docs) != 1 or len(cmd.redirs) != 1 or docs[0].op not in ("<<", "<<-") or docs[0].fd not in ("", "0") or \
+            not _autonomy_quiet(docs[0].target) or not cmd.words or cmd.words[0].value not in ("git", "gh"):
+        return None
+    values = [w.value for w in cmd.words]
+    options = ("-F", "--file") if values[0] == "git" else ("-F", "--body-file")
+    found = [k + 1 for k, v in enumerate(values[:-1]) if v in options and values[k + 1] == "-"]
+    return found[0] if len(found) == 1 and "-" not in values[found[0] + 1:] else None
+
+
+def _autonomy_quiet(doc: "_ShHeredoc") -> bool:
+    """Whether bash expands nothing in a here-document: a quoted marker, or a body with no expansion."""
+    return doc.quoted or not doc.subs
+
+
+def _autonomy_heredoc_target(cmd: "_ShSimple", directory: str) -> str | None:
+    """The file `cat > <file> <<MARK` or `tee <file> <<MARK` writes whole from a here-document: the absolute path, or
+    None for any other form (an append, more than one target, a word the shell rewrites, another program)."""
+    if cmd.assigns or not cmd.words or not all(w.literal for w in cmd.words):
+        return None
+    head, args = cmd.words[0].value, [w.value for w in cmd.words[1:]]
+    others = [r for r in cmd.redirs if not isinstance(r.target, _ShHeredoc)]
+    docs = [r.target for r in cmd.redirs if isinstance(r.target, _ShHeredoc)]
+    if len(docs) != 1 or not _autonomy_quiet(docs[0]):
+        return None
+    if head == "cat" and not args and len(others) == 1 and others[0].op == ">" and others[0].fd in ("", "1") and \
+            others[0].target.literal:
+        target = others[0].target.value
+    elif head == "tee" and len(args) == 1 and not args[0].startswith("-") and \
+            all(r.op == ">" and r.target.literal and r.target.value == "/dev/null" for r in others):
+        target = args[0]
+    else:
+        return None
+    return os.path.normpath(os.path.join(directory, target))
+
+
+def _autonomy_text(call: dict, shown: bool) -> str:
+    """The call as a command: holes as the gate judges them (shown False) or as it names them to the session."""
+    if call["kind"] == "write":
+        return f"Write {call['path'] or (_AUTONOMY_FILE_SHOWN if shown else _AUTONOMY_FILE)}"
+    if "pipe" in call:
+        return " | ".join(" ".join(shlex.quote(w) for w in words) for words in call["pipe"])
+    hole = _AUTONOMY_HOLE_SHOWN if shown else _AUTONOMY_HOLE
+    words = [hole.format(k=w) if isinstance(w, int) else w for w in call["words"]]
+    if shown:
+        return " ".join(w if w.startswith("<output of call") else _AUTONOMY_FILE_SHOWN if w == _AUTONOMY_FILE
+                        else shlex.quote(w) for w in words)
+    return " ".join(shlex.quote(w) for w in words)
+
+
+def _autonomy_write_place(path: str, cwd: str, deadline: float) -> bool:
+    """Whether a rewrite may name a Write of path: inside the work tree of cwd (not its .git) or inside the temp folder,
+    and no part of the path below that place starts with a dot (a configuration such as ~/.bashrc or .git/config, which
+    a later program reads, is no text the session hands over)."""
+    real = os.path.realpath(path)
+    top, _why = _work_tree(cwd, deadline)
+    for place in [p for p in (top, tempfile.gettempdir()) if p]:
+        base = os.path.realpath(place)
+        if real.startswith(base + os.sep):
+            return not any(part.startswith(".") for part in os.path.relpath(real, base).split(os.sep))
+    return False
+
+
+def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tuple[str, str]:
+    """("free" | "external" | "blocked", why) for one call of a rewrite: the gate's own answer to it in the same
+    context, with D85 for a single call. A write is free where decide_write leaves it alone."""
+    if call["kind"] == "write":
+        if call["path"] is not None and not _autonomy_write_place(call["path"], cwd, deadline):
+            return "blocked", "a Write the rewrite names goes only into the work tree or the temp folder, to no hidden file"
+        out = decide_write("Write", {"file_path": call["path"] or _AUTONOMY_FILE, "content": ""}, cwd, deadline,
+                           host="claude", environ=environ)
+        return ("free", "") if out is None else ("blocked", f"the Write of it is {out.decision}")
+    text = _autonomy_text(call, shown=False)
+    directory = call["directory"] or cwd
+    out = decide(text, directory, deadline, "claude", environ)
+    if out is not None and out.decision == "ask":
+        out = _autonomy_external(out, text, directory, deadline, environ) or out
+        if out.decision == "ask" and (out.autonomy or {}).get("klasse") == "aussen":
+            return "external", ""
+    if out is None or out.decision in _AUTONOMY_FREE:
+        return "free", ""
+    reasons = ", ".join(dict.fromkeys(v.reason_id for v in out.verdicts if v.decision == out.decision))
+    return "blocked", f"`{_autonomy_text(call, shown=True)}` alone is {out.decision} ({reasons})"
+
+
+def _autonomy_checked(command: str, cwd: str, deadline: float, environ: dict) -> tuple | None:
+    """(hint ids, calls, judgements) of a rewrite whose every call the gate judged free or an external effect it asks
+    for, at least one of them free or the rewrite one call; else (None, None, why) with why the first call that is
+    neither, or _AUTONOMY_ONLY_EXTERNAL where every call of a rewrite of several is an external effect (splitting them
+    would only add clicks, so the ask stays)."""
+    rewrite = _autonomy_rewrite(command, cwd)
+    candidates = [rewrite] if rewrite is not None else []
+    spelled = _narrower_spelling(command)
+    if spelled is not None:
+        candidates.append((["woertlich"], [{"kind": "bash", "words": shlex.split(spelled), "directory": None}]))
+    why = None
+    for hints, calls in candidates:
+        judged = [_autonomy_judge(call, cwd, deadline, environ) for call in calls]
+        blocked = [w for kind, w in judged if kind == "blocked"]
+        if not blocked and (len(calls) == 1 or any(kind == "free" for kind, _w in judged)):
+            return hints, calls, judged
+        why = why or (blocked[0] if blocked else _AUTONOMY_ONLY_EXTERNAL)
+    return None, None, why
+
+
+def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
+                       host: str = "claude", environ: dict | None = None, tool: str = "Bash") -> "Outcome | None":
+    """D85 (Nachtrag 35): the answer of the hook to the outcome of decide() under Claude Code. An ask for a single call
+    with an external effect of AUTONOMY_EFFECTS, a change of a done order and a gated MCP tool stays an ask (an owner
+    click). Every other ask becomes a deny: with a rewrite hint where the gate judged every call of the rewrite free
+    or an external effect it asks for, and at least one free (_autonomy_checked), else with none ("kein freier Weg").
+    Nothing gets freer: every other answer, and every answer under Codex, stays as decide() gave it. The record of the
+    answer is outcome.autonomy (klasse aussen, umweg or sperre); the log keeps what decide() gave as the verdict."""
+    if host != "claude" or outcome is None or outcome.decision != "ask":
+        return outcome
+    environ = os.environ if environ is None else environ
+    if tool.startswith("mcp__"):
+        return _autonomy_record(outcome, "aussen", wirkung=[_AUTONOMY_MCP.get(tool.rsplit("__", 1)[-1], "gh_write")])
+    if tool == "Bash" and command is not None:
+        kept = _autonomy_external(outcome, command, cwd, deadline, environ)
+        if kept is not None:
+            return kept
+        try:
+            hints, calls, judged = _autonomy_checked(command, cwd, deadline, environ)
+        except GateError as exc:
+            hints, calls, judged = None, None, f"the check of a rewrite reached no result ({exc})"
+    else:
+        hints, calls, judged = None, None, f"a {tool} call has no rewrite"
+    if judged == _AUTONOMY_ONLY_EXTERNAL:
+        return _autonomy_record(outcome, "aussen", wirkung=["mehrere"])
+    if hints is not None:
+        lines = []
+        for k, (call, (kind, _why)) in enumerate(zip(calls, judged), start=1):
+            asked = " (the gate asks the owner for this one: an external effect)" if kind == "external" else ""
+            lines.append(f"{k}. `{_autonomy_text(call, shown=True)}`{asked}")
+        hint = "; ".join(_AUTONOMY_HINTS[h][0] for h in hints)
+        lead = (f"proofbundle gate, autonomous operation (D85): this command is not run as written. It is no external "
+                f"effect the gate asks the owner about, and the gate checked a rewrite of it now. Rewrite: {hint}. Run "
+                f"instead, one call per tool call: " + " ".join(lines) + ". The reason the command was not free:")
+        detail = f"{lead.split(' The reason')[0]}"
+        verdict = Verdict("deny", detail, "autonomy_rewrite", evidence="the words of the command and the gate's answer "
+                          "to each call of the rewrite", failed="the command as written is not free",
+                          next_step=hint)
+        shown = [_autonomy_text(call, shown=True) for call in calls]
+        new = Outcome("deny", f"{lead} {outcome.text}", list(outcome.verdicts) + [verdict], None, step=outcome.step,
+                      cause=outcome.cause or next((v for v in outcome.verdicts if v.decision == "ask"), None))
+        return _autonomy_record(new, "umweg", hinweise=hints, aufrufe=shown)
+    lead = (f"proofbundle gate, autonomous operation (D85): this command is blocked. {_AUTONOMY_NO_WAY[0]}. The gate "
+            f"found no rewrite it lets run ({judged or 'none'}). The reason the command was not free:")
+    verdict = Verdict("deny", lead.split(" The reason")[0], "autonomy_blocked", evidence="the words of the command",
+                      failed="no form of the call is free and it is no external effect", next_step=_AUTONOMY_NO_WAY[0])
+    new = Outcome("deny", f"{lead} {outcome.text}", list(outcome.verdicts) + [verdict], None, step=outcome.step,
+                  cause=outcome.cause or next((v for v in outcome.verdicts if v.decision == "ask"), None))
+    return _autonomy_record(new, "sperre", hinweise=[])
 
 
 def tree_digest_command(argv: list[str]) -> int:
@@ -13500,6 +14029,9 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     verdict = outcome.decision if outcome is not None else "not_gated"
     sent = ("none" if verdict in ("pass", "inactive", "warn", "handover", "not_gated")
             else ("deny" if host == "codex" else verdict))
+    autonomy = getattr(outcome, "autonomy", None) if outcome is not None else None
+    if autonomy is not None:
+        verdict = autonomy.get("vorher", verdict)   # D85: the verdict is what decide() gave, the decision what was sent
     repos = [] if outcome is None else [
         {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests),
          **({"evidence": list(v.reads)} if v.reads else {})}
@@ -13511,6 +14043,8 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
              "reason_ids": [r["reason_id"] for r in repos] or [verdict], "repos": repos}
     if outcome is not None and outcome.applied_rule is not None:
         entry["applied_rule"] = outcome.applied_rule
+    if autonomy is not None:
+        entry["autonomy"] = {key: autonomy[key] for key in ("klasse", "hinweise", "wirkung") if key in autonomy}
     return entry
 
 
@@ -16444,11 +16978,13 @@ def run_evidence_command(argv: list[str]) -> int:
 
 
 def _host(argv: list[str]) -> str:
+    argv = [a for a in argv if a != AUTONOMOUS_FLAG]   # D85: the flag of the autonomous answer, read by main()
     if not argv:
         return "claude"
     if len(argv) == 2 and argv[0] == "--host" and argv[1] in HOSTS:
         return argv[1]
-    raise GateError(f"unknown arguments {argv!r}; the gate takes --host claude or --host codex")
+    raise GateError(f"unknown arguments {argv!r}; the gate takes --host claude or --host codex, and "
+                    f"{AUTONOMOUS_FLAG}")
 
 
 def pre_push_command(argv: list[str]) -> int:
@@ -16662,19 +17198,27 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             raise GateError("the hook input is not JSON") from exc
         tool = event.get("tool_name") if isinstance(event, dict) else None
+        command = None
         if isinstance(tool, str) and tool.startswith("mcp__"):
             cwd = event.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
             actions = [f"MCP {tool}"] if mcp_gated(tool) else []
-            verdict = decide_mcp(tool, cwd if isinstance(cwd, str) and cwd else os.getcwd(), deadline, host=host)
+            verdict = decide_mcp(tool, cwd, deadline, host=host)
         elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
             cwd = event.get("cwd")
-            verdict = decide_write(tool, event.get("tool_input"), cwd if isinstance(cwd, str) and cwd else os.getcwd(),
-                                   deadline, host=host)
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+            verdict = decide_write(tool, event.get("tool_input"), cwd, deadline, host=host)
             actions = [f"file {tool}"] if verdict is not None else []
         else:
+            tool = "Bash"
             command, cwd = _command_from_event(event)
             actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
             verdict = decide(command, cwd, deadline, host=host)
+        if AUTONOMOUS_FLAG in argv and host == "claude" and verdict is not None and verdict.decision == "ask":
+            try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
+                verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool)
+            except Exception:  # noqa: BLE001 - the ask of decide() stands
+                pass
     except GateError as exc:
         failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
                           "hook_input", evidence="none, the gate could not read the call", failed=str(exc),

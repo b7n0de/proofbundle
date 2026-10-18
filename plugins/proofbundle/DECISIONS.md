@@ -4232,3 +4232,43 @@ whatever the session holds. Under Codex nothing changes (D37). Not changed here,
 (find, xargs, grep, echo, read), the data steps of D72 and git and gh themselves are judged by the word (owner question
 O36-3). Tests: tests/test_plugin_n36_session_names_b36_2.py; changed: tests/test_plugin_n31e1_read_programs_d77.py
 (`command head` is a read form now, its counter case is `command -p head`).
+
+## D85. The autonomous answer under Claude Code: the gate asks only for an external effect (Nachtrag 35, 2026-10-18)
+
+Owner word of 2026-10-18, 20:40 Berlin: the owner confirms too much, the plugin has to work largely on its own. delta
+counted 97 real asks in the period of 0efaf38d (D3, D27, D33 and D34 the most), four of them on the owner's screens.
+
+The rule: decide() judges as before; under Claude Code the hook started with `--autonomous` (AUTONOMOUS_FLAG), as the
+plugin's hooks.json starts it for every PreToolUse matcher, answers an ask of it (autonomous_outcome)
+- with the ask where the command is one simple call with an external effect of the closed list AUTONOMY_EFFECTS (a
+  push, a push that deletes a remote branch, a tag, a release, a merge without --auto, a pull request, an issue, a
+  comment or a review, a setting of a repository, a gh call that writes, a change of a done order of D38), and for a
+  gated MCP tool: the owner clicks. The list is owner question O35-1;
+- with a deny that names a rewrite, where the gate rewrote the command into calls of its own (a chain into its steps, a
+  `cd <path>` into `git -C <path>`, a `$( )` around one git or gh call into a call before it whose output the next one
+  takes, `$( )` of the current branch in a push into HEAD, `$(pwd)` and `$PWD` into the directory, a pipe into its git
+  or gh call where every other stage reads, a here-document written by cat or tee into a Write, the text of `-F -` or
+  `--body-file -` and the message of `git commit -m "$(cat <<'EOF' … EOF)"` into a file named in its place, a word the
+  shell may rewrite into the narrower spelling of D3) and judged every call with decide() free or one call of the closed
+  list, at least one free or the rewrite one call: a detour the session takes without a person. The rewrite only
+  splits, lifts and drops; every git or gh call in it stands in the command as written; every other call is a data step
+  of D72 that writes nothing (no carrier, interpreter, unknown program, tee or redirection: a script a Write wrote is
+  never run by a rewrite); a here-document becomes a Write only where bash expands nothing in it and the target is no
+  hidden file in the work tree or the temp folder. A rewrite of several calls that are all external effects keeps the
+  ask of the whole command;
+- with a deny that names no way, where no rewrite is free: the call is no external effect and no form of it is free (a
+  form that loses work not yet saved, rewrites history, starts git from code, writes the hooks, or any form the gate does
+  not free). The text tells the session not to try another spelling and to tell the person.
+A file tool whose write asks (D8) is blocked the same way. Under Codex nothing changes (D12, D37): its manifest starts
+the gate without the flag, the flag changes nothing under Codex, its asks are denies as before. Started without the
+flag the gate answers as decide() judges, as before Nachtrag 35: the tests of every earlier rule start it so and read
+the judgement; the tests of D85 to D88 start it as hooks.json does (owner question O35-7). Nothing gets freer: an ask becomes an ask or a deny, every other answer
+stays, and a failure inside D85 keeps the ask.
+
+The answer: the deny's reason leads with the rewrite and its calls, because only the reason of a deny reaches the model
+(measured with Claude Code 2.1.302, n35/messung/deny_path_summary.txt: the tool does not run, the model reads
+"PreToolUse:Bash hook error: <reason>"); the same rewrite stands in a field of its own, rewriteHint (ids, text, calls),
+which Claude Code accepts without reaching the model; the short line names the rewrite before the reason. The log keeps
+what decide() gave as the verdict, what was sent as the decision, and the record (autonomy: klasse aussen, umweg or
+sperre, the hints, the effects). Tests: tests/test_plugin_n35_autonomy_d85.py; changed: tests/test_codex_plugin.py
+(the command of the Claude Code hook carries --autonomous, the Codex one does not).
