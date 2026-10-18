@@ -2733,7 +2733,10 @@ _RUNTIME_ONLY_CONTAINERS = {
 
 #: Modules that need an optional dependency at import, with that dependency. Such a module is named
 #: when it cannot be imported, never skipped in silence; any other ImportError fails the test.
-_OPTIONAL_AT_IMPORT = {"proofbundle.inspect_hook": "inspect_ai"}
+#: `_inspect_registry` is the entry-point target of the inspect hook group and imports `inspect_hook`
+#: at load, so it needs inspect_ai as well. Measured on 2026-10-18 in the venv of the witness, which has
+#: no inspect_ai: these two are the only modules of the package that do not import there.
+_OPTIONAL_AT_IMPORT = {"proofbundle.inspect_hook": "inspect_ai", "proofbundle._inspect_registry": "inspect_ai"}
 
 
 def runtime_only_containers(objekte: dict, je_modul: dict[str, dict[str, str]]) -> set[tuple[str, str]]:
