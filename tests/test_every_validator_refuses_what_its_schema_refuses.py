@@ -13,18 +13,23 @@ neither.
 WHAT IS PINNED. (1) The oracle (tests/_schema_oracle.py) reads `pattern` as ECMA-262, and a case shows
 plain jsonschema does not. (2) One generator per predicate schema: over a predicate that fills every
 optional field, every leaf replaced by eleven values of the wrong type and, for a string, by the same
-string with a trailing newline, with an Arabic-Indic digit, and in upper case; every object given one
-undeclared key. Whatever the oracle refuses, the validator refuses, strict or lenient. Measured with
-this generator on main 10f3466b, leaking paths: decision 64, outcome 13, run_ledger 4,
-verification_summary 3, trust_pack 7 (two of them raised TypeError out of the validator). (3) Every
-regular expression literal under src/proofbundle that judges a whole value reads it as the schema
-does: `\\A..\\Z`, no Unicode class. (4) End to end, the three consequences that were measured, and
+string with a trailing newline, with an Arabic-Indic digit in place of each ASCII digit, one at a time,
+and in upper case; every object given one undeclared key. Whatever the oracle refuses, the validator
+refuses, strict or lenient. Measured with the first form of this generator, which bent only the
+first digit, on main 10f3466b, leaking paths: decision 64, outcome 13, run_ledger 4,
+verification_summary 3, trust_pack 7 (two of them raised TypeError out of the validator); with this
+form on main 570dd164: decision 63, outcome 13, run_ledger 7, verification_summary 4, trust_pack 4.
+(3) The pattern of every call of `re` under src/proofbundle, under any name a module binds to it,
+reads a value as the schema does: no Unicode class without `re.ASCII`, no trailing `$`. (4) End to
+end, the three consequences that were measured, and
 agent-review's time and version in non-ASCII digits.
 
 NAMED EXCEPTIONS. None among the predicates: the one this change started with, a bare string in
 decision's notChecked, is the schema's deprecated legacy form since the owner decided it (owner decision,
-2026-09-26). In the regex sweep, agent_review's two patterns, the last ones with `\\d`, are fixed as a
-bug in v0.1, v0.2 and v0.3 (owner decision, 2026-09-26). One exception is left: the TypeURI shape of
+2026-09-26). In the regex sweep, agent_review's two patterns are fixed as a bug in v0.1, v0.2 and
+v0.3 (owner decision, 2026-09-26), and the three other patterns with `\\d`, two in
+adapters.agt_receipt and one in cli, read ASCII since the lens on 8a6c19e7. One exception is left:
+the TypeURI shape of
 eval-result v0.2 in intoto keeps `\\s` inside a negated class, where Python's reading is the stricter
 one. The reverse direction (the validator refusing what the schema accepts) is deliberate where a
 validator asks more than its schema, and is not pinned here.
@@ -232,8 +237,16 @@ class EveryValidatorRefusesWhatItsSchemaRefuses(unittest.TestCase):
 #
 # a9269f65 (2026-07-18) moved eight modules from `^..$` to `\A..\Z`, and its guard checked the modules it
 # named by hand; trust_pack was on neither list and kept `^..$` for two months. This sweep is derived:
-# every `re.*` call with a literal pattern under src/proofbundle that is anchored at both ends (or is a
-# fullmatch).
+# every call of a function of `re` under src/proofbundle, by any name a module binds to it (`import re as
+# _re`, `from re import fullmatch`), whose pattern is a literal or a `+` of literals. A Unicode class
+# (`\d`, `\w`, `\s`, `\b`) without the ASCII flag is a finding in every pattern, anchored or not,
+# since a pattern compiled without anchors is judged whole by a later `.fullmatch`; a pattern that ends
+# in `$` is a finding wherever it is used. The lens on 8a6c19e7 wrote 12 forms past the first form of
+# this sweep, which read only calls on the name `re` with patterns anchored at both ends; the private
+# copies with `import re as _re`, an unanchored compile and a concatenated pattern each leaked a
+# schemaVersion in Arabic-Indic digits while the sweep stayed silent. Not read, and named: a pattern
+# held in a variable or built at run time, and a shape checked without `re` (`str.isdigit`, a length
+# and `bytes.fromhex`).
 #: (module, pattern) pairs this sweep leaves out, each with its reason. agent_review's two patterns were
 #: entries here until the owner decision of 2026-09-26, and they read ASCII digits now.
 _REGEX_EXCEPTIONS: set[tuple[str, str]] = {
@@ -244,24 +257,54 @@ _REGEX_EXCEPTIONS: set[tuple[str, str]] = {
     ("proofbundle.intoto", r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z"),
 }
 _UNICODE_CLASSES = re.compile(r"\\[dDwWsSb]")
+_RE_FUNCTIONS = {"compile", "match", "fullmatch", "search", "sub", "subn", "findall", "finditer", "split"}
+
+
+def _re_names(tree) -> tuple:
+    """The names a module binds to `re` itself and to its functions."""
+    module, functions = {"re"}, {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "re":
+                    module.add(alias.asname or "re")
+        elif isinstance(node, ast.ImportFrom) and node.module == "re" and not node.level:
+            for alias in node.names:
+                if alias.name in _RE_FUNCTIONS:
+                    functions[alias.asname or alias.name] = alias.name
+    return module, functions
+
+
+def _literal_text(node):
+    """The text of a string literal or of a `+` of string literals, else None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _literal_text(node.left), _literal_text(node.right)
+        return left + right if left is not None and right is not None else None
+    return None
 
 
 def _whole_value_regex_findings(sources) -> list:
-    """(module, source) pairs in, one finding per whole-value pattern read differently from ECMA-262."""
+    """(module, source) pairs in, one finding per pattern read differently from ECMA-262."""
     found = []
     for mod, text in sources:
-        for node in ast.walk(ast.parse(text)):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "re" and node.args
-                    and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+        tree = ast.parse(text)
+        module, functions = _re_names(tree)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and node.args):
                 continue
-            pattern = node.args[0].value
-            anchored = pattern.startswith(("^", "\\A")) and pattern.endswith(("$", "\\Z"))
-            if not (anchored or node.func.attr == "fullmatch") or (mod, pattern) in _REGEX_EXCEPTIONS:
+            func = node.func
+            if not ((isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                     and func.value.id in module and func.attr in _RE_FUNCTIONS)
+                    or (isinstance(func, ast.Name) and func.id in functions)):
+                continue
+            pattern = _literal_text(node.args[0])
+            if pattern is None or (mod, pattern) in _REGEX_EXCEPTIONS:
                 continue
             ascii_flag = any("ASCII" in ast.unparse(a) or ast.unparse(a).endswith(".A")
                              for a in list(node.args[1:]) + [k.value for k in node.keywords])
-            if pattern.endswith("$"):
+            if pattern.endswith("$") and not pattern.endswith("\\$"):
                 found.append(f"{mod}:{node.lineno} {pattern!r} ends in `$`, which matches before a newline")
             if _UNICODE_CLASSES.search(pattern) and not ascii_flag:
                 found.append(f"{mod}:{node.lineno} {pattern!r} uses a Unicode class (`\\d` is 0-9 in ECMA-262)")
@@ -288,6 +331,25 @@ class EveryWholeValuePatternReadsAsTheSchemaDoes(unittest.TestCase):
         self.assertEqual(len(found), 2, found)
         self.assertIn("ends in `$`", found[0] + found[1])
         self.assertIn("Unicode class", found[0] + found[1])
+
+    def test_the_sweep_sees_the_forms_the_lens_wrote_past_it(self):
+        """The lens on 8a6c19e7 (finding F3): a private copy of the old reading came back unseen under an
+        alias, through a from-import, compiled without anchors and judged by `.fullmatch`, and built by
+        concatenation. Each form, planted alone, is one finding; its ASCII twin is none."""
+        forms = {
+            "alias": 'import re as _re\nP = _re.compile(r"\\A0\\.1\\.\\d+\\Z")\n',
+            "from-import": 'from re import compile\nP = compile(r"\\A0\\.1\\.\\d+\\Z")\n',
+            "from-import fullmatch": 'from re import fullmatch as fm\nok = fm(r"0\\.1\\.\\d+", v)\n',
+            "unanchored compile": 'import re\nP = re.compile(r"0\\.1\\.\\d+")\nok = P.fullmatch(v)\n',
+            "concatenation": 'import re\nP = re.compile(r"\\A0\\.1\\." + r"\\d+\\Z")\n',
+            "trailing $ under an alias": 'import re as _re\nP = _re.compile(r"[0-9a-f]{64}$")\n',
+        }
+        for name, source in forms.items():
+            with self.subTest(form=name):
+                self.assertEqual(len(_whole_value_regex_findings([("proofbundle.planted", source)])), 1)
+                if "$" not in source:
+                    twin = source.replace(")\n", ", re.ASCII)\n", 1)
+                    self.assertEqual(_whole_value_regex_findings([("proofbundle.planted", twin)]), [], twin)
 
     def test_the_named_exceptions_are_still_there(self):
         """Counter-direction: an exception whose pattern is gone is stale and must be removed."""

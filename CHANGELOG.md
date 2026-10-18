@@ -98,13 +98,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `performedAt`, `startedAt`, `producedAt` or `schemaVersion` passed; trust_pack never read `scheme`
   (`const: "ed25519"`); outcome never typed `traceContext.traceparent`, `validity.audience` and
   `validity.nonce`; and a list as a key's `alg` made `verify_trust_pack` raise `TypeError` before
-  any signature was counted. Leaking paths were decision 63 (9 after the entry above), outcome 12,
-  run_ledger 6, verification_summary 3 and trust_pack 4. Every count is 0 now, and the raise is a
-  verdict. The three shapes and the closed digest object have one definition, which every one of
-  these modules reads in place of a private copy; `trust_pack` and `relation` had been corrected
-  on main already and read the same definition now. A test walks every regular expression literal
-  under `src/proofbundle` that judges a whole value; `agent_review`, the last module with `\d`,
-  follows in the next entry.
+  any signature was counted. Leaking paths were decision 63 (10 after the entry above), outcome 13,
+  run_ledger 7, verification_summary 4 and trust_pack 4, counted with a generator that bends each
+  ASCII digit of a string in turn; its first form bent only the first digit and counted outcome 12,
+  run_ledger 6 and verification_summary 3. Every count is 0 now, and the raise is a verdict. The
+  three shapes and the closed digest object have one definition, which every one of these modules
+  reads in place of a private copy; `trust_pack` and `relation` had been corrected on main already
+  and read the same definition now. A test reads the pattern of every call of `re` under
+  `src/proofbundle`, under any name a module binds to `re` or to one of its functions and as a `+`
+  of literals too, and finds a Unicode class without `re.ASCII` or a trailing `$`. `agent_review`
+  follows in the next entry, and the buffer-format and chain-prefix patterns of
+  `adapters.agt_receipt` and the fraction check of `cli`, the other patterns with `\d`, read ASCII
+  now. Not read: a pattern held in a variable or built at run time, and a shape checked without
+  `re`.
 - **agent-review reads its times and its schema version in ASCII digits, in v0.1, v0.2 and v0.3**
   (`agent_review._RFC3339_Z`, `agent_review._SEMVER_0_1_X`). Both patterns used Python's `\d`, which
   matches every Unicode decimal digit, so a `times.declaredAt` in fullwidth digits and a
