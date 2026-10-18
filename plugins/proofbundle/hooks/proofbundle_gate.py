@@ -14911,6 +14911,7 @@ _SHORT_REASONS = {
     # deny
     "sandbox_verifier_unavailable": ("D24B", "the verifier cannot start here", "der Prüfer hier nicht starten kann"),
     "no_receipt": ("D26", "a receipt of a required check is missing", "eine Quittung einer Pflichtprüfung fehlt"),
+    "claim_without_evidence": ("D80", "a claim has no evidence", "eine Behauptung keinen Beleg hat"),
     "verification_failed": ("D6", "the evidence did not verify", "die Belege nicht bestätigt wurden"),
     "not_done": ("D26", "a required check did not pass", "eine Pflichtprüfung nicht bestanden ist"),
     "other_selection": ("D28", "a receipt names another test selection", "eine Quittung eine andere Testauswahl nennt"),
@@ -18587,6 +18588,789 @@ def _event_directory(event: dict) -> str:
     return cwd if isinstance(cwd, str) and os.path.isabs(cwd) else os.getcwd()
 
 
+# --- the claims of the last message against their evidence (D80, Nachtrag 32) --------------------------------------
+
+#: The newest bytes of the transcript the claim check reads (D80): the evidence of an end lies at its end.
+MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024
+#: The longest last message the claim check reads; a longer one is read up to here.
+MAX_CLAIM_MESSAGE = 64 * 1024
+#: The record of the claim blocks per session in the plugin data directory (D80, point 4 of Nachtrag 32).
+CLAIM_STATE = "claim-state.json"
+CLAIM_STATE_SCHEMA = "proofbundle-plugin/claim-state/v0.1"
+#: How often the same block of a claim comes on the unchanged state in a row; the next end names the claim as open.
+CLAIM_MAX_BLOCKS = 2
+_CLAIM_STATE_KEEP = 64
+#: The receipts a verdict may name its digest in: the JSON files of the evidence folder, each read up to this bound.
+MAX_CLAIM_RECEIPTS = 64
+MAX_CLAIM_RECEIPT_BYTES = 1024 * 1024
+
+#: The words that take a claim back when one of them stands among the four words before it in its clause: a negation,
+#: a part, a condition, a modal or future form, an alternative. A word that frees nothing: it only says the clause
+#: claims nothing, and a claim in another clause stays a claim.
+_CLAIM_TAKEN_BACK = frozenset({
+    "nicht", "nichts", "kein", "keine", "keinen", "keinem", "keiner", "keines", "nie", "niemals", "ohne",
+    "not", "no", "never", "neither", "nor", "without", "cannot",
+    "fast", "beinahe", "nahezu", "halb", "teilweise", "teils", "größtenteils", "weitgehend",
+    "almost", "nearly", "partially", "partly", "mostly", "half",
+    "wenn", "falls", "sobald", "sofern", "bevor", "bis", "ob", "if", "once", "when", "whenever", "before", "until",
+    "unless", "whether",
+    "soll", "sollte", "sollten", "sollen", "muss", "müssen", "müsste", "kann", "können", "könnte", "könnten", "wird",
+    "werden", "würde", "würden", "should", "must", "can", "could", "will", "would", "may", "might", "need", "needs",
+    "to", "oder", "or", "bzw", "entweder", "either"})
+_CLAIM_WORDS = re.compile(r"[^\W_]+(?:['’][^\W_]+)?")
+_CLAIM_DONE = re.compile(r"(?i)(?<![\w-])(fertig|erledigt|done|finished|completed)(?![\w-])(?![ ]?(?:check|checks|verdict|"
+                         r"order|orders|policy|state|metrics|blocker|receipt|init|key|keys)\b)")
+_CLAIM_TEST_SUBJECT = re.compile(r"(?i)(?<![\w-])(tests?|testsuite|test-suite|suite|pytest|unittests?|testl[äa]ufe?)"
+                                 r"(?![\w-])")
+_CLAIM_TEST_GREEN = re.compile(r"(?i)(?<![\w-])(grün|gruen|green|bestanden|bestehen|besteht|passed|pass|passes|passing|"
+                               r"durchgelaufen|erfolgreich|successful|succeeded|succeed|succeeds|ok)(?![\w-])"
+                               r"|(?<![\w-])l[äa]uf(?:en|t) durch(?![\w-])")
+#: A done word after one of these names what was done, it claims nothing: "what was done", "welche erledigt sind".
+_CLAIM_DONE_OBJECT = re.compile(r"(?i)(?<![\w-])(what|which|welche|welcher|welches)(?![\w-])")
+_CLAIM_TEST_COUNT = re.compile(r"(?i)(?<![\w.-])[0-9]+ (passed|bestanden)(?![\w-])")
+#: A sentence that names red tests beside green ones is a partial status, not a claim that the tests pass.
+_CLAIM_TEST_RED = re.compile(r"(?i)(?<![\w.-])[1-9][0-9]* (failed|failing|errors?|error|rot|rote|roten|fehlgeschlagen)"
+                             r"(?![\w-])|(?<![\w-])(bis auf|außer|ausser|except|apart from|other than)(?![\w-])")
+_CLAIM_PUSHED = re.compile(r"(?i)(?<!\w)(gepusht|gepushed|pushed)(?![\w-])")
+_CLAIM_MERGED = re.compile(r"(?i)(?<!\w)(gemergt|gemerged|merged|gelandet|landed)(?![\w-])")
+_CLAIM_LOCAL = re.compile(r"(?i)(?<![\w-])(lokal|lokale|lokalen|locally|local)(?![\w-])")
+_CLAIM_VERDICT = re.compile(r"(?<![\w/-])(WITHSTANDS|PASS|PASSED|FREIGABE|FREIGEGEBEN)(?![\w/-])")
+_CLAIM_OK = re.compile(r"(?<![\w/-])OK(?![\w/-])")
+_CLAIM_SCRIPT_WORD = re.compile(r"(?i)(?<![\w-])(skript|script|prüfskript|pruefskript|checkskript|crosscheck|"
+                                r"kreuzprobe|probe|prüfung|pruefung|check|verify|verifier|prüfer)(?![\w-])"
+                                r"|(\S+\.(?:sh|py|bash))(?![\w-])")
+_CLAIM_SCRIPT_FILE_NAMED = re.compile(r"()(?<![\w.-])(\S*?[\w-]+\.(?:sh|py|bash))(?![\w-])")
+_CLAIM_DIGEST = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{12,128})(?![0-9A-Za-z])")
+_CLAIM_COMMIT = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{7,64})(?![0-9A-Za-z])")
+_CLAIM_VERSION_CONTEXT = re.compile(r"(?i)python|interpreter|cpython|\bpy3[0-9]{1,2}\b|matri[xz]")
+_CLAIM_VERSION = re.compile(r"(?i)(?<![\w.])(?:py3([0-9]{1,2})|(?:python|cpython)?\s?3\.([0-9]{1,2}))(?![\w]|\.[0-9])")
+_CLAIM_QUOTED = re.compile(r"„[^“”\"\n]{0,200}[“”\"]|“[^”\n]{0,200}”|»[^«\n]{0,200}«|«[^»\n]{0,200}»|\"[^\"\n]{0,200}\"")
+_CLAIM_FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
+#: What a claim of each kind says, for the reason.
+_CLAIM_NAMES = {"done": "the work is done", "tests": "the tests pass", "pushed": "it is pushed",
+                "merged": "it is merged or landed", "verdict": "a verdict", "script": "a check script reported OK"}
+
+
+def _claim_text(message: str) -> str:
+    """The last message as the claim check reads it: no fenced code, no quoted line (`>`), no quotation in quotation
+    marks (a claim someone else made, or a case the message names), no backticks or emphasis around words."""
+    text = _CLAIM_FENCE.sub("\n", message[:MAX_CLAIM_MESSAGE])
+    text = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))
+    text = _CLAIM_QUOTED.sub(" ", text)
+    return text.replace("`", "").replace("*", "").replace("__", "")
+
+
+def _claim_taken_back(clause: str, start: int) -> bool:
+    """Whether a word of _CLAIM_TAKEN_BACK, or a word ending in n't, stands among the four words before the claim."""
+    words = [w.lower() for w in _CLAIM_WORDS.findall(clause[:start])][-4:]
+    return any(w in _CLAIM_TAKEN_BACK or w.endswith(("n't", "n’t")) for w in words)
+
+
+def message_claims(message: str) -> list[dict]:
+    """The claims of the closed list in the last message (D80): each {"kind", "words", "digests", "commits",
+    "versions", "script"}. The message is cut into sentences (a full stop, question or exclamation mark before a
+    space, a line, a semicolon, a table cell) and those into clauses (a comma, und, and, aber, but, sowie, a dash). A
+    question claims nothing; a clause claims nothing where a word of _CLAIM_TAKEN_BACK stands among the four words
+    before its claim. A claim that the work is done counts in a clause of at most eight words that does not name what
+    was done; a claim that the tests pass names a test word before its green word, or a count of passed tests, in a
+    sentence that names no red ones."""
+    claims: list[dict] = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+|;\s*|\s\|\s?|\|", _claim_text(message)):
+        sentence = sentence.strip()
+        if not sentence or sentence.endswith("?"):
+            continue
+        digests = _CLAIM_DIGEST.findall(sentence)
+        commits = _CLAIM_COMMIT.findall(sentence)
+        versions = sorted({f"3.{a or b}" for a, b in _CLAIM_VERSION.findall(sentence)}) \
+            if _CLAIM_VERSION_CONTEXT.search(sentence) else []
+        red = _CLAIM_TEST_RED.search(sentence) is not None
+        for clause in re.split(r",\s+|\s+(?:und|and|aber|but|sowie|jedoch|however|while|während|whereas)\s+"
+                               r"|\s+[—–-]\s+", sentence):
+            clause = clause.strip(" \t-*•")
+            found = []
+            m = _CLAIM_DONE.search(clause)
+            if (m and len(_CLAIM_WORDS.findall(clause)) <= 8 and not _claim_taken_back(clause, m.start())
+                    and not _CLAIM_DONE_OBJECT.search(clause[:m.start()])):
+                found.append(("done", m.group(0), {}))
+            if not red:
+                count = _CLAIM_TEST_COUNT.search(clause)
+                subject = _CLAIM_TEST_SUBJECT.search(clause)
+                green = next((g for g in _CLAIM_TEST_GREEN.finditer(clause)
+                              if subject is not None and g.start() > subject.end()
+                              and len(_CLAIM_WORDS.findall(clause[subject.end():g.start()])) <= 6), None)
+                hit = green or count
+                if hit is not None and not _claim_taken_back(clause, hit.start()):
+                    found.append(("tests", clause[(subject.start() if green else hit.start()):hit.end()],
+                                  {"versions": versions}))
+            for kind, pattern in (("pushed", _CLAIM_PUSHED), ("merged", _CLAIM_MERGED)):
+                m = pattern.search(clause)
+                if m and not _claim_taken_back(clause, m.start()) and not (kind == "merged"
+                                                                          and _CLAIM_LOCAL.search(clause)):
+                    found.append((kind, m.group(0), {"commits": commits}))
+            m = _CLAIM_VERDICT.search(clause)
+            if m and not _claim_taken_back(clause, m.start()):
+                found.append(("verdict", m.group(0), {"digests": digests}))
+            m = _CLAIM_OK.search(clause)
+            script = _CLAIM_SCRIPT_FILE_NAMED.search(clause) or _CLAIM_SCRIPT_WORD.search(clause)
+            if m and script and not _claim_taken_back(clause, m.start()):
+                found.append(("script", clause[min(m.start(), script.start()):max(m.end(), script.end())],
+                              {"script": os.path.basename(script.group(2)) if script.group(2) else None}))
+            for kind, words, extra in found:
+                claims.append({"kind": kind, "words": words[:60], "digests": [], "commits": [], "versions": [],
+                               "script": None, **extra})
+    return claims
+
+
+# The transcript of Claude Code (2.1.302, measured in Nachtrag 32): one JSON object per line; a tool call is an item
+# {"type": "tool_use", "id", "name", "input"} of an assistant message, its result an item {"type": "tool_result",
+# "tool_use_id", "content", "is_error"} of the next user message, is_error true for an exit code other than 0 (content
+# "Exit code N\n…"), and the user line carries toolUseResult with "interrupted".
+
+def _read_tail(path: str, limit: int) -> bytes:
+    """The last `limit` bytes of the regular file at path, from the first whole line on; never through a link, never
+    waiting on a FIFO (R18-2 class)."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+                 | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        size = os.fstat(fd).st_size
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise _NotRegular(errno.EINVAL, "not a regular file", path)
+        start = max(0, size - limit)
+        os.lseek(fd, start, os.SEEK_SET)
+        chunks, left = [], size - start
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if start > 0:
+        cut = data.find(b"\n")
+        data = data[cut + 1:] if cut >= 0 else b""
+    return data
+
+
+def _result_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(i["text"] for i in content if isinstance(i, dict) and isinstance(i.get("text"), str))
+    return ""
+
+
+def read_transcript(path: object) -> tuple[list[dict] | None, str | None]:
+    """The tool calls of the transcript in their order, each {"name", "input", "error", "text", "interrupted"}, error
+    and text None where no result follows; or (None, why) where the transcript cannot be read."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return None, "the Stop event names no transcript"
+    try:
+        data = _read_tail(path, MAX_TRANSCRIPT_BYTES)
+    except OSError as exc:
+        return None, f"the transcript cannot be read ({exc.strerror or exc})"
+    calls: list[dict] = []
+    by_id: dict = {}
+    for line in data.splitlines():
+        if b'"tool_use"' not in line and b'"tool_result"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        message = entry.get("message") if isinstance(entry, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "tool_use" and isinstance(item.get("name"), str):
+                call = {"name": item["name"], "input": item.get("input") if isinstance(item.get("input"), dict)
+                        else {}, "error": None, "text": None, "interrupted": False}
+                calls.append(call)
+                if isinstance(item.get("id"), str):
+                    by_id[item["id"]] = call
+            elif item.get("type") == "tool_result" and item.get("tool_use_id") in by_id:
+                call = by_id[item["tool_use_id"]]
+                call["error"] = item.get("is_error") is True
+                call["text"] = _result_text(item.get("content"))
+                result = entry.get("toolUseResult")
+                call["interrupted"] = isinstance(result, dict) and result.get("interrupted") is True
+                if isinstance(result, dict) and isinstance(result.get("stderr"), str) and result["stderr"]:
+                    call["text"] += "\n" + result["stderr"]
+    return calls, None
+
+
+#: The tools of Claude Code that change files.
+_CLAIM_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+#: Programs that change no file of the work tree, with the forms below that do left out (D80). Anything else changes.
+_CLAIM_STILL = frozenset({
+    "cd", "pwd", "echo", "printf", "cat", "head", "tail", "wc", "ls", "grep", "egrep", "fgrep", "rg", "sha256sum",
+    "sha1sum", "sha512sum", "md5sum", "b2sum", "stat", "file", "which", "type", "true", "false", ":", "sleep", "date",
+    "whoami", "id", "uname", "hostname", "df", "du", "tree", "diff", "cmp", "jq", "uniq", "cut", "tr", "column", "nl",
+    "basename", "dirname", "realpath", "readlink", "printenv", "test", "[", "[[", "set", "export", "source", ".",
+    "unset", "shopt", "ps", "pgrep", "free", "uptime", "nproc", "seq", "xxd", "od", "hexdump", "strings", "zcat",
+    "less", "more", "wait", "exit", "return"})
+_CLAIM_GIT_CHANGES = frozenset({
+    "checkout", "switch", "restore", "reset", "merge", "rebase", "pull", "cherry-pick", "revert", "stash", "clean",
+    "mv", "rm", "am", "apply", "worktree", "submodule", "clone", "init", "sparse-checkout", "lfs", "filter-branch",
+    "filter-repo", "bisect", "archive", "format-patch", "bundle", "read-tree", "checkout-index"})
+_CLAIM_GH_CHANGES = frozenset({("pr", "checkout"), ("repo", "clone"), ("release", "download"), ("run", "download"),
+                               ("gist", "clone"), ("repo", "fork")})
+_CLAIM_WRAPPERS = frozenset({"env", "timeout", "nice", "time", "command", "exec", "stdbuf", "nohup"})
+_CLAIM_RUNNERS = frozenset({"pytest", "py.test", "tox", "nox", "ctest", "bats", "jest", "vitest", "phpunit", "rspec"})
+_CLAIM_RUNNER_SUBCOMMANDS = {"npm": {"test", "t"}, "pnpm": {"test", "t"}, "yarn": {"test"}, "bun": {"test"},
+                             "deno": {"test"}, "cargo": {"test", "nextest"}, "go": {"test"},
+                             "make": {"test", "tests", "check"}, "mvn": {"test", "verify"},
+                             "gradle": {"test", "check"}, "hatch": {"test"}, "dotnet": {"test"}}
+_CLAIM_PYTHON = re.compile(r"(?:python|pypy)([0-9]+(?:\.[0-9]+)?)?")
+_CLAIM_SCRIPT_FILE = re.compile(r"[^/]+\.(?:sh|bash|py)")
+_CLAIM_TEST_SCRIPT = re.compile(r"(?i)test|suite")
+_CLAIM_HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+
+
+def _claim_strip_heredocs(command: str) -> str:
+    """The command without the bodies of its here-documents, which are input and never words of the shell."""
+    out, i = [], 0
+    while True:
+        m = _CLAIM_HEREDOC.search(command, i)
+        if m is None:
+            out.append(command[i:])
+            return "".join(out)
+        out.append(command[i:m.start()])
+        end_of_line = command.find("\n", m.end())
+        if end_of_line < 0:
+            out.append(command[m.end():])
+            return "".join(out)
+        out.append(command[m.end():end_of_line + 1])
+        j = end_of_line + 1
+        while j < len(command):
+            k = command.find("\n", j)
+            line = command[j:] if k < 0 else command[j:k]
+            j = len(command) if k < 0 else k + 1
+            if (line.lstrip("\t") if m.group(1) else line) == m.group(3):
+                break
+        i = j
+
+
+def _claim_runs(command: str) -> tuple[list, list, list] | None:
+    """The runs of words of a command, the operator after each ("" after the last) and whether an output redirection
+    of each writes a file; None where the gate cannot read the command. Groups are read flat: `(a && b) | c` as
+    `a && b | c`."""
+    toks = _lex(_drop_comments(_claim_strip_heredocs(command)))
+    if toks is None:
+        return None
+    runs, ops, writes, run, write = [], [], [], [], False
+    for t in toks:
+        if t[0] == "word":
+            run.append(t[1:])
+        elif t[0] == "redir":
+            target = t[2]
+            if t[1] in _READ_ONLY_SINKS and not (target is not None and target[0] == "/dev/null"):
+                write = True
+        elif t[0] == "op" and t[1] in (";", "&&", "||", "|", "&"):
+            if run or write:
+                runs.append(run)
+                ops.append(t[1])
+                writes.append(write)
+            elif ops:
+                ops[-1] = t[1] if ops[-1] == ";" else ops[-1]
+            run, write = [], False
+    if run or write:
+        runs.append(run)
+        ops.append("")
+        writes.append(write)
+    return runs, ops, writes
+
+
+def _claim_program(run: list) -> tuple[str, list]:
+    """The program of a run and its words after the assignments and wrappers in front (env, timeout, nice, time, …),
+    the program by the last part of its path."""
+    words = list(run)
+    while words:
+        value = words[0][0]
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", value, re.S):
+            words = words[1:]
+            continue
+        name = os.path.basename(value)
+        if name not in _CLAIM_WRAPPERS:
+            return name, words[1:]
+        words = words[1:]
+        if name == "timeout":
+            while words and words[0][0].startswith("-"):
+                words = words[2:] if words[0][0] in ("-s", "-k", "--signal", "--kill-after") else words[1:]
+            words = words[1:]   # the duration
+        elif name in ("env", "nice", "stdbuf"):
+            while words and (words[0][0].startswith("-") or "=" in words[0][0]):
+                words = words[2:] if words[0][0] in ("-u", "-n", "-C", "--unset", "--adjustment") else words[1:]
+    return "", []
+
+
+def _claim_test_run(name: str, args: list) -> tuple[bool, list[str]]:
+    """Whether the run starts a test runner of the closed list (D80), and the Python versions it names."""
+    words = [a[0] for a in args]
+    versions = []
+    python = _CLAIM_PYTHON.fullmatch(name)
+    if python and python.group(1) and "." in python.group(1):
+        versions.append(python.group(1))
+    if name in ("uv", "poetry", "pipenv", "pdm", "rye") and words[:1] == ["run"]:
+        rest = words[1:]
+        while rest and rest[0].startswith("-"):
+            if rest[0] in ("-p", "--python") and len(rest) > 1:
+                versions.append(rest[1])
+                rest = rest[2:]
+                continue
+            if rest[0].startswith("--python="):
+                versions.append(rest[0].split("=", 1)[1])
+            rest = rest[2:] if rest[0] in ("--with", "--extra", "--group", "--directory", "--project", "--package",
+                                           "--env-file", "--index", "--from") else rest[1:]
+        if not rest:
+            return False, versions
+        inner, more = _claim_test_run(os.path.basename(rest[0]), [(w, False, w) for w in rest[1:]])
+        return inner, versions + more
+    if name in _CLAIM_RUNNERS:
+        if name == "tox":
+            versions += [f"3.{m}" for m in re.findall(r"py3([0-9]{1,2})", " ".join(words))]
+        return True, versions
+    if name in _CLAIM_RUNNER_SUBCOMMANDS:
+        rest = [w for w in words if not w.startswith("-")]
+        if rest[:1] == ["run"] and name in ("npm", "pnpm", "yarn"):
+            rest = rest[1:]
+        return bool(rest) and rest[0] in _CLAIM_RUNNER_SUBCOMMANDS[name], versions
+    if python:
+        rest = list(words)
+        while rest and rest[0].startswith("-") and rest[0] != "-m":
+            if rest[0] == "-c":
+                return False, versions
+            rest = rest[2:] if rest[0] in ("-X", "-W") else rest[1:]
+        if rest[:1] == ["-m"]:
+            return len(rest) > 1 and rest[1] in ("pytest", "unittest", "tox", "nox"), versions
+        return bool(rest) and _CLAIM_SCRIPT_FILE.fullmatch(os.path.basename(rest[0])) is not None and \
+            _CLAIM_TEST_SCRIPT.search(os.path.basename(rest[0])) is not None, versions
+    return _claim_script(name, args) is not None and _CLAIM_TEST_SCRIPT.search(_claim_script(name, args)) is not None, \
+        versions
+
+
+def _claim_script(name: str, args: list) -> str | None:
+    """The file name of the script a run starts (a program word ending in .sh, .bash or .py, or bash, sh or python
+    with such a file first), None for any other run."""
+    if _CLAIM_SCRIPT_FILE.fullmatch(name):
+        return name
+    if name in ("bash", "sh", "zsh", "dash") or _CLAIM_PYTHON.fullmatch(name):
+        rest = [a[0] for a in args]
+        while rest and rest[0].startswith("-"):
+            if rest[0] in ("-c", "-m"):
+                return None
+            rest = rest[2:] if rest[0] in ("-o", "-O", "-X", "-W") else rest[1:]
+        if rest and _CLAIM_SCRIPT_FILE.fullmatch(os.path.basename(rest[0])):
+            return os.path.basename(rest[0])
+    return None
+
+
+def _claim_still_run(name: str, args: list) -> bool:
+    """Whether a run changes no file of the work tree (D80): a program of _CLAIM_STILL in a form that writes nothing, a
+    git or gh call that leaves the work tree as it is, a test runner."""
+    words = [a[0] for a in args]
+    if name in ("sed",):
+        return not any(w.startswith(("-i", "--in-place")) or (re.fullmatch(r"-[a-zA-Z]*i[a-zA-Z]*", w) is not None)
+                       for w in words)
+    if name == "sort":
+        return not any(w.startswith(("-o", "--output")) for w in words)
+    if name == "find":
+        return not any(w in _READ_ONLY_FIND_ACTIONS for w in words)
+    if name in ("awk", "gawk", "mawk"):
+        return not any(">" in w or "system(" in w or "|" in w for w in words)
+    if name == "tar":
+        return bool(words) and (words[0] in ("t", "-t", "--list") or re.fullmatch(r"-?t[a-zA-Z]*", words[0]) is not None)
+    if name == "xargs":
+        rest = list(args)
+        while rest and rest[0][0].startswith("-"):
+            rest = rest[1:]
+        return not rest or _claim_still_run(os.path.basename(rest[0][0]), rest[1:])
+    if name == "git":
+        rest = list(words)
+        while rest and rest[0].startswith("-"):
+            rest = rest[2:] if rest[0] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace") else rest[1:]
+        if not rest:
+            return True
+        if rest[0] == "worktree":
+            return rest[1:2] == ["list"]
+        if rest[0] == "stash":
+            return rest[1:2] in (["list"], ["show"])
+        if rest[0] == "apply":
+            return "--check" in rest or "--stat" in rest
+        return rest[0] not in _CLAIM_GIT_CHANGES
+    if name == "gh":
+        rest = [w for w in words if not w.startswith("-")]
+        return tuple(rest[:2]) not in _CLAIM_GH_CHANGES
+    if name in _CLAIM_STILL:
+        return True
+    return _claim_test_run(name, args)[0]
+
+
+def _claim_command(command: str, depth: int = 0) -> dict:
+    """What a Bash command of the transcript is for the claim check (D80): {"change": whether it may change a file of
+    the work tree after its last test run (or at all, where it runs none), "test": whether it runs a test runner,
+    "own": whether the exit code of the command is each runner's own (nothing after a runner but `&&`, or a pipe with
+    pipefail set before it; no `||` between a runner and the list before it; not sent to the background), "versions":
+    the Python versions it names, "words": its words, "scripts": the scripts it starts, "git": the words of each git
+    call after its switches, "gh": the words of each gh call}. A command the gate cannot read changes and runs
+    nothing."""
+    out = {"change": True, "test": False, "own": False, "versions": [], "words": set(), "scripts": [], "git": [],
+           "gh": []}
+    parsed = _claim_runs(command) if depth <= MAX_NESTING else None
+    if parsed is None:
+        return out
+    runs, ops, writes = parsed
+    changes, tests, pipefail = [], [], None
+    for n, run in enumerate(runs):
+        name, args = _claim_program(run)
+        words = [a[0] for a in args]
+        out["words"].update(w[0] for w in run)
+        if name == "set" and "pipefail" in words and pipefail is None:
+            pipefail = n
+        is_test, versions = _claim_test_run(name, args)
+        if is_test:
+            tests.append(n)
+            out["versions"] += versions
+        script = _claim_script(name, args)
+        if script is not None:
+            out["scripts"].append(script)
+        if name == "git":
+            rest = list(words)
+            while rest and rest[0].startswith("-"):
+                rest = rest[2:] if rest[0] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace") else rest[1:]
+            out["git"].append(rest)
+        if name == "gh":
+            out["gh"].append([w for w in words if not w.startswith("-")] + [w for w in words if w == "--auto"])
+        if writes[n] or not name or not _claim_still_run(name, args):
+            changes.append(n)
+    inner = any(_claim_command(body, depth + 1)["change"] for body in _subst_bodies(command))
+    out["test"] = bool(tests)
+    out["change"] = inner or (any(n > tests[-1] for n in changes) if tests else bool(changes))
+    own = bool(tests) and ops[-1] != "&"
+    for n in tests:
+        before = ops[:n]
+        last_list = max((i for i, op in enumerate(before) if op in (";", "&")), default=-1)
+        if "||" in before[last_list + 1:]:
+            own = False
+        for op in ops[n:len(runs) - 1]:
+            if op != "&&" and not (op == "|" and pipefail is not None and pipefail < n):
+                own = False
+    out["own"] = own
+    return out
+
+
+def _claim_numbers(text: str) -> bool:
+    """Whether output names a number of its own beside OK: a count or a measure, not a part of a path, a name or an id."""
+    return re.search(r"(?<![\w./:-])[0-9]+(?:[.,][0-9]+)?(?:/[0-9]+)?%?(?![\w./:-])", text) is not None
+
+
+def _claim_version_shown(command: str, text: str) -> tuple[str, str] | None:
+    """(program word, version) where the command is `<program> -V` or `<program> --version` and its output names a
+    Python version (`Python 3.12.1`), else None."""
+    parsed = _claim_runs(command)
+    if parsed is None or len(parsed[0]) != 1:
+        return None
+    words = [w[0] for w in parsed[0][0]]
+    m = re.search(r"Python (3\.[0-9]{1,2})", text)
+    return (words[0], m.group(1)) if len(words) == 2 and words[1] in ("-V", "--version") and m else None
+
+
+def _claim_evidence_calls(calls: list[dict]) -> dict:
+    """What the transcript shows for the claim check: the index of the last change, the passing test runs after it
+    with their own exit code and their versions, the last test run after it (any outcome), the script runs, the git
+    fetches and pushes that succeeded, the merges of gh or of the GitHub tools that succeeded."""
+    last_change, runs, scripts, remote, merges, shown, known = -1, [], [], [], [], {}, {}
+    for n, call in enumerate(calls):
+        name, inp = call["name"], call["input"]
+        if name in _CLAIM_EDIT_TOOLS:
+            if call["error"] is not True:
+                last_change = n
+            continue
+        if "merge_pull_request" in name and call["error"] is False:
+            merges.append(n)
+            continue
+        command = inp.get("command") if name == "Bash" else None
+        if not isinstance(command, str):
+            continue
+        info = known.get(command)
+        if info is None:
+            info = known[command] = _claim_command(command)
+        if info["change"]:
+            last_change = n
+        background = inp.get("run_in_background") is True
+        succeeded = call["error"] is False and not call["interrupted"] and not background
+        if succeeded and ("-V" in command or "--version" in command):
+            version = _claim_version_shown(command, call["text"] or "")
+            if version is not None:
+                shown[version[0]] = version[1]
+        if info["test"]:
+            runs.append({"at": n, "own": info["own"], "ok": succeeded, "versions": info["versions"],
+                         "text": call["text"] or "", "words": info["words"]})
+        for script in info["scripts"]:
+            scripts.append({"at": n, "script": script, "ok": succeeded, "text": call["text"] or ""})
+        if succeeded:
+            for words in info["git"]:
+                if words[:1] in (["fetch"], ["pull"], ["push"]) or words[:2] == ["remote", "update"]:
+                    remote.append({"at": n, "words": words, "text": call["text"] or ""})
+            for words in info["gh"]:
+                if words[:2] == ["pr", "merge"] and "--auto" not in words:
+                    merges.append(n)
+    return {"last_change": last_change, "runs": runs, "scripts": scripts, "remote": remote, "merges": merges,
+            "versions_shown": shown, "count": len(calls)}
+
+
+def _claim_tests_open(claim: dict, seen: dict, done_passed: bool) -> tuple[str, str] | None:
+    """Why a claim that the tests pass, or that the work is done, has no evidence at the current state, and the
+    smallest next step; None where it has (D80). Evidence: the declared done check passed at this end (a receipt
+    with the git state of the work tree), or a test run after the last change in the transcript with its own exit code
+    0. Each Python version the claim names needs such a run that names it (in its command, its output, or the version
+    its interpreter showed). A claim that the work is done needs no run where the transcript shows no change."""
+    if done_passed and not claim["versions"]:
+        return None
+    after = [r for r in seen["runs"] if r["at"] > seen["last_change"]]
+    good = [r for r in after if r["own"] and r["ok"]]
+    if claim["kind"] == "done" and seen["last_change"] < 0:
+        return None
+    step = ("run the tests after the last change as a command of their own (nothing after the runner but `&&`, or "
+            "`set -o pipefail` before a pipe) and read its exit code")
+    if not good:
+        if not after:
+            return "no test run follows the last change in the transcript", step
+        last = after[-1]
+        if not last["ok"]:
+            return "the last test run after the last change did not exit 0", ("fix what is red and run the tests "
+                                                                                "again, or report them as red")
+        return ("the exit code of the last test run after the last change is not its own (a pipe without pipefail, a "
+                "list or || after the runner)"), step
+    missing = []
+    for version in claim["versions"]:
+        if not any(version in run["versions"] or re.search(rf"Python {re.escape(version)}(?![0-9])", run["text"])
+                   or any(seen["versions_shown"].get(w) == version for w in run["words"]) for run in good):
+            missing.append(version)
+    if missing:
+        return (f"no passing test run after the last change names Python {', '.join(missing)}",
+                f"run the tests under Python {', '.join(missing)} too, or name only the interpreters that ran")
+    return None
+
+
+def _claim_repo_ok(repo: str | None, seen: dict, claim: dict, deadline: float) -> tuple[str, str] | None:
+    """Why a claim that something is pushed, merged or landed has no evidence, and the smallest next step; None where
+    it has (D80). Pushed: a fetch, pull or push succeeded in the transcript, and after it a remote-tracking ref points
+    at the reported state (the commits the sentence names, else HEAD); or a push's output names the reported commit as
+    the new value of a ref. Merged or landed: a fetch, pull or push succeeded in the transcript and the default branch
+    of a remote contains the reported state; or, where the sentence names no commit, a merge of gh (not --auto) or of
+    the GitHub tools succeeded."""
+    pushed = claim["kind"] == "pushed"
+    step = ("run `git fetch`, then compare the remote branch with the reported commit (`git rev-parse @{u}`) and push "
+            "it where they differ" if pushed else
+            "run `git fetch`, then check that the remote default branch contains the reported commit (`git merge-base "
+            "--is-ancestor <commit> origin/main`)")
+    if not pushed and not claim["commits"] and seen["merges"]:
+        return None
+    if repo is None:
+        return "the working directory is no git repository, so no remote ref can show it", step
+    reported = []
+    for hexa in claim["commits"] or ["HEAD"]:
+        proc = _git(repo, "rev-parse", "--verify", "-q", f"{hexa}^{{commit}}", deadline=deadline)
+        if proc.returncode == 0:
+            reported.append(proc.stdout.decode("ascii", "replace").strip())
+    if not reported:
+        return "the commit the message names is not a commit of this repository", step
+    if pushed:
+        for push in seen["remote"]:
+            if push["words"][:1] == ["push"]:
+                for m in re.finditer(r"[0-9a-f]{7,64}\.\.\.?([0-9a-f]{7,64})\s", push["text"]):
+                    if any(r.startswith(m.group(1)) for r in reported):
+                        return None
+    if not seen["remote"]:
+        return "no fetch, pull or push succeeded in the transcript, so the remote refs are not known", step
+    refs = _git(repo, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/", deadline=deadline)
+    if refs.returncode != 0:
+        return "git could not list the remote-tracking refs", step
+    remote = {}
+    for line in refs.stdout.decode("utf-8", "replace").splitlines():
+        oid, _, ref = line.partition(" ")
+        remote[ref] = oid
+    if pushed:
+        targets = [ref for ref, oid in remote.items() if oid in reported]
+        others = [r for r in reported if r not in remote.values()]
+        if targets and all(_git(repo, "merge-base", "--is-ancestor", r, remote[targets[0]], deadline=deadline)
+                           .returncode == 0 for r in others):
+            return None
+        return "no remote-tracking ref points at the reported state after the last fetch", step
+    defaults = set()
+    for ref in remote:
+        parts = ref.split("/")
+        if len(parts) == 4 and parts[3] in ("main", "master"):
+            defaults.add(ref)
+    heads = _git(repo, "for-each-ref", "--format=%(symref)", "refs/remotes/*/HEAD", deadline=deadline)
+    if heads.returncode == 0:
+        defaults.update(x for x in heads.stdout.decode("utf-8", "replace").split() if x in remote)
+    for ref in sorted(defaults):
+        if all(_git(repo, "merge-base", "--is-ancestor", r, remote[ref], deadline=deadline).returncode == 0
+               for r in reported):
+            return None
+    return "no default branch of a remote contains the reported state after the last fetch", step
+
+
+def _claim_receipts(repo: str | None) -> list[str]:
+    """The hex strings of the receipts in the evidence folder (D80): its JSON files whose name says receipt, each read
+    up to MAX_CLAIM_RECEIPT_BYTES. The declaration, the policy and the gate's own files are no receipts."""
+    folder = _evidence_folder(repo) if repo is not None else None
+    if folder is None:
+        return []
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.endswith(".json")
+                       and "receipt" in n.lower())[:MAX_CLAIM_RECEIPTS]
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        try:
+            raw = _read_regular(os.path.join(folder, name), MAX_CLAIM_RECEIPT_BYTES)
+        except OSError:
+            continue
+        found += re.findall(r"(?<![0-9a-f])[0-9a-f]{12,128}(?![0-9a-f])", raw.decode("utf-8", "replace"))
+    return found
+
+
+def _claim_open(claim: dict, seen: dict | None, why: str | None, repo: str | None, done_passed: bool,
+                receipts: list[str] | None, deadline: float) -> tuple[str, str] | None:
+    """Why one claim has no evidence at the current state, and the smallest next step; None where it has (D80)."""
+    kind = claim["kind"]
+    if kind == "verdict":
+        if not claim["digests"]:
+            return ("the verdict names no digest",
+                    "name the digest the verdict is for, beside a receipt in .proofbundle/ that names exactly that "
+                    "digest, or drop the verdict")
+        if receipts is None:
+            receipts = _claim_receipts(repo)
+        if all(any(r == d or r.startswith(d) for r in receipts) for d in claim["digests"]):
+            return None
+        return ("no receipt in .proofbundle/ names the digest of the verdict",
+                "keep a receipt that names exactly that digest in .proofbundle/, or drop the verdict")
+    if seen is None:
+        if kind in ("done", "tests") and done_passed and not claim["versions"]:
+            return None
+        return why or "the transcript cannot be read", "end with a status that claims nothing"
+    if kind in ("done", "tests"):
+        return _claim_tests_open(claim, seen, done_passed)
+    if kind == "script":
+        runs = [s for s in seen["scripts"] if claim["script"] is None or s["script"] == claim["script"]]
+        step = "run the check script again and quote its numbers, not only OK"
+        if not runs:
+            return "no run of the check script is in the transcript", step
+        last = runs[-1]
+        if not last["ok"]:
+            return "the last run of the check script did not exit 0", step
+        if not _claim_numbers(last["text"].replace("OK", " ")):
+            return "the output of the last run of the check script names no number beside OK", step
+        return None
+    return _claim_repo_ok(repo, seen, claim, deadline)
+
+
+def claim_check(event: dict, deadline: float, done_passed: bool = False) -> dict:
+    """The claims of the last message and their evidence at the current state (D80): {"claims": [{"kind", "words",
+    "open", "next"}], "open": the claims without evidence, "count": the tool calls of the transcript, "repo"}. A
+    message without a claim of the closed list needs nothing; the transcript is read only for a claim that needs it."""
+    message = event.get("last_assistant_message")
+    claims = message_claims(message) if isinstance(message, str) else []
+    out = {"claims": [], "open": [], "count": None, "repo": None}
+    if not claims:
+        return out
+    directory = _event_directory(event)
+    try:
+        paths, _why = _repo_paths(directory, deadline)
+        repo = paths["toplevel"] if paths is not None else None
+    except GateError:
+        repo = None
+    out["repo"] = repo
+    seen, why = None, None
+    if any(c["kind"] != "verdict" for c in claims):
+        calls, why = read_transcript(event.get("transcript_path"))
+        if calls is not None:
+            seen = _claim_evidence_calls(calls)
+            out["count"] = seen["count"]
+    receipts = None
+    for claim in claims:
+        try:
+            found = _claim_open(claim, seen, why, repo, done_passed, receipts, deadline)
+        except GateError:
+            found = ("the gate could not read the repository", "end with a status that claims nothing")
+        row = {"kind": claim["kind"], "words": claim["words"], "open": None if found is None else found[0],
+               "next": None if found is None else found[1]}
+        out["claims"].append(row)
+        if found is not None and not any(o["kind"] == row["kind"] and o["open"] == row["open"] for o in out["open"]):
+            out["open"].append(row)
+    return out
+
+
+def _claim_verdict(result: dict) -> Verdict:
+    """The deny of a claim without evidence (D80): every open claim, the first one's next step."""
+    failed = "; ".join(f"the last message claims {_CLAIM_NAMES[o['kind']]} ({o['words']}), but {o['open']}"
+                       for o in result["open"])
+    return Verdict("deny", f"proofbundle claim check: {failed}.", "claim_without_evidence",
+                   evidence="the last message and the transcript", failed=failed, next_step=result["open"][0]["next"],
+                   repo=result["repo"])
+
+
+def _claim_line(verdict: Verdict) -> str:
+    return (f"proofbundle claim check: {verdict.failed.rstrip('.')}. Next: {verdict.next_step.rstrip('.')}, or end "
+            "with a status that claims nothing: partial, blocked or not checked, each with its reason.")
+
+
+def _claim_fingerprint(result: dict, deadline: float) -> str:
+    """The state a claim block speaks for: the open claims, HEAD and the status of the work tree, the number of tool
+    calls in the transcript. A new tool call, commit or change of a file makes another state."""
+    head, status = None, None
+    if result["repo"] is not None:
+        proc = _git(result["repo"], "rev-parse", "--verify", "-q", "HEAD", deadline=deadline)
+        head = proc.stdout.decode("ascii", "replace").strip() if proc.returncode == 0 else None
+        proc = _git(result["repo"], "status", "--porcelain=v1", "-z", "--untracked-files=all", deadline=deadline)
+        status = hashlib.sha256(proc.stdout).hexdigest() if proc.returncode == 0 else None
+    shape = [[o["kind"], o["open"]] for o in result["open"]]
+    return hashlib.sha256(json.dumps([shape, head, status, result["count"]]).encode("utf-8")).hexdigest()
+
+
+def _account_claim_block(event: dict, result: dict, host: str, deadline: float) -> tuple[int, str | None]:
+    """Count one claim block (D80, point 4 of Nachtrag 32) and return (blocks, problem): the blocks in a row of the
+    same open claims on the same state in this session, this one included, and why the count could not be recorded.
+    A Stop event with stop_hook_active false follows no block, so it counts as the first; where the count cannot be
+    kept, a Stop after a block (stop_hook_active true) counts as past the limit, so the session never loops on a block
+    the hook cannot count."""
+    session = _session_key(event)
+    after_block = event.get("stop_hook_active") is True
+    fingerprint = _claim_fingerprint(result, deadline)
+    directory = log_directory(host)
+    if directory is None:
+        return (CLAIM_MAX_BLOCKS + 1 if after_block else 1), "no plugin data directory can be written"
+    path = os.path.join(directory, CLAIM_STATE)
+    sessions: dict = {}
+    try:
+        raw = _read_regular(path, MAX_STATE_BYTES + 1)
+        doc = strict_json(raw) if len(raw) <= MAX_STATE_BYTES else None
+        if (isinstance(doc, dict) and doc.get("schema") == CLAIM_STATE_SCHEMA and isinstance(doc.get("sessions"), dict)):
+            sessions = {k: v for k, v in doc["sessions"].items() if isinstance(v, dict)
+                        and isinstance(v.get("blocks"), int) and not isinstance(v.get("blocks"), bool)
+                        and isinstance(v.get("fingerprint"), str)}
+    except (OSError, ValueError, UnicodeDecodeError):
+        sessions = {}
+    previous = sessions.pop(session, None)
+    same = after_block and previous is not None and previous["fingerprint"] == fingerprint
+    blocks = previous["blocks"] + 1 if same else 1
+    sessions[session] = {"fingerprint": fingerprint, "blocks": blocks}
+    while len(sessions) > _CLAIM_STATE_KEEP:
+        sessions.pop(next(iter(sessions)))
+    problem = _write_record(path, {"schema": CLAIM_STATE_SCHEMA, "sessions": sessions})
+    if problem is not None and after_block and not same:
+        return CLAIM_MAX_BLOCKS + 1, problem
+    return blocks, problem
+
+
 def stop_command(argv: list[str]) -> int:
     """The Stop hook (D26, D28), the same for Claude Code and Codex. Prints a block whose reason is the one line for
     the model and whose message is the short line for the user (D53); nothing for a pass without a finding, a message
@@ -18645,11 +19429,58 @@ def stop_command(argv: list[str]) -> int:
         ended.append((result, verdict, limit, blocker, counting))
     decisive = (shown[0] if shown is not None else ended[0][1] if ended else passed[0][0]["verdict"] if passed
                 else results[0]["verdict"])
+    # D80: where the done check lets the end through, the claims of the last message need their own evidence; under
+    # Claude Code, whose transcript form is measured. A block of the done check or its end goes first.
+    claims, claim_block, claim_end = None, None, None
+    if (shown is None and not ended and host == "claude" and isinstance(event, dict)
+            and all(r["verdict"].decision in ("inactive", "pass", "deny") for r in results)):
+        here_passed = bool(results) and results[0]["verdict"].decision == "pass" and results[0]["done"] is not None
+        try:
+            claims = claim_check(event, deadline, here_passed)
+        except Exception as exc:  # noqa: BLE001 - a failure of the claim check holds only a message that claims
+            try:
+                found = message_claims(event.get("last_assistant_message") or "")
+            except Exception:  # noqa: BLE001
+                found = [{"kind": "done", "words": ""}]
+            claims = {"claims": [], "count": None, "repo": None,
+                      "open": [{"kind": c["kind"], "words": c["words"], "next": "end with a status that claims nothing",
+                                "open": f"the claim check reached no verdict ({type(exc).__name__})"}
+                               for c in found[:1]]}
+        if claims["open"]:
+            verdict = _claim_verdict(claims)
+            try:
+                blocks, counting = _account_claim_block(event, claims, host, deadline)
+            except Exception as exc:  # noqa: BLE001 - a count that failed ends the session after a block (point 4)
+                blocks = CLAIM_MAX_BLOCKS + 1 if event.get("stop_hook_active") is True else 1
+                counting = f"counting failed ({type(exc).__name__})"
+            if blocks > CLAIM_MAX_BLOCKS:
+                claim_end = verdict
+            else:
+                claim_block = (verdict, counting)
+            decisive = verdict
     try:
-        write_log(log_entry(host, event, Outcome(decisive.decision, decisive.text(), [decisive]), ["Stop"]), host)
+        entry = log_entry(host, event, Outcome(decisive.decision, decisive.text(), [decisive]),
+                          ["Stop"] + (["claims"] if claims and claims["claims"] else [])
+                          + (["claims-ended"] if claim_end is not None else []))
+        if claims and claims["claims"]:
+            entry["claims"] = [{"kind": c["kind"], "evidence": c["open"] is None} for c in claims["claims"]]
+        write_log(entry, host)
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
     language = _read_language(os.environ)
+    if claim_block is not None:
+        verdict, counting = claim_block
+        line = _claim_line(verdict)
+        if counting is not None:
+            line += (f" The hook could not count this block ({counting}), so the next stop after a block ends the "
+                     "session with the claim open.")
+        sys.stdout.write(json.dumps({"decision": "block", "reason": line,
+                                     "systemMessage": _stop_short(verdict, language)}) + "\n")
+        return 0
+    claim_note = None if claim_end is None else (
+        f"proofbundle claim check: OPEN. The same claim stayed without evidence through {CLAIM_MAX_BLOCKS} blocks on "
+        f"the unchanged state, so the hook stops blocking and the session ends with the claim open, not confirmed. "
+        f"Open: {claim_end.failed.rstrip('.')}.")
     if shown is not None:
         verdict, limit, counting, unread = shown
         line = _done_line(verdict)
@@ -18695,13 +19526,17 @@ def stop_command(argv: list[str]) -> int:
             if result.get("local"):
                 message += f" (Local done order {result['local']}, D38.)"
             messages.append(message)
-        sys.stdout.write(json.dumps({"systemMessage": " ".join(messages)}) + "\n")
+        sys.stdout.write(json.dumps({"systemMessage": " ".join(([claim_note] if claim_note else []) + messages)})
+                         + "\n")
     elif passed:
-        pass   # D53: a passed end without a finding is silent; the log holds it
+        if claim_note is not None:   # D53: a passed end without a finding is silent; the log holds it
+            sys.stdout.write(json.dumps({"systemMessage": claim_note}) + "\n")
     elif any(r["verdict"].decision not in ("inactive", "pass", "deny") for r in results):
         line = _done_line(decisive)
         sys.stdout.write(json.dumps({"decision": "block", "reason": line,
                                      "systemMessage": _stop_short(decisive, language)}) + "\n")
+    elif claim_note is not None:
+        sys.stdout.write(json.dumps({"systemMessage": claim_note}) + "\n")
     return 0
 
 

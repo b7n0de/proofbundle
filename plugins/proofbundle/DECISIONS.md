@@ -4138,6 +4138,57 @@ it, never through a link; the gate directory is the person's (D25), so the agent
 directory is known, done-init says that the block will name the default.
 Tests: tests/test_plugin_n32_done_key_b30_2.py.
 
+## D80. The Stop hook holds a claim of the last message that has no evidence (Nachtrag 32, O30-2, 2026-10-18)
+
+Measured by delta (WIRKUNG_plugin_20261018.json, gate 0efaf38d): five false completion messages, none held; neither
+repository declares a done check, so the Stop hook ended with `nothing_declared`. Measured in Nachtrag 32 with Claude
+Code 2.1.302 (messung/transcript_summary.txt, stop_hook_active_summary.txt): the Stop event carries
+`last_assistant_message` and `transcript_path`; a Bash call is a `tool_use` item with input.command, its result a
+`tool_result` item with is_error false for exit code 0 and true otherwise; stop_hook_active is false at the first Stop
+of a turn and true at each Stop after a block; after nine blocks 2.1.302 ends without a tenth event.
+
+The rule (claim_check, message_claims, stop_command), under Claude Code, where the done check lets the end through:
+
+- The claims are a closed list in German and English: done (fertig, erledigt, done, finished, completed, in a clause of
+  at most eight words that does not name what was done), the tests pass (a test word before a green word, or a count of
+  passed tests, in a sentence that names no red ones), pushed (gepusht, pushed), merged or landed (gemergt, gelandet,
+  merged, landed; not where the clause says local), a verdict (WITHSTANDS, PASS, PASSED, FREIGABE, FREIGEGEBEN in
+  capitals), OK of a check script (OK in capitals beside a script file or a word such as Skript, Kreuzprobe, check).
+  Fenced code, quoted lines and text in quotation marks claim nothing. A question claims nothing; a clause claims
+  nothing where a negation, a part, a condition, a modal or future form or an alternative stands among the four words
+  before its claim. Such a word takes back its own clause only: a claim in another clause stays a claim.
+- Each claim needs its own evidence at the current state. The tests pass, or the work is done: the declared done check
+  passed at this end (a receipt with the git state of the work tree), or a test run of the closed list of runners after
+  the last change in the transcript whose exit code is its own and 0 (nothing after the runner but `&&`, or a pipe
+  with `set -o pipefail` before it; no `||` between the runner and the list before it; not in the background, not
+  interrupted). A change is an edit of a file tool or a Bash command that is not of the closed list of commands that
+  change no file of the work tree (reads, git and gh calls that leave the work tree as it is, test runners); a command
+  the gate cannot read is a change. Each Python version the claim names needs such a run that names it, in its
+  command, its output or the version its interpreter showed. Done needs no run where the transcript shows no change.
+  Pushed: a fetch, pull or push succeeded in the transcript and a remote-tracking ref points at the reported state (the
+  commits the sentence names, else HEAD), or a push's output names the reported commit as the new value. Merged or
+  landed: a fetch, pull or push succeeded and the default branch of a remote (main, master or its HEAD) contains the
+  reported state; where the sentence names no commit, a merge of gh without --auto or of the GitHub tools that
+  succeeded. A verdict: a digest of at least twelve hex characters in its sentence, and a receipt in .proofbundle/ (a
+  JSON file whose name says receipt) that names exactly that digest; the gate reads the name, it does not verify the
+  receipt. OK of a check script: the last run of that script (or of any script, where none is named) exited 0 and its
+  output names a number beside OK.
+- A claim without evidence blocks with the one line "proofbundle claim check: …" (every open claim, the smallest next
+  step of the first, and that the agent may end with a status that claims nothing) and the short line "Gate holds the
+  end because a claim has no evidence (D80)."; the log names each claim's kind and whether it has evidence, never the
+  message.
+- Point 4 of Nachtrag 32: a status that claims nothing ends without a receipt. The same block (the same open claims,
+  HEAD, status of the work tree and number of tool calls) comes at most CLAIM_MAX_BLOCKS = 2 times in a row in a
+  session; the next Stop after a block ends with a message that names the claim open and not confirmed. The count lives
+  in claim-state.json of the plugin data directory, per session by the sha256 of its id, at most 64 sessions. A Stop
+  with stop_hook_active false counts as the first. Where the count cannot be kept, a Stop after a block ends with the
+  claim open, so no loop depends on a file the hook cannot write.
+
+Not under Codex: its transcript form is not measured, and its Stop event names `last_assistant_message` as nullable
+(owner question). The words of the list are a closed list, not an understanding of the message: a claim in other words
+is not held, and a status in words outside the list can be held (the cap of two bounds it). Tests:
+tests/test_plugin_n32_claims_d80.py.
+
 ## D82. A substitution bash runs is seen wherever bash runs it (Nachtrag 34, C31-1 to C31-3, 2026-10-18)
 
 D79 to D81 are taken by Nachtrag 32, which follows this one.
