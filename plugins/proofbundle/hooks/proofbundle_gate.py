@@ -1472,7 +1472,8 @@ _GIT_HOOK_NAMES = frozenset({
 #: started post-index-change (diff also under GIT_OPTIONAL_LOCKS=0), grep and ls-files none, and log, show and stash
 #: list none either; no form started pre-commit or the hook of the other name. fsmonitor-watchman runs only where
 #: core.fsmonitor names it, which the profile judges as a key. A documented hook the form does not start does not
-#: count for it; a hook of a name git does not document still counts.
+#: count for it. Since B36-3 (Nachtrag 36, truth_hooks_n36.py, 840 runs with pre-commit.local, pre-push.vor-ruff-<date>
+#: and post-index-change.local beside them, none started) a file of a name git does not document does not count either.
 _HOOKS_STARTED_BY_READ = {"status": frozenset({"post-index-change"}), "diff": frozenset({"post-index-change"}),
                           "grep": frozenset(), "ls-files": frozenset()}
 #: The flags of log, show, diff and rev-list the grammar accepts: each prints, selects or orders, and none names a
@@ -1849,8 +1850,8 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     a pager key, and GIT_PAGER or PAGER in the hook's environment (owner answer 3: no host adapter is bound, so the
     pipe of the Bash tool is not relied on; _read_env_problem, which also judges a prefix assignment of the command);
     for a form that walks the work tree a filter (answer 2: the git-lfs filter counts like any), fsmonitor that git does
-    not read as false, a hook the form starts (_HOOKS_STARTED_BY_READ, D78: pre-commit is none of them) or of a name
-    git does not document, and a submodule; any key or GIT_* name the profile does not know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
+    not read as false, a hook the form starts (_HOOKS_STARTED_BY_READ, D78: pre-commit is none of them; a file of a name
+    git does not start for the form, such as pre-commit.local, does not count since B36-3), and a submodule; any key or GIT_* name the profile does not know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
     attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays. With inert_pagers, for
     a host whose Bash tool gives the command no terminal (_no_terminal_host, D42), a pager core.pager, pager.<command>,
     GIT_PAGER or PAGER in the hook's environment names is noted there and does not count; a prefix assignment of the
@@ -1894,7 +1895,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
             return f"a configuration key the read profile does not know to start no program: {where}"
     if walks:
         started = _HOOKS_STARTED_BY_READ[sub]
-        problem = _hook_problem(paths, lambda name: name in started or name not in _GIT_HOOK_NAMES)
+        # B36-3: only a hook git starts for this form counts, by its name in lower case (a file system that does not
+        # tell the cases apart finds Post-Index-Change too); a file of any other name git never starts (measured)
+        problem = _hook_problem(paths, lambda name: name.lower() in started)
         if problem is not None:
             return problem
     for name in sorted(environ):

@@ -4178,3 +4178,26 @@ no file, as `[` did in Ergänzung 1.
 The rule: under Claude Code `test` is a read form of D77 like `[`, with the rule of D82 (`-v` only before a plain name).
 Under Codex nothing changes (D37). It frees a chain the steps of D72 do not free, such as `find … | xargs grep -l git &&
 test -x .git/hooks/pre-push`; a chain of data steps alone was free before. Tests: tests/test_plugin_n34_test_builtin_d84.py.
+
+## D89. A read form counts only the hooks git starts for it, by name (Nachtrag 36, B36-3, 2026-10-18)
+
+Found by delta at the Farmer (gate 89d2e8b7): `git status` kept asking in 2bedone because the hook directory holds
+`pre-commit.local`, which D78 counted as a hook of a name git does not document. git never starts such a file itself; a
+dispatcher pre-commit calls it, and status starts no pre-commit.
+
+Measured with git 2.43.0 under GIT_TRACE2_EVENT, each hook writing a marker (messung/truth_hooks_n36.jsonl,
+truth_hooks_n36.py, 840 runs: seven states of the work tree and the index, with and without GIT_OPTIONAL_LOCKS=0, in the
+hook directory, through core.hooksPath and in a linked work tree; every name of githooks(5) and pre-commit.local,
+pre-push.vor-ruff-20260919, post-index-change.local, post-index-change.sample and zz-unknown-name beside them): status
+and diff started post-index-change in every state without GIT_OPTIONAL_LOCKS=0, a clean one included, and never with it;
+no form started any other file.
+
+The rule: for a form that walks the work tree a file of the effective hook directory counts where its name, in lower
+case, is a hook git starts for that form (_HOOKS_STARTED_BY_READ: post-index-change for status and diff, none for grep and
+ls-files). Lower case, because a file system that does not tell the cases apart finds `Post-Index-Change` too. A file of
+any other name does not count; a sample never did. Under Codex nothing changes (D37). Not changed here: the state check
+of add and commit (D40), fetch (D45), ls-remote (D59) and worktree add still count a file of a name git does not
+document; point 5 of Nachtrag 33 is ordered for them. Tests: tests/test_plugin_n36_hook_names_b36_3.py; changed:
+tests/test_plugin_n31e1_read_hooks_d78.py (its control of the old rule now states the new one) and
+tests/test_plugin_n21_marker_in_no_reason.py (two cases whose hook of another name no longer makes a read form ask
+add post-index-change beside it, so they still read a reason of the read profile).

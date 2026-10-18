@@ -8,7 +8,8 @@ status and diff started post-index-change and nothing else, grep and ls-files no
 either; no form started pre-commit or the hook of the other name.
 
 The rule: the read profile counts, for a form that walks the work tree, a hook that form starts (post-index-change for
-status and diff) and a hook of a name git does not document; every other documented hook does not count for it.
+status and diff) and a hook of a name git does not document; every other documented hook does not count for it. Since
+Nachtrag 36 (B36-3) a file of a name git does not document does not count either.
 
 RED at 0c4e10e8 (the head of Nachtrag 31 before Ergänzung 1): the read forms with a documented hook they do not start.
 The counter cases (post-index-change, a name git does not document, Codex, a sample) are controls, green at both.
@@ -89,10 +90,12 @@ def test_D78_post_index_change_does_not_count_for_grep_and_ls_files(repo, form):
 
 @pytest.mark.parametrize("hook", ["pre-push.vor-ruff-20260919", "my-hook", "pre-commit.bak", "Pre-Commit"])
 @pytest.mark.parametrize("form", ["git status", "git diff"])
-def test_D78_control_a_hook_of_a_name_git_does_not_document_still_counts(repo, form, hook):
+def test_D78_a_hook_of_a_name_git_does_not_document_does_not_count_since_b36_3(repo, form, hook):
+    """Changed in Nachtrag 36 (B36-3, owner order): until then a file of a name git does not document counted for a read
+    form. git starts no such file (truth_hooks_n36.py, 840 runs), so it no longer counts; `Pre-Commit` is pre-commit in
+    lower case, which status and diff do not start."""
     _hook(repo / ".git" / "hooks", hook)
-    decision, reasons = decided(repo, form)
-    assert decision == "ask" and "free_after_read_profile" not in reasons, (form, hook, reasons)
+    assert decided(repo, form) == ("pass", ["free_after_read_profile"]), (form, hook)
 
 
 @pytest.mark.parametrize("form", ["git status", "git diff"])
