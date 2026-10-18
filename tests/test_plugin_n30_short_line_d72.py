@@ -134,9 +134,10 @@ def test_D72_class_c_names_the_heaviest_step_whose_own_answer_decides(tmp_path, 
     does, and the line names the reset, the heavier, with its own reason; a tag list is a read (D71)."""
     repo = _repo(tmp_path)
     _git(repo, "config", "core.pager", "less")
-    out = _outcome(repo, f"git -C {repo} {first} && git -C {repo} reset --hard HEAD~1")
+    out = _outcome(repo, f"git -C {repo} {first} && git -C {repo} reset --hard topic")   # literal words: class c
     asking = [v.failed for v in out.verdicts if v.decision == "ask"]
     assert len(asking) == 2 and asking[0].startswith(f"git {first.split()[0]}"), asking   # both steps ask
+    assert f"the step `git -C {repo} {first}` of this command asks on its own" in out.text, out.text[:200]
     assert out.decision == "ask" and out.step == "git reset", (out.decision, out.step)
     assert out.cause is not None and out.cause.failed.startswith("git reset"), out.cause and out.cause.failed
 
