@@ -207,7 +207,7 @@ def test_a_source_whose_full_name_is_not_the_branch_is_not_measured(env, tmp_pat
     _git(r.path, "push", "-q", "--no-verify", "origin", "HEAD~1:refs/heads/rel")
     _git(r.path, "fetch", "-q", "origin")
     _git(r.path, "tag", "rel", "HEAD")
-    assert _verdict(env, r.path, "git push origin rel") == NOT_MEASURED
+    assert _verdict(env, r.path, "git push origin rel") == ("ask", ["push_not_measured", "house_tag_out"], True)   # D73
     text = _answer(env, r.path, "git push origin rel")   # the tag is what git looks up, not refs/heads/rel (R10-4)
     assert "git push looks up refs/tags/rel on the remote, which does not name refs/heads/rel" in text, text
 

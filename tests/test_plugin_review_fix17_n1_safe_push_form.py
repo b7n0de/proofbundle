@@ -90,7 +90,7 @@ def test_under_codex_the_hint_names_the_plain_form(env, repo, call):
 def test_another_gated_call_after_a_directory_change_is_named_literal_words(env, repo):
     path, elsewhere = repo
     answer, entry, text = _hook(env, elsewhere, f"cd {path} && gh pr create --fill")
-    assert entry["reason_ids"] == ["directory_unresolved"], entry
+    assert entry["reason_ids"] == ["directory_unresolved", "house_pr_limit"], entry    # H3 of D73
     assert "one command of its own with literal words" in text and "a `cd`, a `pushd` or any chain" in text, text
 
 

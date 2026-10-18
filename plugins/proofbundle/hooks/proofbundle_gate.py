@@ -9311,7 +9311,7 @@ class Outcome:
     human rule freed the call, the applied-rule note for the log (N24). step names the step of a longer command that
     has the decision on its own (D46), as the short line names it (D53); None where the reason names no one step. cause
     is the verdict whose reason the short line gives where it is not the first verdict with the decision: the one of
-    the step that decides (D72); None for the first."""
+    the step that decides (D72) or of the house rule that decides (D73); None for the first."""
 
     __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause")
 
@@ -11144,6 +11144,788 @@ def _work_profile(outcome: "Outcome | None", command: str, cwd: str, deadline: f
     return Outcome("pass", verdict.text(), [verdict])
 
 
+# --- D73: the house rules (Nachtrag 30) -------------------------------------------------------------------------------
+
+#: The most open pull requests a session may hold (H3, owner choice of 2026-10-18, Nachtrag 30). The gate cannot count
+#: them per session yet (owner question O30-1), so every `gh pr create` asks, and its line names this limit.
+HOUSE_PR_LIMIT = 8
+#: The answers from the strictest, for weighing a house rule against the gate's own answer (D73): a deny before an ask,
+#: an ask before every answer that lets the call run.
+_HOUSE_ORDER = ("deny", "ask", "warn", "handover", "pass", "inactive")
+#: The programs the house rules read (H1 to H4), and the programs whose words carry a command the shell runs.
+_HOUSE_PROGRAMS = frozenset({"gh", "git", "pkill", "pgrep", "killall", "pidof", "kill"})
+_HOUSE_TEXT_RUNNERS = frozenset({"eval", "watch", "su", "runuser"})
+#: Wrappers that start the program a later word names (D73): the options of each that take the next word as a value,
+#: and the number of its own words before that program (the duration of timeout, the lock of flock, the root of chroot).
+_HOUSE_WRAPPERS = {
+    "sudo": (frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U", "--user", "--group", "--chdir",
+                        "--host", "--prompt", "--role", "--type", "--command-timeout", "--other-user",
+                        "--close-from"}), 0),
+    "doas": (frozenset({"-u", "-C"}), 0),
+    "env": (frozenset({"-u", "--unset", "-C", "--chdir"}), 0),
+    "command": (frozenset(), 0), "builtin": (frozenset(), 0), "exec": (frozenset({"-a"}), 0),
+    "nohup": (frozenset(), 0), "setsid": (frozenset(), 0), "unshare": (frozenset(), 0), "firejail": (frozenset(), 0),
+    "time": (frozenset({"-f", "--format", "-o", "--output"}), 0),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "ionice": (frozenset({"-c", "--class", "-n", "--classdata"}), 0),
+    "timeout": (frozenset({"-s", "--signal", "-k", "--kill-after"}), 1),
+    "stdbuf": (frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}), 0),
+    "xargs": (frozenset({"-I", "-n", "-P", "-d", "-E", "-L", "-s", "-a", "--max-args", "--max-procs", "--delimiter",
+                         "--eof", "--max-lines", "--max-chars", "--arg-file", "--replace"}), 0),
+    "flock": (frozenset({"-w", "--timeout", "-E", "--conflict-exit-code"}), 1),
+    "chroot": (frozenset({"--userspec", "--groups"}), 1),
+    "strace": (frozenset({"-o", "-e", "-p", "-s", "-u", "-E"}), 0),
+    "ltrace": (frozenset({"-o", "-e", "-p", "-s", "-u"}), 0),
+}
+#: H1: the options of `gh pr merge` that take a value (gh 2.89.0, `gh pr merge --help`): a word after one of them is its
+#: value, text, not an option (measured: `--subject --admin` and `--body --admin` pass the option check of gh).
+_HOUSE_MERGE_VALUE_LONG = frozenset({"--author-email", "--body", "--body-file", "--match-head-commit", "--subject",
+                                     "--repo"})
+_HOUSE_MERGE_VALUE_SHORT = frozenset("AbFtR")
+#: The options of `gh api` that take a value (gh 2.89.0, `gh api --help`), long and by their short letter.
+_HOUSE_API_VALUE_LONG = frozenset({"--cache", "--field", "--header", "--hostname", "--input", "--jq", "--method",
+                                   "--preview", "--raw-field", "--template"})
+_HOUSE_API_VALUE_SHORT = {"F": "--field", "H": "--header", "q": "--jq", "X": "--method", "p": "--preview",
+                          "f": "--raw-field", "t": "--template"}
+#: The options of `gh release create` that take a value (gh 2.89.0).
+_HOUSE_RELEASE_VALUE_LONG = frozenset({"--discussion-category", "--notes", "--notes-file", "--notes-start-tag",
+                                       "--target", "--title", "--repo"})
+_HOUSE_RELEASE_VALUE_SHORT = frozenset("nFtR")
+#: H1: the REST paths a write to which bypasses or changes a protection rule, each with the words the reason names. The
+#: paths are those of the GitHub REST API as the gate's authors know it; none was called (no network, NOT MEASURED).
+_HOUSE_PROTECTION_PATHS = (
+    (re.compile(r"^repos/[^/]+/[^/]+/branches/.+/protection(/.*)?$"), "the protection of a branch"),
+    (re.compile(r"^(repos/[^/]+/[^/]+|orgs/[^/]+|enterprises/[^/]+)/rulesets(/.*)?$"), "a ruleset"),
+    (re.compile(r"^repos/[^/]+/[^/]+/tags/protection(/.*)?$"), "the protection of tags"),
+    (re.compile(r"^repos/[^/]+/[^/]+/environments/[^/]+(/deployment-branch-policies(/.*)?|"
+                r"/deployment_protection_rules(/.*)?)?$"), "the protection rules of an environment"),
+    (re.compile(r"(^|/)(bypass-requests|push-protection-bypasses)(/|$)"), "a bypass of a protection rule"),
+    (re.compile(r"^repos/[^/]+/[^/]+/pulls/[^/]+/merge$"), "a merge without the check gh makes, the call --admin makes"),
+)
+#: H1, H3 and H2 in a GraphQL call: the mutations that change a protection rule or merge without gh's check, and the
+#: mutation that opens a pull request.
+_HOUSE_GRAPHQL_PROTECTION = re.compile(r"\b(createBranchProtectionRule|updateBranchProtectionRule|"
+                                       r"deleteBranchProtectionRule|createRepositoryRuleset|updateRepositoryRuleset|"
+                                       r"deleteRepositoryRuleset|updateEnvironment|mergePullRequest)\b")
+_HOUSE_GRAPHQL_PR = re.compile(r"\bcreatePullRequest\b")
+_HOUSE_PULLS = re.compile(r"^repos/[^/]+/[^/]+/pulls$")
+_HOUSE_RELEASES = re.compile(r"^repos/[^/]+/[^/]+/releases(/.*)?$")
+#: H2: a name in the form of a version is read as a tag wherever the gate cannot look it up (v6.2.0, 6.2.0, v1, v1.0-rc1).
+_HOUSE_VERSION_TAG = re.compile(r"v[0-9]+(\.[0-9]+)*([.+-][0-9A-Za-z.+-]*)?|[0-9]+(\.[0-9]+)+([.+-][0-9A-Za-z.+-]*)?")
+#: A name the gate looks up as a local tag: no option, no revision syntax.
+_HOUSE_TAG_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+-]{0,99}")
+#: H4: the programs a kill by name or pattern can reach besides the programs of the command itself: the shell that runs
+#: the command (bash under Claude Code, measured; `bash -lc` under Codex, the form _shell_c_arg names) and the host
+#: (claude, measured as the name of the Claude Code process in this container; node, the program of an install with
+#: npm, and codex, not measured).
+_HOUSE_OWN_PROGRAMS = frozenset({"bash", "sh", "dash", "zsh", "ksh", "claude", "node", "codex"})
+#: The command line of the shell Claude Code runs a Bash command in, with the command in its place (measured with
+#: Claude Code in the session of Nachtrag 30): bash -c with a script that sources a snapshot under ~/.claude, sets
+#: options, runs the command through eval with every `'` written as `'"'"'`, and writes its directory to a file.
+_HOUSE_CLAUDE_SHELL = ("/bin/bash -c source {home}/.claude/shell-snapshots/snapshot-bash-0.sh 2>/dev/null || true && "
+                       'export BUN_OPTIONS="--smol${{BUN_OPTIONS:+ $BUN_OPTIONS}}" && shopt -u extglob 2>/dev/null || '
+                       "true && {{ builtin unalias -- 'unsetenv'; builtin unset -f -- 'unsetenv'; }} >/dev/null 2>&1 "
+                       "|| true && eval '{command}' && pwd -P >| /tmp/claude-0-cwd")
+#: The signal names a kill takes as its first word (`-9`, `-KILL`, `-SIGKILL`).
+_HOUSE_SIGNALS = frozenset({"HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "IOT", "BUS", "FPE", "KILL", "USR1", "SEGV",
+                            "USR2", "PIPE", "ALRM", "TERM", "STKFLT", "CHLD", "CLD", "CONT", "STOP", "TSTP", "TTIN",
+                            "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "POLL", "PWR", "SYS",
+                            "RTMIN", "RTMAX"})
+#: H4: a target of kill that is the command's own shell or its parent (`$$`, `$PPID`, `$BASHPID`).
+_HOUSE_OWN_PID = re.compile(r"\$(\$|PPID|BASHPID|\{(\$|PPID|BASHPID)\})")
+#: The options of pkill and pgrep that take a value (procps-ng 4.0.4, `pkill --help`).
+_HOUSE_PGREP_VALUE_SHORT = frozenset("gGPstuUFrqOd")
+_HOUSE_PGREP_VALUE_LONG = frozenset({"--pgroup", "--group", "--parent", "--session", "--terminal", "--euid", "--uid",
+                                     "--pidfile", "--runstates", "--queue", "--older", "--signal", "--ns", "--nslist",
+                                     "--cgroup", "--delimiter"})
+#: The options of killall that take a value (psmisc 23.7, `killall --help`).
+_HOUSE_KILLALL_VALUE_SHORT = frozenset("syonZu")
+_HOUSE_KILLALL_VALUE_LONG = frozenset({"--signal", "--younger-than", "--older-than", "--ns", "--context", "--user"})
+
+_HouseFinding = collections.namedtuple("_HouseFinding", "decision reason_id step detail failed next_step")
+_HOUSE_NOTE = "owner choice of 2026-10-18, Nachtrag 30; DECISIONS.md D73"
+
+
+def _house_strip_heredocs(text: str) -> str:
+    """The text without the bodies of its here-documents (D73): a body is the input of its command, not shell text, so a
+    house rule reads no word in it as a call. Read with the quotes of the text: a `<<` (not `<<<`) outside quotes opens
+    one, its delimiter is the next word with its quotes removed, and the body runs from the end of that line to the
+    first line that is the delimiter (its leading tabs removed for `<<-`), or to the end of the text."""
+    out, pending, i, n, quote = [], [], 0, len(text), None
+    while i < n:
+        c = text[i]
+        if quote is not None:
+            if c == "\\" and quote == '"' and i + 1 < n:
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            out.append(c)
+            quote = None if c == quote else quote
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if c in "'\"":
+            quote = c
+            out.append(c)
+            i += 1
+            continue
+        if text.startswith("<<", i) and not text.startswith("<<<", i):
+            j, tabs = i + 2, False
+            if j < n and text[j] == "-":
+                j, tabs = j + 1, True
+            while j < n and text[j] in " \t":
+                j += 1
+            m = re.match(r"(?:'[^']*'|\"[^\"]*\"|[^\s;&|<>()'\"])+", text[j:])
+            if m:
+                pending.append((re.sub(r"['\"\\]", "", m.group()), tabs))
+                out.append(text[i:j + m.end()])
+                i = j + m.end()
+                continue
+        if c == "\n" and pending:
+            out.append(c)
+            i += 1
+            for delimiter, tabs in pending:
+                while i < n:
+                    end = text.find("\n", i)
+                    end = n if end < 0 else end
+                    line, i = text[i:end], min(end + 1, n)
+                    if (line.lstrip("\t") if tabs else line) == delimiter:
+                        break
+            pending = []
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _house_program(words: list) -> int | None:
+    """The index of the program of a run of words that a house rule reads, behind its prefix assignments, a shell
+    keyword and the wrappers of _HOUSE_WRAPPERS with their options; None for any other program."""
+    k = 0
+    while k < len(words):
+        value = words[k][0]
+        base = os.path.basename(value)
+        if _ASSIGNMENT.match(value) or value in _SH_KEYWORDS or value in ("(", ")"):
+            k += 1
+            continue
+        if base in _HOUSE_PROGRAMS or base in _SHELL_DASH_C or base in _HOUSE_TEXT_RUNNERS:
+            return k
+        wrapper = _HOUSE_WRAPPERS.get(base)
+        if wrapper is None:
+            return None
+        values, own = wrapper
+        k += 1
+        while k < len(words) and words[k][0].startswith("-") and words[k][0] != "-":
+            k += 2 if words[k][0] in values else 1
+        k += own
+    return None
+
+
+def _house_texts(words: list, k: int) -> list[str]:
+    """The command texts a run hands to a shell: the string of `bash -c` (and every shell of _SHELL_DASH_C, with -c in a
+    bundle such as -lc), the words of eval, the command of watch, and the -c string of su and runuser."""
+    base = os.path.basename(words[k][0])
+    rest = [w[0] for w in words[k + 1:]]
+    if base in _SHELL_DASH_C:
+        text = _shell_c_arg(rest)
+        return [] if text is None else [text]
+    if base == "eval":
+        return [" ".join(rest)] if rest else []
+    if base == "watch":
+        j = 0
+        while j < len(rest) and rest[j].startswith("-"):
+            j += 2 if rest[j] in ("-n", "--interval") else 1
+        return [" ".join(rest[j:])] if j < len(rest) else []
+    if base in ("su", "runuser"):
+        return [rest[j + 1] for j, w in enumerate(rest[:-1]) if w in ("-c", "--command")]
+    return []
+
+
+def _house_runs(command: str, cwd: str | None, depth: int = 0) -> list:
+    """Every run of words of a command (one simple command, its prefix assignments included) as (words, program,
+    directory): the words as (value, whether the shell builds it), the index of the program a house rule reads or None,
+    and the directory it runs in where the gate knows it (before any directory change, at the top level). Read by the
+    step parser of class c, which leaves the body of a here-document out; where it does not model the command (a
+    keyword, a function, a background job), by the gate's lexer after _house_strip_heredocs, with every command
+    substitution read in turn; where the lexer cannot read it, by the words of the net's normal form. The string a
+    shell runs (`bash -c`, eval, watch, su -c) is read the same way, to the depth of MAX_NESTING."""
+    runs: list = []
+    try:
+        steps: list = []
+        _sh_walk(_sh_parse(command), cwd, steps)
+        for s in steps:
+            runs.append(([(w.value, not w.literal) for w in s.cmd.words], s.cwd if s.top_level else None))
+    except (_ShUnmodeled, RecursionError):
+        runs = []
+        text = _house_strip_heredocs(_drop_comments(command))
+        toks = _lex(text)
+        if toks is None:
+            for part in re.split(r"[;&|(){}`\n]+", _net_normal_form(text)):
+                if part.split():
+                    runs.append(([(w, False) for w in part.split()], None))
+        else:
+            run: list = []
+            directory = cwd
+            for t in toks + [("op", ";")]:
+                if t[0] == "word":
+                    run.append((t[1], t[2]))
+                elif t[0] == "op" and run:
+                    runs.append((run, directory))
+                    if os.path.basename(run[0][0]) in ("cd", "pushd", "popd"):
+                        directory = None
+                    run = []
+            if depth < MAX_NESTING:
+                for body in _subst_bodies(text):
+                    runs.extend((w, None) for w, _k, _d in _house_runs(body, None, depth + 1))
+    out = []
+    for words, directory in runs:
+        k = _house_program(words)
+        out.append((words, k, directory))
+        if k is not None and depth < MAX_NESTING:
+            for text in _house_texts(words, k):
+                out.extend((w, p, None) for w, p, _d in _house_runs(text, None, depth + 1))
+    return out
+
+
+def _house_admin(args: list[str]) -> bool:
+    """H1: whether the words after `gh pr merge` set --admin, as gh reads them (measured with gh 2.89.0): `--admin` or
+    `--admin=<value>` as an option word, not the value of an option that takes one, not after `--`."""
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            return False
+        if word == "--admin" or word.startswith("--admin="):
+            return True
+        if word.startswith("--"):
+            i += 2 if word in _HOUSE_MERGE_VALUE_LONG else 1
+            continue
+        if word.startswith("-") and len(word) > 1:
+            letters = word[1:]
+            at = next((j for j, ch in enumerate(letters) if ch in _HOUSE_MERGE_VALUE_SHORT), None)
+            i += 2 if at == len(letters) - 1 else 1
+            continue
+        i += 1
+    return False
+
+
+def _house_api_call(args: list[str]) -> tuple[str | None, str, list[str]]:
+    """(endpoint, method, fields) of the words after `gh api`, as gh reads them: the method -X or --method names, else
+    POST where a field or --input is given and GET otherwise (gh 2.89.0, `gh api --help`). A method the shell builds is
+    "?", read as a write."""
+    endpoint, method, fields, body, i = None, None, [], False, 0
+    while i < len(args):
+        word, name, value = args[i], None, ""
+        if word.startswith("--") and len(word) > 2:
+            option, eq, inline = word.partition("=")
+            if option in _HOUSE_API_VALUE_LONG:
+                name = option
+                value = inline if eq else (args[i + 1] if i + 1 < len(args) else "")
+                i += 1 if eq else 2
+            else:
+                i += 1
+        elif word.startswith("-") and len(word) > 1:
+            letters = word[1:]
+            at = next((j for j, ch in enumerate(letters) if ch in _HOUSE_API_VALUE_SHORT), None)
+            if at is None:
+                i += 1
+            else:
+                name = _HOUSE_API_VALUE_SHORT[letters[at]]
+                if at < len(letters) - 1:
+                    value, i = letters[at + 1:], i + 1
+                else:
+                    value, i = (args[i + 1] if i + 1 < len(args) else ""), i + 2
+        else:
+            endpoint = word if endpoint is None else endpoint
+            i += 1
+        if name == "--method":
+            method = "?" if "$" in value or "`" in value else value.upper()
+        elif name in ("--field", "--raw-field"):
+            fields.append(value)
+        elif name == "--input":
+            body = True
+    return endpoint, method or ("POST" if fields or body else "GET"), fields
+
+
+def _house_endpoint(endpoint: str) -> str:
+    """The REST path of a gh api endpoint: without a scheme and host, a leading slash, `api/v3/`, a query or a fragment."""
+    path = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/]*", "", endpoint).lstrip("/")
+    path = path[len("api/v3/"):] if path.startswith("api/v3/") else path
+    return path.split("?", 1)[0].split("#", 1)[0]
+
+
+def _house_gh_api(args: list[str]) -> list:
+    """H1, H2 and H3 in a `gh api` call."""
+    endpoint, method, fields = _house_api_call(args)
+    if endpoint is None:
+        return []
+    path, found = _house_endpoint(endpoint), []
+    if path == "graphql":
+        query = next((f.partition("=")[2] for f in fields if f.partition("=")[0] == "query"), "")
+        query = "" if query.startswith("@") else query          # a file the gate does not read
+        protection = _HOUSE_GRAPHQL_PROTECTION.search(query)
+        if protection:
+            found.append(_house_h1(f"gh api graphql {protection.group(1)}", f"the mutation {protection.group(1)}"))
+        if _HOUSE_GRAPHQL_PR.search(query):
+            found.append(_house_h3("gh api graphql createPullRequest"))
+        if re.search(r"\bmutation\b", query) and "refs/tags/" in query:
+            found.append(_house_h2("gh api graphql", _house_tag_of(query), "the mutation names a tag"))
+        return found
+    if method in ("GET", "HEAD"):
+        return []
+    for pattern, what in _HOUSE_PROTECTION_PATHS:
+        if pattern.search(path):
+            found.append(_house_h1(f"gh api {method} {path.rsplit('/', 1)[-1]}", what))
+            break
+    if _HOUSE_PULLS.fullmatch(path) and method in ("POST", "?"):
+        found.append(_house_h3(f"gh api {method} pulls"))
+    tagged = next((t for t in [path, *fields] if "refs/tags/" in t), None)
+    if tagged is not None or _HOUSE_RELEASES.fullmatch(path):
+        named = _house_tag_of(tagged) if tagged is not None else next(
+            (f.partition("=")[2] for f in fields if f.partition("=")[0] == "tag_name"), None)
+        found.append(_house_h2(f"gh api {method} {'releases' if tagged is None else 'refs/tags'}", named,
+                               "the call writes a tag or a release"))
+    return found
+
+
+def _house_tag_of(text: str | None) -> str | None:
+    """The name after `refs/tags/` in text, or None."""
+    m = re.search(r"refs/tags/([A-Za-z0-9._/+-]+)", text or "")
+    return m.group(1) if m else None
+
+
+def _house_release_tag(args: list[str]) -> str | None:
+    """The tag of `gh release create <tag>`: its first word that is no option and no value of one."""
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            return args[i + 1] if i + 1 < len(args) else None
+        if word.startswith("--"):
+            i += 2 if word in _HOUSE_RELEASE_VALUE_LONG else 1
+            continue
+        if word.startswith("-") and len(word) > 1:
+            letters = word[1:]
+            at = next((j for j, ch in enumerate(letters) if ch in _HOUSE_RELEASE_VALUE_SHORT), None)
+            i += 2 if at == len(letters) - 1 else 1
+            continue
+        return word
+    return None
+
+
+def _house_gh(words: list, k: int) -> list:
+    """H1, H2 and H3 in a gh run: `gh pr merge` with --admin, `gh pr create` and `gh pr new`, `gh release create` and
+    `gh release new`, and the forms of `gh api` (_house_gh_api)."""
+    args = [w[0] for w in words[k + 1:]]
+    positional, i = [], 0
+    while i < len(args) and len(positional) < 2:
+        word = args[i]
+        if word == "--":
+            break
+        if word in _GH_OPTIONS_WITH_VALUE:
+            i += 2
+            continue
+        if not word.startswith("-") or word == "-":
+            positional.append((word, i))
+        i += 1
+    if not positional:
+        return []
+    if positional[0][0] == "api":
+        return _house_gh_api(args[positional[0][1] + 1:])
+    if len(positional) < 2:
+        return []
+    (group, _), (command, at) = positional
+    rest = args[at + 1:]
+    if (group, command) == ("pr", "merge") and _house_admin(rest):
+        return [_house_h1("gh pr merge --admin", "--admin")]
+    if group == "pr" and command in ("create", "new"):
+        return [_house_h3(f"gh pr {command}")]
+    if group == "release" and command in ("create", "new"):
+        tag = _house_release_tag(rest)
+        return [_house_h2(f"gh release {command}", tag, "the call creates a release and its tag on GitHub")]
+    return []
+
+
+def _house_git_globals(args: list[str], directory: str | None) -> tuple[int, str | None, bool]:
+    """(index of the subcommand, the directory git acts in where the gate knows it, whether a -c sets push.followTags
+    true) of the words after `git`."""
+    i, follow = 0, False
+    while i < len(args) and args[i].startswith("-") and args[i] != "-":
+        option, eq, inline = args[i].partition("=")
+        takes = option in _GIT_GLOBAL_VALUE and not eq
+        value = inline if eq else (args[i + 1] if takes and i + 1 < len(args) else "")
+        if option == "-C":
+            directory = None if directory is None or "$" in value else os.path.join(directory, value)
+        elif option in ("--git-dir", "--work-tree", "--namespace"):
+            directory = None
+        elif option == "-c":
+            key, has, setting = value.partition("=")
+            follow = follow or (key.lower() == "push.followtags" and
+                                (not has or setting.lower() in ("true", "yes", "on", "1")))
+        i += 2 if takes else 1
+    return i, directory, follow
+
+
+def _house_created_tags(runs: list) -> set[str]:
+    """The tags a `git tag <name>` of the command creates (H2): the first word of `git tag` that is no option and no
+    value of one, where no option lists, deletes or verifies tags."""
+    created = set()
+    for words, k, _directory in runs:
+        if k is None or os.path.basename(words[k][0]) != "git":
+            continue
+        args = [w[0] for w in words[k + 1:]]
+        i, _d, _f = _house_git_globals(args, None)
+        if i >= len(args) or args[i] != "tag":
+            continue
+        rest, j, name = args[i + 1:], 0, None
+        while j < len(rest):
+            word = rest[j]
+            if word in ("-l", "--list", "-d", "--delete", "-v", "--verify") or word.startswith(
+                    ("-n", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--column",
+                     "--format", "--sort")):
+                name = None
+                break
+            if word in ("-m", "-F", "-u", "--message", "--file", "--local-user", "--cleanup", "--trailer"):
+                j += 2
+                continue
+            if word.startswith("-"):
+                j += 1
+                continue
+            name = word if name is None else name
+            j += 1
+        if name is not None:
+            created.add(name)
+    return created
+
+
+def _house_local_tag(directory: str | None, name: str, deadline: float) -> bool:
+    """Whether the source name of a push names a tag of the repository at directory (H2): refs/tags/<name> exists and
+    refs/heads/<name> does not; for a name that is both, git refuses the push as ambiguous and sends nothing (the
+    reviewers' cases of fix7 and of owner choice 2). Read with the gate's own git; False where the directory is unknown,
+    the name is a full ref name or not a plain one, or git does not answer."""
+    if directory is None or not _HOUSE_TAG_NAME.fullmatch(name) or ".." in name or name == "HEAD" or \
+            name.startswith("refs/"):
+        return False
+    try:
+        out = _git(directory, "for-each-ref", "--format=%(refname)", f"refs/tags/{name}", f"refs/heads/{name}",
+                   deadline=deadline)
+    except (GateError, OSError):
+        return False
+    refs = out.stdout.split(b"\n")
+    return out.returncode == 0 and f"refs/tags/{name}".encode() in refs and f"refs/heads/{name}".encode() not in refs
+
+
+def _house_git(words: list, k: int, directory: str | None, created: set, deadline: float) -> list:
+    """H2 in a git run: a push that sends a tag. The tag is named by `refs/tags/`, by the word `tag` before its name, by
+    a name a `git tag` of the same command creates, by a name in the form of a version, or by a name the repository
+    holds as a tag where the gate knows the directory; --tags, --follow-tags (also by `-c push.followTags`) and --mirror
+    send tags too, in any abbreviation git takes."""
+    args = [w[0] for w in words[k + 1:]]
+    i, directory, follow = _house_git_globals(args, directory)
+    if i >= len(args) or args[i] != "push":
+        return []
+    flags, positional, j, done, rest = [], [], 0, False, args[i + 1:]
+    while j < len(rest):
+        word = rest[j]
+        if not done and word == "--":
+            done, j = True, j + 1
+            continue
+        if not done and word.startswith("--") and len(word) > 2:
+            option, eq, _ = word.partition("=")
+            flags.extend(f"--{full}" for full in ("tags", "follow-tags", "mirror") if full.startswith(option[2:]))
+            j += 2 if option in ("--push-option", "--repo", "--receive-pack", "--exec") and not eq else 1
+            continue
+        if not done and word.startswith("-") and word != "-":
+            j += 2 if word == "-o" else 1
+            continue
+        positional.append(word)
+        j += 1
+    flags += ["--follow-tags"] if follow else []
+    names, refspecs, j = [], positional[1:], 0
+    while j < len(refspecs):
+        spec = refspecs[j]
+        if spec == "tag" and j + 1 < len(refspecs):
+            names.append(refspecs[j + 1])
+            j += 2
+            continue
+        source, _colon, destination = spec.lstrip("+").partition(":")
+        for side, local in ((source, True), (destination, False)):
+            if "refs/tags/" in side:
+                names.append(side.split("refs/tags/", 1)[1] or side)
+            elif side and not side.startswith("refs/") and (
+                    _HOUSE_VERSION_TAG.fullmatch(side) or
+                    (local and (side in created or _house_local_tag(directory, side, deadline)))):
+                names.append(side)      # a tag this repository holds or this command makes counts as a source only
+        j += 1
+    if not names and not flags:
+        return []
+    return [_house_h2(f"git push {names[0] if names else flags[0]}", names[0] if names else None,
+                      "the push sends a tag" if names else f"the push sends tags ({flags[0]})")]
+
+
+def _house_signal_word(word: str) -> bool:
+    """Whether a first word of kill, pkill or killall names a signal: -9, -KILL, -SIGKILL, -kill."""
+    name = word[1:].upper()
+    return word.startswith("-") and (name.isdigit() or name in _HOUSE_SIGNALS or
+                                     (name.startswith("SIG") and name[3:] in _HOUSE_SIGNALS))
+
+
+def _house_pgrep_args(args: list[str]) -> tuple[bool, int | None, bool]:
+    """(whether -f or --full matches the whole command line, the index of the pattern, whether -i ignores case) of the
+    words after pkill or pgrep (procps-ng 4.0.4)."""
+    full = icase = done = False
+    pattern, i = None, 0
+    while i < len(args):
+        word = args[i]
+        if not done and word == "--":
+            done, i = True, i + 1
+            continue
+        if not done and word.startswith("--") and len(word) > 2:
+            option, eq, _ = word.partition("=")
+            full, icase = full or option == "--full", icase or option == "--ignore-case"
+            i += 2 if option in _HOUSE_PGREP_VALUE_LONG and not eq else 1
+            continue
+        if not done and word.startswith("-") and len(word) > 1:
+            if i == 0 and _house_signal_word(word):
+                i += 1
+                continue
+            step = 1
+            for j, ch in enumerate(word[1:]):
+                full, icase = full or ch == "f", icase or ch == "i"
+                if ch in _HOUSE_PGREP_VALUE_SHORT:
+                    step = 2 if j == len(word) - 2 else 1
+                    break
+            i += step
+            continue
+        pattern = i if pattern is None else pattern
+        i += 1
+    return full, pattern, icase
+
+
+def _house_killall_args(args: list[str]) -> tuple[list[int], bool, bool]:
+    """(indexes of the names, whether -r reads them as regular expressions, whether -I ignores case) of the words after
+    killall (psmisc 23.7)."""
+    regexp = icase = done = False
+    names, i = [], 0
+    while i < len(args):
+        word = args[i]
+        if not done and word == "--":
+            done, i = True, i + 1
+            continue
+        if not done and word.startswith("--") and len(word) > 2:
+            option, eq, _ = word.partition("=")
+            regexp, icase = regexp or option == "--regexp", icase or option == "--ignore-case"
+            i += 2 if option in _HOUSE_KILLALL_VALUE_LONG and not eq else 1
+            continue
+        if not done and word.startswith("-") and len(word) > 1:
+            if _house_signal_word(word):
+                i += 1
+                continue
+            step = 1
+            for j, ch in enumerate(word[1:]):
+                regexp, icase = regexp or ch == "r", icase or ch == "I"
+                if ch in _HOUSE_KILLALL_VALUE_SHORT:
+                    step = 2 if j == len(word) - 2 else 1
+                    break
+            i += step
+            continue
+        names.append(i)
+        i += 1
+    return names, regexp, icase
+
+
+def _house_kill_targets(args: list[str]) -> list[str]:
+    """The targets of kill as bash's kill reads them: after one signal word (-9, -KILL, -s SIG, -n NUM) and `--`, every
+    word, a negative one a process group."""
+    if args[:1] in (["-l"], ["-L"], ["--list"], ["--table"]):
+        return []
+    targets, signal, done, i = [], False, False, 0
+    while i < len(args):
+        word = args[i]
+        if not done and word == "--":
+            done, i = True, i + 1
+            continue
+        if not done and not signal and word in ("-s", "-n", "--signal"):
+            signal, i = True, i + 2
+            continue
+        if not done and not signal and word.startswith("-") and len(word) > 1:
+            signal, i = True, i + 1
+            continue
+        targets.append(word)
+        i += 1
+    return targets
+
+
+def _house_pattern_hits(pattern: str, built: bool, icase: bool, texts: list[str]) -> bool:
+    """Whether a pattern a kill matches against whole command lines (pkill -f, pgrep -f) can match one of texts. Read
+    as a regular expression where its POSIX reading and Python's agree (no backslash, no bracket class `[:`, `[=` or
+    `[.`, no `(?`); any other pattern, and one the shell builds, can."""
+    if built or "\\" in pattern or "(?" in pattern or any(f"[{c}" in pattern for c in ":=."):
+        return True
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE if icase else 0)
+    except re.error:
+        return True
+    return any(compiled.search(text) for text in texts)
+
+
+def _house_name_hits(name: str, built: bool, regexp: bool, icase: bool, programs: set) -> bool:
+    """Whether a name a kill matches against process names (pkill without -f, killall, pidof; the first 15 characters, as
+    the kernel keeps them) can name one of programs: as a regular expression with regexp, else by its exact name."""
+    if built:
+        return True
+    if regexp:
+        return _house_pattern_hits(name, False, icase, [p[:15] for p in programs])
+    fold = str.lower if icase else str
+    return any(fold(name[:15]) == fold(p[:15]) for p in programs)
+
+
+def _house_kill(words: list, k: int, runs: list, command: str) -> list:
+    """H4 in a run of kill, pkill, killall, pgrep or pidof. pkill -f asks in a chain with further work or where its
+    pattern can match its own command line (the command, the shell Claude Code runs it in, the host); killall asks in
+    a chain or where a name names a program of its own line (the shell, a program of the command, the host). Their
+    siblings, measured to end the command's own shell: pkill without -f whose pattern names such a program, a kill
+    of the own shell, its parent or a process group (`kill $$`, `kill $PPID`, `kill 0`, `kill -1`), and pgrep -f or
+    pidof whose pattern can match the own line in a command that also runs kill (`kill $(pgrep -f x)`,
+    `pgrep -f x | xargs kill`)."""
+    base = os.path.basename(words[k][0])
+    args = [w[0] for w in words[k + 1:]]
+    built = [w[1] for w in words[k + 1:]]
+    chain = len(runs) > 1
+    heads = {os.path.basename(w[p][0]) for w, p, _d in runs if p is not None} | {
+        os.path.basename(next((v for v, _b in w if not _ASSIGNMENT.match(v)), "")) for w, _p, _d in runs}
+    programs = (_HOUSE_OWN_PROGRAMS | heads) - {base, ""}
+    texts = [command, _HOUSE_CLAUDE_SHELL.format(home=os.path.expanduser("~"),
+                                                 command=command.replace("'", "'\"'\"'")), *sorted(_HOUSE_OWN_PROGRAMS)]
+    if base == "kill":
+        own = next((t for t in _house_kill_targets(args) if t == "0" or t.startswith("-") or
+                    _HOUSE_OWN_PID.fullmatch(t)), None)
+        return [_house_h4_own(f"kill {own}")] if own is not None else []
+    if base in ("pkill", "pgrep"):
+        full, at, icase = _house_pgrep_args(args)
+        if at is None:
+            return []
+        if base == "pgrep" and not any(p is not None and os.path.basename(w[p][0]) == "kill" for w, p, _d in runs):
+            return []
+        if full:
+            hit = (chain and base == "pkill") or _house_pattern_hits(args[at], built[at], icase, texts)
+        else:
+            hit = _house_name_hits(args[at], built[at], True, icase, programs)
+        name = f"{base} -f" if full else base
+        return [_house_h4(name, chain and base == "pkill" and full)] if hit else []
+    if base == "pidof":
+        if not any(p is not None and os.path.basename(w[p][0]) == "kill" for w, p, _d in runs):
+            return []
+        names = [j for j, a in enumerate(args) if not a.startswith("-")]
+        hit = any(_house_name_hits(args[j], built[j], False, False, programs) for j in names)
+        return [_house_h4("pidof", False)] if hit else []
+    if base == "killall":
+        names, regexp, icase = _house_killall_args(args)
+        if not names:
+            return []
+        hit = chain or any(_house_name_hits(args[j], built[j], regexp, icase, programs) for j in names)
+        return [_house_h4("killall", chain)] if hit else []
+    return []
+
+
+def _house_h1(step: str, what: str) -> "_HouseFinding":
+    return _HouseFinding(
+        "deny", "house_admin_merge" if step == "gh pr merge --admin" else "house_protection_api", step,
+        f"proofbundle gate: house rule H1: `{step}` merges past or changes a protection rule ({what}), and the house "
+        f"rules let no agent do that, under either host ({_HOUSE_NOTE}).",
+        f"the command carries {what}",
+        "merge with --auto, which waits for the required checks, or have the owner merge or change the rule")
+
+
+def _house_h2(step: str, tag: str | None, how: str) -> "_HouseFinding":
+    named = f"the tag {tag}" if tag else "tags"
+    return _HouseFinding(
+        "ask", "house_tag_out", step if tag is None or tag in step else f"{step} {tag}",
+        f"proofbundle gate: house rule H2: `{step}` sends {named} out ({how}). A tag whose name starts with v can "
+        f"start a release, which needs a GO of the owner; a local `git tag` without a push stays as it is "
+        f"({_HOUSE_NOTE}).",
+        f"the command sends {named} out",
+        "ask the owner for a GO for the tag, then push it as a command of its own")
+
+
+def _house_h3(step: str) -> "_HouseFinding":
+    return _HouseFinding(
+        "ask", "house_pr_limit", step,
+        f"proofbundle gate: house rule H3: a session may hold at most {HOUSE_PR_LIMIT} open pull requests. Every "
+        "session writes through the account b7n0de, so a count by author counts all sessions, and the gate cannot count "
+        f"the pull requests of one session yet (owner question O30-1), so every new pull request asks ({_HOUSE_NOTE}).",
+        "the gate cannot count the open pull requests of this session",
+        f"check that this session holds fewer than {HOUSE_PR_LIMIT} open pull requests, then confirm")
+
+
+def _house_h4(step: str, chain: bool) -> "_HouseFinding":
+    return _HouseFinding(
+        "ask", "house_kill_pattern", step,
+        f"proofbundle gate: house rule H4: `{step}` picks processes by a pattern, and the pattern can also match its own "
+        "command line: the shell that runs the command carries the command text, and a chain keeps that shell running "
+        "beside the kill (measured with procps-ng 4.0.4 and bash 5.2.21: `pkill -f` in a chain and under the shell of "
+        f"Claude Code ends that shell, `killall bash` and `pkill bash` end it too) ({_HOUSE_NOTE}).",
+        "the command stands in a chain with further work" if chain else "the pattern can match the command's own line",
+        "run the command alone, with a pattern that does not match its own text ([s]erver for server), or by its "
+        "process id")
+
+
+def _house_h4_own(step: str) -> "_HouseFinding":
+    return _HouseFinding(
+        "ask", "house_kill_own", step,
+        f"proofbundle gate: house rule H4: `{step}` names the command's own shell, its parent, its process group or "
+        f"every process the user may signal (measured: `kill 0`, `kill $$` and `kill $PPID` end the shell) "
+        f"({_HOUSE_NOTE}).",
+        "the target can be the command's own shell or the host",
+        "name the process to end by its process id")
+
+
+def _house_findings(command: str, cwd: str | None, deadline: float) -> list:
+    """The house rules a command meets (D73), in the order of its runs."""
+    runs = _house_runs(command, cwd)
+    created = _house_created_tags(runs)
+    found: list = []
+    for words, k, directory in runs:
+        if k is None:
+            continue
+        base = os.path.basename(words[k][0])
+        if base == "gh":
+            found.extend(_house_gh(words, k))
+        elif base == "git":
+            found.extend(_house_git(words, k, directory, created, deadline))
+        elif base in ("pkill", "pgrep", "killall", "pidof", "kill"):
+            found.extend(_house_kill(words, k, runs, command))
+    return found
+
+
+def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float) -> "Outcome | None":
+    """D73: the house rules go before every answer that lets a call run, D71 and a rule of a person included. A house
+    deny decides; a house ask decides unless the gate denies. The house verdicts follow the gate's own in the log, and
+    the short line names the house rule that decides, its step and its word (D72). The long reason leads with the house
+    rule where it changes the decision and follows the gate's own text where both have the same one. Under Codex an ask
+    is a deny (answer)."""
+    findings = sorted(_house_findings(command, cwd, deadline), key=lambda f: _HOUSE_ORDER.index(f.decision))
+    if not findings:
+        return outcome
+    verdicts = [Verdict(f.decision, f.detail, f.reason_id, evidence="the words of the command", failed=f.failed,
+                        next_step=f.next_step) for f in findings]
+    house = " ".join(v.text() for v in verdicts)
+    lead = findings[0]
+    if outcome is None:
+        return Outcome(lead.decision, house, verdicts, step=lead.step, cause=verdicts[0])
+    if lead.decision == outcome.decision:
+        return Outcome(lead.decision, f"{outcome.text} {house}", list(outcome.verdicts) + verdicts,
+                       outcome.applied_rule, step=lead.step, cause=verdicts[0])
+    if _HOUSE_ORDER.index(lead.decision) < _HOUSE_ORDER.index(outcome.decision):
+        return Outcome(lead.decision, f"{house} {outcome.text}", list(outcome.verdicts) + verdicts, None,
+                       step=lead.step, cause=verdicts[0])
+    return Outcome(outcome.decision, f"{outcome.text} {house}", list(outcome.verdicts) + verdicts,
+                   outcome.applied_rule, step=outcome.step, cause=outcome.cause)
+
+
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
@@ -11189,7 +11971,11 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     nothing: a read, a local change that can be taken back, a fetch or ls-remote, `gh pr merge --auto` and `gh pr edit`
     (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are.
 
-    An ask, a deny or a warning names the step that decides, the heaviest, never the first by its place (D72)."""
+    The house rules go before every answer that lets a call run, D71 included, under both hosts (D73,
+    _with_house_rules): `--admin` on `gh pr merge` and a `gh api` call that bypasses or changes a protection rule deny
+    (H1); a tag that goes out asks (H2); `gh pr create` asks, its line naming the limit of open pull requests (H3); a
+    kill by pattern that can end its own command line asks (H4). An ask, a deny or a warning names the step that decides,
+    the heaviest, never the first by its place (D72)."""
     head = _interpreter_heredoc_head(command)
     written = command if head is None else head
     judged = _program_values(written)
@@ -11203,7 +11989,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
-    outcome = _with_done_order(outcome, judged)
+    outcome = _with_house_rules(_with_done_order(outcome, judged), judged, cwd, deadline)
     if outcome is not None and outcome.decision in ("ask", "deny", "warn"):
         # D72: the line names the heaviest git or gh step, not the first, with the reason of that step
         outcome.step = outcome.step or _short_step_name(judged, cwd)
@@ -12116,6 +12902,20 @@ _SHORT_REASONS = {
     "handover_no_update": ("D35", "the push names no update", "der Push keine Änderung nennt"),
     # handover
     "handed_over": ("D35", "the pre-push check gives the verdict", "die Prüfung beim Push urteilt"),
+    # the house rules (D73): deny
+    "house_admin_merge": ("D73", "--admin merges past the branch protection, which a house rule forbids",
+                          "--admin am Schutz des Zweigs vorbei merget, was eine Hausregel verbietet"),
+    "house_protection_api": ("D73", "the call bypasses or changes a protection rule, which a house rule forbids",
+                             "der Aufruf eine Schutzregel umgeht oder ändert, was eine Hausregel verbietet"),
+    # the house rules (D73): ask
+    "house_tag_out": ("D73", "a tag goes out, and a v-tag can start a release that needs an owner GO",
+                      "ein Tag nach außen geht und ein v-Tag eine Veröffentlichung mit Owner-GO auslösen kann"),
+    "house_pr_limit": ("D73", f"a session may hold at most {HOUSE_PR_LIMIT} open PRs, and the gate cannot count them yet",
+                       f"eine Sitzung höchstens {HOUSE_PR_LIMIT} offene PRs halten soll und das Tor sie noch nicht zählt"),
+    "house_kill_pattern": ("D73", "the pattern can also match its own command line; run it alone",
+                           "das Muster auch die eigene Befehlszeile treffen kann; führe ihn einzeln aus"),
+    "house_kill_own": ("D73", "the target can be its own shell or the host; name the process id",
+                       "das Ziel die eigene Shell oder der Wirt sein kann; nenne die Prozessnummer"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",

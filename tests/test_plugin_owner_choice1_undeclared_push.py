@@ -80,9 +80,10 @@ def _assert_inactive(answer: dict, entry: dict, text: str) -> None:
     assert "remain NOT MEASURED" in text, text
 
 
-def _assert_exception_refused(answer: dict, entry: dict, text: str, why: str) -> None:
+def _assert_exception_refused(answer: dict, entry: dict, text: str, why: str, house: tuple = ()) -> None:
+    """house: the ids of the house rules (D73) the command meets, after the gate's own (Nachtrag 30)."""
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
-    assert entry["verdict"] == "ask" and entry["reason_ids"] == ["push_not_measured"], entry
+    assert entry["verdict"] == "ask" and entry["reason_ids"] == ["push_not_measured", *house], entry
     assert EXCEPTION in text and why in text, text
 
 
@@ -158,7 +159,8 @@ def test_a_a_configured_submodule_push_is_not_exempted(env, tmp_path):
 def test_a_an_option_that_adds_updates_or_recursion_is_not_exempted(env, tmp_path, command):
     work, _remote, _a = _undeclared(tmp_path)
     answer, entry, text = _l1(env, work, command)
-    _assert_exception_refused(answer, entry, text, "the commits the push sends are not all determined")
+    _assert_exception_refused(answer, entry, text, "the commits the push sends are not all determined",
+                              ("house_tag_out",) if "--follow-tags" in command else ())   # H2 of D73
 
 
 def test_a_a_detached_head_bare_push_is_not_replaced_by_head(env, tmp_path):
@@ -171,7 +173,7 @@ def test_a_a_detached_head_bare_push_is_not_replaced_by_head(env, tmp_path):
 def test_a_a_gh_call_is_not_exempted(env, tmp_path):
     work, _remote, _a = _undeclared(tmp_path)
     answer, entry, text = _l1(env, work, "gh pr create --fill")
-    _assert_exception_refused(answer, entry, text, "a gh call sends through steps of its own")
+    _assert_exception_refused(answer, entry, text, "a gh call sends through steps of its own", ("house_pr_limit",))
 
 
 @pytest.mark.parametrize("command", ["env git push origin main", "sh -c 'git push origin main'"])

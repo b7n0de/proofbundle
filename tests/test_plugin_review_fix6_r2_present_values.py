@@ -88,7 +88,8 @@ def test_git_reads_the_empty_value_and_pushes_nowhere(tmp_path, key):
 @pytest.mark.parametrize("key", EMPTY_KEYS)
 def test_a_bare_push_with_an_empty_remote_value_is_not_measured(env, tmp_path, key, command):
     r = _repo(tmp_path, **{key.replace(".", "__"): ""})
-    assert _stopped(env, r.path, command) == ("ask", ["push_not_measured"], False)
+    house = ["house_pr_limit"] if command.startswith("gh pr create") else []      # H3 of D73
+    assert _stopped(env, r.path, command) == ("ask", ["push_not_measured", *house], False)
 
 
 @pytest.mark.parametrize("key", EMPTY_KEYS)

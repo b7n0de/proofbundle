@@ -63,15 +63,16 @@ def _reviewers_case(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path,
     return work, remote, a, declared
 
 
-def _refused_at(answer: dict, entry: dict, text: str, ref: str, declared: str) -> None:
+def _refused_at(answer: dict, entry: dict, text: str, ref: str, declared: str, house: tuple = ()) -> None:
     w1._assert_exception_refused(answer, entry, text, f"the local ref {ref} holds something at {gate.DECLARATION} or in "
-                                                      f"place of its folder at {declared[:12]}; {a1.NOT_ESTABLISHED}")
+                                                      f"place of its folder at {declared[:12]}; {a1.NOT_ESTABLISHED}",
+                                 house)
 
 
 def test_the_reviewers_case_a_tag_git_followed_is_read(env, tmp_path):
     work, remote, _a, declared = _reviewers_case(tmp_path)
     answer, entry, text = w1._l1(env, work, "git push origin :refs/tags/release")
-    _refused_at(answer, entry, text, "refs/tags/release", declared)
+    _refused_at(answer, entry, text, "refs/tags/release", declared, ("house_tag_out",))   # a tag goes out: H2 of D73
     assert "no local record of its destination was found" not in text, text
     # non-vacuous: the push run apart deletes the remote tag, exit 0
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "--no-verify", "origin", ":refs/tags/release"],
@@ -83,7 +84,7 @@ def test_the_reviewers_control_with_a_tag_rule_is_asked(env, tmp_path):
     work, _remote, _a, declared = _reviewers_case(tmp_path)
     w1._git(work, "config", "--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*")
     answer, entry, text = w1._l1(env, work, "git push origin :refs/tags/release")
-    _refused_at(answer, entry, text, "refs/tags/release", declared)
+    _refused_at(answer, entry, text, "refs/tags/release", declared, ("house_tag_out",))   # a tag goes out: H2 of D73
 
 
 def _gone(tmp_path: pathlib.Path, remote_head: bool) -> tuple[pathlib.Path, str]:

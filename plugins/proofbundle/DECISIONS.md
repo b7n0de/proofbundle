@@ -3861,3 +3861,75 @@ Measured at the forms of the order (probe_lines_n30.py of the delivery): `git lo
 under Claude Code, D12 under Codex).
 Tests: tests/test_plugin_n30_short_line_d72.py (the rows of the order, the gh names, class c, the heaviest of equal
 weight).
+
+## D73. House rules: --admin, a tag going out, the limit of open pull requests, a kill that can end its own line (Nachtrag 30, 2026-10-18)
+
+Owner choice of 2026-10-18, 11:5x Berlin: house rules into the gate, the line names the danger. They go before every
+answer that lets a call run, D71 and a rule of a person included, under both hosts (_with_house_rules, after
+_work_profile and the done order of D38). A house deny decides; a house ask decides unless the gate itself denies. The
+house verdicts follow the gate's own in the log (house_admin_merge, house_protection_api, house_tag_out,
+house_pr_limit, house_kill_pattern, house_kill_own); the short line names the rule, its step and its word (D72). The
+long reason leads with the rule where it changes the decision and follows the gate's text where both ask. Under Codex
+an ask is a deny, as every ask (D12).
+
+The command is read run by run (_house_runs): by the step parser of class c, which leaves the body of a here-document
+out; where it does not model the command (a keyword, a loop, a function, a background job), by the gate's lexer after the
+bodies of here-documents are removed (_house_strip_heredocs), with every command substitution read in turn; the string
+of `bash -c`, `sh -lc` and every shell of _SHELL_DASH_C, eval, watch and `su -c` read the same way, to MAX_NESTING. The
+program of a run stands at its head or behind wrappers (sudo, env, timeout, nice, xargs, nohup, command, exec, time,
+flock, … with their value options, _HOUSE_WRAPPERS); a word elsewhere in a run is an argument, so `echo gh pr merge 1
+--admin` and `grep -rn pkill .` stay as they are.
+
+H1, deny. `gh pr merge` with `--admin` or `--admin=<value>` anywhere after `merge`, in any quoting, also with `--auto`
+(measured with gh 2.89.0 offline: `--admin` before `merge` is refused by gh, `--admin=true` and `--admin=false` are
+taken, a word after `--subject`, `--body` or `-t` is their value). Not --admin: the value of a value option of `gh pr
+merge` (`--subject --admin`, `-t --admin`, `-dt --admin`), a word after `--`, `--ADMIN` and `--adm` (gh refuses both),
+`--admin` as text inside an argument. A `gh api` call that bypasses or changes a protection rule, as far as its text
+shows it, with a method that writes (-X/--method, else POST where a field or --input is given, as gh does; a method the
+shell builds counts as a write): `repos/<o>/<r>/branches/<b>/protection` and below it, `repos/<o>/<r>/rulesets`,
+`orgs/<o>/rulesets`, `enterprises/<e>/rulesets` and below, `repos/<o>/<r>/tags/protection`,
+`repos/<o>/<r>/environments/<e>` with its deployment branch policies and protection rules, a path of
+`bypass-requests` or `push-protection-bypasses`, and `repos/<o>/<r>/pulls/<n>/merge` (the merge without gh's check, the
+call --admin makes); the endpoint with a leading slash, with `{owner}/{repo}` or as a full URL; GraphQL with the
+mutations create/update/deleteBranchProtectionRule, create/update/deleteRepositoryRuleset, updateEnvironment and
+mergePullRequest in a query given with -f or -F. The paths are those of the GitHub REST API as written down here;
+none was called (no network, NOT MEASURED). A query read from a file (`query=@file`) is not recognised.
+
+H2, ask. A tag that goes out: a push with --tags, --follow-tags, --mirror (in every abbreviation git takes) or `-c
+push.followTags=true`; a refspec side with `refs/tags/`; the word `tag` before a name; a name in the form of a version
+(v6.2.0, 6.2.0, v1, v1.0-rc1) on either side; as the source, a name a `git tag` of the same command creates, or a name
+the repository holds as a tag and not as a branch (read with the gate's own git, `for-each-ref`, where the directory is
+known; a name that is both is refused by git as ambiguous and sends nothing); `gh release create|new <tag>`; a `gh api`
+write that names `refs/tags/` or writes a release; a GraphQL mutation that names `refs/tags/`. The line names the tag
+and says that a v-tag can start a release that needs an owner GO. A local `git tag` without a push stays as it is. Not
+recognised: a tag a plain `git push` sends because the repository's configuration says so (push.followTags,
+remote.<name>.push, remote.<name>.mirror); such a push asks already through the push configuration check, with its own
+reason.
+
+H3, ask. `gh pr create` and `gh pr new`, a `gh api` POST to `repos/<o>/<r>/pulls` and the GraphQL mutation
+createPullRequest. A session may hold at most HOUSE_PR_LIMIT = 8 open pull requests; every session writes through the
+account b7n0de, so a count by author counts all sessions, and the gate has no count per session (owner question O30-1),
+so each of these asks and its line names the limit.
+
+H4, ask. `pkill -f` (also --full and in a bundle such as -fx) in a chain with further work (any other run in the line),
+or where its pattern can match its own command line: the command, the shell Claude Code runs it in (_HOUSE_CLAUDE_SHELL,
+measured in this session: `/bin/bash -c "source <snapshot> … && eval '<command>' && pwd -P >| /tmp/claude-<id>-cwd"`),
+and the hosts (claude, node, codex); the pattern is read as a regular expression where the POSIX reading and Python's
+agree, any other pattern can match. killall in a chain, or where a name names a program of its own line (the shell, a
+program of the command, the host), killall and pkill match process names, not command lines. Measured siblings that end
+the command's own shell (procps-ng 4.0.4, psmisc 23.7, bash 5.2.21, each in a PID namespace of its own): pkill without
+-f whose pattern names such a program (`pkill bash`; `pkill node` asks for the host, not measured), kill of the own
+shell, its parent or its process group (`kill $$`, `kill $PPID`, `kill 0`), pgrep -f or pidof whose pattern can match
+the own line in a command that also runs kill (`kill $(pgrep -f x)`, `pgrep -f x | xargs kill`). A negative target
+(`kill -9 -1`, another process group) asks as well; that one is not measured, the namespace held no other process.
+Measured: `pkill -f <pattern>` alone ends no shell under plain `bash -c` (bash runs it in its own place) but ends a
+shell that runs a script in the form of Claude Code's, which runs more after it; in a chain it ends the shell; `pkill -A -f` (ignore ancestors) and a pattern that does not match its own text
+(`[s]erver`) leave it. `pkill <name>` alone and `kill <pid>` stay as they are. The line says the pattern can also match
+its own command line and to run it alone.
+
+Counter cases, unchanged at ffa7d39a and at the head: `gh pr merge <n> --auto --merge` (free under D71), `git tag -l`,
+`git push origin <branch>`, `pkill <name>`, `kill <pid>`, `--admin` as text or as the value of an option, a GET of a
+protection rule (free under D36), a here-document that names the forms. The strictness stays the default; no rule falls
+away and nothing that asked or denied before is free.
+Tests: tests/test_plugin_n30_house_rules_d73.py; the tests that pin the reason ids of a tag push and of `gh pr create`
+name the house id after the gate's own.

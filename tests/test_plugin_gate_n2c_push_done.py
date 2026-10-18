@@ -317,7 +317,7 @@ def test_gh_pr_create_needs_the_done_check_at_the_branch_it_publishes(env, tmp_p
     r = Repo(tmp_path)
     answer, entry = _level1(env, r.path, command="gh pr create --fill")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert entry["reason_ids"] == ["no_receipt"]
+    assert entry["reason_ids"] == ["no_receipt", "house_pr_limit"]   # the deny of the gate stays first (D73)
 
 
 def test_evidence_and_done_both_have_to_pass(env, tmp_path):

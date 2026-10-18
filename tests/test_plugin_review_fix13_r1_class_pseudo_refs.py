@@ -35,7 +35,7 @@ def test_a_declaration_only_in_fetch_head_is_read(env, tmp_path):
     assert (work / ".git" / "FETCH_HEAD").read_text(encoding="utf-8").startswith(declared)
     assert declared not in w1._git(work, "for-each-ref", "--format=%(objectname)").stdout
     answer, entry, text = w1._l1(env, work, "git push origin :refs/tags/release")
-    p1._refused_at(answer, entry, text, "FETCH_HEAD", declared)
+    p1._refused_at(answer, entry, text, "FETCH_HEAD", declared, ("house_tag_out",))   # a tag goes out: H2 of D73
     # non-vacuous: the push run apart deletes the remote tag that holds the declaration, exit 0
     push = subprocess.run(["git", "-C", str(work), "push", "-q", "--no-verify", "origin", ":refs/tags/release"],
                           capture_output=True, text=True, check=False)
@@ -50,7 +50,7 @@ def test_a_later_line_of_fetch_head_is_read(env, tmp_path):
     lines = (work / ".git" / "FETCH_HEAD").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2 and lines[1].startswith(declared), lines
     answer, entry, text = w1._l1(env, work, "git push origin :refs/tags/release")
-    p1._refused_at(answer, entry, text, "FETCH_HEAD (line 2)", declared)
+    p1._refused_at(answer, entry, text, "FETCH_HEAD (line 2)", declared, ("house_tag_out",))   # H2 of D73
 
 
 def test_orig_head_is_read(env, tmp_path):
