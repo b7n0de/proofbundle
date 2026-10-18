@@ -229,6 +229,7 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
                              sdjwt_issue, sdjwt_vc, signature, subject_binding as sb, trust_pack as tp,
                              verification_summary as vs, verifier_block as vb)
     from proofbundle import evalclaim as ec
+    from proofbundle import receipt_cose as rc, signed_eval_receipt as ser
 
     wurzel = _sweep._WURZEL
     t = _sweep._T
@@ -248,6 +249,11 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         return json.loads(base64.b64decode(umschlag["payload"]))
 
     ev_bundle = ec.emit_eval_receipt(_sweep._claim("0.10"), t)
+    # A Signed Evaluation Receipt (EXPERIMENTAL format) its own producer writes over the payload of the draft's vector
+    # B1 (tests/fixtures/signed_eval_receipt/draft1_vectors.json), under the sweep's key.
+    ser_nutzlast = json.loads(json_von(REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json")
+                              ["payloads"]["B1"]["text"])
+    ser_quittung = ser.emit_signed_eval_receipt(ser_nutzlast, t)
     # eval-result v0.2 (pull request 301): a statement its own builder writes from the receipt's claim.
     v02_aussage = intoto.to_eval_result_v02_statement(
         ec.decode_eval_claim(ev_bundle), subject=[{"name": "eval-receipt", "digest": {"sha256": "a" * 64}}],
@@ -468,6 +474,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("signature.plain_bytes", lambda w: signature.plain_bytes(w(b"the bytes"))),
         ("signature.plain_text", lambda w: signature.plain_text(w("the text"))),
         ("signature.verify_ed25519", lambda w: signature.verify_ed25519(w(pub), w(t.sign(b"message")), w(b"message"))),
+        ("signed_eval_receipt.verify_signed_eval_receipt",
+         lambda w: ser.verify_signed_eval_receipt(w(ser_quittung), w(pub))),
         ("subject_binding.derive_subject_digest", lambda w: sb.derive_subject_digest(w(dec_pred))),
         ("subject_binding.require_derived_subject", lambda w: sb.require_derived_subject(w(nutzlast(dec_env)))),
         ("subject_binding.subject_cardinality", lambda w: sb.subject_cardinality(w(nutzlast(dec_env)))),
@@ -493,6 +501,17 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ]
         assert tuple(name for name, _ in mldsa) == _MLDSA_GRUNDFAELLE, "_MLDSA_GRUNDFAELLE names what is built here"
         f += mldsa
+    if _backend_da("scitt"):
+        # The statement its own forward direction writes over that receipt, checked under the pair of its issuer and
+        # the sweep's key; the backward check needs cbor2, the [scitt] extra.
+        aussteller = "https://issuer.example"
+        aussage = rc.receipt_to_statement(ser_quittung, pub, t, issuer=aussteller)
+        scitt = [
+            ("receipt_cose.check_statement", lambda w: rc.check_statement(
+                w(aussage), receipt=w(ser_quittung), receipt_key=w(pub), statement_keys=w([(aussteller, pub)]))),
+        ]
+        assert tuple(name for name, _ in scitt) == _SCITT_GRUNDFAELLE, "_SCITT_GRUNDFAELLE names what is built here"
+        f += scitt
     if _backend_da("anchors"):
         f += _flaechen_vier_ots()
     return f, aufraeumen
@@ -503,6 +522,9 @@ _OTS_GRUNDFAELLE = ("anchors_markovian.verify_markovian", "anchors_ots.verify_op
 #: The verdict surfaces `_flaechen_vier` builds on an ML-DSA key, named so that a build without ML-DSA can name them.
 _MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_key_id_mldsa",
                       "checkpoint.cosign_vkey_mldsa")
+#: The verdict surfaces `_flaechen_vier` builds with cbor2, named so that an environment without the [scitt] extra can
+#: name them.
+_SCITT_GRUNDFAELLE = ("receipt_cose.check_statement",)
 
 #: Every verdict surface whose LEGITIMATE input needs an optional backend, by backend. A surface is built only where its
 #: backend is present (`_backend_da`), and `_grundfaelle` names every group whose backend is missing open, never held.
@@ -513,13 +535,15 @@ _MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_k
 _JE_BACKEND: "dict[str, tuple[str, ...]]" = {
     "pq": _MLDSA_GRUNDFAELLE,
     "anchors": tuple(_sweep._OTS_FLAECHEN) + _OTS_GRUNDFAELLE,
+    "scitt": _SCITT_GRUNDFAELLE,
 }
-_BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTimestamps (proofbundle[anchors])"}
+_BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTimestamps (proofbundle[anchors])",
+                  "scitt": "cbor2 (proofbundle[scitt])"}
 
 
 def _backend_da(backend: str) -> bool:
-    """Whether this environment has ``backend``: OpenTimestamps (``anchors``, `_sweep._ots_vorhanden`), or the ML-DSA
-    classes of cryptography (``pq``). The one check every conditional base case here goes through.
+    """Whether this environment has ``backend``: OpenTimestamps (``anchors``, `_sweep._ots_vorhanden`), the ML-DSA
+    classes of cryptography (``pq``), or cbor2 (``scitt``). The one check every conditional base case here goes through.
 
     ONLY THE ABSENCE OF THE BACKEND COUNTS AS ABSENCE: no module spec to find, and for ``pq`` also the documented
     shape of cryptography 48 and later without a post-quantum backend, a module without its classes
@@ -531,6 +555,9 @@ def _backend_da(backend: str) -> bool:
     4163240539 at dd079791)."""
     if backend == "anchors":
         return _sweep._ots_vorhanden()
+    if backend == "scitt":
+        import importlib.util
+        return importlib.util.find_spec("cbor2") is not None
     if backend == "pq":
         import importlib.util
         name = "cryptography.hazmat.primitives.asymmetric.mldsa"
