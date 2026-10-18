@@ -1,4 +1,5 @@
-"""Nachtrag 37: a case for the mutant of Nachtrag 35 that survived (n35/mutation_1 of the delivery, at d2314682).
+"""Nachtrag 37: a case for each mutant that survived: M85g of Nachtrag 35 (n35/mutation_1 of the delivery, at d2314682),
+and M91a, M91i and M92b of Nachtrag 37 (n37/mutation_1, at 35ae2249), each killed in n37/mutation_2.
 
 M85g took back the host check inside the autonomous answer: main() starts it only under Claude Code, so every test
 through the hook stayed green, while a call of autonomous_outcome() under Codex would have answered as under Claude Code.
@@ -29,3 +30,40 @@ def test_M85g_under_codex_the_autonomous_answer_is_the_outcome_of_decide(tmp_pat
     deadline = time.monotonic() + 60
     out = gate.decide(command, str(repo), deadline, "codex")
     assert gate.autonomous_outcome(out, command, str(repo), deadline, host="codex") is out
+
+
+# --- Nachtrag 37: a case each for the mutants of D91 and D92 that survived the first run (n37/mutation_1) -------------
+
+def test_M91a_an_ask_with_a_reason_d71_does_not_replace_is_not_the_local_class(tmp_path):
+    """The local class answers only an ask whose every reason D71 replaces; any other reason keeps D85's answer."""
+    repo = d71._repo(tmp_path, url="https://github.com/someone/x.git")
+    (tmp_path / "msg.txt").write_text("Merge\n")
+    command = f"git merge -F {tmp_path}/msg.txt topic"
+    deadline = time.monotonic() + 60
+    asked = gate.Verdict("ask", "a reason D71 does not replace", "push_not_measured")
+    out = gate.Outcome("ask", asked.text(), [asked])
+    assert gate._autonomy_local(out, command, str(repo), deadline, {}) is None
+    free = gate.Verdict("ask", "a reason D71 replaces", "possible_unmodeled_push")
+    assert gate._autonomy_local(gate.Outcome("ask", free.text(), [free]), command, str(repo), deadline,
+                                {}).decision == "pass"
+
+
+def test_M91i_a_repository_that_holds_the_gate_directory_is_not_the_local_class(tmp_path, monkeypatch):
+    repo = d71._repo(tmp_path, url="https://github.com/someone/x.git")
+    (tmp_path / "msg.txt").write_text("Merge\n")
+    monkeypatch.setenv("PROOFBUNDLE_GATE_DIR", str(repo / "gatedir"))
+    command = f"git merge -F {tmp_path}/msg.txt topic"
+    deadline = time.monotonic() + 60
+    free = gate.Verdict("ask", "a reason D71 replaces", "possible_unmodeled_push")
+    import os
+    assert gate._autonomy_local(gate.Outcome("ask", free.text(), [free]), command, str(repo), deadline,
+                                dict(os.environ)) is None
+
+
+def test_M92b_without_a_record_of_the_remote_head_the_default_branch_is_unknown_even_with_a_destination_record(tmp_path):
+    """The destination has a local record, so the rules compare; the default branch is still not measured."""
+    import test_plugin_n37_machine_check_d92 as d92
+    repo = d92._fixture(tmp_path, record_head=False)
+    d71._git(repo, "update-ref", f"refs/remotes/origin/{d92.OWN}", "main")
+    answer, entry = d92._hook(repo, tmp_path, f"git push origin {d92.OWN}")
+    assert "free_work_branch_go" not in entry["reason_ids"], (answer, entry)
