@@ -4330,3 +4330,49 @@ owner_klicks (asks sent under Claude Code), umwege (lines that completed a detou
 name a caught danger, FANG_REASONS, owner question O35-5) and sperren (denies sent), with the asks and the denies per
 reason. The rest of the schema b7n0de.plugin_bilanz is Cowork's and not here (owner question O35-6).
 Tests: tests/test_plugin_n35_counts_d88.py.
+
+## D91. The local class that can be taken back is free in autonomous operation (Nachtrag 37, Ergänzung 1, 2026-10-18)
+
+Owner word of 2026-10-18, 23:11 Berlin, with two screens of delta (gate 89d2e8b7): `git merge` of main into the own
+branch with a message from a file asked (D8), and so did `git -C <absolute path> merge-tree --write-tree <sha>
+refs/remotes/origin/main`; neither was a danger. Owner choice of 23:2x Berlin (A): the gate judges a command by its
+effect, not by whether it can read its spelling; add, commit, merge and merge-tree, a branch or a work tree made, stash,
+all in the own clone without the network, are free and stand in the gate log; a write into hooks, the configuration,
+the gate directory or the declaration blocks.
+
+Measured with git 2.43.0 under strace -f, no network, every hook of githooks(5) a marker, core.editor a marker
+(n37/werkzeug/truth_local_n37.py of the delivery, 21 forms, 30 runs): `git merge` with -m, -F <file> or --file=<file>,
+with and without --no-ff and -q, fast-forward or not, starts no editor on a pipe or on a terminal of script(1); it runs
+the hooks of a merge commit (pre-merge-commit, prepare-commit-msg, commit-msg, post-merge, post-index-change,
+reference-transaction). `git merge-tree --write-tree` with two revisions, with --name-only, --no-messages, -z and
+--merge-base=<rev>, with and without a conflict, started no hook and no program and changed no path outside the object
+store. `git stash pop` and `apply`, with -q, --index and stash@{0}, ran post-index-change and reference-transaction.
+
+The rule (_autonomy_local, in the autonomous answer of D85, under Claude Code only): an ask of decide() whose every
+reason is one D71 replaces (_WORK_REPLACEABLE), for a command that is one form of the local class (_local_form: the
+read, local and target forms of D71, never fetch, ls-remote or gh; and in the same literal grammar `git merge` with a
+message of its own and one revision, `git merge-tree --write-tree` with two revisions, `git stash pop|apply [-q]
+[--index] ['stash@{<n>}']`), in any repository that does not overlap the gate directory, the declared ones of b7n0de
+and every other:
+- passes (free_local_reversible, klasse lokal in the log, no line to the user) where the check of its class finds
+  nothing: the read profile of D34 for a read, the checkout check of D40 for `worktree add`, the state check of D40 with
+  the hooks of D71 for every local form, and for merge-tree the state check with no hook counted (it starts none);
+- is blocked where the form would write a configuration file or a hook (the work-tree guard of D71, decide_write for
+  the target of `worktree add` and `bundle create`: write_to_repo_state) or the declaration (write_to_declaration: a
+  merge or rebase whose other side changed .proofbundle/evidence.json since the merge base, a checkout or switch to a
+  tree with another declaration, a stash entry that changed it);
+- keeps the ask (local_program, effect "programm" of the closed list) where it starts a program of the clone the gate
+  does not see: a hook git starts for the form, a filter, fsmonitor, a merge driver, a key or GIT_* name the check does
+  not know. Whether such a hook may run free is owner question O37-1;
+- leaves the answer to D85 where git would refuse the form (a branch that does not exist, a taken name, a target that
+  exists, no stash entry): such a form changes nothing.
+A rewrite of D85 counts a call of the local class as free (cd before a merge becomes `git -C <path> merge …`).
+
+Not changed: decide() and D71 judge as before, and every answer without --autonomous and under Codex stays. add and
+commit stay as D3 and D40 free them, also where a commit takes a changed declaration (owner question O37-2); a switch
+or checkout that D71 frees in a declared repository of b7n0de stays free there. A form the grammar does not read whole
+(an editor, standard input, two revisions to merge, merge-tree without --write-tree, an unquoted `stash@{0}`, a
+strategy option) keeps the answer of D85. Limits: every measurement is with git 2.43.0; the state check reads the
+state when the gate answers (D27); a Bash command that writes a hook file directly is not gated (D8) and is the class
+O37-1 names. Tests: tests/test_plugin_n37_local_class_d91.py; changed: tests/test_plugin_n35_autonomy_d85.py (the closed
+list carries the effect programm of D91).

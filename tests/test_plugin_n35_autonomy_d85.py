@@ -302,8 +302,9 @@ def test_D85_without_the_flag_the_hook_answers_as_decide_judges(tmp_path):
 
 
 def test_D85_the_closed_list_of_external_effects():
-    assert set(gate.AUTONOMY_EFFECTS) == {"push", "push_delete", "tag", "release", "merge", "pr", "settings",
-                                          "gh_write", "done_order"}
+    # changed in Nachtrag 37 (D91): a local form that starts a program of the clone keeps the ask (owner question O37-1)
+    assert set(gate.AUTONOMY_EFFECTS) - {"programm"} == {"push", "push_delete", "tag", "release", "merge", "pr",
+                                                         "settings", "gh_write", "done_order"}
     assert gate._autonomy_effect(shlex.split("git -C /r push origin x")) == "push"
     assert gate._autonomy_effect(shlex.split("git tag -l")) is None
     assert gate._autonomy_effect(shlex.split("gh api repos/a/b")) is None

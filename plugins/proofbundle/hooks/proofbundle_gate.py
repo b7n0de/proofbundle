@@ -1394,7 +1394,8 @@ def _checkout_state_problem(directory: str, target: str, deadline: float, enviro
 
 def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None,
                               hooks_not_run: frozenset = _HOOKS_NOT_RUN_BY_ADD_COMMIT,
-                              signing_inert: bool = False, own_known: frozenset = frozenset()) -> str | None:
+                              signing_inert: bool = False, own_known: frozenset = frozenset(),
+                              hook_counts=None) -> str | None:
     """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
     else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
     --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
@@ -1406,7 +1407,8 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     free under Claude Code only, names what D74 knows of the person's own global or system file: "fsmonitor", where
     core.fsmonitor names git's own daemon on a git without one, does not count; "lfs", for a form that brings no other
     tree into the work tree, lets the four entries of `git lfs install` count only where an attribute assigns a filter
-    to a path of the index or to an untracked path git add would take."""
+    to a path of the index or to an untracked path git add would take. hook_counts, for a form measured to start no
+    hook at all (`git merge-tree --write-tree`, D91), takes the place of the count by hooks_not_run."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1434,7 +1436,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
                     f"{origin_of(scope, origin)}")
-    problem = _hook_problem(paths, lambda name: name not in hooks_not_run)
+    problem = _hook_problem(paths, hook_counts or (lambda name: name not in hooks_not_run))
     if problem is not None:
         return problem
     for name in sorted(environ):
@@ -11243,6 +11245,22 @@ def _work_form(command: str) -> _WorkForm | None:
     return _work_git_form(words[k], words[k + 1:], directory)
 
 
+def _repo_overlap_problem(directory: str, deadline: float, environ: dict) -> tuple[dict | None, str | None]:
+    """(the repository's paths, None) where the directory is in a work tree git names and neither the work tree, the
+    git directory nor the common directory lies in the gate directory, nor the gate directory in the work tree; else
+    (None or the paths, what keeps it out). D71 and D91 read it."""
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None or paths["toplevel"] is None or paths["gitdir"] is None:
+        return None, "the directory is in no work tree the gate can read"
+    gate_dir = _gate_dir(environ)
+    if gate_dir is not None:
+        top = os.path.realpath(paths["toplevel"])
+        if any(_within_gate_dir(p, directory, gate_dir) for p in (paths["toplevel"], paths["gitdir"], paths["common"])) \
+                or _within_gate_dir(gate_dir, directory, top) is not None:
+            return paths, "the repository and the gate directory overlap"
+    return paths, None
+
+
 def _work_repo_problem(directory: str, deadline: float, environ: dict) -> str | None:
     """None where D71 may apply to the repository at directory, else what keeps it out: the directory is in a work tree
     git names; HEAD holds a declaration the gate reads (parse_declaration); the repository has a remote, and every URL
@@ -11251,15 +11269,9 @@ def _work_repo_problem(directory: str, deadline: float, environ: dict) -> str | 
     read), is https://github.com/<WORK_OWNER>/<repo>; and neither the work tree, the git directory nor the common
     directory lies in the gate directory, nor the gate directory in the work tree. The reason names no value it read
     (D49)."""
-    paths, why = _repo_paths(directory, deadline)
-    if paths is None or paths["toplevel"] is None or paths["gitdir"] is None:
-        return "the directory is in no work tree the gate can read"
-    gate_dir = _gate_dir(environ)
-    if gate_dir is not None:
-        top = os.path.realpath(paths["toplevel"])
-        if any(_within_gate_dir(p, directory, gate_dir) for p in (paths["toplevel"], paths["gitdir"], paths["common"])) \
-                or _within_gate_dir(gate_dir, directory, top) is not None:
-            return "the repository and the gate directory overlap"
+    paths, problem = _repo_overlap_problem(directory, deadline, environ)
+    if problem is not None:
+        return problem
     repo = paths["toplevel"]
     blob = _git(repo, "cat-file", "blob", f"HEAD:{DECLARATION}", deadline=deadline)
     if blob.returncode != 0:
@@ -13209,6 +13221,12 @@ _SHORT_REASONS = {
     # the standing GO for the own work branch (D87): a pass the user sees
     "free_work_branch_go": ("D87", "an own work branch under the standing GO, measured",
                             "ein eigener Arbeitszweig unter dem stehenden GO, gemessen"),
+    # the local class that can be taken back (D91): a pass in the log, an ask for a program, a deny for a guarded write
+    "free_local_reversible": ("D91", "local and can be taken back, checked", "lokal und umkehrbar, geprüft"),
+    "local_program": ("D91", "a local form starts a program of the clone the gate does not see",
+                      "eine lokale Form ein Programm des Klons startet, das das Tor nicht sieht"),
+    "write_to_declaration": ("D91", "the form writes the evidence declaration", "die Form die Erklärung der Belege "
+                                                                                "schreibt"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
@@ -13449,6 +13467,9 @@ AUTONOMY_EFFECTS = {
     "settings": ("a setting of a repository", "eine Einstellung eines Repositorys"),
     "gh_write": ("a call that writes on GitHub", "ein Aufruf, der auf GitHub schreibt"),
     "done_order": ("a change of a local done order (D38)", "eine Änderung eines lokalen Abschlussauftrags (D38)"),
+    "programm": ("a local form that starts a program of the own clone the gate does not see (a hook, a filter, "
+                 "fsmonitor; D91, owner question O37-1)",
+                 "eine lokale Form, die ein Programm des eigenen Klons startet, das das Tor nicht sieht (D91)"),
 }
 #: The gh pairs with an external effect, by the entry of AUTONOMY_EFFECTS (gh 2.89.0, `gh <command> --help`); every
 #: other pair is none. `gh api` is judged by its method (_autonomy_gh_api_writes).
@@ -13855,7 +13876,8 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
     directory = call["directory"] or cwd
     out = decide(text, directory, deadline, "claude", environ)
     if out is not None and out.decision == "ask":
-        out = _autonomy_external(out, text, directory, deadline, environ) or out
+        out = _autonomy_external(out, text, directory, deadline, environ) or \
+            _autonomy_local(out, text, directory, deadline, environ) or out   # D91
         if out.decision == "ask" and (out.autonomy or {}).get("klasse") == "aussen":
             return "external", ""
     if out is None or out.decision in _AUTONOMY_FREE:
@@ -13901,6 +13923,9 @@ def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str,
         kept = _autonomy_external(outcome, command, cwd, deadline, environ)
         if kept is not None:
             return kept
+        local = _autonomy_local(outcome, command, cwd, deadline, environ)   # D91
+        if local is not None:
+            return local
         try:
             hints, calls, judged = _autonomy_checked(command, cwd, deadline, environ)
         except GateError as exc:
@@ -14209,7 +14234,7 @@ FANG_REASONS = frozenset({
     "house_kill_own", "house_kill_pattern", "house_tag_out", "verification_failed", "not_done", "no_receipt",
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
-    "push_protected", "push_delete", "push_unmeasured"})
+    "push_protected", "push_delete", "push_unmeasured", "write_to_declaration"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
@@ -14382,6 +14407,247 @@ def bilanz_command(argv: list[str]) -> int:
     result["quelle"] = {"log": os.path.basename(log)}
     sys.stdout.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
     return 0
+
+
+# --- D91: the local class that can be taken back, free in autonomous operation (Nachtrag 37, Ergänzung 1) -----------
+
+#: D91: the flags of `git merge-tree` the class takes beside --write-tree, each of which only chooses what it prints.
+#: Measured with git 2.43.0 (truth_local_n37.py of the delivery, every hook of githooks(5) a marker, strace -f): the
+#: form started no hook and no program and changed no path outside the object store, on a pipe and on a terminal of
+#: script(1), with and without a conflict.
+_LOCAL_MERGE_TREE_FLAGS = frozenset({"--write-tree", "--name-only", "--no-messages", "--messages", "-z"})
+#: A stash entry as `git stash pop` and `git stash apply` take it in D91: stash@{<n>}, no other reflog.
+_LOCAL_STASH_ENTRY = re.compile(r"stash@\{(?:0|[1-9][0-9]{0,4})\}")
+#: The local forms of D91 that write the work tree: those of D71, and stash pop and apply.
+_LOCAL_TREE_WRITERS = _WORK_TREE_WRITERS | {"git stash pop", "git stash apply"}
+#: The forms that bring the tree of another commit into the work tree, with the roles of their refs that name it; for
+#: merge and rebase the role "commit" is the other side of a merge, every other role a tree the work tree takes whole.
+_LOCAL_BRINGS = {"git merge": ("commit",), "git checkout": ("branch", "commit", "start"),
+                 "git switch": ("branch", "commit", "start"), "git rebase": ("commit", "branch"),
+                 "git stash pop": ("stash",), "git stash apply": ("stash",)}
+
+
+def _local_merge(args: list[str]) -> tuple | None:
+    """The refs of `git merge` with a message of its own, else None: exactly one revision, the flags of
+    _WORK_MERGE_FLAGS, and -m/--message <text>, --message=<text>, -F <file> or --file=<file> (a literal file, not
+    standard input). Measured (truth_local_n37.py): with a message git starts no editor, on a pipe and on a terminal,
+    and runs the hooks of a merge commit as `git merge --no-edit` does."""
+    positional, message, i = [], False, 0
+    while i < len(args):
+        word = args[i]
+        if word in ("-m", "--message", "-F") and i + 1 < len(args):
+            if word == "-F" and args[i + 1] in ("", "-"):
+                return None
+            message, i = True, i + 2
+            continue
+        if word.startswith("--message="):
+            message = True
+        elif word.startswith("--file="):
+            if word[len("--file="):] in ("", "-"):
+                return None
+            message = True
+        elif word not in _WORK_MERGE_FLAGS:
+            if word.startswith("-") or not _work_rev(word):
+                return None
+            positional.append(word)
+        i += 1
+    return (("commit", positional[0]),) if len(positional) == 1 and message else None
+
+
+def _local_merge_tree(args: list[str]) -> tuple | None:
+    """The refs of `git merge-tree --write-tree [<flag>…] [--merge-base=<rev>] <rev> <rev>`, else None."""
+    if "--write-tree" not in args:
+        return None
+    positional, bases = [], []
+    for word in args:
+        if word in _LOCAL_MERGE_TREE_FLAGS:
+            continue
+        if word.startswith("--merge-base="):
+            if not _work_rev(word[len("--merge-base="):]):
+                return None
+            bases.append(("commit", word[len("--merge-base="):]))
+        elif word.startswith("-") or not _work_rev(word):
+            return None
+        else:
+            positional.append(("commit", word))
+    return tuple(positional + bases) if len(positional) == 2 and len(bases) <= 1 else None
+
+
+def _local_stash_restore(args: list[str]) -> tuple | None:
+    """The stash entry of `git stash pop|apply [-q|--quiet] [--index] [stash@{<n>}]`, else None."""
+    entries = []
+    for word in args:
+        if word in ("-q", "--quiet", "--index"):
+            continue
+        if entries or not _LOCAL_STASH_ENTRY.fullmatch(word):
+            return None
+        entries.append(word)
+    return (("stash", entries[0] if entries else "stash@{0}"),)
+
+
+def _local_form(command: str) -> _WorkForm | None:
+    """D91: the form of the local class the whole command is, or None: a read, local or target form of D71
+    (_work_form, never fetch, ls-remote or gh), or, in the same literal grammar, `git merge` with a message of its own,
+    `git merge-tree --write-tree` (kind tree: it writes objects only) and `git stash pop` or `apply`."""
+    form = _work_form(command)
+    if form is not None:
+        return form if form.kind in ("read", "local", "target") else None
+    toks = _lex(_drop_comments(command))
+    if toks is None or not toks or any(t[0] != "word" or t[2] for t in toks) or _expansion_present(command):
+        return None
+    words, raws = [t[1] for t in toks], [t[3] for t in toks]
+    if raws[0] != "git" or any(_shell_rewrites(raw) for raw in raws):
+        return None
+    k, directory = 1, None
+    if words[1:2] == ["-C"]:
+        if len(words) < 4 or not os.path.isabs(words[2]):
+            return None
+        k, directory = 3, words[2]
+    if k >= len(words):
+        return None
+    sub, args = words[k], words[k + 1:]
+    if sub == "merge":
+        refs = _local_merge(args)
+        return _WorkForm("local", "git merge", directory, refs) if refs is not None else None
+    if sub == "merge-tree":
+        refs = _local_merge_tree(args)
+        return _WorkForm("tree", "git merge-tree", directory, refs) if refs is not None else None
+    if sub == "stash" and args[:1] in (["pop"], ["apply"]):
+        refs = _local_stash_restore(args[1:])
+        return _WorkForm("local", f"git stash {args[0]}", directory, refs) if refs is not None else None
+    return None
+
+
+def _local_refs_problem(form: _WorkForm, directory: str, deadline: float) -> str | None:
+    """None when git would take every ref of the form (_work_refs_problem, and a stash entry that names a commit), else
+    what it would refuse; such a form changes nothing, and D91 leaves its answer to D85."""
+    problem = _work_refs_problem(form, directory, deadline)
+    if problem is not None:
+        return problem
+    for role, word in form.refs:
+        if role == "stash" and _git(directory, "rev-parse", "--verify", "--quiet", f"{word}^{{commit}}",
+                                    deadline=deadline).returncode != 0:
+            return f"{word} names no stash entry"
+    return None
+
+
+def _local_write_problem(form: _WorkForm, directory: str, deadline: float,
+                         environ: dict) -> tuple[str, str] | None:
+    """("kept", why) where git would refuse the form for its target (a path that exists), ("guarded", why) where the
+    form would write a configuration file, a hook or the gate directory (the work-tree guard of D71, decide_write for
+    the target of `worktree add` and `bundle create`), else None."""
+    if form.name in _LOCAL_TREE_WRITERS:
+        guard = _work_tree_guard_problem(directory, deadline)
+        if guard is not None:
+            return "guarded", guard
+    if form.kind == "target":
+        role, word = form.refs[0]
+        target = os.path.join(directory, word) if role == "file" else word
+        if os.path.lexists(target):
+            return "kept", f"the target {target} exists"
+        written = decide_write("Write", {"file_path": target}, directory, deadline, "claude", environ)
+        if written is not None:
+            return "guarded", ("a write the gate guards: " +
+                               (written.verdicts[0].failed if written.verdicts else written.text))
+    return None
+
+
+def _local_program_problem(form: _WorkForm, directory: str, deadline: float, environ: dict) -> str | None:
+    """None when the check of the form's class finds nothing that starts a program the gate does not see, else what it
+    found: the read profile of D34 for a read; the checkout check of D40 for `worktree add`; the state check of D40
+    with no hook counted for merge-tree (measured: it starts none) and with the hooks of D71 for every other form."""
+    if form.kind == "read":
+        bound = [] if _no_terminal_host("claude", environ) else None
+        return _read_profile_problem(form.name.split(" ")[1], directory, deadline, environ, inert_pagers=bound)
+    if form.name == "git worktree add":
+        return _checkout_state_problem(directory, dict(form.refs)["target"], deadline, environ)
+    if form.kind == "tree":
+        return _add_commit_state_problem(directory, deadline, environ, hook_counts=lambda _name: False,
+                                         own_known=_OWN_FSMONITOR)
+    return _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORK,
+                                     own_known=_OWN_KNOWN if form.name in _WORK_LFS_FORMS else _OWN_FSMONITOR)
+
+
+def _local_declaration_changes(form: _WorkForm, directory: str, deadline: float) -> bool:
+    """Whether the form writes the declaration (DECLARATION) into the work tree: a form of _LOCAL_BRINGS whose other
+    tree holds another blob there than HEAD; for the other side of a merge or a rebase only where that side changed
+    it since the merge base, and for a stash entry where the entry changed it against its own base. A side git cannot
+    read counts as a change."""
+    roles = _LOCAL_BRINGS.get(form.name, ())
+
+    def blob(rev: str) -> str | None:
+        got = _git(directory, "rev-parse", "--verify", "--quiet", f"{rev}:{DECLARATION}", deadline=deadline)
+        return _git_value(got.stdout) if got.returncode == 0 else None
+
+    head = blob("HEAD")
+    for role, word in form.refs:
+        if role not in roles:
+            continue
+        other = blob(f"{word}^{{commit}}")
+        if role == "stash":
+            if other != blob(f"{word}^1"):
+                return True
+        elif role == "commit" and form.name in ("git merge", "git rebase"):
+            base = _git(directory, "merge-base", "HEAD", f"{word}^{{commit}}", deadline=deadline)
+            if other != head and (base.returncode != 0 or other != blob(_git_value(base.stdout) or "HEAD")):
+                return True
+        elif other != head:
+            return True
+    return False
+
+
+def _autonomy_local(outcome: "Outcome", command: str, cwd: str, deadline: float, environ: dict) -> "Outcome | None":
+    """D91 (Nachtrag 37, Ergänzung 1): the answer to an ask of decide() whose every reason is one of _WORK_REPLACEABLE,
+    for a command that is one form of the local class (_local_form), in any repository that does not overlap the gate
+    directory: a pass where the check of its class finds nothing; a deny where the form would write a configuration
+    file, a hook or the gate directory (write_to_repo_state) or the declaration (write_to_declaration); the ask kept
+    where it starts a program of the clone the gate does not see (local_program, owner question O37-1). None where the
+    command is no such form or git would refuse it, and D85 answers."""
+    if not outcome.verdicts or any(v.reason_id not in _WORK_REPLACEABLE for v in outcome.verdicts):
+        return None
+    form = _local_form(command)
+    if form is None:
+        return None
+    directory = os.path.realpath(form.directory if form.directory is not None else cwd)
+    try:
+        _paths, problem = _repo_overlap_problem(directory, deadline, environ)
+        if problem is not None or _local_refs_problem(form, directory, deadline) is not None:
+            return None
+        written = _local_write_problem(form, directory, deadline, environ)
+        if written is not None and written[0] == "kept":
+            return None
+        declaration = written is None and _local_declaration_changes(form, directory, deadline)
+        program = None if written or declaration else _local_program_problem(form, directory, deadline, environ)
+    except GateError:
+        return None
+    cause = next((v for v in outcome.verdicts if v.decision == "ask"), None)
+    if written is not None or declaration:
+        reason = "write_to_repo_state" if written is not None else "write_to_declaration"
+        said = written[1] if written is not None else f"it writes the evidence declaration {DECLARATION}"
+        verdict = Verdict("deny", f"proofbundle gate: {form.name} is local, but {said}; the local class is free only "
+                                  "where it writes no configuration, no hook, nothing of the gate and not the "
+                                  "declaration (Nachtrag 37; DECISIONS.md D91).", reason,
+                          evidence="the configuration files, the hook directory and the declaration the form writes",
+                          failed=said, next_step="a person makes this change", repo=directory)
+        new = Outcome("deny", f"{verdict.text()} {outcome.text}", list(outcome.verdicts) + [verdict], None,
+                      step=outcome.step, cause=verdict)
+        return _autonomy_record(new, "sperre", grund=reason)
+    if program is not None:
+        verdict = Verdict("ask", f"proofbundle gate: {form.name} is local and can be taken back, but it starts a "
+                                 f"program of the clone the gate does not see: {program}. The gate asks the owner "
+                                 "(owner question O37-1; DECISIONS.md D91).", "local_program",
+                          evidence="the configuration, the hooks and the environment the form reads", failed=program,
+                          next_step="the owner answers", repo=directory)
+        new = Outcome("ask", f"{verdict.text()} {outcome.text}", list(outcome.verdicts) + [verdict], None,
+                      step=outcome.step, cause=cause)
+        return _autonomy_record(new, "aussen", wirkung=["programm"])
+    verdict = Verdict("pass", f"proofbundle gate: {form.name} is free in autonomous operation: local, without the "
+                              f"network, and it can be taken back. The check of its class at {directory} found nothing "
+                              "that starts a program, and the form writes no configuration, no hook, nothing of the "
+                              "gate and not the declaration (Nachtrag 37; DECISIONS.md D91).", "free_local_reversible",
+                      repo=directory)
+    new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
+    return _autonomy_record(new, "lokal", wirkung=[form.name])
 
 
 def tree_digest_command(argv: list[str]) -> int:
