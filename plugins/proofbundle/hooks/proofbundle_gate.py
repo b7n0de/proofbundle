@@ -18803,8 +18803,9 @@ def read_transcript(path: object) -> tuple[list[dict] | None, str | None]:
     return calls, None
 
 
-#: The tools of Claude Code that change files.
-_CLAIM_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+#: The tools of Claude Code that change files, or may: the file tools, and a subagent, whose own calls stand in a
+#: transcript of their own that the claim check does not read.
+_CLAIM_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"})
 #: Programs that change no file of the work tree, with the forms below that do left out (D80). Anything else changes.
 _CLAIM_STILL = frozenset({
     "cd", "pwd", "echo", "printf", "cat", "head", "tail", "wc", "ls", "grep", "egrep", "fgrep", "rg", "sha256sum",

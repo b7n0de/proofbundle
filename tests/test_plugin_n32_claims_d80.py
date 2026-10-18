@@ -394,3 +394,11 @@ def test_the_count_is_per_session(env, repo, transcript, tmp_path):
 ])
 def test_the_closed_list_of_claims(message, kinds):
     assert [c["kind"] for c in gate.message_claims(message)] == kinds
+
+
+@pytest.mark.parametrize("tool", ["Task", "Agent"])
+def test_a_subagent_after_the_run_is_a_change(env, repo, transcript, tool):
+    """A subagent's own calls stand in a transcript of their own: what it changed is not seen, so it counts as a change."""
+    transcript.edit().bash("python -m pytest -q", out="5 passed")
+    transcript._add(tool, {"description": "x", "prompt": "y"}, 0, "done")
+    held(_stop(env, repo, transcript, "Tests grün."))

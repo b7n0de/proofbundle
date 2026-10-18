@@ -4161,9 +4161,10 @@ The rule (claim_check, message_claims, stop_command), under Claude Code, where t
   passed at this end (a receipt with the git state of the work tree), or a test run of the closed list of runners after
   the last change in the transcript whose exit code is its own and 0 (nothing after the runner but `&&`, or a pipe
   with `set -o pipefail` before it; no `||` between the runner and the list before it; not in the background, not
-  interrupted). A change is an edit of a file tool or a Bash command that is not of the closed list of commands that
-  change no file of the work tree (reads, git and gh calls that leave the work tree as it is, test runners); a command
-  the gate cannot read is a change. Each Python version the claim names needs such a run that names it, in its
+  interrupted). A change is an edit of a file tool, a subagent (Task, Agent: its own calls stand in a transcript of
+  their own, which the check does not read), or a Bash command that is not of the closed list of commands that change
+  no file of the work tree (reads, git and gh calls that leave the work tree as it is, test runners); a command the gate
+  cannot read is a change. Each Python version the claim names needs such a run that names it, in its
   command, its output or the version its interpreter showed. Done needs no run where the transcript shows no change.
   Pushed: a fetch, pull or push succeeded in the transcript and a remote-tracking ref points at the reported state (the
   commits the sentence names, else HEAD), or a push's output names the reported commit as the new value. Merged or
