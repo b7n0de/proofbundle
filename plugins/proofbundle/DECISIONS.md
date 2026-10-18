@@ -4094,3 +4094,30 @@ or aliases of the shell snapshot Claude Code sources before the command.
 Tests: tests/test_plugin_n31e1_read_programs_d77.py. tests/test_plugin_n23_bracket_test_d60.py listed `[ -x git ]`
 among the commands that ask; it tests a file named git and is a chain wholly of `[`, so it moved to a control that asks
 under Codex and is silent under Claude Code.
+
+## D78. For a read form only a hook counts that this form starts (Ergänzung 1 to Nachtrag 31, point 2, 2026-10-18)
+
+At delta (Cowork, 2026-10-18, list 1442Z) the three asks of D34 at `git status` and `git diff` came from the pre-commit
+hook of the clone (the key named six times: `hook pre-commit` in the repository's hook directory). The read profile
+counted every hook that is not a sample for the forms that walk the work tree.
+
+Measured with git 2.43.0 under GIT_TRACE2_EVENT, with every hook githooks(5) of git 2.43 documents and one of another
+name in place, each writing a marker, with no network (truth_hooks_e1.py of the delivery, 840 runs): twenty forms
+(status with --short, --porcelain, --branch, -uno; diff with --stat, --cached, HEAD, --name-only and two commits; log
+with --oneline, -p; stash list; grep; ls-files with -m; show --stat) in seven states (clean, a file whose modification
+time changed in another second, a changed file, a new file, an index older than the files, a stash, a changed time and
+content), with and without GIT_OPTIONAL_LOCKS=0, in the hook directory, through core.hooksPath and in a linked work
+tree. Marker and trace2 agreed in every run. status started post-index-change in each of the seven states, not under
+GIT_OPTIONAL_LOCKS=0; diff of the work tree (diff, --stat, HEAD, --name-only) started it after a change of a file's time
+(three states), also under GIT_OPTIONAL_LOCKS=0; diff --cached, diff of two commits, grep, ls-files, log, show and stash
+list started no hook; no form started pre-commit, any other documented hook or the hook of the other name.
+
+The rule (_read_profile_problem, _HOOKS_STARTED_BY_READ): for a form that walks the work tree a hook counts where that
+form starts it (post-index-change for status and diff, none for grep and ls-files) or where git does not document its
+name (_GIT_HOOK_NAMES, the 28 names of githooks(5) of git 2.43): such a name keeps the ask, as the gate does not know what
+starts it. fsmonitor-watchman runs only where core.fsmonitor names it, which the profile judges as a key (D74). A sample
+never counted. Every other rule of the profile stays; the forms that do not walk the work tree read no hook, as before.
+Under Codex no read form is free (D37). Not measured: git 2.51.1 of delta's machine; a hook that git starts through
+configuration (hook.<name>.command of later versions; a key the profile does not know keeps the ask).
+Tests: tests/test_plugin_n31e1_read_hooks_d78.py. tests/test_plugin_ask_load_a_read.py held every walking form not free
+beside a post-index-change hook; git grep and git ls-files started it in no measured state and are free there now.

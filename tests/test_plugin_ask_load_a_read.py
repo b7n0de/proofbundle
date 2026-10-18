@@ -360,6 +360,11 @@ def test_KEEP_a_form_that_walks_the_work_tree_beside_its_sources(tmp_path, monke
     _walk_source(tmp_path, repo, monkeypatch, source)
     for command in WALKING:
         decision, reasons = _decide(repo, command)
+        if source.startswith("hook_") and command.split()[1] in ("grep", "ls-files"):
+            # D78 (Ergänzung 1 to Nachtrag 31): grep and ls-files started no hook in any measured state, so the
+            # post-index-change hook does not count for them; status and diff started it and still ask.
+            assert decision == "pass", (source, command, decision, reasons)
+            continue
         assert decision not in FREE, (source, command, decision, reasons)
     assert _started(tmp_path) == [], "the gate started what it checks for"
 

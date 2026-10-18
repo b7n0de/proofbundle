@@ -1457,6 +1457,24 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
 #: The forms that walk the work tree. git starts core.fsmonitor, a filter and the post-index-change hook for them, and
 #: they read a submodule's own work tree, so for them the read profile also reads the hooks and the submodules.
 _READ_WALKS = frozenset({"status", "diff", "grep", "ls-files"})
+#: The hooks githooks(5) of git 2.43 documents.
+_GIT_HOOK_NAMES = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg",
+    "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update",
+    "proc-receive", "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc",
+    "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist",
+    "p4-post-changelist", "p4-pre-submit", "post-index-change",
+})
+#: The hooks each form that walks the work tree starts (Ergänzung 1 to Nachtrag 31, D78). Measured with git 2.43.0
+#: under GIT_TRACE2_EVENT with every hook of _GIT_HOOK_NAMES and one of another name in place, each writing a marker
+#: (truth_hooks_e1.py of the delivery, 840 runs: seven states of the work tree and the index, with and without
+#: GIT_OPTIONAL_LOCKS=0, in the hook directory, through core.hooksPath and in a linked work tree): status and diff
+#: started post-index-change (diff also under GIT_OPTIONAL_LOCKS=0), grep and ls-files none, and log, show and stash
+#: list none either; no form started pre-commit or the hook of the other name. fsmonitor-watchman runs only where
+#: core.fsmonitor names it, which the profile judges as a key. A documented hook the form does not start does not
+#: count for it; a hook of a name git does not document still counts.
+_HOOKS_STARTED_BY_READ = {"status": frozenset({"post-index-change"}), "diff": frozenset({"post-index-change"}),
+                          "grep": frozenset(), "ls-files": frozenset()}
 #: The flags of log, show, diff and rev-list the grammar accepts: each prints, selects or orders, and none names a
 #: program, a file to write, a pager or a signature (no --ext-diff, --textconv, --output, --show-signature, -L,
 #: --no-index, --color without `=never`).
@@ -1831,8 +1849,8 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     a pager key, and GIT_PAGER or PAGER in the hook's environment (owner answer 3: no host adapter is bound, so the
     pipe of the Bash tool is not relied on; _read_env_problem, which also judges a prefix assignment of the command);
     for a form that walks the work tree a filter (answer 2: the git-lfs filter counts like any), fsmonitor that git does
-    not read as false, any hook that is not a sample, and a submodule; any key, hook or GIT_* name the profile does not
-    know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
+    not read as false, a hook the form starts (_HOOKS_STARTED_BY_READ, D78: pre-commit is none of them) or of a name
+    git does not document, and a submodule; any key or GIT_* name the profile does not know. With drivers_off (`git diff --no-ext-diff --no-textconv`, D39) a configured filter counts only where an
     attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays. With inert_pagers, for
     a host whose Bash tool gives the command no terminal (_no_terminal_host, D42), a pager core.pager, pager.<command>,
     GIT_PAGER or PAGER in the hook's environment names is noted there and does not count; a prefix assignment of the
@@ -1875,7 +1893,8 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
         if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
             return f"a configuration key the read profile does not know to start no program: {where}"
     if walks:
-        problem = _hook_problem(paths, lambda _name: True)
+        started = _HOOKS_STARTED_BY_READ[sub]
+        problem = _hook_problem(paths, lambda name: name in started or name not in _GIT_HOOK_NAMES)
         if problem is not None:
             return problem
     for name in sorted(environ):
