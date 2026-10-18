@@ -12,6 +12,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
 
+### Changed
+
+- `automation.referencesResolved` is `None`, no longer `True`, when every reference field it reads is `None` or absent: no reference check ran, as with no reference field at all. A signed decision receipt whose `evidenceRefs` is empty read `True`. `safeForAutomation` and `automationBlockers` do not change in any case; only an unresolved reference blocks, as before. This is a fix, not a break, in the sense of COMPATIBILITY.md: the field already read `None` when no reference field was listed, so its values stay `True`, `False` and `None`, and a consumer that tests it with `is True` or by its truth now sees `None` for such a receipt and stops where it went on before, on a `True` that stood for no check.
+
 ### Fixed
 
 - **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
