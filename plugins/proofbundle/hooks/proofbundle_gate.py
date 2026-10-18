@@ -12178,7 +12178,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
-    outcome = _with_house_rules(_with_done_order(outcome, judged), judged, cwd, deadline)
+    outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline)
     if outcome is not None and outcome.decision in ("ask", "deny", "warn"):
         # D72: the line names the heaviest git or gh step, not the first, with the reason of that step
         outcome.step = outcome.step or _short_step_name(judged, cwd)
@@ -12263,9 +12263,11 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
 
     A command wholly of the closed read forms of D66 (_read_only_form) gets no answer (D70, Nachtrag 28): it starts no
     program but find, xargs and grep (measured with strace), so a word there that names git or gh is a pattern or an
-    argument, never a program, for the scan (D3) and the safety net (D27) as for done-order (D38)."""
+    argument, never a program, for the scan (D3) and the safety net (D27) as for done-order (D38). So is a command of
+    the read programs of D77 and the shell's test command `[` under Claude Code, where each read program is GNU
+    coreutils of a measured version (_read_only_command, Ergänzung 1 to Nachtrag 31)."""
     environ = os.environ if environ is None else environ
-    if _read_only_form(command):
+    if _read_only_command(command, host, environ, deadline):
         return None
     whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
     if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
@@ -15179,23 +15181,128 @@ def _done_order_calls(command: str, depth: int = 0) -> list[str]:
 #: The forms of a command that only reads (Nachtrag 26, D66), a closed set: find without an action that deletes, runs a
 #: program or writes a file; xargs that runs grep; grep; read and echo; the shell words of a while loop around them;
 #: a pipe or a list between them; an output redirection only to /dev/null or onto another descriptor. Every program
-#: word is a literal bare name. Nothing else reads as such a command, whatever it does.
+#: word is a literal bare name. Nothing else reads as such a command, whatever it does. Under Claude Code, Ergänzung 1
+#: to Nachtrag 31 (D77) adds the read programs of _READ_PROGRAMS and the shell's test command `[`, xargs that runs
+#: head, ls or wc, the words of an if around them, and `&&` and `||` between them: whichever run the shell starts, each
+#: only reads.
 _READ_ONLY_FIND_ACTIONS = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf",
                                      "-fls"})
 _READ_ONLY_XARGS_SWITCHES = frozenset({"-0", "--null", "-r", "--no-run-if-empty"})
 _READ_ONLY_KEYWORDS = frozenset({"while", "do", "done"})
+_READ_D77_KEYWORDS = frozenset({"if", "then", "elif", "else", "fi"})
+_READ_D77_LISTS = frozenset({"&&", "||"})
 _READ_ONLY_SINKS = frozenset({">", "1>", "2>", ">>", "1>>", "2>>", "&>", "&>>"})
 _READ_ONLY_DUPLICATES = frozenset({">&", "1>&", "2>&"})
 
 
-def _read_only_run(run: list[tuple]) -> bool:
-    """Whether one run of words is one of the read forms of _read_only_form."""
+#: The closed grammar of a read program (D77): the short switches without a value, with one (attached or the next word)
+#: and with an optional one (attached only); the long switches without a value, with one (`--name=value` or the next
+#: word) and with an optional one (`--name=value` only); and whether an obsolete `-NUM` counts.
+_ReadGrammar = collections.namedtuple("_ReadGrammar", ("flags", "values", "optional", "long_flags", "long_values",
+                                                       "long_optional", "number"),
+                                      defaults=(frozenset(), frozenset(), frozenset(), frozenset(), frozenset(), False))
+
+
+#: The read programs of owner choice O26-1 (Ergänzung 1 to Nachtrag 31, D77) with their closed grammars, GNU coreutils
+#: 9.4 as measured under strace -f in bash -c (truth_readprog_e1.py of the delivery, 336 runs under four sources): each
+#: started only itself, opened no file for writing but /dev/null, made no socket but a lookup of a user name over the
+#: local socket of nscd (ls -l), wrote no file and started no git or gh first on PATH. Left out on purpose: tail -f, -F,
+#: --follow, --retry, --pid, -s and an obsolete `+N` or `-Nf` (each follows a file and never ends); date -s, --set, -f,
+#: --file and an operand that is no format (a time to set); every option of ls, head and wc not named. sort is not
+#: among them: it wrote temporary files of its own, from a pipe of 0.8 MB on (truth_sort_temp_e1.sh, owner question
+#: O31E1-1). cd stays with D33.
+_READ_TAIL = _ReadGrammar(frozenset("qvz"), frozenset("nc"), long_flags=frozenset({"--quiet", "--silent", "--verbose",
+                                                                                   "--zero-terminated"}),
+                          long_values=frozenset({"--lines", "--bytes"}), number=True)
+_READ_PROGRAMS = {
+    "head": _READ_TAIL,
+    "tail": _READ_TAIL,
+    "wc": _ReadGrammar(frozenset("cmlwL"), long_flags=frozenset({"--bytes", "--chars", "--lines", "--words",
+                                                                 "--max-line-length"})),
+    "ls": _ReadGrammar(frozenset("aAbBcCdfFgGhHiklLmnNopqQrRsStuUvxX1"), frozenset("wTI"),
+                       long_flags=frozenset({"--all", "--almost-all", "--escape", "--ignore-backups", "--directory",
+                                             "--file-type", "--full-time", "--group-directories-first", "--no-group",
+                                             "--human-readable", "--si", "--dereference-command-line", "--dereference",
+                                             "--inode", "--kibibytes", "--literal", "--numeric-uid-gid",
+                                             "--hide-control-chars", "--show-control-chars", "--quote-name",
+                                             "--reverse", "--recursive", "--size", "--author"}),
+                       long_values=frozenset({"--width", "--tabsize", "--ignore", "--hide", "--sort", "--time",
+                                              "--time-style", "--format", "--indicator-style", "--quoting-style",
+                                              "--block-size"}),
+                       long_optional=frozenset({"--color", "--classify"})),
+    "date": _ReadGrammar(frozenset("uR"), frozenset("dr"), frozenset("I"),
+                         long_flags=frozenset({"--utc", "--universal", "--rfc-email"}),
+                         long_values=frozenset({"--date", "--reference", "--rfc-3339"}),
+                         long_optional=frozenset({"--iso-8601"})),
+    "sleep": _ReadGrammar(frozenset()),
+}
+#: The read programs xargs may start (D77): those none of whose options writes, follows a file or sets a time, as the
+#: words xargs reads from its input become their arguments too.
+_READ_XARGS_PROGRAMS = frozenset({"head", "ls", "wc"})
+#: The versions of GNU coreutils whose read programs D77 measured. A read program of another version, or one that is
+#: not GNU coreutils, leaves the command as it was before D77 (NOT MEASURED).
+_READ_PROGRAM_VERSIONS = frozenset({"9.4"})
+_READ_SLEEP_DURATION = re.compile(r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)[smhd]?")
+
+
+def _read_program_args(name: str, args: list[tuple]) -> bool:
+    """Whether the words after the read program name are on its closed grammar (_READ_PROGRAMS, D77): every word
+    literal (a word the shell builds or rewrites may be any option), every switch named, a value after a switch that
+    takes one; after `--` only operands. An operand of sleep is a duration; date takes at most one, a format that starts
+    with `+`; no operand of tail starts with `+` (an obsolete `+N` or `+Nf`); head, ls and wc take any file."""
+    grammar = _READ_PROGRAMS[name]
+    if any(_unreadable_word(a) for a in args):
+        return False
+    words, operands, i, options = [a[0] for a in args], [], 0, True
+    while i < len(words):
+        word = words[i]
+        i += 1
+        if not options or word == "-" or not word.startswith("-"):
+            operands.append(word)
+        elif word == "--":
+            options = False
+        elif word.startswith("--"):
+            long, equals, _value = word.partition("=")
+            if long in grammar.long_values:
+                if not equals:
+                    if i == len(words):
+                        return False
+                    i += 1
+            elif long not in grammar.long_optional and (long not in grammar.long_flags or equals):
+                return False
+        elif not (grammar.number and re.fullmatch(r"-[0-9]+", word)):
+            for k, letter in enumerate(word[1:], start=2):
+                if letter in grammar.values:
+                    if k == len(word):
+                        if i == len(words):
+                            return False
+                        i += 1
+                    break
+                if letter in grammar.optional:
+                    break
+                if letter not in grammar.flags:
+                    return False
+    if name == "sleep":
+        return bool(operands) and all(_READ_SLEEP_DURATION.fullmatch(w) for w in operands)
+    if name == "date":
+        return len(operands) <= 1 and all(w.startswith("+") for w in operands)
+    return name != "tail" or not any(w.startswith("+") for w in operands)
+
+
+def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
+    """Whether one run of words is one of the read forms of _read_only_form. With used None only the closed set of D66;
+    with a set also those of D77, and a read program of D77 the run starts is added to it, for the check of its version
+    (_read_programs_measured)."""
+    keywords = _READ_ONLY_KEYWORDS if used is None else _READ_ONLY_KEYWORDS | _READ_D77_KEYWORDS
     words = list(run)
-    while words and not _unreadable_word(words[0]) and words[0][0] in _READ_ONLY_KEYWORDS:
+    while words and not _unreadable_word(words[0]) and words[0][0] in keywords:
         words = words[1:]
     if not words:
         return True
     program, args = words[0], words[1:]
+    if program[2] == "[" and used is not None:
+        # the shell's test command (D60, D77): a builtin of bash, whose every operator only tests; its last word `]`
+        return bool(args) and args[-1][2] == "]"
     if _unreadable_word(program):
         return False
     if program[0] == "find":
@@ -15204,14 +15311,25 @@ def _read_only_run(run: list[tuple]) -> bool:
         i = 0
         while i < len(args) and not _unreadable_word(args[i]) and args[i][0] in _READ_ONLY_XARGS_SWITCHES:
             i += 1
-        return i < len(args) and not _unreadable_word(args[i]) and args[i][0] == "grep"
+        if i == len(args) or _unreadable_word(args[i]):
+            return False
+        if args[i][0] in _READ_XARGS_PROGRAMS and used is not None:
+            used.add(args[i][0])
+            return _read_program_args(args[i][0], args[i + 1:])
+        return args[i][0] == "grep"
+    if program[0] in _READ_PROGRAMS and used is not None:
+        used.add(program[0])
+        return _read_program_args(program[0], args)
     return program[0] in ("grep", "read", "echo")
 
 
-def _read_only_form(command: str, depth: int = 0) -> bool:
+def _read_only_form(command: str, depth: int = 0, used: set | None = None) -> bool:
     """Whether every program of a shell command only reads (D66): each run is a read form of the closed set above, each
     output redirection goes to /dev/null or onto another descriptor, and each command substitution is such a command
-    in turn. Such a command runs no done-order and writes no file; a command the gate cannot read whole is none."""
+    in turn. Such a command runs no done-order and writes no file; a command the gate cannot read whole is none. With
+    used a set, the forms of D77 count too, and each read program of D77 the command starts is added to it
+    (_read_only_command checks its version)."""
+    lists = {"|", ";"} if used is None else {"|", ";"} | _READ_D77_LISTS
     text = _drop_comments(command)
     toks = _lex(text)
     if toks is None or depth > MAX_NESTING or "<(" in text or ">(" in text:
@@ -15227,22 +15345,65 @@ def _read_only_form(command: str, depth: int = 0) -> bool:
             if not ((op in _READ_ONLY_SINKS and target[0] == "/dev/null")
                     or (op in _READ_ONLY_DUPLICATES and target[0] in ("1", "2"))):
                 return False
-        elif t[0] == "op" and t[1] in ("|", ";"):
-            if not _read_only_run(run):
+        elif t[0] == "op" and t[1] in lists:
+            if not _read_only_run(run, used):
                 return False
             run = []
         else:
             return False
-    return all(_read_only_form(body, depth + 1) for body in _subst_bodies(text))
+    return all(_read_only_form(body, depth + 1, used) for body in _subst_bodies(text))
 
 
-def _done_order_verdict(command: str) -> Verdict | None:
+def _read_programs_measured(names: set, environ: dict, deadline: float) -> bool:
+    """Whether each read program of D77 the command starts is GNU coreutils of a measured version
+    (_READ_PROGRAM_VERSIONS): every PATH entry an absolute path that does not depend on the process (as for gh,
+    _gh_version_problem), and `<name> --version` of the program on that PATH names it. Measured with coreutils 9.4:
+    `--version` starts nothing and writes nothing. This shows a version, not an origin (D27): a program that prints
+    the line is not caught."""
+    entries = environ.get("PATH", "").split(os.pathsep)
+    if any(not os.path.isabs(entry) or _process_dependent(entry) for entry in entries):
+        return False
+    for name in sorted(names):
+        program = shutil.which(name, path=environ.get("PATH", ""))
+        left = deadline - time.monotonic()
+        if program is None:
+            return False
+        if left <= 0:
+            raise GateError("the gate ran out of time")
+        try:
+            out = subprocess.run([program, "--version"], capture_output=True, stdin=subprocess.DEVNULL, cwd="/",
+                                 env={"PATH": environ.get("PATH", ""), "LC_ALL": "C"}, timeout=min(left, 5.0),
+                                 check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        first = out.stdout.decode("utf-8", "replace").splitlines()[:1]
+        m = re.fullmatch(rf"{re.escape(name)} \(GNU coreutils\) ([0-9.]+)", first[0]) if first else None
+        if out.returncode != 0 or m is None or m.group(1) not in _READ_PROGRAM_VERSIONS:
+            return False
+    return True
+
+
+def _read_only_command(command: str, host: str, environ: dict, deadline: float) -> bool:
+    """Whether the command is wholly of the closed read forms: under Codex those of D66 (_read_only_form), under Claude
+    Code also those of D77, where every read program of D77 it starts is of a measured version
+    (_read_programs_measured). Under Codex every ask is a deny, so D77 would free a command Codex denies today."""
+    if host == "codex":
+        return _read_only_form(command)
+    used: set = set()
+    return _read_only_form(command, used=used) and (not used or _read_programs_measured(used, environ, deadline))
+
+
+def _done_order_verdict(command: str, host: str = "codex", environ: dict | None = None,
+                        deadline: float | None = None) -> Verdict | None:
     """The answer to a shell command that replaces or removes a local done order, or calls done-order in a form the gate
     cannot read whole (owner choice O2 of Nachtrag 13): ask under Claude Code, deny under Codex. A new order and the
     list are free; None where the command makes no such call. A command whose every program only reads
     (_read_only_form, D66) calls no done-order, whatever words it names: the script's name as a pattern of grep or an
-    argument of echo is read, not run."""
-    if _read_only_form(command) or "change" not in _done_order_calls(command):
+    argument of echo is read, not run; under Claude Code so is a command of the read programs of D77
+    (_read_only_command)."""
+    environ = os.environ if environ is None else environ
+    deadline = time.monotonic() + DEADLINE_SECONDS if deadline is None else deadline
+    if _read_only_command(command, host, environ, deadline) or "change" not in _done_order_calls(command):
         return None
     return Verdict("ask", "NOT MEASURED: the command replaces or removes a local done order, or calls done-order in a "
                           "form the gate cannot read whole. A done order is a duty a person set (D38); a new order and "
@@ -15253,10 +15414,11 @@ def _done_order_verdict(command: str) -> Verdict | None:
                    next_step="have a person run done-order --replace or --remove outside the agent")
 
 
-def _with_done_order(outcome: Outcome | None, command: str) -> Outcome | None:
+def _with_done_order(outcome: Outcome | None, command: str, host: str = "codex", environ: dict | None = None,
+                     deadline: float | None = None) -> Outcome | None:
     """The answer of decide() with a done-order change added (D38, O2): it asks beside any answer short of a deny, and is
     named beside a deny. Codex turns the ask into a deny (answer)."""
-    verdict = _done_order_verdict(command)
+    verdict = _done_order_verdict(command, host, environ, deadline)
     if verdict is None:
         return outcome
     if outcome is None or outcome.decision not in ("deny", "ask"):

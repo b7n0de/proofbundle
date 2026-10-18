@@ -4045,3 +4045,52 @@ core.askPass, GIT_ASKPASS, SSH_ASKPASS, GIT_SSH_VARIANT, ssh.variant, a prefix a
 other key or name keep their rule. Under Codex the fetch is never free (D45).
 Tests: tests/test_plugin_n31_ssh_https_fetch_d76.py. tests/test_plugin_fetch_github_profile.py listed core.sshCommand,
 GIT_SSH and GIT_SSH_COMMAND among the configuration and environment that ask; they left the lists with a note to D76.
+
+## D77. head, tail, ls, date, sleep, wc and the test command `[` in a chain that only reads (Ergänzung 1 to Nachtrag 31, O26-1, 2026-10-18)
+
+Counted at delta (Cowork, 2026-10-18, count 0752Z over 282 asks and denies): 25 carried the word that set them off only
+as an argument (D27 19, D3 4, D38 2); 6 of them only read, and none of those got by with the set of D66, for want of `[`
+(4 commands), head (4), ls (2), sleep (2), date (1), sort (1), tail (1) and cd (1). Owner choice O26-1 of 2026-10-18,
+16:4x Berlin: head, tail, ls, sort, date, `[`, sleep and wc become free in a chain that only reads, each after a
+measurement with strace; cd does not.
+
+Measured with GNU coreutils 9.4 and bash 5.2.21 under strace -f in bash -c, as the Bash tool runs a command, with no
+network (truth_readprog_e1.py of the delivery, 336 runs): 84 forms from the corpus and of the order (head and tail with
+-n, -c, -NUM, --lines, -q, -v; ls with -la, -1, -R, -d, -t, -S, -A, -F, -n, --color=never; date with +FORMAT, -u, -I,
+-R, -d, -r, --iso-8601; sleep with whole and decimal seconds and a unit; wc with -l, -c, -w, -m, -L, --lines; sort
+with -r, -u, -n, -t and -k, -V, -c, -z, -f, -b, -s; `[` with
+-f, -d, -n, -e, -s, -x, `!`, = and -lt, in an if and with && and ||; xargs that runs wc, head, tail and ls; chains of
+them), each under four sources (none; a program named git and one named gh first on PATH that write a marker; LC_ALL=C
+and POSIXLY_CORRECT; TMPDIR, LS_COLORS, TZ, TIME_STYLE and QUOTING_STYLE). Each program started only itself, `[` nothing
+(a builtin of bash); no file was opened for writing but /dev/null; no socket was made but the lookup of a user name over
+the local socket of nscd (bash itself, and ls -l), which failed here; no file in the work folder, HOME or TMPDIR changed;
+no marker was written. sort is the exception (truth_sort_temp_e1.sh): with none of -o, -T, -S and --compress-program it
+created, in TMPDIR, files of its own (O_RDWR|O_CREAT|O_EXCL, mode 0600) and removed them, from a piped input of 0.8 MB on
+(2 files at 798,895 bytes of seq, none at 588,895, 616 at 619 MB), and from a regular file of 619 MB (2 files, none at
+151 MB). That is a write outside /dev/null, so sort is not built (owner question O31E1-1 of the delivery).
+
+The rule (_read_only_command, in _decide_outcome for D27 and D3 and in _done_order_verdict for D38), under Claude Code:
+a command wholly of the closed read forms of D66 and of these gets no answer. Each read program has a closed grammar of
+switches (_READ_PROGRAMS); every word after it is literal (a word the shell builds or rewrites may be any switch); after
+`--` only operands count. head and tail take -n, -c, -q, -v, -z, their long names and an obsolete `-NUM`; tail no `+N`
+operand (the obsolete form that may follow with f). wc takes -c, -m, -l, -w, -L and their long names. ls takes the
+switches that list, sort and format, named one by one, and no --dired, --hyperlink or --zero. date takes -u, -R, -I, -d,
+-r and their long names, and at most one operand, a format that starts with `+`. sleep takes durations only. `[` takes
+any words and ends with a literal `]`; test has no operator that writes. xargs (with the switches of D66) may start head,
+ls or wc, whose every option only reads, as the words of its input become their arguments; tail, date and sort it may
+not. The chain may hold the words of an if (if, then, elif, else, fi) and `&&` and `||` besides `|` and `;`: whichever
+runs the shell starts, each only reads. Every read program the command starts must be GNU coreutils of a measured
+version (9.4): every PATH entry absolute and not dependent on the process, and `<name> --version` of the program on
+that PATH names it, as for gh (D27: this shows a version, not an origin). Another version, BSD, BusyBox, a program that
+fails, and a PATH entry that is not absolute leave the command as before D77 (NOT MEASURED).
+
+Unchanged: tail -f, -F, --follow, --retry, --pid, -s; date -s, --set, -f, --file and a time as operand; sort; cd (D33);
+a redirection into a file; a program beside them that writes or is not in the set (tee, rm, cp, cd); a wrapper other
+than xargs (timeout, env, command, nice); a program as a variable; a background job, a subshell and `!`; `[[`; a bracket
+test beside git or gh. Under Codex every ask is a deny, so D77 would free a command Codex denies today: there the set of
+D66 stays as it was. Not measured: other versions of coreutils, BSD and BusyBox, zsh and dash as the shell of `[`, a
+lookup of user names through another source than files (ls -l, as for every program that names a user), and functions
+or aliases of the shell snapshot Claude Code sources before the command.
+Tests: tests/test_plugin_n31e1_read_programs_d77.py. tests/test_plugin_n23_bracket_test_d60.py listed `[ -x git ]`
+among the commands that ask; it tests a file named git and is a chain wholly of `[`, so it moved to a control that asks
+under Codex and is silent under Claude Code.

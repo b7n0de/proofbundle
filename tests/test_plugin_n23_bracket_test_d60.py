@@ -28,8 +28,11 @@ SILENT = ["until [ -s f.txt ]; do sleep 3; done", "until [ -s out/result.json ];
           "if [ -s f.txt ]; then echo y; else echo n; fi", "[ -s f.txt ] && echo y", "[ -d out ] || mkdir out",
           "[[ -s f.txt ]] && echo y", "until [ -s \"$F\" ]; do sleep 3; done", "test -s f.txt"]
 ASKS = ["[ -n \"$(git status)\" ]", "if [ -s f.txt ]; then git push origin main; fi",
-        "until [ -s f.txt ]; do git fetch; done", "[ -s f.txt ] && git status", "[ -x git ]",
+        "until [ -s f.txt ]; do git fetch; done", "[ -s f.txt ] && git status",
         "[ -s f.txt ] && gi[t] status", "g[i]t status", "[ -s f.txt ] && gh pr view 1"]
+#: Asks under Codex. Under Claude Code silent since Ergänzung 1 to Nachtrag 31 (D77): `[ -x git ]` tests a file named
+#: git, a chain wholly of the shell's test command, which only tests.
+ASKS_UNDER_CODEX = ["[ -x git ]"]
 # Not among the controls: a parameter expansion as the program word (`$CMD status`, `CMD=git; $CMD push origin main`)
 # is silent at 9f578c2a and ab14e1ae already, with or without a bracket test before it; the bracket test had made the
 # longer command ask only by accident. Named as a finding of its own in the delivery, not changed here.
@@ -58,6 +61,13 @@ def test_D60_and_under_codex(repo, command):
 def test_D60_control_git_or_gh_in_or_beside_it_or_an_unreadable_program_asks(repo, command):
     out = gate.decide(command, str(repo), time.monotonic() + 60, "claude")
     assert out is not None and out.decision in ("ask", "deny"), command
+
+
+@pytest.mark.parametrize("command", ASKS_UNDER_CODEX)
+def test_D60_control_a_bracket_test_naming_git_asks_under_codex_and_is_silent_under_claude_code(repo, command):
+    out = gate.decide(command, str(repo), time.monotonic() + 60, "codex")
+    assert out is not None and out.decision in ("ask", "deny"), command
+    assert gate.decide(command, str(repo), time.monotonic() + 60, "claude") is None, command
 
 
 @pytest.mark.parametrize("raw, active", [("[", False), ("[[", False), ("]", False), ("]]", False), ("gi[", False),
