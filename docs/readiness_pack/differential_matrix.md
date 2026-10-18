@@ -21,8 +21,9 @@ The artifact carries an environment freeze (cargo / rustc / python versions) so 
 is comparable. On the recorded run: 40 relation vectors, Python == Rust on all, and the whole 54-case
 conformance corpus of that era reproduced independently by the Rust binary (the corpus has since
 grown to 145 cases, measured 2026-10-18; the named `make conformance-crossimpl` gate re-runs
-the cross-check on every invocation, and its last recorded figure is 56 of the 57 cases that
-existed at v3.7.0 — a ratio over that corpus, not over today's, and not re-measured since).
+the cross-check on every invocation; the figure recorded here is 56 of the 57 cases that
+existed at v3.7.0, a ratio over that corpus, not over today's, and measured again on 2026-10-18
+over 145 cases it is 69 reproduced and 76 named by kind, as rust_parity_scope.md records).
 
 ## Scope of coverage
 

@@ -161,6 +161,41 @@ def test_catch_proof_bare_predicate_fails(tmp_path):
         assert "Statement" in str(exc)
 
 
+def test_catch_proof_binding_payload_that_is_no_statement_fails(tmp_path):
+    """Codex 4305349124 on 96564b19: the binding mode called the binding gate without the
+    full-Statement guard of the canonical and pair modes, so a payload `{}` with bindingOk true
+    under the legacy algorithm passed green with scope FULL. Measured there, it does not now."""
+    d = tmp_path / "binding"
+    d.mkdir()
+    (d / "payload.bytes").write_bytes(b"{}")
+    case = {"caseId": "probe-binding-not-a-statement", "kind": "content_root_vector", "mode": "binding",
+            "expected": {"bindingOk": True, "alg": "legacy-sortkeys-json-v0"}}
+    res = RC._check_content_root_vector(case, d)
+    assert not res["ok"], res
+    assert "no in-toto Statement" in res["detail"], res
+
+
+def test_catch_proof_envelope_payload_that_is_no_statement_fails(tmp_path):
+    """Codex 4305349124, the sibling: two envelopes carrying the same arbitrary bytes under
+    different signature blocks passed the envelope mode green with the SHA-256 of those bytes as
+    the pin. The payload is read strictly and must be a full Statement now."""
+    import base64
+    import hashlib
+
+    d = tmp_path / "envelope"
+    d.mkdir()
+    roh = b"not a statement at all"
+    for name, sig in (("envelope_a.json", "AA"), ("envelope_b.json", "BB")):
+        (d / name).write_text(json.dumps({"payload": base64.b64encode(roh).decode(), "payloadType": "x",
+                                          "signatures": [{"sig": sig}]}), encoding="utf-8")
+    case = {"caseId": "probe-envelope-not-a-statement", "kind": "content_root_vector",
+            "mode": "envelope_invariance",
+            "expected": {"contentRoot": hashlib.sha256(roh).hexdigest(), "secondEnvelope": "envelope_b.json"}}
+    res = RC._check_content_root_vector(case, d)
+    assert not res["ok"], res
+    assert "no in-toto Statement" in res["detail"], res
+
+
 def test_catch_proof_nonbinding_pair_fails(tmp_path):
     """Lens-2 P1: a pair case declaring evidenceRefBindsRoot:false passed green with a detail line
     CLAIMING a binding. The binding is now an unconditional floor: a false declaration fails, and
