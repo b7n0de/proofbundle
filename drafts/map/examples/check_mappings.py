@@ -17,7 +17,10 @@ generator; it re-derives every claim from the bytes in mappings.json:
       procedure, written here again from the text, under the one configured pair of the examples (the issuer
       URI and the issuer test key), equals the expected status; the candidate is read from the receipts
       draft's vectors.json and checked against the SHA-256 in mappings.json, and step 5 runs the receipts
-      draft's own checker.
+      draft's own checker. In the key profile, step 3 counts a configured key only if it is a canonical
+      encoding of a point of order L, and step 4 checks the four rules of the receipts draft's Section 4.4,
+      both with that draft's own checker and not with the backend, which takes keys of small or mixed order
+      and R as the neutral element (test_check_mappings.py).
   X   for each certificate-profile vector, the status computed by the same steps under the one configured
       certificate pair of the examples (the did:x509 issuer of X1 and the test root certificate) equals the
       expected status; the certificates are read with the cryptography library, the chain signature is checked
@@ -221,7 +224,6 @@ _HIER = (rf"(?://(?:(?:[{_U}{_SD}:]|{_PCT})*@)?{_HOST}(?::[0-9]*)?(?:/{_PCH}*)*"
          rf"|/(?:{_PCH}+(?:/{_PCH}*)*)?|{_PCH}+(?:/{_PCH}*)*|)")
 ISS_RE = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*:{_HIER}(?:\?(?:{_PCH}|[/?])*)?\Z")
 SUB_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
-L_ORDER = 2 ** 252 + 27742317777372353535851937790883648493
 
 
 def cbor_head(major: int, n: int) -> bytes:
@@ -504,11 +506,23 @@ def _cert_pair_counts(iss, kid, chain, pair):
     return hashlib.sha256(spki).digest() == kid
 
 
+def key_counts(k) -> bool:
+    """Step 3, key profile: a configured statement key counts only if it is 32 octets and its point A meets rules 1
+    and 2 of the receipts draft's Section 4.4, a canonical encoding of a point of order L. A point of small order or
+    of mixed order does not count. The decoding and the point arithmetic are the receipts draft's own checker's."""
+    import check_receipts  # noqa: PLC0415  the receipts draft's own checker
+    if not isinstance(k, bytes) or len(k) != 32:
+        return False
+    a = check_receipts._dec(k)
+    return (a is not None and not check_receipts._eq(a, check_receipts._ID)
+            and check_receipts._eq(check_receipts._mul(check_receipts.L, a), check_receipts._ID))
+
+
 def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, cert_pairs=()):
     """Steps 1 to 7; returns (status, step) with step None for accepted. The protected-header labels select the
     key profile (1, 4, 15, 258, 259) or the certificate profile (1, 4, 15, 33, 258, 259). Raises ResourceLimit when
     step 1 meets MAX_DEPTH: a resource-limit error, no status."""
-    import check_receipts  # noqa: PLC0415  the receipts draft's own checker, for step 5 only
+    import check_receipts  # noqa: PLC0415  the receipts draft's own checker, for steps 3 to 5 of the key profile
     item, det = deterministic(stmt)
     if item is None or not det:
         return "malformed", 1
@@ -548,18 +562,20 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
         return "outside_profile", 2
     tbs = cbor_encode(["Signature1", prot_b, b"", payload])
     if profile == "key":
-        selected = [k for iss, k in pairs if iss == cwt[1] and len(k) == 32
+        # Step 3 selects only keys that count, before any signature is read: a key of small or mixed order makes
+        # every statement under it forgeable, and the backend takes such a key.
+        selected = [k for iss, k in pairs if iss == cwt[1] and key_counts(k)
                     and hashlib.sha256(cbor_encode({1: 1, -1: 6, -2: k})).digest() == prot[4]]
         if not selected:
             return "untrusted_key", 3
+        # Step 4: the four rules of the receipts draft's Section 4.4 with the Sig_structure in place of PAE(type, B);
+        # the backend would take R as the neutral element, which rule 2 refuses.
         good = False
         for k in selected:
-            if int.from_bytes(sig[32:], "little") >= L_ORDER:
-                continue
             try:
-                Ed25519PublicKey.from_public_bytes(k).verify(sig, tbs)
+                check_receipts.profile_verify(k, tbs, sig)
                 good = True
-            except Exception:  # noqa: BLE001
+            except check_receipts.Fail:
                 pass
     else:
         chain = list(prot[33])
