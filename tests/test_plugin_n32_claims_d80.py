@@ -349,7 +349,7 @@ def test_the_same_block_on_the_unchanged_state_comes_twice_then_the_claim_stays_
     held(_stop(env, repo, transcript, "Tests grün."))   # a new turn (stop_hook_active false) counts from one
 
 
-def test_a_new_tool_call_is_another_state(env, repo, transcript, tmp_path):
+def test_another_reason_is_another_state(env, repo, transcript, tmp_path):
     env = dict(env, CLAUDE_PLUGIN_DATA=str(tmp_path / "data"))
     transcript.edit()
     held(_stop(env, repo, transcript, "Tests grün."))
@@ -358,6 +358,35 @@ def test_a_new_tool_call_is_another_state(env, repo, transcript, tmp_path):
     held(_stop(env, repo, transcript, "Tests grün.", active=True))
     held(_stop(env, repo, transcript, "Tests grün.", active=True))
     assert "OPEN" in _stop(env, repo, transcript, "Tests grün.", active=True)["systemMessage"]
+
+
+def test_a_tool_call_that_changes_nothing_is_the_same_state(env, repo, transcript, tmp_path):
+    """An agent cannot keep a block alive with calls that change nothing (Claude Code ends a loop by itself only where
+    no tool is called between the stops)."""
+    env = dict(env, CLAUDE_PLUGIN_DATA=str(tmp_path / "data"))
+    transcript.edit()
+    held(_stop(env, repo, transcript, "Tests grün."))
+    transcript.bash("ls -la", out="total 0")
+    held(_stop(env, repo, transcript, "Tests grün.", active=True))
+    transcript.bash("git status", out="clean")
+    assert "OPEN" in _stop(env, repo, transcript, "Tests grün.", active=True)["systemMessage"]
+
+
+@pytest.mark.parametrize("change", ["file", "commit", "remote ref"])
+def test_a_change_of_the_work_tree_head_or_a_remote_ref_is_another_state(env, repo, remote, transcript, tmp_path,
+                                                                        change):
+    env = dict(env, CLAUDE_PLUGIN_DATA=str(tmp_path / "data"))
+    transcript.bash("git fetch origin", out="")
+    dc._commit(repo, "not pushed")
+    held(_stop(env, repo, transcript, "Gepusht."))
+    held(_stop(env, repo, transcript, "Gepusht.", active=True))
+    if change == "file":
+        (repo / "new.txt").write_text("x\n")
+    elif change == "commit":
+        dc._commit(repo, "another")
+    else:
+        dc._git(repo, "update-ref", "refs/remotes/origin/other", "HEAD~1")
+    held(_stop(env, repo, transcript, "Gepusht.", active=True))
 
 
 def test_without_a_data_directory_the_stop_after_a_block_ends_open(env, repo, transcript, tmp_path):

@@ -19362,16 +19362,21 @@ def _claim_line(verdict: Verdict) -> str:
 
 
 def _claim_fingerprint(result: dict, deadline: float) -> str:
-    """The state a claim block speaks for: the open claims, HEAD and the status of the work tree, the number of tool
-    calls in the transcript. A new tool call, commit or change of a file makes another state."""
-    head, status = None, None
+    """The state a claim block speaks for (point 4 of Nachtrag 32, "am unveränderten Stand"): the open claims and why,
+    HEAD, the status of the work tree and the remote-tracking refs. A commit, a change of a file, a fetch or push that
+    moves a ref, or another reason makes another state; a tool call that changes none of them does not, so an agent
+    cannot keep a block alive by calling tools that change nothing."""
+    head, status, remotes = None, None, None
     if result["repo"] is not None:
         proc = _git(result["repo"], "rev-parse", "--verify", "-q", "HEAD", deadline=deadline)
         head = proc.stdout.decode("ascii", "replace").strip() if proc.returncode == 0 else None
         proc = _git(result["repo"], "status", "--porcelain=v1", "-z", "--untracked-files=all", deadline=deadline)
         status = hashlib.sha256(proc.stdout).hexdigest() if proc.returncode == 0 else None
+        proc = _git(result["repo"], "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/",
+                    deadline=deadline)
+        remotes = hashlib.sha256(proc.stdout).hexdigest() if proc.returncode == 0 else None
     shape = [[o["kind"], o["open"]] for o in result["open"]]
-    return hashlib.sha256(json.dumps([shape, head, status, result["count"]]).encode("utf-8")).hexdigest()
+    return hashlib.sha256(json.dumps([shape, head, status, remotes]).encode("utf-8")).hexdigest()
 
 
 def _account_claim_block(event: dict, result: dict, host: str, deadline: float) -> tuple[int, str | None]:

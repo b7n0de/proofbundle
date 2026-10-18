@@ -4179,11 +4179,13 @@ The rule (claim_check, message_claims, stop_command), under Claude Code, where t
   end because a claim has no evidence (D80)."; the log names each claim's kind and whether it has evidence, never the
   message.
 - Point 4 of Nachtrag 32: a status that claims nothing ends without a receipt. The same block (the same open claims,
-  HEAD, status of the work tree and number of tool calls) comes at most CLAIM_MAX_BLOCKS = 2 times in a row in a
+  HEAD, status of the work tree and remote-tracking refs) comes at most CLAIM_MAX_BLOCKS = 2 times in a row in a
   session; the next Stop after a block ends with a message that names the claim open and not confirmed. The count lives
   in claim-state.json of the plugin data directory, per session by the sha256 of its id, at most 64 sessions. A Stop
-  with stop_hook_active false counts as the first. Where the count cannot be kept, a Stop after a block ends with the
-  claim open, so no loop depends on a file the hook cannot write.
+  with stop_hook_active false counts as the first. A tool call that changes none of these is no new state, so an
+  agent cannot keep a block alive with calls that change nothing (Claude Code ends a loop by itself only where no tool
+  is called). Where the count cannot be kept, a Stop after a block ends with the claim open, so no loop depends on a
+  file the hook cannot write.
 
 Not under Codex: its transcript form is not measured, and its Stop event names `last_assistant_message` as nullable
 (owner question). The words of the list are a closed list, not an understanding of the message: a claim in other words
