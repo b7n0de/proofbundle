@@ -431,3 +431,67 @@ def test_a_subagent_after_the_run_is_a_change(env, repo, transcript, tool):
     transcript.edit().bash("python -m pytest -q", out="5 passed")
     transcript._add(tool, {"description": "x", "prompt": "y"}, 0, "done")
     held(_stop(env, repo, transcript, "Tests grün."))
+
+
+# --- found by the mutants of D80 (mutation_1): each condition with a case of its own ------------------------------
+
+def test_a_failed_run_of_the_check_script_is_no_evidence(env, repo, transcript):
+    transcript.bash("bash tools/check_contract.sh", rc=1, out="rows 11 of 12, mismatches 1\nOK")
+    assert "did not exit 0" in held(_stop(env, repo, transcript, "check_contract.sh OK."))
+
+
+def test_the_named_check_script_is_the_one_that_must_have_run(env, repo, transcript):
+    transcript.bash("bash tools/other_check.sh", out="rows 12 of 12\nOK")
+    assert "no run of the check script" in held(_stop(env, repo, transcript, "check_contract.sh OK."))
+
+
+def test_a_test_run_in_the_background_is_no_evidence(env, repo, transcript):
+    transcript.edit().bash("python -m pytest -q", out="Command running in background with ID: b1",
+                           run_in_background=True)
+    held(_stop(env, repo, transcript, "Tests grün."))
+
+
+def test_merged_needs_a_default_branch_not_any_remote_branch(env, repo, remote, transcript):
+    dc._git(repo, "switch", "-q", "-c", "topic")
+    dc._commit(repo, "topic")
+    dc._git(repo, "push", "-q", "origin", "topic")
+    transcript.bash("git fetch origin", out="")
+    assert "no default branch of a remote contains" in held(_stop(env, repo, transcript, "Gemergt."))
+
+
+def test_a_merge_tool_does_not_vouch_for_a_commit_the_message_names(env, repo, remote, transcript):
+    dc._git(repo, "switch", "-q", "-c", "topic")
+    dc._commit(repo, "topic")
+    head = dc._git(repo, "rev-parse", "HEAD")
+    transcript.bash("gh pr merge 12 --squash", out="Merged pull request #12").bash("git fetch origin", out="")
+    held(_stop(env, repo, transcript, f"Gemergt als {head[:12]}."))
+    ends(_stop(env, repo, transcript, "Gemergt.", session="other"))
+
+
+def test_an_auto_merge_is_no_merge(env, repo, transcript):
+    transcript.bash("gh pr merge 12 --auto --squash", out="will be automatically merged")
+    held(_stop(env, repo, transcript, "Gemergt."))
+
+
+def test_a_transcript_behind_a_link_is_not_read(env, repo, transcript, tmp_path):
+    transcript.edit().bash("python -m pytest -q", out="5 passed")
+    link = tmp_path / "linked.jsonl"
+    link.symlink_to(transcript.path)
+    event = dict(_event(repo, transcript, "Tests grün."), transcript_path=str(link))
+    assert "transcript cannot be read" in held(dc.stop(env, repo, event)[1])
+
+
+@pytest.mark.parametrize("message", ["Sind die Tests grün?", "Is it pushed?",
+                                     "The rework of the parser and of its helpers is done as planned this week."])
+def test_control_a_question_or_a_long_clause_claims_nothing(env, repo, transcript, message):
+    transcript.edit()
+    ends(_stop(env, repo, transcript, message))
+
+
+def test_pushed_needs_a_ref_that_points_at_the_state_not_one_that_contains_it(env, repo, remote, transcript):
+    first = dc._git(repo, "rev-parse", "HEAD")
+    dc._commit(repo, "later")
+    dc._git(repo, "push", "-q")
+    dc._git(repo, "reset", "-q", "--hard", first)
+    transcript.bash("git fetch origin", out="")
+    assert "no remote-tracking ref points at the reported state" in held(_stop(env, repo, transcript, "Gepusht."))
