@@ -122,5 +122,7 @@ def test_D93_the_measure_of_the_profile(tmp_path, kind, in_profile):
         d71._git(repo, "remote", "set-url", "--push", "origin", OUTSIDE)
     if kind == "insteadof_other":
         d71._git(repo, "config", "url.https://github.com/someone/.insteadOf", "https://github.com/b7n0de/")
-    problem = gate._work_repo_problem(str(repo), time.monotonic() + 60, dict(os.environ))
+    environ = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+                                          "PROOFBUNDLE_GATE_DIR")}
+    problem = gate._work_repo_problem(str(repo), time.monotonic() + 60, environ)
     assert (problem is None) is in_profile, (kind, problem)

@@ -56,8 +56,10 @@ def test_M91i_a_repository_that_holds_the_gate_directory_is_not_the_local_class(
     deadline = time.monotonic() + 60
     free = gate.Verdict("ask", "a reason D71 replaces", "possible_unmodeled_push")
     import os
+    environ = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+                                          "PROOFBUNDLE_GATE_DIR")}
     assert gate._autonomy_local(gate.Outcome("ask", free.text(), [free]), command, str(repo), deadline,
-                                dict(os.environ)) is None
+                                environ) is None
 
 
 def test_M92b_without_a_record_of_the_remote_head_the_default_branch_is_unknown_even_with_a_destination_record(tmp_path):
