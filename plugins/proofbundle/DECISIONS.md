@@ -4167,3 +4167,14 @@ owner choice O31E1-1 A. -o, -T, -S, -m, -R, every long option and every option n
 stays out (its input could become an option); under Codex nothing changes (D37). It frees a chain the steps of D72 do
 not free, such as `find … | xargs grep -l git | sort`; a chain of data steps alone was free before.
 Tests: tests/test_plugin_n34_sort_d83.py.
+
+## D84. The test builtin like `[` under Claude Code (Nachtrag 34, owner choice O31E1-5, 2026-10-18)
+
+Measured under strace -f in bash -c (messung/truth_test.jsonl, truth_test_n34.py, 44 runs under the four sources of
+Ergänzung 1 to Nachtrag 31): test with -f, -d, -n, -e, a string comparison with a substitution, -lt, `!` -s, -x, -v
+before a plain name, -z and -nt started no program besides bash, opened no file for writing, made no socket and changed
+no file, as `[` did in Ergänzung 1.
+
+The rule: under Claude Code `test` is a read form of D77 like `[`, with the rule of D82 (`-v` only before a plain name).
+Under Codex nothing changes (D37). It frees a chain the steps of D72 do not free, such as `find … | xargs grep -l git &&
+test -x .git/hooks/pre-push`; a chain of data steps alone was free before. Tests: tests/test_plugin_n34_test_builtin_d84.py.

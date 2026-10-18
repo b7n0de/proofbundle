@@ -15382,6 +15382,9 @@ def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
         # the shell's test command (D60, D77): a builtin of bash, whose every operator only tests; its last word `]`;
         # `-v` only before a plain name, as bash expands the index of a name as an expression (D82)
         return bool(args) and args[-1][2] == "]" and not _test_names_an_expression([a[0] for a in args[:-1]])
+    if program[2] == "test" and used is not None:
+        # the same builtin written as test (owner choice O31E1-5, D84; measured as `[`, truth_test_n34.py)
+        return not _test_names_an_expression([a[0] for a in args])
     if _unreadable_word(program):
         return False
     if program[0] == "read":
