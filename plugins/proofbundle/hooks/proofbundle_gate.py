@@ -19063,6 +19063,43 @@ def _claim_command(command: str, depth: int = 0) -> dict:
     return out
 
 
+#: The hints before a run (D81, point 3 of Nachtrag 32): an id and the text the model reads as additional context.
+_HINTS = {
+    "pipe_without_pipefail": ("proofbundle hint (D81): the exit code of this command is the last program's of its "
+                              "pipe, not the one of the test or check run in it. Set `set -o pipefail` first, or run "
+                              "it without the pipe, before you read a result from its exit code."),
+    "pytest_r_without_failures": ("proofbundle hint (D81): this pytest -r selection lists no failed and no erroring "
+                                  "test in the short summary, so an empty list there says nothing about red tests. "
+                                  "Read red cases from -rfE."),
+}
+
+
+def evidence_hints(command: str) -> list[str]:
+    """The ids of the hints of _HINTS for a Bash command (D81): a test runner or a check script whose output goes into
+    a pipe without pipefail set before it (F4 of delta), and pytest with a -r selection that names neither failed nor
+    errors (f, E, a or A; F5 of delta). A hint never changes a decision; a command the gate cannot read gets none."""
+    parsed = _claim_runs(command)
+    if parsed is None:
+        return []
+    runs, ops, _writes = parsed
+    hints, pipefail = [], False
+    for n, run in enumerate(runs):
+        name, args = _claim_program(run)
+        words = [a[0] for a in args]
+        if name == "set" and "pipefail" in words:
+            pipefail = True
+        is_test = _claim_test_run(name, args)[0]
+        if (is_test or _claim_script(name, args) is not None) and ops[n] == "|" and not pipefail:
+            hints.append("pipe_without_pipefail")
+        if is_test and (name in ("pytest", "py.test") or "pytest" in words):
+            for i, word in enumerate(words):
+                spec = word[2:] if word.startswith("-r") and len(word) > 2 else (
+                    words[i + 1] if word == "-r" and i + 1 < len(words) else None)
+                if spec is not None and not set(spec) & set("fEaA"):
+                    hints.append("pytest_r_without_failures")
+    return sorted(set(hints))
+
+
 def _claim_numbers(text: str) -> bool:
     """Whether output names a number of its own beside OK: a count or a measure, not a part of a path, a name or an id."""
     return re.search(r"(?<![\w./:-])[0-9]+(?:[.,][0-9]+)?(?:/[0-9]+)?%?(?![\w./:-])", text) is not None
@@ -21365,6 +21402,16 @@ def main(argv: list[str] | None = None) -> int:
                           digests=getattr(exc, "digests", ()), head=getattr(exc, "head", None),
                           reads=getattr(exc, "reads", ()))   # R12-2: what an exception carries stays in the log
         verdict = Outcome("deny", failure.text(), [failure])
+    # D81: under Claude Code a Bash command that reads its evidence wrongly gets a hint as additional context, the one
+    # output of a PreToolUse hook measured to reach the model without a question; it never changes the decision, and a
+    # call that is denied gets none.
+    hints = []
+    if host == "claude" and isinstance(event, dict) and event.get("tool_name") == "Bash" and (
+            verdict is None or verdict.decision != "deny"):
+        try:
+            hints = evidence_hints(_command_from_event(event)[0])
+        except Exception:  # noqa: BLE001 - a hint never changes the answer
+            hints = []
     if host in HOSTS:
         try:
             entry = log_entry(host, event, verdict, actions)
@@ -21375,11 +21422,13 @@ def main(argv: list[str] | None = None) -> int:
             asked = _asks_keep(event, verdict) if AUTONOMOUS_FLAG in argv and host == "claude" else None   # D94
             if asked is not None:
                 entry["frage"] = asked
+            if hints:
+                entry["hints"] = hints
             write_log(entry, host)
         except Exception:  # noqa: BLE001 - the log never changes the answer
             pass
+    printed = None
     if verdict is not None:
-        printed = None
         try:
             if verdict.decision != "pass" or any(v.reason_id in ("approved_by_rule", *HINT_REASONS)
                                                  for v in verdict.verdicts) or \
@@ -21387,8 +21436,14 @@ def main(argv: list[str] | None = None) -> int:
                 printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
             printed = answer(verdict.decision, verdict.text, host=host)
-        if printed is not None:
-            sys.stdout.write(json.dumps(printed) + "\n")
+    if hints:
+        printed = dict(printed or {})
+        specific = dict(printed.get("hookSpecificOutput") or {"hookEventName": "PreToolUse"})
+        specific["additionalContext"] = " ".join(([specific["additionalContext"]] if specific.get("additionalContext")
+                                                  else []) + [_HINTS[h] for h in hints])
+        printed["hookSpecificOutput"] = specific
+    if printed is not None:
+        sys.stdout.write(json.dumps(printed) + "\n")
     return 0
 
 

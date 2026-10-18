@@ -4189,6 +4189,28 @@ Not under Codex: its transcript form is not measured, and its Stop event names `
 is not held, and a status in words outside the list can be held (the cap of two bounds it). Tests:
 tests/test_plugin_n32_claims_d80.py.
 
+## D81. A hint before a run that reads its evidence wrongly, never a question (Nachtrag 32, point 3, 2026-10-18)
+
+Measured in Nachtrag 32 with Claude Code 2.1.302 (messung/hint_path_summary.txt): of the outputs of a PreToolUse hook
+only hookSpecificOutput.additionalContext reaches the model without a question, as a message of role system
+("PreToolUse:Bash hook additional context: …"); systemMessage, the reason of an allow, plain stdout and stderr do not.
+Delta's cases: F4, the exit code came from `tail` after a `timeout`; F5, `-rs` read an empty set of red tests. Counted
+(messung/hints_corpus.json): the corpus has 435 rows, 3 test runs, 4 check-script runs and no row with a hint; the Bash
+commands of the transcript of this cloud session have 3572 rows, 581 with the pipe hint and 1 with the -r hint. Delta's
+command list was not delivered: NOT MEASURED.
+
+The rule (evidence_hints, main), under Claude Code, for a Bash call that is not denied: a test runner of the closed list
+of D80 or a check script whose output goes into a pipe without `set … pipefail` before it gets the hint
+pipe_without_pipefail; pytest with a -r selection that names neither f, E, a nor A gets pytest_r_without_failures. The
+hint stands in additionalContext, after the long reason where the gate asks; it sets no permission decision, so a pass
+stays silent for the user (D53) and an ask stays an ask. The log names the hint ids. Not under Codex: its handling of
+additionalContext is not measured.
+
+Not built: a hint on a receipt that names fewer interpreters than the declaration requires. The receipt of the pytest
+plugin names no interpreter, and the declaration has no field for the interpreters it requires (owner question). The
+evidence check of D80 asks each Python version a claim names for a run that names it.
+Tests: tests/test_plugin_n32_hints_d81.py.
+
 ## D82. A substitution bash runs is seen wherever bash runs it (Nachtrag 34, C31-1 to C31-3, 2026-10-18)
 
 D79 to D81 are taken by Nachtrag 32, which follows this one.
