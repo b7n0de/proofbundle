@@ -1271,9 +1271,8 @@ class TheRustSweep(unittest.TestCase):
             with self.subTest(construction=label):
                 self.assertEqual([s.split(" in ")[1] for s in _rust_stray(aliased)], ["ueber_alias"])
         dropped = self.text.replace("if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {\n"
-                                    "        return Ok(false);\n    }\n    let vk = VerifyingKey::from_bytes"
-                                    "(&pk_arr).map_err(|e| format!(\"bad issuer key", "let vk = VerifyingKey"
-                                    "::from_bytes(&pk_arr).map_err(|e| format!(\"bad issuer key", 1)
+                                    "        return Ok(false);\n    }\n    let Ok(vk) = VerifyingKey::from_bytes"
+                                    "(&pk_arr) else {", "let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {", 1)
         self.assertNotEqual(dropped, self.text, "the plant must hit verify_sdjwt_issuer's rule")
         self.assertEqual([s.split(" in ")[1] for s in _rust_stray(dropped)], ["verify_sdjwt_issuer"])
 
@@ -1281,7 +1280,7 @@ class TheRustSweep(unittest.TestCase):
         """Found on the sweep's first version by reading it: it matched the rule's name anywhere in the
         function's text, so a comment naming it, or a call after the key was built, satisfied it."""
         block = ("    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {\n        return Ok(false);\n    }\n")
-        build = "    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!(\"bad issuer key: {e}\"))?;\n"
+        build = "    let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {\n"
         self.assertEqual(self.text.count(block + build), 1)
         commented = self.text.replace(block + build,
                                       "    // schwaeche_eines_vertrauensankers(&pk_arr) was asked by the caller\n"

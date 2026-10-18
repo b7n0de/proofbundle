@@ -69,6 +69,14 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   not yet verified, so it is refused rather than passed). `valid-minimal` (a `cnf`-free, issuer-signed
   SD-JWT) stays exit 0.
 
+- The `sd_jwt_vc` block and its disclosures, 32 vectors that `crosscheck.py`
+  (`_disclosure_bundle_differential`) builds itself rather than reads from the corpus: Python and Rust
+  give the same exit code on each, and Python the one each vector pins. Rust reads the block as
+  `bundle.py` does and judges the disclosures by RFC 9901 section 7.1: each committed by the signed
+  payload, `_sd_alg` one of three, at most 256, each placed once, one claim name per object. Until
+  2026-10-18 it did not read the disclosures at all, and on main 2379659e 15 of the 32 vectors gave a
+  different exit code (Codex thread 4303513211 on pull request 373).
+
 - `bundle/n1-eval-sdjwt-graft-non-eval`: the eval-root-graft check — an SD-JWT carrying the always-open
   `receipt.root_b64` eval commitment must bind to a proofbundle eval-claim payload (its
   passed/threshold/comparator/suite/issuer match the signed payload AND its `receipt.root_b64` equals

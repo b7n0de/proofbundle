@@ -18,14 +18,14 @@
 //!                                                  source of truth consumed by scripts/rust_parity_gate.py
 //!                                                  in the Python repo — never hand-duplicate this list)
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::process::exit;
 
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha384, Sha512};
 
 // ---------------------------------------------------------------------------
 // Strict JSON: reject a duplicate key at every object level (the C1 Bishop-Fox
@@ -791,12 +791,221 @@ fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
 }
 
 // ---------------------------------------------------------------------------
-// SD-JWT VC issuer-authenticity slice (partial): verifies the issuer Ed25519 signature over the
-// compact SD-JWT and fail-closes on a holder-bound (`cnf`) credential whose Key Binding JWT this
-// slice does not yet verify. Reproduces the sd-jwt-unsigned / forged-issuer / signed-but-unbound
-// corpus verdicts; the eval-root-graft and KB-JWT-detail checks are pending slices.
-// Ok(true) => the sd-jwt part is acceptable; Ok(false) => reject (contributes exit 1).
+// SD-JWT VC slice (partial): reads the sd_jwt_vc block as bundle.py reads it, judges the disclosures
+// (sd-jwt-disclosures, RFC 9901 section 7.1), verifies the issuer Ed25519 signature over the compact
+// SD-JWT, binds an eval-root commitment to the bundle, and fail-closes on a holder-bound (`cnf`)
+// credential whose Key Binding JWT this slice does not yet verify. Reproduces the sd-jwt-unsigned /
+// forged-issuer / signed-but-unbound corpus verdicts and the disclosure differential of crosscheck.py.
+// Ok(true) => the sd-jwt part is acceptable; Ok(false) => reject (contributes exit 1); Err(..) => the
+// block itself is malformed (exit 2).
 // ---------------------------------------------------------------------------
+
+/// Python `sdjwt._MAX_DISCLOSURES`: more presented disclosures than this are refused before any of
+/// them is parsed or hashed (PB-2026-0715-15a).
+const SDJWT_MAX_DISCLOSURES: usize = 256;
+
+/// The digest of one disclosure as RFC 9901 section 4.2.3 defines it: the hash named by `_sd_alg` over
+/// the ASCII of the disclosure exactly as presented, base64url without padding.
+fn sdjwt_digest(disclosure: &str, sd_alg: &str) -> String {
+    let d: Vec<u8> = match sd_alg {
+        "sha-384" => Sha384::digest(disclosure.as_bytes()).to_vec(),
+        "sha-512" => Sha512::digest(disclosure.as_bytes()).to_vec(),
+        _ => Sha256::digest(disclosure.as_bytes()).to_vec(),
+    };
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(d)
+}
+
+/// Every digest a JSON value commits to: the strings of an `_sd` array and the string of a `...`
+/// member, found anywhere below the value except inside those two members. A `_sd` that is not an
+/// array is read as an ordinary member. Iterative, so a deep value cannot exhaust the stack.
+fn sdjwt_committed_digests(root: &serde_json::Value, out: &mut HashSet<String>) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        match node {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map {
+                    match (key.as_str(), value) {
+                        ("_sd", serde_json::Value::Array(items)) => {
+                            out.extend(items.iter().filter_map(|d| d.as_str()).map(str::to_owned));
+                        }
+                        ("...", v) => {
+                            if let Some(d) = v.as_str() {
+                                out.insert(d.to_owned());
+                            }
+                        }
+                        _ => stack.push(value),
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => stack.extend(items.iter()),
+            _ => {}
+        }
+    }
+}
+
+/// Whether every presented disclosure has exactly one place in the signed payload and no claim name
+/// stands twice in one object (RFC 9901 section 7.1). An object-property disclosure `[salt, name,
+/// value]` belongs to the object whose `_sd` lists its digest, an array-element disclosure `[salt,
+/// value]` to the array element `{"...": digest}`. Two disclosures for one name, a disclosure beside a
+/// claim in clear with that name, a name `_sd` or `...`, a name that is not a string, a disclosure
+/// referred to from two places, one whose form does not fit its place, and one with no place at all are
+/// each refused. Names are judged per object, so one name in two objects is two claims.
+fn sdjwt_disclosures_placed(
+    payload: &serde_json::Value,
+    by_digest: &HashMap<String, &serde_json::Value>,
+) -> bool {
+    let mut placed: HashSet<&str> = HashSet::new();
+    let mut stack = vec![payload];
+    while let Some(node) = stack.pop() {
+        match node {
+            serde_json::Value::Object(map) => {
+                let mut taken: HashSet<&str> = map.keys().map(String::as_str).collect();
+                taken.insert("_sd");
+                taken.insert("...");
+                if let Some(serde_json::Value::Array(sd)) = map.get("_sd") {
+                    for digest in sd {
+                        let Some((dg, parsed)) =
+                            digest.as_str().and_then(|d| by_digest.get_key_value(d))
+                        else {
+                            continue; // a decoy digest, or a disclosure the holder does not present
+                        };
+                        if !placed.insert(dg.as_str()) {
+                            return false; // referred to from two places
+                        }
+                        let Some([_, name, value]) = parsed.as_array().map(Vec::as_slice) else {
+                            return false; // an array-element disclosure in an object's _sd
+                        };
+                        let Some(name) = name.as_str() else {
+                            return false; // a claim name that is not a string
+                        };
+                        if !taken.insert(name) {
+                            return false; // a name twice in one object, or _sd / ...
+                        }
+                        stack.push(value);
+                    }
+                }
+                stack.extend(
+                    map.iter()
+                        .filter(|(k, _)| k.as_str() != "_sd")
+                        .map(|(_, v)| v),
+                );
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    let marker = item
+                        .as_object()
+                        .filter(|m| m.len() == 1)
+                        .and_then(|m| m.get("..."));
+                    let Some(marker) = marker else {
+                        stack.push(item);
+                        continue;
+                    };
+                    let Some((dg, parsed)) =
+                        marker.as_str().and_then(|d| by_digest.get_key_value(d))
+                    else {
+                        continue;
+                    };
+                    if !placed.insert(dg.as_str()) {
+                        return false;
+                    }
+                    let Some([_, value]) = parsed.as_array().map(Vec::as_slice) else {
+                        return false; // an object-property disclosure as an array element
+                    };
+                    stack.push(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    placed.len() == by_digest.len()
+}
+
+/// The sd-jwt-disclosures check of Python `sdjwt.verify_sd_jwt` (`structure_ok`), written from its
+/// rules and RFC 9901 section 7.1, not from its code. `parts` is the compact split at `~`. A disclosure
+/// is a non-empty part after the issuer JWT without a dot; a part with a dot is a Key Binding JWT. True
+/// when `_sd_alg` is absent or one of sha-256, sha-384, sha-512, there are at most
+/// SDJWT_MAX_DISCLOSURES, each decodes to a strict JSON array of two or three elements, each is
+/// committed by the signed payload directly or through a disclosure committed before it, and each is
+/// placed (`sdjwt_disclosures_placed`). Never an Err: Python reports every defect here as a failed
+/// check (exit 1), never as malformed input.
+fn sdjwt_disclosures_ok(parts: &[&str], payload: &serde_json::Value) -> bool {
+    let sd_alg = match payload.get("_sd_alg") {
+        None => "sha-256",
+        Some(serde_json::Value::String(s))
+            if matches!(s.as_str(), "sha-256" | "sha-384" | "sha-512") =>
+        {
+            s.as_str()
+        }
+        Some(_) => return false,
+    };
+    let disclosures: Vec<&str> = parts
+        .iter()
+        .skip(1)
+        .copied()
+        .filter(|p| !p.is_empty() && !p.contains('.'))
+        .collect();
+    if disclosures.len() > SDJWT_MAX_DISCLOSURES {
+        return false;
+    }
+    let mut parsed: Vec<(String, serde_json::Value)> = Vec::with_capacity(disclosures.len());
+    for d in &disclosures {
+        let Ok(raw) = b64url_nopad(d) else {
+            return false;
+        };
+        let Ok(value) = strict_parse(&raw) else {
+            return false;
+        };
+        if !matches!(value.as_array().map(Vec::len), Some(2 | 3)) {
+            return false;
+        }
+        parsed.push((sdjwt_digest(d, sd_alg), value));
+    }
+    // Commitment, rooted in the signed payload: a disclosure counts once its digest is committed, and
+    // then commits the digests inside its own value. Identical disclosures share one digest and count
+    // together. Each digest is examined once, so the work is linear in the presentation.
+    let mut committed: HashSet<String> = HashSet::new();
+    sdjwt_committed_digests(payload, &mut committed);
+    let mut groups: HashMap<&str, Vec<&serde_json::Value>> = HashMap::new();
+    for (dg, value) in &parsed {
+        groups.entry(dg.as_str()).or_default().push(value);
+    }
+    let mut queue: VecDeque<&str> = groups
+        .keys()
+        .copied()
+        .filter(|dg| committed.contains(*dg))
+        .collect();
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut resolved = 0usize;
+    while let Some(dg) = queue.pop_front() {
+        if !visited.insert(dg) {
+            continue;
+        }
+        for value in &groups[dg] {
+            resolved += 1;
+            let mut newly = HashSet::new();
+            if let Some(last) = value.as_array().and_then(|a| a.last()) {
+                sdjwt_committed_digests(last, &mut newly);
+            }
+            for dg2 in newly {
+                if committed.insert(dg2.clone()) {
+                    if let Some((key, _)) = groups.get_key_value(dg2.as_str()) {
+                        if !visited.contains(key) {
+                            queue.push_back(key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if resolved != parsed.len() {
+        return false; // a disclosure the signed payload never commits to
+    }
+    let mut by_digest: HashMap<String, &serde_json::Value> = HashMap::new();
+    for (dg, value) in &parsed {
+        by_digest.entry(dg.clone()).or_insert(value);
+    }
+    sdjwt_disclosures_placed(payload, &by_digest)
+}
 
 // RFC 7515 section 4.1.11 critical-header handling (Nachtrag 50b, Z309). proofbundle understands no JWS
 // extension, so any `crit` present in a protected header makes the JWS invalid — the Rust mirror of
@@ -843,12 +1052,38 @@ fn verify_sdjwt_issuer(
     bundle_payload: &serde_json::Value,
     merkle_root_b64: &str,
 ) -> Result<bool, String> {
-    let compact = sd
+    // The block is read as bundle.py reads it, and a defect of the BLOCK is malformed on both sides:
+    // not an object, a member other than its two, a compact that is no string, or an issuer key that is
+    // present and not base64 text. Everything inside the compact, and a decoded key that cannot verify,
+    // is a failed check instead (exit 1), because Python's verify_sd_jwt never raises. Measured
+    // differentially on 2026-10-18 (crosscheck.py `_disclosure_bundle_differential`): before this, an
+    // unknown member verified here and was malformed in Python, and six defects were malformed here and a
+    // failed check in Python, three undecodable segments of the issuer JWT and an issuer key that is
+    // empty, 31 bytes long or off the curve.
+    let block = sd.as_object().ok_or("sd_jwt_vc must be a JSON object")?;
+    if let Some(extra) = block
+        .keys()
+        .find(|k| !matches!(k.as_str(), "compact" | "issuer_public_key_b64"))
+    {
+        return Err(format!("unknown field in sd_jwt_vc: {extra:?}"));
+    }
+    let compact = block
         .get("compact")
         .and_then(|v| v.as_str())
         .ok_or("sd_jwt_vc.compact must be a string")?;
-    // No issuer public key supplied => the disclosures are unauthenticated (bundle.py WP-C2) => reject.
-    let Some(issuer_pub_b64) = sd.get("issuer_public_key_b64").and_then(|v| v.as_str()) else {
+    // bundle.py asks `if sd.get("issuer_public_key_b64")`, so a value that is false in Python is no key
+    // at all, and with no key the disclosures are unauthenticated (WP-C2) => reject. Any other value is
+    // decoded before the compact is read, and a value that does not decode is malformed.
+    let pk = match block.get("issuer_public_key_b64") {
+        None | Some(serde_json::Value::Null | serde_json::Value::Bool(false)) => None,
+        Some(serde_json::Value::String(s)) if s.is_empty() => None,
+        Some(serde_json::Value::Number(n)) if n.as_f64() == Some(0.0) => None,
+        Some(serde_json::Value::Array(a)) if a.is_empty() => None,
+        Some(serde_json::Value::Object(o)) if o.is_empty() => None,
+        Some(serde_json::Value::String(s)) => Some(b64_strict(s)?),
+        Some(_) => return Err("field sd_jwt_vc.issuer_public_key_b64 is not valid base64".into()),
+    };
+    let Some(pk) = pk else {
         return Ok(false);
     };
     let parts: Vec<&str> = compact.split('~').collect();
@@ -858,13 +1093,11 @@ fn verify_sdjwt_issuer(
     }
     let (hdr_b64, pl_b64, sig_b64) = (jwt[0], jwt[1], jwt[2]);
     // strict-parse header + payload (a duplicate JSON key here is a parser-differential => reject).
-    let header = match strict_parse(&b64url_nopad(hdr_b64)?) {
-        Ok(h) => h,
-        Err(_) => return Ok(false),
+    let (Ok(hdr_raw), Ok(pl_raw)) = (b64url_nopad(hdr_b64), b64url_nopad(pl_b64)) else {
+        return Ok(false);
     };
-    let payload = match strict_parse(&b64url_nopad(pl_b64)?) {
-        Ok(p) => p,
-        Err(_) => return Ok(false),
+    let (Ok(header), Ok(payload)) = (strict_parse(&hdr_raw), strict_parse(&pl_raw)) else {
+        return Ok(false);
     };
     if !header.is_object() || !payload.is_object() {
         return Ok(false);
@@ -877,23 +1110,33 @@ fn verify_sdjwt_issuer(
     if jws_crit_rejected(&header) {
         return Ok(false);
     }
+    // sd-jwt-disclosures (RFC 9901 section 7.1). Codex thread 4303513211 on pull request 373: this slice
+    // never read the parts after the issuer JWT, so an uncommitted, undecodable or ambiguous disclosure
+    // verified here while Python refused it.
+    if !sdjwt_disclosures_ok(&parts, &payload) {
+        return Ok(false);
+    }
     if header.get("alg").and_then(|v| v.as_str()) != Some("EdDSA") {
         return Ok(false);
     }
-    // issuer Ed25519 signature over the signing input `header_b64.payload_b64`.
-    let pk = b64_strict(issuer_pub_b64)?;
-    let pk_arr: [u8; 32] = pk
-        .as_slice()
-        .try_into()
-        .map_err(|_| "issuer key not 32 bytes")?;
+    // issuer Ed25519 signature over the signing input `header_b64.payload_b64`. A key of the wrong
+    // length, one that is no point of the curve and a signature segment that does not decode are each an
+    // invalid signature, as in Python, not malformed input.
+    let Ok(pk_arr) = <[u8; 32]>::try_from(pk.as_slice()) else {
+        return Ok(false);
+    };
     // Python `sdjwt._ISSUER_SIG_VERIFIERS["EdDSA"]` is `verify_ed25519_pinned` (Z195): a weak issuer
     // key authenticates no disclosure, and the part is rejected, not malformed.
     if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
         return Ok(false);
     }
-    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad issuer key: {e}"))?;
+    let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
+        return Ok(false);
+    };
     let signing_input = format!("{hdr_b64}.{pl_b64}");
-    let sig_bytes = b64url_nopad(sig_b64)?;
+    let Ok(sig_bytes) = b64url_nopad(sig_b64) else {
+        return Ok(false);
+    };
     let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
         return Ok(false);
     };
@@ -934,9 +1177,9 @@ fn verify_sdjwt_issuer(
 // Native bundle verify — the CLI exit-code contract (0 crypto OK · 1 verification
 // failure · 2 malformed · 3 policy unmet). This slice covers Ed25519 signature over
 // the raw payload, RFC 6962 Merkle inclusion, and relying-party root/tree-size
-// authentication. It does NOT yet verify the optional `sd_jwt_vc` block or external
-// anchors (documented pending slices) — so it is used only for the cases whose
-// deciding check is signature / merkle / root / tree-size / strict-parse.
+// authentication, plus the partial `sd_jwt_vc` slice of `verify_sdjwt_issuer`. It does NOT
+// yet verify a Key Binding JWT or external anchors (documented pending slices) — so it is
+// used only for the cases whose deciding check is one of those it covers.
 // Err(..) => malformed (exit 2); Ok(true) => verified (0); Ok(false) => failure (1).
 // ---------------------------------------------------------------------------
 fn verify_bundle(
@@ -1018,8 +1261,9 @@ fn verify_bundle(
             return Ok(false);
         }
     }
-    // optional SD-JWT VC block (issuer authenticity + eval-graft slice; see verify_sdjwt_issuer).
-    if let Some(sd) = b.get("sd_jwt_vc") {
+    // optional SD-JWT VC block (see verify_sdjwt_issuer). bundle.py asks `if sd is not None`, so a
+    // JSON null is no block, as an absent one.
+    if let Some(sd) = b.get("sd_jwt_vc").filter(|v| !v.is_null()) {
         let bundle_payload = strict_parse(&payload).unwrap_or(serde_json::Value::Null);
         let root_b64_str = mk.get("root_b64").and_then(|v| v.as_str()).unwrap_or("");
         if !verify_sdjwt_issuer(sd, &bundle_payload, root_b64_str)? {
