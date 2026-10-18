@@ -45,11 +45,15 @@ def _stand_in(tmp_path: pathlib.Path, env: dict) -> dict:
     folder.mkdir()
     (folder / "git").write_text(
         "#!/bin/sh\n"
-        "# test stand-in for the network: ls-remote reads the bare repository PB_TEST_REMOTE names\n"
-        "for a in \"$@\"; do [ \"$a\" = ls-remote ] && ls=1; done\n"
+        "# test stand-in for the network: ls-remote reads the bare repository PB_TEST_REMOTE names, with the options\n"
+        "# the gate gives it (N2324-2: a gate that leaves out --tags must not get the tags anyway)\n"
+        "for a in \"$@\"; do\n"
+        "  if [ -n \"$ls\" ]; then case \"$a\" in -*) opts=\"$opts $a\";; esac; fi\n"
+        "  [ \"$a\" = ls-remote ] && ls=1\n"
+        "done\n"
         "if [ -n \"$ls\" ]; then\n"
         "  [ \"$PB_TEST_LS_REMOTE\" = fail ] && { echo 'fatal: unable to access' >&2; exit 128; }\n"
-        f"  exec {GIT} ls-remote --heads --tags \"$PB_TEST_REMOTE\"\n"
+        f"  exec {GIT} ls-remote $opts \"$PB_TEST_REMOTE\"\n"
         "fi\n"
         f"exec {GIT} \"$@\"\n", encoding="utf-8")
     (folder / "git").chmod(0o755)
@@ -121,6 +125,25 @@ def test_D61_a_stale_tracking_ref_does_not_hide_a_commit_the_push_sends(env, r, 
     r.make("valid")
     _answer, entry = _push(_stand_in(tmp_path, env), r, "git -C {a} push origin HEAD:refs/heads/topic")
     assert entry["verdict"] == "deny", entry
+
+
+def test_D61_a_commit_only_a_tag_on_the_remote_holds_is_not_sent(env, r, tmp_path):
+    """N2324-2 (Nachtrag 27): the gate subtracts the remote's tags as git push does, not only its branches. A commit
+    with broken evidence that only an annotated tag on the remote holds is not sent (case c5 of the ground truth of
+    D61: one commit sent, not two), so the push of a new branch above it is free; a gate that leaves the tags out
+    counts that commit as sent, and its broken evidence denies."""
+    bad = r.path / ".proofbundle" / "b.json"
+    bundle = json.loads(bad.read_text(encoding="utf-8"))
+    bundle["payload_b64"] = bundle["payload_b64"][:-4] + "AAAA"
+    bad.write_text(json.dumps(bundle), encoding="utf-8")
+    n2c._commit(r.path, "a commit with broken evidence, which a tag on the remote holds")
+    _git(r.path, "tag", "-a", "-m", "v1", "v1")
+    _git(r.path, "push", "-q", "--no-verify", str(tmp_path / "remote.git"), "refs/tags/v1")
+    r.sign_evidence()
+    n2c._commit(r.path, "valid evidence again on top")
+    r.make("valid")
+    _answer, entry = _push(_stand_in(tmp_path, env), r, "git -C {a} push origin HEAD:refs/heads/topic")
+    assert _free(entry), entry
 
 
 # --- keeps the answer of D3, or denies -------------------------------------------------------------------------------
