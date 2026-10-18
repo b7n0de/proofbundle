@@ -69,6 +69,19 @@ def _digest_set_problem(value: Any) -> str:
     return ""
 
 
+def _no_object_problem(statement: Any) -> str:
+    """Why ``statement`` is no JSON object, or "" when it is one. Its own type decides, not `__class__`.
+
+    Both problem functions below answered a statement that is no object with a raw `TypeError` from
+    `in` (`"_type" in 5`), where the question they answer has a typed answer: a statement that is no
+    object is no in-toto Statement. Measured on the tree that carries pull requests 379 and 385 together
+    (2026-10-18): the guard over every public function found the gap in both, pinned for the older one."""
+    if issubclass(type(statement), dict):
+        return ""
+    from ._membership import type_name  # noqa: PLC0415 - local import avoids an import cycle
+    return f"the statement must be a JSON object, got {type_name(statement)}"
+
+
 def statement_subject_problem(statement: dict) -> "str | None":
     """Why the ``subject`` of ``statement`` names no artifact an in-toto consumer could match, or None.
 
@@ -85,6 +98,9 @@ def statement_subject_problem(statement: dict) -> "str | None":
     through `intoto._statement_layer_problem`, and the six emitters of those verifiers refuse to write a
     statement it refuses (`refuse_an_unwritable_subject`). agent_review and verifier_block read their
     subject with rules of their own, each stricter than this one."""
+    problem = _no_object_problem(statement)
+    if problem:
+        return problem
     if "subject" not in statement:
         return "subject is required: a non-empty array of ResourceDescriptors, each with a digest"
     subject = statement["subject"]
@@ -126,6 +142,9 @@ def statement_type_problem(statement: dict) -> "str | None":
     read it back. ``_type`` is what says which schema the other three keys follow, so a structure verdict
     that never read it did not judge the structure it named. The comparison is exact: no case folding, no
     trailing slash, no older version."""
+    problem = _no_object_problem(statement)
+    if problem:
+        return problem
     if "_type" not in statement:
         return f"_type is absent, expected {STATEMENT_TYPE!r}"
     value = statement["_type"]

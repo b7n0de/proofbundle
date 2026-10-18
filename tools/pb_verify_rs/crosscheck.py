@@ -890,11 +890,15 @@ def main() -> int:
                 # The root is taken over the payload a DSSE envelope carries: both envelopes of the
                 # vector carry the same payload under different signatures, and both must give the pin.
                 # The envelope is read strictly: a duplicate payload key is refused, not read last-wins.
+                # The payload is decoded as every DSSE envelope field is, canonical in either alphabet,
+                # through the one wire decoder and not the stdlib, so this tool accepts no wire form
+                # the verifiers refuse.
                 from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
+                from proofbundle._wire_b64 import decode_b64_either  # noqa: PLC0415
                 for datei in (case.get("input", "envelope_a.json"), expected.get("secondEnvelope")):
                     umschlag = _loads_strict((cdir / datei).read_bytes())
                     with tempfile.NamedTemporaryFile("wb", suffix=".json", delete=False) as f:
-                        f.write(base64.b64decode(umschlag["payload"], validate=True))
+                        f.write(decode_b64_either(umschlag["payload"]))
                         nutzlast = f.name
                     try:
                         _, got = _run("content-root", nutzlast)

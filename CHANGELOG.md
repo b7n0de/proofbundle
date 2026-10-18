@@ -328,19 +328,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   past the interpreter's recursion guard has no `repr`, `json.dumps` refuses a set or bytes, and an
   object's own `__repr__` can raise anything. The family is derived, not listed:
   `tests/test_public_functions_render_a_value_from_outside_bounded.py` takes every public function
-  of every module but `cli` and `pytest_plugin` (348 on this tree, 339 of them with a parameter),
+  of every module but `cli` and `pytest_plugin` (350 on this tree, 341 of them with a parameter),
   seeds each with one or two calls the suite makes to it
   (`tests/fixtures/public_surface_seeds.json`; recorded from the suite of d6d89763, and for 25
   functions again from the suite of this tree: 21 that main added and four whose recorded call no
-  longer returned on main; ten more are written in the test, where only a call from inside the
+  longer returned on main; twelve more are written in the test, where only a call from inside the
   package reaches them or a returning call signs with a key the recording cannot write), and plants
   `10**5000`, `-10**5000`, a list too deep to render, a tuple holding `10**5000`, a set, bytes and
   an object whose `__repr__`, `__str__` and `__format__` raise into every parameter, into every node
   of a dict or list argument and as a new key of every dict. Each call must return an answer that is
   no `internal_error`, or raise an exception class the package defines (or the builtin one its
   module documents), with a message that renders. Measured with CPython 3.10, before this change 37
-  of 336 functions let such a value out raw, in 997 of 58,054 calls; now 0 of 338 functions in
-  58,096 calls. `pqsig.verify_slhdsa` is not measurable there, since its optional dependency is not
+  of 336 functions let such a value out raw, in 997 of 58,054 calls; now 0 of 340 functions in
+  58,247 calls. `pqsig.verify_slhdsa` is not measurable there, since its optional dependency is not
   installed, and its 28 calls are named, not counted; the test passes under 3.11, 3.12, 3.13 and
   3.14 as well. A forcing test turns red for a public function without a
   seed or a named reason, two plant-and-catch tests swap a bounded renderer of `explain_policy` and
@@ -377,7 +377,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   planted value out from these files (13 site and exception pairs, among them
   `_verdict.require_bool_verdict`, `evalclaim.build_eval_claim` and `check_freshness`, and
   `sdjwt_issue.present_with_key_binding`); they go to the next change of this class. A raw raise
-  outside the class is pinned per function instead, 154 pairs in 102 functions: a value of the
+  outside the class is pinned per function instead, 153 pairs in 101 functions: a value of the
   wrong type used in a computation or a third-party exception that crossed unmapped. The pin is an
   upper bound, so a new raw raise is red, and exact wherever every seed of the function returned at
   baseline, so a closed gap has to leave the list; the pins are written from a measured run, not by

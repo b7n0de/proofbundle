@@ -51,7 +51,7 @@ MEASURED on main 570dd164 with the six commits carried before this change, the t
 2026-10-18, with CPython 3.10: 37 of 336 functions let a planted value out raw or answered
 `internal_error`, in 997 of 58,054 calls, and 39 of the 343 cases this file has there are red (37
 with class escapes, `load_statement_strict` with its raw raises only, and the forcing test, since
-the two renderers this change adds do not exist there). After it: 0 of 338 functions, in 58,096
+the two renderers this change adds do not exist there). After it: 0 of 340 functions, in 58,247
 calls. `pqsig.verify_slhdsa` is not measurable there, its optional dependency not being installed,
 and its 28 calls are named, not counted; the file passes under 3.11, 3.12, 3.13 and 3.14 as well.
 (On d6d89763, where this change was first
@@ -465,8 +465,11 @@ _HAND_SEEDS = {
         (_fixture(tmp, "promptfoo_results_v3.json"),), {})],
     "proofbundle.agent_review.replace_disclosure_block": _disclosure_body,
     "proofbundle.anchors.register_anchor_type": lambda tmp: [(("sweep-anchor/v1", _refusing_verifier), {})],
+    # With a subject since pull request 379, whose one Statement oracle refuses a statement without one;
+    # the seed of part 2 had only `_type` and raised there.
     "proofbundle._statement_payload.load_statement_strict": lambda tmp: [(
-        (b'{"_type":"https://in-toto.io/Statement/v1"}',), {})],
+        (b'{"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"x","digest":{"sha256":"'
+         + b"a" * 64 + b'"}}]}',), {})],
     "proofbundle.bundle.load_bundle": lambda tmp: [(
         (str(_fixture(tmp, "example_bundle.json", REPO / "examples")),), {})],
     "proofbundle.emit.load_signer": _signer_file,
@@ -492,6 +495,11 @@ _HAND_SEEDS = {
     "proofbundle._plain_value.plain_list": lambda tmp: [(([1, "x"],), {})],
     "proofbundle._statement_payload.statement_type_problem": lambda tmp: [(
         ({"_type": "https://in-toto.io/Statement/v1"},), {})],
+    # Public since pull request 379, the subject rule of the one Statement oracle and its emitter side.
+    "proofbundle._statement_payload.statement_subject_problem": lambda tmp: [(
+        ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]},), {})],
+    "proofbundle._statement_payload.refuse_an_unwritable_subject": lambda tmp: [(
+        ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]}, BundleFormatError), {})],
     "proofbundle._verdict.require_eval_claim": lambda tmp: [((_claim_of_the_test_key(),), {"wo": "sweep"})],
     "proofbundle._wire_b64.wire_value": lambda tmp: [(("AAAA",), {})],
     "proofbundle.sdjwt.issuer_key_fingerprint": lambda tmp: [(
@@ -793,7 +801,6 @@ _WRONG_TYPE_GAPS: dict = {
         "_inflate.py:inflate_whole_stream ValueError",
     },
     "_plain_value.plain_json": {"_plain_value.py:_depth_and_nodes AttributeError"},
-    "_statement_payload.statement_type_problem": {"_statement_payload.py:statement_type_problem TypeError"},
     "_strict_cbor.load_item_strict": {
         "_strict_cbor.py:_count TypeError", "_strict_cbor.py:item TypeError",
         "_strict_cbor.py:load_item_strict TypeError",

@@ -162,7 +162,12 @@ class TestDecisionWiresEvidenceLevels(unittest.TestCase):
         self.assertFalse([w for w in r2["warnings"] if w.startswith("DEPRECATED")], r2["warnings"])
 
     def test_control_an_outcome_ref_without_a_usable_digest_stays_claimed(self):
-        from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
+        import hashlib
+
+        from proofbundle import dsse
+        from proofbundle.decision import (DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE,
+                                          STATEMENT_TYPE, DecisionReceiptError, _rfc8785_bytes,
+                                          emit_decision_receipt, verify_decision_receipt)
         for name, ref, status, erwartet in (
                 ("ref null", None, "executed", EvidenceLevel.CLAIMED),
                 ("uri only", {"uri": "urn:proofbundle:tool-outcome:x"}, "executed", EvidenceLevel.CLAIMED),
@@ -173,7 +178,21 @@ class TestDecisionWiresEvidenceLevels(unittest.TestCase):
                 p["actionOutcome"]["outcomeRef"] = ref
                 p["actionOutcome"]["status"] = status
                 s, pub = _keys()
-                env = emit_decision_receipt(p, s, strict=True)
+                if name == "digest not hex":
+                    # The producer refuses this predicate since its validator reads the schema's
+                    # sha256Digest shape (pull request 382), and so does build_decision_statement, so
+                    # the statement is built here in the producer's form and signed without either:
+                    # what this control holds is the verifier's level for a receipt that reaches it.
+                    with self.assertRaises(DecisionReceiptError):
+                        emit_decision_receipt(p, s, strict=True)
+                    statement = {"_type": STATEMENT_TYPE,
+                                 "subject": [{"name": "decision:x", "digest": {
+                                     "sha256": hashlib.sha256(_rfc8785_bytes(p)).hexdigest()}}],
+                                 "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": p}
+                    env = dsse.sign_envelope(_rfc8785_bytes(statement), s,
+                                             payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+                else:
+                    env = emit_decision_receipt(p, s, strict=True)
                 r = verify_decision_receipt(env, pub, strict=True, evidence_resolver=lambda d: True)
                 self.assertEqual(r["evidence_levels"]["actionOutcome.outcomeRef"]["level"], erwartet)
 
