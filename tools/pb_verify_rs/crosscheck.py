@@ -122,6 +122,10 @@ _NICHT_DIFFERENTIELL = {
                       "pb_verify_rs; bis dahin fahren die fuenfzehn Faelle im Python-"
                       "Konformanzlauf (122/122). Nicht gedeckt heisst hier: nicht differentiell "
                       "gefahren"),
+    "content_root_vector": ("only the two binding vectors: they pin a verdict of the Python "
+                            "content-root binding (bindingOk and the declared algorithm), not a root, "
+                            "and pb_verify_rs has no subcommand for that verdict; the eight vectors "
+                            "that pin a root run through its content-root subcommand above"),
 }
 
 
@@ -861,6 +865,51 @@ def main() -> int:
                                 f"{sorted(expected)} — gefahren werden contentRootHex und "
                                 f"canonicalizeRefuses, benannt uebersprungen nonConformantDiffers "
                                 f"und classification. Nicht lesbar ist keine Freigabe")
+        elif kind == "content_root_vector":
+            # THE PINNED ROOTS RUN IN THE SECOND IMPLEMENTATION, through the `content-root` subcommand
+            # the rows above already use (the second reading of this change, 2026-10-18: the first
+            # form named the whole kind a gap because `coverage-report` lists verify subcommands only,
+            # and pb_verify_rs reproduced 9 of 9 pinned roots unchanged). A `binding` vector pins a
+            # verdict of the Python content-root binding, not a root, and pb_verify_rs has no
+            # subcommand for that verdict: those two are a named gap, the others are run.
+            mode = case.get("mode")
+            if mode == "canonical":
+                _, got = _run("content-root", str(cdir / case.get("input", "statement.json")))
+                if got != expected.get("contentRoot"):
+                    failures.append(f"corpus {cid}: content root pinned={expected.get('contentRoot')} "
+                                    f"rust={got}")
+                reproduced += 1
+            elif mode == "pair_reference":
+                for datei, schluessel in (("decision.json", "decisionRoot"), ("evidence.json", "evidenceRoot")):
+                    _, got = _run("content-root", str(cdir / datei))
+                    if got != expected.get(schluessel):
+                        failures.append(f"corpus {cid}: {schluessel} pinned={expected.get(schluessel)} "
+                                        f"rust={got}")
+                reproduced += 1
+            elif mode == "envelope_invariance":
+                # The root is taken over the payload a DSSE envelope carries: both envelopes of the
+                # vector carry the same payload under different signatures, and both must give the pin.
+                # The envelope is read strictly: a duplicate payload key is refused, not read last-wins.
+                from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
+                for datei in (case.get("input", "envelope_a.json"), expected.get("secondEnvelope")):
+                    umschlag = _loads_strict((cdir / datei).read_bytes())
+                    with tempfile.NamedTemporaryFile("wb", suffix=".json", delete=False) as f:
+                        f.write(base64.b64decode(umschlag["payload"], validate=True))
+                        nutzlast = f.name
+                    try:
+                        _, got = _run("content-root", nutzlast)
+                    finally:
+                        pathlib.Path(nutzlast).unlink()
+                    if got != expected.get("contentRoot"):
+                        failures.append(f"corpus {cid}: content root of the payload of {datei} "
+                                        f"pinned={expected.get('contentRoot')} rust={got}")
+                reproduced += 1
+            elif mode == "binding":
+                nicht_gedeckt.setdefault(kind, []).append(cid)
+            else:
+                failures.append(f"corpus {cid}: content_root_vector with an unknown mode {mode!r}; this "
+                                f"differential runs canonical, pair_reference and envelope_invariance and "
+                                f"names binding as a gap")
         elif kind in _NICHT_DIFFERENTIELL:
             nicht_gedeckt.setdefault(kind, []).append(cid)
         else:
