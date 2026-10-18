@@ -137,9 +137,10 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # 2026-10-18, THE COUNT MOVED, from 10 to 13 cases in `test_adapters.py` (three cases for a run that
 # stopped early), and the two files were run again instead of the number being raised. Each of
 # 0.3.261 through 0.3.266 in its own FRESH env (python 3.10.12, `inspect_ai==<version>` plus this
-# package built from the branch at 4480c5d7, no mocks): the two files run together, 22 passed,
-# nothing skipped, nothing failed, in every one of the six versions.
-inspect =['inspect_ai>=0.3.112,<=0.3.266']
+# package built from the branch, no mocks): the two files run together, 22 passed, nothing skipped,
+# nothing failed, in every one of the six versions. Measured at 4480c5d7 and again at e1b835a0,
+# which reads the early stop as the library writes it and binds a count only when the log set it.
+inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
