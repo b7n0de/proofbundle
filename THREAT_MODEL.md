@@ -141,8 +141,8 @@ What it does not:
 
 proofbundle attests eval/test *run* results, offline, via the standards stack (Ed25519 + RFC 6962 + optional
 SD-JWT / in-toto). [ai-audit-trail](https://pypi.org/project/ai-audit-trail/) records *runtime* agent
-Decision Receipts (a different layer). [ValiChord](https://github.com/topeuph-ai/ValiChord) builds
-attestation bundles from inspect_ai logs post-hoc (its v1 library is unsigned — signatures are v2 scope).
+Decision Receipts (a different layer). [ValiChord](https://github.com/ValiChord/ValiChord) builds
+attestation bundles from inspect_ai logs post-hoc (its format is unsigned; no format version carries a signature).
 Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (SD-JWT Key Binding).
 
 ## Ed25519 edge-case envelope (C2) — cross-verifier divergence on crafted signatures
