@@ -42,7 +42,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
   `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
   which hash values, not keys. Each such read is listed with the reason it hashes nothing from
-  outside: 58 reads under 52 entries on main 570dd164 (38 under 35 on the tree of 2026-09-27; this
+  outside: 58 reads under 52 entries on this tree, and 56 under 50 on main 570dd164, where the two
+  reads of `_NESTED_TYPES` by the decision and outcome validators do not exist yet (38 under 35 on
+  the tree of 2026-09-27; this
   entry once said "35 of them", which counted entries, not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
   in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
   listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
@@ -53,9 +55,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   routed through `is_member`. Measured on main 570dd164 when the guard was carried there on 2026-10-18:
   57 lookup sites under 46 entries, 17 guarded by a membership or type check before them (the
   trust pack one, whose check runs against a tuple, among them) and 40 reading a value the package
-  produced itself, most of them keyed by `id()`. None is open. On the tree of 2026-09-27 there were
-  19 sites under 19 entries; 30 lookup sites and 26 reads reached main or moved there since, and
-  each was read before it was classified. The one membership test the wider view found,
+  produced itself, 15 of them keyed by `id()`. None is open. One reason did not hold at first:
+  `sdjwt.issuer_key_fingerprint` looked up an algorithm that passed `isinstance(alg, str)`, and a
+  str subclass whose `__hash__` is None or raises made it raise `TypeError`; it looks up the
+  characters of the algorithm now. On the tree of 2026-09-27 there were 19
+  sites under 19 entries; since then 29 entries with 39 lookup sites and 26 entries with 31 reads
+  reached main or moved there, the kept entries gained one site, and 2 lookup entries and 9 read
+  entries are gone. Each site was read before it was classified. The one membership test the wider
+  view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is

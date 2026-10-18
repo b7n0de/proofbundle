@@ -682,8 +682,9 @@ _LOOKUPS_CLASSIFIED = {
         (1, "guarded: is_member(comparator, _COMPARATORS) returns before it, and _COMPARE has exactly those keys"),
     ("proofbundle/renewal.py", "verify_sequence", "HASH_REGISTRY", "_neuester_alg"):
         (1, "guarded: isinstance(_neuester_alg, str) in the same expression"),
-    ("proofbundle/sdjwt.py", "issuer_key_fingerprint", "_ISSUER_FP_PREFIX", "alg"):
-        (1, "guarded: isinstance(alg, str) in the same expression"),
+    ("proofbundle/sdjwt.py", "issuer_key_fingerprint", "_ISSUER_FP_PREFIX", "text"):
+        (1, "guarded: text is canonical._zeichen_von(alg), an exact str or None, and None skips the lookup in "
+            "the same expression"),
     ("proofbundle/sdjwt_issue.py", "issue_sd_jwt", "TRUST_ANCHOR_REFUSAL", "schwaeche"):
         (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
     ("proofbundle/trust_pack.py", "validate_trust_pack_predicate", "TRUST_ANCHOR_REFUSAL", "weakness"):
@@ -1484,6 +1485,30 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
                               ("comprehension", lambda: {x for x in m.values()})):
             with self.subTest(form=label), self.assertRaises(TypeError):
                 access()
+
+
+class AReasonHoldsForAStrSubclass(unittest.TestCase):
+    """The second reading of c0b1dab3 (Z1-1): the reason "guarded: isinstance(alg, str)" did not hold, since
+    a str subclass whose `__hash__` is None or raises passes isinstance and the lookup hashed it. The
+    fingerprint reads the characters now, and answers as for the plain text."""
+
+    def test_the_issuer_key_fingerprint_reads_the_characters_of_its_algorithm(self):
+        from proofbundle.sdjwt import issuer_key_fingerprint
+
+        class Unhashable(str):
+            __hash__ = None  # type: ignore[assignment]
+
+        class HashRaises(str):
+            def __hash__(self):
+                raise RuntimeError("hashed")
+
+        pub = bytes(32)
+        plain = issuer_key_fingerprint("EdDSA", pub)
+        self.assertTrue(plain.startswith("ed25519:"))
+        for cls in (Unhashable, HashRaises):
+            with self.subTest(form=cls.__name__):
+                self.assertEqual(issuer_key_fingerprint(cls("EdDSA"), pub), plain)
+                self.assertIsNone(issuer_key_fingerprint(cls("RS256"), pub))
 
 
 class TestTheGuardItself(unittest.TestCase):
