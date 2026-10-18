@@ -13192,6 +13192,16 @@ _SHORT_REASONS = {
                          "der Aufruf keine Außenwirkung ist und eine Umschreibung frei ist"),
     "autonomy_blocked": ("D85", "the call is no external effect and no form of it is free",
                          "der Aufruf keine Außenwirkung ist und keine Form frei ist"),
+    # the targets of a push, measured (D86): deny, and ask for a deletion
+    "push_force": ("D86", "a forced push overwrites commits of others on the remote",
+                   "ein erzwungener Push fremde Commits am Ursprung überschreibt"),
+    "push_mirror": ("D86", "a mirror push replaces every ref of the remote",
+                    "ein Spiegel-Push jede Ref am Ursprung ersetzt"),
+    "push_protected": ("D86", "main and the protected branches grow only through a pull request",
+                       "main und die geschützten Zweige nur über einen PR wachsen"),
+    "push_unmeasured": ("D86", "the gate cannot measure where the push goes",
+                        "das Tor nicht messen kann, wohin der Push geht"),
+    "push_delete": ("D86", "the push deletes a branch of the remote", "der Push einen entfernten Zweig löscht"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
@@ -13569,10 +13579,13 @@ def _autonomy_record(outcome: "Outcome", kind: str, **fields) -> "Outcome":
 def _autonomy_external(outcome: "Outcome", command: str, cwd: str, deadline: float,
                        environ: dict) -> "Outcome | None":
     """The answer to a single call with an external effect of AUTONOMY_EFFECTS, or with a change of a done order (D38):
-    the ask kept; None for any other command."""
+    the ask kept, and for a `git push` the answer of D86 (_autonomy_push); None for any other command."""
     words = _autonomy_single(command)
     if words is None:
         return None
+    if words[0] == "git" and _autonomy_effect(words) == "push" and \
+            not any(v.reason_id == "done_order_change" for v in outcome.verdicts):
+        return _autonomy_push(outcome, words, cwd, deadline, environ)   # D86
     effects = ["done_order"] if any(v.reason_id == "done_order_change" for v in outcome.verdicts) else []
     effect = _autonomy_effect(words)
     if effect is not None:
@@ -13906,6 +13919,196 @@ def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str,
     new = Outcome("deny", f"{lead} {outcome.text}", list(outcome.verdicts) + [verdict], None, step=outcome.step,
                   cause=outcome.cause or next((v for v in outcome.verdicts if v.decision == "ask"), None))
     return _autonomy_record(new, "sperre", hinweise=[])
+
+
+# --- D86: the targets of a push, measured from its words, its refspecs and the local refs (Nachtrag 35, point 5) -----
+
+_PushMeasure = collections.namedtuple("_PushMeasure", "force mirror delete tags remote dests repo why")
+"""What D86 reads of a `git push` without the network: whether it forces (-f, --force, --force-with-lease,
+--force-if-includes, a `+` refspec), mirrors, deletes (-d, --delete, --prune, `:dst`) or sends tags (--tags,
+--follow-tags, a tag ref); the configured remote it names; the full refs it updates (None where it cannot name them);
+the repository; and why it could not measure (None where it could)."""
+#: The long options of git push 2.43 that D86 reads, by what they make the push do (None: nothing D86 counts).
+_PUSH_LONG = {"--force": "force", "--force-if-includes": "force", "--mirror": "mirror", "--all": "all",
+              "--branches": "all", "--tags": "tags", "--follow-tags": "tags", "--delete": "delete", "--prune": "delete",
+              "--set-upstream": None, "--quiet": None, "--verbose": None, "--progress": None, "--no-progress": None,
+              "--porcelain": None, "--dry-run": None, "--atomic": None, "--no-atomic": None, "--thin": None,
+              "--no-thin": None, "--ipv4": None, "--ipv6": None, "--no-signed": None, "--verify": None,
+              "--no-verify": None, "--no-force-with-lease": None, "--no-force-if-includes": None,
+              "--no-recurse-submodules": None}
+_PUSH_SHORT = {"f": "force", "d": "delete", "u": None, "q": None, "v": None, "n": None, "4": None, "6": None}
+#: The branches D86 counts as protected, beside every release/… and the branch the remote's HEAD names here (AGENTS.md:
+#: main and the release branch grow only through the maintainer).
+_PUSH_PROTECTED = frozenset({"refs/heads/main", "refs/heads/master", "refs/heads/release"})
+
+
+def _push_measure(words: list[str], cwd: str, deadline: float) -> _PushMeasure:
+    """D86: the measure of a `git [-C <dir>] push …` (words with `git` first), from its words, the push configuration
+    git reads for a push without refspec (_default_push) and the local refs; never the network."""
+    flags, why, i, directory = set(), None, 1, cwd
+    while i < len(words) and words[i].startswith("-"):
+        if words[i] == "-C" and i + 1 < len(words):
+            directory, i = os.path.join(directory, words[i + 1]), i + 2
+            continue
+        if words[i] != "--no-pager":
+            why = why or f"the global option {words[i].partition('=')[0]} of git"
+        i += 2 if words[i] in _GIT_GLOBAL_VALUE else 1
+    if i >= len(words) or words[i] != "push":
+        return _PushMeasure(False, False, False, False, None, None, None, "no push")
+    positional, done, i = [], False, i + 1
+    while i < len(words):
+        word = words[i]
+        i += 1
+        if not done and word == "--":
+            done = True
+        elif not done and word.startswith("--"):
+            name, eq, _value = word.partition("=")
+            if name == "--force-with-lease":
+                flags.add("force")
+            elif name in ("--signed", "--push-option"):
+                i += 1 if (name == "--push-option" and not eq) else 0
+            elif name in _PUSH_LONG and not eq:
+                flags.add(_PUSH_LONG[name])
+            else:
+                why = why or f"the option {name}"
+        elif not done and word.startswith("-") and word != "-":
+            if word == "-o":
+                i += 1
+                continue
+            for letter in word[1:]:
+                if letter not in _PUSH_SHORT:
+                    why = why or f"the option -{letter}"
+                    break
+                flags.add(_PUSH_SHORT[letter])
+        else:
+            positional.append(word)
+    force, mirror = "force" in flags, "mirror" in flags
+    delete, tags = "delete" in flags, "tags" in flags
+    repo, unreadable = _work_tree(directory, deadline)
+    if repo is None:
+        return _PushMeasure(force, mirror, delete, tags, None, None, None, unreadable or "no work tree")
+    remotes = _remote_names(repo, deadline) or set()
+    remote, specs = (positional[0], positional[1:]) if positional else (None, [])
+    dests: list | None = []
+    if remote is None:
+        try:
+            default = _default_push(repo, deadline, remotes, None)
+        except GateError:
+            default = None
+        if default is None:
+            return _PushMeasure(force, mirror, delete, tags, None, None, repo,
+                                why or "the push names no remote and git pushes no single branch by default")
+        remote, dests = default[0], [default[1]]
+    if remote not in remotes:
+        return _PushMeasure(force, mirror, delete, tags, None, None, repo,
+                            why or "the remote is a URL or a path, not a configured name")
+    if mirror:
+        dests = None
+    elif "all" in flags:
+        listed = _git(repo, "for-each-ref", "--format=%(refname)", "refs/heads/", deadline=deadline)
+        dests = (_git_lines(listed.stdout) or []) if listed.returncode == 0 else None
+    elif not specs and positional:
+        try:
+            default = _default_push(repo, deadline, remotes, remote)
+        except GateError:
+            default = None
+        dests = [default[1]] if default is not None and not tags else ([] if tags else None)
+    if delete:
+        # --delete names branches of the remote, not local sources (git push --delete <remote> <ref>…)
+        specs, dests = [], [s if s.startswith("refs/") else f"refs/heads/{s}" for s in specs] if dests is not None else None
+    for spec in specs:
+        if spec.startswith("+"):
+            force, spec = True, spec[1:]
+        if "*" in spec or spec.startswith("^") or dests is None:
+            dests = None
+            continue
+        src, sep, dst = spec.partition(":")
+        if sep and not src:
+            delete = True
+            dests.append(dst if dst.startswith("refs/") else f"refs/heads/{dst}")
+            continue
+        full = _source_full_name(repo, src, deadline)
+        if not sep:
+            if full is None:
+                dests = None
+                continue
+            dests.append(full)
+        elif dst.startswith("refs/"):
+            dests.append(dst)
+        elif full is not None and full.startswith(("refs/heads/", "refs/tags/")):
+            dests.append(full[:full.index("/", 5) + 1] + dst)
+        else:
+            dests = None
+    tags = tags or any(d.startswith("refs/tags/") for d in dests or [])
+    return _PushMeasure(force, mirror, delete, tags, remote, dests, repo,
+                        why if dests is not None or mirror else (why or "a refspec names no single ref here"))
+
+
+def _push_protected(repo: str, remote: str | None, dest: str, deadline: float) -> bool:
+    """Whether dest is a protected branch of D86: main, master, release, every release/…, and the branch the remote's
+    HEAD names in this repository (refs/remotes/<remote>/HEAD)."""
+    if dest in _PUSH_PROTECTED or dest.startswith("refs/heads/release/"):
+        return True
+    if remote is None:
+        return False
+    head = _git(repo, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD", deadline=deadline)
+    named = _git_value(head.stdout) if head.returncode == 0 else None
+    return named is not None and named == f"refs/remotes/{remote}/{dest.removeprefix('refs/heads/')}"
+
+
+#: The reasons of D86, each with the text of its verdict and its next step.
+_PUSH_REASONS = {
+    "push_force": ("a forced push (-f, --force, --force-with-lease, --force-if-includes or a `+` refspec) overwrites "
+                   "commits of others on the remote", "push without force; history that must be replaced is replaced "
+                                                      "by a person"),
+    "push_mirror": ("a mirror push replaces every ref of the remote and deletes every ref this repository lacks",
+                    "push the branch by its name; a mirror is made by a person"),
+    "push_protected": ("main, master, release, every release/… and the branch the remote's HEAD names grow only "
+                       "through a pull request with its required checks", "push your own work branch and open a pull "
+                                                                          "request, which the maintainer merges"),
+    "push_unmeasured": ("the gate cannot measure from the words of the push and the local refs where it goes",
+                        "push to a configured remote by its name with an explicit refspec, `git push <remote> "
+                        "<branch>:refs/heads/<branch>`, as one call of its own"),
+    "push_delete": ("the push deletes a branch of the remote", "the gate asks the owner"),
+}
+
+
+def _autonomy_push(outcome: "Outcome", words: list[str], cwd: str, deadline: float, environ: dict) -> "Outcome":
+    """D86 for an ask of decide() for one `git push` call under Claude Code: a deny of its own reason for force, a
+    mirror, a protected branch and a push whose targets the gate cannot measure; an ask of its own reason for a push
+    that deletes a remote branch; an ask of the closed list for a tag and for every other branch."""
+    m = _push_measure(words, cwd, deadline)
+    reason, dest = None, None
+    if m.force:
+        reason = "push_force"
+    elif m.mirror:
+        reason = "push_mirror"
+    else:
+        dest = next((d for d in m.dests or [] if _push_protected(m.repo, m.remote, d, deadline)), None)
+        if dest is not None:
+            reason = "push_protected"
+        elif m.dests is None or m.why is not None:
+            reason = "push_unmeasured"
+    if reason is not None:
+        said, step = _PUSH_REASONS[reason]
+        where = f" ({dest})" if dest else (f" ({m.why})" if reason == "push_unmeasured" and m.why else "")
+        verdict = Verdict("deny", f"proofbundle gate: {said}{where}, so the gate blocks the push in autonomous "
+                                  "operation (DECISIONS.md D86).", reason,
+                          evidence="the words of the push, its refspecs and the local refs, never the network",
+                          failed=f"{said}{where}", next_step=step, repo=m.repo)
+        new = Outcome("deny", f"{verdict.text()} {outcome.text}", list(outcome.verdicts) + [verdict], None,
+                      step=outcome.step, cause=verdict)
+        return _autonomy_record(new, "push", grund=reason)
+    if m.delete:
+        said, step = _PUSH_REASONS["push_delete"]
+        verdict = Verdict("ask", f"proofbundle gate: {said} (DECISIONS.md D86).", "push_delete",
+                          evidence="the words of the push", failed=said, next_step=step, repo=m.repo)
+        new = Outcome("ask", f"{verdict.text()} {outcome.text}", list(outcome.verdicts) + [verdict], None,
+                      step=outcome.step, cause=verdict)
+        return _autonomy_record(new, "aussen", wirkung=["push_delete"])
+    if m.tags:
+        return _autonomy_record(outcome, "aussen", wirkung=["tag"])
+    return _autonomy_record(outcome, "aussen", wirkung=["push"])
 
 
 def tree_digest_command(argv: list[str]) -> int:

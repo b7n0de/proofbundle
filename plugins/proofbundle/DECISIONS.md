@@ -4272,3 +4272,25 @@ which Claude Code accepts without reaching the model; the short line names the r
 what decide() gave as the verdict, what was sent as the decision, and the record (autonomy: klasse aussen, umweg or
 sperre, the hints, the effects). Tests: tests/test_plugin_n35_autonomy_d85.py; changed: tests/test_codex_plugin.py
 (the command of the Claude Code hook carries --autonomous, the Codex one does not).
+
+## D86. The targets of a push, measured from its words and the local refs (Nachtrag 35, point 5; Nachtrag 33, point 2, 2026-10-18)
+
+The case book of Nachtrag 33 (delta, FALLBUCH_plugin_20261018, adopted by Cowork): a forced push (f01 to f03), a mirror
+(g03) and a push to main (m01, m02) are to be blocked with a reason of their own, a push that deletes a remote branch (z01,
+z02) asked with one. Under Claude Code the gate asked each with push_not_measured: since R9-1 Level 1 does not resolve a
+destination, because git resolves it against refs of the remote the gate does not read.
+
+The rule: in the autonomous answer of D85, under Claude Code, an ask of decide() for one `git push` call is measured
+(_push_measure) from its words, its refspecs, the push configuration git reads for a push without refspec (_default_push)
+and the local refs (the full name of a source, every local branch for --all, refs/remotes/<remote>/HEAD), never the
+network: whether it forces (-f, --force, --force-with-lease, --force-if-includes, a `+` refspec), mirrors, deletes (-d,
+--delete, --prune, `:dst`) or sends tags, and the full refs it updates. A forced push (push_force), a mirror (push_mirror),
+a push to a protected branch (push_protected: main, master, release, release/… and the branch the remote's HEAD names
+here) and a push whose targets the words and the local refs do not name (push_unmeasured: a URL or path remote, a global
+`-c`, a wildcard, an option D86 does not read, a refspec of no single ref, a bare push git pushes no single branch for)
+are blocked. A push that deletes a remote branch asks with push_delete. A tag asks as before (H2 of D73), and so does a
+push to another branch (the closed list of D85). A deny of decide() stays (D24 among them); under Codex nothing changes.
+A `$( )` that names the current branch in a push (`git rev-parse --abbrev-ref HEAD`, `git branch --show-current`, `git
+symbolic-ref --short HEAD`) is rewritten to HEAD by D85 (push_HEAD), which git pushes as the same branch under its own
+name. Owner question O35-2: m01 and m02 are blocked as the case book says, while the list of point 1 of the order
+named a push to main among the asks. Tests: tests/test_plugin_n35_push_targets_d86.py.
