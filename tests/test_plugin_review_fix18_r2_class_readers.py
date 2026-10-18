@@ -128,8 +128,10 @@ def test_RED_a_fifo_as_the_log_does_not_block_the_hook(tmp_path):
     os.mkfifo(data / gate.LOG_NAME)
     environ = plugin_env(without=("GIT_",))
     environ.update(CLAUDE_PLUGIN_DATA=str(data), PROOFBUNDLE_GATE_DIR=str(tmp_path / "gate-dir"))
+    # a form that asks whatever the system file holds: `git status` asked here only through the git-lfs block of
+    # this machine's system file, which D74 (Nachtrag 31) knows; `git stash list` is no read form of class a
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(work),
-                        "tool_input": {"command": "git status"}})
+                        "tool_input": {"command": "git stash list"}})
     try:
         proc = subprocess.run([sys.executable, "-I", str(GATE_FILE)], input=event, capture_output=True, text=True,
                               env=environ, timeout=WAIT * 3)
@@ -153,7 +155,7 @@ def test_CONTROL_regular_files_read_as_before(tmp_path):
     environ = plugin_env(without=("GIT_",))
     environ.update(CLAUDE_PLUGIN_DATA=str(data), PROOFBUNDLE_GATE_DIR=str(tmp_path / "other-gate-dir"))
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(work),
-                        "tool_input": {"command": "git status"}})
+                        "tool_input": {"command": "git stash list"}})   # asks whatever the system file holds (D74)
     subprocess.run([sys.executable, "-I", str(GATE_FILE)], input=event, capture_output=True, text=True, env=environ,
                    timeout=60, check=True)
     lines = (data / gate.LOG_NAME).read_text().splitlines()

@@ -186,12 +186,15 @@ def test_git_add_without_such_keys_or_hooks_is_free_after_the_state_check(tmp_pa
     assert {v.reason_id for v in outcome.verdicts} == {"free_after_state_check"}
 
 
-def test_a_pre_commit_hook_and_git_status_both_ask(tmp_path):
+def test_a_pre_commit_hook_asks_for_git_commit_and_not_for_git_status(tmp_path):
     """Point 4: a repository with a pre-commit hook, as the pre-commit framework installs it. Since review Runde 9
-    git status asks too."""
+    git status asked too; since Ergänzung 1 to Nachtrag 31 (D78) git status is free beside it: it started
+    post-index-change and never pre-commit in every measured state, so only post-index-change counts for it."""
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", "pre-commit")
     assert _decision("git commit", repo)[0] == "ask"
+    assert _decision("git status", repo)[0] == "pass"
+    _hook(repo / ".git" / "hooks", "post-index-change")
     assert _not_free("git status", repo)
 
 
@@ -522,14 +525,23 @@ def test_the_free_list_machinery_is_gone():
 
 # --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
 
-@pytest.mark.parametrize("command", ["git commit", "git status"])   # fetch left (R7-2)
+@pytest.mark.parametrize("command", ["git commit"])   # fetch left (R7-2); git status left with D78
 def test_a_form_that_never_pushes_asks_with_or_without_the_ebene_2_pre_push_hook(tmp_path, command):
     """githooks(5): pre-push is called by git-push(1) only. Measured in Nachtrag 19b: with every githooks(5)
     name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED. git status walks the work
-    tree, and class a counts any hook that is not a sample for such a form (D34)."""
+    tree; class a counted any hook that is not a sample for such a form (D34) until D78 (Ergänzung 1 to Nachtrag 31)
+    counted only the hooks the form starts, so git status beside pre-push is free (the row below)."""
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", "pre-push")
     assert _not_free(command, repo), command   # review Runde 9: every form asks, with the hook or without
+
+
+def test_git_status_is_free_beside_the_ebene_2_pre_push_hook(tmp_path):
+    """D78: git status started no pre-push hook in any measured state; the read profile counts post-index-change for
+    it, which this repository does not hold."""
+    repo = _repo(tmp_path)
+    _hook(repo / ".git" / "hooks", "pre-push")
+    assert _decision("git status", repo)[0] == "pass"
 
 
 def test_a_read_form_that_does_not_walk_is_free_beside_the_level_2_pre_push_hook(tmp_path):
