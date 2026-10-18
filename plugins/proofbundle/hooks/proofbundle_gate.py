@@ -10712,8 +10712,14 @@ def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ:
     only the whole command in the plain form is handed over, never a push as a step of a longer command, first or not
     (owner choice of 2026-10-14, 19:3x, Nachtrag 4, rule 2), so a step writes no hand-over record either. A step is
     judged without the rules of N24 too: a rule frees only the whole command in its plain form, never a chain, a pipe
-    or a step of one (D25)."""
+    or a step of one (D25).
+
+    A command wholly of the closed read forms of D66 (_read_only_form) gets no answer (D70, Nachtrag 28): it starts no
+    program but find, xargs and grep (measured with strace), so a word there that names git or gh is a pattern or an
+    argument, never a program, for the scan (D3) and the safety net (D27) as for done-order (D38)."""
     environ = os.environ if environ is None else environ
+    if _read_only_form(command):
+        return None
     whole = _decide_outcome_whole(command, cwd, deadline, host, environ)
     if (whole is not None and (whole.decision == "deny" or whole.applied_rule is not None)) or \
             _BARE_VERSION.fullmatch(command) or _codex_plain_push(command) or \

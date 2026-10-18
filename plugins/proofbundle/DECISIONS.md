@@ -3714,3 +3714,30 @@ What it does not change: every other such command keeps its answer, so `$GIT com
 proofbundle_gate.py …` stay without an answer. A word built by the shell is not read as `push` (`$GIT $SUB`).
 Strict stays the default; no check of the evidence falls away.
 Tests: tests/test_plugin_n28_unknown_program_d69.py.
+
+## D70. A command wholly of the closed read forms of D66 names no program for D27 and D3 either (Nachtrag 28, O26-2, 2026-10-18)
+
+Measured in Nachtrag 26: `find … | xargs grep -l "git push"` asked with D27, the safety net counting the word git in the
+pattern as a command word, and `find … | xargs grep -l git` with D3, the scan reading the word git after xargs as the
+program xargs starts; under Codex both were denied. At delta, 4 of the 19 asks of the last period were false alarms of
+this kind, a git word standing only as text in an argument (Cowork, 2026-10-18). Owner choice O26-2 of Nachtrag 26, as
+recommended (2026-10-18, 09:2x Berlin): measure first what xargs grep starts, then the same closed read form as D66.
+
+Measured with strace -f (execve, execveat) in bash -c, as the Bash tool runs a command, with no network
+(truth_xargs_grep_n28.py of the delivery): eleven forms (find into xargs grep with a pattern that names `git push`, git
+and `gh pr create`, with -0, -r and --no-run-if-empty, grep -rn and grep -l alone, a while loop that counts with grep
+-c, output to /dev/null, xargs with no input), each under four sources (none; a program named git and one named gh first
+on PATH, each writing a marker when started; GREP_OPTIONS and GREP_COLORS; LC_ALL=C and POSIXLY_CORRECT), 44 runs: the
+programs started besides bash were find, xargs and grep, and nothing else; no marker was written; no file in the work
+folder or HOME changed.
+
+The rule (_decide_outcome): a command that is wholly of the closed read forms of _read_only_form (D66) gets no answer:
+find without an action that deletes, runs a program or writes a file; xargs that runs grep, with at most -0, --null, -r
+and --no-run-if-empty; grep, read and echo; the words of a while loop around them; a pipe or a list; output only to
+/dev/null or onto descriptor 1 or 2; every program word a literal bare name; every command substitution such a command
+in turn. A word that names git or gh there is a pattern of grep or an argument of echo, never a program.
+Every other command is read as before, and asks where it did: `xargs git push`, `xargs -I{} git push {}`, `find …
+-exec git push \;`, grep with a command substitution in its pattern (`grep "$(git push)" a.md`), `xargs sh -c …`,
+`xargs env git …`, the same search followed by `; git push`, and output into a file. Strict stays the default; no
+check of the evidence falls away; no write becomes free (the closed set writes nothing).
+Tests: tests/test_plugin_n28_read_only_search_d70.py.
