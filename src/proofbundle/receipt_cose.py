@@ -605,8 +605,12 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     check = _check(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[(issuer, public)], algs=(alg,))
     if not check.ok:
         raise ReceiptCoseError(f"the statement did not read back as written: {check.status}, {check.detail}")
-    # A second, foreign decoder reads it back too: cbor2 in its strict mode, the [scitt] extra.
-    problem = _second.read_back_problem(data, protected_raw, protected, _TAG_SIGN1)
+    # A second, foreign decoder reads it back too: cbor2 in its strict mode, the [scitt] extra. A cbor2 that went
+    # away after the requirement was met is the missing extra as well, and no statement is made.
+    try:
+        problem = _second.read_back_problem(data, protected_raw, protected, _TAG_SIGN1)
+    except _second.Missing as exc:
+        raise CoseUnavailable(str(exc)) from None
     if problem is not None:
         raise ReceiptCoseError(problem)
     return data

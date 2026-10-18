@@ -353,15 +353,19 @@ def test_cbor2_is_named_only_by_the_scitt_extra():
 
 
 @needs_cbor2
-def test_a_verified_receipt_with_a_long_string_member_gets_its_statement():
+@pytest.mark.parametrize("length", [1_000_001, 9_000_001], ids=["longer-than-the-string-budget",
+                                                                 "larger-than-the-input-budget"])
+def test_a_verified_receipt_with_a_long_string_member_gets_its_statement(length):
     """The model commitment of B is read only for its subject, after the receipt verified: the read refuses a repeated
     member name and holds no size budget of its own, as before the move of the second reader (lens of 2026-10-18 on
     5525e209: read through loads_strict, a string member of 1,000,001 characters raised BudgetExceeded in the forward
-    direction, and check_statement called the receipt malformed)."""
+    direction, and check_statement called the receipt malformed). Both budgets of loads_strict are crossed, the
+    length of one string and, with 9,000,001 characters, the 8 MiB of the input (second lens of 2026-10-18), so a
+    repair that raised only one of them stays red."""
     from proofbundle import signed_eval_receipt as ser
 
     payload = json.loads(DRAFT1["payloads"]["B1"]["text"])
-    payload["suite"] = "x" * 1_000_001
+    payload["suite"] = "x" * length
     b = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     key = _issuer_key()
     sig = key.sign(ser.pae(ser.RECEIPT_TYPE, b))
@@ -373,3 +377,67 @@ def test_a_verified_receipt_with_a_long_string_member_gets_its_statement():
     data = rc.receipt_to_statement(receipt, KEYS["issuer"], key, issuer=ISSUER, alg=-19)
     result = rc.check_statement(data, receipt=receipt, receipt_key=KEYS["issuer"], statement_keys=PAIRS)
     assert (result.status, result.ok) == (rc.ACCEPTED, True), result.detail
+
+
+# ---- the second reader, cbor2 in its strict mode -----------------------------------------------------------
+def _f1() -> bytes:
+    return bytes.fromhex(next(v for v in VECTORS["forward"] if v["id"] == "F1")["statement_hex"])
+
+
+@needs_cbor2
+def test_the_second_reader_reads_back_what_was_written():
+    st = rc._read(_f1())
+    assert rc._second.read_back_problem(_f1(), st.protected_raw, st.protected, 18) is None
+
+
+@needs_cbor2
+@pytest.mark.parametrize("case", ["not-cbor", "duplicate-key", "indefinite-length", "header-not-cbor",
+                                  "another-tag", "another-header-value"])
+def test_the_second_reader_refuses_what_does_not_read_back_as_written(case):
+    """Each refusal of ``read_back_problem`` (second lens of 2026-10-18: a mutant returning None there passed every
+    test). The first three need cbor2's strict options: a repeated key and an indefinite length are what cbor2 reads
+    without them."""
+    st = rc._read(_f1())
+    raw, header, data = st.protected_raw, st.protected, _f1()
+    if case == "not-cbor":
+        data = b"\xff"
+    elif case == "duplicate-key":
+        # The unprotected header as a map of two pairs under the same key 1.
+        data = (rc._head(6, 18) + b"\x84" + rc._enc(raw) + b"\xa2\x01\x01\x01\x01" + rc._enc(st.payload)
+                + rc._enc(st.signature))
+    elif case == "indefinite-length":
+        data = rc._head(6, 18) + b"\x9f" + rc._enc(raw) + b"\xa0" + rc._enc(st.payload) + rc._enc(st.signature) + b"\xff"
+    elif case == "header-not-cbor":
+        raw = b"\xff"
+        data = rc._head(6, 18) + rc._enc([raw, {}, st.payload, st.signature])
+    elif case == "another-tag":
+        data = rc._head(6, 17) + data[1:]
+    else:
+        header = {**header, 1: -8}
+    expected = {"not-cbor": "does not read", "duplicate-key": "does not read", "indefinite-length": "does not read",
+                "header-not-cbor": "does not read", "another-tag": "did not read back as written",
+                "another-header-value": "did not read back as written"}[case]
+    problem = rc._second.read_back_problem(data, raw, header, 18)
+    assert problem is not None and expected in problem, problem
+
+
+@needs_cbor2
+def test_the_forward_direction_returns_nothing_the_second_reader_refuses(monkeypatch):
+    monkeypatch.setattr(rc._second, "read_back_problem", lambda *a: "planted refusal of the second reader")
+    with pytest.raises(rc.ReceiptCoseError, match="planted refusal of the second reader"):
+        rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=ISSUER, alg=-19)
+
+
+@needs_cbor2
+def test_a_cbor2_gone_before_the_read_back_is_the_missing_extra(monkeypatch):
+    """The requirement is met, then cbor2 goes away before the second reader runs (second lens of 2026-10-18): the
+    forward direction raises CoseUnavailable, as it does without the extra, and returns no statement."""
+    real = rc._check
+
+    def check_then_drop(*args, **kwargs):
+        out = real(*args, **kwargs)
+        monkeypatch.setitem(sys.modules, "cbor2", None)
+        return out
+    monkeypatch.setattr(rc, "_check", check_then_drop)
+    with pytest.raises(rc.CoseUnavailable):
+        rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=ISSUER, alg=-19)

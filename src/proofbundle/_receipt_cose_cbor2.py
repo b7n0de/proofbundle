@@ -9,35 +9,35 @@ that ``receipt_cose`` imports no CBOR library (``tests/test_strict_decoding_guar
 * it reads back, as a second and foreign decoder in its strict mode, the bytes the forward direction has just written,
   before they are returned.
 
-The module object never leaves this file: ``strict_cbor2`` only probes, and ``read_back_problem`` returns a reason or
-None, so no caller can decode with cbor2 behind the guard's back.
+The module object never leaves this file: each function imports cbor2 for itself, none returns the module or a value
+cbor2 decoded, ``strict_cbor2`` only probes and ``read_back_problem`` returns a reason or None. The guard holds this by
+its count of the references here (``tests/test_strict_decoding_guard.py``): a function that handed the module on, or a
+new decode site, changes that count. A caller that imports cbor2 itself is the guard's other count, the one of its own
+file.
 
 Under a tag cbor2 6 returns an array as a tuple and a map as a frozendict, where cbor2 5 returned a list and a dict.
 Nothing here tests for either form: the read-back compares by equality, which holds for both.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 __all__ = ["Missing", "strict_cbor2", "read_back_problem"]
+
+_NOT_INSTALLED = "the [scitt] extra (cbor2) is not installed"
 
 
 class Missing(Exception):
     """cbor2 is not installed, or it lacks the strict options the read-back needs."""
 
 
-def _module() -> Any:
-    try:
-        import cbor2  # noqa: PLC0415 - the [scitt] extra
-    except ImportError:
-        raise Missing("the [scitt] extra (cbor2) is not installed") from None
-    return cbor2
-
-
 def strict_cbor2() -> None:
     """The module's requirement: cbor2 is installed and takes the options to refuse duplicate keys and indefinite
     lengths (probed on the constant empty map); raises ``Missing`` otherwise."""
-    cbor2 = _module()
+    try:
+        import cbor2  # noqa: PLC0415 - the [scitt] extra
+    except ImportError:
+        raise Missing(_NOT_INSTALLED) from None
     try:
         cbor2.loads(b"\xa0", allow_duplicate_keys=False, allow_indefinite=False)
     except TypeError:
@@ -49,7 +49,10 @@ def read_back_problem(data: bytes, protected_raw: bytes, protected: dict, tag: i
     """None when cbor2, in its strict mode, reads DATA as tag TAG whose first element is PROTECTED_RAW, and
     PROTECTED_RAW as PROTECTED; else why not. The caller has met the requirement (``strict_cbor2``) before it wrote
     DATA; without the extra this raises ``Missing``."""
-    cbor2 = _module()
+    try:
+        import cbor2  # noqa: PLC0415 - the [scitt] extra
+    except ImportError:
+        raise Missing(_NOT_INSTALLED) from None
     try:
         foreign = cbor2.loads(data, allow_duplicate_keys=False, allow_indefinite=False)
     except Exception as exc:  # noqa: BLE001 - any refusal of the decoder is a refusal to write
