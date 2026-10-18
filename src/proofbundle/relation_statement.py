@@ -110,10 +110,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise RelationStatementError(
             "relation statements need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise RelationStatementError(
             f"a relation statement value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

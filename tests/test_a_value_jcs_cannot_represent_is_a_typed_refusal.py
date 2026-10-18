@@ -19,6 +19,19 @@ there and 4 after the fix, all four at the two primitives of `canonical`, which 
 by their documented contract. Measured with this file against the source of 8ecb6edf: 119 of its 122
 cases fail there. The three that pass are the anti-parity case, the premise about the strict parser,
 and the inventory of call sites, which reads the source of the tree it sits in.
+
+THE LENS ON d5747000 found the other half of the shared path. `canonical.canonicalize_statement` runs
+the structural budget BEFORE the canonicalizer, and eight of the nine module wrappers caught only
+ValueError: a lone surrogate or a nesting past the budget's depth left them as a bare
+BundleFormatError, an integer past the budget's bit count as a bare BudgetExceeded.
+`subject_binding.require_derived_subject` promised
+SubjectBindingError and raised BundleFormatError; the decision, outcome, run ledger, verification
+summary and relation statement producers did the same. Every wrapper now names one tuple,
+`canonical.NOT_CANONICALIZABLE`. `load_statement_strict` raised a bare BudgetExceeded where it
+documents BundleFormatError, and an `observed_body` without a UTF-8 form made the agent-review
+verifiers answer `internal_error`. On d5747000 the in-toto exports, the legacy serializer and the
+trust-pack producer raised the bare errors too; main 570dd164 answers those by type already. The
+section at the end of this file holds all of it; see its header for the counts.
 """
 from __future__ import annotations
 
@@ -33,6 +46,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import agent_review as AR
 from proofbundle import dsse
+from proofbundle.errors import ProofBundleError
+from proofbundle.evalclaim import EvalClaimError
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "proofbundle"
@@ -301,3 +316,291 @@ def test_the_values_are_what_the_strict_parser_admits():
     for wert in OUTSIDE_JCS:
         gelesen = loads_strict(json.dumps({"x": wert}))["x"]
         assert gelesen == wert or (math.isnan(wert) and math.isnan(gelesen))
+
+
+# ── what the structural budget refuses first (the lens on d5747000) ───────────────────────────
+#
+# Measured with this section against 5c49dc1c (main 570dd164 and the five commits carried before this
+# one), 2026-10-18: 45 of its 91 cases fail there. 25 of the 51 wrapper cases (the eight module
+# wrappers for all three values and `load_statement_strict` for 2**8194), 10
+# of the 16 producer cases, all 3 subject binding cases, 2 of the 3 test-result reference cases, all 4
+# observed-body cases and the digest helper case. The other 26 wrapper cases, the four in-toto export
+# cases and the two trust-pack producer cases (main answers them by type at the producer), the
+# nesting case of the test-result reference, the 8 legacy export cases, the 4 export controls and the
+# table guard pass there and stand as anti-parity. On d5747000, where the lens measured, the in-toto
+# exports and the legacy serializer raised the bare errors as well; main closed those at the export.
+def _tief(n: int) -> list:
+    v: list = []
+    for _ in range(n):
+        v = [v]
+    return v
+
+
+#: What the structural budget in front of the canonicalizer refuses before RFC 8785 sees it: a lone
+#: surrogate and a nesting past `json_depth` (64) as BundleFormatError, an integer past `int_bits`
+#: (8192) as BudgetExceeded. The strict parser refuses all three too, so none of them reaches a
+#: verifier; a producer and a direct caller of a wrapper hand them over.
+BUDGET_REFUSED = {"lone surrogate": chr(0xD800), "nesting 70 deep": _tief(70), "2**8194": 2**8194}
+
+#: Where an entry of `_wrappers` answers a budget value otherwise than it answers an RFC 8785 refusal.
+_BUDGET_ANSWERS: dict = {
+    # The primitives pass the budget's refusal on, as they pass the canonicalizer's: that is their
+    # documented contract, and every caller above maps it (`canonical.NOT_CANONICALIZABLE`).
+    ("canonical", "canonicalize_statement"): ProofBundleError,
+    ("canonical", "statement_content_root"): ProofBundleError,
+    # The in-toto serializer passes it on as well, to the exporters that map it with their name.
+    ("intoto", "_serialize_statement"): ProofBundleError,
+    # The two producer helpers call rfc8785 without the package's budget: seventy levels are no
+    # refusal there, 2**8194 is RFC 8785's refusal and takes the labelled fallback, and a lone
+    # surrogate has no UTF-8 form in either serialization. Measured and not changed here:
+    # `config_hash` answers None, and `add_provenance` then leaves the field out; `_record_digest`
+    # raises the adapter's ValueError (a UnicodeEncodeError).
+    ("adapters._provenance", "config_hash"): {"lone surrogate": None, "nesting 70 deep": "sha256-jcs:",
+                                              "2**8194": "sha256-sortkeys:"},
+    ("adapters.eee", "_record_digest"): {"lone surrogate": ValueError, "nesting 70 deep": "sha256-jcs:",
+                                        "2**8194": "sha256-sortkeys:"},
+    # `evalclaim._jcs_bytes` calls rfc8785 without the package's budget too: a lone surrogate and
+    # 2**8194 are RFC 8785's own refusals, which it maps, and seventy levels are written. Measured on
+    # this tree (2026-10-18): `canonicalize` and `emit_eval_receipt` in front of it refuse all three.
+    ("evalclaim", "_jcs_bytes"): {"lone surrogate": EvalClaimError, "nesting 70 deep": b'{"x":[',
+                                  "2**8194": EvalClaimError},
+}
+
+#: Entries of `_wrappers` this section does not ask, each with the reason.
+_BUDGET_NOT_ASKED: dict = {}
+
+
+@pytest.mark.parametrize("label", sorted(BUDGET_REFUSED))
+@pytest.mark.parametrize("eintrag", sorted(set(_wrappers()) - set(_BUDGET_NOT_ASKED)),
+                         ids=lambda e: ".".join(e))
+def test_every_wrapper_answers_what_the_budget_refuses_with_its_own_typed_error(eintrag, label):
+    """Each wrapper maps everything the shared path refuses, the budget's refusal included."""
+    aufruf, antwort = _wrappers()[eintrag]
+    antwort = _BUDGET_ANSWERS.get(eintrag, antwort)
+    if isinstance(antwort, dict):
+        antwort = antwort[label]
+    objekt = {"x": copy.deepcopy(BUDGET_REFUSED[label])}
+    if antwort is None:
+        assert aufruf(objekt) is None
+        return
+    if isinstance(antwort, (str, bytes)):
+        assert aufruf(objekt).startswith(antwort)
+        return
+    with pytest.raises(Exception) as info:
+        aufruf(objekt)
+    assert isinstance(info.value, antwort), (eintrag, type(info.value).__name__)
+    if antwort not in (ValueError, ProofBundleError):
+        assert type(info.value).__module__ == antwort.__module__, (
+            eintrag, f"{type(info.value).__module__}.{type(info.value).__name__} escaped")
+
+
+def test_the_entries_this_section_does_not_ask_are_in_the_table():
+    """The exclusion names a function of the inventory, or it excludes nothing."""
+    assert set(_BUDGET_NOT_ASKED) <= set(_wrappers())
+    assert set(_BUDGET_ANSWERS) <= set(_wrappers())
+
+
+H = "0" * 64
+T = "2026-09-26T00:00:00Z"
+
+
+def _decision() -> dict:
+    return json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+
+
+def _outcome() -> dict:
+    return {"schemaVersion": "0.1.0", "outcomeId": "o", "decisionRef": {"sha256": H},
+            "executor": {"id": "e", "keyId": "k"}, "requestedActionDigest": {"sha256": H},
+            "status": "executed", "performedAt": T, "limitations": ["l"]}
+
+
+def _run_ledger() -> dict:
+    return {"schemaVersion": "0.1.0", "studyId": "s", "runBudget": 3, "nonClaims": ["n"],
+            "runs": [{"seq": 1, "status": "completed", "resultDigest": {"sha256": H}, "prevDigest": None}]}
+
+
+def _summary() -> dict:
+    return {"schemaVersion": "0.1.0", "summaryId": "v", "producedAt": T, "nonClaims": ["n"],
+            "levels": [{"kind": "decision", "receiptRef": {"sha256": H}, "status": "VERIFIED",
+                        "evidenceClass": "decision_claim"}]}
+
+
+def _relation() -> dict:
+    return {"schemaVersion": "0.1.0", "statementId": "s", "relationships": [
+        {"relation": "supersedes", "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": H},
+         "reason": "r", "reasonCode": "correction", "declaredAt": T}]}
+
+
+def _trust_pack() -> dict:
+    import base64  # noqa: PLC0415
+    return {"schemaVersion": "0.1.0", "trustPackId": "t", "version": 2, "expires": "2099-01-01T00:00:00Z",
+            "prevVersionDigest": {"sha256": H}, "roles": {"root": {"keyIds": ["k1"], "threshold": 1}},
+            "keys": {"k1": {"publicKey": base64.b64encode(PK).decode()}}, "nonClaims": ["n"]}
+
+
+def _mit(bauen, pfad: tuple, wert):
+    return _set(bauen(), pfad, copy.deepcopy(wert))
+
+
+def _claim() -> dict:
+    """A claim the in-toto exports accept, so that a refusal below is the harness value's and not the
+    claim's. Measured on main 570dd164 (2026-10-18): the hand-written claim this file carried lacked
+    five fields main requires (`assurance_level`, `commit_alg`, `issuer`, `schema`, `suite_version`),
+    and every in-toto case passed on the refusal of the claim, before the harness was read."""
+    from proofbundle.evalclaim import build_eval_claim  # noqa: PLC0415
+    claim, _ = build_eval_claim(suite="arc_easy", suite_version="1", metric="acc", comparator=">=",
+                                threshold="0.30", score="0.55", n=100, model_id="m", dataset_id="d",
+                                issuer="", timestamp="2026-07-02T00:00:00Z", model_salt=b"0" * 16,
+                                dataset_salt=b"1" * 16)
+    return claim
+
+
+def _producers() -> dict:
+    """name -> (call, the module's typed error): each producer with a budget value at a field its
+    validator admits. The lens named decisionId for the decision producers and a harness name for
+    the in-toto export."""
+    from proofbundle import (decision, intoto, outcome, relation_statement, run_ledger,  # noqa: PLC0415
+                             trust_pack, verification_summary)
+    from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+    s, g = chr(0xD800), 2**8194
+    return {
+        "decision.emit_decision_receipt decisionId surrogate": (
+            lambda: decision.emit_decision_receipt(_mit(_decision, ("decisionId",), s), SK, strict=False),
+            decision.DecisionReceiptError),
+        "decision.build_decision_statement decisionId surrogate": (
+            lambda: decision.build_decision_statement(_mit(_decision, ("decisionId",), s)),
+            decision.DecisionReceiptError),
+        "decision.emit_decision_receipt traceContext 2**8194": (
+            lambda: decision.emit_decision_receipt(_mit(_decision, ("traceContext",), {"x": g}), SK,
+                                                   strict=False),
+            decision.DecisionReceiptError),
+        "outcome.emit_outcome_receipt limitations surrogate": (
+            lambda: outcome.emit_outcome_receipt(_mit(_outcome, ("limitations",), [s]), SK),
+            outcome.OutcomeReceiptError),
+        "outcome.emit_outcome_receipt sequence 2**8194": (
+            lambda: outcome.emit_outcome_receipt(_mit(_outcome, ("sequence",), {"runId": "r", "seq": g}), SK),
+            outcome.OutcomeReceiptError),
+        "run_ledger.emit_run_ledger nonClaims surrogate": (
+            lambda: run_ledger.emit_run_ledger(_mit(_run_ledger, ("nonClaims",), [s]), SK),
+            run_ledger.RunLedgerError),
+        "run_ledger.emit_run_ledger runBudget 2**8194": (
+            lambda: run_ledger.emit_run_ledger(_mit(_run_ledger, ("runBudget",), g), SK),
+            run_ledger.RunLedgerError),
+        "verification_summary.emit_verification_summary nonClaims surrogate": (
+            lambda: verification_summary.emit_verification_summary(_mit(_summary, ("nonClaims",), [s]), SK),
+            verification_summary.VerificationSummaryError),
+        "relation_statement.emit_relation_statement statementId surrogate": (
+            lambda: relation_statement.emit_relation_statement(_mit(_relation, ("statementId",), s), SK),
+            relation_statement.RelationStatementError),
+        "trust_pack.sign_trust_pack trustPackId surrogate": (
+            lambda: trust_pack.sign_trust_pack(_mit(_trust_pack, ("trustPackId",), s), {"k1": SK}),
+            trust_pack.TrustPackError),
+        "trust_pack.sign_trust_pack version 2**8194": (
+            lambda: trust_pack.sign_trust_pack(_mit(_trust_pack, ("version",), g), {"k1": SK}),
+            trust_pack.TrustPackError),
+        "intoto.export_intoto_dsse harness name 2**8194": (
+            lambda: intoto.export_intoto_dsse(_claim(), SK, harness={"name": g}), BundleFormatError),
+        "intoto.export_eval_result_dsse harness name 2**8194": (
+            lambda: intoto.export_eval_result_dsse(_claim(), SK, harness={"name": g}), BundleFormatError),
+        "intoto.export_intoto_dsse harness name surrogate": (
+            lambda: intoto.export_intoto_dsse(_claim(), SK, harness={"name": s}), BundleFormatError),
+        "intoto.export_eval_result_dsse harness name surrogate": (
+            lambda: intoto.export_eval_result_dsse(_claim(), SK, harness={"name": s}), BundleFormatError),
+        "run_ledger.build_run_ledger_statement runBudget 2**8194": (
+            lambda: run_ledger.build_run_ledger_statement(_mit(_run_ledger, ("runBudget",), g)),
+            run_ledger.RunLedgerError),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_producers()))
+def test_every_producer_refuses_a_budget_value_by_its_modules_type(name):
+    """The validator admits the value, the canonical form is where it fails, and the failure is the
+    module's own error. On 5c49dc1c ten of them raised the budget's bare error; the four in-toto export
+    cases and the two trust-pack producers already answered by type (anti-parity)."""
+    aufruf, fehler = _producers()[name]
+    with pytest.raises(Exception) as info:
+        aufruf()
+    assert type(info.value) is fehler or (isinstance(info.value, fehler)
+                                          and type(info.value).__module__ == fehler.__module__), (
+        name, f"{type(info.value).__module__}.{type(info.value).__name__}")
+
+
+@pytest.mark.parametrize("label", sorted(BUDGET_REFUSED))
+def test_subject_binding_refuses_a_budget_value_by_type(label):
+    """The lens's reproduction: all three surfaces promise SubjectBindingError."""
+    from proofbundle import subject_binding as SB  # noqa: PLC0415
+    st = {"subject": [{"name": "x", "digest": {"sha256": "0" * 64}}],
+          "predicate": {"x": copy.deepcopy(BUDGET_REFUSED[label])}}
+    for aufruf in (SB.classify_subject, SB.require_derived_subject,
+                   lambda s: SB.derive_subject_digest(s["predicate"])):
+        with pytest.raises(SB.SubjectBindingError):
+            aufruf(st)
+
+
+@pytest.mark.parametrize("label", sorted(BUDGET_REFUSED))
+def test_the_test_result_reference_refuses_a_budget_value_by_type(label):
+    from proofbundle import verifier_block as VB  # noqa: PLC0415
+    block = _conformance("agent-review-v03-positive-control-verifier-block-is-accepted")["producer"]["verifier"]
+    st = {"_type": VB.STATEMENT_TYPE, "subject": [{"name": "x", "digest": dict(block["build"]["digest"])}],
+          "predicateType": VB.TEST_RESULT_PREDICATE_TYPE,
+          "predicate": {"result": "PASSED",
+                        "configuration": [{"name": "v", "digest": {"sha256": "a" * 64},
+                                           "annotations": {"cases": 1,
+                                                           "n": copy.deepcopy(BUDGET_REFUSED[label])}}],
+                        "passedTests": ["a"], "warnedTests": [], "failedTests": []}}
+    with pytest.raises(VB.VerifierBlockError):
+        VB.test_result_ref(st)
+    j = VB.join_test_result(dict(block, testResult={"predicateType": VB.TEST_RESULT_PREDICATE_TYPE,
+                                                    "result": "PASSED",
+                                                    "statementDigest": {"sha256": "a" * 64}}), st)
+    assert j["ok"] is False and j["digest_matches"] is False
+
+
+@pytest.mark.parametrize("export", ["export_intoto_dsse", "export_eval_result_dsse"])
+@pytest.mark.parametrize("wert", [chr(0xD800), 10**5000, "deep 3000", {1, 2}],
+                         ids=["lone surrogate", "10**5000", "nesting 3000 deep", "a set"])
+def test_the_legacy_serializer_refuses_by_type_too(export, wert):
+    """The lens's sibling: under `legacy-sortkeys-json-v0` a lone surrogate raised a raw
+    UnicodeEncodeError out of both exports on d5747000; an integer past the int->str cap raised
+    ValueError, a nesting deeper than the interpreter allows RecursionError, and a value of no JSON
+    type TypeError, each from `json.dumps`. Main 570dd164 answers each with BundleFormatError at the
+    export, in the plain copy of the harness or where it serializes the statement; this holds it."""
+    from proofbundle import intoto  # noqa: PLC0415
+    from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+    name = _tief(3000) if wert == "deep 3000" else wert
+    with pytest.raises(BundleFormatError):
+        getattr(intoto, export)(_claim(), SK, harness={"name": name},
+                                content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG)
+
+
+@pytest.mark.parametrize("export", ["export_intoto_dsse", "export_eval_result_dsse"])
+@pytest.mark.parametrize("legacy", [False, True], ids=["jcs", "legacy"])
+def test_the_claim_the_exports_get_is_one_they_sign(export, legacy):
+    """The control for the in-toto cases above: with a plain harness name each export signs, under
+    either content-root algorithm, so a refusal there is the harness value's."""
+    from proofbundle import intoto  # noqa: PLC0415
+    zusatz = {"content_root_alg": intoto.LEGACY_CONTENT_ROOT_ALG} if legacy else {}
+    env = getattr(intoto, export)(_claim(), SK, harness={"name": "h"}, **zusatz)
+    assert env["payloadType"] and env["signatures"]
+
+
+@pytest.mark.parametrize("version", sorted(VERSIONS) + ["any"])
+def test_an_observed_body_without_a_utf8_form_is_not_measurable(version):
+    """The lens put this out of scope as a caller argument; the same mapping closes it. A body that
+    holds a lone surrogate has no UTF-8 bytes to hash: NOT_MEASURABLE, which blocks, and never
+    `internal_error`. On d5747000 all four surfaces answered `internal_error`."""
+    bauen, _typ, verify = VERSIONS["v0.2" if version == "any" else version]
+    env = AR.emit_agent_review(bauen(), SK, legacy_v01=(version == "v0.1"))
+    for body in (chr(0xD800), "text " + chr(0xD800)):
+        r = (AR.verify_agent_review_any(env, PK, observed_body=body) if version == "any"
+             else verify(env, PK, observed_body=body))
+        _no_internal_error(r)
+        assert r["body_core_digest_match"] == "NOT_MEASURABLE" and r["ok"] is False
+        assert any("no UTF-8 form" in str(w) for w in r["warnings"]), r["warnings"]
+
+
+def test_the_digest_helpers_refuse_a_body_without_a_utf8_form_by_type():
+    for aufruf in (lambda: AR.body_core_digest(chr(0xD800)),
+                   lambda: AR.disclosure_core_digest(f"{AR.DISCLOSURE_BEGIN}\n{chr(0xD800)}\n{AR.DISCLOSURE_END}")):
+        with pytest.raises(AR.AgentReviewError):
+            aufruf()

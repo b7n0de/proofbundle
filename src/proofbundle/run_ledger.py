@@ -17,6 +17,7 @@ import hashlib
 from typing import Any
 
 from ._statement_payload import load_statement_strict
+from .budget import render_safe
 from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
@@ -111,7 +112,7 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
     for i, run in enumerate(runs):
         seq = run.get("seq")
         if seq != i + 1:
-            errors.append(f"runs[{i}].seq must be {i + 1} (strictly monotone from 1, no gaps), got {seq!r}")
+            errors.append(f"runs[{i}].seq must be {i + 1} (strictly monotone from 1, no gaps), got {render_safe(seq)}")
         prev = run.get("prevDigest")
         if i == 0:
             if prev is not None:
@@ -210,10 +211,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise RunLedgerError(
             "run ledgers need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise RunLedgerError(
             f"a run ledger value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

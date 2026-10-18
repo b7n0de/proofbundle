@@ -30,7 +30,7 @@ from typing import Any, TypeGuard
 
 from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_safe
 from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _richtlinie_von,
                         _zeichen_von, _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
@@ -99,8 +99,13 @@ def _is_digest(obj: Any) -> TypeGuard[dict]:
 
 def _zahl_text(v: Any) -> str:
     """A relying party's number for a message: an exact int as its digits, any other value by its type only,
-    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis)."""
-    return int.__repr__(v) if type(v) is int else f"a value of type {type_name(v)}"
+    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis).
+
+    The digits are bounded: `int.__repr__` raised ValueError for an int past the int->str cap
+    (CVE-2020-10735), so `verify_trust_pack` with `prev_version` or `prev_root_threshold` = `10**5000`
+    raised out of the message that explains the refusal. `render_safe` describes such an int by its bit
+    length, and for an exact int it runs no method of the caller's."""
+    return render_safe(v) if type(v) is int else f"a value of type {type_name(v)}"
 
 
 def _is_int(v: Any) -> TypeGuard[int]:
@@ -193,7 +198,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                     continue
                 alg = kv.get("alg", "ed25519")
                 if alg not in _KEY_ALGS:
-                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {alg!r}")
+                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
                 allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
                 for f in kv:
@@ -314,12 +319,12 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     if not (_is_int(th) and th >= 1):
         errs.append("threshold must be an integer >= 1")
     elif isinstance(kids, list) and isinstance(th, int) and th > len(kids):
-        errs.append(f"threshold ({th}) exceeds the number of keyIds ({len(kids)})")
+        errs.append(f"threshold ({render_safe(th)}) exceeds the number of keyIds ({len(kids)})")
     # dead-on-arrival: after removing revoked keys the role can never meet threshold.
     if isinstance(kids, list) and _is_int(th) and th >= 1:
         live = [k for k in kids if k not in revoked]
         if len(live) < th:
-            errs.append(f"threshold ({th}) can never be met — only {len(live)} non-revoked keyIds")
+            errs.append(f"threshold ({render_safe(th)}) can never be met — only {len(live)} non-revoked keyIds")
     return errs
 
 
@@ -338,10 +343,10 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise TrustPackError(
             "trust packs need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes; the verify path already reads it as a verdict.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
         raise TrustPackError(
             f"a trust pack value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 

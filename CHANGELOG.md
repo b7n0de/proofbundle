@@ -18,8 +18,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
   the checkout a measurement was taken in; it now says "a second local checkout", and so does the
   test beside it. The guard reads every text file under `src/proofbundle` and refuses a path under
-  `/home/<name>` or `/Users/<name>`, with or without a slash after the name and inside a `file://`
-  URL; it is red on the tree before this change, at that one line. Files outside the package (audit
+  `/home/<name>` or `/Users/<name>` (`Users` in any case), with or without a slash after the name,
+  with a slash written as JSON writes it (`\/`), and inside a `file:` URL whose host is empty or
+  `localhost`; it is red on the tree before this change, at that one line.
+  Files outside the package (audit
   records, the risk register) are not in its reach.
 
 - **A lookup or write on a constant container with a key from outside is classified**
@@ -64,7 +66,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   the guard. A container derived from constant containers is a container too, and that rule came with a live
   defect. `agent_review.validate_time_claim` tested a time claim's rung with
   `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
-  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` now). A set
+  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` on d5747000,
+  `:2189` now). A set
   difference is a set and `in` hashed the value, so an `assurance` of `[]`, `{}` or
   `["runnerObserved"]` raised `TypeError`
   out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
@@ -165,11 +168,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   oracle imports every module and requires each module-level set or mapping to be in the guard's
   view or named with its reason; it names one, `policy._LOW_ORDER_ED25519_Y`, bound to what
   `_low_order_ed25519_y()` returns, whose one use tests an int computed from the decoded key bytes.
-  Measured on the tree after the fix: no membership site, 20 lookup sites under 20 entries (the new
+  Measured on the branch after the fix: no membership site, 20 lookup sites under 20 entries (the new
   one `daten[f]` in `adapters/agt_receipt.canonical_payload`, keyed by a literal of the module) and
   45 reads under 42 entries (five new, each a set or dict built over a module-level tuple and read at
   its source, in `adapters/agt_receipt`, `cli._error_verify_fields`, `public_transparency` and twice
-  in `relation`); no binding the first form cleared is one no reader follows.
+  in `relation`); no binding the first form cleared is one no reader follows. On main 570dd164 with
+  the commits carried here the guard counts no membership site, 58 lookup sites under 47 entries and
+  76 reads under 72 entries, each classified.
 
   **A lens on 8ecb6edf: a value RFC 8785 cannot represent, and five smaller findings.** The strict
   parser reads an integer outside ±(2**53 − 1), NaN and Infinity. The canonicalizer refuses each
@@ -187,7 +192,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   above and `subject_binding.classify_subject`, `require_derived_subject` and
   `derive_subject_digest`, `verifier_block.join_test_result` and `test_result_ref`, and the
   decision, outcome and run ledger emitters, each raising the bare error. Every wrapper of the
-  canonicalizer now maps it to its own module's typed error, `join_test_result` answers with a
+  canonicalizer now maps it to its own module's typed error (and, since the lens on d5747000 below,
+  the refusal of the structural budget in front of it), `join_test_result` answers with a
   digest that does not match; the in-toto export paths already did on main 570dd164, each with a
   BundleFormatError that names the exporter, and stay as they are. The four left are the two
   primitives of `canonical`, which pass the refusal on by their documented contract; the in-toto
@@ -213,13 +219,71 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   comprehension condition each raised `TypeError` with all three detectors silent. A walrus is read
   as the value it passes on now, and that value is judged where the walrus stands as well as where
   it is bound. Nine planted forms, all nine unseen by the detectors of 8ecb6edf; the counts over the
-  tree do not move (no membership site, 20 lookup sites under 20 entries, 45 reads under 42
-  entries). The path guard missed `file:///home/<name>/x`, `/home/<name>` with nothing after the
+  tree do not move (no membership site; on this tree 58 lookup sites under 47 entries and 76 reads
+  under 72 entries). The path guard missed `file:///home/<name>/x`, `/home/<name>` with nothing after the
   name, and `/Users/<name>` at the end of a text; six planted texts, all six missed by the pattern
   of 8ecb6edf, are found now, and the package still names no such path. The line of the time claim
   test above was `:1978` on 8ecb6edf, not the `:1969` this entry said. The two ratchets over reason
   codes follow: two new codes, and one error without a code fewer in
   `validate_agent_review_predicate` (19 to 18).
+
+  **A lens on d5747000: the refusal of the budget in front of the canonicalizer, a number too long
+  to write in decimal, and a walrus over a conditional.** Measured again on 5c49dc1c (main 570dd164
+  and the five commits carried before this one). `canonical.canonicalize_statement` runs the
+  structural budget first, and eight module wrappers (`decision`, `outcome`, `run_ledger`,
+  `relation_statement`, `trust_pack`, `verification_summary`, `subject_binding`, `verifier_block`)
+  caught only the canonicalizer's `ValueError`: a lone surrogate or a nesting past 64 levels left as a
+  bare `BundleFormatError`, an integer past 8192 bits as a bare `BudgetExceeded`.
+  `subject_binding.require_derived_subject`,
+  `classify_subject` and `derive_subject_digest` promise `SubjectBindingError` and raised those, and so
+  did the emit and build paths of the decision, outcome, run ledger, verification summary and relation
+  statement receipts, and `verifier_block.test_result_ref`. The refusals of the shared path are one
+  tuple now, `canonical.NOT_CANONICALIZABLE` (`ProofBundleError`, `ValueError`, `RecursionError`, the
+  list `agent_review` alone carried), and every wrapper names it; a missing canonicalizer keeps its own
+  answer. In the same class: `_statement_payload.load_statement_strict` raised `BudgetExceeded` where
+  its docstring names `BundleFormatError`, and an `observed_body` holding a lone surrogate made all four
+  agent-review verify surfaces answer `internal_error`, where the verdict is now `NOT_MEASURABLE`,
+  which blocks. The in-toto exports and the trust-pack producer already answered these values by type
+  on 5c49dc1c, and the contract holds them with a control that signs; the claim the file handed the
+  exports lacked five fields main requires, so those cases had passed on the claim's refusal. The
+  contract's section has 91 cases, 45 of them red on 5c49dc1c. The two renderers raised `ValueError`
+  for `findingsTotal = 10**5000`, which the v0.2 validator accepts, and with the validator taken away
+  for `assertedBy` and `coverage.status` of that value: the count renders bounded now (`<int, 16610
+  bits>`, through `budget.render_safe`), a non-string `assertedBy` or `coverage.status` reads as
+  absent, and a boolean total is no count. The class reached the validators: a generator that puts
+  `10**5000` and `-10**5000` at every value and `10**5000` as an extra key of every object of
+  thirteen seed predicates measured 220 raw raises in 5,415 calls at 24 source lines of five modules
+  (agent_review, outcome, relation, run_ledger, trust_pack), each a message that interpolated the
+  value, and 7 more at caller arguments and policy fields, two of them `trust_pack._zahl_text`, whose
+  `int.__repr__` raised for `prev_version` and `prev_root_threshold`. Each of those sites renders
+  through `render_safe` now, which is `repr()` for an ordinary value, and the generator finds 0
+  (`tests/test_every_validator_renders_a_number_bounded.py`, 64 cases, 46 red on 5c49dc1c). A sweep
+  that added every field name of the modules' field tables to every object of every seed, with the
+  trust pack's `alg` and `scheme` as the control, found one line more, `keys[...].alg`, and no other;
+  the seed holds both fields now. The unknown-key messages of the other modules raise nothing on
+  main, which refuses a key that is no string in the plain copy first, and are not changed. The
+  membership guard split a conditional only where it stood directly as a binding's value, so under
+  a walrus its branches counted as bound while the readers found no container:
+  `k in (s := _A if c else _B)`, `.get(k)` and `[k]` on such a walrus, a module-level and a local name
+  bound to one, and a chained walrus each raised `TypeError` with all three detectors silent. A walrus
+  and a conditional are read as the values they pass on now (`_passed_values`): a conditional is a
+  container when any branch is one and a constant operand or a source when every branch is, a bound
+  branch is judged where its conditional goes, and a set operation is known only when both of its
+  operands are constant. Closing it found four siblings, unseen too: such a walrus handed to a
+  function, `set()` over one, a conditional between a copy of a dict's values and `set()`, and a set
+  operation over such a walrus with a branch from outside. Ten planted forms, all ten unseen by the
+  detectors of 5c49dc1c; the counts over the tree do not move. The path guard missed
+  `file://localhost/home/<name>/x`, the JSON-escaped `\/home\/<name>\/x` and a lowercase
+  `/users/<name>` (six planted spellings, all six missed by the pattern of 5c49dc1c), and finds them
+  now; a request target after an HTTP method (`GET /home/index.html`) is no machine path and is not
+  refused any more, while `/home/NAME/` still is, because a form cannot tell a placeholder from a user
+  of that name; the package names no such path. Not changed: `evalclaim.py`. On this tree
+  `evalclaim.canonicalize` and `emit_eval_receipt` answer `EvalClaimError` for a lone surrogate, for
+  `2**8194`, for a nesting of seventy and of 3000 levels and for a surrogate key in `provenance`; the
+  private `_jcs_bytes` writes the seventy levels, and the emit path in front of it refuses them.
+  `adapters._provenance.config_hash` answers `None` for a config holding a lone surrogate, so
+  `add_provenance` leaves the field out; the adapters stay outside this change, as the next paragraph
+  says.
 
   Not reached, and not claimed: the four JSON adapters (`adapters/eee.py`, `lm_eval.py`,
   `promptfoo.py`, `samples.py`) answer a wrong-typed field with a raw `AttributeError` or
@@ -228,9 +292,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   and stand outside the never-raise denominator, and reading a wrong type as empty there would sign
   a default instead of refusing, so they need a typed refusal per section, which is a change of its
   own. The `.get(k, {})` spelling of the same assumption was not swept. Not seen by the guard: a
-  container built at run time from a value that is not constant (`x in set(allowed)`: two
-  membership tests in the tree, `adapters/agt_receipt.py:312` and `relation.py:752`, each behind
-  `isinstance(x, str)`), a literal on its own (`x in {"a"}`, `{"a": 1}[k]`: no membership test and
+  container built at run time from a value that is not constant (`x in set(allowed)`: one
+  membership test in the tree, `relation.py:1167`, behind `type(x) is str`; the second the branch
+  named, in `adapters/agt_receipt.py`, is gone from main), a literal on its own (`x in {"a"}`, `{"a": 1}[k]`: no membership test and
   six lookups in the tree, each behind `is_member` or `isinstance` or keyed by a literal the package
   chose), a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
   bound in a class body, a container a function call returns (held by the oracle, not the view), a

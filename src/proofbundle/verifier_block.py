@@ -55,6 +55,7 @@ from typing import Any
 
 from ._membership import is_member
 from ._strict_json import loads_reject_duplicate_keys
+from .budget import render_safe
 from .canonical import _ein_stand, _pruefkopie
 from .errors import BundleFormatError, ProofBundleError
 
@@ -461,11 +462,13 @@ def _rfc8785_bytes(obj: Any) -> bytes:
         raise VerifierBlockError(
             "test-result statements need the RFC 8785 (JCS) canonicalizer -- proofbundle requires "
             "rfc8785 (core dependency)") from exc
-    except ValueError as exc:
-        # The canonicalizer's own refusal (IntegerDomainError, FloatDomainError: a value the strict
-        # parser admits and RFC 8785 cannot represent) leaves as this module's typed error, as in
-        # agent_review._rfc8785_bytes. Measured on 8ecb6edf: `join_test_result` and `test_result_ref`
-        # raised the bare ValueError for a statement with `2**53` or NaN in an annotation.
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first. Measured on 8ecb6edf:
+        # `join_test_result` and `test_result_ref` raised the bare ValueError for a statement with
+        # `2**53` or NaN in an annotation; on d5747000 `test_result_ref` still raised the budget's
+        # bare BundleFormatError or BudgetExceeded.
         raise VerifierBlockError(
             f"the test-result statement is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
@@ -516,7 +519,7 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     passed, warned, failed = [], [], []
     for r in results:
         if not isinstance(r, dict) or not isinstance(r.get("caseId"), str) or not r["caseId"]:
-            raise VerifierBlockError(f"case result without a caseId: {r!r}")
+            raise VerifierBlockError(f"case result without a caseId: {render_safe(r)}")
         ok = r.get("ok")
         if type(ok) is not bool:
             raise VerifierBlockError(
