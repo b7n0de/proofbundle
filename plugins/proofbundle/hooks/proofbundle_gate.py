@@ -3769,6 +3769,85 @@ def _program_values(command: str, assigned: dict[str, list[str]] | None = None, 
     return text
 
 
+#: D69 (Nachtrag 28, O27-1 C): the gh pairs that write, after which a program word the line does not set asks: those the
+#: gate gates (_GH_GATED) and `pr merge`.
+_UNKNOWN_PROGRAM_GH_PAIRS = _GH_GATED | {("pr", "merge")}
+#: D69: a parameter expansion in a word as written, outside single quotes and escapes: `$X`, `${…}`, `$1`, `$@` and the
+#: other special parameters. A command substitution `$(…)` is none.
+_PARAMETER_EXPANSION = re.compile(r"\$(?:\{|[A-Za-z_]|[0-9@*#?$!-])")
+_LITERAL_PARTS = re.compile(r"'[^']*'|\\.")
+
+
+def _unknown_program_run(run: list, assigned: dict[str, list[str]]) -> tuple[str, str] | None:
+    """D69: (program word, later word) for one simple command (its word tokens), or None; see _unknown_program_word."""
+    k = 0
+    while k < len(run) and (run[k][3] in _PROGRAM_POSITION_KEYWORDS or _ASSIGNMENT.match(run[k][3])):
+        k += 1
+    if k >= len(run):
+        return None
+    _kind, _value, has_subst, raw = run[k]
+    if not has_subst or not _PARAMETER_EXPANSION.search(_LITERAL_PARTS.sub("", raw).replace("$(", "")):
+        return None
+    spelled = _PROGRAM_EXPANSION.fullmatch(raw)
+    if spelled is not None and (spelled.group(2) or spelled.group(3)) in assigned:
+        return None   # the line sets it: D67 reads a value of git or gh, and any other value is that program
+    later = [w[1] for w in run[k + 1:]]
+    for n, word in enumerate(later):
+        if word in ("push", "--no-verify") or "core.hookspath" in word.lower():
+            return raw, word
+        if n + 1 < len(later) and (word, later[n + 1]) in _UNKNOWN_PROGRAM_GH_PAIRS:
+            return raw, f"{word} {later[n + 1]}"
+    return None
+
+
+def _unknown_program_word(command: str, assigned: dict[str, list[str]] | None = None,
+                          depth: int = 0) -> tuple[str, str] | None:
+    """D69, Nachtrag 28 (O27-1 C): (program word, later word) for the first simple command whose program word holds a
+    parameter expansion whose value the command line does not set, and a later word of which is `push`, `--no-verify`,
+    a word that names core.hooksPath (any case), or two words in a row that name a gh pair that writes
+    (_UNKNOWN_PROGRAM_GH_PAIRS). These are what Level 2 does not check: its pre-push hook was not installed at delta
+    (measured, O23-2), a hook switched off skips it, and gh never runs it. A program word is one D67 does not read: not
+    one of its four spellings with a name the line sets, whatever the value. The program position is D67's; a command
+    substitution is read in turn with the values of the line around it. None for every other command, which keeps its
+    answer: `$GIT commit -am x`, `"$PYTHON" -m pytest`, `$EDITOR datei`, `$SUBCOMMAND --repo /work/clone`."""
+    text = _drop_comments(command)
+    toks = _lex(text)
+    if toks is None or depth > MAX_NESTING:
+        return None
+    assigned = {**(assigned or {})}
+    for name, values in _program_assignments(toks).items():
+        assigned[name] = assigned.get(name, []) + values
+    run: list = []
+    for t in [*toks, ("op", ";")]:
+        if t[0] == "word":
+            run.append(t)
+        elif t[0] == "op":
+            found = _unknown_program_run(run, assigned)
+            if found is not None:
+                return found
+            run = []
+    for body in _subst_bodies(text):
+        found = _unknown_program_word(body, assigned, depth + 1)
+        if found is not None:
+            return found
+    return None
+
+
+def _unknown_program_outcome(found: tuple[str, str], outcome: "Outcome | None") -> "Outcome":
+    """D69: the ask for a program word the command does not set, before a word Level 2 does not check, with the verdicts
+    the command had before."""
+    raw, word = found
+    verdict = Verdict(
+        "ask", f"NOT MEASURED: the program word `{raw}` of this command is a parameter expansion whose value the command "
+               f"does not set, and a later word, `{word}`, names what Level 2 does not check: a push, whose pre-push "
+               "hook may not be installed (measured at delta), a hook switched off, or a gh call that writes. The gate "
+               "cannot tell which program the shell runs (DECISIONS.md D69).",
+        "program_word_unknown", evidence="none, the gate does not know which program the shell runs",
+        failed=f"the program of this command is a variable the command does not set, before `{word}`",
+        next_step="run the call with its program named as written (git … or gh …), or have a person review it")
+    return Outcome("ask", verdict.text(), list(outcome.verdicts if outcome else []) + [verdict])
+
+
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                 inherited_env: bool = False) -> list[tuple[str, str | None, list[str] | None]]:
     """Every gated call in a shell command: its name, the directory it acts in (UNKNOWN = NOT MEASURED),
@@ -10544,13 +10623,18 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
 
     A parameter expansion at the program position (`$X`, `${X}`, `"$X"`, `"${X}"`) whose variable the same command
     line sets to git or gh, by name or by a path, is judged as the command with that value substituted (D67,
-    _program_values)."""
+    _program_values). One whose value the line does not set asks where a later word of its simple command is `push`,
+    `--no-verify`, a core.hooksPath word or a gh pair that writes (D69, _unknown_program_word)."""
     head = _interpreter_heredoc_head(command)
     written = command if head is None else head
     judged = _program_values(written)
     outcome = _decide_outcome(judged, cwd, deadline, host, environ)
     if outcome is not None and judged != written:
         outcome.text = f"{outcome.text} {_PROGRAM_VALUE_NOTE}"
+    if outcome is None or outcome.decision not in ("ask", "deny"):
+        unknown = _unknown_program_word(judged)
+        if unknown is not None:
+            outcome = _unknown_program_outcome(unknown, outcome)
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     return _with_done_order(outcome, judged)
@@ -11378,6 +11462,8 @@ _SHORT_REASONS = {
                              "diese Form beim Auschecken Programme starten kann"),
     "code_names_git": ("D33", "a program in the command may start git or gh from text",
                        "ein Programm im Befehl git oder gh aus Text starten kann"),
+    "program_word_unknown": ("D69", "the program is a variable the command does not set",
+                             "das Programm eine Variable ist, die der Befehl nicht setzt"),
     "codex_push_not_plain": ("D12", "under Codex only the plain git push warns",
                              "unter Codex nur das schlichte git push warnt"),
     "codex_context_unbound": ("D12", "the Codex hook does not carry the working directory",

@@ -3690,3 +3690,27 @@ Strict stays the default; no check of the evidence falls away.
 Tests: tests/test_plugin_n27_config_read_d68.py; the answers D68 changes on purpose in
 tests/test_plugin_n23_hookspath_read_d62.py, tests/test_plugin_runde6_r62.py, tests/test_plugin_gate_runde6b.py and
 tests/test_plugin_ask_load_a_read.py.
+
+## D69. A program word the line does not set asks before what Level 2 does not check (Nachtrag 28, O27-1 C, 2026-10-18)
+
+Measured in Nachtrag 27, Teil b: a parameter expansion at the program position whose value the command line does not
+set (`$GIT push origin main`, `"$GH" pr merge 1`) got no answer under either host. Level 2 catches such a push only where
+its pre-push hook is installed; it was not installed at delta (measured by Cowork, 2026-10-18, O23-2), a hook switched
+off (`--no-verify`, `-c core.hooksPath=…`) skips it (measured), and gh never runs it. At delta, 1 of 6047 simple
+commands in two and a half days had a program as a variable, set to another program; 0 left it unset. Owner choice of
+2026-10-18, 09:2x Berlin: option C.
+
+The rule (_unknown_program_word, applied in decide after D67): where the program word of a simple command holds a
+parameter expansion whose value the line does not set, and a later word of the same simple command is `push`,
+`--no-verify`, a word that names core.hooksPath (any case), or two words in a row that name a gh pair that writes (the
+pairs the gate gates, pr create, pr new, release create, release new, and pr merge), the gate asks under Claude Code and
+denies under Codex, reason id program_word_unknown. A program word D67 reads is none of these: one of its four spellings
+with a name the line sets, whatever the value. Every spelling counts otherwise: `$X`, `${X}`, `"$X"`, `${X:-git}`, `$1`,
+`"$@"`, and a word with an expansion and literal text (`$HOME/bin/tool`). The program position is D67's, a command
+substitution is read in turn. A command that asks or denies already keeps its answer.
+
+What it does not change: every other such command keeps its answer, so `$GIT commit -am x`, `$GIT reset --hard HEAD~1`,
+`"$PYTHON" -m pytest`, `$EDITOR datei`, `"$SHELL" -c true`, `$SUBCOMMAND --repo /work/clone` and `$CMD -c
+proofbundle_gate.py …` stay without an answer. A word built by the shell is not read as `push` (`$GIT $SUB`).
+Strict stays the default; no check of the evidence falls away.
+Tests: tests/test_plugin_n28_unknown_program_d69.py.
