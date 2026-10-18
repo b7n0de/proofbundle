@@ -152,12 +152,13 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
     name = subject_name or f"relation-statement:{predicate.get('statementId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    from ._statement_payload import refuse_an_unwritable_subject  # noqa: PLC0415
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": RELATION_STATEMENT_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, RelationStatementError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

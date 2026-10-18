@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
@@ -187,12 +187,12 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))
     name = subject_name or f"verification-summary:{predicate.get('summaryId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": VERIFICATION_SUMMARY_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, VerificationSummaryError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, cast
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .budget import render_keys_safe, render_safe
 from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
                         _pruefkopie, _richtlinie_von, _zeichen_von)
@@ -547,7 +547,8 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
     is self-attesting what the statement applies to — a generic in-toto consumer that matches by
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
-    the subject a true commitment to the signed predicate."""
+    the subject a true commitment to the signed predicate. Its form is checked: an override the verifier
+    would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of being signed."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
@@ -555,12 +556,12 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
     name = subject_name or f"decision:{predicate.get('decisionId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": DECISION_RECEIPT_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, DecisionReceiptError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

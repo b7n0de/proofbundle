@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .budget import render_safe
 from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
@@ -250,12 +250,12 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
     name = subject_name or f"run-ledger:{predicate.get('studyId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": RUN_LEDGER_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, RunLedgerError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

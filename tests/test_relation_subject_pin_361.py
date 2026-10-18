@@ -25,6 +25,7 @@ from proofbundle.emit import generate_signer
 from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
 from proofbundle.policy import load_policy
 from proofbundle.relation import (
+    CODE_RELATION_TARGET_MALFORMED,
     CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS,
     CODE_RELATION_TARGET_SUBJECT_MALFORMED,
     CODE_RELATION_TARGET_SUBJECT_MISMATCH,
@@ -176,13 +177,18 @@ class CliLoaderSubjectless(unittest.TestCase):
         env, root_hex = _emit_subjectless_target(signer)
         related, errs = _load_related_target(env, signer, _pub_b64(signer))
         self.assertEqual(errs, [])
-        # the loader classifies the subjectless target as absent, not a silently-picked subject.
+        # The loader never picks a subject for a subjectless target. Since 2026-10-17 the Statement oracle
+        # requires a subject whose every entry carries a digest, so the same bytes fail standalone and the
+        # loader refuses the target at its payload gate: malformed and unverified, where it read "absent"
+        # before. The pin still fails, now as a malformed attached target.
         self.assertIsNone(related[root_hex]["subject_digest"])
-        self.assertEqual(related[root_hex]["subject_digest_state"], "absent")
+        self.assertEqual(related[root_hex]["subject_digest_state"], "malformed")
+        self.assertIs(related[root_hex]["verified"], False)
+        self.assertIn("subject must name at least one artifact", related[root_hex]["payload_malformed"])
         r = verify_relationship_edges([_edge(root_hex, declared_subject=_HEX_B)], related,
                                       subject_hex="f" * 64)
         self.assertEqual(r["lineage"], LINEAGE_FAIL)
-        self.assertIn(CODE_RELATION_TARGET_SUBJECT_MISSING, " ".join(r["errors"]))
+        self.assertIn(CODE_RELATION_TARGET_MALFORMED, " ".join(r["errors"]))
 
 
 def _automation_policy(successor, target_root):

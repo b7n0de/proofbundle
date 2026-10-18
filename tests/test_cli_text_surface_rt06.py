@@ -396,9 +396,12 @@ class MetaPlantedDefects(unittest.TestCase):
 
     def test_svr_shape_check_removed_would_print_pass(self):
         # Without the shape verdict, the library says ok=True for a validly signed int-properties SVR —
-        # exactly what let the CLI print PASS before crashing.
+        # exactly what let the CLI print PASS before crashing. The statement carries the Statement v1
+        # layer, which the raw verdict reads since 2026-10-17, so only the shape is missing.
         from proofbundle.intoto import _intoto_verify_result
-        r = _intoto_verify_result(True, True, {"predicateType": _intoto.SVR_PREDICATE_TYPE,
+        r = _intoto_verify_result(True, True, {"_type": _intoto.STATEMENT_TYPE,
+                                               "subject": [{"name": "r", "digest": {"sha256": "a" * 64}}],
+                                               "predicateType": _intoto.SVR_PREDICATE_TYPE,
                                                "predicate": {"properties": 5}}, "jcs-sha256-v1", "",
                                   _intoto.SVR_PREDICATE_TYPE)
         self.assertIs(r["ok"], True)   # the raw verdict is blind to the shape; verify_svr_dsse adds it

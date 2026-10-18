@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._membership import require_switch, type_name
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .budget import DEFAULT_BUDGET, render_safe
 from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _richtlinie_von,
                         _zeichen_von, _zeitpunkt_von)
@@ -411,12 +411,12 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
     name = subject_name or f"trust-pack:{predicate.get('trustPackId', '')}:v{predicate.get('version', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": TRUST_PACK_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, TrustPackError)
 
 
 @_ein_stand(aussen={"signers": "signierer_je_name"})
