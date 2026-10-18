@@ -122,6 +122,13 @@ _NICHT_DIFFERENTIELL = {
                       "pb_verify_rs; bis dahin fahren die fuenfzehn Faelle im Python-"
                       "Konformanzlauf (122/122). Nicht gedeckt heisst hier: nicht differentiell "
                       "gefahren"),
+    "content_root_vector": ("pb_verify_rs has no subcommand that computes the content root of a "
+                            "statement object or checks a pair or envelope vector (coverage-report "
+                            "names verify-dsse, verify-bundle, verify-trust-pack-threshold, "
+                            "verify-relation and verify-relation-statement); the ten vectors are pins "
+                            "this implementation generated, run by the Python conformance harness, and "
+                            "their run in a second implementation is open (CONTENT_ROOT_CONTRACT.md, "
+                            "section 6)"),
 }
 
 

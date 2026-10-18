@@ -10,7 +10,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Added
 
+- Ten conformance vectors of the new kind `content_root_vector` under `conformance/action_chain_content_roots/`, run by `conformance/run_conformance.py` like every other case and described in `conformance/vector_schema.json`. They pin the content root of ADR 0002 as data: canonical bytes and roots for key order, unicode, number forms, nested arrays, an unknown top-level field and the UTF-16 code-unit order of RFC 8785 section 3.2.3; a decision statement that binds its evidence statement by root; the declared-algorithm gate, which refuses a sort-keys body declared as `jcs-sha256-v1` and accepts it as the named legacy algorithm; and two signature blocks over one payload that give one root. The roots are this implementation's own; a second implementation has not yet run them. `CONTENT_ROOT_CONTRACT.md` states the contract, cites ADR 0002 and lists, per predicate path and per digest of another kind, where each stands on main.
 - Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
+
+### Changed
+
+- `anchors.receipt_canonical_root` takes its RFC 8785 bytes from `canonical.canonicalize_statement`, the one canonicalizer home, instead of its own call to `rfc8785`. The structural budget still runs first and every failure is still a `BundleFormatError`. Measured over the 689 JSON objects tracked in the repository: each has the same root as before.
 
 ### Fixed
 

@@ -1,0 +1,15 @@
+{
+ "caseId": "content-root-legacy-absent-verifies",
+ "kind": "content_root_vector",
+ "mode": "binding",
+ "input": "payload.bytes",
+ "expected": {
+  "bindingOk": true,
+  "alg": "legacy-sortkeys-json-v0"
+ },
+ "specRefs": [
+  "ADR 0002 §Migration 2"
+ ],
+ "rationale": "ABSENT contentRootAlg means the NAMED legacy serializer (how released 2.0.0 receipts keep verifying); absence is never silently treated as jcs. Removing this path would be a backwards-incompatible public change (stop condition 2 — owner decision, NOT taken here).",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

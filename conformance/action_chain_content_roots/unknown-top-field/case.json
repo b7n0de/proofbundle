@@ -1,0 +1,16 @@
+{
+ "caseId": "content-root-unknown-top-field",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "d2aa7428a91326cc062a9180ebe443a1185cb2e84acb2421f3cbb680e52e68bd",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "ADR 0002 full-Statement scope"
+ ],
+ "rationale": "An unknown top-level Statement property is PART of the signed content root (in-toto additionalProperties). Its root MUST differ from the key-order base case — silent dropping would make two different statements collide.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

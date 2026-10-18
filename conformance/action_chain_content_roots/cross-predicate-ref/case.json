@@ -1,0 +1,19 @@
+{
+ "caseId": "content-root-cross-predicate-ref",
+ "kind": "content_root_vector",
+ "mode": "pair_reference",
+ "input": "decision.json",
+ "expected": {
+  "decisionRoot": "a0dd638f2904c16f5ff81c71b0fd1969f21d7d1f1d3e7534bcd98ca0b02dea76",
+  "evidenceRoot": "45292dd8cf95af18d6c1b747c63480bd4412f568791c95c93a9572c7301efe90",
+  "evidenceRefBindsRoot": true,
+  "decisionJcsFile": "decision.jcs",
+  "evidenceJcsFile": "evidence.jcs"
+ },
+ "specRefs": [
+  "ADR 0002",
+  "R51 gate: cross-predicate composition on one root"
+ ],
+ "rationale": "A decision statement references the evidence statement BY its content root; both roots recompute from the pinned bytes and the reference binds byte-for-byte.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

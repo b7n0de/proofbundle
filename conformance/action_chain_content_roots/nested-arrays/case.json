@@ -1,0 +1,17 @@
+{
+ "caseId": "content-root-nested-arrays",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "03ab2e4e5a873b78b26c16ad06c9263ec4f4fdffccbddbc79fbdd2334bdf279a",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "RFC 8785 §3.2.1",
+  "ADR 0002"
+ ],
+ "rationale": "Array order is significant and preserved; empty containers, null and booleans serialize per RFC 8785.",
+ "attribution": "generated 2026-08-24 for the action-chain content-root vector set (Phase 1 / R51); self-generated golden pins from proofbundle canonical.py at the pinned commit — independent recomputation by a second implementation is OPEN"
+}

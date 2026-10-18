@@ -1,0 +1,17 @@
+{
+ "caseId": "content-root-utf16-order",
+ "kind": "content_root_vector",
+ "mode": "canonical",
+ "input": "statement.json",
+ "expected": {
+  "jcsFile": "statement.jcs",
+  "contentRoot": "46d48fa2f718e3096de95d5e6516348e264e70f1bc01f20bb97f89229a66e52a",
+  "objectAndBytesAgree": true
+ },
+ "specRefs": [
+  "RFC 8785 §3.2.3 (UTF-16 code unit ordering)",
+  "ADR 0002"
+ ],
+ "rationale": "THE §3.2.3 discriminator (added in iteration 2 after deep-gate lens 2 measured that no prior vector exercised it): keys U+1F512 (astral, surrogate pair D83D DD12) and U+FF00 (BMP) sort astral-FIRST under UTF-16 code units but BMP-first under code points or UTF-8 bytes (the default in Python sorted(), Go, Rust BTreeMap). A second implementation sorting by code point passes every other canonical vector and diverges exactly here.",
+ "attribution": "generated 2026-08-24, iteration 2 of the action-chain content-root vector set (Phase 1 / R51); self-generated golden pin from proofbundle canonical.py — independent recomputation by a second implementation is OPEN"
+}
