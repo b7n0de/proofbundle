@@ -1,7 +1,8 @@
 """COSE_Sign1 Hash Envelopes that cite a Signed Evaluation Receipt, in both directions (EXPERIMENTAL).
 
 Needs the ``[scitt]`` extra (cbor2): every statement this module writes is read back with it before it is
-returned, and the check requires it as the module does. The reader that judges a statement is this
+returned, and the check requires it as the module does. cbor2 is reached through ``_receipt_cose_cbor2`` only,
+so this module imports no CBOR library. The reader that judges a statement is this
 module's own: it reads the bytes as RFC 8949 defines them, keeps the kind of every data item and does not
 interpret tags (whether a tag's content is valid for that tag, RFC 8949 section 5.3.2, is not checked; the
 data items inside a tag are checked like any other), so a verdict does not depend on which tags a decoder
@@ -52,7 +53,6 @@ even when one key makes both.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 import struct
@@ -60,6 +60,8 @@ from typing import Any, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from . import _receipt_cose_cbor2 as _second
+from ._strict_json import loads_strict
 from .canonical import _ein_stand
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
 from .signed_eval_receipt import (RECEIPT_TYPE, _decode_point, _Fail, _has_order_l, _profile,
@@ -201,25 +203,13 @@ def cose_key_thumbprint(public_key: bytes) -> bytes:
 
 
 # ---- the reader --------------------------------------------------------------------------------------------
-def _cbor2() -> Any:
+def _cbor2() -> None:
+    """The module's requirement, the [scitt] extra: raises CoseUnavailable without a cbor2 that refuses duplicate
+    keys and indefinite lengths. The probe and the read-back live in ``_receipt_cose_cbor2``."""
     try:
-        import cbor2  # noqa: PLC0415 - the [scitt] extra
-    except ImportError:
-        raise CoseUnavailable("the [scitt] extra (cbor2) is not installed") from None
-    try:
-        cbor2.loads(b"\xa0", allow_duplicate_keys=False, allow_indefinite=False)
-    except TypeError:
-        raise CoseUnavailable("this cbor2 cannot refuse duplicate keys and indefinite lengths; the [scitt] "
-                              "extra pins the version the reader was measured with") from None
-    return cbor2
-
-
-def _loads(cbor2: Any, data: bytes) -> Any:
-    """cbor2's strict reading, used only to read back what this module wrote."""
-    try:
-        return cbor2.loads(data, allow_duplicate_keys=False, allow_indefinite=False)
-    except Exception as exc:  # noqa: BLE001 - any refusal of the decoder is a refusal to write
-        raise ReceiptCoseError(f"cbor2 does not read the written statement ({type(exc).__name__})") from None
+        _second.strict_cbor2()
+    except _second.Missing as exc:
+        raise CoseUnavailable(str(exc)) from None
 
 
 #: The deepest nesting of arrays, maps and tags the reader follows: the depth cbor2 6.1.4 enforced when it
@@ -557,7 +547,7 @@ def _check(statement: bytes, *, receipt: bytes, receipt_key: bytes, statement_ke
                                   ignored_keys=tuple(ignored), **seen)
         if hashlib.sha256(verdict.payload).digest() != st.payload:
             raise _Refused("digest_mismatch", "the payload is not SHA-256 over B of the presented receipt")
-        if json.loads(verdict.payload)["model_id_commit"] != ph[_CWT][_SUB]:
+        if loads_strict(verdict.payload)["model_id_commit"] != ph[_CWT][_SUB]:
             raise _Refused("subject_mismatch", "sub is not the model commitment of the presented receipt")
         return StatementCheck(ACCEPTED, "the statement cites the presented receipt under a relying-party key",
                               ignored_keys=tuple(ignored), **seen)
@@ -596,7 +586,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
         raise ReceiptCoseError("the signer must be an Ed25519 private key")
     if type(issuer) is not str or not _URI_RE.match(issuer):
         raise ReceiptCoseError("issuer must be an absolute URI (RFC 3986 section 4.3)")
-    cbor2 = _cbor2()
+    _cbor2()
     verdict = verify_signed_eval_receipt(receipt, receipt_key)
     if verdict.resource_limit:
         raise ReceiptCoseError(f"the receipt check stopped at a resource limit ({verdict.reason}); no statement "
@@ -605,7 +595,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
         raise ReceiptCoseError(f"the receipt does not verify (step {verdict.step_label}: {verdict.reason}); "
                                "no statement is made")
     digest = hashlib.sha256(verdict.payload).digest()
-    subject = json.loads(verdict.payload)["model_id_commit"]
+    subject = loads_strict(verdict.payload)["model_id_commit"]
     public = signer.public_key().public_bytes_raw()
     protected = {_ALG: alg, _KID: cose_key_thumbprint(public), _CWT: {_ISS: issuer, _SUB: subject},
                  _HASH_ALG: _SHA256, _PREIMAGE_CTY: RECEIPT_TYPE}
@@ -616,8 +606,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     if not check.ok:
         raise ReceiptCoseError(f"the statement did not read back as written: {check.status}, {check.detail}")
     # A second, foreign decoder reads it back too: cbor2 in its strict mode, the [scitt] extra.
-    foreign = _loads(cbor2, data)
-    if not (isinstance(foreign, cbor2.CBORTag) and foreign.tag == _TAG_SIGN1 and foreign.value[0] == protected_raw
-            and _loads(cbor2, protected_raw) == protected):
-        raise ReceiptCoseError("the statement did not read back as written with cbor2")
+    problem = _second.read_back_problem(data, protected_raw, protected, _TAG_SIGN1)
+    if problem is not None:
+        raise ReceiptCoseError(problem)
     return data

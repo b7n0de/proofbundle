@@ -185,7 +185,9 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
     if _deeper_than_limit(text):
         raise _Limit(f"{what} nests arrays and objects deeper than {_MAX_DEPTH}")
 
-    def pairs(items):
+    # The name is the one `tests/test_strict_decoding_guard.py` knows as a strict hook: the guard runs this function
+    # on duplicate member names and counts the call below as strict only because the hook refuses each of them.
+    def _reject_duplicate_keys(items):
         seen: dict = {}
         for name, value in items:
             _check_text(name, what, step)
@@ -198,7 +200,7 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
         raise _Fail(step, f"{what} contains {name}, which is not JSON")
 
     try:
-        value = json.loads(text, object_pairs_hook=pairs, parse_int=_Number, parse_float=_Number,
+        value = json.loads(text, object_pairs_hook=_reject_duplicate_keys, parse_int=_Number, parse_float=_Number,
                            parse_constant=no_constant)
     except _Fail:
         raise

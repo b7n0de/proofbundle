@@ -187,6 +187,7 @@ STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members"}
 #: path -> number of functions defined there under a name of STRICT_HOOKS
 STRICT_HOOK_SITES = {
     "src/proofbundle/_strict_json.py": 1,
+    "src/proofbundle/signed_eval_receipt.py": 1,
     "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
     "docs/scitt/statement_identification/package/verify.py": 1,
 }
@@ -201,6 +202,13 @@ NOT_DECODING = {
 
 #: path -> (number of lax decode references, reason they lie outside a verify path)
 EXCEPTIONS = {
+    "src/proofbundle/_receipt_cose_cbor2.py": (
+        4, "the second reader of receipt_cose: a probe on the constant empty map that cbor2 refuses duplicate keys and "
+           "indefinite lengths, and cbor2 in that strict mode reading back the statement the forward direction has just "
+           "written; every verdict on a statement comes from receipt_cose's own strict reader"),
+    "src/proofbundle/signed_eval_receipt.py": (
+        3, "names_receipt_type, a dispatch question asked leniently on purpose: it decides which procedure reads a "
+           "file and vouches for nothing, and the receipt procedure it hands to refuses a repeated name at step 1"),
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
     "src/proofbundle/trust_pack.py": (1, "reads back the RFC 8785 bytes it just wrote from an already parsed object"),
     "tools/cap1_unabhaengige_umsetzung/lauf.py": (
@@ -215,6 +223,9 @@ EXCEPTIONS = {
     "tools/merkle_accumulator/accumulator.py": (
         1, "reads back the canonical bytes of a state whose signature was verified one line before"),
     "tools/merkle_accumulator/render_runs.py": (1, "renders recorded run summaries for reading, decides nothing"),
+    "tools/receipt_cose_vectors/generate.py": (
+        3, "generator of tests/fixtures/receipt_cose/vectors.json: reads the Draft 1 fixture of this repository and a "
+           "receipt it has just built, writes test input and judges nothing"),
     "tools/pb_verify_rs/crosscheck.py": (
         16, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
             "under the alias _json build its own test inputs"),
