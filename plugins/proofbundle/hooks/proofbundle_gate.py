@@ -5007,7 +5007,7 @@ class Verdict:
     """
 
     __slots__ = ("decision", "detail", "reason_id", "evidence", "failed", "next_step", "digests", "repo", "head",
-                 "reads")
+                 "reads", "sources_clean")
 
     def __init__(self, decision: str, detail: str, reason_id: str, evidence: str = "", failed: str = "",
                  next_step: str = "", digests: tuple = (), repo: str | None = None, head: str | None = None,
@@ -5016,6 +5016,7 @@ class Verdict:
         self.evidence, self.failed, self.next_step = evidence, failed, next_step
         self.digests, self.repo, self.head = tuple(digests), repo, head
         self.reads = tuple(reads)   # owner choice 3 A: the evidence bytes a push's source check read (_source_reads)
+        self.sources_clean = False   # D87: a push asked only for its destination, the evidence at what it sends clean
 
     def text(self) -> str:
         if self.decision in ("pass", "inactive", "handover"):
@@ -7900,7 +7901,10 @@ def _evaluate_push_d3(directory: str, push_args: list[str] | None, deadline: flo
                              "to need no question, install Level 2 in this repository yourself with "
                              f"`{_shell_command('python3', os.path.realpath(__file__), 'install-pre-push', '--repo', repo)}`"
                              " (optional, D24B; the gate installs nothing)")
-            return _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
+            verdict = _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
+            # D87: the evidence at every commit the push sends showed no failure (the evidence rules D87 compares itself)
+            verdict.sources_clean = note is None
+            return verdict
         except Exception as exc:
             _keep_reads(exc, reads, head_commit)
             raise
@@ -13202,6 +13206,9 @@ _SHORT_REASONS = {
     "push_unmeasured": ("D86", "the gate cannot measure where the push goes",
                         "das Tor nicht messen kann, wohin der Push geht"),
     "push_delete": ("D86", "the push deletes a branch of the remote", "der Push einen entfernten Zweig löscht"),
+    # the standing GO for the own work branch (D87): a pass the user sees
+    "free_work_branch_go": ("D87", "an own work branch under the standing GO, measured",
+                            "ein eigener Arbeitszweig unter dem stehenden GO, gemessen"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
@@ -13223,6 +13230,7 @@ _SHORT_TEMPLATES = {
            "stop": "Gate holds the end because {reason} ({d}).",
            "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25).",
            "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
+           "go": "Gate lets {step} run: an own work branch under the standing GO, measured (D87).",
            "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
            "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
@@ -13231,6 +13239,7 @@ _SHORT_TEMPLATES = {
            "stop": "Tor hält das Ende auf, weil {reason} ({d}).",
            "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25).",
            "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
+           "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen (D87).",
            "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d})."},
 }
 _SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
@@ -13382,6 +13391,11 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
     person set. Under Codex an ask is a deny, and its short line says that Codex cannot ask (D12)."""
     environ = os.environ if environ is None else environ
     decision = outcome.decision
+    if decision == "pass" and (getattr(outcome, "autonomy", None) or {}).get("klasse") == "go":
+        # D87: a push the standing GO frees stays visible, as a call a rule frees does: one line, no decision
+        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form="go")
+        return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                               "additionalContext": outcome.text}}
     if decision == "pass":
         if not any(v.reason_id == "approved_by_rule" for v in outcome.verdicts):
             return None
@@ -14076,7 +14090,8 @@ _PUSH_REASONS = {
 def _autonomy_push(outcome: "Outcome", words: list[str], cwd: str, deadline: float, environ: dict) -> "Outcome":
     """D86 for an ask of decide() for one `git push` call under Claude Code: a deny of its own reason for force, a
     mirror, a protected branch and a push whose targets the gate cannot measure; an ask of its own reason for a push
-    that deletes a remote branch; an ask of the closed list for a tag and for every other branch."""
+    that deletes a remote branch; an ask of the closed list for a tag and for every other branch; and D87 for the own
+    work branch under the standing GO."""
     m = _push_measure(words, cwd, deadline)
     reason, dest = None, None
     if m.force:
@@ -14108,7 +14123,80 @@ def _autonomy_push(outcome: "Outcome", words: list[str], cwd: str, deadline: flo
         return _autonomy_record(new, "aussen", wirkung=["push_delete"])
     if m.tags:
         return _autonomy_record(outcome, "aussen", wirkung=["tag"])
-    return _autonomy_record(outcome, "aussen", wirkung=["push"])
+    return _autonomy_go(outcome, m, words, deadline, environ) or _autonomy_record(outcome, "aussen", wirkung=["push"])
+
+
+# --- D87: a push to the own work branch under the standing GO, once measured (Nachtrag 35, point 5) -----------------
+
+#: D87: the own work branches of the standing GO under Claude Code (AGENTS.md: agents work on branches named
+#: <agent>/<topic>; this host's agent is claude). Owner question O35-3.
+GO_WORK_BRANCH_PREFIX = "refs/heads/claude/"
+
+
+def _go_rules_equal(m: "_PushMeasure", words: list[str], deadline: float) -> bool:
+    """D87, the evidence rules of D20: the rules at the commit the push sends (_rules_at) equal those at every local
+    record of its destination (_destination_records), or, where there is none (a new branch), those at the local record
+    of the branch the remote's HEAD names (refs/remotes/<remote>/HEAD), the branch the work goes back to. No record,
+    an unreadable side or a difference keeps the ask."""
+    _remote, specs, _options, unmodeled = _push_words(words[words.index("push") + 1:])
+    if unmodeled is not None or len(specs) > 1:
+        return False
+    src, sep, dst = (specs[0].partition(":") if specs else ("HEAD", "", ""))
+    source = _push_source(m.repo, src, deadline)
+    value = (dst if sep else _source_full_name(m.repo, src, deadline)) if specs else m.dests[0]
+    if source is None or value is None:
+        return False
+    records, _why = _destination_records(m.repo, m.remote, [value], deadline)
+    if records is None:
+        return False
+    commits = [commit for _local, _name, commit in records]
+    if not commits:
+        head = _git(m.repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/{m.remote}/HEAD^{{commit}}",
+                    deadline=deadline)
+        if head.returncode != 0 or not head.stdout.strip():
+            return False
+        commits = [head.stdout.decode().strip()]
+    rules = _rules_at(m.repo, source, deadline)
+    return rules[0] != "unreadable" and all(_rules_at(m.repo, commit, deadline) == rules for commit in commits)
+
+
+def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadline: float,
+                 environ: dict) -> "Outcome | None":
+    """D87: a pass for one `git push` under Claude Code whose every condition the gate measured: decide() asked only
+    because the destination's state on the remote is not measured (push_not_measured), after the evidence at every
+    commit the push sends showed no failure (Verdict.sources_clean); D86 measured exactly one destination, an own work
+    branch (GO_WORK_BRANCH_PREFIX and the branch grammar of the fetch form), with no force, mirror, deletion or tag, to
+    a configured remote; the repository is one of D71 (it declares, and every URL of every remote is a repository of
+    WORK_OWNER on github.com); the push configuration adds nothing the command does not name and the push URL is the
+    fetch URL; GIT_NAMESPACE is unset; the evidence rules at the commit it sends equal those of a local record
+    (_go_rules_equal, D20). Else None, and the ask stays."""
+    dests = m.dests or []
+    if len(dests) != 1 or not dests[0].startswith(GO_WORK_BRANCH_PREFIX) or m.force or m.mirror or m.delete or \
+            m.tags or m.why is not None or m.remote is None or m.repo is None:
+        return None
+    if not _fetch_branch(dests[0][len("refs/heads/"):]) or _git_namespace() is not None:
+        return None
+    if not outcome.verdicts or any(v.reason_id != "push_not_measured" or not v.sources_clean
+                                   for v in outcome.verdicts):
+        return None
+    try:
+        if _work_repo_problem(m.repo, deadline, environ) is not None or \
+                _push_config_problem(m.repo, deadline, []) is not None or \
+                _push_adds_unnamed_refs(m.repo, m.remote, deadline) or \
+                not _endpoint_consistent(m.repo, m.remote, deadline) or \
+                not _go_rules_equal(m, words, deadline):
+            return None
+    except GateError:
+        return None
+    verdict = Verdict("pass", f"proofbundle gate: the push to {dests[0]} is free under the standing GO for work "
+                              f"branches. The gate measured its one destination, an own work branch, from its words "
+                              f"and the local refs, with no force, mirror, deletion or tag; the repository at "
+                              f"{m.repo} declares, every remote of it is a repository of {WORK_OWNER} on github.com, "
+                              "the evidence at every commit the push sends showed no failure, and the push "
+                              "configuration adds nothing the command does not name (Nachtrag 35; DECISIONS.md D87).",
+                      "free_work_branch_go", repo=m.repo)
+    new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
+    return _autonomy_record(new, "go", wirkung=["push"])
 
 
 def tree_digest_command(argv: list[str]) -> int:
@@ -17443,7 +17531,8 @@ def main(argv: list[str] | None = None) -> int:
     if verdict is not None:
         printed = None
         try:
-            if verdict.decision != "pass" or any(v.reason_id == "approved_by_rule" for v in verdict.verdicts):
+            if verdict.decision != "pass" or any(v.reason_id == "approved_by_rule" for v in verdict.verdicts) or \
+                    (verdict.autonomy or {}).get("klasse") == "go":
                 printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
             printed = answer(verdict.decision, verdict.text, host=host)

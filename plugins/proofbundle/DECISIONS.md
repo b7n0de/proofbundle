@@ -4294,3 +4294,22 @@ A `$( )` that names the current branch in a push (`git rev-parse --abbrev-ref HE
 symbolic-ref --short HEAD`) is rewritten to HEAD by D85 (push_HEAD), which git pushes as the same branch under its own
 name. Owner question O35-2: m01 and m02 are blocked as the case book says, while the list of point 1 of the order
 named a push to main among the asks. Tests: tests/test_plugin_n35_push_targets_d86.py.
+
+## D87. A push to the own work branch is free under the standing GO, once measured (Nachtrag 35, point 5, 2026-10-18)
+
+The order: a push to an own work branch is to be free under the standing GO for work branches once it is measured.
+AGENTS.md names the work branches `<agent>/<topic>`; under Claude Code the own ones are refs/heads/claude/…
+(GO_WORK_BRANCH_PREFIX, owner question O35-3).
+
+The rule: in the autonomous answer, under Claude Code, one `git push` call passes (free_work_branch_go) where every one of
+these holds: decide() asked only because the destination's state on the remote is not measured (push_not_measured), and
+the evidence at every commit the push sends showed no failure (Verdict.sources_clean, set where the source check ran and
+no local inactivity applied); D86 measured exactly one destination under the prefix, with the branch grammar of the fetch
+form, no force, mirror, deletion or tag, to a configured remote; the repository is one of D71 (its HEAD declares, every
+URL of every remote is a repository of b7n0de on github.com); the push configuration adds nothing the command does not
+name, the push URL is the fetch URL and GIT_NAMESPACE is unset; and the evidence rules at the commit it sends (D20,
+_rules_at) equal those at every local record of the destination or, where there is none (a new branch), at the record
+of the branch refs/remotes/<remote>/HEAD names. The pass shows one line to the user and carries no permission decision,
+as a call a rule frees does (D25); the log keeps the ask of decide() as the verdict. A chain, a step of a chain, a push
+under Codex and every push that misses one condition keep their answer. Nothing else gets freer. Tests:
+tests/test_plugin_n35_work_branch_go_d87.py.
