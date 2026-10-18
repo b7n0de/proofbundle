@@ -4313,3 +4313,20 @@ of the branch refs/remotes/<remote>/HEAD names. The pass shows one line to the u
 as a call a rule frees does (D25); the log keeps the ask of decide() as the verdict. A chain, a step of a chain, a push
 under Codex and every push that misses one condition keep their answer. Nothing else gets freer. Tests:
 tests/test_plugin_n35_work_branch_go_d87.py.
+
+## D88. Owner clicks, detours, catches and blocks, in the log and the bilanz (Nachtrag 35, points 3 and 4, 2026-10-18)
+
+The order: count apart the owner's clicks (asks), the detours (a deny with a rewrite, then free in the new form) and the
+catches; the bilanz per lane (schema b7n0de.plugin_bilanz) carries per period owner_klicks, umwege, faenge and sperren.
+
+The rule: a deny with a rewrite (D85) keeps in the plugin data directory (autonomy-state.json), per session by the sha256
+of its id, the keys of its calls: a sha256 of the words with a hole for the output of an earlier call, and of the path of
+a Write; never the words, which may name a value the gate must not keep. A later call of the same session that the gate
+lets run (no answer, pass, inactive, hand-over) and whose words, or whose Write or Edit path, match a key completes the
+detour once: its log line carries `umweg` with the hints and the time of the deny. At most 8 pending detours per
+session and 64 sessions; a failure there never changes an answer. `proofbundle_gate.py bilanz [--log FILE] [--bahn
+NAME] [--zeitraum tag|gesamt]` reads the log and its rotated part and counts per UTC day (or the whole log): the calls,
+owner_klicks (asks sent under Claude Code), umwege (lines that completed a detour), faenge (asks and denies whose reasons
+name a caught danger, FANG_REASONS, owner question O35-5) and sperren (denies sent), with the asks and the denies per
+reason. The rest of the schema b7n0de.plugin_bilanz is Cowork's and not here (owner question O35-6).
+Tests: tests/test_plugin_n35_counts_d88.py.

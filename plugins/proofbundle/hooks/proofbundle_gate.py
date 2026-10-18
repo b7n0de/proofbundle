@@ -13925,7 +13925,7 @@ def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str,
         shown = [_autonomy_text(call, shown=True) for call in calls]
         new = Outcome("deny", f"{lead} {outcome.text}", list(outcome.verdicts) + [verdict], None, step=outcome.step,
                       cause=outcome.cause or next((v for v in outcome.verdicts if v.decision == "ask"), None))
-        return _autonomy_record(new, "umweg", hinweise=hints, aufrufe=shown)
+        return _autonomy_record(new, "umweg", hinweise=hints, aufrufe=shown, folgen=_autonomy_follows(calls))
     lead = (f"proofbundle gate, autonomous operation (D85): this command is blocked. {_AUTONOMY_NO_WAY[0]}. The gate "
             f"found no rewrite it lets run ({judged or 'none'}). The reason the command was not free:")
     verdict = Verdict("deny", lead.split(" The reason")[0], "autonomy_blocked", evidence="the words of the command",
@@ -14197,6 +14197,191 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
                       "free_work_branch_go", repo=m.repo)
     new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
     return _autonomy_record(new, "go", wirkung=["push"])
+
+
+# --- D88: owner clicks, detours, catches and blocks, in the log and the bilanz (Nachtrag 35, points 3 and 4) ---------
+
+#: The reasons of an ask or a deny in which the gate caught a danger it names (D88, owner question O35-5): a turned-off
+#: check, a write to the gate or the hooks, a house rule, evidence that failed, a push it blocks or asks for by its
+#: target, code that starts git, a change of a done order. Every other reason is NOT MEASURED, which is no catch.
+FANG_REASONS = frozenset({
+    "hooks_disabled", "write_to_gate_dir", "write_to_repo_state", "house_admin_merge", "house_protection_api",
+    "house_kill_own", "house_kill_pattern", "house_tag_out", "verification_failed", "not_done", "no_receipt",
+    "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
+    "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
+    "push_protected", "push_delete", "push_unmeasured"})
+AUTONOMY_STATE = "autonomy-state.json"
+AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
+MAX_AUTONOMY_STATE_BYTES = 256 * 1024
+_AUTONOMY_KEEP_SESSIONS = 64
+_AUTONOMY_KEEP_PENDING = 8
+BILANZ_SCHEMA = "b7n0de.plugin_bilanz"
+
+
+def _autonomy_key(words: list) -> str:
+    """The key of a call's words for the follow of a detour: sha256 of the words, a hole as one byte 0 (D88). The state
+    keeps keys, never the words, as a command may name a value the gate must not keep."""
+    joined = "\x1f".join("\x00" if isinstance(w, int) else w for w in words)
+    return hashlib.sha256(joined.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def _autonomy_follows(calls: list) -> list:
+    """The follows of a detour's calls: per bash call of one simple command its word count, its hole positions and
+    its key; per Write of a named file the key of the path."""
+    follows = []
+    for call in calls:
+        if call["kind"] == "write" and call["path"]:
+            follows.append({"write": _autonomy_key([os.path.realpath(call["path"])])})
+        elif call["kind"] == "bash" and "words" in call:
+            words = [w if isinstance(w, int) or w != _AUTONOMY_FILE else 0 for w in call["words"]]
+            follows.append({"n": len(words), "holes": [k for k, w in enumerate(words) if isinstance(w, int)],
+                            "key": _autonomy_key(words)})
+    return follows
+
+
+def _autonomy_matches(follow: dict, tool: str, event: dict) -> bool:
+    """Whether a later call of the session is the call a follow names: the same words with any word in a hole, or a
+    Write or Edit of the same file."""
+    if "write" in follow:
+        path = (event.get("tool_input") or {}).get("file_path") if isinstance(event.get("tool_input"), dict) else None
+        return tool in FILE_WRITE_TOOLS and isinstance(path, str) and \
+            _autonomy_key([os.path.realpath(path)]) == follow["write"]
+    if tool != "Bash":
+        return False
+    try:
+        command, _cwd = _command_from_event(event)
+    except GateError:
+        return False
+    words = _autonomy_single(command)
+    if words is None or len(words) != follow["n"]:
+        return False
+    return _autonomy_key([0 if k in follow["holes"] else w for k, w in enumerate(words)]) == follow["key"]
+
+
+def _autonomy_track(host: str, event: object, outcome: "Outcome | None", environ: dict | None = None) -> dict | None:
+    """D88: the detour a call completes, {"hinweise", "seit"}, or None; and the state of pending detours kept up to
+    date. A call that runs (no answer, pass, inactive, hand-over) completes the oldest pending detour of its session one
+    of whose follows it matches; a deny with a rewrite (D85) adds one. The state lies in the plugin data directory, per
+    session by the sha256 of its id, at most _AUTONOMY_KEEP_PENDING per session and _AUTONOMY_KEEP_SESSIONS sessions.
+    Never raises, never changes an answer."""
+    if host != "claude" or not isinstance(event, dict) or not isinstance(event.get("session_id"), str):
+        return None
+    directory = log_directory(host, environ)
+    if directory is None:
+        return None
+    path = os.path.join(directory, AUTONOMY_STATE)
+    try:
+        try:
+            raw = _read_regular(path, MAX_AUTONOMY_STATE_BYTES + 1)
+            state = json.loads(raw) if len(raw) <= MAX_AUTONOMY_STATE_BYTES else {}
+        except FileNotFoundError:
+            state = {}
+        if not isinstance(state, dict) or state.get("schema") != AUTONOMY_STATE_SCHEMA or \
+                not isinstance(state.get("sessions"), dict):
+            state = {"schema": AUTONOMY_STATE_SCHEMA, "sessions": {}}
+        session = hashlib.sha256(event["session_id"].encode("utf-8", "surrogateescape")).hexdigest()[:32]
+        pending = state["sessions"].get(session, [])
+        tool = event.get("tool_name") if isinstance(event.get("tool_name"), str) else "Bash"
+        done, changed = None, False
+        if outcome is None or outcome.decision in ("pass", "inactive", "handover"):
+            for item in pending:
+                if any(_autonomy_matches(f, tool, event) for f in item.get("folgen", [])):
+                    done = {"hinweise": item.get("hinweise", []), "seit": item.get("ts")}
+                    pending.remove(item)
+                    changed = True
+                    break
+        autonomy = getattr(outcome, "autonomy", None) if outcome is not None else None
+        if autonomy and autonomy.get("klasse") == "umweg" and autonomy.get("folgen"):
+            pending.append({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "hinweise": autonomy.get("hinweise", []), "folgen": autonomy["folgen"]})
+            changed = True
+        if changed:
+            state["sessions"].pop(session, None)
+            state["sessions"][session] = pending[-_AUTONOMY_KEEP_PENDING:]
+            while len(state["sessions"]) > _AUTONOMY_KEEP_SESSIONS:
+                state["sessions"].pop(next(iter(state["sessions"])))
+            fd, tmp = tempfile.mkstemp(prefix=".autonomy-", dir=directory)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(state, handle, sort_keys=True)
+            os.replace(tmp, path)
+        return done
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _bilanz_lines(paths: list[str]) -> list[dict]:
+    lines = []
+    for path in paths:
+        try:
+            raw = _read_regular(path, MAX_LOG_BYTES * 4)
+        except OSError:
+            continue
+        for line in raw.decode("utf-8", "replace").splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict) and isinstance(entry.get("ts"), str):
+                lines.append(entry)
+    return sorted(lines, key=lambda e: e["ts"])
+
+
+def bilanz(entries: list[dict], bahn: str = "proofbundle", period: str = "tag") -> dict:
+    """D88 (Nachtrag 35, point 4): the bilanz of the gate's log per period (a UTC day, or the whole log): calls,
+    owner_klicks (asks sent under Claude Code), umwege (calls that completed a detour of D85), faenge (asks and denies
+    whose reasons name a caught danger, FANG_REASONS) and sperren (denies sent), with the asks and the denies per
+    reason. The fields of schema b7n0de.plugin_bilanz are the order's; the rest of that schema is Cowork's (owner
+    question O35-6)."""
+    periods: dict = {}
+    for entry in entries:
+        key = entry["ts"][:10] if period == "tag" else "gesamt"
+        row = periods.setdefault(key, {"von": entry["ts"], "bis": entry["ts"], "aufrufe": 0, "owner_klicks": 0,
+                                       "umwege": 0, "faenge": 0, "sperren": 0, "fragen_je_grund": {},
+                                       "sperren_je_grund": {}})
+        row["bis"] = entry["ts"]
+        row["aufrufe"] += 1
+        decision, reasons = entry.get("decision"), entry.get("reason_ids") or []
+        if decision == "ask" and entry.get("host") == "claude":
+            row["owner_klicks"] += 1
+        if decision == "deny":
+            row["sperren"] += 1
+        if decision in ("ask", "deny"):
+            table = row["fragen_je_grund" if decision == "ask" else "sperren_je_grund"]
+            for reason in dict.fromkeys(reasons):
+                table[reason] = table.get(reason, 0) + 1
+            if FANG_REASONS & set(reasons):
+                row["faenge"] += 1
+        if isinstance(entry.get("umweg"), dict):
+            row["umwege"] += 1
+    return {"schema": BILANZ_SCHEMA, "bahn": bahn, "zeitraum": period,
+            "zeitraeume": [periods[k] for k in sorted(periods)]}
+
+
+def bilanz_command(argv: list[str]) -> int:
+    """`bilanz [--log FILE] [--bahn NAME] [--zeitraum tag|gesamt]`: the bilanz of the gate's log (D88), as JSON on
+    stdout. Without --log the log of the plugin data directory of Claude Code, with its rotated part."""
+    log, bahn, period, i = None, "proofbundle", "tag", 0
+    while i < len(argv):
+        if argv[i] in ("--log", "--bahn", "--zeitraum") and i + 1 < len(argv):
+            log, bahn, period = ((argv[i + 1], bahn, period) if argv[i] == "--log" else
+                                 (log, argv[i + 1], period) if argv[i] == "--bahn" else (log, bahn, argv[i + 1]))
+            i += 2
+            continue
+        print(f"bilanz: unknown argument {argv[i]}", file=sys.stderr)
+        return 2
+    if period not in ("tag", "gesamt"):
+        print("bilanz: --zeitraum is tag or gesamt", file=sys.stderr)
+        return 2
+    if log is None:
+        directory = log_directory("claude")
+        if directory is None:
+            print("bilanz: no plugin data directory", file=sys.stderr)
+            return 2
+        log = os.path.join(directory, LOG_NAME)
+    result = bilanz(_bilanz_lines([log + ".1", log]), bahn, period)
+    result["quelle"] = {"log": os.path.basename(log)}
+    sys.stdout.write(json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n")
+    return 0
 
 
 def tree_digest_command(argv: list[str]) -> int:
@@ -17476,6 +17661,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_order_command(argv[1:])
     if argv[:1] == ["task-completed"]:
         return task_completed_command(argv[1:])
+    if argv[:1] == ["bilanz"]:
+        return bilanz_command(argv[1:])
     if argv[:1] == ["done-statement"]:
         return done_statement_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
@@ -17525,7 +17712,12 @@ def main(argv: list[str] | None = None) -> int:
         verdict = Outcome("deny", failure.text(), [failure])
     if host in HOSTS:
         try:
-            write_log(log_entry(host, event, verdict, actions), host)
+            entry = log_entry(host, event, verdict, actions)
+            completed = (_autonomy_track(host, event, verdict)   # D88: the detour this call completes, if any
+                         if AUTONOMOUS_FLAG in argv else None)
+            if completed is not None:
+                entry["umweg"] = completed
+            write_log(entry, host)
         except Exception:  # noqa: BLE001 - the log never changes the answer
             pass
     if verdict is not None:
