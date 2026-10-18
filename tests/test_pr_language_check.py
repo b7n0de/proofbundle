@@ -1,4 +1,4 @@
-"""Contract for the pr-language-gate, R3 of the standard, in both directions.
+"""Contract for the pr-language-check, R3 of the standard, in both directions.
 
 R3, in English: a catch proof in both directions, a German title red, an English title with an
 English quotation of a German sentence green, a mixed text red.
@@ -6,16 +6,27 @@ English quotation of a German sentence green, a mixed text red.
 Beyond R3 this file pins the exemption that was MEASURED into existence. On 2026-09-13 a naive
 marker scan called pull request 189 German because its English body contains `NICHT MESSBAR`, a
 typed state of this house. The briefing that ordered the work listed 189 as English, and the
-briefing was right. Without the exemption this gate would turn red on precisely the texts that are
+briefing was right. Without the exemption this check would turn red on precisely the texts that are
 most careful about declaring what they did not measure.
+
+It also pins WHERE the check runs (owner decision 2026-10-18, card OA-cb01830123, option A): in its
+own job of `.github/workflows/pr-form.yml`, on the runner's event payload, and nowhere else. The
+events of that file, edits included, are pinned by tests/test_pr_form_gate_in_ci.py. Its own job,
+because a red step skips the steps after it and pr-form.yml carries no `if:`, so a red form gate
+would otherwise hide the language and the other way round.
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
+import subprocess
+
+import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("plg", REPO / "scripts" / "pr_language_gate.py")
+WORKFLOWS = REPO / ".github" / "workflows"
+_spec = importlib.util.spec_from_file_location("plg", REPO / "scripts" / "pr_language_check.py")
 plg = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(plg)
 
@@ -158,3 +169,111 @@ def test_commit_messages_are_checked_too():
                      ["feat: an English commit", "fix: der zweite Commit ist deutsch"])
     assert not erg["sauber"]
     assert any(k.startswith("commit") for k in erg["befunde"]), erg["befunde"]
+
+
+# ── The event payload, and the commits between its base and head ────────────────────────────────
+
+def _ereignis(tmp_path: pathlib.Path, pr: dict) -> str:
+    pfad = tmp_path / "event.json"
+    pfad.write_text(json.dumps({"action": "edited", "pull_request": pr}), encoding="utf-8")
+    return str(pfad)
+
+
+def _git(repo: pathlib.Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                           "-c", "commit.gpgsign=false", *args],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+@pytest.fixture
+def zwei_commits(tmp_path):
+    """A repository with a base commit and two commits after it, the second one German."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "chore: the base")
+    basis = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "feat: an English commit")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "fix: der zweite Commit ist deutsch, wenn er nicht stimmt")
+    return repo, basis, _git(repo, "rev-parse", "HEAD")
+
+
+def test_the_event_payload_gives_title_body_base_and_head(tmp_path):
+    pfad = _ereignis(tmp_path, {"title": "docs: a title", "body": None,
+                                "base": {"sha": "a" * 40}, "head": {"sha": "b" * 40}})
+    assert plg.aus_ereignis(pfad) == ("docs: a title", "", "a" * 40, "b" * 40)
+
+
+def test_the_commits_between_base_and_head_are_read_and_judged(zwei_commits, tmp_path, monkeypatch):
+    repo, basis, kopf = zwei_commits
+    assert [c.strip() for c in plg.commit_nachrichten(basis, kopf, repo=str(repo))] == [
+        "fix: der zweite Commit ist deutsch, wenn er nicht stimmt", "feat: an English commit"]
+    monkeypatch.chdir(repo)
+    pfad = _ereignis(tmp_path, {"title": "docs: a title", "body": "An English body.",
+                                "base": {"sha": basis}, "head": {"sha": kopf}})
+    assert plg.main(["--event", pfad]) == 1, "the German commit must make the check red"
+
+
+def test_an_english_pull_request_read_from_the_event_is_clean(zwei_commits, tmp_path, monkeypatch):
+    """The other direction: the same repository up to the English commit only."""
+    repo, basis, _ = zwei_commits
+    englisch = _git(repo, "rev-parse", "HEAD~1")
+    monkeypatch.chdir(repo)
+    pfad = _ereignis(tmp_path, {"title": "docs: a title", "body": "An English body.",
+                                "base": {"sha": basis}, "head": {"sha": englisch}})
+    assert plg.main(["--event", pfad]) == 0
+
+
+@pytest.mark.parametrize("pr", [
+    {"title": "docs: a title", "body": ""},
+    {"title": "docs: a title", "body": "", "base": {"sha": "a" * 40}, "head": {"sha": "--output=/tmp/x"}},
+    {"title": "docs: a title", "body": "", "base": {"sha": "A" * 40}, "head": {"sha": "b" * 40}},
+])
+def test_a_payload_without_two_commits_is_not_measurable_never_clean(tmp_path, pr):
+    """A check that reads no commits and reports clean would be green without a measurement, and a
+    value that is no commit never reaches git as an argument."""
+    assert plg.main(["--event", _ereignis(tmp_path, pr)]) == 2
+
+
+def test_a_commit_git_does_not_have_is_not_measurable(zwei_commits, tmp_path, monkeypatch):
+    repo, basis, _ = zwei_commits
+    monkeypatch.chdir(repo)
+    pfad = _ereignis(tmp_path, {"title": "docs: a title", "body": "",
+                                "base": {"sha": basis}, "head": {"sha": "c" * 40}})
+    assert plg.main(["--event", pfad]) == 2
+
+
+# ── Where the check runs ─────────────────────────────────────────────────────────────────────────
+
+CHECK_CALL = 'python scripts/pr_language_check.py --event "$GITHUB_EVENT_PATH"'
+
+
+def _workflow(name: str) -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+
+
+def _check_steps(workflow: dict) -> list[tuple[str, dict]]:
+    return [(name, step) for name, job in (workflow.get("jobs") or {}).items()
+            for step in job.get("steps") or [] if "pr_language_check.py" in str(step.get("run") or "")]
+
+
+def test_the_check_runs_in_its_own_job_of_pr_form_on_the_event_payload():
+    form = _workflow("pr-form.yml")
+    steps = _check_steps(form)
+    assert len(steps) == 1, f"{len(steps)} steps run the check, not one"
+    (job, step), = steps
+    assert job != next(iter(form["jobs"])), (
+        "the check shares the job of the form gate, so a red step there would skip it")
+    assert str(step["run"]).strip() == CHECK_CALL
+    assert not any("${{" in str(v) for v in (step.get("env") or {}).values()), (
+        "an expression reaches the step's environment")
+    checkout = [s for s in form["jobs"][job]["steps"] if str(s.get("uses") or "").startswith("actions/checkout@")]
+    assert len(checkout) == 1 and (checkout[0].get("with") or {}).get("fetch-depth") == 0, (
+        "git log base..head needs the history of the pull request")
+
+
+def test_no_other_workflow_runs_the_check():
+    others = sorted(p.name for p in WORKFLOWS.glob("*.y*ml")
+                    if p.name != "pr-form.yml" and _check_steps(_workflow(p.name)))
+    assert others == [], f"the check runs outside pr-form.yml: {others}"

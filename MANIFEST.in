@@ -153,11 +153,12 @@ include Makefile
 # outside. Its contract `tests/test_pr_form_gate.py` loads it through `spec_from_file_location` on
 # module level, so `tests/conftest.py` reports the module as a skip outside a checkout.
 #
-# OUT, and deliberately decided (2026-10-17): scripts/pr_language_gate.py. It checks the language of
+# OUT, and deliberately decided (2026-10-17): scripts/pr_language_check.py. It checks the language of
 # the title, the body and the commit messages of one pull request of this repository, and
-# `.github/workflows/ci.yml` runs it on every pull request. An installed package has no pull request,
-# the same reason `b7_pr_form_gate.py` stands outside. Its contract `tests/test_pr_language_gate.py`
-# loads it on module level, so `tests/conftest.py` reports the module as a skip outside a checkout.
+# `.github/workflows/pr-form.yml` runs it on every pull request. An installed package has no pull
+# request, the same reason `b7_pr_form_gate.py` stands outside. Its contract
+# `tests/test_pr_language_check.py` loads it on module level, so `tests/conftest.py` reports the
+# module as a skip outside a checkout.
 #
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert

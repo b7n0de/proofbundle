@@ -411,9 +411,9 @@ AUSGESCHLOSSEN = {
     # landung.yml runs it before the mutation layer. Same reasoning as the sibling one line up.
     "landung_waits_for_ci.py": "asks the GitHub API for the ci.yml jobs of one pull request head; no pull request inside a package",
     # 2026-10-17: checks the language of the title, the body and the commit messages of one pull
-    # request, and ci.yml runs it on every pull request. An installed package has no pull request.
+    # request, and pr-form.yml runs it on every pull request. An installed package has no pull request.
     # Same reasoning as `b7_pr_form_gate.py` above.
-    "pr_language_gate.py": "checks the language of one pull request's texts; no pull request inside a package",
+    "pr_language_check.py": "checks the language of one pull request's texts; no pull request inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

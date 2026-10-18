@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pr-language-gate — on GitHub we always write English.
+"""pr-language-check — on GitHub we always write English.
 
 Standard: the house standard "on GitHub we always write English" of 2026-09-13, rules R1 (marker
 list), R2 (this job), R3 (the two-way catch proof).
@@ -8,7 +8,18 @@ WHY THIS EXISTS, measured: on 2026-09-13 PR 201 was written entirely in German a
 German title over an English body. Both were repaired by hand. A rule that lives only in prose gets
 followed until someone is in a hurry.
 
-THE ONE THING THIS GATE MUST NOT DO is flag its own house vocabulary. Measured on PR 189 the same
+A CHECK, NOT A GATE (owner decision 2026-10-18, card OA-cb01830123, option A). It runs as its own job
+of `.github/workflows/pr-form.yml`, on every event that changes the title, the body or the commits,
+edits included, and like the form gate there it is not a required context of the ruleset
+protect-main: its red shows and blocks no merge until the owner makes it required. Codex threads
+4303690781 and 4303690782 on pull request 377 found the first form, a job in ci.yml, named a gate
+that bound nothing and judged an edited text never.
+
+With `--event` it reads the title, the body and the base and head commits of the pull request from
+the runner's own event payload and the commit messages from `git log base..head`, so no text of the
+pull request is spliced into a command line.
+
+THE ONE THING THIS CHECK MUST NOT DO is flag its own house vocabulary. Measured on PR 189 the same
 day: a naive marker scan reported it as German because the body contains `NICHT MESSBAR`, which is a
 typed state of this house used as a term of art inside an English sentence. The order's own briefing
 listed 189 as English, and it was right. A gate that cannot tell a declared state name from German
@@ -26,7 +37,9 @@ Two escapes, both narrow and both declared:
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,20 +119,58 @@ def pruefe(titel: str, text: str, commits: list[str] | None = None) -> dict:
     return {"sauber": not befunde, "befunde": befunde}
 
 
+#: A commit as the event payload names it. Anything else is not handed to git, so no value of the
+#: payload can become an option of `git log`.
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def aus_ereignis(pfad: str) -> tuple[str, str, str, str]:
+    """Title, body, base commit and head commit of the pull request in the runner's event payload.
+    GitHub writes `null` for an empty body, which reads as the empty text."""
+    with open(pfad, encoding="utf-8") as f:
+        pr = (json.load(f) or {}).get("pull_request") or {}
+    return (pr.get("title") or "", pr.get("body") or "",
+            (pr.get("base") or {}).get("sha") or "", (pr.get("head") or {}).get("sha") or "")
+
+
+def commit_nachrichten(basis: str, kopf: str, repo: str = ".") -> list[str]:
+    """The messages of the commits basis..kopf, read with git in `repo`."""
+    r = subprocess.run(["git", "-C", repo, "log", "--format=%B%x00", f"{basis}..{kopf}"],
+                       capture_output=True, text=True, check=True)
+    return [c for c in r.stdout.split("\0") if c.strip()]
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="on GitHub we always write English")
+    p.add_argument("--event", help="the runner's event payload; title, body and base..head come from it")
     p.add_argument("--title", default="")
     p.add_argument("--body-file")
     p.add_argument("--commits-file")
     a = p.parse_args(argv)
-    body = open(a.body_file, encoding="utf-8").read() if a.body_file else ""
-    commits = (open(a.commits_file, encoding="utf-8").read().split("\0")
-               if a.commits_file else [])
-    erg = pruefe(a.title, body, [c for c in commits if c.strip()])
+    if a.event:
+        if a.title or a.body_file or a.commits_file:
+            p.error("--event reads the title, the body and the commits itself")
+        titel, body, basis, kopf = aus_ereignis(a.event)
+        if not (_SHA.fullmatch(basis) and _SHA.fullmatch(kopf)):
+            # A check that reads no commits and reports clean would be green without a measurement.
+            print("pr-language-check: NOT MEASURABLE, the event payload names no base and head commit")
+            return 2
+        try:
+            commits = commit_nachrichten(basis, kopf)
+        except subprocess.CalledProcessError as e:
+            print(f"pr-language-check: NOT MEASURABLE, git log {basis[:12]}..{kopf[:12]} failed: "
+                  f"{(e.stderr or '').strip()[:200]}")
+            return 2
+    else:
+        titel = a.title
+        body = open(a.body_file, encoding="utf-8").read() if a.body_file else ""
+        commits = (open(a.commits_file, encoding="utf-8").read().split("\0")
+                   if a.commits_file else [])
+    erg = pruefe(titel, body, [c for c in commits if c.strip()])
     if erg["sauber"]:
-        print("pr-language-gate: clean, no German prose in title, body or commit messages")
+        print("pr-language-check: clean, no German prose in title, body or commit messages")
         return 0
-    print("pr-language-gate: German prose found. On GitHub we always write English.")
+    print("pr-language-check: German prose found. On GitHub we always write English.")
     for ort, tr in erg["befunde"].items():
         print(f"  {ort}: {len(tr)} marker(s) -> {sorted(set(t.lower() for t in tr))[:8]}")
     print("  Typed house states and quoted matter are exempt; these hits are prose.")
