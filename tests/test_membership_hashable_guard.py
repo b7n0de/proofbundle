@@ -596,14 +596,12 @@ _LOOKUPS_CLASSIFIED = {
         (1, "own value: the attribute protocol passes a str"),
     ("proofbundle/agent_review.py", "evaluate_time_policy", "_POLICY_ACHSE", "art"):
         (1, "guarded: isinstance(art, str) and is_member(art, _POLICY_ACHSE) return before it"),
-    ("proofbundle/anchors.py", "verify_anchor", "_VERIFIERS", "atype"):
-        (1, "guarded: isinstance(atype, str) and is_member(atype, _VERIFIERS) return before it"),
     ("proofbundle/hashalg.py", "resolve_hash_alg", "HASH_REGISTRY", "alg_id"):
         (1, "guarded: a non-str alg_id raises MissingHashAlgId before it"),
     ("proofbundle/intoto.py", "to_test_result_statement", "_RESULT_ENUM", "verdikt"):
         (1, "own value: require_bool_verdict returns a bool or raises"),
     ("proofbundle/kbjwt.py", "verify_key_binding", "_HASH_ALG", "sd_alg"):
-        (1, "guarded: is_member(sd_alg, _HASH_ALG) returns before it"),
+        (2, "guarded: is_member(sd_alg, _HASH_ALG) returns before both"),
     ("proofbundle/policy_profiles.py", "canonical_profile_name", "PROFILE_ALIASES", "short"):
         (1, "guarded: is_member(short, PROFILE_ALIASES) in the same branch"),
     ("proofbundle/policy_profiles.py", "profile_path", "PROFILE_ALIASES", "short"):
@@ -623,8 +621,6 @@ _LOOKUPS_CLASSIFIED = {
     # Three more, seen once imported containers counted (gate run 1 on 11110281, 234-1-02).
     ("proofbundle/renewal.py", "_is_deprecated_hash", "HASH_REGISTRY", "alg"):
         (1, "guarded: a non-str alg returns False before it"),
-    ("proofbundle/renewal.py", "verify_sequence", "HASH_REGISTRY", "newest.hash_alg"):
-        (1, "guarded: isinstance(newest.hash_alg, str) in the same expression"),
     ("proofbundle/cli.py", "_cmd_verify", "AUTOMATION_BLOCKER_REASONS", "_blk"):
         (1, "own value: bundle.py builds automationBlockers from string literals only"),
     # Two writes, seen once a write hashes its key as a read does (the 228bc stack delta, D-2).
@@ -632,6 +628,66 @@ _LOOKUPS_CLASSIFIED = {
         (1, "guarded: a type_name that is no non-empty str raises BundleFormatError before it"),
     ("proofbundle/anchors.py", "_ensure_builtin_types", "_VERIFIERS", "anchors_chia.ANCHOR_TYPE"):
         (1, "own value: anchors_chia.ANCHOR_TYPE is the string literal \"chia-datalayer/v1\""),
+    # Measured on 2026-10-18 when this guard was carried onto the tree of main 570dd164 (OA-dc1b90083c, A):
+    # sites that reached main after 2026-09-27, each read where it stands before it was classified.
+    ("proofbundle/_membership.py", "type_name", "FREMDKOERPER_KLASSEN", "id(typ)"):
+        (1, "own value: id() returns an int"),
+    ("proofbundle/_membership.py", "type_name", "_BUILTIN_TYPES", "name"):
+        (2, "own value: name is an exact str, the one a stand-in class recorded or the one read through the getter of type or str.__str__"),
+    ("proofbundle/adapters/agt_receipt.py", "_abgewiesen", "TRUST_ANCHOR_REFUSAL", "grund"):
+        (1, "own value: every caller passes what _schwaeche returned after `is not None`, the literal \"low-order\" or \"non-canonical\""),
+    ("proofbundle/adapters/agt_receipt.py", "_vertrauensliste", "_NICHT_LESBAR", "art"):
+        (1, "guarded: is_member(art, _NICHT_LESBAR) in the same branch"),
+    ("proofbundle/canonical.py", "_fremdkoerper", "FREMDKOERPER_KLASSEN", "id(klasse)"):
+        (1, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_fremdkoerper", "_EINGEBAUT", "roh"):
+        (1, "own value: roh is the exact str _roher_typname returns"),
+    ("proofbundle/canonical.py", "_fremdkoerper", "_FREMDKOERPER_JE_TYP", "id(typ)"):
+        (2, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_fremdwert", "_FREMDWERT_JE_TYP", "(id(typ), basis)"):
+        (2, "own value: a tuple of an int from id() and a class of this package"),
+    ("proofbundle/canonical.py", "_in_der_klasse", "_ABWEISUNGSKLASSEN", "(basis, weitere)"):
+        (2, "own value: the class of a refusal of the reading and the classes its decorator's fehler= names"),
+    ("proofbundle/canonical.py", "_methoden_von", "_METHODEN_JE_TYP", "id(typ)"):
+        (2, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_paket_gesammelt", "_PAKETKLASSEN", "id(wert)"):
+        (1, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_paket_gesammelt", "_PAKETTYPEN", "id(wert)"):
+        (1, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_paketklasse", "_PAKETKLASSEN", "id(typ)"):
+        (2, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_pakettyp", "_PAKETTYPEN", "id(typ)"):
+        (2, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_type_name", "FREMDKOERPER_KLASSEN", "id(typ)"):
+        (1, "own value: id() returns an int"),
+    ("proofbundle/canonical.py", "_type_name", "_EINGEBAUT", "name"):
+        (2, "own value: name is an exact str, the one a stand-in class recorded or the one read through the getter of type or str.__str__"),
+    ("proofbundle/canonical.py", "_vertrag_angewandt", "_AUSSEN_ERLAUBT", "art"):
+        (1, "own value: art is a value of the aussen= contract this package's decorator declares, a string literal"),
+    ("proofbundle/checkpoint.py", "_refuse_weak_ed25519_vkey", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
+    ("proofbundle/cli.py", "_refuse_weak_issuer_pins", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (1, "own value: evalclaim._issuer_key_weakness returns a string literal or None, and None returned before it"),
+    ("proofbundle/intoto.py", "_refuse_to_vouch_for_a_key_nobody_holds", "TRUST_ANCHOR_REFUSAL", "grund"):
+        (1, "own value: evalclaim._issuer_key_weakness returns a string literal or None, and None returned before it"),
+    ("proofbundle/intoto.py", "_verdict_agreement", "_RESULT_ENUM", "urteil"):
+        (2, "own value: urteil is a bool, since urteile takes a value only when isinstance(passed, bool), and bool has no subclass"),
+    ("proofbundle/policy.py", "_ungehandhabte_regeln", "ANGEWANDTE_REGELN", "pfad"):
+        (1, "own value: every caller of _regelfehler passes a string literal"),
+    ("proofbundle/policy.py", "_ungehandhabte_regeln", "_ERLAUBNIS_BRAUCHT", "(abschnitt, schluessel)"):
+        (1, "own value: a pair from the module-level _REGELN of this package"),
+    ("proofbundle/policy.py", "_validate_pinned_ed25519_pubkey", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (2, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
+    ("proofbundle/pytest_plugin.py", "_verdict_from_the_counts", "_COMPARE", "comparator"):
+        (1, "guarded: is_member(comparator, _COMPARATORS) returns before it, and _COMPARE has exactly those keys"),
+    ("proofbundle/renewal.py", "verify_sequence", "HASH_REGISTRY", "_neuester_alg"):
+        (1, "guarded: isinstance(_neuester_alg, str) in the same expression"),
+    ("proofbundle/sdjwt.py", "issuer_key_fingerprint", "_ISSUER_FP_PREFIX", "alg"):
+        (1, "guarded: isinstance(alg, str) in the same expression"),
+    ("proofbundle/sdjwt_issue.py", "issue_sd_jwt", "TRUST_ANCHOR_REFUSAL", "schwaeche"):
+        (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
+    ("proofbundle/trust_pack.py", "validate_trust_pack_predicate", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
 }
 
 
@@ -704,16 +760,6 @@ _OTHER_USES_CLASSIFIED = {
      "validate_agent_review_v02_predicate(_producer_zusatz=)"):
         (1, "passed to validate_agent_review_v02_predicate: it reaches `k in producer_zusatz` only after "
          "k == \"verifier\""),
-    ("proofbundle/anchors.py", "verify_anchor", "_ANCHOR_KEYS", "Sub set(anchor)"):
-        (1, _OWN_SET.format(x="anchor", what="a dict (isinstance(anchor, dict) returns before it)")),
-    ("proofbundle/bundle.py", "verify_bundle", "_MERKLE_KEYS", "_reject_unknown(argument 2)"):
-        (1, _REJECT_UNKNOWN),
-    ("proofbundle/bundle.py", "verify_bundle", "_SD_KEYS", "_reject_unknown(argument 2)"):
-        (1, _REJECT_UNKNOWN),
-    ("proofbundle/bundle.py", "verify_bundle", "_SIG_KEYS", "_reject_unknown(argument 2)"):
-        (1, _REJECT_UNKNOWN),
-    ("proofbundle/bundle.py", "verify_bundle", "_TOP_KEYS", "_reject_unknown(argument 2)"):
-        (1, _REJECT_UNKNOWN),
     ("proofbundle/cap1.py", "_is_digest", "_HEX", "LtE set(x)"):
         (1, _OWN_SET.format(x="x", what="a str (isinstance(x, str) in the same expression)")),
     ("proofbundle/decision.py", "validate_decision_predicate", "_NESTED_ALLOWED",
@@ -722,14 +768,6 @@ _OTHER_USES_CLASSIFIED = {
     ("proofbundle/decision.py", "validate_decision_predicate", "_NESTED_TYPES",
      "nested_type_violations(argument 2)"):
         (1, _NESTED.format(fn="nested_type_violations")),
-    ("proofbundle/evalclaim.py", "decode_eval_claim", "_OPTIONAL", "Sub set(claim) - _REQUIRED"):
-        (1, _OWN_SET.format(x="claim", what="a dict (load_claim_text returns a dict or raises)")),
-    ("proofbundle/evalclaim.py", "decode_eval_claim", "_REQUIRED", "Sub set(claim)"):
-        (2, _OWN_SET.format(x="claim", what="a dict (load_claim_text returns a dict or raises)")),
-    ("proofbundle/evalclaim.py", "emit_eval_receipt", "_OPTIONAL", "Sub set(claim) - _REQUIRED"):
-        (1, _OWN_SET.format(x="claim", what="dict(claim)")),
-    ("proofbundle/evalclaim.py", "emit_eval_receipt", "_REQUIRED", "Sub set(claim)"):
-        (2, _OWN_SET.format(x="claim", what="dict(claim)")),
     ("proofbundle/outcome.py", "validate_outcome_predicate", "_NESTED_ALLOWED",
      "nested_closure_violations(argument 2)"):
         (1, _NESTED.format(fn="nested_closure_violations")),
@@ -770,6 +808,60 @@ _OTHER_USES_CLASSIFIED = {
     ("proofbundle/trust_pack.py", "verify_trust_pack", "_AUTOMATION_REQUIRED_CHECKS",
      "automation_summary(required_checks=)"):
         (2, "passed to automation_summary: it reads the mapping with literal keys only"),
+    # Measured on 2026-10-18 when this guard was carried onto the tree of main 570dd164 (OA-dc1b90083c, A):
+    # sites that reached main after 2026-09-27 or moved there, each read where it stands.
+    ("proofbundle/anchors.py", "_eintrag_pruefen", "_ANCHOR_KEYS", "Sub set(anchor)"):
+        (1, _OWN_SET.format(x="anchor", what="the plain copy _eintrag_lesen makes (_plain_for_jcs), at both callers")),
+    ("proofbundle/anchors.py", "verify_anchor", "_VERIFIERS", "_eintrag_pruefen(pruefer=)"):
+        (1, "passed to _eintrag_pruefen: it reads pruefer[atype] only after isinstance(atype, str) and is_member(atype, pruefer)"),
+    ("proofbundle/bundle.py", "_verify_bundle", "_MERKLE_KEYS", "_reject_unknown(argument 2)"):
+        (1, _REJECT_UNKNOWN),
+    ("proofbundle/bundle.py", "_verify_bundle", "_SD_KEYS", "_reject_unknown(argument 2)"):
+        (1, _REJECT_UNKNOWN),
+    ("proofbundle/bundle.py", "_verify_bundle", "_SIG_KEYS", "_reject_unknown(argument 2)"):
+        (1, _REJECT_UNKNOWN),
+    ("proofbundle/bundle.py", "_verify_bundle", "_TOP_KEYS", "_reject_unknown(argument 2)"):
+        (1, _REJECT_UNKNOWN),
+    ("proofbundle/canonical.py", "_fremdkoerper", "FREMDKOERPER_KLASSEN", "_schwach(argument 1)"):
+        (1, "passed to _schwach: its callback reads the cache with the key its caller passed, an int from id() or a tuple of one and a class of this package"),
+    ("proofbundle/canonical.py", "_fremdkoerper", "_FREMDKOERPER_JE_TYP", "_schwach(argument 1)"):
+        (1, "passed to _schwach: its callback reads the cache with the key its caller passed, an int from id() or a tuple of one and a class of this package"),
+    ("proofbundle/canonical.py", "_fremdwert", "_FREMDWERT_JE_TYP", "_schwach(argument 1)"):
+        (1, "passed to _schwach: its callback reads the cache with the key its caller passed, an int from id() or a tuple of one and a class of this package"),
+    ("proofbundle/canonical.py", "_methoden_von", "_METHODEN_JE_TYP", "_schwach(argument 1)"):
+        (1, "passed to _schwach: its callback reads the cache with the key its caller passed, an int from id() or a tuple of one and a class of this package"),
+    ("proofbundle/evalclaim.py", "_claim_violation", "_OPTIONAL", "Sub set(claim) - _REQUIRED"):
+        (1, _OWN_SET.format(x="claim", what="a dict at every caller (the emitter's plain copy, whose type is dict, and load_claim_text, which returns a dict or raises)")),
+    ("proofbundle/evalclaim.py", "_claim_violation", "_REQUIRED", "Sub set(claim)"):
+        (2, _OWN_SET.format(x="claim", what="a dict at every caller (the emitter's plain copy, whose type is dict, and load_claim_text, which returns a dict or raises)")),
+    ("proofbundle/policy.py", "<modulebene>", "_ANCHORS_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_ASSURANCE_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_DECISION_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_MERKLE_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_RELATIONS_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_SDJWT_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_SIG_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_STATUS_KEYS", "Tuple"):
+        (1, "own value: _REGELN iterates the key sets of this package into (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_ANKER_VERTRAUEN", "BitOr _ENTSCHEIDUNGS_REGELN | _RELATIONS_REGELN | _GEMEINSAME_REGELN"):
+        (1, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_ENTSCHEIDUNGS_REGELN", "BitOr _RELATIONS_REGELN"):
+        (3, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_GEMEINSAME_REGELN", "BitOr _ENTSCHEIDUNGS_REGELN | _RELATIONS_REGELN"):
+        (3, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_GEMEINSAME_REGELN", "BitOr _EVAL_REGELN | _ANKER_REGELN"):
+        (1, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_GEMEINSAME_REGELN", "BitOr _RELATIONS_REGELN"):
+        (1, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
+    ("proofbundle/policy.py", "<modulebene>", "_GEMEINSAME_REGELN", "BitOr _RELATIONS_REGELN | {('relations', 'reject_retracted')}"):
+        (1, "own value: a union of frozensets of this package that hold (section, key) pairs of string literals"),
 }
 
 
@@ -1206,19 +1298,25 @@ class TestEveryConstantLookupOnAForeignKeyIsClassified(unittest.TestCase):
 
     def test_a_second_site_under_a_classified_key_is_new(self):
         """Finding 1: both lists were sets of keys, so a site under a key already listed was no new
-        site. Planted into a copy of the real tree, in `anchors.verify_anchor` before its is_member
-        check: the delta run's probe `_VERIFIERS.get(atype)`, and a second `set(anchor) - _ANCHOR_KEYS`.
-        Each is a second site under a key classified once, and both lists now say so."""
+        site. Planted into a copy of the real tree: a third `_HASH_ALG.get(sd_alg)` in
+        `kbjwt.verify_key_binding` after its is_member check, and a second `set(anchor) - _ANCHOR_KEYS`
+        in `anchors._eintrag_pruefen`. Each is one more site under a classified key, and both lists say
+        so. The first form planted both in `anchors.verify_anchor`; on the tree of main 570dd164 that
+        function hands each entry to `_eintrag_pruefen`, which looks no verifier up by name, so the
+        lookup plant moved to a key classified twice (carried 2026-10-18)."""
+        k_anker = "    h = hashlib.new(_HASH_ALG[sd_alg])\n"
+        k_quelle = (SRC / "kbjwt.py").read_text(encoding="utf-8")
+        self.assertEqual(k_quelle.count(k_anker), 1, "the plant point moved: plant after verify_key_binding's check")
+        # exact equality: the copy read in place of the file adds nothing but the planted site
+        gepflanzt = {"proofbundle/kbjwt.py": k_quelle.replace(k_anker, k_anker + "    _probe = _HASH_ALG.get(sd_alg)\n")}
+        schluessel = ("proofbundle/kbjwt.py", "verify_key_binding", "_HASH_ALG", "sd_alg")
+        self.assertEqual(_drift(_in_the_tree(constant_lookups, gepflanzt), _LOOKUPS_CLASSIFIED),
+                         ([f"{schluessel}: 3 in the tree, 2 classified"], []))
         anker = '    atype = anchor.get("type")\n'
         quelle = (SRC / "anchors.py").read_text(encoding="utf-8")
-        self.assertEqual(quelle.count(anker), 1, "the plant point moved: plant where verify_anchor reads atype")
-        # exact equality: the copy read in place of the file adds nothing but the planted site
-        gepflanzt = {"proofbundle/anchors.py": quelle.replace(
-            anker, anker + "    _probe = _VERIFIERS.get(atype)\n    _probe2 = set(anchor) - _ANCHOR_KEYS\n")}
-        schluessel = ("proofbundle/anchors.py", "verify_anchor", "_VERIFIERS", "atype")
-        self.assertEqual(_drift(_in_the_tree(constant_lookups, gepflanzt), _LOOKUPS_CLASSIFIED),
-                         ([f"{schluessel}: 2 in the tree, 1 classified"], []))
-        schluessel = ("proofbundle/anchors.py", "verify_anchor", "_ANCHOR_KEYS", "Sub set(anchor)")
+        self.assertEqual(quelle.count(anker), 1, "the plant point moved: plant where _eintrag_pruefen reads atype")
+        gepflanzt = {"proofbundle/anchors.py": quelle.replace(anker, anker + "    _probe2 = set(anchor) - _ANCHOR_KEYS\n")}
+        schluessel = ("proofbundle/anchors.py", "_eintrag_pruefen", "_ANCHOR_KEYS", "Sub set(anchor)")
         self.assertEqual(_drift(_in_the_tree(other_uses, gepflanzt), _OTHER_USES_CLASSIFIED),
                          ([f"{schluessel}: 2 in the tree, 1 classified"], []))
         # the other direction: a classified count above the tree is a site that is gone, also when

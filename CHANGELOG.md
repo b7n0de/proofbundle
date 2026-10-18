@@ -42,24 +42,28 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
   `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
   which hash values, not keys. Each such read is listed with the reason it hashes nothing from
-  outside: 38 reads under 35 entries (this entry said "35 of them" before; that counted entries,
-  not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
+  outside: 58 reads under 52 entries on main 570dd164 (38 under 35 on the tree of 2026-09-27; this
+  entry once said "35 of them", which counted entries, not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
   in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
   listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
   ahead of the check in `anchors.verify_anchor` stayed green. A container is also seen when it is
   bound inside a module-level `if`, `try`, `with`, `for`, `while` or `match`, and when a module
   reaches it through a chain of imports (`from .renewal import HASH_REGISTRY`, which renewal
   imported from hashalg) or through `from .x import *`. A membership test is not classified but
-  routed through `is_member`. Measured: 19 lookup sites under 19 entries, 13 guarded by a
-  membership or type check before them, 5 reading a value the package produced itself, and the
-  trust pack one, whose check runs against a tuple. None is open. The one membership test the wider view found,
+  routed through `is_member`. Measured on main 570dd164 when the guard was carried there on 2026-10-18:
+  57 lookup sites under 46 entries, 17 guarded by a membership or type check before them (the
+  trust pack one, whose check runs against a tuple, among them) and 40 reading a value the package
+  produced itself, most of them keyed by `id()`. None is open. On the tree of 2026-09-27 there were
+  19 sites under 19 entries; 30 lookup sites and 26 reads reached main or moved there since, and
+  each was read before it was classified. The one membership test the wider view found,
   `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
   as its sibling one line above already did: for a hashable value the answer is the same, and an
   unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
   gone has to leave the list or lower its count. The reasons are read by a person, not proven by
   the guard. Not seen: a container reached as a module attribute (`x.NAME`), through a string
   (`globals()`) or built at run time, which includes a module-level set built by an operator
-  (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)`: twelve such names in the tree; counted
+  (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)`: twelve such names on the tree of
+  2026-09-27, not measured again on main; counted
   as containers they would add twelve reads to the report, nine membership tests and three other
   reads, and each of the twelve tests or subtracts the keys of a value checked to be a dict), and a
   value after it leaves the container (`for v in CONST.values()`).
