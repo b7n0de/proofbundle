@@ -285,7 +285,7 @@ def _drop_comments(command: str) -> str:
     return "".join(kept)
 
 
-def _lex(command: str) -> list | None:
+def _lex(command: str, spans: dict | None = None) -> list | None:
     """Scan a shell command into tokens for the closed grammar, or None if a quote or `$(`/`${` is not
     closed (the caller then falls back to the over-matching regex). A token is ('op', <operator>) for a
     control operator (';', '&&', '||', '|', '&', '(', ')', '{', '}', '<<') or ('word', <value>, <has_subst>,
@@ -297,7 +297,8 @@ def _lex(command: str) -> list | None:
     very end of the command, which bash keeps and zsh drops, makes the command unparsable. A newline is a ';'. A redirection is ('redir', <operator>, <target>), its target the word that follows as a
     (<value>, <has_subst>, <raw>) tuple, or None when no word follows before an operator or the end; nothing is
     dropped, so every predicate sees the targets too (review round 2 of 2026-10-09, R2-1). A here-document or
-    here-string is reported as '<<'. A bare `{` or `}` word is reported as that operator."""
+    here-string is reported as '<<'. A bare `{` or `}` word is reported as that operator. With spans, the start and end
+    offset in command of each word token are recorded under the token's index (D67)."""
     s = command
     i, n = 0, len(s)
     toks: list = []
@@ -394,6 +395,8 @@ def _lex(command: str) -> list | None:
         elif raw in ("{", "}"):
             toks.append(("op", raw))
         else:
+            if spans is not None:
+                spans[len(toks)] = (start, i)
             toks.append(("word", value, has_subst, raw))
     return toks
 
@@ -2848,6 +2851,11 @@ def _assignment_neutral(word: str) -> bool:
 def _subst_bodies(raw: str) -> list[str]:
     """The command bodies inside a word's command substitutions (`$(...)`, `` `...` ``); single quotes
     suppress substitution, and `$((...))` arithmetic is not a command body."""
+    return [raw[start:end] for start, end in _subst_body_spans(raw)]
+
+
+def _subst_body_spans(raw: str) -> list[tuple[int, int]]:
+    """The start and end offsets in raw of the bodies _subst_bodies returns, in their order (D67)."""
     bodies, i, n = [], 0, len(raw)
     while i < n:
         c = raw[i]
@@ -2860,7 +2868,7 @@ def _subst_bodies(raw: str) -> list[str]:
             j = raw.find("`", i + 1)
             if j < 0:
                 break
-            bodies.append(raw[i + 1:j]); i = j + 1; continue
+            bodies.append((i + 1, j)); i = j + 1; continue
         if c == "$" and i + 1 < n and raw[i + 1] == "(":
             depth, j, quote = 0, i + 1, None
             while j < n:  # track quotes so a `)` inside '…'/"…" does not close the body (R11-1 case 3)
@@ -2880,7 +2888,7 @@ def _subst_bodies(raw: str) -> list[str]:
             if j >= n:
                 break
             if not raw[i + 2:j].startswith("("):  # not $(( )) arithmetic
-                bodies.append(raw[i + 2:j])
+                bodies.append((i + 2, j))
             i = j + 1; continue
         i += 1
     return bodies
@@ -3614,6 +3622,110 @@ def _net_hit(command: str) -> bool:
     """Whether the normal form names git or gh as a command word at all (review Runde 12; owner choice A of
     Runde 11). An overmatch asks under Claude Code and denies under Codex."""
     return _net_words(command) > 0
+
+
+#: D67: the spellings of a parameter expansion at the program position that the gate reads with a value the same command
+#: line sets: `$X`, `${X}`, `"$X"` and `"${X}"`. Any other expansion there keeps the answer it has (Teil b of Nachtrag 27).
+_PROGRAM_EXPANSION = re.compile(r'(")?\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})(?(1)")')
+#: D67: builtins whose arguments set variables the way an assignment word does.
+_DECLARATION_BUILTINS = frozenset({"export", "declare", "typeset", "local", "readonly"})
+#: D67: reserved words after which the program position of a simple command still follows.
+_PROGRAM_POSITION_KEYWORDS = frozenset({"!", "if", "then", "else", "elif", "while", "until", "do", "time"})
+
+
+#: D67: the sentence the long reason ends with when the gate judged a command with a program value substituted.
+_PROGRAM_VALUE_NOTE = ("The command sets the variable at a program position to git or gh, by name or by a path, so the "
+                       "gate judged the command with that value in place (DECISIONS.md D67).")
+
+
+def _program_assignments(toks: list) -> dict[str, list[str]]:
+    """D67: the literal values the command sets each variable to, by its tokens: an assignment word before the program
+    of a simple command, after the reserved words of _PROGRAM_POSITION_KEYWORDS, and an assignment word among the
+    arguments of export, declare, typeset, local or readonly (behind `builtin` or `command` too). A value with a
+    parameter or command substitution is not literal and is not read (Teil b of Nachtrag 27)."""
+    found: dict[str, list[str]] = {}
+    run: list = []
+    for t in [*toks, ("op", ";")]:
+        if t[0] == "word":
+            run.append(t)
+            continue
+        if t[0] != "op":
+            continue
+        k = 0
+        while k < len(run) and run[k][3] in _PROGRAM_POSITION_KEYWORDS:
+            k += 1
+        assigned = []
+        while k < len(run) and _ASSIGNMENT.match(run[k][3]):
+            assigned.append(run[k])
+            k += 1
+        while k < len(run) and run[k][3] in ("builtin", "command"):
+            k += 1
+        if k < len(run) and run[k][3] in _DECLARATION_BUILTINS:
+            assigned.extend(w for w in run[k + 1:] if _ASSIGNMENT.match(w[3]))
+        for _word, value, has_subst, _raw in assigned:
+            if not has_subst:
+                name, _eq, literal = value.partition("=")
+                found.setdefault(name, []).append(literal)
+        run = []
+    return found
+
+
+def _program_value(raw: str, assigned: dict[str, list[str]]) -> str | None:
+    """D67: the text the gate reads in place of a word at the program position: for `$X`, `${X}`, `"$X"` or `"${X}"` of
+    a variable the command sets to a value that names git or gh as a command (_net_command_word: `git`, `gh` or
+    `git-<subcommand>`, behind a path or not), that value; an unquoted expansion splits into its fields first, as the
+    shell does with the default IFS, and its first field must name git or gh. None for every other word."""
+    m = _PROGRAM_EXPANSION.fullmatch(raw)
+    if m is None:
+        return None
+    quoted, name = m.group(1) is not None, m.group(2) or m.group(3)
+    for value in assigned.get(name, ()):
+        fields = [value] if quoted else value.split()
+        if fields and _net_command_word(fields[0]):
+            return " ".join(shlex.quote(field) for field in fields)
+    return None
+
+
+def _program_values(command: str, assigned: dict[str, list[str]] | None = None, depth: int = 0) -> str:
+    """D67, Nachtrag 27 (O23-6, Teil a): the command with each parameter expansion at the program position of a simple
+    command (`$X`, `${X}`, `"$X"`, `"${X}"`) replaced by the value the same command line sets X to, where that value
+    names git or gh (_program_value); the gate then judges this text, as for the command with the value substituted.
+    The program position is the first word after the start, a control operator, a new line, `(`, `)`, `{` or `}`, past
+    the assignment words and the reserved words of _PROGRAM_POSITION_KEYWORDS; a word behind a wrapper (`sudo`, `env`,
+    `timeout`, `bash -c`, `eval`) keeps the answer of the net (D33). The values are read from the whole line, before
+    or after the expansion, and a command substitution is read in turn with the values of the line around it. A
+    command with no such expansion, or one the lexer cannot read whole, is returned as it is, so its answer stays
+    the one it had. The rule only ever shows the gate more git or gh, never less: no write becomes free."""
+    text = _drop_comments(command)
+    spans: dict = {}
+    toks = _lex(text, spans)
+    if toks is None or depth > MAX_NESTING:
+        return command
+    assigned = {**(assigned or {})}
+    for name, values in _program_assignments(toks).items():
+        assigned[name] = assigned.get(name, []) + values
+    edits = []
+    if assigned:
+        at_head = True
+        for k, t in enumerate(toks):
+            if t[0] == "op":
+                at_head = t[1] != "<<"
+            elif t[0] == "word" and at_head:
+                if t[3] in _PROGRAM_POSITION_KEYWORDS or _ASSIGNMENT.match(t[3]):
+                    continue
+                at_head = False
+                value = _program_value(t[3], assigned)
+                if value is not None:
+                    edits.append((*spans[k], value))
+    for start, end in _subst_body_spans(text):
+        body = _program_values(text[start:end], assigned, depth + 1)
+        if body != text[start:end]:
+            edits.append((start, end, body))
+    if not edits:
+        return command
+    for start, end, value in sorted(edits, reverse=True):
+        text = text[:start] + value + text[end:]
+    return text
 
 
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
@@ -10387,10 +10499,17 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
 
     A command that is exactly `python3 - [arguments] <<'MARK'` with a quoted marker is judged by its words before the
     here-document, as `python3 file.py [arguments]` is (D39, _interpreter_heredoc_head): the body is the
-    interpreter's input, not shell text, and the gate does not read code (D8)."""
+    interpreter's input, not shell text, and the gate does not read code (D8).
+
+    A parameter expansion at the program position (`$X`, `${X}`, `"$X"`, `"${X}"`) whose variable the same command
+    line sets to git or gh, by name or by a path, is judged as the command with that value substituted (D67,
+    _program_values)."""
     head = _interpreter_heredoc_head(command)
-    judged = command if head is None else head
+    written = command if head is None else head
+    judged = _program_values(written)
     outcome = _decide_outcome(judged, cwd, deadline, host, environ)
+    if outcome is not None and judged != written:
+        outcome.text = f"{outcome.text} {_PROGRAM_VALUE_NOTE}"
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     return _with_done_order(outcome, judged)
@@ -14432,7 +14551,7 @@ def main(argv: list[str] | None = None) -> int:
             actions = [f"file {tool}"] if verdict is not None else []
         else:
             command, cwd = _command_from_event(event)
-            actions = sorted({name for name, _, _ in gated_calls(command)})
+            actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
             verdict = decide(command, cwd, deadline, host=host)
     except GateError as exc:
         failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",

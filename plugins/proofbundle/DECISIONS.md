@@ -3608,3 +3608,33 @@ they were: nothing is freed. The other answers of the gate are untouched; a find
 with D27.
 Strict stays the default; no check of the evidence falls away.
 Tests: tests/test_plugin_n26_read_only_d66.py.
+
+## D67. A program word the same command line sets to git or gh is judged with its value (Nachtrag 27, O23-6, Teil a, 2026-10-18)
+
+Measured at 9f578c2a, ab14e1ae and 76dc0cfc (the head of Nachtrag 26): `CMD=git; $CMD push origin main` and
+`X=gh; ${X} pr merge 1` got no answer under either host; `export G=/usr/bin/git && "$G" push` asked only because the
+word `G=/usr/bin/git` itself ends in git, with the answer of a git form (D3), never as the push it runs. Neither the
+structured scan nor the safety net reads a parameter expansion at the program position as git or gh. Owner choice of
+2026-10-18, 03:3x Berlin: build it now.
+
+The rule (_program_values, applied in decide before every other reading): where a parameter expansion stands at the
+program position of a simple command, spelled `$X`, `${X}`, `"$X"` or `"${X}"`, and the same command line sets X to a
+value that names git or gh as a command, the gate judges the command with that value substituted, as if it were written
+there. A value names git or gh as the safety net's command words do (_net_command_word): `git`, `gh` or
+`git-<subcommand>`, by name or behind a path ending in /git, /gh or /git-<subcommand>. An unquoted expansion splits into
+its fields first, as the shell does with the default IFS, so `G="git push"; $G origin main` is judged as `git push
+origin main`. The line sets X with an assignment word before the program of a simple command, or with an assignment word
+among the arguments of export, declare, typeset, local or readonly (behind `builtin` or `command` too); values are read
+from the whole line, before the expansion or after it. The program position is the first word after the start, a
+control operator, a new line, `(`, `)`, `{` or `}`, past the assignment words and the reserved words `!`, `if`, `then`,
+`else`, `elif`, `while`, `until`, `do` and `time`; a command substitution is read in turn, with the values of the line
+around it. The long reason then ends with a sentence that says so; the short line is the substituted command's.
+
+What it does not change: an expansion whose value is not git or gh (`"$PYTHON" -m pytest`, `$EDITOR datei`,
+`"$SHELL" -c true`, with or without an assignment in the line) keeps the answer it had, and so does every expansion the
+line does not set (Teil b of Nachtrag 27, measured, not built), a value the shell builds (`G=$(command -v git)`), every
+other spelling (`${G:-git}`, `${G[0]}`), and a program word behind a wrapper, `bash -c`, `eval` or `sudo`, which the safety
+net already asks for (D33). The rule only ever shows the gate more git or gh, never less: no write becomes free, and a
+command without such an expansion is judged byte for byte as before.
+Strict stays the default; no check of the evidence falls away.
+Tests: tests/test_plugin_n27_program_variable_d67.py.
