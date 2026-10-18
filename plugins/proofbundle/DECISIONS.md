@@ -2278,8 +2278,9 @@ headed by a bare `git` with at most one literal `-C`, every option before `--` o
 (_READ_GRAMMAR, _read_form), no word before `--` one the shell may rewrite, no redirection, and the read profile of its
 repository (_read_profile_problem) finds nothing that starts a program for it. Reason id `free_after_read_profile`.
 - The forms: log, show, diff, rev-list, grep, status, ls-files, rev-parse, for-each-ref, branch as a listing,
-  ls-tree, show-ref, merge-base, describe, `worktree list` and `cat-file -t|-s|-e|-p <object>`. Not on the list: config
-  read forms (class g), shortlog (it reads standard input when that is no terminal) and every form that writes.
+  ls-tree, show-ref, merge-base, describe, `worktree list` and `cat-file -t|-s|-e|-p <object>`, and since D68 the reads
+  `git config --get`, `--get-all`, `--get-regexp` and `--list`. Not on the list: every other config read form (class g),
+  shortlog (it reads standard input when that is no terminal) and every form that writes.
 - The grammar takes only options that print, select or order. Not on it: --ext-diff, --textconv, --output,
   --show-signature, -L, --no-index, `-O`, `-f`, --recurse-submodules, --dirty, `status -v`, a --format or --pretty that
   reads a signature (`%G…` with git's modifiers) or names a user format or a `%(…)` placeholder, a ref-filter atom
@@ -3551,8 +3552,9 @@ separators (`--local`, `--global`, `--system`, `--worktree`, `--show-origin`, `-
 `--name-only`, `--includes`, `--no-includes`, `--type=…` and the older type switches), at most one action; with
 `--get`, `--get-all` or `--get-regexp` one name and at most one value pattern, with `--list` no word, with no action
 the name alone, which git reads. Every word literal: no `$` and no word the shell may rewrite (`--g*` may become
-`--global` or `--add`). Such a read is judged as any read form: for `git config`, which is no read form of class a,
-that is the ask of D3 (git_form_not_free), under Claude Code and under Codex. Keep the deny: a value after the name,
+`--global` or `--add`). Such a read is judged as any read form: for `git config`, which was no read form of class a,
+that is the ask of D3 (git_form_not_free), under Claude Code and under Codex; since D68 the four reads of class a there
+are free under Claude Code after the read profile. Keep the deny: a value after the name,
 `--unset`, `--unset-all`, `--add`, `--replace-all`, every option the gate does not read as a read (`--file`, `--blob`,
 `--default`, `--edit` when it names core.hooksPath, …), two actions, a rewritten word, and a `-c core.hooksPath=…` or
 `--config-env` override before any subcommand.
@@ -3638,3 +3640,44 @@ net already asks for (D33). The rule only ever shows the gate more git or gh, ne
 command without such an expansion is judged byte for byte as before.
 Strict stays the default; no check of the evidence falls away.
 Tests: tests/test_plugin_n27_program_variable_d67.py.
+
+## D68. The reads `git config --get`, `--get-all`, `--get-regexp` and `--list` are read forms of class a (Nachtrag 27, O23-7, 2026-10-18)
+
+Owner choice O23-7 of Nachtrag 23, answered on 2026-10-18 at 03:3x Berlin as recommended, with D66: these reads are a
+read form of class a (D34), but only after a measurement of what they start, as D59 measured ls-remote.
+
+Measured with git 2.43.0 under strace -f (execve, execveat), with no network, in a fresh repository with a fresh HOME and
+no system configuration (truth_config_n27.py of the delivery): fourteen forms, `--get`, `--get-all` and `--get-regexp`
+(each with and without a value pattern), `--list`, `--list --show-origin`, `--list --null`, `--show-origin --get`,
+`--null --get-all`, `--show-origin --null --get-regexp`, `--get` of core.hooksPath and `--get` with the two switches
+after the name, each under 30 sources, standard output a pipe or the terminal of script(1), with `git log -1 --oneline`,
+`git branch --list` and `git show --stat HEAD` as controls, 426 reads:
+- With standard output a pipe no read started a program or wrote a file under .git or HOME, whatever was set: a pager
+  (core.pager, pager.config, PAGER, GIT_PAGER, core.pager through GIT_CONFIG_PARAMETERS or an include), core.fsmonitor,
+  every documented hook in .git/hooks and through core.hooksPath, core.editor and GIT_EDITOR, credential.helper,
+  core.sshCommand, core.askPass, GIT_SSH_COMMAND, GIT_ASKPASS, gpg.program with a signing key, diff.external and a
+  textconv driver, alias.config, core.alternateRefsCommand, uploadpack.packObjectsHook, a filter an attribute
+  assigns, include.path and includeIf (gitdir, hasconfig), a promisor remote, a submodule.
+- A trace target writes its file for every form: trace2.eventTarget and GIT_TRACE naming a file. The read profile does
+  not know those names and keeps asking.
+- On a terminal --get-all, --get-regexp and --list start the pager, git's default one where none is set, as the three
+  controls do; --get starts none. A configured pager counts in the read profile as for every read form (D34; D42 for a
+  host whose Bash tool gives no terminal).
+- `git config --get user.name --show-origin --null` ends with a usage error (exit 129): git reads every word after the
+  first non-option as a name or a value. So `git config user.name --get` sets user.name to `--get` (measured).
+
+The rule (_config_read_form, one of the fixed forms of _read_form): exactly one of the actions `--get`, `--get-all`,
+`--get-regexp` and `--list`, beside it only `--show-origin` and `--null`, every option before the first other word; with
+`--get`, `--get-all` or `--get-regexp` one name and at most one value pattern, with `--list` no word; no word the shell
+may rewrite, no `$`, and no word after the options that starts with `-`. Class a then frees it under Claude Code after
+the read profile of its repository, with at most one literal `-C`, as the whole command or a step class c judges on its
+own; under Codex class a stays off. Every write form keeps its answer: a value, `--add`, `--unset`, `--unset-all`,
+`--replace-all`, `--rename-section`, `--remove-section`, `--edit` and `-e`; so do `-l`, `-z`, `--show-scope`,
+`--name-only`, a type, `--includes`, the scope switches, `--file`, `--blob`, `--default`, `--get-urlmatch`,
+`--get-color` and the subcommands of git 2.46 (`git config get`), which the order does not name. The deny of
+core.hooksPath stays as D62 leaves it: setting, unsetting, adding and replacing it deny; a read of it is a read form here
+like any key, and the reads D62 knows that are not of this form keep the ask of D3.
+Strict stays the default; no check of the evidence falls away.
+Tests: tests/test_plugin_n27_config_read_d68.py; the answers D68 changes on purpose in
+tests/test_plugin_n23_hookspath_read_d62.py, tests/test_plugin_runde6_r62.py, tests/test_plugin_gate_runde6b.py and
+tests/test_plugin_ask_load_a_read.py.

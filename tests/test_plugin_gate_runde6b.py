@@ -353,8 +353,7 @@ def test_git_init_left_the_allow_list(tmp_path):
 
 
 @pytest.mark.parametrize("command", ["git rev-parse :a.txt", "git cat-file -p :a.txt", "git grep a",
-                                     "git check-attr diff a.txt", "git check-ignore a.txt",
-                                     "git config --get user.name"])
+                                     "git check-attr diff a.txt", "git check-ignore a.txt"])
 def test_a_fsmonitor_hook_counts_for_every_entry_because_any_index_read_queries_it(tmp_path, command):
     """read-cache.c post_read_index_from calls tweak_fsmonitor, which queries the hook (fsmonitor.c), and a
     revision :<path> reads the index. Since FIX-18 part B class a (D34) tells the read forms that read the index from
@@ -367,10 +366,12 @@ def test_a_fsmonitor_hook_counts_for_every_entry_because_any_index_read_queries_
     assert _not_free(command, repo), text
 
 
-@pytest.mark.parametrize("command", ["git log --oneline -n 1", "git ls-tree HEAD", "git show HEAD", "git branch"])
+@pytest.mark.parametrize("command", ["git log --oneline -n 1", "git ls-tree HEAD", "git show HEAD", "git branch",
+                                     "git config --get user.name"])
 def test_a_read_form_that_reads_no_index_is_free_beside_a_fsmonitor_hook(tmp_path, command):
     """Measured with git 2.43.0 in throwaway repositories, with and without a `git status` before: these forms never
-    started the configured fsmonitor (a/fsmonitor_index.py, a/fsmonitor_index3.py); class a frees them (D34)."""
+    started the configured fsmonitor (a/fsmonitor_index.py, a/fsmonitor_index3.py); class a frees them (D34). The read
+    of `git config` neither, for any of its four actions (truth_config_n27.py of Nachtrag 27, D68)."""
     repo = _repo(tmp_path)
     _git(repo, "config", "core.fsmonitor", _helper(tmp_path))
     assert _decision(command, repo)[0] == "pass", command

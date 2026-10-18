@@ -109,8 +109,8 @@ Claude Code and denied under Codex. Only the exact bare command text `git --vers
 judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain `git add` and `git commit -m`
 after a check of the repository's state finds no filter, hook, fsmonitor, signature program or include onto one,
 and every configuration key, hook and `GIT_*` setting it reads is one it knows to start no program for that form
-(D3), and, since the owner's answer 1 of 2026-10-14, under Claude Code a read form such as `git status`, `git log` or
-`git diff` whose options are on the gate's grammar, after a read profile of the repository finds no promisor remote,
+(D3), and, since the owner's answer 1 of 2026-10-14, under Claude Code a read form such as `git status`, `git log`,
+`git diff` or (since D68) `git config --get`/`--list` whose options are on the gate's grammar, after a read profile of the repository finds no promisor remote,
 pager key, filter, fsmonitor, hook or submodule the form starts or reads and every key and `GIT_*` setting is one it
 knows (class a, D34); under Codex those forms still ask and are denied. Since the owner's answers 4 and 5 of
 2026-10-14, under both hosts a gh read form such as `gh pr view 41`, `gh pr checks`, `gh run list` or `gh api` as a

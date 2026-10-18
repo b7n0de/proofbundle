@@ -871,6 +871,39 @@ def _config_reads_only(args: list[str], rewrites: list[bool] | None = None) -> b
     return 1 <= len(names) <= 2
 
 
+#: D68 (Nachtrag 27, O23-7): the read actions of `git config` that class a frees, and the only two switches it takes
+#: beside them. Measured with git 2.43.0 under strace (truth_config_n27.py of the delivery): with standard output a pipe
+#: no form started a program or wrote a file, whatever key, hook, include or environment name was set, but a trace
+#: target (trace2.*, GIT_TRACE), which the read profile does not know and keeps asking; on a terminal --get-all,
+#: --get-regexp and --list start the pager, as log does, and a pager key or name counts in the read profile as for every
+#: read form (D34, D42). -l, -z, --show-scope, --name-only, a type, --includes, --file, --blob, --default and every write
+#: form are not on the list.
+_CONFIG_FREE_ACTIONS = frozenset({"--get", "--get-all", "--get-regexp", "--list"})
+_CONFIG_FREE_SWITCHES = frozenset({"--show-origin", "--null"})
+
+
+def _config_read_form(args: list[str], rewritten: list[bool]) -> bool:
+    """D68: whether `git config <args>` is a read form of class a: options only from _CONFIG_FREE_ACTIONS and
+    _CONFIG_FREE_SWITCHES, all of them before the first other word (git 2.43.0 reads every word after the first
+    non-option as a name or a value, measured: `git config user.name --get` sets user.name to `--get`), exactly one
+    action, with --get, --get-all or --get-regexp one name and at most one value pattern, with --list no word; no word
+    the shell may rewrite, no `$`, and no word after the options that starts with `-`. Setting a value, --add, --unset,
+    --unset-all, --replace-all, --rename-section, --remove-section, --edit and -e are no read form here and keep their
+    answer."""
+    if any(rewritten) or any("$" in a for a in args):
+        return False
+    k = 0
+    while k < len(args) and args[k].startswith("-"):
+        if args[k] not in _CONFIG_FREE_ACTIONS and args[k] not in _CONFIG_FREE_SWITCHES:
+            return False
+        k += 1
+    actions = [a for a in args[:k] if a in _CONFIG_FREE_ACTIONS]
+    words = args[k:]
+    if len(actions) != 1 or any(w.startswith("-") for w in words):
+        return False
+    return not words if actions[0] == "--list" else 1 <= len(words) <= 2
+
+
 #: The options of the two forms K-NW-2 B frees (DECISIONS.md D3). `git add` takes pathspecs and -A/--all/-u/--update;
 #: `git commit` takes at least one message (-m, --message, a -m inside a cluster of a and q, and since D40 `-F <file>`
 #: or `--file=<file>` with a literal file other than `-`), -a/--all, -q/--quiet and pathspecs. Every other option of
@@ -1424,7 +1457,7 @@ _LOG_GRAMMAR = _ReadGrammar(_READ_LOG_FLAGS, stuck=_LOG_STUCK,
                             glued=re.compile(r"-[0-9]+|-n[0-9]+|-U[0-9]+|-M[0-9]+%?|-[SG].+"),
                             separated=frozenset({"-n"}))
 #: The read forms class a frees after the read profile (git 2.43.0), and the options each accepts. Not on the list: a
-#: form that writes, a config form (class g), shortlog (it reads standard input when that is no terminal), and every
+#: form that writes, a config form (class g) other than the reads of D68 (_config_read_form), shortlog (it reads standard input when that is no terminal), and every
 #: option that writes a file, starts a program or a pager by name, reads a signature, reads standard input or a file of
 #: patterns, walks a submodule or leaves the repository (--output, --ext-diff, --textconv, -O, -f, --no-index,
 #: --recurse-submodules, --dirty, status -v, rev-parse --show-superproject-working-tree, …).
@@ -1521,7 +1554,7 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
     """Whether `git <sub> <args>` is a read form class a frees after the read profile: every option before a `--` is on
     the form's grammar (_READ_GRAMMAR), and no word before that `--` is one the shell may rewrite (`rewrites`, as for
     K-NW-2 B: a glob may become an option, review 2026-10-09, F2). `git worktree list` and `git cat-file -t|-s|-e|-p
-    <object>` are fixed forms. A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
+    <object>` are fixed forms, and so are the reads of `git config` of D68 (_config_read_form). A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
     may name an index entry (_names_index) and a `git branch` pattern without --list are not free (a name without
     --list creates a branch). The value of a separated option is a number or a pattern, never a revision. For the forms
     of _READ_REVISIONS_AFTER_DASHDASH `--` ends only the options, so a word after it that may name an index entry, or
@@ -1533,6 +1566,8 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
     if sub == "cat-file":
         return (len(args) == 2 and not any(rewritten) and args[0] in ("-t", "-s", "-e", "-p")
                 and not args[1].startswith("-") and not _names_index(args[1]))
+    if sub == "config":
+        return _config_read_form(args, rewritten)
     grammar = _READ_GRAMMAR.get(sub)
     if grammar is None:
         return False

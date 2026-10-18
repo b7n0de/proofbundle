@@ -126,8 +126,8 @@ def test_environment_and_config_writes_that_can_select_a_program_are_not_measure
 
 
 @pytest.mark.parametrize("command", [
-    "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "git config user.name t",
-    "git config --get remote.origin.url", "git config --list", "git config get user.email",
+    "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "git config user.name t", "git config get user.email",
+    "git config -l", "git config --show-scope --get remote.origin.url",
     "git status && git diff --stat",
 ])
 def test_vetted_assignments_and_config_reads_are_not_free(command):
@@ -147,6 +147,14 @@ def test_a_vetted_assignment_the_read_profile_accepts_leaves_a_read_form_marked(
     form marked for the judge, which frees it only after the read profile."""
     g = _gate()
     assert _calls(g, command) == [("git status", ".", [g._READ_FREE])]
+
+
+@pytest.mark.parametrize("command", ["git config --get remote.origin.url", "git config --list"])
+def test_a_config_read_of_d68_is_marked_for_the_read_profile(command):
+    """Nachtrag 27, O23-7 (D68): the four read actions of `git config` are read forms of class a; the judge frees them
+    only after the read profile, never under Codex."""
+    g = _gate()
+    assert _calls(g, command) == [("git config", ".", [g._READ_FREE])]
 
 
 def test_an_unvetted_askpass_makes_a_push_not_measured():
