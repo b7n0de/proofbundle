@@ -4376,3 +4376,49 @@ strategy option) keeps the answer of D85. Limits: every measurement is with git 
 state when the gate answers (D27); a Bash command that writes a hook file directly is not gated (D8) and is the class
 O37-1 names. Tests: tests/test_plugin_n37_local_class_d91.py; changed: tests/test_plugin_n35_autonomy_d85.py (the closed
 list carries the effect programm of D91).
+
+## D92. A machine check in place of a click, with a receipt in the gate log (Nachtrag 37, Ergänzung 2, 2026-10-18)
+
+Owner word of 2026-10-18, 23:11 Berlin, with two screens of delta: `git push` to the own work branch
+`chore/empty-evidence-declaration` asked (D3), and so did `gh pr edit 388 -R b7n0de/proofbundle --body-file <file>` at
+the own pull request (D27). Owner choice of 23:2x Berlin (A): an external action on own ground that can be taken back
+is free where a check carries it, and leaves a receipt in the gate log.
+
+The push (D87 widened, _go_source): the standing GO of D87 frees a push whose one destination D86 measured is the local
+branch of the same name: a refspec `<branch>`, `<branch>:<branch>` or `<branch>:refs/heads/<branch>`, `HEAD` on that
+branch, or no refspec where the push configuration names it. The branch is neither a protected one nor the default
+branch, which the remote's HEAD names here and which must be recorded (refs/remotes/<remote>/HEAD), so it is measured.
+Every other condition of D87 stays: a repository of D71, decide() asked only with push_not_measured after the evidence
+at every commit sent showed no failure, no force, mirror, deletion or tag, the push configuration and URL add nothing,
+GIT_NAMESPACE unset, and the evidence rules at the commit sent equal those of the local record of the destination or of
+the remote's HEAD. The prefix refs/heads/claude/ of D87 (owner question O35-3) gives way to this: which branch is the
+own one is the one the session pushes under its own name (owner question O37-3). The log carries a receipt (quittung:
+art push, the destination, the remote, the commit, the checks); the user sees one line.
+
+gh pr edit (_autonomy_pr_edit): `gh pr edit <number> [-R b7n0de/<repo>] --body-file <file> [--title <title>]` (also -F,
+-t, --repo=, --body-file=; no option twice, no other option), GH_REPO absent or of b7n0de where -R is not given, in a
+repository of D71, passes (free_pr_edit_form, klasse maschine, one line to the user, a receipt with the number, the
+checker's blob id and the sha256 of the text) where the house's form checker passes the text, and is blocked
+(pr_form_red, with the checker's reasons in its own fixed words) where it finds a red. The checker is
+scripts/b7_pr_form_gate.py (b7n0de/proofbundle since PR 308) as the remote's default branch records it here
+(refs/remotes/<remote>/HEAD of origin or of the one remote), never the copy in the work tree, which the session writes.
+The gate writes it, the text and a small driver into a folder of its own and runs it with its own interpreter (-I),
+only PATH and the locale in the environment, at most 20 seconds; the driver calls the checker's judge() with the text
+as the body of a pull request and drops rule (a), the milestone, which the edit does not change. A measured red of
+rule (b) or (c) blocks; where the checker is missing, fails, runs out of time or can only say NOT MEASURABLE (rule (c)
+needs the CommonMark parser markdown-it-py), the answer of the last class stands (D93). The file must lie in the work
+tree of the hook's directory or in the temp folder, with no part of its real path below that place starting with a dot
+(so never ~/.ssh), be a regular file, no link, of at most 256 KiB and UTF-8. A title alone stays as D71 frees it.
+
+Measured (n37/messung/house_form_n37.jsonl): the checker of origin/main (blob c91589b5) through the gate's
+_house_form_judge, with markdown-it-py 4.2.0, gave green for a body in the house form, and "(b) the description does
+not end with exactly the two lines of the house footer", "(c) the description carries a tool attribution" and "(c)
+the description carries a session link" for the three counter bodies; with the system interpreter of this container,
+which has no markdown-it-py, it gave the (b) red and NOT MEASURABLE for the others.
+
+Not measured: whose pull request the number names (the gate calls no network; owner question O37-4); whether delta's
+interpreter has markdown-it-py. Limits: the checker is code of the repository's default branch as recorded here; a
+record a session rewrites by hand through Bash is the D27 class. Under Codex and without --autonomous nothing changes.
+Tests: tests/test_plugin_n37_machine_check_d92.py; changed tests of this delivery: tests/test_plugin_n35_push_targets_d86.py
+and tests/test_plugin_n35_work_branch_go_d87.py (`git push origin topic` passes, `claude/x:claude/y` asks, the short line
+names D92).

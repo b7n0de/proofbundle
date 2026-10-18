@@ -13227,6 +13227,11 @@ _SHORT_REASONS = {
                       "eine lokale Form ein Programm des Klons startet, das das Tor nicht sieht"),
     "write_to_declaration": ("D91", "the form writes the evidence declaration", "die Form die Erklärung der Belege "
                                                                                 "schreibt"),
+    # gh pr edit --body-file with the house's form checker (D92): a pass the user sees, a deny where it is red
+    "free_pr_edit_form": ("D92", "the house's form checker passes the text", "der Formprüfer des Hauses den Text grün "
+                                                                            "gibt"),
+    "pr_form_red": ("D92", "the house's form checker finds the text red", "der Formprüfer des Hauses den Text rot "
+                                                                         "gibt"),
 }
 #: The reason of a git form whose answer reads no repository state: such a form may start a program (D3).
 _SHORT_GIT_FORM = ("D3", "git may start a program the gate does not see",
@@ -13248,7 +13253,8 @@ _SHORT_TEMPLATES = {
            "stop": "Gate holds the end because {reason} ({d}).",
            "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25).",
            "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
-           "go": "Gate lets {step} run: an own work branch under the standing GO, measured (D87).",
+           "go": "Gate lets {step} run: own work branch under the standing GO, measured, receipt in the log (D92).",
+           "maschine": "Gate lets {step} run: the house's form checker passes the text, receipt in the log (D92).",
            "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
            "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
@@ -13257,7 +13263,8 @@ _SHORT_TEMPLATES = {
            "stop": "Tor hält das Ende auf, weil {reason} ({d}).",
            "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25).",
            "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
-           "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen (D87).",
+           "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen, Quittung im Log (D92).",
+           "maschine": "Tor lässt {step} laufen: Formprüfer des Hauses grün, Quittung im Log (D92).",
            "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d})."},
 }
 _SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
@@ -13409,9 +13416,10 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
     person set. Under Codex an ask is a deny, and its short line says that Codex cannot ask (D12)."""
     environ = os.environ if environ is None else environ
     decision = outcome.decision
-    if decision == "pass" and (getattr(outcome, "autonomy", None) or {}).get("klasse") == "go":
-        # D87: a push the standing GO frees stays visible, as a call a rule frees does: one line, no decision
-        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form="go")
+    klasse = (getattr(outcome, "autonomy", None) or {}).get("klasse")
+    if decision == "pass" and klasse in ("go", "maschine"):
+        # D87, D92: a call a machine check frees stays visible, as a call a rule frees does: one line, no decision
+        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form=klasse)
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                                "additionalContext": outcome.text}}
     if decision == "pass":
@@ -13621,6 +13629,10 @@ def _autonomy_external(outcome: "Outcome", command: str, cwd: str, deadline: flo
     if words[0] == "git" and _autonomy_effect(words) == "push" and \
             not any(v.reason_id == "done_order_change" for v in outcome.verdicts):
         return _autonomy_push(outcome, words, cwd, deadline, environ)   # D86
+    if words[:3] == ["gh", "pr", "edit"] and not any(v.reason_id == "done_order_change" for v in outcome.verdicts):
+        checked = _autonomy_pr_edit(outcome, words, cwd, deadline, environ)   # D92
+        if checked is not None:
+            return checked
     effects = ["done_order"] if any(v.reason_id == "done_order_change" for v in outcome.verdicts) else []
     effect = _autonomy_effect(words)
     if effect is not None:
@@ -14153,9 +14165,25 @@ def _autonomy_push(outcome: "Outcome", words: list[str], cwd: str, deadline: flo
 
 # --- D87: a push to the own work branch under the standing GO, once measured (Nachtrag 35, point 5) -----------------
 
-#: D87: the own work branches of the standing GO under Claude Code (AGENTS.md: agents work on branches named
-#: <agent>/<topic>; this host's agent is claude). Owner question O35-3.
-GO_WORK_BRANCH_PREFIX = "refs/heads/claude/"
+#: D87 and D92: the destinations of the standing GO are branches; which branch is the own one D92 measures
+#: (_go_source): the local branch of the same name, neither the default branch nor a protected one (O37-3).
+GO_BRANCHES = "refs/heads/"
+
+
+def _go_source(m: "_PushMeasure", words: list[str], deadline: float) -> tuple[str, str] | None:
+    """D92: (the full name, the commit) of the one local branch the push sends, where it is the branch of the same name
+    as the destination D86 measured (a refspec `<branch>`, `<branch>:<branch>`, `HEAD` on that branch, or no refspec
+    where the push configuration names that branch), and the remote's HEAD is recorded here, so the default branch is
+    measured (_push_protected); else None."""
+    _remote, specs, _options, unmodeled = _push_words(words[words.index("push") + 1:])
+    if unmodeled is not None or len(specs) > 1 or not m.dests or len(m.dests) != 1:
+        return None
+    src = specs[0].partition(":")[0] if specs else "HEAD"
+    full, commit = _source_full_name(m.repo, src, deadline), _push_source(m.repo, src, deadline)
+    recorded = _git(m.repo, "symbolic-ref", "--quiet", f"refs/remotes/{m.remote}/HEAD", deadline=deadline)
+    if full != m.dests[0] or commit is None or recorded.returncode != 0:
+        return None
+    return full, commit
 
 
 def _go_rules_equal(m: "_PushMeasure", words: list[str], deadline: float) -> bool:
@@ -14196,7 +14224,7 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
     fetch URL; GIT_NAMESPACE is unset; the evidence rules at the commit it sends equal those of a local record
     (_go_rules_equal, D20). Else None, and the ask stays."""
     dests = m.dests or []
-    if len(dests) != 1 or not dests[0].startswith(GO_WORK_BRANCH_PREFIX) or m.force or m.mirror or m.delete or \
+    if len(dests) != 1 or not dests[0].startswith(GO_BRANCHES) or m.force or m.mirror or m.delete or \
             m.tags or m.why is not None or m.remote is None or m.repo is None:
         return None
     if not _fetch_branch(dests[0][len("refs/heads/"):]) or _git_namespace() is not None:
@@ -14205,7 +14233,8 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
                                    for v in outcome.verdicts):
         return None
     try:
-        if _work_repo_problem(m.repo, deadline, environ) is not None or \
+        source = _go_source(m, words, deadline)   # D92
+        if source is None or _work_repo_problem(m.repo, deadline, environ) is not None or \
                 _push_config_problem(m.repo, deadline, []) is not None or \
                 _push_adds_unnamed_refs(m.repo, m.remote, deadline) or \
                 not _endpoint_consistent(m.repo, m.remote, deadline) or \
@@ -14214,14 +14243,18 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
     except GateError:
         return None
     verdict = Verdict("pass", f"proofbundle gate: the push to {dests[0]} is free under the standing GO for work "
-                              f"branches. The gate measured its one destination, an own work branch, from its words "
-                              f"and the local refs, with no force, mirror, deletion or tag; the repository at "
+                              f"branches. The gate measured its one destination, the own work branch (the local "
+                              f"branch of the same name, neither the default branch nor a protected one), from its "
+                              f"words and the local refs, with no force, mirror, deletion or tag; the repository at "
                               f"{m.repo} declares, every remote of it is a repository of {WORK_OWNER} on github.com, "
                               "the evidence at every commit the push sends showed no failure, and the push "
-                              "configuration adds nothing the command does not name (Nachtrag 35; DECISIONS.md D87).",
-                      "free_work_branch_go", repo=m.repo)
+                              "configuration adds nothing the command does not name. The receipt stands in the gate "
+                              "log (Nachtrag 35 and 37; DECISIONS.md D87, D92).", "free_work_branch_go", repo=m.repo)
     new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
-    return _autonomy_record(new, "go", wirkung=["push"])
+    return _autonomy_record(new, "go", wirkung=["push"],
+                            quittung={"art": "push", "ziel": dests[0], "remote": m.remote, "commit": source[1],
+                                      "pruefung": ["ziel_gemessen", "eigener_zweig", "kein_standardzweig",
+                                                   "belege_ohne_fehler", "regeln_gleich"]})
 
 
 # --- D88: owner clicks, detours, catches and blocks, in the log and the bilanz (Nachtrag 35, points 3 and 4) ---------
@@ -14650,6 +14683,155 @@ def _autonomy_local(outcome: "Outcome", command: str, cwd: str, deadline: float,
     return _autonomy_record(new, "lokal", wirkung=[form.name])
 
 
+# --- D92: gh pr edit --body-file with the house's form checker, a receipt in place of a click (Nachtrag 37) ---------
+
+#: D92: the house's form checker for the text of a pull request, as the default branch of the remote records it
+#: (b7n0de/proofbundle since PR 308: rule (a) a milestone, (b) the house footer at the end, (c) no tool attribution, no
+#: session link, no retired sentence). The gate reads it at refs/remotes/<remote>/HEAD, never in the work tree, which
+#: the session writes.
+HOUSE_FORM_CHECKER = "scripts/b7_pr_form_gate.py"
+#: The most bytes of a checker and of a body file the gate reads.
+MAX_HOUSE_FORM_CHECKER_BYTES = 512 * 1024
+MAX_PR_BODY_BYTES = 256 * 1024
+#: The seconds the checker may run at most.
+HOUSE_FORM_SECONDS = 20
+#: The options of `gh pr edit` D92 takes (gh 2.89.0): the title, the body from a file, the repository.
+_PR_EDIT_OPTIONS = {"--title": True, "-t": True, "--body-file": True, "-F": True, "-R": True, "--repo": True}
+_PR_EDIT_CANONICAL = {"-t": "--title", "-F": "--body-file", "-R": "--repo"}
+#: The program that runs the checker: it loads the checker from the file the gate wrote, judges the text as the body of a
+#: pull request through the checker's own judge(), and prints the reasons of rules (b) and (c) as JSON. Rule (a), the
+#: milestone, reads no text, and the edit does not change it.
+_HOUSE_FORM_DRIVER = """import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("house_form_checker", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    body = handle.read()
+reasons, _title = module.judge({"pull_request": {"body": body}})
+if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
+    sys.exit(3)
+print(json.dumps([r for r in reasons if not r.startswith("(a)")]))
+"""
+
+
+def _pr_edit_form(words: list[str]) -> tuple[str, str | None, str] | None:
+    """(number, repository or None, body file) of `gh pr edit <number> [-R <owner>/<repo>] --body-file <file>
+    [--title <title>]` with the owner of D71 in -R, no option twice, else None. A title alone is D71's."""
+    if words[:3] != ["gh", "pr", "edit"]:
+        return None
+    parsed = _gh_words(words[3:], _PR_EDIT_OPTIONS)
+    if parsed is None:
+        return None
+    positional, pairs = parsed
+    values = {_PR_EDIT_CANONICAL.get(n, n): v for n, v in pairs}
+    if len(positional) != 1 or not _WORK_PR_NUMBER.fullmatch(positional[0]) or len(values) != len(pairs) or \
+            not values.get("--body-file"):
+        return None
+    repo = values.get("--repo")
+    if repo is not None and (not _WORK_GH_REPO.fullmatch(repo) or _WORK_GH_REPO.fullmatch(repo).group(1) in (".", "..")):
+        return None
+    return positional[0], repo, values["--body-file"]
+
+
+def _house_form_checker(directory: str, deadline: float) -> tuple[bytes, str] | None:
+    """(the bytes, the blob id) of HOUSE_FORM_CHECKER at the default branch the remote records here: the remote origin,
+    or the one remote; None where it is not recorded or holds no such file."""
+    remotes = sorted(_remote_names(directory, deadline))
+    remote = "origin" if "origin" in remotes else (remotes[0] if len(remotes) == 1 else None)
+    if remote is None:
+        return None
+    got = _git(directory, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/HEAD:{HOUSE_FORM_CHECKER}",
+               deadline=deadline)
+    blob = _git_value(got.stdout) if got.returncode == 0 else None
+    if not blob:
+        return None
+    content = _git(directory, "cat-file", "blob", blob, deadline=deadline)
+    if content.returncode != 0 or len(content.stdout) > MAX_HOUSE_FORM_CHECKER_BYTES:
+        return None
+    return content.stdout, blob
+
+
+def _house_form_judge(checker: bytes, body: bytes, deadline: float) -> list[str] | None:
+    """The reasons of rules (b) and (c) of the house's form checker for the text, from the checker run by this
+    interpreter in a folder of its own, with no network the gate opens and only PATH and the locale in its
+    environment: the measured reds where there is one; empty where it is green; None where it cannot measure (only a
+    NOT MEASURABLE of its own, such as the CommonMark parser rule (c) needs, an error, the time)."""
+    folder = tempfile.mkdtemp(prefix="pb-house-form-")
+    try:
+        files = {}
+        for name, data in (("checker.py", checker), ("body.md", body), ("driver.py", _HOUSE_FORM_DRIVER.encode())):
+            files[name] = os.path.join(folder, name)
+            with open(files[name], "wb") as handle:
+                handle.write(data)
+        seconds = min(HOUSE_FORM_SECONDS, deadline - time.monotonic())
+        if seconds <= 1:
+            return None
+        proc = subprocess.run([sys.executable, "-I", files["driver.py"], files["checker.py"], files["body.md"]],
+                              cwd=folder, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C.UTF-8"}, capture_output=True,
+                              timeout=seconds, stdin=subprocess.DEVNULL)
+        if proc.returncode != 0:
+            return None
+        reasons = json.loads(proc.stdout.decode("utf-8"))
+        if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
+            return None
+        red = [r for r in reasons if "NOT MEASURABLE" not in r]
+        return red if red or len(red) == len(reasons) else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _autonomy_pr_edit(outcome: "Outcome", words: list[str], cwd: str, deadline: float,
+                      environ: dict) -> "Outcome | None":
+    """D92 (Nachtrag 37, Ergänzung 2): `gh pr edit <number> --body-file <file>` (with --title and -R of the owner of
+    D71) in a repository of D71: a pass with a receipt in the gate log where the house's form checker
+    (HOUSE_FORM_CHECKER at the remote's default branch) passes the text; a deny (pr_form_red) with its reasons where it
+    finds the text red. None, and the answer of the last class, where the checker is missing or cannot measure, the
+    file lies outside the work tree and the temp folder or below a name with a dot, or is no regular UTF-8 file of at
+    most MAX_PR_BODY_BYTES. Whose pull request it is, the gate does not measure (no network, owner question O37-4)."""
+    form = _pr_edit_form(words)
+    if form is None:
+        return None
+    number, named, body_file = form
+    if named is None and environ.get("GH_REPO") is not None and not _WORK_GH_REPO.fullmatch(environ["GH_REPO"]):
+        return None
+    directory = os.path.realpath(cwd)
+    path = os.path.realpath(body_file if os.path.isabs(body_file) else os.path.join(directory, body_file))
+    try:
+        if _work_repo_problem(directory, deadline, environ) is not None or \
+                not _autonomy_write_place(path, directory, deadline):
+            return None
+        body = _read_regular(path, MAX_PR_BODY_BYTES + 1)
+        if len(body) > MAX_PR_BODY_BYTES:
+            return None
+        body.decode("utf-8")
+        found = _house_form_checker(directory, deadline)
+        reasons = None if found is None else _house_form_judge(found[0], body, deadline)
+    except (GateError, OSError, UnicodeDecodeError):
+        return None
+    if reasons is None:
+        return None
+    receipt = {"art": "pr_edit", "pr": number, "repo": named, "pruefer": HOUSE_FORM_CHECKER, "pruefer_blob": found[1],
+               "text_sha256": hashlib.sha256(body).hexdigest(), "regeln": ["b", "c"]}
+    if reasons:
+        said = "; ".join(reasons)
+        verdict = Verdict("deny", f"proofbundle gate: the house's form checker ({HOUSE_FORM_CHECKER} at the remote's "
+                                  f"default branch) finds the text of the pull request red: {said}. Correct the file "
+                                  "and edit again (Nachtrag 37; DECISIONS.md D92).", "pr_form_red",
+                          evidence="the text of the body file and the house's form checker", failed=said,
+                          next_step="correct the text as the checker names it", repo=directory)
+        new = Outcome("deny", f"{verdict.text()} {outcome.text}", list(outcome.verdicts) + [verdict], None,
+                      step=outcome.step, cause=verdict)
+        return _autonomy_record(new, "sperre", grund="pr_form_red", quittung=receipt)
+    verdict = Verdict("pass", f"proofbundle gate: gh pr edit {number} is free in autonomous operation: the house's form "
+                              f"checker ({HOUSE_FORM_CHECKER} at the remote's default branch) passes the text of the "
+                              f"body file, the repository at {directory} is one of D71, and the receipt stands in the "
+                              "gate log (Nachtrag 37; DECISIONS.md D92).", "free_pr_edit_form", repo=directory)
+    new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
+    return _autonomy_record(new, "maschine", wirkung=["pr"], quittung=receipt)
+
+
 def tree_digest_command(argv: list[str]) -> int:
     """`tree-digest [--repo DIR] [--rev REV] [--statement]`: the producer's side of the binding."""
     options, statement, i = {"--repo": ".", "--rev": "HEAD"}, False, 0
@@ -14787,6 +14969,8 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
         entry["applied_rule"] = outcome.applied_rule
     if autonomy is not None:
         entry["autonomy"] = {key: autonomy[key] for key in ("klasse", "hinweise", "wirkung") if key in autonomy}
+        if "quittung" in autonomy:
+            entry["quittung"] = autonomy["quittung"]   # D92: what the machine check measured in place of a click
     return entry
 
 
@@ -17990,7 +18174,7 @@ def main(argv: list[str] | None = None) -> int:
         printed = None
         try:
             if verdict.decision != "pass" or any(v.reason_id == "approved_by_rule" for v in verdict.verdicts) or \
-                    (verdict.autonomy or {}).get("klasse") == "go":
+                    (verdict.autonomy or {}).get("klasse") in ("go", "maschine"):
                 printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
             printed = answer(verdict.decision, verdict.text, host=host)

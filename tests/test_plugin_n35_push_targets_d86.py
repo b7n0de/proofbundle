@@ -56,9 +56,10 @@ BLOCKED = [
 #: Asked with push_delete; each asked with push_not_measured alone at the head of D85.
 DELETES = ["git push origin --delete topic", "git push origin :topic", "git push -d origin topic",
            "git push origin --delete claude/x"]
-#: The closed list: still an ask, as at the head of D85.
-ASKED = [("git push origin topic", "push"), ("git push origin v0", "tag"), ("git push --tags origin", "tag"),
-         ("git push origin topic:feature/y", "push"), ("git -C {R} push origin topic", "push")]
+#: The closed list: still an ask, as at the head of D85. Changed in Nachtrag 37 (D92): `git push origin topic`, with
+#: and without -C, is the local branch of the same name and passes under the standing GO, so it left this list.
+ASKED = [("git push origin topic:other", "push"), ("git push origin v0", "tag"), ("git push --tags origin", "tag"),
+         ("git push origin topic:feature/y", "push"), ("git -C {R} push origin topic:other", "push")]
 
 
 def _fixture(tmp_path):

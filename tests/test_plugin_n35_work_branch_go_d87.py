@@ -37,11 +37,13 @@ _clean = d71._clean
 #: answer (the base of the red run) is started as it always was.
 AUTONOMOUS = [gate.AUTONOMOUS_FLAG] if hasattr(gate, "AUTONOMOUS_FLAG") else []
 
+#: Changed in Nachtrag 37 (D92): `claude/x:claude/y` names another branch than the one it sends, so it left this list.
 FREE = ["git push origin claude/x", "git push -u origin HEAD", "git push origin HEAD:refs/heads/claude/x",
-        "git push origin claude/x:claude/y", "git push -q origin claude/x", "git -C {R} push origin claude/x",
+        "git push -q origin claude/x", "git -C {R} push origin claude/x",
         "git push origin claude/x --dry-run", "git push --set-upstream origin claude/x"]
-#: Counter cases in the same repository: each keeps its answer.
-KEEP = [("git push origin claude/x:codex/y", "ask"), ("git push origin topic", "ask"),
+#: Counter cases in the same repository: each keeps its answer. Changed in Nachtrag 37 (D92): `git push origin topic`
+#: is the local branch of the same name and passes, `claude/x:claude/y` names another branch and asks.
+KEEP = [("git push origin claude/x:codex/y", "ask"), ("git push origin claude/x:claude/y", "ask"),
         ("git push -f origin claude/x", "deny"), ("git push origin +claude/x", "deny"),
         ("git push origin claude/x:main", "deny"), ("git push origin --delete claude/x", "ask"),
         ("git push --tags origin", "ask"), ("git push origin claude/x claude/z", "ask"),
@@ -82,7 +84,8 @@ def test_D87_a_push_to_the_own_work_branch_is_free_under_the_standing_go(tmp_pat
     repo = _fixture(tmp_path)
     answer, entry = _hook(repo, tmp_path, form)
     assert "permissionDecision" not in answer["hookSpecificOutput"], answer
-    assert "(D87)." in ga.short_text(answer) and "free_work_branch_go" in entry["reason_ids"]
+    # changed in Nachtrag 37: the short line names D92, which widened D87
+    assert "(D92)." in ga.short_text(answer) and "free_work_branch_go" in entry["reason_ids"]
     assert (entry["verdict"], entry["decision"], entry["autonomy"]["klasse"]) == ("ask", "none", "go"), entry
 
 
@@ -125,5 +128,6 @@ def test_D87_control_codex_keeps_its_answer(tmp_path):
     assert answer is not None and "free_work_branch_go" not in entry["reason_ids"]
 
 
-def test_D87_the_prefix_of_the_own_work_branches():
-    assert gate.GO_WORK_BRANCH_PREFIX == "refs/heads/claude/"
+def test_D87_the_destinations_of_the_go_are_branches():
+    # changed in Nachtrag 37 (D92): the prefix claude/ gave way to the local branch of the same name (_go_source)
+    assert gate.GO_BRANCHES == "refs/heads/"
