@@ -45,11 +45,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import calendar
 import collections
 import concurrent.futures
 import errno
 import fnmatch
 import hashlib
+import importlib.util
 import ipaddress
 import json
 import os
@@ -14404,18 +14406,29 @@ def bilanz(entries: list[dict], bahn: str = "proofbundle", period: str = "tag") 
     reason. The fields of schema b7n0de.plugin_bilanz are the order's; the rest of that schema is Cowork's (owner
     question O35-6)."""
     periods: dict = {}
+    answers = _ask_answers(entries)   # D94
     for entry in entries:
+        if entry.get("decision") == "answered":
+            continue   # D94: the answer to an ask, no call of its own
         key = entry["ts"][:10] if period == "tag" else "gesamt"
         row = periods.setdefault(key, {"von": entry["ts"], "bis": entry["ts"], "aufrufe": 0, "owner_klicks": 0,
-                                       "umwege": 0, "faenge": 0, "sperren": 0, "fragen_je_grund": {},
-                                       "sperren_je_grund": {}})
+                                       "umwege": 0, "faenge": 0, "sperren": 0, "karten": 0, "fragen_je_grund": {},
+                                       "sperren_je_grund": {}, "antworten_je_grund": {}})
         row["bis"] = entry["ts"]
         row["aufrufe"] += 1
         decision, reasons = entry.get("decision"), entry.get("reason_ids") or []
         if decision == "ask" and entry.get("host") == "claude":
             row["owner_klicks"] += 1
+            state = answers.get(entry.get("frage"), "ohne_schluessel")   # D94
+            for reason in dict.fromkeys(reasons):
+                cell = row["antworten_je_grund"].setdefault(reason, {"fragen": 0, "ja": 0, "nein": 0, "offen": 0,
+                                                                     "ohne_schluessel": 0,
+                                                                     "fang": reason in FANG_REASONS})
+                cell["fragen"] += 1
+                cell[state] += 1
         if decision == "deny":
             row["sperren"] += 1
+            row["karten"] += "autonomy_card" in reasons   # D93
         if decision in ("ask", "deny"):
             table = row["fragen_je_grund" if decision == "ask" else "sperren_je_grund"]
             for reason in dict.fromkeys(reasons):
@@ -14425,7 +14438,8 @@ def bilanz(entries: list[dict], bahn: str = "proofbundle", period: str = "tag") 
         if isinstance(entry.get("umweg"), dict):
             row["umwege"] += 1
     return {"schema": BILANZ_SCHEMA, "bahn": bahn, "zeitraum": period,
-            "zeitraeume": [periods[k] for k in sorted(periods)]}
+            "zeitraeume": [periods[k] for k in sorted(periods)],
+            "kandidaten_zum_freigeben": _release_candidates(entries, answers)}
 
 
 def bilanz_command(argv: list[str]) -> int:
@@ -14886,6 +14900,114 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
     new = Outcome("deny", f"{verdict.text()} {answer.text}", list(answer.verdicts) + [verdict], None,
                   step=answer.step, cause=verdict)
     return _autonomy_record(new, "karte", wirkung=effects)
+
+
+# --- D94: the answers to the asks per reason, and the candidates to free (Nachtrag 37, Ergänzung 4) -----------------
+
+#: D94: the keys of the asks the hook sent under Claude Code, until the answer hook (ANSWER_HOOK, on PostToolUse and
+#: PostToolUseFailure) finds the call ran. The names and the store are the answer hook's own (proofbundle_answered.py).
+ASKS_PENDING = "asks-pending.json"
+ASKS_SCHEMA = "proofbundle-plugin/asks-pending/v0.1"
+MAX_ASKS_PENDING = 256
+ANSWER_HOOK = "proofbundle_answered.py"
+#: An ask whose call did not run counts as a no once its session made a later call, or this long after it.
+ANSWER_WINDOW_SECONDS = 3600
+#: The candidates to free (owner question O37-5): over the last CANDIDATE_DAYS days of the log, a reason of no catch
+#: (not in FANG_REASONS) with at least CANDIDATE_MIN_ANSWERS answers, of which at least CANDIDATE_YES_SHARE were yes.
+CANDIDATE_DAYS = 14
+CANDIDATE_MIN_ANSWERS = 20
+CANDIDATE_YES_SHARE = 0.95
+
+
+def _answer_hook():
+    """The answer hook's module, loaded from its file beside this one (the gate runs with -I, so not by import)."""
+    location = os.path.join(os.path.dirname(os.path.realpath(__file__)), ANSWER_HOOK)
+    spec = importlib.util.spec_from_file_location("proofbundle_answered", location)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _asks_keep(event: object, outcome: "Outcome | None", environ: dict | None = None) -> str | None:
+    """D94: the key of an ask the hook sends (the sha256 of its tool_use_id, never the id), kept with its time and its
+    reasons in the plugin data directory, at most MAX_ASKS_PENDING, the oldest dropped first; None where the hook sends
+    no ask, the event names no tool_use_id or the store cannot be written. Never raises, never changes an answer."""
+    if outcome is None or outcome.decision != "ask" or not isinstance(event, dict) or \
+            not isinstance(event.get("tool_use_id"), str):
+        return None
+    directory = log_directory("claude", environ)
+    if directory is None:
+        return None
+    try:
+        hook = _answer_hook()
+        key = hook.ask_key(event["tool_use_id"])
+        with hook.asks_lock(directory):
+            asks = hook.read_asks(directory)
+            asks.pop(key, None)
+            asks[key] = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                         "gruende": list(dict.fromkeys(v.reason_id for v in outcome.verdicts))}
+            while len(asks) > MAX_ASKS_PENDING:
+                asks.pop(next(iter(asks)))
+            hook.write_asks(directory, asks)
+        return key
+    except Exception:  # noqa: BLE001 - the count never changes an answer
+        return None
+
+
+def _ts_seconds(ts: str) -> int | None:
+    try:
+        return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _ask_answers(entries: list[dict]) -> dict:
+    """D94: {key: "ja" | "nein" | "offen"} for every ask of the log that carries a key: yes where an answer line names
+    it (the call ran); no where it does not and its session made a later call, or the newest line of the log is
+    ANSWER_WINDOW_SECONDS after it; open else."""
+    answered = {e.get("frage") for e in entries if e.get("decision") == "answered" and e.get("antwort") == "ja"}
+    last: dict = {}
+    for e in entries:
+        if e.get("decision") != "answered" and isinstance(e.get("ts"), str):
+            last[e.get("session_id")] = max(last.get(e.get("session_id"), ""), e["ts"])
+    newest = max((_ts_seconds(e.get("ts")) or 0 for e in entries), default=0)
+    result = {}
+    for e in entries:
+        key = e.get("frage")
+        if e.get("decision") != "ask" or not isinstance(key, str):
+            continue
+        if key in answered:
+            result[key] = "ja"
+            continue
+        later = e.get("session_id") is not None and last.get(e.get("session_id"), "") > e["ts"]
+        old = newest - (_ts_seconds(e["ts"]) or newest) >= ANSWER_WINDOW_SECONDS
+        result[key] = "nein" if later or old else "offen"
+    return result
+
+
+def _release_candidates(entries: list[dict], answers: dict) -> list[dict]:
+    """D94: the reasons the gate names as candidates to free, each an owner question (O37-5); the gate frees nothing
+    itself. Over the last CANDIDATE_DAYS days of the log: a reason not in FANG_REASONS whose answered asks under Claude
+    Code number at least CANDIDATE_MIN_ANSWERS, at least CANDIDATE_YES_SHARE of them yes."""
+    stamps = [s for s in (_ts_seconds(e.get("ts")) for e in entries) if s is not None]
+    if not stamps:
+        return []
+    since = max(stamps) - CANDIDATE_DAYS * 86400
+    count: dict = {}
+    for e in entries:
+        state = answers.get(e.get("frage"))
+        if e.get("decision") != "ask" or e.get("host") != "claude" or state not in ("ja", "nein") or \
+                (_ts_seconds(e.get("ts")) or 0) < since:
+            continue
+        for reason in dict.fromkeys(e.get("reason_ids") or []):
+            count.setdefault(reason, [0, 0])[state == "nein"] += 1
+    found = []
+    for reason, (yes, no) in sorted(count.items()):
+        if reason in FANG_REASONS or yes + no < CANDIDATE_MIN_ANSWERS or yes < CANDIDATE_YES_SHARE * (yes + no):
+            continue
+        found.append({"grund": reason, "ja": yes, "nein": no, "ja_quote": round(yes / (yes + no), 3),
+                      "zeitraum_tage": CANDIDATE_DAYS, "owner_frage": "O37-5"})
+    return found
 
 
 def tree_digest_command(argv: list[str]) -> int:
@@ -18223,6 +18345,9 @@ def main(argv: list[str] | None = None) -> int:
                          if AUTONOMOUS_FLAG in argv else None)
             if completed is not None:
                 entry["umweg"] = completed
+            asked = _asks_keep(event, verdict) if AUTONOMOUS_FLAG in argv and host == "claude" else None   # D94
+            if asked is not None:
+                entry["frage"] = asked
             write_log(entry, host)
         except Exception:  # noqa: BLE001 - the log never changes the answer
             pass

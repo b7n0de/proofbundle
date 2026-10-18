@@ -4451,3 +4451,36 @@ Tests: tests/test_plugin_n37_card_d93.py; changed tests of this delivery: tests/
 tests/test_plugin_n35_push_targets_d86.py (the asks of the closed list are read in a repository of another owner),
 tests/test_plugin_n35_work_branch_go_d87.py (its asks in the profile are cards), tests/test_plugin_n35_counts_d88.py (the
 push to topic is a card: 0 clicks, 4 blocks).
+
+## D94. The answers to the asks per reason, and the candidates to free (Nachtrag 37, Ergänzung 4, 2026-10-18)
+
+Owner word of 2026-10-18, 23:2x Berlin: the functionality, but no needless constant asks most users wave through with
+yes. Owner choice (A): the bilanz of D88 counts per reason id how often an ask was answered yes and how often no and
+whether it ever caught something; a reason with nearly only yes and no catch over a period the session proposes appears
+as a candidate to free, as an owner question; the gate frees nothing itself.
+
+Measured with Claude Code 2.1.302 on a pseudo terminal, a fresh HOME, the stand-in API on the loopback, no network
+(n37/werkzeug/ask_answer_n37.py of the delivery; a PreToolUse hook that asks, a hook on every other event that logs it):
+after a yes in the dialog Claude Code sent PermissionRequest (without a tool_use_id), then PostToolUse with the
+tool_use_id of the PreToolUse event, PostToolBatch and Stop; where the command failed, PostToolUseFailure in place of
+PostToolUse with the same id; after a no (Escape) it sent no event for the call, no PermissionDenied either.
+
+The rule: with --autonomous, under Claude Code, the gate keeps for every ask it sends the key of its tool_use_id (the
+first 32 hex digits of its sha256; the store never holds the id) with the time and the reasons in the plugin data
+directory (asks-pending.json, at most 256, the oldest dropped, under a lock), and writes the key into the log line
+(frage). A hook of its own, hooks/proofbundle_answered.py, runs on PostToolUse and PostToolUseFailure for the matchers of
+the gate's PreToolUse hooks: where the event's tool_use_id has a kept key it removes the key and appends one line to the
+gate log (decision answered, antwort ja, the key, the reasons, the time of the ask). It is a file of its own so that the
+hook after every gated call loads only the standard library; it prints nothing, calls no network, and every failure
+ends with exit 0 (`|| true` in hooks.json besides), so it never blocks or fails a call. The gate loads its helpers from
+the same file. The Codex manifest has no such hook.
+
+The bilanz (`bilanz`, D88): an ask with a key is ja where an answer line names it, nein where its session made a later
+call or the newest line of the log is an hour after it, else offen; an ask without a key (older lines, no tool_use_id)
+counts as ohne_schluessel. Per period and reason: fragen, ja, nein, offen, ohne_schluessel and fang (the reason is one
+of FANG_REASONS); per period also karten (the denies of D93); the answer lines are no calls. kandidaten_zum_freigeben:
+over the last 14 days of the log, every reason not in FANG_REASONS with at least 20 answered asks of which at least 95 %
+were yes, with ja, nein and ja_quote, each owner question O37-5.
+
+Limits: a no and a yes after which Claude Code never ran the call (a crash, the session ended) read alike; the measure of
+yes is the call that ran. A tool_use_id of two calls is not one the gate tells apart. Tests: tests/test_plugin_n37_answers_d94.py.

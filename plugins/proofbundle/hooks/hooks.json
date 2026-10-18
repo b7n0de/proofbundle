@@ -33,6 +33,70 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
