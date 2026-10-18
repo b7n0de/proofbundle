@@ -264,6 +264,11 @@ MUTATIONS = [
      "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
      "    ok = bool(sig_ok) and binding_ok",
      "intoto: predicateType-confusion enforcement disabled", True),
+    # L1-SEM-02 (carried 2026-10-18) — with every reference field None no check ran; the vacuous True came back.
+    ("src/proofbundle/automation_verdict.py",
+     '"referencesResolved": (False if refs_fremd else None if not geprueft else not unresolved),',
+     '"referencesResolved": (False if refs_fremd else None if not reference_keys else not unresolved),',
+     "automation: referencesResolved vacuously True when no reference check ran", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",

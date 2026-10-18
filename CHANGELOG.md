@@ -12,6 +12,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
 
+### Changed
+
+- `automation.referencesResolved` is `None`, no longer `True`, when every reference field it reads is `None` or absent: no reference check ran, as with no reference field at all. A signed decision receipt whose `evidenceRefs` is empty read `True`. `safeForAutomation` and `automationBlockers` do not change in any case; only an unresolved reference blocks, as before.
+
 ### Fixed
 
 - The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
