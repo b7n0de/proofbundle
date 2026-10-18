@@ -870,8 +870,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         from . import assurance as _assurance  # noqa: PLC0415
         ao = predicate.get("actionOutcome") if isinstance(predicate.get("actionOutcome"), dict) else None
         _ao_applicable = isinstance(ao, dict) and ao.get("status") == "executed"
+        # THE DIGEST, NOT ITS WRAPPER (L1-SEM-03 of the self-gate of 2026-07-31, measured again on main
+        # 570dd164). `outcomeRef` is {uri, digest}; the classifier and the resolver take the digest object, as
+        # each evidenceRefs entry hands them `x.get("digest")`. Handed the wrapper, every executed outcome read
+        # CLAIMED with "no well-formed sha256 digest object present", the golden example
+        # examples/decision_receipt_allow.json included, and no evidence_resolver could ever promote it.
+        _ao_ref = (ao or {}).get("outcomeRef")
         _outcome_level = _assurance.classify_digest_evidence(
-            (ao or {}).get("outcomeRef"), applicable=_ao_applicable, evidence_resolver=evidence_resolver)
+            _ao_ref.get("digest") if isinstance(_ao_ref, dict) else None,
+            applicable=_ao_applicable, evidence_resolver=evidence_resolver)
         _evref_levels = None
         if isinstance(ev, list) and ev:
             _evref_levels = _assurance.evidence_ladder_summary(*[

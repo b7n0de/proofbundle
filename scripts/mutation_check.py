@@ -494,6 +494,13 @@ MUTATIONS = [
      "    if type(executor_key_id) is not str or type(receiver_key_id) is not str or receiver_key_id == executor_key_id:",
      "    if False:",
      "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId / non-str-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+    # L1-SEM-03 (2026-10-17): the outcomeRef level is read from the digest inside the ref; handing the classifier
+    # the {uri, digest} wrapper again must go red — killed by tests/test_assurance.py's
+    # test_the_outcome_ref_level_reads_the_digest_inside_the_ref.
+    ("src/proofbundle/decision.py",
+     '            _ao_ref.get("digest") if isinstance(_ao_ref, dict) else None,\n',
+     "            _ao_ref,\n",
+     "decision: outcomeRef level judged on the {uri, digest} wrapper (every executed outcome reads CLAIMED)", True),
     # Refuter round 2 — dsse payload pre-decode DoS cap: removing it lets an oversized base64 payload be
     # fully decoded before any cap — killed by tests/test_budget.py's
     # test_verify_envelope_rejects_oversized_base64_payload_before_decode.
