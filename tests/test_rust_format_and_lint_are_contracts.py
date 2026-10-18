@@ -48,8 +48,42 @@ _RUSTC = re.compile(r"^rustc\s+(\S+)")
 #: it. That is exactly how the first attempt at this case survived the planted defect, the same class
 #: this whole second version stands against, inside the fix against it.
 _COMPONENTS = re.compile(r"^\s*components\s*=\s*\[([^\]]*)\]", re.M)
-#: What swallows an exit code. `cmd || true`, `cmd || :`, `cmd ; true`, `set +e`.
-_SWALLOWED = re.compile(r"\|\|\s*(true|:)\s*$|;\s*true\s*$|\bset\s+\+e\b", re.M)
+#: THE ALLOWED FORMS OF EACH GUARD STEP, a positive list. The first answer was a list of what
+#: swallows an exit code (`|| true`, `|| :`, `; true`, `set +e`), and it held only the forms its author
+#: thought of: Codex on pull request 376 (2026-10-17) measured `cargo fmt --check | tee /dev/null` and
+#: `cargo fmt --check || echo advisory` past it, and `cargo fmt # --check`, where the flag stands in a
+#: shell comment, past the flag check. So the `run` of a guard step is one of these commands exactly,
+#: alone or behind `cd tools/pb_verify_rs && `, and nothing else is a guard step.
+_ALLOWED = {
+    "cargo fmt": ("cargo fmt --check",),
+    "cargo clippy": ("cargo clippy --all-targets -- -D warnings",),
+}
+#: Keys that change how the shell runs a step or what its exit code means. A guard step carries none
+#: of them: `shell: bash {0}` drops `-e`, and `continue-on-error: true` turns the step's red into green.
+#: A `shell` set as a default for the job or the workflow counts too. The job's own
+#: `continue-on-error` does not: the `rust-parity` job is ADVISORY by decision (Finding 11,
+#: 2026-07-15, see its comment in ci.yml), so its red shows as a red job and blocks no merge. This file
+#: holds the step, that it measures and reports; what weight the job has in a merge is that decision.
+_EXIT_KEYS = ("shell", "continue-on-error")
+
+
+def _form_problem(command: str, step: dict, job: dict, wf: dict) -> str | None:
+    """Why this step is not an allowed form of the guard `command`, or None if it is."""
+    run = str(step.get("run") or "").strip()
+    forms = _ALLOWED[command]
+    in_dir = _working_directory(step, job, wf)
+    if run in forms:
+        if not (in_dir and in_dir.strip().strip("./") == "tools/pb_verify_rs"):
+            return "it does not land in tools/pb_verify_rs"
+    elif run not in tuple(f"cd tools/pb_verify_rs && {f}" for f in forms):
+        return f"its run {run!r} is none of the allowed forms {list(forms)}"
+    for key in _EXIT_KEYS:
+        if key in step:
+            return f"the step sets {key!r}, which changes what its exit code means"
+    for level, where in ((job, "job"), (wf, "workflow")):
+        if ((level.get("defaults") or {}).get("run") or {}).get("shell"):
+            return f"a default of the {where} sets 'shell' for the step"
+    return None
 
 
 def _pinned_channel() -> str:
@@ -126,15 +160,15 @@ def test_the_toolchain_is_pinned_to_an_exact_version_and_names_both_tools():
             "prevent")
 
 
-@pytest.mark.parametrize("command,flag", [("cargo fmt", "--check"), ("cargo clippy", "-D warnings")])
-def test_each_guard_runs_in_the_directory_of_the_pin_and_keeps_its_exit_code(command, flag):
+@pytest.mark.parametrize("command", ["cargo fmt", "cargo clippy"])
+def test_each_guard_runs_in_the_directory_of_the_pin_and_keeps_its_exit_code(command):
     """The form, from the PARSED workflow. Three promises per step.
 
     (1) It lands in `tools/pb_verify_rs`, because rustup selects the toolchain by working directory,
     through `working-directory` on step, job or workflow level or through a `cd ... &&`. (2) It carries
     its flag: `--check` checks instead of formatting, `-D warnings` turns a warning into an error.
     (3) Its exit code is not swallowed; an appended `|| true` turns both other promises into
-    decoration."""
+    decoration. All three are one check now: the step is one of the allowed forms in `_ALLOWED`."""
     steps = _steps_with(command)
     assert steps, f"no step in CI runs `{command}`"
     for job_id, job, step, wf in steps:
@@ -143,11 +177,48 @@ def test_each_guard_runs_in_the_directory_of_the_pin_and_keeps_its_exit_code(com
             f"{where} does not land in tools/pb_verify_rs. rustup selects the toolchain by working "
             "directory; without it the step measures under any version, and green or red would be "
             "chance.")
-        run = str(step.get("run") or "")
-        assert flag in run, f"{where} does not carry {flag!r}: {run!r}"
-        assert not _SWALLOWED.search(run), (
-            f"{where} swallows its exit code ({run!r}). With `|| true` at the end, {flag!r} is an "
-            "opinion, not a promise.")
+        problem = _form_problem(command, step, job, wf)
+        assert problem is None, (
+            f"{where} is no allowed form of the guard: {problem}. Only an allowed form keeps its "
+            "flag and its exit code; anything else is an opinion, not a promise.")
+
+
+#: The planted forms the rule above must refuse, each with the reason a reader would have to see.
+#: The first three are the ones Codex measured past the deny list; the rest are their neighbours.
+_PLANTED = [
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check | tee /dev/null"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check || echo advisory"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt # --check"}, {}),
+    ("cargo clippy", {"run": "cd tools/pb_verify_rs && cargo clippy --all-targets # -- -D warnings"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check || true"}, {}),
+    ("cargo fmt", {"run": "set +e\ncd tools/pb_verify_rs && cargo fmt --check"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check\ntrue"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check", "continue-on-error": True}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check", "shell": "bash {0}"}, {}),
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check"},
+     {"defaults": {"run": {"shell": "bash {0}"}}}),
+    ("cargo fmt", {"run": "cargo fmt --check"}, {}),
+    ("cargo clippy", {"run": "cd tools/pb_verify_rs && cargo clippy --all-targets -- -D warnings; true"}, {}),
+]
+
+
+@pytest.mark.parametrize("command,step,job", _PLANTED)
+def test_the_rule_refuses_each_planted_form(command, step, job):
+    """THE ANTI-PARITY, RUN: each planted form is refused, so a later loosening of `_form_problem`
+    shows here and not first in a pipeline whose guard has stopped judging."""
+    assert _form_problem(command, step, job, {}) is not None, step
+
+
+@pytest.mark.parametrize("command,step,job", [
+    ("cargo fmt", {"run": "cd tools/pb_verify_rs && cargo fmt --check"}, {}),
+    ("cargo fmt", {"run": "cargo fmt --check", "working-directory": "tools/pb_verify_rs"}, {}),
+    ("cargo clippy", {"run": "cd tools/pb_verify_rs && cargo clippy --all-targets -- -D warnings\n"}, {}),
+    ("cargo clippy", {"run": "cargo clippy --all-targets -- -D warnings"},
+     {"defaults": {"run": {"working-directory": "./tools/pb_verify_rs"}}}),
+])
+def test_the_rule_accepts_each_allowed_form(command, step, job):
+    """The control: the allowed forms pass, so a rule that refused everything would show here."""
+    assert _form_problem(command, step, job, {}) is None, step
 
 
 def test_the_rust_job_runs_this_file():
