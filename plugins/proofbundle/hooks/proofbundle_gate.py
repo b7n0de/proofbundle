@@ -10588,6 +10588,466 @@ def _interpreter_heredoc_head(command: str) -> str | None:
     return " ".join(w.raw for w in cmd.words)
 
 
+# --- the work profile of Claude Code: local work in a declared repository of b7n0de (DECISIONS.md D71) --------------
+#
+# Owner choice of 2026-10-18, 10:3x Berlin (Nachtrag 29, "Lokal frei, gh pr merge --auto frei"): in a repository that
+# declares and whose every remote is a repository of b7n0de on github.com, under Claude Code and never under Codex, a
+# read, a local change that can be taken back and `gh pr merge --auto` are free after the profile of their class finds
+# nothing. D71 only ever turns an ask of the not-modeled kind into a pass: a deny stays, every other ask stays, and the
+# answer of every command that is not one of its forms stays as it is.
+
+#: The owner of the repositories in which D71 frees work, the one of the push that creates a branch (D61).
+WORK_OWNER = NEW_BRANCH_OWNER
+#: The reason ids of an ask that D71 answers with a pass where its own check finds nothing: the not-free and
+#: not-modeled answers its forms get today (D3, D27, D40, D41). An ask with any other reason keeps its answer.
+_WORK_REPLACEABLE = frozenset({"git_form_not_free", "possible_unmodeled_push", "remote_read_not_modeled",
+                               "net_unmodeled_git", "checkout_not_modeled"})
+#: The hooks no local form of D71 runs (measured with git 2.43.0, truth_work_n29.py of the delivery: every documented
+#: hook a marker, each form run once): the hooks of push, receive, am, send-email and p4, and fsmonitor-watchman, which
+#: only core.fsmonitor selects. Every other hook that is not a sample, an unknown one included, keeps a local form of
+#: D71 asking; the pre-push hook of Level 2 does not, so installing Level 2 leaves D71 as it is.
+_HOOKS_NOT_RUN_BY_WORK = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-push", "pre-receive", "update", "proc-receive",
+    "post-receive", "post-update", "push-to-checkout", "sendemail-validate", "p4-changelist", "p4-prepare-changelist",
+    "p4-post-changelist", "p4-pre-submit", "fsmonitor-watchman",
+})
+#: -R or --repo of a gh form of D71: exactly OWNER/REPO with the owner of D71, no host, never `.` or `..`.
+_WORK_GH_REPO = re.compile(rf"{re.escape(WORK_OWNER)}/([A-Za-z0-9._-]+)")
+#: The number of a pull request as D71 reads it: no leading zero, at most ten digits.
+_WORK_PR_NUMBER = re.compile(r"[1-9][0-9]{0,9}")
+#: The options of `gh pr merge` D71 knows, True where the option takes a value (gh 2.89.0). Not among them: --admin
+#: (merges past the branch protection), -d/--delete-branch (deletes branches, the local one included), --body,
+#: --body-file, --subject, --match-head-commit, --author-email and every other option.
+_WORK_GH_MERGE_OPTIONS = {"--auto": False, "--disable-auto": False, "--merge": False, "-m": False, "--squash": False,
+                          "-s": False, "--rebase": False, "-r": False, "-R": True, "--repo": True}
+_WORK_GH_STRATEGIES = {"--merge": "merge", "-m": "merge", "--squash": "squash", "-s": "squash", "--rebase": "rebase",
+                       "-r": "rebase"}
+#: The options of `gh pr edit` D71 knows (gh 2.89.0). Not among them: --body-file (a file or standard input as the
+#: body, which may publish a file the agent should not), --base (another target branch), --add-project and the other
+#: project options, which reach the project API.
+_WORK_GH_EDIT_OPTIONS = {"--title": True, "-t": True, "--body": True, "-b": True, "--add-label": True,
+                         "--remove-label": True, "--add-reviewer": True, "--remove-reviewer": True,
+                         "--add-assignee": True, "--remove-assignee": True, "--milestone": True, "-m": True,
+                         "--remove-milestone": False, "-R": True, "--repo": True}
+#: The flags of a commit of D71: those of D40 and --amend (with a message or --no-edit), --allow-empty and --signoff.
+#: Not among them: --no-verify and -n (they turn hooks off, D24), -S (signing), -e, -v, -p, --interactive, -c, -C,
+#: --fixup, --squash, --author, --date, -t, --reset-author and every other option.
+_WORK_COMMIT_FLAGS = frozenset({"-a", "--all", "-q", "--quiet", "--amend", "--no-edit", "--allow-empty", "-s",
+                                "--signoff"})
+_WORK_TAG_FLAGS = frozenset({"-l", "--list", "-i", "--ignore-case", "--no-column"})
+_WORK_MERGE_FLAGS = frozenset({"-q", "--quiet", "--no-edit", "--ff-only", "--no-ff", "--ff", "--squash", "--stat",
+                               "--no-stat", "-n"})
+_WORK_STASH_FLAGS = frozenset({"-q", "--quiet", "-u", "--include-untracked", "-k", "--keep-index"})
+
+_WorkForm = collections.namedtuple("_WorkForm", "kind name directory refs")
+"""A form of D71: kind read (the read profile of D34 and D42), local (the state check of D40 with the hooks of D71),
+target (local, and a path it creates), fetch or ls-remote (the fetch profile of D45 and D59) or gh (the gh profile of
+D36); name as a reason names it; directory the literal absolute path of `-C`, or None for the session directory; refs
+the words git must resolve before the form is free, as (role, word) pairs."""
+
+
+def _work_rev(word: str) -> bool:
+    """Whether word may stand as a revision of a form of D71: not empty, no option, no index entry (_names_index), no
+    `@{` (a reflog that may name another state) and no `:` (a path in a tree)."""
+    return bool(word) and not word.startswith("-") and not _names_index(word) and "@{" not in word and ":" not in word
+
+
+def _work_branch_name(word: str) -> bool:
+    """Whether word is a new branch name of D71: the branch grammar of the fetch form (_fetch_branch), not HEAD."""
+    return _fetch_branch(word) and word != "HEAD"
+
+
+def _work_tag_list(args: list[str]) -> bool:
+    """`git tag` that lists: no argument, or -l/--list with patterns, and only the options of _WORK_TAG_FLAGS and the
+    ref-filter values --sort, --format, --contains, --no-contains, --merged, --no-merged and --points-at written as
+    `--opt=value`. A pattern without -l names a new tag, so it is no list."""
+    listing, patterns = False, 0
+    stuck = {"--sort": _REF_SORT.fullmatch, "--format": _ref_format_ok, "--contains": _work_rev,
+             "--no-contains": _work_rev, "--merged": _work_rev, "--no-merged": _work_rev, "--points-at": _work_rev}
+    for word in args:
+        name, eq, value = word.partition("=")
+        if word in ("-l", "--list"):
+            listing = True
+        elif word in _WORK_TAG_FLAGS:
+            continue
+        elif eq and name in stuck:
+            if not stuck[name](value):
+                return False
+        elif word.startswith("-"):
+            return False
+        else:
+            patterns += 1
+    return listing or not patterns
+
+
+def _work_commit(args: list[str]) -> bool:
+    """`git commit` of D71: the flags of _WORK_COMMIT_FLAGS, a message (-m, --message, -F, --file, a cluster of a, q and
+    s ending in m) or --amend with --no-edit, --no-edit only with --amend, and literal paths."""
+    message, flags, i, after = False, set(), 0, False
+    while i < len(args):
+        word = args[i]
+        if after or not word.startswith("-") or word == "-":
+            if word == "-":
+                return False
+        elif word == "--":
+            after = True
+        elif word in ("-m", "--message", "-F"):
+            if i + 1 >= len(args) or (word == "-F" and args[i + 1] in ("", "-")):
+                return False
+            message, i = True, i + 1
+        elif word.startswith("--message="):
+            message = True
+        elif word.startswith("--file="):
+            if word[len("--file="):] in ("", "-"):
+                return False
+            message = True
+        elif word in _WORK_COMMIT_FLAGS:
+            flags.add(word)
+        elif not word.startswith("--") and len(word) > 2 and all(c in "aqs" for c in word[1:-1]) and word[-1] == "m":
+            if i + 1 >= len(args):
+                return False
+            message, i = True, i + 1
+        elif not word.startswith("--") and len(word) > 2 and all(c in "aqs" for c in word[1:]):
+            pass
+        else:
+            return False
+        i += 1
+    if "--no-edit" in flags and "--amend" not in flags:
+        return False
+    return message or {"--amend", "--no-edit"} <= flags
+
+
+def _work_checkout(sub: str, args: list[str]) -> tuple | None:
+    """The refs of `git checkout` or `git switch` onto a branch or a commit, or onto a new branch, as (role, word)
+    pairs, else None: -q, then a branch name alone, --detach (switch also -d) with one revision, or -b (switch -c,
+    --create) with a new name and at most one start. Force in every form (-f, --force, --discard-changes, -B, -C),
+    --orphan, -m/--merge, -t/--track, -p, a path, `--`, --ours, --theirs and every other option stay as they are."""
+    rest = [w for w in args if w not in ("-q", "--quiet")]
+    if len(rest) == 1 and not rest[0].startswith("-"):
+        return (("branch", rest[0]),) if sub == "switch" or not _FULL_OBJECT_NAME.fullmatch(rest[0]) else \
+            (("commit", rest[0]),)
+    detach = ("--detach",) if sub == "checkout" else ("--detach", "-d")
+    if len(rest) == 2 and rest[0] in detach and _work_rev(rest[1]):
+        return (("commit", rest[1]),)
+    create = ("-b",) if sub == "checkout" else ("-c", "--create")
+    if len(rest) in (2, 3) and rest[0] in create and _work_branch_name(rest[1]):
+        if len(rest) == 3 and not _work_rev(rest[2]):
+            return None
+        return (("new", rest[1]),) + ((("start", rest[2]),) if len(rest) == 3 else ())
+    return None
+
+
+def _work_git_form(sub: str, args: list[str], directory: str | None) -> _WorkForm | None:
+    """The form of D71 `git <sub> <args>` is, or None (the words are literal and none may be rewritten)."""
+    name = f"git {sub}"
+    if sub in ("checkout", "switch"):
+        refs = _work_checkout(sub, args)
+        return _WorkForm("local", name, directory, refs) if refs is not None else None
+    if sub == "tag" and _work_tag_list(args):
+        return _WorkForm("read", name, directory, ())
+    if sub == "commit" and _work_commit(args):
+        return _WorkForm("local", name, directory, ())
+    if sub == "branch" and len(args) in (1, 2) and _work_branch_name(args[0]) and \
+            (len(args) == 1 or _work_rev(args[1])):
+        return _WorkForm("local", name, directory, (("new", args[0]),) + ((("start", args[1]),) if len(args) == 2
+                                                                              else ()))
+    if sub == "stash":
+        if args == ["list"]:
+            return _WorkForm("read", "git stash list", directory, ())
+        rest, i = (args[1:] if args[:1] == ["push"] else args), 0
+        while i < len(rest):
+            if rest[i] in ("-m", "--message") and i + 1 < len(rest):
+                i += 2
+            elif rest[i].startswith("--message=") or rest[i] in _WORK_STASH_FLAGS:
+                i += 1
+            else:
+                return None
+        return _WorkForm("local", "git stash push", directory, ())
+    if sub == "merge":
+        if args == ["--abort"]:
+            return _WorkForm("local", "git merge --abort", directory, ())
+        positional, i = [], 0
+        while i < len(args):
+            if args[i] in ("-m", "--message") and i + 1 < len(args):
+                i += 2
+                continue
+            if args[i] in _WORK_MERGE_FLAGS or args[i].startswith("--message="):
+                i += 1
+                continue
+            if args[i].startswith("-") or not _work_rev(args[i]):
+                return None
+            positional.append(args[i])
+            i += 1
+        if len(positional) != 1 or not {"--no-edit", "--ff-only", "--squash"} & set(args):
+            return None
+        return _WorkForm("local", name, directory, (("commit", positional[0]),))
+    if sub == "rebase":
+        if args == ["--abort"]:
+            return _WorkForm("local", "git rebase --abort", directory, ())
+        rest, refs, i = [w for w in args if w not in ("-q", "--quiet")], [], 0
+        while i < len(rest):
+            if rest[i] == "--onto" and i + 1 < len(rest) and _work_rev(rest[i + 1]):
+                refs.append(("commit", rest[i + 1]))
+                i += 2
+            elif rest[i].startswith("--onto=") and _work_rev(rest[i][len("--onto="):]):
+                refs.append(("commit", rest[i][len("--onto="):]))
+                i += 1
+            elif _work_rev(rest[i]):
+                refs.append(("positional", rest[i]))
+                i += 1
+            else:
+                return None
+        positional = [w for role, w in refs if role == "positional"]
+        if len(positional) not in (1, 2):
+            return None
+        refs = [("commit", w) if role == "positional" and w == positional[0] else
+                ("branch", w) if role == "positional" else (role, w) for role, w in refs]
+        return _WorkForm("local", name, directory, tuple(refs))
+    if sub == "worktree":
+        target = _worktree_add_target(args, None)
+        return _WorkForm("target", name, directory, (("target", target),)) if target is not None else None
+    if sub == "bundle":
+        rest = [w for w in args[1:] if w not in ("-q", "--quiet")]
+        if args[:1] == ["verify"] and len(rest) == 1 and rest[0] not in ("", "-") and not rest[0].startswith("-"):
+            return _WorkForm("read", "git bundle verify", directory, ())
+        if args[:1] == ["create"] and len(rest) >= 2 and rest[0] not in ("", "-") and not rest[0].startswith("-") \
+                and all(w in ("--all", "--branches", "--tags") or (_work_rev(w.replace("..", "", 1)) and
+                                                                    "..." not in w) for w in rest[1:]):
+            return _WorkForm("target", "git bundle create", directory, (("file", rest[0]),))
+        return None
+    if sub == "fetch":
+        remote = _fetch_form(args)
+        return _WorkForm("fetch", f"git fetch {remote}", directory, ()) if remote is not None else None
+    if sub == "ls-remote":
+        remote = _ls_remote_form(args)
+        return _WorkForm("ls-remote", f"git ls-remote {remote}", directory, ()) if remote is not None else None
+    return None
+
+
+def _work_gh_form(words: list[str]) -> _WorkForm | None:
+    """`gh pr merge <number> [-R OWNER/REPO] --auto` with exactly one of --merge, --squash and --rebase, or with
+    --disable-auto alone; `gh pr edit <number> [-R OWNER/REPO]` with at least one option of _WORK_GH_EDIT_OPTIONS. The
+    owner in -R is the one of D71; no option twice."""
+    path = tuple(words[:2])
+    options = {("pr", "merge"): _WORK_GH_MERGE_OPTIONS, ("pr", "edit"): _WORK_GH_EDIT_OPTIONS}.get(path)
+    if options is None:
+        return None
+    parsed = _gh_words(words[2:], options)
+    if parsed is None:
+        return None
+    positional, pairs = parsed
+    names = [n for n, _v in pairs]
+    if len(positional) != 1 or not _WORK_PR_NUMBER.fullmatch(positional[0]) or len(set(names)) != len(names):
+        return None
+    repo = [v for n, v in pairs if n in ("-R", "--repo")]
+    if len(repo) > 1 or (repo and (not _WORK_GH_REPO.fullmatch(repo[0])
+                                   or _WORK_GH_REPO.fullmatch(repo[0]).group(1) in (".", ".."))):
+        return None
+    rest = [n for n in names if n not in ("-R", "--repo")]
+    if path == ("pr", "merge"):
+        strategies = [n for n in rest if n in _WORK_GH_STRATEGIES]
+        if not (rest == ["--disable-auto"] or ("--auto" in rest and len(strategies) == 1
+                                               and len(rest) == 2)):
+            return None
+        return _WorkForm("gh", "gh pr merge --auto" if "--auto" in rest else "gh pr merge --disable-auto", None,
+                         (("repo", repo[0]),) if repo else ())
+    if not rest:
+        return None
+    return _WorkForm("gh", "gh pr edit", None, (("repo", repo[0]),) if repo else ())
+
+
+def _work_form(command: str) -> _WorkForm | None:
+    """The form of D71 the whole command is, or None: one simple command of literal words (no operator, redirection,
+    prefix assignment, expansion, substitution or word the shell may rewrite), headed by a bare `git` with at most one
+    `-C` and a literal absolute path and no other global option, or by a bare `gh`. A read form class a already frees
+    (_read_form) is not one: its answer stays that of D34."""
+    toks = _lex(_drop_comments(command))
+    if toks is None or not toks or any(t[0] != "word" or t[2] for t in toks) or _expansion_present(command):
+        return None
+    words, raws = [t[1] for t in toks], [t[3] for t in toks]
+    if any(_shell_rewrites(raw) for raw in raws):
+        return None
+    if raws[0] == "gh":
+        return _work_gh_form(words[1:])
+    if raws[0] != "git":
+        return None
+    k, directory = 1, None
+    if words[1:2] == ["-C"]:
+        if len(words) < 4 or not os.path.isabs(words[2]):
+            return None
+        k, directory = 3, words[2]
+    if k >= len(words) or _read_form(words[k], words[k + 1:]):
+        return None
+    return _work_git_form(words[k], words[k + 1:], directory)
+
+
+def _work_repo_problem(directory: str, deadline: float, environ: dict) -> str | None:
+    """None where D71 may apply to the repository at directory, else what keeps it out: the directory is in a work tree
+    git names; HEAD holds a declaration the gate reads (parse_declaration); the repository has a remote, and every URL
+    of every remote, for fetch and for push, with url.<base>.insteadOf and pushInsteadOf applied as git applies them
+    (`git remote get-url [--push] --all`, measured in Nachtrag 28, Teil B, O23-8: no program started, no ssh file
+    read), is https://github.com/<WORK_OWNER>/<repo>; and neither the work tree, the git directory nor the common
+    directory lies in the gate directory, nor the gate directory in the work tree. The reason names no value it read
+    (D49)."""
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None or paths["toplevel"] is None or paths["gitdir"] is None:
+        return "the directory is in no work tree the gate can read"
+    gate_dir = _gate_dir(environ)
+    if gate_dir is not None:
+        top = os.path.realpath(paths["toplevel"])
+        if any(_within_gate_dir(p, directory, gate_dir) for p in (paths["toplevel"], paths["gitdir"], paths["common"])) \
+                or _within_gate_dir(gate_dir, directory, top) is not None:
+            return "the repository and the gate directory overlap"
+    repo = paths["toplevel"]
+    blob = _git(repo, "cat-file", "blob", f"HEAD:{DECLARATION}", deadline=deadline)
+    if blob.returncode != 0:
+        return f"HEAD holds no declaration at {DECLARATION}"
+    try:
+        parse_declaration(blob.stdout)
+    except GateError:
+        return f"the declaration at HEAD is not one the gate reads ({DECLARATION})"
+    remotes = _remote_names(repo, deadline)
+    if not remotes:
+        return "the repository names no remote, or git cannot list its remotes"
+    for remote in sorted(remotes):
+        for flags in ((), ("--push",)):
+            got = _git(repo, "remote", "get-url", *flags, "--all", remote, deadline=deadline)
+            urls = got.stdout.decode("utf-8", "replace").split("\n") if got.returncode == 0 else []
+            urls = [u for u in urls if u]
+            matched = [_FETCH_GITHUB_URL.fullmatch(u) for u in urls]
+            if not urls or not all(m is not None and m.group(1) == WORK_OWNER and
+                                   m.group(2).removesuffix(".git") not in ("", ".", "..") for m in matched):
+                return f"a remote is not a repository of {WORK_OWNER} on github.com"
+    return None
+
+
+def _work_refs_problem(form: _WorkForm, directory: str, deadline: float) -> str | None:
+    """None when every ref word of the form names what its role needs, else what does not: a branch of the repository
+    (refs/heads/<word>; for checkout also no path of that name in the work tree, so git cannot read it as a path), a
+    commit, a new branch name that is not taken, a start that is a commit and no remote-tracking branch (git would
+    write the upstream into the configuration). The words are the command's own, so the reason may name them."""
+    for role, word in form.refs:
+        if role == "branch":
+            if _git(directory, "rev-parse", "--verify", "--quiet", f"refs/heads/{word}^{{commit}}",
+                    deadline=deadline).returncode != 0:
+                return f"{word} is not a branch of the repository"
+            top, _why = _work_tree(directory, deadline, "--path-format=absolute")
+            if form.name == "git checkout" and (top is None or os.path.lexists(os.path.join(top, word))):
+                return f"{word} is also a path in the work tree, so git may read it as a path"
+        elif role in ("commit", "start"):
+            if _git(directory, "rev-parse", "--verify", "--quiet", f"{word}^{{commit}}",
+                    deadline=deadline).returncode != 0:
+                return f"{word} names no commit"
+            full = _git(directory, "rev-parse", "--symbolic-full-name", word, deadline=deadline)
+            if role == "start" and full.stdout.decode("utf-8", "replace").startswith("refs/remotes/"):
+                return f"{word} is a remote-tracking branch, so git would write the upstream into the configuration"
+        elif role == "new":
+            if _git(directory, "rev-parse", "--verify", "--quiet", f"refs/heads/{word}",
+                    deadline=deadline).returncode == 0:
+                return f"the branch {word} exists"
+    return None
+
+
+def _work_tree_guard_problem(directory: str, deadline: float) -> str | None:
+    """None when no configuration file git reads for the repository and no hook directory lies in its work tree (outside
+    its git directory), else what does: a form that writes the work tree (checkout, switch, stash push, merge, rebase)
+    would then write configuration or hooks, which a file write may not do unasked (decide_write, D71)."""
+    files, dirs, problem = _state_files(directory, deadline)
+    if problem:
+        return problem
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None or paths["toplevel"] is None:
+        return f"the gate cannot read the repository's layout ({why})"
+    top = os.path.realpath(paths["toplevel"])
+    inner = [os.path.realpath(p) for p in (paths["gitdir"], paths["common"]) if p]
+
+    def within(path: str, root: str) -> bool:
+        return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+    for path in sorted(files | dirs):
+        real = os.path.realpath(path)
+        if within(real, top) and not any(within(real, root) for root in inner):
+            return "a configuration file or the hook directory lies in the work tree this form writes"
+    return None
+
+
+#: The local forms of D71 that write the work tree.
+_WORK_TREE_WRITERS = frozenset({"git checkout", "git switch", "git stash push", "git merge", "git merge --abort",
+                                "git rebase", "git rebase --abort"})
+
+
+def _work_check_problem(form: _WorkForm, directory: str, deadline: float, environ: dict, host: str) -> str | None:
+    """None when the profile of the form's class finds nothing, else what it found: the read profile of D34 (a pager
+    under the host of D42 noted, not counted) for a read; the state check of D40 with the hooks of D71, the refs, the
+    work-tree guard and the target for a local form (`git worktree add` keeps the checkout check of D40); the fetch
+    profile of D45 and D59 for fetch and ls-remote; the gh profile of D36 for gh, with GH_REPO in the form of D71 where
+    the command names no repository."""
+    bound = [] if _no_terminal_host(host, environ) else None
+    if form.kind == "read":
+        return _read_profile_problem(form.name.split(" ")[1], directory, deadline, environ, inert_pagers=bound)
+    if form.kind in ("fetch", "ls-remote"):
+        verdict = (_fetch_free_verdict if form.kind == "fetch" else _ls_remote_free_verdict)(
+            form.name, directory, deadline, host)
+        return None if verdict.decision == "pass" else verdict.failed
+    if form.kind == "gh":
+        named = environ.get("GH_REPO")
+        if not form.refs and named is not None and not _WORK_GH_REPO.fullmatch(named):
+            return f"GH_REPO in the hook's environment names no repository of {WORK_OWNER}"
+        return _gh_profile_problem(environ, deadline, bound, [])
+    problem = _work_refs_problem(form, directory, deadline)
+    if problem is not None:
+        return problem
+    if form.name == "git worktree add":
+        return _checkout_state_problem(directory, dict(form.refs)["target"], deadline, environ)
+    problem = _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORK)
+    if problem is not None:
+        return problem
+    if form.name in _WORK_TREE_WRITERS:
+        return _work_tree_guard_problem(directory, deadline)
+    if form.name == "git bundle create":
+        target = os.path.join(directory, dict(form.refs)["file"])
+        if os.path.lexists(target):
+            return f"the bundle file {target} exists"
+        written = decide_write("Write", {"file_path": target}, directory, deadline, "claude", environ)
+        if written is not None:
+            return f"a write the gate guards: {written.verdicts[0].failed if written.verdicts else written.text}"
+    return None
+
+
+def _work_profile(outcome: "Outcome | None", command: str, cwd: str, deadline: float, host: str,
+                  environ: dict | None) -> "Outcome | None":
+    """D71: the outcome of decide, or a pass where D71 frees the command. Only an ask under Claude Code whose every
+    reason is one of _WORK_REPLACEABLE, for a command that is a form of D71 (_work_form), in a repository D71 applies to
+    (_work_repo_problem) whose profile for the form finds nothing (_work_check_problem). Where the repository is one of
+    D71 and the profile found something, the ask stays and its text says so."""
+    if host != "claude" or outcome is None or outcome.decision != "ask" or \
+            any(v.reason_id not in _WORK_REPLACEABLE for v in outcome.verdicts):
+        return outcome
+    form = _work_form(command)
+    if form is None:
+        return outcome
+    environ = os.environ if environ is None else environ
+    directory = os.path.realpath(form.directory if form.directory is not None else cwd)
+    try:
+        if _work_repo_problem(directory, deadline, environ) is not None:
+            return outcome
+        problem = _work_check_problem(form, directory, deadline, environ, host)
+    except GateError as exc:
+        problem = f"the check reached no result ({exc})"
+    if problem is not None:
+        outcome.text = (f"{outcome.text} The work profile frees {form.name} in this repository only where its check "
+                        f"finds nothing; it found {problem} (DECISIONS.md D71).")
+        return outcome
+    checks = {"read": "the read profile of D34", "local": "the state check of D40 with the hooks of D71",
+              "target": "the state check and the target check", "fetch": "the fetch profile of D45",
+              "ls-remote": "the fetch profile of D45 and D59", "gh": "the gh profile of D36"}[form.kind]
+    verdict = Verdict("pass", f"proofbundle gate: {form.name} is free under the work profile. The repository at "
+                              f"{directory} declares, every remote of it is a repository of {WORK_OWNER} on github.com, "
+                              f"and {checks} found nothing that starts a program for this form (owner choice of "
+                              "2026-10-18, Nachtrag 29; DECISIONS.md D71).", "free_work_profile", repo=directory)
+    return Outcome("pass", verdict.text(), [verdict])
+
+
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
@@ -10626,7 +11086,12 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     A parameter expansion at the program position (`$X`, `${X}`, `"$X"`, `"${X}"`) whose variable the same command
     line sets to git or gh, by name or by a path, is judged as the command with that value substituted (D67,
     _program_values). One whose value the line does not set asks where a later word of its simple command is `push`,
-    `--no-verify`, a core.hooksPath word or a gh pair that writes (D69, _unknown_program_word)."""
+    `--no-verify`, a core.hooksPath word or a gh pair that writes (D69, _unknown_program_word).
+
+    Under Claude Code, in a repository that declares and whose every remote is a repository of b7n0de on github.com, an
+    ask of the not-modeled kind for a form of the work profile becomes a pass where the profile of its class finds
+    nothing: a read, a local change that can be taken back, a fetch or ls-remote, `gh pr merge --auto` and `gh pr edit`
+    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are."""
     head = _interpreter_heredoc_head(command)
     written = command if head is None else head
     judged = _program_values(written)
@@ -10639,6 +11104,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
             outcome = _unknown_program_outcome(unknown, outcome)
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
+    outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
     return _with_done_order(outcome, judged)
 
 

@@ -3752,3 +3752,83 @@ Every other command is read as before, and asks where it did: `xargs git push`, 
 `xargs env git …`, the same search followed by `; git push`, and output into a file. Strict stays the default; no
 check of the evidence falls away; no write becomes free (the closed set writes nothing).
 Tests: tests/test_plugin_n28_read_only_search_d70.py.
+
+## D71. The work profile of Claude Code: reads, local changes that can be taken back and `gh pr merge --auto` in a declared repository of b7n0de (Nachtrag 29, 2026-10-18)
+
+Owner word of 2026-10-18, 10:26 Berlin: constant asks; at delta every `gh pr merge <n> -R b7n0de/proofbundle --auto
+--merge` asked with D27, and the owner approved each. delta's balance from 2026-10-15 20:46Z to 2026-10-18 07:16Z: 282
+entries, 177 as the rule says, 59 false alarms, 46 neutral, no catch. Owner choice of 2026-10-18, 10:3x Berlin, "Lokal
+frei, gh pr merge --auto frei": in declared repositories of b7n0de reads and local changes are free, and so is
+`gh pr merge --auto`, because GitHub merges only after the required checks; the asks stay for a push to a protected
+branch, a merge without --auto, a tag, a release, force and every way of turning a hook off.
+
+Where (_work_repo_problem): under Claude Code only, never under Codex; in a repository whose HEAD holds a declaration
+the gate reads (parse_declaration, the evidence list may be empty) and whose every remote has, for fetch and for push,
+every URL https://github.com/b7n0de/<repo>[.git] as git resolves it, url.<base>.insteadOf and pushInsteadOf applied
+(`git remote get-url [--push] --all`, measured in Nachtrag 28, Teil B, O23-8: no program started, no ssh file read).
+A remote over ssh, in scp form or with a host word of its own (delta's remotes at the time of this decision, O23-8),
+another owner, a second remote of another owner and a repository that overlaps the gate directory keep D71 out.
+
+What (_work_form): the whole command is one simple command of literal words, headed by a bare `git` with at most one
+`-C` and a literal absolute path, or by a bare `gh`; no operator, redirection, prefix assignment, expansion or word the
+shell may rewrite. The forms, each with the check of its class (_work_check_problem):
+- reads, after the read profile of D34 (a pager under the host of D42 noted, not counted): `git tag` and `git tag
+  -l|--list [<pattern>…]` with -i, --no-column and the ref-filter values --sort, --format, --contains, --no-contains,
+  --merged, --no-merged and --points-at as `--opt=value`; `git stash list`; `git bundle verify <file>`. The reads class
+  a frees already (diff, log, show, status, branch as a list, rev-parse, ls-files, cat-file, worktree list) keep the
+  answer of D34; D71 adds nothing to them;
+- fetch and ls-remote, after the fetch profile of D45 and D59: their forms without `-C`, in the session directory;
+- local changes, after the state check of D40 with the hooks of D71 (_HOOKS_NOT_RUN_BY_WORK), the refs
+  (_work_refs_problem) and, for the forms that write the work tree, the guard that no configuration file and no hook
+  directory lies in the work tree (_work_tree_guard_problem): `git commit` with a message or with --amend and
+  --no-edit, -a, -q, --allow-empty and -s; `git checkout <branch>`, `<full object name>`, `--detach <rev>`, `-b <new>
+  [<start>]`; `git switch <branch>`, `--detach|-d <rev>`, `-c|--create <new> [<start>]`; `git branch <new>
+  [<start>]`; `git stash`, `git stash push` with -m, -u, -k and -q; `git merge` with one revision and --no-edit,
+  --ff-only or --squash (so no editor starts), and `git merge --abort`; `git rebase [--onto <rev>] <upstream>
+  [<branch>]` and `git rebase --abort`; `git worktree add` of D40 without `-C`, after the checkout check of D40; `git
+  bundle create <file> <revisions>` to a file that does not exist and that a file write may reach (decide_write). A
+  branch must exist (for checkout also no path of its name in the work tree), a new name must be free, a start must
+  be a commit and no remote-tracking branch (git would write the upstream into the configuration);
+- gh, after the gh profile of D36 and, where the command names no repository, GH_REPO absent or of b7n0de: `gh pr
+  merge <number> [-R b7n0de/<repo>] --auto` with exactly one of --merge, --squash and --rebase, `gh pr merge <number>
+  [-R b7n0de/<repo>] --disable-auto`, and `gh pr edit <number> [-R b7n0de/<repo>]` with --title, --body, the label,
+  reviewer and assignee options, --milestone or --remove-milestone. gh pr view, list, checks and diff keep class b
+  (D36).
+D71 turns only an ask into a pass, and only an ask whose every reason is one of _WORK_REPLACEABLE (the not-free and
+not-modeled answers of D3, D27, D40 and D41); a deny, every other ask (a push the gate does not resolve, a finding of
+a profile, a done order of D38 after it) and every answer under Codex stay. Where the repository is one of D71 and the
+check of the form finds something, the ask stays and its text names what the check found.
+
+Measured before the build (point 1 of the order; point1_forms_n29.py and point1_corpus_n29.py of the delivery): of
+79 forms of delta's command heads and the counter cases, in a repository D71 is written for, 60 asked at c8e1e8d7, 18
+were free already (diff, log, status, add, commit -m, the `-C` forms of fetch, ls-remote and worktree add, gh pr view,
+gh api), 26 were forms of D71 that asked with a reason D71 replaces (git_form_not_free 11, net_unmodeled_git 6,
+possible_unmodeled_push 5, remote_read_not_modeled 3, checkout_not_modeled 1), and none of the 35 counter cases was one.
+
+Measured with git 2.43.0 under strace -f, no network (truth_work_n29.py of the delivery: 34 forms, 45 runs, every
+documented hook a marker, core.editor, sequence.editor and core.pager markers): no form ran a hook of
+_HOOKS_NOT_RUN_BY_WORK (pre-push among them); the hooks they ran are pre-commit, prepare-commit-msg, commit-msg,
+post-commit, pre-merge-commit, post-merge, pre-rebase, post-checkout, post-rewrite, post-index-change and
+reference-transaction, each of which keeps the form asking; no form started the editor, on a pipe or on a terminal of
+script(1); on a terminal the tag lists started the pager, as the read forms of D34 do; no form started any other
+program.
+
+Keeps its answer, as today: a push to main, to release/* and to chore/prepare-*, every tag and every push of a tag;
+force in every form (push -f, --force, --force-with-lease, checkout -f and -B, switch -C, --force and
+--discard-changes, branch -f, rebase -f, worktree add -f, gh pr merge --admin); gh pr merge without --auto, with
+--delete-branch or with any option D71 does not know; gh release; gh api with a method that writes; --no-verify,
+setting core.hooksPath and every other way of turning a hook off (D24); every write into the gate directory and into
+the configuration (decide_write); every command the gate cannot read whole (D27); every chain, pipe, `cd`, redirection
+and prefix assignment; and every form that loses work not yet saved: reset --hard, clean -f, checkout or restore of a
+path, stash drop and clear, branch -D, worktree remove --force (point 3 of the order, owner question O29-2). A push to
+another branch follows D61.
+
+Limits, in plain words: D71 applies at delta only once its remotes are of the form above (O28-3, O29-1); until then it
+changes no answer there. Whether `gh pr merge --auto` merges at once when a pull request is already mergeable, and
+whether main of each repository requires checks, is not measured; the owner's reasoning rests on GitHub's branch
+protection, which the gate does not read. The declaration is read at HEAD, which a free commit can create. A checkout
+replaces an ignored file that the target branch tracks under the same path (git's default --overwrite-ignore, read in
+the documentation, not measured). Strict stays the default for everything outside D71; no check of the evidence falls
+away.
+Tests: tests/test_plugin_n29_work_profile_d71.py; tests/test_plugin_n20_short_line.py knows free_work_profile as a
+pass.
