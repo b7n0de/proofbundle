@@ -26,7 +26,8 @@ FREE = ["find src | xargs grep -l git | head -1; test -s README.md",
         "if test -f .git/hooks/pre-push; then grep -c git README.md; fi",
         "find src | xargs grep -l git && test -x .git/hooks/pre-push",
         "find src | xargs grep -l git || test -d .git",
-        "if test ! -e .git/hooks/pre-commit; then grep -c 'gh pr' README.md; fi"]
+        "if test ! -e .git/hooks/pre-commit; then grep -c 'gh pr' README.md; fi",
+        "find src | xargs grep -l git; test -d .git"]
 HELD = ["find src | xargs grep -l git; test -v 'a[$(git push origin main)]'",
         "test -v 'a[$(git push origin main)]'",
         "find src | xargs grep -l git; test -v \"a[\\$(git push origin main)]\"",

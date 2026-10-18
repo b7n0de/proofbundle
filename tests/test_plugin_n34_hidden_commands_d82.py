@@ -92,6 +92,15 @@ def test_D82_a_house_rule_in_an_arithmetic_expansion_denies(repo, host):
     assert "house_admin_merge" in [v.reason_id for v in out.verdicts]
 
 
+@pytest.mark.parametrize("host", ["claude", "codex"])
+@pytest.mark.parametrize("command", ["echo ${a['$(gi? push origin main)']}", "echo $(( $(gi? push origin main) + 1 ))"])
+def test_D82_the_net_reads_a_program_position_inside_an_expansion(repo, command, host):
+    """A glob at the program position of a substitution inside a parameter or an arithmetic expansion may name git: the
+    net (D27) takes the bodies the scanner finds, so the command is NOT MEASURED, never free."""
+    out = decided(repo, command, host)
+    assert out is not None and out.decision in ("ask", "deny"), (command, out and out.decision)
+
+
 @pytest.mark.parametrize("hosts, command", FREE)
 def test_D82_control_what_bash_does_not_run_stays_free(repo, hosts, command):
     for host in hosts.split():
