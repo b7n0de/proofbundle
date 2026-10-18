@@ -327,8 +327,8 @@ def _disclosure_bundle_cases() -> list[tuple[str, dict, int]]:
 
     Codex thread 4303513211 on pull request 373: Rust verify-bundle never read the disclosures of an
     sd_jwt_vc, so a bundle whose disclosures Python refuses still verified there. Measured on 2026-10-18
-    with the Rust of main 2379659e, 15 of these 32 vectors gave a different exit code with the Python of
-    main and 20 with the Python of pull request 373, which adds the five placement vectors. Rust verified
+    with the Rust of main 2379659e, 15 of the first 32 vectors gave a different exit code with the Python
+    of main and 20 with the Python of pull request 373, which adds the five placement vectors. Rust verified
     five disclosure defects Python refused (0 against 1) and an unknown member of the block (0 against
     2), called three undecodable segments of the issuer JWT and an issuer key that is empty, 31 bytes
     long or off the curve malformed where Python fails the check (2 against 1), read a null block as
@@ -338,7 +338,12 @@ def _disclosure_bundle_cases() -> list[tuple[str, dict, int]]:
     One genuine eval bundle with an issuer SD-JWT and no `cnf`, as in `_crit_bundle_differential`, and
     one defect per vector; a vector that changes the issuer payload is signed again with the same test
     key, so only its defect differs. The Python exit code is pinned, so a vector that loses its defect,
-    or a control that stops verifying, fails here instead of agreeing on the wrong question."""
+    or a control that stops verifying, fails here instead of agreeing on the wrong question.
+
+    The 14 vectors after the first 32 answer the lens on cdaf12d6, which built 37 mutants of these rules
+    in the Rust: 16 that read differently from Python survived the 32. Measured on 2026-10-18, the 46 kill
+    34 of the 37, and the three that survive are the ones the lens showed to be equivalent (a `taken`
+    without `_sd`, any array length, an `_sd` that is not an array left unwalked for commitment)."""
     import json as _json  # noqa: PLC0415
 
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
@@ -408,6 +413,22 @@ def _disclosure_bundle_cases() -> list[tuple[str, dict, int]]:
     null_block = bundle(compact)
     null_block["sd_jwt_vc"] = None
 
+    # The vectors below the 32 of the first version answer the lens on cdaf12d6 (2026-10-18): 16 mutants
+    # of these rules that read differently from Python survived those 32, each named in the line it kills.
+    def digest_by(d: str, alg: str) -> str:
+        return b64u(hashlib.new(alg, d.encode("ascii")).digest())
+
+    def with_alg(alg_name: str, alg: str) -> dict:
+        return {**payload, "_sd_alg": alg_name, "_sd": [digest_by(d, alg) for d in discs]}
+
+    inner2 = disclosure(["c2FsdEM", "k", 1])
+    element2 = disclosure(["c2FsdEQ", {"_sd": [digest(inner2)]}])
+    x3, d_dots, d_num = (disclosure(["c2FsdEU", "x3", 1]), disclosure(["c2FsdEY", "...", 1]),
+                         disclosure(["c2FsdEc", 1, "v"]))
+    element3, element4, element5 = (disclosure(["c2FsdEg", "w"]), disclosure(["c2FsdEk", "w"]),
+                                    disclosure(["c2FsdEo", "w"]))
+    d_obj, d_hidden = disclosure(["c2FsdEs", "z", 1]), disclosure(["c2FsdEw", "h", 1])
+
     return [
         ("control", bundle(compact), 0),
         ("control signed again", bundle(signed(dict(payload), [])), 0),
@@ -444,12 +465,95 @@ def _disclosure_bundle_cases() -> list[tuple[str, dict, int]]:
         ("issuer key a list", bundle(compact, ["x"]), 2),
         ("compact a number", bundle(5), 2),
         ("unknown member of the block", bundle(compact, extra=1), 2),
+        # mutants that ignore _sd_alg or hash with the wrong one
+        ("positive: _sd_alg sha-384", bundle(signed(with_alg("sha-384", "sha384"), [])), 0),
+        ("positive: _sd_alg sha-512", bundle(signed(with_alg("sha-512", "sha512"), [])), 0),
+        # mutants whose array-element disclosure commits or places nothing below it
+        ("positive: array element with its own _sd",
+         bundle(signed(with_sd(list2=[{"...": digest(element2)}]), [element2, inner2])), 0),
+        # a mutant that counts a disclosure presented twice once
+        ("positive: one disclosure presented twice", bundle(signed(with_sd(digest(x3)), [x3, x3])), 0),
+        # a mutant that counts a part with a dot as a disclosure
+        ("positive: a middle part with a dot is no disclosure", bundle(f"{jwt}~a.b~{tail}"), 0),
+        # a mutant whose `taken` lacks `...`
+        ("disclosure named ...", bundle(signed(with_sd(digest(d_dots)), [d_dots])), 1),
+        # a mutant that accepts a name that is not a string
+        ("claim name not a string", bundle(signed(with_sd(digest(d_num)), [d_num])), 1),
+        # a mutant that reads a marker with an extra member as a marker
+        ("marker with an extra member",
+         bundle(signed(with_sd(list3=[{"...": digest(element3), "x": 1}]), [element3])), 1),
+        # a mutant that places one marker twice
+        ("one marker referred to twice",
+         bundle(signed(with_sd(list4=[{"...": digest(element4)}, {"...": digest(element4)}]), [element4])), 1),
+        # a mutant that accepts an object-property disclosure as an array element
+        ("object-property disclosure as an array element",
+         bundle(signed(with_sd(list5=[{"...": digest(d_obj)}]), [d_obj])), 1),
+        # a mutant that places through an `_sd` that is not an array
+        ("a marker inside an _sd that is not an array",
+         bundle(signed(with_sd(obj3={"_sd": {"x": [{"...": digest(element5)}]}}), [element5])), 1),
+        # a mutant without the check that every disclosure is committed
+        ("disclosure committed only behind a ... member",
+         bundle(signed(with_sd(w={"...": {"_sd": [digest(d_hidden)]}}), [d_hidden])), 1),
+        # mutants that read an empty list or object as a key
+        ("issuer key an empty list", bundle(compact, []), 1),
+        ("issuer key an empty object", bundle(compact, {}), 1),
     ]
 
 
-def _disclosure_bundle_differential(tmp: pathlib.Path) -> tuple[list[str], int]:
+def _disclosure_rust_stricter_cases() -> list[tuple[str, dict]]:
+    """A NAMED GAP, measured, not reconciled: disclosures whose JSON Python's `loads_strict` accepts and
+    Rust's `strict_parse` refuses. Python must give exit 0 and Rust exit 1 on each.
+
+    `loads_strict` is `json.loads` with a duplicate-key hook, so it reads NaN, an integer of any size up to
+    its bit budget, `1E400` as infinity and a byte order mark; `strict_parse` keeps integers within
+    +-(2^53 - 1) and follows serde_json. The issuer header and payload diverge the same way on main
+    2379659e; pull request 373 carries that onto the disclosures, as the lens on cdaf12d6 measured (17
+    vectors). Rust is the stricter side, so nothing verifies there that Python refuses. Which side moves
+    is one decision for every pair of these two parsers, not for this slice; until then a change in
+    either direction fails here instead of passing unseen."""
+    import json as _json  # noqa: PLC0415
+
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
+
+    from proofbundle import generate_signer  # noqa: PLC0415
+    from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64, decode_b64url  # noqa: PLC0415
+    from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
+    from proofbundle.sdjwt_issue import issue_sd_jwt  # noqa: PLC0415
+
+    def b64u(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+    signer = generate_signer()
+    pub_b64 = base64.b64encode(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode("ascii")
+    ev_claim, _ = build_eval_claim(
+        suite="safety", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
+        score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+        timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+    plain = emit_eval_receipt(ev_claim, signer)
+    compact = issue_sd_jwt(loads_strict(decode_b64(plain["payload_b64"])), signer,
+                           root_b64=(plain.get("merkle") or {}).get("root_b64"), exact_score="0.9")
+    jwt, _, rest = compact.partition("~")
+    h_b64, p_b64, _sig = jwt.split(".")
+    payload = loads_strict(decode_b64url(p_b64))
+    discs = [p for p in rest.split("~") if p]
+    out = []
+    for name, raw in (("NaN", b'["c2FsdF8","nan",NaN]'), ("an integer of 2^53", b'["c2FsdGA","big",9007199254740992]'),
+                      ("1E400", b'["c2FsdGE","inf",1E400]'), ("a UTF-8 byte order mark", b'\xef\xbb\xbf["c2FsdGI","bom",1]')):
+        d = b64u(raw)
+        p = {**payload, "_sd": list(payload.get("_sd", [])) + [b64u(hashlib.sha256(d.encode("ascii")).digest())]}
+        pb = b64u(_json.dumps(p, separators=(",", ":")).encode())
+        c = f"{h_b64}.{pb}.{b64u(signer.sign(f'{h_b64}.{pb}'.encode('ascii')))}~" + "".join(x + "~" for x in discs + [d])
+        out.append((f"a disclosure with {name}",
+                    emit_eval_receipt(ev_claim, signer, sd_jwt={"compact": c, "issuer_public_key_b64": pub_b64})))
+    return out
+
+
+def _disclosure_bundle_differential(tmp: pathlib.Path) -> tuple[list[str], int, int]:
     """Python `proofbundle verify` and Rust verify-bundle give the SAME exit code on every vector of
-    `_disclosure_bundle_cases`, and Python gives the pinned one. Returns (failures, vectors compared)."""
+    `_disclosure_bundle_cases`, and Python gives the pinned one; on every vector of
+    `_disclosure_rust_stricter_cases` Python gives 0 and Rust 1. Returns (failures, vectors with the same
+    exit code, vectors of the named gap)."""
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
     import json as _json  # noqa: PLC0415
@@ -474,7 +578,16 @@ def _disclosure_bundle_differential(tmp: pathlib.Path) -> tuple[list[str], int]:
                             "(the vector no longer carries the defect it is named for)")
         if rust != py:
             failures.append(f"disclosure differential {name!r}: python exit {py}, rust exit {rust}")
-    return failures, len(cases)
+    stricter = _disclosure_rust_stricter_cases()
+    for i, (name, b) in enumerate(stricter):
+        path = ddir / f"s{i:02d}.json"
+        path.write_text(_json.dumps(b), encoding="utf-8")
+        py, rust = _py_exit(path), _run("verify-bundle", str(path))[0]
+        if (py, rust) != (0, 1):
+            failures.append(f"disclosure differential, named gap {name!r}: python exit {py}, rust exit {rust}, "
+                            "the gap pins python 0 and rust 1 (one side moved: decide it for every pair of "
+                            "the two JSON parsers, then move the vector)")
+    return failures, len(cases), len(stricter)
 
 
 def main() -> int:
@@ -1035,7 +1148,7 @@ def main() -> int:
 
     # Codex thread 4303513211 on pull request 373: the sd_jwt_vc block and its disclosures, built here,
     # each vector compared on the exact exit code.
-    disclosure_failures, disclosure_n = _disclosure_bundle_differential(tmp)
+    disclosure_failures, disclosure_n, disclosure_gap_n = _disclosure_bundle_differential(tmp)
     failures += disclosure_failures
 
     if failures:
@@ -1073,7 +1186,8 @@ def main() -> int:
           f"JWS crit header fail-closed on both sides ({crit_n} vectors: control + crit-unknown, "
           "RFC 7515 §4.1.11, Nachtrag 50b); "
           f"the sd_jwt_vc block and its disclosures ({disclosure_n} vectors, the same exit code on both "
-          "sides, RFC 9901 §7.1); "
+          f"sides, RFC 9901 §7.1, and {disclosure_gap_n} of the named gap: JSON only Python reads, Rust "
+          "refuses); "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "

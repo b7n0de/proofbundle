@@ -920,14 +920,18 @@ fn sdjwt_disclosures_placed(
     placed.len() == by_digest.len()
 }
 
-/// The sd-jwt-disclosures check of Python `sdjwt.verify_sd_jwt` (`structure_ok`), written from its
-/// rules and RFC 9901 section 7.1, not from its code. `parts` is the compact split at `~`. A disclosure
-/// is a non-empty part after the issuer JWT without a dot; a part with a dot is a Key Binding JWT. True
-/// when `_sd_alg` is absent or one of sha-256, sha-384, sha-512, there are at most
-/// SDJWT_MAX_DISCLOSURES, each decodes to a strict JSON array of two or three elements, each is
-/// committed by the signed payload directly or through a disclosure committed before it, and each is
-/// placed (`sdjwt_disclosures_placed`). Never an Err: Python reports every defect here as a failed
-/// check (exit 1), never as malformed input.
+/// The sd-jwt-disclosures check of Python `sdjwt.verify_sd_jwt` (`structure_ok`), by its rules and RFC
+/// 9901 section 7.1. It follows the Python function step by step, so it is a second reading of the same
+/// rules, not an independent one. `parts` is the compact split at `~`. A disclosure is a non-empty part
+/// after the issuer JWT without a dot; Python skips a part with a dot as well, wherever it stands (only a
+/// trailing JWS is a Key Binding JWT, which this slice does not judge). True when `_sd_alg` is absent or
+/// one of sha-256, sha-384, sha-512, there are at most SDJWT_MAX_DISCLOSURES, each decodes to a strict
+/// JSON array of two or three elements, each is committed by the signed payload directly or through a
+/// disclosure committed before it, and each is placed (`sdjwt_disclosures_placed`). Never an Err: Python
+/// reports every defect here as a failed check (exit 1), never as malformed input. One named gap:
+/// `strict_parse` refuses JSON that Python's `loads_strict` reads (NaN, an integer beyond 2^53 - 1,
+/// `1E400`, a byte order mark), so such a disclosure fails here and verifies in Python
+/// (crosscheck.py `_disclosure_rust_stricter_cases`).
 fn sdjwt_disclosures_ok(parts: &[&str], payload: &serde_json::Value) -> bool {
     let sd_alg = match payload.get("_sd_alg") {
         None => "sha-256",
@@ -1052,10 +1056,13 @@ fn verify_sdjwt_issuer(
     bundle_payload: &serde_json::Value,
     merkle_root_b64: &str,
 ) -> Result<bool, String> {
-    // The block is read as bundle.py reads it, and a defect of the BLOCK is malformed on both sides:
-    // not an object, a member other than its two, a compact that is no string, or an issuer key that is
-    // present and not base64 text. Everything inside the compact, and a decoded key that cannot verify,
-    // is a failed check instead (exit 1), because Python's verify_sd_jwt never raises. Measured
+    // The block is read as bundle.py reads it, and a defect of the BLOCK is malformed on both sides when
+    // the bundle signature and inclusion pass (verify_bundle returns before it reads the block when they
+    // fail, and Python reads the block regardless): not an object, a member other than its two, a compact
+    // that is no string, or an issuer key that is present and not base64 text. A defect of the
+    // disclosures or of the issuer JWT, and a decoded key that cannot verify, is a failed check instead
+    // (exit 1), because Python's verify_sd_jwt never raises; an attached Key Binding JWT is not judged
+    // here. Measured
     // differentially on 2026-10-18 (crosscheck.py `_disclosure_bundle_differential`): before this, an
     // unknown member verified here and was malformed in Python, and six defects were malformed here and a
     // failed check in Python, three undecodable segments of the issuer JWT and an issuer key that is
