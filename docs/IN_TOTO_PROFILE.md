@@ -114,10 +114,14 @@ verifiers (eval-result, test-result, SVR) also require the Statement v1 layer un
 `digest`, because in-toto matches subject artifacts by digest alone. A digest under a hash function the
 package knows must have that function's length in lowercase hex; under any other algorithm name it must be
 a non-empty string. A statement without that layer names no artifact and does not verify (`statement_ok`
-is `False`); every export function writes it, and verifying an attestation that released versions wrote
-gives the same verdict as before. The same rule judges the Statement of a decision, outcome, relation
-statement, verification summary, run ledger and trust pack, in the Python and the Rust verifier, since it
-stands in the one Statement oracle (`_statement_payload`). Fields:
+is `False`); every export function writes it, and verifying an eval-result, test-result or SVR attestation
+that released versions wrote gives the same verdict as before. The same rule judges the Statement of a
+decision, outcome, relation statement, verification summary, run ledger and trust pack in the Python
+verifier, and the Rust verifier applies it on its relation, relation-statement and trust-pack-threshold
+paths, since it stands in the one Statement oracle (`_statement_payload`). One verdict changes there: the
+emitters of those six wrote a caller's `subject_sha256` override verbatim, so a statement a released version
+wrote with an override that is not 64 lowercase hex characters, one in capitals for example, no longer
+verifies, and the emitters now refuse such an override. Fields:
 
 | field | meaning |
 |---|---|

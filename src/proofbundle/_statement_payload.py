@@ -24,6 +24,7 @@ import re
 from typing import Any
 
 from ._strict_json import loads_strict
+from .canonical import _zeichen_von
 from .errors import BundleFormatError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -53,10 +54,14 @@ def _digest_set_problem(value: Any) -> str:
         return f"digest must be a DigestSet object, got {type(value).__name__}"
     if not value:
         return "digest is empty"
-    for alg, hexval in value.items():
+    for alg, roh in value.items():
         if not _nonempty_str(alg):
             return "digest has an empty algorithm name"
-        if not _nonempty_str(hexval):
+        # The characters of the value (`_zeichen_von`), so a caller's `str` subclass that an emitter is
+        # handed as `subject_sha256` is judged by what the serializer writes, not by its own `__len__`;
+        # a parsed value is a plain `str` and reads the same.
+        hexval = _zeichen_von(roh)
+        if not hexval:
             return f"digest {alg[:40]!r} must be a non-empty string"
         for name, length in _HASH_FUNCTIONS:
             if alg == name and (len(hexval) != length or not _LOWER_HEX_RE.match(hexval)):
@@ -77,7 +82,9 @@ def statement_subject_problem(statement: dict) -> "str | None":
     structure_ok=True for their own emitter's statement re-signed without a subject, with an empty subject,
     with subject null and with an entry without a digest; the Rust verifier exited 0 on the same bytes on
     both relation subcommands and on the trust-pack threshold. The three in-toto verifiers read this rule
-    through `intoto._statement_layer_problem`, so one rule judges every Statement the package verifies."""
+    through `intoto._statement_layer_problem`, and the six emitters of those verifiers refuse to write a
+    statement it refuses (`refuse_an_unwritable_subject`). agent_review and verifier_block read their
+    subject with rules of their own, each stricter than this one."""
     if "subject" not in statement:
         return "subject is required: a non-empty array of ResourceDescriptors, each with a digest"
     subject = statement["subject"]
@@ -94,6 +101,20 @@ def statement_subject_problem(statement: dict) -> "str | None":
         if problem:
             return f"subject[{i}]: {problem}"
     return None
+
+
+def refuse_an_unwritable_subject(statement: dict, error: type) -> dict:
+    """``statement`` unchanged when its verifier would accept its subject; else ``error`` naming why.
+
+    The emitter side of `statement_subject_problem`. The default subject of the six emitters is the
+    sha256 of the canonical predicate and always passes; a caller's ``subject_sha256`` override is written
+    verbatim and did not. Measured by the second reading of 2026-10-18 on this change: an override in
+    capitals, of 63 characters, with a ``sha256:`` prefix or of one character emitted without complaint
+    and its statement then failed its own verifier."""
+    problem = statement_subject_problem(statement)
+    if problem is not None:
+        raise error(f"subject_sha256 cannot be written, since the verifier would refuse the statement: {problem}")
+    return statement
 
 
 def statement_type_problem(statement: dict) -> "str | None":

@@ -530,7 +530,8 @@ const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 /// The subject is part of the same gate since 2026-10-17 (mirror of `statement_subject_problem`): on main
 /// 570dd164 this verifier exited 0 on both relation subcommands and on the trust-pack threshold for a
 /// statement without a subject, with an empty subject, with subject null and with an entry without a
-/// digest, and so did Python on the same bytes. Both now refuse them, word for word.
+/// digest, and so did Python on the same bytes. Both now refuse them, in Python's words within the
+/// limits `py_str_repr` and `python_typname` name.
 fn statement_typ_problem(statement: &serde_json::Value) -> Option<String> {
     if !statement.is_object() {
         return Some("DSSE payload is not a JSON object — not an in-toto Statement".into());
@@ -572,6 +573,11 @@ const HASH_FUNKTIONEN: &[(&str, usize)] = &[
 ];
 
 /// Python's `type(v).__name__` for a value as its strict JSON reader builds it.
+///
+/// NAMED LIMIT (second reading of 2026-10-18): serde_json reads the literal `-0` as a float and Python
+/// as an int, and the parsed value no longer says which literal it was, so `-0` is "float" here and
+/// "int" there. An integer outside the I-JSON range never reaches this function: this verifier refuses
+/// it when it parses, Python names the subject first. Both exit 2.
 fn python_typname(v: &serde_json::Value) -> &'static str {
     match v {
         serde_json::Value::Null => "NoneType",
@@ -605,7 +611,7 @@ fn digest_set_problem(v: &serde_json::Value) -> Option<String> {
                 let kurz: String = alg.chars().take(40).collect();
                 return Some(format!(
                     "digest {} must be a non-empty string",
-                    python_repr(&kurz)
+                    py_str_repr(&kurz)
                 ));
             }
         };
@@ -618,7 +624,7 @@ fn digest_set_problem(v: &serde_json::Value) -> Option<String> {
             {
                 return Some(format!(
                     "digest {} must be {laenge} lowercase hex characters",
-                    python_repr(alg)
+                    py_str_repr(alg)
                 ));
             }
         }
@@ -663,49 +669,19 @@ fn statement_subjekt_problem(statement: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// A value as Python's `budget.render_safe` shows it in a refusal, for the cases this verifier meets:
-/// a string as `repr()` writes it, anything else as JSON. A review lens on PR 282 measured the `_type`
-/// refusal of a wrong string in double quotes here and in single quotes in Python.
+/// A value as Python shows it in a refusal: `budget.render_safe` for `_type`, a plain `repr()` for the
+/// payloadType pin. A review lens on PR 282 measured the `_type` refusal of a wrong string in double
+/// quotes here and in single quotes in Python, and the second reading of 2026-10-18 measured `null`
+/// here against `None` there, and an algorithm name with U+0085 raw here and escaped there: both came
+/// from a second, weaker copy of `repr()` beside `py_str_repr`. That copy is gone; strings, lists,
+/// objects, null and the booleans go through `py_repr`.
 ///
-/// Named limits: Python escapes a non-ASCII character it does not count as printable (U+0085, U+2028,
-/// a lone surrogate) and elides a string longer than 256 characters; this keeps both as they are. A
-/// value that is no string is JSON here and a repr there (`null` against `None`).
+/// Named limits: those of `py_str_repr` (exact through U+00FF, an approximation of `str.isprintable`
+/// above it) and of `py_repr` (a float in exponent form); and `render_safe` elides a string longer
+/// than 256 characters and a list or object wider than 8 or deeper than 4, which a plain `repr()` and
+/// this function do not.
 fn wie_python_zeigt(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => python_repr(s),
-        andere => andere.to_string(),
-    }
-}
-
-/// Python's `repr()` of a `str`: single quotes, or double quotes when the text holds a single quote and
-/// no double quote; a backslash, the chosen quote, `\t`, `\n`, `\r` and the other ASCII control
-/// characters escaped the way Python escapes them.
-fn python_repr(s: &str) -> String {
-    let zeichen = if s.contains('\'') && !s.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    let mut aus = String::with_capacity(s.len() + 2);
-    aus.push(zeichen);
-    for c in s.chars() {
-        match c {
-            '\\' => aus.push_str("\\\\"),
-            '\t' => aus.push_str("\\t"),
-            '\n' => aus.push_str("\\n"),
-            '\r' => aus.push_str("\\r"),
-            c if c == zeichen => {
-                aus.push('\\');
-                aus.push(c);
-            }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
-                aus.push_str(&format!("\\x{:02x}", c as u32));
-            }
-            c => aus.push(c),
-        }
-    }
-    aus.push(zeichen);
-    aus
+    py_repr(Some(v))
 }
 
 fn verify_dsse(
@@ -2262,7 +2238,9 @@ fn load_related(
                 // PB-2026-0717-01: only bind an UNAMBIGUOUS, well-formed actual subject, and
                 // CLASSIFY the others the way Python `cli._load_related` does (S32): no subject list
                 // or an empty one is "absent", more than one is "ambiguous" (never silently take
-                // subject[0]), one without a well-formed sha-256 is "malformed".
+                // subject[0]), one without a well-formed sha-256 is "malformed". Since 2026-10-17
+                // `statement_typ_problem` refuses a target without a usable subject before this point,
+                // so "absent" is not reached from here; it stays as the second line, as in Python.
                 match stmt.get("subject").and_then(|v| v.as_array()) {
                     None => subject_state = "absent",
                     Some(a) if a.is_empty() => subject_state = "absent",
@@ -3838,9 +3816,23 @@ mod tests {
             ("\u{1}\u{7f}", "'\\x01\\x7f'"),
             ("pr\u{fc}fung", "'pr\u{fc}fung'"),
         ] {
-            assert_eq!(python_repr(roh), erwartet, "{roh:?}");
+            assert_eq!(py_str_repr(roh), erwartet, "{roh:?}");
+        }
+        // Each is what CPython's repr() prints; the first three came out raw or as JSON before
+        // 2026-10-18.
+        for (roh, erwartet) in [
+            ("a\u{85}b", "'a\\x85b'"),
+            ("a\u{a0}b", "'a\\xa0b'"),
+            ("a\u{2028}b", "'a\\u2028b'"),
+        ] {
+            assert_eq!(py_str_repr(roh), erwartet, "{roh:?}");
         }
         assert_eq!(wie_python_zeigt(&serde_json::json!(5)), "5");
+        assert_eq!(wie_python_zeigt(&serde_json::Value::Null), "None");
+        assert_eq!(
+            wie_python_zeigt(&serde_json::json!(["x", true])),
+            "['x', True]"
+        );
     }
 
     #[test]

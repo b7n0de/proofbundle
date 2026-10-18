@@ -21,7 +21,7 @@ import hashlib
 import re
 from typing import Any, Callable
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .assurance import _is_key_material
 from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _draussen, _ein_stand, _eine_kopie, _plain_for_jcs,
                         _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
@@ -547,12 +547,12 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
     name = subject_name or f"outcome:{predicate.get('outcomeId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": ACTION_OUTCOME_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, OutcomeReceiptError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

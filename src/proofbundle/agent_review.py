@@ -1473,10 +1473,29 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
     else:
         require_valid_agent_review_predicate(predicate)
+    # THE EMITTER SIDE OF THE VERIFIER'S RULE (second reading of 2026-10-18, a neighbour of the six
+    # emitters of `_statement_payload.refuse_an_unwritable_subject`). `verify_agent_review` derives the
+    # subject's name and digest from the signed subjectContext and refuses any other; measured on main
+    # 570dd164, an override in capitals, of 63 characters, a foreign digest and a foreign name were each
+    # signed here and then refused there. An override is accepted only when it IS the derived value; None
+    # and the empty string still mean the derived value, as they did, and a value that is no string is
+    # refused.
+    from .budget import render_safe  # noqa: PLC0415 - the bounded renderer, for a caller's value
+    from .canonical import _zeichen_von  # noqa: PLC0415 - its characters, no code of the caller runs
+    name, digest = _subject_name(predicate), _subject_digest(predicate)
+    for feld, wert, abgeleitet in (("subject_name", subject_name, name), ("subject_sha256", subject_sha256, digest)):
+        if wert is None:
+            continue
+        text = _zeichen_von(wert)
+        if text is None:
+            raise AgentReviewError(f"{feld} must be a string, got {type(wert).__name__}")
+        if text and text != abgeleitet:
+            raise AgentReviewError(
+                f"{feld} cannot be written: the verifier derives it from the signed subjectContext as "
+                f"{abgeleitet!r} and refuses any other value, got {render_safe(text)}")
     return {
         "_type": STATEMENT_TYPE,
-        "subject": [{"name": subject_name or _subject_name(predicate),
-                     "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
+        "subject": [{"name": name, "digest": {"sha256": digest}}],
         "predicateType": (AGENT_REVIEW_PREDICATE_TYPE_V03 if _ist_v03
                           else AGENT_REVIEW_PREDICATE_TYPE_V02 if _ist_v02
                           else AGENT_REVIEW_PREDICATE_TYPE),

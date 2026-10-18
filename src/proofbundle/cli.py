@@ -2229,7 +2229,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"

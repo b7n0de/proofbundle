@@ -12,8 +12,9 @@ shape check; for eval-result v0.1 and test-result the ownership rule of the subj
 subject that is no array or holds an entry or a digest that is no object.
 
 WHAT IS NOT HERE. The six verifiers that report structure_ok (decision, outcome, relation statement,
-verification summary, run ledger, trust pack) read `_type` through `_statement_payload` and do not
-read the subject; that is a question of its own and this file does not claim it.
+verification summary, run ledger, trust pack) read `_type` through `_statement_payload`, and since
+2026-10-17 their subject as well; tests/test_every_statement_verifier_reads_the_subject.py pins that,
+and this file does not.
 
 The rule stands once, in `intoto._statement_layer_problem`, which the verdict builder shared by the
 three verifiers calls. `_type` is read through `_statement_payload.statement_type_problem`, and a

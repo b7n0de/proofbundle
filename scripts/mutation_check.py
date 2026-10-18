@@ -270,6 +270,16 @@ MUTATIONS = [
      "    if subject_error is not None:",
      "    if False:",
      "statement oracle: subject rule dropped (a statement without a subject is a well-formed statement)", True),
+    # The emitter side of that rule (second reading of 2026-10-18): dropping it signs a subject_sha256 override
+    # the verifier then refuses.
+    ("src/proofbundle/_statement_payload.py",
+     "    if problem is not None:",
+     "    if False:",
+     "statement emitters: a subject_sha256 override the verifier refuses is signed", True),
+    ("src/proofbundle/agent_review.py",
+     "        if text and text != abgeleitet:",
+     "        if False:",
+     "agent-review emitter: a subject override the verifier refuses is signed", True),
     # L5-03 (2026-10-17) — the in-toto Statement v1 layer (`_type`, a subject whose every entry carries a
     # digest) is part of the verdict of the three in-toto verifiers; dropping it must go red.
     ("src/proofbundle/intoto.py",
