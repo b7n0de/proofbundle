@@ -107,6 +107,12 @@ def _on_topic(tmp_path):
     return repo
 
 
+def _outside(tmp_path):
+    """The same repository of another owner: outside the work profile of b7n0de, where the closed list keeps its ask.
+    Changed in Nachtrag 37 (D93): in the work profile of b7n0de an ask of the closed list is a card in the Leitstand."""
+    return d71._repo(tmp_path, url="https://github.com/someone/proofbundle.git")
+
+
 @pytest.mark.parametrize("form, first, calls", DETOURS)
 def test_D85_an_ask_with_a_free_rewrite_becomes_a_deny_that_names_it(tmp_path, form, first, calls):
     repo = _on_topic(tmp_path)
@@ -136,7 +142,7 @@ def test_D85_an_ask_with_no_free_rewrite_and_no_external_effect_is_blocked(tmp_p
 
 @pytest.mark.parametrize("form, effect", EXTERNAL)
 def test_D85_control_one_call_with_an_external_effect_keeps_the_ask(tmp_path, form, effect):
-    repo = d71._repo(tmp_path)
+    repo = _outside(tmp_path)
     answer, _entry = _hook(repo, tmp_path, form)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
     assert "rewriteHint" not in answer
@@ -144,7 +150,7 @@ def test_D85_control_one_call_with_an_external_effect_keeps_the_ask(tmp_path, fo
 
 @pytest.mark.parametrize("form, effect", EXTERNAL)
 def test_D85_the_log_names_the_external_effect_of_a_kept_ask(tmp_path, form, effect):
-    repo = d71._repo(tmp_path)
+    repo = _outside(tmp_path)
     _answer, entry = _hook(repo, tmp_path, form)
     assert entry["autonomy"] == {"klasse": "aussen", "wirkung": [effect]}, entry
 
@@ -166,7 +172,7 @@ def test_D85_control_a_free_call_stays_free(tmp_path, form):
 
 
 def test_D85_control_a_gated_mcp_tool_keeps_the_ask(tmp_path):
-    repo = d71._repo(tmp_path)
+    repo = _outside(tmp_path)
     answer, entry = _hook(repo, tmp_path, None, tool="mcp__github__create_pull_request",
                           tool_input={"owner": "b7n0de", "repo": "proofbundle", "title": "t", "head": "x", "base": "main"})
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
@@ -243,7 +249,7 @@ def test_D85_a_write_of_a_rewrite_goes_into_the_work_tree_or_the_temp_folder_to_
 
 def test_D85_a_chain_of_external_calls_only_keeps_the_ask_of_the_whole(tmp_path):
     """Splitting two external calls would ask twice for what one ask covered: the ask of the whole stays."""
-    repo = _on_topic(tmp_path)
+    repo = _outside(tmp_path)
     answer, entry = _hook(repo, tmp_path, "gh pr comment 1 --body a && gh pr comment 2 --body b")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
     assert entry["autonomy"]["klasse"] == "aussen"

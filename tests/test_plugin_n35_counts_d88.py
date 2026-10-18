@@ -152,7 +152,8 @@ def test_D88_the_bilanz_of_a_session_as_the_hook_writes_it(tmp_path):
         _hook(repo, tmp_path / "data", command)
     entries = gate._bilanz_lines([str(tmp_path / "data" / "gate-log.jsonl")])
     row = gate.bilanz(entries, period="gesamt")["zeitraeume"][0]
-    assert (row["aufrufe"], row["owner_klicks"], row["umwege"], row["faenge"], row["sperren"]) == (6, 1, 1, 1, 3), row
+    # changed in Nachtrag 37 (D93): the push to topic is a card in the work profile of b7n0de, a block, no click
+    assert (row["aufrufe"], row["owner_klicks"], row["umwege"], row["faenge"], row["sperren"]) == (6, 0, 1, 1, 4), row
 
 
 def test_D88_the_catches_are_a_closed_set_of_reasons():

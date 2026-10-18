@@ -13230,6 +13230,9 @@ _SHORT_REASONS = {
     # gh pr edit --body-file with the house's form checker (D92): a pass the user sees, a deny where it is red
     "free_pr_edit_form": ("D92", "the house's form checker passes the text", "der Formprüfer des Hauses den Text grün "
                                                                             "gibt"),
+    # the card in the Leitstand in place of an ask in the terminal, in the work profile of b7n0de (D93): deny
+    "autonomy_card": ("D93", "the owner answers this external effect on a card in the Leitstand",
+                      "der Owner diese Außenwirkung auf einer Karte im Leitstand beantwortet"),
     "pr_form_red": ("D92", "the house's form checker finds the text red", "der Formprüfer des Hauses den Text rot "
                                                                          "gibt"),
 }
@@ -13920,6 +13923,16 @@ def _autonomy_checked(command: str, cwd: str, deadline: float, environ: dict) ->
 
 def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
                        host: str = "claude", environ: dict | None = None, tool: str = "Bash") -> "Outcome | None":
+    """The answer of the hook to the outcome of decide() under Claude Code with --autonomous: D85 to D92
+    (_autonomy_answer), and D93 for an ask of the closed list in the work profile of b7n0de (_autonomy_card)."""
+    answer = _autonomy_answer(outcome, command, cwd, deadline, host, environ, tool)
+    if host != "claude" or answer is None or answer.decision != "ask":
+        return answer
+    return _autonomy_card(answer, command, cwd, deadline, os.environ if environ is None else environ, tool)
+
+
+def _autonomy_answer(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
+                     host: str = "claude", environ: dict | None = None, tool: str = "Bash") -> "Outcome | None":
     """D85 (Nachtrag 35): the answer of the hook to the outcome of decide() under Claude Code. An ask for a single call
     with an external effect of AUTONOMY_EFFECTS, a change of a done order and a gated MCP tool stays an ask (an owner
     click). Every other ask becomes a deny: with a rewrite hint where the gate judged every call of the rewrite free
@@ -14830,6 +14843,49 @@ def _autonomy_pr_edit(outcome: "Outcome", words: list[str], cwd: str, deadline: 
                               "gate log (Nachtrag 37; DECISIONS.md D92).", "free_pr_edit_form", repo=directory)
     new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
     return _autonomy_record(new, "maschine", wirkung=["pr"], quittung=receipt)
+
+
+# --- D93: a card in the Leitstand in place of an ask in the terminal, in the work profile of b7n0de (Nachtrag 37) ----
+
+
+def _autonomy_profile_directory(command: str, cwd: str) -> str:
+    """The directory whose repository the work profile is read in for a Bash call: the literal absolute path of `-C`
+    of a single git call, else the hook's directory."""
+    words = _autonomy_single(command)
+    if words and words[0] == "git" and words[1:2] == ["-C"] and len(words) > 2 and os.path.isabs(words[2]):
+        return words[2]
+    return cwd
+
+
+def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: float, environ: dict,
+                   tool: str) -> "Outcome":
+    """D93 (Nachtrag 37, Ergänzung 3): an ask of the closed list of D85 (klasse aussen, an effect other than the
+    programm of D91) in the work profile of b7n0de, the repository of the call one of D71 (_work_repo_problem: Claude
+    Code, a declaration at HEAD, every remote a repository of b7n0de on github.com), becomes a deny (autonomy_card) that
+    tells the session to put a card in the Leitstand, where the owner answers (owner word of 2026-10-18, 16:52 Berlin:
+    no options in the terminal). Outside that profile, where there is no Leitstand, and where the profile cannot be
+    read, the ask stays."""
+    record = getattr(answer, "autonomy", None) or {}
+    effects = list(record.get("wirkung") or [])
+    if record.get("klasse") != "aussen" or not effects or set(effects) <= {"programm"}:
+        return answer
+    directory = os.path.realpath(_autonomy_profile_directory(command, cwd) if tool == "Bash" and command else cwd)
+    try:
+        if _work_repo_problem(directory, deadline, environ) is not None:
+            return answer
+    except GateError:
+        return answer
+    said = "; ".join(AUTONOMY_EFFECTS[e][0] for e in effects if e in AUTONOMY_EFFECTS) or "an external effect"
+    verdict = Verdict("deny", f"proofbundle gate, autonomous operation (D93): {said} is asked of the owner on a card in "
+                              "the Leitstand, not in the terminal. Put a card in the Leitstand that names the command, "
+                              "what it does outside and why, and wait for the owner's answer there; do not try another "
+                              "spelling of the call (owner word of 2026-10-18, 16:52 Berlin; Nachtrag 37; "
+                              "DECISIONS.md D93).", "autonomy_card",
+                      evidence="the effect of the call and the work profile of the repository (D71)",
+                      failed=f"{said} needs the owner", next_step="put a card in the Leitstand", repo=directory)
+    new = Outcome("deny", f"{verdict.text()} {answer.text}", list(answer.verdicts) + [verdict], None,
+                  step=answer.step, cause=verdict)
+    return _autonomy_record(new, "karte", wirkung=effects)
 
 
 def tree_digest_command(argv: list[str]) -> int:

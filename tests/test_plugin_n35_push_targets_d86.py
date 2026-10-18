@@ -56,14 +56,16 @@ BLOCKED = [
 #: Asked with push_delete; each asked with push_not_measured alone at the head of D85.
 DELETES = ["git push origin --delete topic", "git push origin :topic", "git push -d origin topic",
            "git push origin --delete claude/x"]
+#: A remote of another owner: outside the work profile of b7n0de (D93).
+OUTSIDE = "https://github.com/someone/proofbundle.git"
 #: The closed list: still an ask, as at the head of D85. Changed in Nachtrag 37 (D92): `git push origin topic`, with
 #: and without -C, is the local branch of the same name and passes under the standing GO, so it left this list.
 ASKED = [("git push origin topic:other", "push"), ("git push origin v0", "tag"), ("git push --tags origin", "tag"),
          ("git push origin topic:feature/y", "push"), ("git -C {R} push origin topic:other", "push")]
 
 
-def _fixture(tmp_path):
-    repo = d71._repo(tmp_path)
+def _fixture(tmp_path, url=d71.URL):
+    repo = d71._repo(tmp_path, url=url)
     d71._git(repo, "branch", "release/1", "main")
     d71._git(repo, "branch", "claude/x", "topic")
     d71._git(repo, "update-ref", "refs/remotes/origin/develop", "main")
@@ -95,7 +97,8 @@ def test_D86_force_mirror_a_protected_branch_and_an_unmeasured_target_are_blocke
 
 @pytest.mark.parametrize("form", DELETES)
 def test_D86_a_push_that_deletes_a_remote_branch_asks_with_its_own_reason(tmp_path, form):
-    repo = _fixture(tmp_path)
+    # changed in Nachtrag 37 (D93): read outside the work profile of b7n0de, where the ask is no card
+    repo = _fixture(tmp_path, url=OUTSIDE)
     answer, entry = _hook(repo, tmp_path, form)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
     assert "push_delete" in entry["reason_ids"], entry
@@ -105,7 +108,8 @@ def test_D86_a_push_that_deletes_a_remote_branch_asks_with_its_own_reason(tmp_pa
 
 @pytest.mark.parametrize("form, effect", ASKED)
 def test_D86_control_a_tag_and_another_branch_keep_the_ask(tmp_path, form, effect):
-    repo = _fixture(tmp_path)
+    # changed in Nachtrag 37 (D93): read outside the work profile of b7n0de, where the ask is no card
+    repo = _fixture(tmp_path, url=OUTSIDE)
     answer, entry = _hook(repo, tmp_path, form)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
     assert not {"push_force", "push_mirror", "push_protected", "push_unmeasured"} & set(entry["reason_ids"])

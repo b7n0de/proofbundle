@@ -4422,3 +4422,32 @@ record a session rewrites by hand through Bash is the D27 class. Under Codex and
 Tests: tests/test_plugin_n37_machine_check_d92.py; changed tests of this delivery: tests/test_plugin_n35_push_targets_d86.py
 and tests/test_plugin_n35_work_branch_go_d87.py (`git push origin topic` passes, `claude/x:claude/y` asks, the short line
 names D92).
+
+## D93. A card in the Leitstand in place of an ask in the terminal, in the work profile of b7n0de (Nachtrag 37, Ergänzung 3, 2026-10-18)
+
+Owner word of 2026-10-18, 16:52 Berlin: no options in the terminal. Owner choice of 23:2x Berlin (A): for the closed
+list of D85 the gate does not ask in the terminal in the work profile of b7n0de but blocks with the hint to put a card
+in the Leitstand; outside b7n0de the ask stays, as there is no Leitstand; how the profile is recognised the session
+sets and measures, and without a measurement the general behaviour holds.
+
+The profile: the repository condition of D71 (_work_repo_problem), read without the network: under Claude Code, a
+declaration the gate reads at HEAD, every URL of every remote, for fetch and for push with insteadOf and pushInsteadOf
+applied, https://github.com/b7n0de/<repo>, and no overlap with the gate directory. The repository is the one the
+literal absolute `-C` of a single git call names, else the hook's directory. Measured in
+tests/test_plugin_n37_card_d93.py: a declared repository of b7n0de is in the profile; a repository of another owner, one
+without a declaration, one without a remote, one with an ssh remote, one with a second remote of another owner, a push
+URL of another owner and an insteadOf onto another owner are not.
+
+The rule (_autonomy_card, after D85 to D92, under Claude Code with --autonomous): an ask of the closed list (klasse
+aussen) whose effects are not only the programm of D91 becomes, in the profile, a deny (autonomy_card, klasse karte, the
+effects kept in the log) whose reason names the effect and tells the session to put a card in the Leitstand that names
+the command, what it does outside and why, and to wait for the owner's answer there, without another spelling of the
+call. The ask of a program of the clone (local_program, D91) stays an ask also in the profile (owner question O37-1).
+Outside the profile, where the profile cannot be read, under Codex and without --autonomous the ask stays. Nothing gets
+freer: an ask becomes a deny. A card counts as a block in the bilanz (D88) and of its own (D94).
+
+How the card reaches the Leitstand is Cowork's: the gate names it and blocks; it writes no card and calls no network.
+Tests: tests/test_plugin_n37_card_d93.py; changed tests of this delivery: tests/test_plugin_n35_autonomy_d85.py and
+tests/test_plugin_n35_push_targets_d86.py (the asks of the closed list are read in a repository of another owner),
+tests/test_plugin_n35_work_branch_go_d87.py (its asks in the profile are cards), tests/test_plugin_n35_counts_d88.py (the
+push to topic is a card: 0 clicks, 4 blocks).

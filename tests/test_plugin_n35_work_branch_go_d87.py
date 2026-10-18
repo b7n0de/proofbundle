@@ -93,6 +93,11 @@ def test_D87_a_push_to_the_own_work_branch_is_free_under_the_standing_go(tmp_pat
 def test_D87_control_every_other_push_keeps_its_answer(tmp_path, form, decision):
     repo = _fixture(tmp_path)
     answer, entry = _hook(repo, tmp_path, form)
+    # changed in Nachtrag 37 (D93): in this repository of the work profile of b7n0de an ask of the closed list is a
+    # card in the Leitstand, a deny with autonomy_card
+    if decision == "ask":
+        decision = "deny" if "autonomy_card" in entry["reason_ids"] else "ask"
+        assert "autonomy_card" in entry["reason_ids"], (form, entry["reason_ids"])
     assert answer["hookSpecificOutput"].get("permissionDecision") == decision, (form, answer)
     assert "free_work_branch_go" not in entry["reason_ids"]
 
