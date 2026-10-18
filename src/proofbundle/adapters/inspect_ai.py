@@ -138,6 +138,51 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     for name, count in (("scored_samples", scored_samples), ("unscored_samples", unscored_samples)):
         if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
             provenance[name] = count
+    # COMPLETENESS OF THE RUN, bound instead of left out. Found by Codex round one on PR 195
+    # (2026-09-14) and measured here against the code AND the installed library.
+    #
+    # What already held, so the strong form of the finding does not: `n` is `scored_samples`, not
+    # `total_samples` (see the reasoning further down), and `unscored_samples` stands beside it. A
+    # run that resolved 50 of 100 never signed a complete-looking 100.
+    #
+    # What was missing is the case that LOOKS complete without these three fields: a run stopped
+    # early that scored everything it attempted. Then `unscored_samples` is zero, and nothing says
+    # the intended population was larger. `early_stopping` says exactly that.
+    #
+    # AND THE GAP IS OLDER THAN ITS OCCASION: measured, `EvalResults` already carries these fields
+    # in inspect_ai 0.3.244, below the version ceiling whose raise surfaced the finding. Holding the
+    # ceiling lower would not have closed it.
+    #
+    # A COUNT THE LOG DID NOT CARRY IS NOT A ZERO (second reading, 2026-10-18). `EvalResults`
+    # declares `total_samples` and `completed_samples` with `default=0`, so the real reader turns a
+    # log without them into 0 and 0, and binding that signed a count nobody measured. Only a field
+    # the log set is bound, and pydantic names those in `model_fields_set`: measured on inspect_ai
+    # 0.3.244, 0.3.261 and 0.3.266, a field read from the log is in it, a field the JSON lacks is
+    # not, and an assignment adds it. `logged_samples` (0.3.266: the samples a drained or cancelled
+    # log actually resolved, where `total_samples` stays the planned count) is the same kind of
+    # fact and is bound the same way. An exact int only: a subclass could answer `>=` as it likes.
+    _gesetzt = getattr(results, "model_fields_set", None)
+    _gesetzt = _gesetzt if isinstance(_gesetzt, (set, frozenset)) else frozenset()
+    _zaehler = {_feld: getattr(results, _feld, None)
+                for _feld in ("total_samples", "completed_samples", "logged_samples")}
+    for _feld, _wert in _zaehler.items():
+        if _feld in _gesetzt and type(_wert) is int and _wert >= 0:
+            provenance[_feld] = _wert
+    # THE EARLY STOP AS THE LIBRARY WRITES IT (second reading, 2026-10-18). The first version bound
+    # `early_stopping` only as a bool, and the library never delivers one: it is an
+    # `EarlyStoppingSummary` (`manager`, `early_stops`, `metadata`) or None, so for every real log
+    # the binding was skipped. Bound now are the manager's name and the number of samples it
+    # stopped, which tells a run stopped early from a complete one with the same counts, and a run
+    # under another manager from one under this one. The ids of the stopped samples are not
+    # bound: they are dataset ids, and the count says what the receipt needs to say.
+    _frueh = getattr(results, "early_stopping", None)
+    if _frueh is not None:
+        _manager = getattr(_frueh, "manager", None)
+        _stops = getattr(_frueh, "early_stops", None)
+        if type(_manager) is str and type(_stops) is list:
+            provenance["early_stopping_manager"] = _manager
+            provenance["early_stopped_samples"] = len(_stops)
+
     params = getattr(matched_score, "params", None)
     if isinstance(params, dict) and params:
         from ._provenance import config_hash
@@ -156,9 +201,11 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
 
     # EvalScore.scored_samples is the population the selected metric was actually computed over.
     # total_samples can include unscored samples, so using it would overstate the signed claim's n.
+    # The fallback reads the value read once above, so a loaded log object whose property answers
+    # differently on a second read cannot sign one total in the provenance and another as `n`.
     metric_n = (scored_samples if isinstance(scored_samples, int)
                 and not isinstance(scored_samples, bool) and scored_samples >= 0
-                else int(getattr(results, "total_samples", 0) or 0))
+                else int(_zaehler["total_samples"] or 0))
 
     return build_eval_claim(
         suite=suite, suite_version=_text(getattr(ev, "task_version", "1"), "eval.task_version"),
