@@ -89,8 +89,9 @@ class TestStagedMode(_RepoFixture):
     def test_a_path_git_quotes_is_read_as_the_path_it_names(self):
         """A byte outside ASCII, a double quote and a backslash in a name make git quote the diff
         header. Each planted mutant is caught and named by its real path (2026-09-26: the first one
-        was reported clean with exit 0)."""
-        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+        was reported clean with exit 0). A newline in the name is the fourth form: decoded, it stopped
+        the `.` of the scope pattern, and the mutant under it was clean (Codex on 375, 2026-10-17)."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py", "a\nb.py"):
             with self.subTest(name=name):
                 p = self.repo / "src" / "proofbundle" / name
                 self._stage("if False:\n    pass\n", path=p)
@@ -120,8 +121,8 @@ class TestBaseMode(_RepoFixture):
 
     def test_committed_mutant_under_a_quoted_path_is_blocked(self):
         """The same three names as in the staged form: a byte outside ASCII, a double quote and a
-        backslash (a review lens, 2026-09-26: the base form had only the first)."""
-        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py"):
+        backslash (a review lens, 2026-09-26: the base form had only the first), and a newline."""
+        for name in ("pr\u00fcfung.py", 'a"b.py', "a\\b.py", "a\nb.py"):
             with self.subTest(name=name):
                 base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
                 (self.repo / "src" / "proofbundle" / name).write_text("if False:\n    pass\n",
@@ -162,6 +163,13 @@ class TestTheHeaderPathIsDecoded(unittest.TestCase):
         self.assertEqual(gp('"b/src/proofbundle/a\\\\b.py"'), "b/src/proofbundle/a\\b.py")
         self.assertEqual(gp("b/src/proofbundle/with space.py\t"), "b/src/proofbundle/with space.py")
         self.assertEqual(gp('"b/x\\q"'), "b/x\\q")  # an escape git does not write stays as it stands
+        self.assertEqual(gp('"b/src/proofbundle/a\\nb.py"'), "b/src/proofbundle/a\nb.py")
+
+    def test_the_scope_holds_a_decoded_newline(self):
+        scope = self.guard._SECURITY_PATH
+        self.assertTrue(scope.match("src/proofbundle/a\nb.py"))
+        self.assertFalse(scope.match("src/proofbundle/a.py\nx"))
+        self.assertFalse(scope.match("scripts/a\nsrc/proofbundle/b.py"))
 
 
 class TestSelfTest(unittest.TestCase):

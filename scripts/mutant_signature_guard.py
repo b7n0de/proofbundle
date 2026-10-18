@@ -49,7 +49,11 @@ def _repo_root() -> Path:
     return Path(proc.stdout.strip())
 
 
-_SECURITY_PATH = re.compile(r"^src/proofbundle/.*\.py$")
+# DOTALL and \A ... \Z, because a decoded path can hold a newline: git writes `src/proofbundle/a\nb.py`
+# as a quoted header with `\n`, `_git_path` turns that back into the newline, and `.` without DOTALL
+# stopped there, so a staged `if False:` under that name was reported clean with exit 0 (Codex on
+# pull request 375, 2026-10-17).
+_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.py\Z", re.DOTALL)
 _ALLOW_MARKER = "mutant-guard: allow"
 
 # Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).
