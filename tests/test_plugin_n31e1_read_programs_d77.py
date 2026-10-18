@@ -50,6 +50,7 @@ FREE = [
     "find src | xargs head -1 | grep git", "grep -rl 'git push' src | xargs wc -l",
     "grep -rl 'git push' src | xargs ls -l", "grep -rl 'gh pr' src | xargs -r head -n 2",
     "[ -d .git ] && ls -la .git/hooks | head -3 && echo gh",
+    "if grep -q 'git push' README.md; then echo gh; fi", "if find src | xargs grep -l 'git push'; then echo gh; fi",
     f"ls -la .git/hooks 2>/dev/null | wc -l; {SEARCH} 2>&1",
 ]
 #: Counter cases: each asks at 0c4e10e8 and at the head under Claude Code (an excluded switch, an output into a file, a
@@ -115,9 +116,11 @@ def _fake(folder, name, text, code=0):
 
 @pytest.mark.parametrize("line, code", [("head (GNU coreutils) 8.32", 0), ("head (GNU coreutils) 9.5", 0),
                                         ("usage: head [-n lines | -c bytes] [file ...]", 1),
-                                        ("head (BusyBox) 1.36", 0), ("head (GNU coreutils) 9.4", 1)])
+                                        ("head (BusyBox) 1.36", 0), ("head (GNU coreutils) 9.4", 1),
+                                        ("head (BusyBox) 9.4", 0), ("tail (GNU coreutils) 9.4", 0)])
 def test_D77_a_read_program_of_a_version_not_measured_keeps_the_answer(repo, tmp_path, monkeypatch, line, code):
-    """NOT MEASURED: another version of GNU coreutils, BSD head, BusyBox, or a head that names 9.4 and fails."""
+    """NOT MEASURED: another version of GNU coreutils, BSD head, BusyBox, a head that names 9.4 and fails, a program that
+    names the measured version but not GNU coreutils, and one that names another program of it."""
     _fake(tmp_path / "bin", "head", line, code)
     monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}:/usr/local/bin:/usr/bin:/bin")
     out = decided(repo, f"head -5 README.md; {SEARCH}")
@@ -169,6 +172,14 @@ def test_D77_the_bracket_test_needs_no_version(repo, tmp_path, monkeypatch):
 ])
 def test_D77_the_closed_grammar_of_each_read_program(name, args, free):
     assert gate._read_program_args(name, [(a, False, a) for a in args]) is free, (name, args)
+
+
+def test_D77_the_set_of_d66_alone_holds_no_if_and_no_list_of_d77():
+    """Without D77 (Codex, and every caller of _read_only_form before it) the words of an if, `&&` and `||` stay outside."""
+    for command in ("if grep -q x README.md; then echo y; fi", "grep -q x README.md && echo y",
+                    "grep -q x README.md || echo y"):
+        assert gate._read_only_form(command) is False, command
+        assert gate._read_only_form(command, used=set()) is True, command
 
 
 def test_D77_a_word_the_shell_builds_is_no_word_of_the_grammar():
