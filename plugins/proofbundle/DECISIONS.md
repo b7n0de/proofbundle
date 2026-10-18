@@ -3943,3 +3943,54 @@ protection rule (free under D36), a here-document that names the forms. The stri
 away and nothing that asked or denied before is free.
 Tests: tests/test_plugin_n30_house_rules_d73.py; the tests that pin the reason ids of a tag push and of `gh pr create`
 name the house id after the gate's own.
+
+## D74. The filter block of git-lfs and core.fsmonitor set true in the person's own global or system file (Nachtrag 31, R1, 2026-10-18)
+
+delta asked five times between 15:25 and 15:34 Berlin, each answered Yes. Cowork set the forms again at 44db2056 with one
+line of the global configuration: `git status` and `git diff` asked once the global file held the filter block `git lfs
+install` writes or core.fsmonitor set true (D34, the key filter.lfs.clean named). Owner choice of 2026-10-18, 15:3x
+Berlin: the four entries of that block, with exactly its values, and core.fsmonitor set true count as known, from the
+global or the system file only, if the measurement holds.
+
+Measured with git 2.43.0 and git-lfs 3.4.1 under strace, with no network (truth_lfs_n31.py of the delivery, 338 runs of
+status, diff, log, show, add, commit -m, checkout, stash and fetch, a stand-in git-lfs in front of PATH that writes a
+marker and runs the real one):
+- with the block at the global or the system scope, in its plain form and in the form of --skip-smudge, and with the
+  container's own system file, git-lfs started for no form where no attribute assigns a filter;
+- where an attribute assigns the filter to a path, status, diff, add, commit, checkout and stash started
+  `git-lfs filter-process`; its first run in a repository wrote four hooks into the hook directory (post-checkout,
+  post-commit, post-merge, pre-push), and with the plain form a checkout or stash whose object the clone did not hold
+  tried the network (about 1300 connect calls, then exit 128); log, show, diff between two commits and fetch started it
+  for no state;
+- core.fsmonitor set true, yes or 1 started nothing for any form: git 2.43.0 on Linux has no fsmonitor daemon
+  (`git fsmonitor--daemon status` exits 128, "not supported on this platform"); a path as the value started that program
+  for the forms that walk the work tree and for fetch.
+
+So the measurement holds where no attribute assigns a filter, and the rule is built that far:
+- _LFS_KNOWN holds the four keys and the values `git lfs install` and `git lfs install --skip-smudge` write (the test
+  runs git-lfs and compares). An entry counts as known (_lfs_known) only with one of these values and in the person's
+  own file (_own_file): the scope global or system, the very file `git var GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM`
+  names for it, neither name set in the hook's environment. The local and worktree files, a file an include brings in
+  (from the work tree or anywhere), GIT_CONFIG_COUNT and its keys and `-c` (scope command), and a file GIT_CONFIG_GLOBAL
+  or GIT_CONFIG_SYSTEM names are never the person's own file. Another value, another filter.lfs key and every other
+  filter driver count as before.
+- The read profile of class a (D34) treats a known entry as D39 treats a filter under `--no-ext-diff --no-textconv`: it
+  counts only where an attribute assigns a filter to a path of the index (_filter_assigned). status and diff hash no
+  untracked path.
+- The state check (_add_commit_state_problem) does the same for the two forms of K-NW-2 B under Claude Code and for the
+  forms of D71 that bring no other tree into the work tree (_WORK_LFS_FORMS: commit, stash push, branch, bundle
+  create), with the untracked paths git add would take (not ignored) checked as well. checkout, switch, merge, rebase,
+  their --abort and worktree add read the attributes of another commit, which the check does not read: there the block
+  counts as any filter does.
+- core.fsmonitor counts as known (_fsmonitor_known) where git reads the value as true (_git_true), the person's own file
+  holds it and this git has no daemon (`git fsmonitor--daemon status`: exit 128, not supported on this platform), in
+  the read profile, in the state check of the forms above and in the fetch profile of D45 alone. Where git has the
+  daemon it starts it, which was not measured (macOS, Windows): the key counts there as before. A path as the value,
+  and true in the local file, count as before. ls-remote (D59), the remote read of D61 and worktree add (D40) were not
+  among the measured forms and keep their rule.
+- Under Codex nothing changes: no read form is free there (D37), and the relaxation of the state check is for Claude
+  Code alone, so no case that is blocked under Codex today becomes free.
+The gate reads no file of ~/.ssh, no key and no credential for this, and calls no network.
+Tests: tests/test_plugin_n31_own_config_d74.py (the read forms, K-NW-2 B and the forms of D71 with the block in both
+forms; fsmonitor true, yes and 1; the counter cases of the order; the untracked path; the forms that bring another tree;
+_own_file; the values git-lfs writes).

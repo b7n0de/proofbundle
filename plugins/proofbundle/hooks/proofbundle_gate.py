@@ -1098,6 +1098,77 @@ def _git_false(directory: str, value: str | None, deadline: float) -> bool:
     return out.returncode == 0 and out.stdout == b"false\n"
 
 
+# --- D74: git-lfs and fsmonitor from the person's own global or system file (Nachtrag 31, R1) ------------------------
+#
+# Owner choice of 2026-10-18, 15:3x Berlin: the filter block `git lfs install` writes and core.fsmonitor set true are
+# known where the person's own global or system file holds them, if the measurement holds. Measured with git 2.43.0 and
+# git-lfs 3.4.1 under strace, with no network (truth_lfs_n31.py of the delivery, 338 runs of status, diff, log, show,
+# add, commit -m, checkout, stash and fetch): with the block at the global or the system scope, in both of its forms,
+# git-lfs started for no form where no attribute assigns a filter; where one does, status, diff, add, commit, checkout
+# and stash started `git-lfs filter-process`, its first run wrote four hooks into the repository's hook directory
+# (post-checkout, post-commit, post-merge, pre-push), and the smudge of the plain form tried the network for an object
+# the clone did not hold. core.fsmonitor set true started nothing for any form: git 2.43.0 on Linux has no fsmonitor
+# daemon (`git fsmonitor--daemon status`: not supported on this platform); a path as the value started that program.
+
+#: The four entries `git lfs install` writes, in its two forms, the plain one and `--skip-smudge` (measured: git-lfs
+#: 3.4.1 wrote exactly these values into a fresh global file, and with --system into the system file). Any other value,
+#: another filter.lfs.* key and every other filter driver are judged as before.
+#: What D74 knows of the person's own files, for the state check of a form free under Claude Code (own_known).
+_OWN_FSMONITOR = frozenset({"fsmonitor"})
+_OWN_KNOWN = frozenset({"fsmonitor", "lfs"})
+_LFS_KNOWN = {
+    "filter.lfs.clean": frozenset({"git-lfs clean -- %f"}),
+    "filter.lfs.smudge": frozenset({"git-lfs smudge -- %f", "git-lfs smudge --skip -- %f"}),
+    "filter.lfs.process": frozenset({"git-lfs filter-process", "git-lfs filter-process --skip"}),
+    "filter.lfs.required": frozenset({"true"}),
+}
+
+
+def _own_file(scope: str, origin: str, directory: str, deadline: float, environ: dict) -> bool:
+    """Whether a configuration entry stands in the person's own global or system file, the one git reads for that scope
+    without an include (`git var GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM`), with neither name set in the hook's
+    environment. Never the local or worktree file, a file an include brings in (from the work tree or anywhere),
+    GIT_CONFIG_COUNT and its keys or `-c` (both have the scope command), or a file GIT_CONFIG_GLOBAL or
+    GIT_CONFIG_SYSTEM names (D74)."""
+    if scope not in ("global", "system") or not origin.startswith("file:"):
+        return False
+    name = "GIT_CONFIG_GLOBAL" if scope == "global" else "GIT_CONFIG_SYSTEM"
+    if name in environ:
+        return False
+    out = _git(directory, "var", name, deadline=deadline)
+    files = _git_lines(out.stdout) if out.returncode == 0 else None
+    return bool(files) and os.path.realpath(origin[5:]) in {os.path.realpath(f) for f in files if f}
+
+
+def _lfs_known(scope: str, origin: str, key: str, value: str | None, directory: str, deadline: float,
+               environ: dict) -> bool:
+    """Whether an entry is one of the four of `git lfs install` with its exact value in the person's own global or
+    system file (D74)."""
+    return value in _LFS_KNOWN.get(key.lower(), ()) and _own_file(scope, origin, directory, deadline, environ)
+
+
+def _git_true(directory: str, value: str | None, deadline: float) -> bool:
+    """Whether git reads value as the boolean true, asked of git itself as _git_false asks (a key without a value is
+    true; `true`, `yes`, `on`, `1` and every other number but 0 are)."""
+    if value is None:
+        return True
+    out = _run_git(directory, ("config", "--file", os.devnull, "--type=bool", "--default", value, "--get",
+                               "proofbundle-gate.boolean"), deadline)
+    return out.returncode == 0 and out.stdout == b"true\n"
+
+
+def _fsmonitor_known(scope: str, origin: str, value: str | None, directory: str, deadline: float,
+                     environ: dict) -> bool:
+    """Whether core.fsmonitor names git's own daemon (a value git reads as true) in the person's own global or system
+    file, on a git that has no such daemon: `git fsmonitor--daemon status` exits 128 and says it is not supported on
+    this platform (measured with git 2.43.0 on Linux, where the value then started nothing). Where git has the daemon it
+    starts it, which was not measured, and the key counts as before (D74)."""
+    if not _own_file(scope, origin, directory, deadline, environ) or not _git_true(directory, value, deadline):
+        return False
+    probe = _run_git(directory, ("fsmonitor--daemon", "status"), deadline)
+    return probe.returncode == 128 and b"not supported on this platform" in probe.stderr
+
+
 def _program_source(key: str, value: str | None, directory: str, deadline: float) -> str | None:
     """The program source a lower-cased configuration key names for `git add` or `git commit -m`, or None: a filter
     driver (any filter.* key, an empty driver name included), a hook (config hooks and gc.recentObjectsHook, which
@@ -1323,7 +1394,7 @@ def _checkout_state_problem(directory: str, target: str, deadline: float, enviro
 
 def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None,
                               hooks_not_run: frozenset = _HOOKS_NOT_RUN_BY_ADD_COMMIT,
-                              signing_inert: bool = False) -> str | None:
+                              signing_inert: bool = False, own_known: frozenset = frozenset()) -> str | None:
     """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
     else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
     --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
@@ -1331,7 +1402,11 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     program, an include onto one) is named as such; any configuration key, hook or GIT_* name the check does not
     positively understand is named too, and either keeps the form not free. Not read: the program PATH selects (the
     D27 class, F15-3), and gitattributes, which select a driver only a filter.* or diff.* key defines. hooks_not_run and
-    signing_inert serve the checkout check of `git worktree add` (_checkout_state_problem, D40)."""
+    signing_inert serve the checkout check of `git worktree add` (_checkout_state_problem, D40). own_known, for a form
+    free under Claude Code only, names what D74 knows of the person's own global or system file: "fsmonitor", where
+    core.fsmonitor names git's own daemon on a git without one, does not count; "lfs", for a form that brings no other
+    tree into the work tree, lets the four entries of `git lfs install` count only where an attribute assigns a filter
+    to a path of the index or to an untracked path git add would take."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1343,14 +1418,18 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         return f"the gate cannot read the effective configuration ({why})"
 
     origin_of = _origin_namer(directory, deadline, paths)
+    known = {i for i, (scope, origin, key, value) in enumerate(entries)
+             if ("lfs" in own_known and _lfs_known(scope, origin, key, value, directory, deadline, environ))
+             or ("fsmonitor" in own_known and key.lower() == "core.fsmonitor"
+                 and _fsmonitor_known(scope, origin, value, directory, deadline, environ))}
 
-    for scope, origin, key, value in entries:
-        source = _program_source(key.lower(), value, directory, deadline)
+    for i, (scope, origin, key, value) in enumerate(entries):
+        source = None if i in known else _program_source(key.lower(), value, directory, deadline)
         if source is not None and not (signing_inert and source == "signature program"):
             return f"a {source}: {_shown_key(key)} {origin_of(scope, origin)}"
-    for scope, origin, key, value in entries:
+    for i, (scope, origin, key, value) in enumerate(entries):
         lowered = key.lower()
-        if signing_inert and lowered.startswith("gpg."):
+        if (signing_inert and lowered.startswith("gpg.")) or i in known:
             continue
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
@@ -1361,7 +1440,9 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     for name in sorted(environ):
         if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name) and not _tool_inert(name, environ[name]):
             return f"an environment setting the check does not know to start no program: {name}"
-    return None
+    lfs = [f"{_shown_key(key)} {origin_of(scope, origin)}" for i, (scope, origin, key, _v) in enumerate(entries)
+           if i in known and key.lower().startswith("filter.")]
+    return _filter_assigned(directory, lfs[0], deadline, untracked=True) if lfs else None
 
 
 # --- class a of the ask load: a read profile for read forms (FIX-18 part B, DESIGN_ask_load.md 3.1, D34) ----------
@@ -1680,16 +1761,18 @@ def _has_submodule(directory: str, toplevel: str, deadline: float) -> str | None
     return None
 
 
-def _filter_assigned(directory: str, configured: str, deadline: float) -> str | None:
+def _filter_assigned(directory: str, configured: str, deadline: float, untracked: bool = False) -> str | None:
     """None when no path of the index has a filter attribute, else what was found (D39, part 2 of Nachtrag 14): a
     configured filter driver starts for `git diff` only for a path an attribute assigns it to (measured with git 2.43.0:
     a clean and a process driver no attribute names started for no form). git resolves the attributes itself, with
     `check-attr` over the paths of the index, in the direction of a check-in (the work tree's .gitattributes, then the
     index's) and with info/attributes, the global and the system file and every macro; the index is read through the
     gate's own git path with fsmonitor and hooks off (Q18-2). Any value but unspecified and unset counts, a driver no
-    key defines included, and so does a listing or a check git does not complete."""
+    key defines included, and so does a listing or a check git does not complete. With untracked, the untracked paths
+    git add would take (not ignored) are checked as well (D74: `git add` ran the clean filter for them)."""
     hardened = ("-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}")
-    listed = _git(directory, *hardened, "ls-files", "-z", deadline=deadline)
+    listed = _git(directory, *hardened, "ls-files", "-z", *(("--cached", "--others", "--exclude-standard")
+                                                             if untracked else ()), deadline=deadline)
     if listed.returncode != 0:
         return f"a filter: {configured}, and the index cannot be listed to read the attributes"
     paths = [p for p in listed.stdout.split(b"\0") if p]
@@ -1721,7 +1804,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     attribute assigns a filter to a path of the index (_filter_assigned); every other rule stays. With inert_pagers, for
     a host whose Bash tool gives the command no terminal (_no_terminal_host, D42), a pager core.pager, pager.<command>,
     GIT_PAGER or PAGER in the hook's environment names is noted there and does not count; a prefix assignment of the
-    command is judged elsewhere and still counts (_resolve_single)."""
+    command is judged elsewhere and still counts (_resolve_single). In the person's own global or system file the four
+    entries of `git lfs install` count only where an attribute assigns a filter to a path of the index, and
+    core.fsmonitor naming git's own daemon on a git without one does not count (D74)."""
     environ = os.environ if environ is None else environ
     walks = sub in _READ_WALKS
     filters: list[str] = []
@@ -1745,14 +1830,15 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
                 continue
             return f"a pager: {where}"
         if lowered == "core.fsmonitor":
-            if walks and not _git_false(directory, value, deadline):
+            if walks and not _git_false(directory, value, deadline) and \
+                    not _fsmonitor_known(scope, origin, value, directory, deadline, environ):
                 return f"fsmonitor: {where}"
             continue
         if lowered.startswith("filter."):
-            if walks and not drivers_off:
+            if walks and not drivers_off and not _lfs_known(scope, origin, key, value, directory, deadline, environ):
                 return f"a filter: {where}"
             if walks:
-                filters.append(where)
+                filters.append(where)   # D39 and D74: it counts where an attribute assigns a filter to a path
             continue
         if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
             return f"a configuration key the read profile does not know to start no program: {where}"
@@ -1876,7 +1962,7 @@ def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: l
 
 def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ: dict | None = None,
                            inert_pagers: list | None = None, found_url: list | None = None,
-                           bound_pagers: list | None = None) -> str | None:
+                           bound_pagers: list | None = None, own_known: bool = False) -> str | None:
     """None when the fetch of D45 from `remote` in the repository at directory starts only git's own programs and
     connects only to github.com, else what the fetch profile found (Ergänzung 1 to Nachtrag 19). Read as the read
     profile reads (D34): the effective configuration with every include in the hook's environment, the effective hook
@@ -1896,6 +1982,8 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     - a submodule (a .gitmodules, a gitlink in the index, or a git directory under modules/) unless
       fetch.recurseSubmodules reads false (measured: the default recursion fetched the submodule from its own URL);
     - any key or GIT_* name the profile does not know.
+    With own_known, for the fetch form of D45 alone, core.fsmonitor naming git's own daemon on a git without one in the
+    person's own global or system file does not count (D74).
     found_url, a list, gets the URL of the remote when the profile finds nothing. With inert_pagers, a list, core.pager,
     PAGER and GIT_PAGER are noted there instead of counted; with bound_pagers, a list, a pager.<command> key of git and
     the pager of gh in the gh helper's gh profile are, the ones the measurement of D48 did not cover."""
@@ -1927,7 +2015,8 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
                 continue
             return f"a pager: {where}"
         if lowered == "core.fsmonitor":
-            if not _git_false(directory, value, deadline):
+            if not _git_false(directory, value, deadline) and \
+                    not (own_known and _fsmonitor_known(scope, origin, value, directory, deadline, environ)):
                 return f"fsmonitor, which the fetch starts: {where}"
             continue
         if section == "remote" and subsection == remote:
@@ -2013,7 +2102,8 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
     bound_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
     url: list = []
     try:
-        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url, bound_pagers)
+        problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url, bound_pagers,
+                                          own_known=True)
                    if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the fetch profile reached no result ({exc})"
@@ -11093,6 +11183,11 @@ def _work_tree_guard_problem(directory: str, deadline: float) -> str | None:
 #: The local forms of D71 that write the work tree.
 _WORK_TREE_WRITERS = frozenset({"git checkout", "git switch", "git stash push", "git merge", "git merge --abort",
                                 "git rebase", "git rebase --abort"})
+#: The local forms of D71 that bring no other tree into the work tree, for which the git-lfs block of D74 counts only
+#: where an attribute assigns a filter to a path of the index or an untracked path. A form that checks out, merges or
+#: rebases onto another commit reads the attributes of that commit, which the check does not read, and the block counts
+#: there as any filter does.
+_WORK_LFS_FORMS = frozenset({"git commit", "git stash push", "git branch", "git bundle create"})
 
 
 def _work_check_problem(form: _WorkForm, directory: str, deadline: float, environ: dict, host: str) -> str | None:
@@ -11118,7 +11213,8 @@ def _work_check_problem(form: _WorkForm, directory: str, deadline: float, enviro
         return problem
     if form.name == "git worktree add":
         return _checkout_state_problem(directory, dict(form.refs)["target"], deadline, environ)
-    problem = _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORK)
+    problem = _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORK,
+                                        own_known=_OWN_KNOWN if form.name in _WORK_LFS_FORMS else _OWN_FSMONITOR)
     if problem is not None:
         return problem
     if form.name in _WORK_TREE_WRITERS:
@@ -12450,7 +12546,8 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
     sets reaches the command and not the hook), so the pass says which directory was checked: with named, the one the
     command names with `-C` (D40)."""
     try:
-        problem = (_add_commit_state_problem(directory, deadline) if directory is not UNKNOWN
+        problem = (_add_commit_state_problem(directory, deadline, own_known=_OWN_KNOWN if host == "claude"
+                                             else frozenset()) if directory is not UNKNOWN
                    else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the state check reached no result ({exc})"
