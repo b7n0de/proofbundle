@@ -206,7 +206,28 @@ def test_D74_own_file_is_the_scope_file_git_reads_without_an_include(tmp_path, m
     assert not gate._own_file("global", f"file:{repo / 'lfs.cfg'}", str(repo), deadline, {})
     for scope in ("local", "worktree", "command"):
         assert not gate._own_file(scope, f"file:{tmp_path / 'home' / '.gitconfig'}", str(repo), deadline, {})
+        assert not gate._own_file(scope, f"file:{system}", str(repo), deadline, {})   # the scope decides first
     assert not gate._own_file("command", "command line:", str(repo), deadline, {})
+
+
+def test_D74_fsmonitor_counts_where_git_has_its_daemon(tmp_path, monkeypatch):
+    """Where `git fsmonitor--daemon status` does not say the daemon is unsupported, git would start it, which D74 did not
+    measure: core.fsmonitor true is not known there."""
+    repo = d71._repo(tmp_path, declaration=None)
+    _global(tmp_path, "[core]\n\tfsmonitor = true\n")
+    origin = f"file:{tmp_path / 'home' / '.gitconfig'}"
+    deadline = time.monotonic() + 60
+    real = gate._run_git
+
+    def with_daemon(repo_, args, deadline_, stdin=None):
+        if tuple(args) == ("fsmonitor--daemon", "status"):
+            return subprocess.CompletedProcess(args, 1, b"", b"fsmonitor-daemon is not watching\n")
+        return real(repo_, args, deadline_, stdin)
+
+    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, os.environ) is DAEMON_ABSENT
+    monkeypatch.setattr(gate, "_run_git", with_daemon)
+    assert gate._fsmonitor_known("global", origin, "true", str(repo), deadline, os.environ) is False
+    assert _decide(repo, "git -C {R} status --short", tmp_path)[0] == "ask"
 
 
 @pytest.mark.skipif(shutil.which("git-lfs") is None, reason="git-lfs is not installed")

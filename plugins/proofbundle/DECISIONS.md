@@ -3993,7 +3993,7 @@ So the measurement holds where no attribute assigns a filter, and the rule is bu
 The gate reads no file of ~/.ssh, no key and no credential for this, and calls no network.
 Tests: tests/test_plugin_n31_own_config_d74.py (the read forms, K-NW-2 B and the forms of D71 with the block in both
 forms; fsmonitor true, yes and 1; the counter cases of the order; the untracked path; the forms that bring another tree;
-_own_file; the values git-lfs writes).
+_own_file; a git that has the fsmonitor daemon; the values git-lfs writes).
 
 ## D75. The read forms of `git remote` are read forms of class a (Nachtrag 31, R2, 2026-10-18)
 

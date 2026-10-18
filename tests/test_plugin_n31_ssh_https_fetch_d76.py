@@ -96,9 +96,10 @@ KEEP = {
                         {}),
     "a push URL of another host": ({"remote.origin.pushurl": "https://example.org/b7n0de/proofbundle"},
                                    {"GIT_SSH": "ssh"}),
-    "insteadOf onto the push URL": ({"remote.origin.pushurl": "https://github.com/b7n0de/proofbundle",
-                                     "url.git@github.com:.insteadOf": "https://github.com/b7n0de/proofbundle",
-                                     "core.sshCommand": "ssh"}, {}),
+    "insteadOf onto the push URL alone": ({"remote.origin.pushurl": "https://github.com/b7n0de/other",
+                                           "url.ssh://git@github.com/b7n0de/other.insteadOf":
+                                               "https://github.com/b7n0de/other",
+                                           "core.sshCommand": "ssh"}, {}),
     "pushInsteadOf onto ssh": ({"url.git@github.com:.pushInsteadOf": "https://github.com/", "core.sshCommand": "ssh"},
                                {}),
     "GIT_SSH_VARIANT": ({}, {"GIT_SSH_VARIANT": "ssh"}),
