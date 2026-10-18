@@ -169,7 +169,9 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
   malformed, as any other field would. Envelopes signed before this default keep the bytes they were
   signed with and carry no keyid: the archived agent-review receipts under `receipts/agent_review`, the
   fixture `tests/fixtures/kette_147/receipt.json` and the eval-result v0.1 statements that released
-  versions emitted, under `tests/fixtures/eval_result_v0_1`. The sdist ships all three as regression
+  versions emitted, under `tests/fixtures/eval_result_v0_1`. The calls the suite makes to every public
+  function, recorded as seeds in `tests/fixtures/public_surface_seeds.json`, hold the test receipts as
+  the suite passed them, and those carry no keyid either. The sdist ships all four as regression
   inputs, and a reader that requires a keyid refuses them.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension

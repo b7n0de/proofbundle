@@ -67,7 +67,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   defect. `agent_review.validate_time_claim` tested a time claim's rung with
   `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
   (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` on d5747000,
-  `:2189` now). A set
+  `:2189` before this change, `:2214` now). A set
   difference is a set and `in` hashed the value, so an `assurance` of `[]`, `{}` or
   `["runnerObserved"]` raised `TypeError`
   out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
@@ -301,6 +301,80 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   tuple constant imported from another module, a value after it leaves the container
   (`for v in CONST.values()`, or a copy of the values bound to a name), and a wrapper outside the
   listed passing calls.
+
+  **A lens on d6d89763: a value from outside reaching a message, a subject name or a serializer, in
+  the public functions.** Measured again on main 570dd164 with the six commits carried before this
+  change. The class, as the violated assumption: a value that reaches a message, a subject name or a
+  serializer can be rendered. `10**5000` has no decimal form under the int->str cap, a list nested
+  past the interpreter's recursion guard has no `repr`, `json.dumps` refuses a set or bytes, and an
+  object's own `__repr__` can raise anything. The family is derived, not listed:
+  `tests/test_public_functions_render_a_value_from_outside_bounded.py` takes every public function
+  of every module but `cli` and `pytest_plugin` (348 on this tree, 339 of them with a parameter),
+  seeds each with one or two calls the suite makes to it
+  (`tests/fixtures/public_surface_seeds.json`; recorded from the suite of d6d89763, and for 25
+  functions again from the suite of this tree: 21 that main added and four whose recorded call no
+  longer returned on main; ten more are written in the test, where only a call from inside the
+  package reaches them or a returning call signs with a key the recording cannot write), and plants
+  `10**5000`, `-10**5000`, a list too deep to render, a tuple holding `10**5000`, a set, bytes and
+  an object whose `__repr__`, `__str__` and `__format__` raise into every parameter, into every node
+  of a dict or list argument and as a new key of every dict. Each call must return an answer that is
+  no `internal_error`, or raise an exception class the package defines (or the builtin one its
+  module documents), with a message that renders. Measured before this change: 37 of 337 functions
+  let such a value out raw, in 997 of 58,082 calls; now 0 of 339 functions in 58,124 calls, under
+  CPython 3.10, 3.11, 3.12, 3.13 and 3.14. A forcing test turns red for a public function without a
+  seed or a named reason, two plant-and-catch tests swap a bounded renderer of `explain_policy` and
+  the serializer of the AGT receipt back for raw ones and require the sweep to report it, and a
+  sweep with nothing to plant fails instead of passing. Every site renders through
+  `budget.render_safe` now, or through `budget.render_text` (new: a str unchanged, anything else
+  bounded) where the text is data, and `budget.render_key_list` (new) names the keys of a mapping;
+  every serializer maps its refusal to the module's typed error. Carried where the class was open on
+  main, measured per function: `explain_policy` and the freshness bound of `evaluate_policy` (a
+  `max_age` past the integer budget fails the freshness check closed instead of raising out of
+  `check_freshness`); `relation._dfs`; the four arguments of the disclosure renderers, which must be
+  strings and raise `AgentReviewError` otherwise; `subject_binding.nested_closure_violations` (a key
+  and the start path, the walk d6d89763 also bounded) and `_has_type`; `statuslist`, `renewal`,
+  `persample`, `hf_evals`, `pqsig`, `anchors_chia_add`, `experimental.enclave`,
+  `experimental.attested_inference` and the adapters `eee`, `_provenance`, `inspect_ai` and
+  `lm_eval` (messages, `str()` and `json.dumps` of a field from outside, each mapped to the module's
+  error); `anchors_rootcommit.build_preimage` (every field a str, and the two verifiers map the
+  refusal to `malformed_checkpoint` as before); `anchors_rfc3161.create_rfc3161_anchor` (`tsa_url`
+  must be a str); `checkpoint.checkpoint_note` (a tree size past `2**64 - 1`, which the note parser
+  refuses); `tlogproof.format_tlog_proof` (an index past the parser's 20 digits); and
+  `load_statement_strict`, which raises its BundleFormatError for a body that is no bytes. Closing
+  it on main found three functions main added, outside the change as written:
+  `_plain_value.plain_json` renders its label bounded, and the strict CBOR reader its limits. Not
+  carried, because they let nothing out on main (measured per function, with a direct probe where
+  the seeds do not reach): the policy form and the decision-policy and eval-policy messages,
+  `public_transparency`, `sdjwt_vc`, `policy_profiles`, the subject name of the trust pack, the
+  agent-review subject digest, digest keys and time policy, `verify_anchors`, `dsse`,
+  `build_verifier_block`, the AGT receipt adapter and the relations policy. The two
+  `verify_trust_pack` messages keep the text `trust_pack._zahl_text` gives them on main.
+
+  Open, and pinned as an upper bound: the five files the change as written left to another branch,
+  `intoto.py`, `_verdict.py`, `sdjwt_issue.py`, `canonical.py` and `evalclaim.py`. That branch landed
+  on main (the rounds of 2026-09-27 to 2026-10-02), and on this tree eight functions still let a
+  planted value out from these files (13 site and exception pairs, among them
+  `_verdict.require_bool_verdict`, `evalclaim.build_eval_claim` and `check_freshness`, and
+  `sdjwt_issue.present_with_key_binding`); they go to the next change of this class. A raw raise
+  outside the class is pinned per function instead, 156 pairs in 104 functions: a value of the
+  wrong type used in a computation or a third-party exception that crossed unmapped. The pin is an
+  upper bound, so a new raw raise is red, and exact wherever every seed of the function returned at
+  baseline, so a closed gap has to leave the list; the pins are written from a measured run, not by
+  hand. How deep is too deep depends on the interpreter, so the test measures it at import: 1.5 times
+  the depth at which `json.dumps` refuses, never below 3000. A seed reaches the code its one or two
+  calls reach, and a parameter taken by `*args` or `**kwargs` is not planted into.
+
+  The membership guard missed `k in set((s := _A if c else x))` with `x` from outside, and the same
+  under `frozenset()` and `dict.fromkeys(...).get(k)`: each raised `TypeError`, and all three
+  detectors were silent, because the walrus made `_A` bound and the copy then read as iteration. A
+  hashing copy over a walrus or a conditional whose passed values are not all sources is an other
+  use now. Three planted forms, all three unseen by the guard before this change, with three
+  anti-parity forms; the counts over the tree do not move. The path guard refused `TRACE /home/x`
+  and `CONNECT /home/x`, both HTTP methods (RFC 9110), and missed a home directory whose name starts
+  with a letter outside ASCII; it names all nine methods of RFC 9110 and RFC 5789 now and reads any
+  letter first, five planted texts, all five wrong on the pattern before this change. A name that
+  starts with a digit stays a stated limit. The renderer contract names the nine modules it
+  measures in its headline, and the claim for every public function is the new test's.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the

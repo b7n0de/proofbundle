@@ -1,4 +1,11 @@
-"""A number too long to write in decimal is rendered bounded by every validator and every renderer.
+"""A number too long for decimal is rendered bounded by the validators and renderers of nine modules.
+
+SCOPE, corrected after the lens on d6d89763: the first line said "every validator and every renderer",
+and functions outside these modules contradicted it (on main 570dd164 and the six commits carried
+before the change that wrote this paragraph, `explain_policy` and the disclosure renderers' own
+arguments among them). This file measures the nine modules named below. The package-wide claim,
+every public function against seven hostile values, is carried by
+`test_public_functions_render_a_value_from_outside_bounded.py`, with its stated limits.
 
 THE CLASS, stated as the violated assumption: *a value that reaches a message can be written in
 decimal.* It cannot. CPython caps int->str conversion at 4300 digits (CVE-2020-10735), so a message
@@ -33,6 +40,10 @@ bits>` and renders an ordinary value as `repr()` did, and the generator finds 0.
 not hold is not reached: a sweep that added each field name of the modules' field tables to every
 object of every seed, with `alg` and `scheme` added as the control, found one line more on 5c49dc1c,
 `keys[...].alg` of the trust pack, and no other; the seed holds both fields now.
+`render_safe` renders a value as `repr()` did within the bound its docstring states, measured on
+this tree: strings of at most 254 characters (with `quote=False`, a top-level string is itself up
+to 512), ints nested in a container of at most 64 digits, at most 8 items and 4 levels, at most 512
+characters in all. Past that it elides.
 """
 from __future__ import annotations
 

@@ -166,10 +166,12 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     # closes the direct-primitive path. Bounded at the same json_depth / json_nodes budget so a hostile deep or
     # node-heavy structure is a FAIL-CLOSED violation (a returned error string), never a crash. DFS pre-order is
     # preserved (children pushed reversed) so the reported violation order is unchanged for legitimate inputs.
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import DEFAULT_BUDGET, render_safe, render_text  # noqa: PLC0415 - avoids an import cycle
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
-    stack: list[tuple[Any, str, int]] = [(obj, path, 0)]
+    # THE START PATH IS TEXT TOO, and it comes from the caller: `path=10**5000` raised ValueError
+    # from the f-strings below (lens run 10 generator). A str path is itself, as a key is.
+    stack: list[tuple[Any, str, int]] = [(obj, render_text(path), 0)]
     nodes = 0
     while stack:
         cur, cur_path, depth = stack.pop()
@@ -186,9 +188,14 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
             if allowed is not None:
                 for k in cur:
                     if k not in allowed:
-                        out.append(f"{cur_path or '<root>'}.{k}: undeclared nested key (nested closure violated)")
+                        out.append(f"{cur_path or '<root>'}.{render_safe(k, quote=False)}: undeclared nested "
+                                   "key (nested closure violated)")
             for k, v in reversed(list(cur.items())):
-                child = f"{cur_path}.{k}" if cur_path else k
+                # A PATH IS TEXT, built from a key rendered bounded: a key of `10**5000` (a direct-dict
+                # caller) raised ValueError here and in the message above (the public-surface generator on
+                # main 570dd164 and five carried commits: 36 of 189 calls). A str key is itself.
+                name = k if isinstance(k, str) else render_safe(k, quote=False)
+                child = f"{cur_path}.{name}" if cur_path else name
                 stack.append((v, child, depth + 1))
         elif isinstance(cur, list):
             item_path = f"{cur_path}[]"
@@ -215,7 +222,8 @@ def _has_type(value: Any, kind: str) -> bool:
         return isinstance(value, str) and bool(_RFC3339_Z_TYPE.match(value))
     if kind == "sha256":
         return is_sha256_digest(value)
-    raise ValueError(f"unknown type kind {kind!r} in a type map")
+    from .budget import render_safe  # noqa: PLC0415 - local import avoids an import cycle
+    raise ValueError(f"unknown type kind {render_safe(kind)} in a type map")
 
 
 @_ein_stand

@@ -616,7 +616,7 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
 
     def _dfs(node_hex: str, depth: int, path: set) -> str | None:
         if depth > max_depth:
-            return f"relation:depth_exceeded: chain deeper than {max_depth}"
+            return f"relation:depth_exceeded: chain deeper than {render_safe(max_depth, quote=False)}"
         if node_hex in path:
             return "relation:cycle: attached chain revisits a receipt on its own ancestry path"
         if node_hex in proven_safe:
