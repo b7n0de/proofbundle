@@ -48,6 +48,13 @@ and the path is the path of the parsed address: a segment in its query or fragme
 (thread 4217549831). Without the parser rule (c) is NOT MEASURABLE; pr-form.yml installs it from
 `.github/pr-form-requirements.txt`, pinned by hash.
 
+DEPENDABOT (owner order of 2026-10-17, the landing band, point 5). Dependabot opens pull requests itself and writes
+neither a milestone nor the house footer, so its pull requests were red here for days. A pull request whose author in
+the payload, `pull_request.user`, has the login `dependabot[bot]` and the type `Bot` is green without the three rules,
+and the output says why. A login with `[bot]` belongs to a GitHub App and cannot be taken by a person; the type is held
+as well. Another app, a person named dependabot and a payload without a readable author are judged by the three rules.
+Only this check lets it through; every other check of the repository stays.
+
 LIMITS, said here. An attribution in another form, such as a tool named in plain prose without a
 link, is not caught by (c); at the end of a description (b) still refuses it, because nothing may
 follow the footer. A re-run of a job reads the payload of its original event and so judges the
@@ -393,11 +400,23 @@ def attribution_findings(body: str) -> list[str]:
     return found
 
 
+#: The author whose pull requests pass without the three rules (DEPENDABOT): its login and its type, both.
+DEPENDABOT = ("dependabot[bot]", "Bot")
+
+
+def _is_dependabot(pr: dict) -> bool:
+    """Whether the payload names Dependabot as the author, by login and type exactly as GitHub writes them."""
+    user = pr.get("user")
+    return isinstance(user, dict) and (user.get("login"), user.get("type")) == DEPENDABOT
+
+
 def judge(payload: object) -> tuple[list[str], str | None]:
     """The reasons for RED, empty when green, and the milestone title when there is one."""
     pr = payload.get("pull_request") if isinstance(payload, dict) else None
     if not isinstance(pr, dict):
         return ["NOT MEASURABLE: the event payload carries no pull_request object"], None
+    if _is_dependabot(pr):
+        return [], None
     reasons: list[str] = []
     title = None
     if "milestone" not in pr:
@@ -443,6 +462,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         reasons, title = judge(payload)
     print("pr-form: RED" if reasons else "pr-form: green")
+    pr = payload.get("pull_request") if not reasons and isinstance(payload, dict) else None
+    if isinstance(pr, dict) and _is_dependabot(pr):
+        print(f"  the author is {DEPENDABOT[0]}; the form rules do not apply to its pull requests")
     for reason in reasons:
         print(f"  {reason}")
     if title is not None:
