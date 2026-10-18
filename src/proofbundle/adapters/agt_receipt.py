@@ -359,7 +359,7 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> boo
 #: One item of a buffer format: the optional byte order and repeat count of the struct syntax (PEP
 #: 3118), then one item code, where a complex number (`Zf`, `Zd`, `Zg`) is one code. A format this does
 #: not match holds a compound item: a record `T{...}`, a pointer `&...`, a function pointer `X{}`.
-_POSTEN = re.compile(r"[@=<>!]?(\d*)(Z[fdg]|\S)")
+_POSTEN = re.compile(r"[@=<>!]?(\d*)(Z[fdg]|\S)", re.ASCII)
 
 #: The item codes whose bytes ARE the value they hold: bytes, pad bytes, booleans, integers, floats,
 #: complex numbers. Text code units (`u`, `w`), references and pointers (`O`, `P`, `Z`, `z`) hold a
@@ -1149,7 +1149,7 @@ def _kurzwert(wert: Any) -> str:
 #: after the FIRST "] ", which is the name. The residual fragility is real though — an
 #: UNPREFIXED name containing "] " would still be cut — so the prefix is now matched as a prefix
 #: instead of being inferred from a separator that may also occur inside the name.
-_KETTENPRAEFIX = re.compile(r"^\[\d+\] ")
+_KETTENPRAEFIX = re.compile(r"^\[\d+\] ", re.ASCII)
 
 
 def _blanker_name(name: str) -> str:
