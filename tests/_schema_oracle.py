@@ -74,11 +74,15 @@ CONFUSED = {"null": None, "true": True, "zero": 0, "minus one": -1, "a float": 1
 
 def bent_strings(value: str) -> dict:
     """Strings of the right type that a pattern must refuse: a trailing newline, an Arabic-Indic digit in
-    place of the first ASCII digit, upper case in place of lower-case hex."""
+    place of each ASCII digit, one at a time, upper case in place of lower-case hex.
+
+    Each digit, not the first one only: in `0.1.0` the first digit is the literal `0` of the pattern, and
+    the place a `\\d+` reads is the last. The lens on 8a6c19e7 planted a private `\\d` copy of the 0.1.x
+    shape and this generator, bending the first digit only, never reached it (finding F3)."""
     out = {"trailing newline": value + "\n"}
-    m = re.search(r"[0-9]", value)
-    if m:
-        out["arabic-indic digit"] = value[:m.start()] + chr(0x0660 + int(m.group())) + value[m.end():]
+    for i, ch in enumerate(value):
+        if "0" <= ch <= "9":
+            out[f"arabic-indic digit at {i}"] = value[:i] + chr(0x0660 + int(ch)) + value[i + 1:]
     if re.search(r"[a-f]", value) and value.lower() == value:
         out["upper case"] = value.upper()
     return out

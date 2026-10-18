@@ -1878,7 +1878,7 @@ def _historical_now_posix(value):
     # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
     # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"[.,](\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
