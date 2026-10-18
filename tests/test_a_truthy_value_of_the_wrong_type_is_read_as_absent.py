@@ -17,7 +17,12 @@ loop of the v0.2 validator, `findings_root` over a non-list, two reads in `resol
 and two hashing neighbours: the assurance set in `derive_limitation_codes` and the value set in
 `_zeitachsen`). After the fix the same run finds 0. The sweep found two more sites of the class
 outside this module, `evalclaim.sd_jwt_hidden_count` and `cap1._r2_closed_disposition`; both are
-here too. Every test in this file fails at c3bd89a4.
+here too. Every test in this file up to the last section fails at c3bd89a4.
+
+The last section follows lens run 7 on 8ecb6edf: the policy call held a predicate that is no object
+against the policy as `{}`, and the renderers, with the validator in front taken away, raised on
+`limitations` and on a predicate, `declaration` or `coverage` that is no object. Its 37 cases fail at
+8ecb6edf; the byte-identity pin beside them passes there, because it holds what 8ecb6edf rendered.
 """
 from __future__ import annotations
 
@@ -303,3 +308,115 @@ def test_as_list_is_a_list_and_nothing_else():
     assert as_list(xs) is xs
     for wert in ({"a": []}, (1,), "x", 5, None, True):
         assert as_list(wert) == [], wert
+
+
+# ── lens run 7 on 8ecb6edf: the policy call, and the renderers without the validator ─────────
+@pytest.mark.parametrize("version", ["v0.2", "v0.3"])
+@pytest.mark.parametrize("praed", [[1], "x", 5, [], 0, None, "ABSENT"], ids=repr)
+def test_a_predicate_that_is_no_object_is_not_held_against_the_policy(version, praed):
+    """`agent_review.py:2902` on 8ecb6edf, `evaluate_limitation_policy(_praed or {}, policy)`. A
+    signed receipt whose predicate is `[1]`, `"x"` or `5` answered POLICY_NOT_EVALUABLE as its only
+    code, a sentence about the policy; `[]`, `0`, null or no predicate at all was held against the
+    policy as `{}`. Now the first reason names the shape, and nothing is evaluated."""
+    _bauen, typ, verify = VERSIONS[version]
+    st = {"_type": AR.STATEMENT_TYPE, "subject": [{"name": "x", "digest": {"sha256": "0" * 64}}],
+          "predicateType": typ}
+    if praed != "ABSENT":
+        st["predicate"] = praed
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    r = verify(env, PK, policy=AR.load_policy())
+    _no_internal_error(r)
+    assert r["reason_code"] == "PREDICATE_NOT_OBJECT", (r["reason_codes"], r["errors"])
+    assert "POLICY_NOT_EVALUABLE" in r["reason_codes"]
+    assert r["policy_decision"] == "insufficient_evidence" and r["ok"] is False
+    assert "limitation_codes" not in (r.get("policy_reason") or {}), "a non-object was evaluated"
+    assert any("not an object, so there is nothing to hold against the policy" in str(e)
+               for e in r["errors"]), r["errors"]
+
+
+def test_the_v01_verifier_names_the_shape_too():
+    """The code comes from the validator all three versions share, so v0.1 names it as well; at
+    8ecb6edf its verdict for such a receipt carried no reason code at all."""
+    st = {"_type": AR.STATEMENT_TYPE, "subject": [{"name": "x", "digest": {"sha256": "0" * 64}}],
+          "predicateType": AR.AGENT_REVIEW_PREDICATE_TYPE, "predicate": [1]}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(st), SK,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    assert AR.verify_agent_review(env, PK)["reason_code"] == "PREDICATE_NOT_OBJECT"
+
+
+@pytest.mark.parametrize("wert, erwartet", [(5, ""), (True, ""), ([5], ""), ([[1]], ""),
+                                            ("x", ""), ({"a": 1}, ""), (["l1", 5, "l2"], "l1; l2")],
+                         ids=repr)
+def test_the_renderers_read_limitations_as_a_list_of_strings(wert, erwartet, monkeypatch):
+    """`agent_review.py:1259` on 8ecb6edf, `"; ".join(predicate.get("limitations") or [])`, the
+    idiom the reads two lines above had already left: `5` and `true` passed the `or`, `[5]` and
+    `[[1]]` reached the join, each a TypeError, and a string or an object was joined per character
+    or per key. With the validator in front taken away, a list is read and of it the strings."""
+    monkeypatch.setattr(AR, "require_valid_agent_review_predicate_any", lambda *_a, **_k: None)
+    p = _v02()
+    p["limitations"] = copy.deepcopy(wert)
+    block = AR.render_disclosure_block(p)
+    AR.render_disclosure_line(p, receipt_digest="0" * 64, receipt_url="u")
+    assert f"- **Limits:** {erwartet}\n" in block, block
+
+
+@pytest.mark.parametrize("wo", ["predicate", "declaration", "coverage"])
+@pytest.mark.parametrize("wert", [[1], "x", 5, None, "ABSENT"], ids=repr)
+def test_the_renderers_read_a_section_that_is_no_object_as_absent(wo, wert, monkeypatch):
+    """`agent_review.py:1226`, `:1230`, `:1256`, `:1282` and `:1283` on 8ecb6edf: with the validator
+    taken away, a predicate, `declaration` or `coverage` that is no object raised TypeError, KeyError
+    or AttributeError in the renderers. Read as absent, as the verifiers read it."""
+    monkeypatch.setattr(AR, "require_valid_agent_review_predicate_any", lambda *_a, **_k: None)
+    if wo == "predicate":
+        p = {} if wert == "ABSENT" else copy.deepcopy(wert)
+    else:
+        p = _v02()
+        if wert == "ABSENT":
+            del p[wo]
+        else:
+            p[wo] = copy.deepcopy(wert)
+    block = AR.render_disclosure_block(p)
+    line = AR.render_disclosure_line(p, receipt_digest="0" * 64, receipt_url="u")
+    assert "selfDeclared" in block and "selfDeclared" in line
+
+
+#: sha256[:16] over `block + "\n" + line` for every valid predicate of the conformance corpus and
+#: every published receipt, measured with the renderers of 8ecb6edf (block with receipt digest
+#: "a"*64; line with receipt digest "a"*64, receipt url "u", leaf url "l"). The renderers after lens
+#: run 7 give the same bytes for all 19. The lens's own render dump, 64 valid predicates of the corpus,
+#: the receipts and its synthetic variants, was byte-identical between 8ecb6edf and this change too.
+_RENDER_PINS = {
+    "conformance/agent_review/agent-review-positive-control-emit-verify-roundtrip/predicate.json": "16e4e18ff57438db",
+    "conformance/agent_review/agent-review-v02-counter-proof-blocking-policy-rejects/predicate.json": "65e50377901203cb",
+    "conformance/agent_review/agent-review-v02-counter-proof-unknown-coverage-is-insufficient-evidence/predicate.json": "3c2572d60c6d7c42",
+    "conformance/agent_review/agent-review-v02-counter-proof-without-policy-nothing-is-decided/predicate.json": "65e50377901203cb",
+    "conformance/agent_review/agent-review-v02-positive-control-default-policy-decides-accept/predicate.json": "65e50377901203cb",
+    "conformance/agent_review/agent-review-v02-positive-control-emitter-default-is-v02/predicate.json": "65e50377901203cb",
+    "conformance/agent_review/agent-review-v02-positive-control-fixcommit-full-sha-is-accepted/predicate.json": "c4135f0e77726c1d",
+    "conformance/agent_review/agent-review-v03-positive-control-verifier-block-is-accepted/predicate.json": "65e50377901203cb",
+    "receipts/agent_review/inspect_ai_5141.r2.receipt.json": "c293685f153d34de",
+    "receipts/agent_review/inspect_ai_5141.r3.receipt.json": "bbbd94dbacecd9a1",
+    "receipts/agent_review/inspect_ai_5141.receipt.json": "6c2d979a1f652160",
+    "receipts/agent_review/proofbundle_147_comment.r2.receipt.json": "5a6cd55a4b9bf60b",
+    "receipts/agent_review/proofbundle_147_comment.receipt.json": "5a6cd55a4b9bf60b",
+    "receipts/agent_review/proofbundle_162.receipt.json": "b9b411052f5f7a4e",
+    "receipts/agent_review/proofbundle_185.r2.receipt.json": "a8523b586dbeea96",
+    "receipts/agent_review/proofbundle_185.receipt.json": "5042897b733d87c0",
+    "receipts/agent_review/proofbundle_224.r1.receipt.json": "da429cac82e32f5a",
+    "receipts/agent_review/proofbundle_225.r1.receipt.json": "0afd18dcb99730f2",
+    "receipts/agent_review/proofbundle_231_comment.receipt.json": "fce86b0faed878f2",
+}
+
+
+def test_valid_predicates_render_byte_identically():
+    """The fixes above change what the renderers do with a value the validator refuses, and nothing
+    else: every pinned predicate renders the bytes 8ecb6edf rendered."""
+    import base64  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    for name, pin in _RENDER_PINS.items():
+        roh = json.loads((REPO / name).read_text(encoding="utf-8"))
+        p = roh if name.endswith("predicate.json") else json.loads(base64.b64decode(roh["payload"]))["predicate"]
+        block = AR.render_disclosure_block(p, receipt_digest="a" * 64)
+        line = AR.render_disclosure_line(p, receipt_digest="a" * 64, receipt_url="u", leaf_url="l")
+        assert hashlib.sha256((block + "\n" + line).encode()).hexdigest()[:16] == pin, name
