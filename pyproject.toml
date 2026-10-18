@@ -108,8 +108,10 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 #   * entry-point discovery finds `proofbundle`; `ProofbundleHooks` is a real `Hooks` subclass and
 #     carries all 17 `on_*` methods of the 0.3.261 API — no method went missing, none was added that
 #     we fail to implement
-#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 10 of 10 — against the REAL
-#     package, no mocks. The count is re-derived by
+#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 13 of 13 — against the REAL
+#     package, no mocks. On 2026-08-31 `test_adapters.py` had 10 cases and passed 10 of 10; the
+#     three added on 2026-10-18 were run against this version too, see that date below. The count
+#     is re-derived by
 #     tests/test_shipped_comment_numbers.py, which fails when it drifts; it said 19 from 5.1.0
 #     to 6.0.0 and was wrong the day it was written (RESTRISIKO_600 R7).
 #   * the fixture recorded under 0.3.217 still reads (`version=2`, `status=success`), so the log
@@ -131,7 +133,13 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # stops inside 0.3.264. The one entry marked breaking (0.3.266, the score payload of `inspect ctl`)
 # concerns a control channel this package does not call.
 # The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
-inspect = ['inspect_ai>=0.3.112,<=0.3.266']
+#
+# 2026-10-18, THE COUNT MOVED, from 10 to 13 cases in `test_adapters.py` (three cases for a run that
+# stopped early), and the two files were run again instead of the number being raised. Each of
+# 0.3.261 through 0.3.266 in its own FRESH env (python 3.10.12, `inspect_ai==<version>` plus this
+# package built from the branch at 4480c5d7, no mocks): the two files run together, 22 passed,
+# nothing skipped, nothing failed, in every one of the six versions.
+inspect =['inspect_ai>=0.3.112,<=0.3.266']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
