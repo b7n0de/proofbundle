@@ -3859,8 +3859,18 @@ Measured at the forms of the order (probe_lines_n30.py of the delivery): `git lo
 `git log` and names `git reset`; `gh pr checks … && gh pr merge … --merge` named `gh` and names `gh pr merge` (D27);
 `git status && git push origin main` named `git push` with the reason of `git status` and names it with its own (D33
 under Claude Code, D12 under Codex).
+A write the gate guards weighs the most a line can name (_D72_WRITES): one into the gate's own directory (D25), which
+may never run, and one into the configuration or the hooks of a repository (D8), which chooses the programs later git
+calls run, as a form that turns off the check of a push does. Where such a write carries the decision, the line gives
+its reason (_d72_write); class c knows the step that writes and names it where it is a git or gh step, though a step
+before it weighs as much; where a later stage rebuilds the answer without step and cause (the done order of D38), the
+reason comes from _d72_cause and the step named is the heaviest git or gh step. A write by another program (echo,
+printf) is no step the line names (D53), so the line names the git or gh step beside it with the reason of the write.
+Found in the corpus of the acceptance at b96ce3e1: `git status > .git/hooks/post-index-change` (S295) gave D3 of
+`git status`, though `git status` alone is a free read form (D34) and the write decides; `printf … >> .git/config &&
+git status` (S296, profile container) gave D34.
 Tests: tests/test_plugin_n30_short_line_d72.py (the rows of the order, the gh names, class c, the heaviest of equal
-weight).
+weight, the writes the gate guards).
 
 ## D73. House rules: --admin, a tag going out, the limit of open pull requests, a kill that can end its own line (Nachtrag 30, 2026-10-18)
 

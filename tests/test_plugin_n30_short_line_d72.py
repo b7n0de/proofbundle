@@ -168,3 +168,65 @@ def test_D72_the_heaviest_of_steps_that_weigh_the_same_is_the_first(tmp_path):
     (["run", "view", "123"], "gh run view"), (["--version"], "gh")])
 def test_D72_a_gh_step_is_named_by_its_command_words(words, name):
     assert gate._gh_short_name(words) == name
+
+
+# --- D72: a write the gate guards gives the line its reason and its step ---------------------------------------------
+# Found in the corpus of the acceptance at b96ce3e1 (S295, S296): the line gave the reason of the step, though the step
+# alone is free (`git status` is a read form of D34) and the write decides. GREEN at ffa7d39a for the rows where the
+# writing step is the first and no done order rebuilds the answer (the line gave the first verdict, the write's), RED
+# from a59c7e6d to b96ce3e1, GREEN from the fix on. The row of the house deny guards the order of decisions and needs
+# D73.
+
+D72_WRITE = [
+    # form, configuration of the repository, host, step, reason ids as at ffa7d39a
+    ("git status > .git/hooks/post-index-change", {}, "claude", "git status",
+     ["write_to_repo_state", "git_form_not_free"]),
+    ("git status > .git/hooks/post-index-change", {}, "codex", "git status",
+     ["write_to_repo_state", "git_form_not_free"]),
+    ("git -C {R} log -1 > {R}/.git/config; git -C {R} status", {}, "claude", "git log",
+     ["write_to_repo_state", "git_form_not_free", "step_after_state_change"]),
+    ("printf '[core]\\n\\tfsmonitor = /bin/true\\n' >> .git/config && git status",
+     {"filter.lfs.process": "git-lfs filter-process"}, "claude", "git status",
+     ["write_to_repo_state", "git_form_not_free"]),
+    ("git status > .git/hooks/post-index-change && python3 -I {G} done-order --remove --repo {R}", {}, "claude",
+     "git status", ["write_to_repo_state", "git_form_not_free", "done_order_change"]),
+    ("git -C {R} reset --hard topic && git -C {R} status > {R}/.git/hooks/post-index-change", {}, "claude",
+     "git status", ["write_to_repo_state", "git_form_not_free", "git_form_not_free"]),
+]
+
+
+@pytest.mark.parametrize("form, config, host, step, reasons", D72_WRITE)
+def test_D72_a_write_into_configuration_or_hooks_gives_the_line_its_reason(tmp_path, form, config, host, step,
+                                                                          reasons):
+    """Class c knows the step that writes and names it, though a step before it weighs as much; the done order of D38
+    rebuilds the answer without step and cause (_d72_cause): in both the line gives the reason of the write (D8)."""
+    repo = _repo(tmp_path)
+    for key, value in config.items():
+        _git(repo, "config", key, value)
+    out = _outcome(repo, form.replace("{G}", gate.__file__), host)
+    assert [v.reason_id for v in out.verdicts] == reasons      # the reason ids in the log stay
+    assert out.decision == "ask" and out.step == step, (out.decision, out.step)
+    line = _line(out, host)
+    assert f" {step} because the write touches git configuration or hooks (D8)." in line, line
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_D72_a_write_into_the_gate_directory_names_its_step_before_a_write_that_asks(tmp_path, host):
+    """Deny before ask: the write into the gate's directory decides and the line names the step that writes it, not
+    the first git step, whose write into hooks only asks."""
+    repo = _repo(tmp_path)
+    out = _outcome(repo, f"git status > .git/hooks/post-index-change && git log -1 > {tmp_path / 'gatedir'}/mode", host)
+    assert [v.reason_id for v in out.verdicts] == ["write_to_repo_state", "write_to_gate_dir", "git_form_not_free",
+                                                   "git_form_not_free"]
+    assert out.decision == "deny" and out.step == "git log", (out.decision, out.step)
+    assert _line(out, host) == "Gate blocks git log because the write targets the gate's own directory (D25).", \
+        _line(out, host)
+
+
+def test_D72_a_write_that_asks_does_not_take_the_line_from_a_deny(tmp_path):
+    repo = _repo(tmp_path)
+    out = _outcome(repo, "git status > .git/hooks/post-index-change && gh pr merge 12 -R b7n0de/proofbundle --admin "
+                         "--merge")
+    assert out.decision == "deny" and "write_to_repo_state" in [v.reason_id for v in out.verdicts]
+    line = _line(out)
+    assert line.startswith("Gate blocks gh pr merge --admin because") and "(D73)." in line, line

@@ -10396,10 +10396,27 @@ def _sh_deciding(own: list, decision: str) -> tuple[str | None, "Verdict | None"
     return _sh_short_name(s), next((v for v in a.verdicts if v.decision == decision), None)
 
 
+#: D72: the writes the gate guards, which a line names before any step: one into the gate's own directory (D25) and one
+#: into the configuration or the hooks of a repository (D8).
+_D72_WRITES = frozenset({"write_to_gate_dir", "write_to_repo_state"})
+
+
+def _d72_write(verdicts: list, decision: str) -> "Verdict | None":
+    """A write the gate guards with the decision (_D72_WRITES), which weighs the most a line can name (D72): one into
+    the gate's directory may never run, one into configuration or hooks chooses the programs later git calls run, as a
+    form that turns off the check of a push does, and a step may ask only because of it (`git status > .git/hooks/…`);
+    None where there is none."""
+    return next((v for v in verdicts if v.decision == decision and v.reason_id in _D72_WRITES), None)
+
+
 def _d72_cause(verdicts: list, decision: str, name: str) -> "Verdict | None":
-    """The verdict with the decision that belongs to the step the short line names (D72): the one whose failure starts
-    with that step's name, else the one that names it as the call it cannot bind or place, else for a gh step the
-    verdict of the net, which found it; None where none does, and the line keeps the first verdict with the decision."""
+    """The verdict with the decision that belongs to the step the short line names (D72): a write the gate guards first
+    (_d72_write), else the one whose failure starts with that step's name, else the one that names it as the call it
+    cannot bind or place, else for a gh step the verdict of the net, which found it; None where none does, and the line
+    keeps the first verdict with the decision."""
+    write = _d72_write(verdicts, decision)
+    if write is not None:
+        return write
     mine = [v for v in verdicts if v.decision == decision]
     for belongs in (lambda v: v.failed.startswith(f"{name} "),
                     lambda v: f"`{name}" in v.failed or f"{name} acts on" in v.detail,
@@ -10519,6 +10536,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
     own: list = []     # each git and gh step with its answer on its own, for the text of the reason (D46)
     free_fetches: set = set()   # the fetch steps of D45 whose own answer is free
     protected: set = set()
+    writers: dict = {}   # each verdict of a write the gate guards, with the step that writes (D72)
     for s in steps:
         if s.kind == "unresolved":
             raise _ShKeep(f"the command word {s.cmd.words[0].raw!r} is built by the shell or names git or gh in "
@@ -10538,6 +10556,7 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             if written is not None:
                 protected.add(id(s))
                 verdicts.extend(written.verdicts)
+                writers.update((id(v), s) for v in written.verdicts)
     carriers = [s for s in steps if s.kind == "carrier"]
     for s in steps:
         if s.kind in ("carrier", "other") and _SH_GIT_TEXT.search(s.code_text()):
@@ -10641,6 +10660,10 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             text = (" ".join(v.text() for v in chosen) if host == "codex" or len(steps) < 2 else
                     _sh_steps_reason(decision, own, chosen))
             step, cause = _sh_deciding(own, decision)
+            write = _d72_write(verdicts, decision)
+            if write is not None:
+                # a write the gate guards decides before any step (D72): the line names it and its step
+                step, cause = _sh_short_name(writers.get(id(write))) or step, write
             return Outcome(decision, text, verdicts, step=step, cause=cause)
     combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
     return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
