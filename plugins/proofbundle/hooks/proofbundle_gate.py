@@ -1639,11 +1639,41 @@ def _names_index(word: str) -> bool:
     return any(part.lstrip("^").startswith(":") for part in re.split(r"\.\.\.?", word))
 
 
+#: D75 (Nachtrag 31, R2): the read forms of `git remote`. Measured with git 2.43.0 under strace against a stand-in for
+#: github.com (truth_remote_n31.py of the delivery): `git remote`, `-v`, `--verbose`, `get-url [--push] [--all] <name>`
+#: and `show -n <name>` started no program besides git, connected nowhere and wrote nothing, with a pager in the
+#: configuration and the environment, a credential helper, core.sshCommand, core.fsmonitor, a filter an attribute
+#: assigns, every documented hook, a URL rewrite, an ssh URL and remote.<name>.uploadpack; only pager.remote started its
+#: pager on a terminal, which the read profile counts. `remote show` without -n and `remote prune` connected to the
+#: remote, `remote update` fetched, add, set-url, remove and rename wrote the configuration: they keep their answer, and
+#: so does `remote show` with no name.
+_REMOTE_GET_URL_FLAGS = frozenset({"--push", "--all"})
+
+
+def _remote_read_form(args: list[str], rewritten: list[bool]) -> bool:
+    """Whether `git remote <args>` is a read form of D75: `git remote`, `-v` or `--verbose` alone, `get-url` with at most
+    --push and --all, each once, and one remote name, or `show -n <name>`. The words are literal, the name a word that
+    does not start with `-`; no other subcommand, option or second name."""
+    if any(rewritten):
+        return False
+    if args in ([], ["-v"], ["--verbose"]):
+        return True
+
+    def name_ok(word: str) -> bool:
+        return bool(word) and not word.startswith("-")
+
+    if args[:1] == ["get-url"] and len(args) >= 2:
+        flags = args[1:-1]
+        return name_ok(args[-1]) and len(set(flags)) == len(flags) and set(flags) <= _REMOTE_GET_URL_FLAGS
+    return len(args) == 3 and args[:2] == ["show", "-n"] and name_ok(args[2])
+
+
 def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) -> bool:
     """Whether `git <sub> <args>` is a read form class a frees after the read profile: every option before a `--` is on
     the form's grammar (_READ_GRAMMAR), and no word before that `--` is one the shell may rewrite (`rewrites`, as for
     K-NW-2 B: a glob may become an option, review 2026-10-09, F2). `git worktree list` and `git cat-file -t|-s|-e|-p
-    <object>` are fixed forms, and so are the reads of `git config` of D68 (_config_read_form). A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
+    <object>` are fixed forms, and so are the reads of `git config` of D68 (_config_read_form) and of `git remote` of D75
+    (_remote_read_form). A lone `-` (standard input), a revision word or a `--opt=value` value before `--` that
     may name an index entry (_names_index) and a `git branch` pattern without --list are not free (a name without
     --list creates a branch). The value of a separated option is a number or a pattern, never a revision. For the forms
     of _READ_REVISIONS_AFTER_DASHDASH `--` ends only the options, so a word after it that may name an index entry, or
@@ -1657,6 +1687,8 @@ def _read_form(sub: str, args: list[str], rewrites: list[bool] | None = None) ->
                 and not args[1].startswith("-") and not _names_index(args[1]))
     if sub == "config":
         return _config_read_form(args, rewritten)
+    if sub == "remote":
+        return _remote_read_form(args, rewritten)
     grammar = _READ_GRAMMAR.get(sub)
     if grammar is None:
         return False

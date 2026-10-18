@@ -29,12 +29,12 @@ _clean = a._clean
 
 D3 = "may start a program the gate does not see"
 MISSING = ("cannot resolve the directory", "cannot tell which repository")
-CHAIN = "git status && git branch && git remote -v"
+CHAIN = "git status && git branch && git remote show origin"
 
 
 def _chain_with_minus_c(repo) -> str:
     where = shlex.quote(str(repo))
-    return f"git -C {where} status && git -C {where} branch && git remote -v"
+    return f"git -C {where} status && git -C {where} branch && git remote show origin"
 
 
 def _decide(repo, command: str, host: str):
@@ -72,8 +72,8 @@ def test_N11_control_a_chain_judged_step_by_step_keeps_one_text_each(tmp_path):
     assert [v.reason_id for v in out.verdicts] == ["git_form_not_free", "git_form_not_free"], out.verdicts
 
 
-@pytest.mark.parametrize("command", ["git status && git -c core.pager=cat log -1 && git remote -v",
-                                     "git status && git stash list && git remote -v"])
+@pytest.mark.parametrize("command", ["git status && git -c core.pager=cat log -1 && git remote show origin",
+                                     "git status && git stash list && git remote show origin"])
 def test_N11_control_a_form_outside_the_grammar_in_a_chain_keeps_its_text(tmp_path, command):
     repo = a._repo(tmp_path)
     code, decision, text = t._host(repo, command)
@@ -101,28 +101,28 @@ def test_N11_control_claude_code_keeps_its_answer(tmp_path, variant):
     else:
         # D46 (Ergänzung 1 to Nachtrag 19, part A) changed this text: the reason names first the step that asks on its
         # own and no finding of D3 for the read steps it names as free; the decision and the verdicts stay
-        assert text.count(D3) == 0 and text.startswith("NOT MEASURED: the step `git remote -v` of this command asks on "
+        assert text.count(D3) == 0 and text.startswith("NOT MEASURED: the step `git remote show origin` of this command asks on "
                                                        "its own"), text
         assert [v.reason_id for v in out.verdicts] == ["git_form_not_free", "git_form_not_free",
                                                        "directory_unresolved"], out.verdicts
 
 
 @pytest.mark.parametrize("command", [
-    "git status $X && git remote -v",
-    "git -c core.pager=cat status && git remote -v",
-    "git -C a -C b status && git remote -v",
-    "git() { :; }; git status && git remote -v",
-    "printf -v PATH /tmp; git status && git remote -v",
-    "hash -p /bin/true git; git status && git remote -v",
-    "source ./env.sh; git status && git remote -v",
-    "aliases[git]=true; git status && git remote -v",
-    "alias git=true; git status && git remote -v",
-    "sh -c 'git status && git remote -v'",
-    "echo $(git status) && git remote -v",
-    "env git status && git remote -v",
-    "git status > out.txt && git remote -v",
-    "GIT_DIR=.git git status && git remote -v",
-    "git status && git status > out.txt && git remote -v",
+    "git status $X && git remote show origin",
+    "git -c core.pager=cat status && git remote show origin",
+    "git -C a -C b status && git remote show origin",
+    "git() { :; }; git status && git remote show origin",
+    "printf -v PATH /tmp; git status && git remote show origin",
+    "hash -p /bin/true git; git status && git remote show origin",
+    "source ./env.sh; git status && git remote show origin",
+    "aliases[git]=true; git status && git remote show origin",
+    "alias git=true; git status && git remote show origin",
+    "sh -c 'git status && git remote show origin'",
+    "echo $(git status) && git remote show origin",
+    "env git status && git remote show origin",
+    "git status > out.txt && git remote show origin",
+    "GIT_DIR=.git git status && git remote show origin",
+    "git status && git status > out.txt && git remote show origin",
 ])
 def test_N11_control_a_step_outside_the_grammar_or_of_unclear_membership_keeps_the_text_of_D3(tmp_path, command):
     repo = a._repo(tmp_path)
@@ -136,7 +136,7 @@ def test_N11_control_a_git_word_that_is_an_argument_is_no_step(tmp_path):
     """`git log -1 -- git status`: git and status are paths of git log. The scan reports them as a call of their own,
     which keeps the text of D3; only the head of a run is a step that can be a read form."""
     repo = a._repo(tmp_path)
-    out = _decide(repo, "git log -1 -- git status && git remote -v", "codex")
+    out = _decide(repo, "git log -1 -- git status && git remote show origin", "codex")
     (status,) = _named(out, "git status")
     assert D3 in status.text() and t.EXPLANATION not in status.text(), status.text()
 

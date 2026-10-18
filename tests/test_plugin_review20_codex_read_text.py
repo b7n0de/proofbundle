@@ -58,7 +58,7 @@ def test_CODEX_with_an_absolute_minus_C_the_text_does_not_say_the_directory_is_m
     assert "cannot resolve the directory" not in text and "directory_unresolved" not in text, text
 
 
-@pytest.mark.parametrize("command", ["git remote -v", "git stash list"])
+@pytest.mark.parametrize("command", ["git remote show origin", "git stash list"])
 def test_CODEX_control_a_form_outside_class_a_keeps_its_own_reason(tmp_path, command):
     repo = a._repo(tmp_path)
     code, decision, text = _host(repo, command)

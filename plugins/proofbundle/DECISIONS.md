@@ -3994,3 +3994,28 @@ The gate reads no file of ~/.ssh, no key and no credential for this, and calls n
 Tests: tests/test_plugin_n31_own_config_d74.py (the read forms, K-NW-2 B and the forms of D71 with the block in both
 forms; fsmonitor true, yes and 1; the counter cases of the order; the untracked path; the forms that bring another tree;
 _own_file; the values git-lfs writes).
+
+## D75. The read forms of `git remote` are read forms of class a (Nachtrag 31, R2, 2026-10-18)
+
+delta's `git -C <wt> remote -v` asked every time with possible_unmodeled_push ("may send objects … (D8)"), though it reads
+the configuration. Owner choice of 2026-10-18, 15:3x Berlin: `git remote`, `git remote -v`, `git remote get-url [--push]
+[--all] <name>` and `git remote show -n <name>` become read forms of class a after strace.
+
+Measured with git 2.43.0 under strace against a stand-in for github.com in a network namespace of its own
+(truth_remote_n31.py of the delivery, 105 runs): the eight read forms (`git remote`, `-v`, `--verbose`, `get-url <name>`,
+with --push, with --all, with both, `show -n <name>`) started no program besides git, connected nowhere and wrote
+nothing under .git, with no source, with core.pager and PAGER on a terminal of script(1), with a credential helper,
+core.sshCommand, core.fsmonitor naming a program, a filter an attribute assigns, every documented hook, a URL rewrite
+onto another host, an ssh URL with core.sshCommand, and remote.origin.uploadpack. pager.remote started its pager on a
+terminal. `git remote show origin` and `git remote prune origin` connected to the stand-in, `git remote update` fetched,
+add, set-url, remove and rename wrote the configuration, and `git remote show` with no name lists the remotes.
+
+The rule (_remote_read_form, in _read_form): the forms above with literal words, --push and --all each at most once, one
+remote name that does not start with `-`. They pass under Claude Code after the read profile of D34 (no walk of the work
+tree, so a filter, fsmonitor and a hook do not count for them; a pager key, a promisor key and a key the profile does
+not know do). `git remote show` without -n, `show` with no name, update, prune, add, set-url, remove, rename, a second
+name, an unknown option, a redirection and a global option keep their answer. Under Codex no read form is free (D37):
+these forms now ask there with the reason of D37 instead of possible_unmodeled_push, as before denied.
+Tests: tests/test_plugin_n31_remote_read_d75.py. Two older tests used `git remote -v` as their form outside class a
+and use `git remote show origin` now, which reaches the remote and stays outside (tests/test_plugin_codex_read_steps_text.py,
+tests/test_plugin_review20_codex_read_text.py).
