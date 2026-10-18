@@ -4122,6 +4122,22 @@ configuration (hook.<name>.command of later versions; a key the profile does not
 Tests: tests/test_plugin_n31e1_read_hooks_d78.py. tests/test_plugin_ask_load_a_read.py held every walking form not free
 beside a post-index-change hook; git grep and git ls-files started it in no measured state and are free there now.
 
+## D79. The block of the Stop hook names the key file done-init made (Nachtrag 32, B30-2, 2026-10-18)
+
+Measured in Nachtrag 30 (messung/stop_hook, with_key_option): `done-init --key <path>` made the key at that path, and
+the block of the Stop hook named the default key file of the gate directory, which did not exist; the command the block
+named could not close the check.
+
+The rule (done_init, check_command): done-init records in the gate directory, in done-keys.json, the key file it made
+for the repository, as the absolute path under the real path of the repository's top level; never a key, and nothing
+the key file holds. The command of a block names PROOFBUNDLE_KEY where it is an absolute path, else the recorded key
+file of the repository, else the default key file of the gate directory, as before. A record the gate does not read
+(not a regular file, a FIFO included, larger than MAX_STATE_BYTES, not strict JSON of one object, a relative path, the
+record of another repository) names the default. The record is written through a fresh file of mode 0600 that replaces
+it, never through a link; the gate directory is the person's (D25), so the agent's tools cannot change it. Where no gate
+directory is known, done-init says that the block will name the default.
+Tests: tests/test_plugin_n32_done_key_b30_2.py.
+
 ## D82. A substitution bash runs is seen wherever bash runs it (Nachtrag 34, C31-1 to C31-3, 2026-10-18)
 
 D79 to D81 are taken by Nachtrag 32, which follows this one.

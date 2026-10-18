@@ -106,6 +106,9 @@ MAX_STATE_BYTES = 64 * 1024
 DONE_RECEIPT = EVIDENCE_DIR + "proofbundle_pytest_receipt.json"
 DONE_POLICY = EVIDENCE_DIR + "done-policy.json"
 DONE_KEY_FILE = "done-test.key"
+#: The record in the gate directory of the key file done-init made for each repository (B30-2, Nachtrag 32): a path per
+#: repository, never a key. The gate reads the path to name it in the command of a block, and nothing behind it.
+DONE_KEYS_RECORD = "done-keys.json"
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy", "subject"})
 SUBJECT_KEYS = frozenset({"algorithm", "digest"})
@@ -17508,11 +17511,64 @@ def _short(text: str, limit: int = 240) -> str:
     return text if len(text) <= limit else text[:limit - 3] + "..."
 
 
-def check_command(check: dict, environ: dict) -> str:
+def _recorded_key_path(environ: dict, repo: str | None) -> str | None:
+    """The key file done-init made for the repository, as its record in the gate directory names it (B30-2), or None:
+    no repository, no gate directory, no record, or a record the gate does not read as one (not a regular file, larger
+    than MAX_STATE_BYTES, not strict JSON of one object, no absolute path for this repository). Only the path is read."""
+    directory = _gate_dir(environ)
+    if repo is None or directory is None:
+        return None
+    try:
+        doc = strict_json(_read_regular(os.path.join(directory, DONE_KEYS_RECORD), MAX_STATE_BYTES + 1))
+    except (OSError, GateError, ValueError):
+        return None
+    path = doc.get(os.path.realpath(repo)) if isinstance(doc, dict) else None
+    return path if isinstance(path, str) and os.path.isabs(path) and "\0" not in path else None
+
+
+def _record_key_path(environ: dict, repo: str, key_path: str) -> str | None:
+    """Record in the gate directory the key file done-init made for the repository (B30-2): a fresh temporary file
+    that replaces the record, never through a link. None on success, else why not."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return "no gate directory is known"
+    target = os.path.join(directory, DONE_KEYS_RECORD)
+    try:
+        doc = strict_json(_read_regular(target, MAX_STATE_BYTES + 1)) if os.path.lexists(target) else {}
+    except (OSError, GateError, ValueError):
+        doc = None
+    if not isinstance(doc, dict):
+        return f"{DONE_KEYS_RECORD} in the gate directory is not a record the gate reads"
+    doc[os.path.realpath(repo)] = key_path
+    data = (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass")
+    if len(data) > MAX_STATE_BYTES:
+        return f"{DONE_KEYS_RECORD} would be more than {MAX_STATE_BYTES} bytes"
+    temporary = os.path.join(directory, f".{DONE_KEYS_RECORD}.{secrets.token_hex(6)}.tmp")
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(temporary, target)
+    except OSError as exc:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        return f"{DONE_KEYS_RECORD} could not be written ({_os_error(exc)})"
+    return None
+
+
+def check_command(check: dict, environ: dict, repo: str | None = None) -> str:
     """The command that runs one check of the done section and leaves its receipt (D26, D28). A check of the
-    order names its pytest arguments and clears PYTEST_ADDOPTS, so the receipt names exactly that selection."""
+    order names its pytest arguments and clears PYTEST_ADDOPTS, so the receipt names exactly that selection. The key
+    is PROOFBUNDLE_KEY where it is an absolute path, else the key file done-init made for the repository as the gate
+    directory records it (B30-2, Nachtrag 32: `done-init --key` may put it anywhere), else the default key file of the
+    gate directory."""
     key = environ.get("PROOFBUNDLE_KEY")
     if not (key and os.path.isabs(key)):
+        key = _recorded_key_path(environ, repo)
+    if not key:
         directory = _gate_dir(environ)
         key = os.path.join(directory, DONE_KEY_FILE) if directory else "<your test key file>"
     selection = "" if check["args"] is None else "PYTEST_ADDOPTS= "
@@ -17802,7 +17858,7 @@ def _evaluate_rows(result: dict, repo: str, commit: str, head_commit: str, where
             location = os.path.join(receipt_dir, check["id"] + ".json")
         else:
             location = os.path.join(repo, *check["receipt"].split("/"))
-        command = check_command(check, environ)
+        command = check_command(check, environ, repo)
         if at_commit is not None and commit != head_commit:  # the receipt must name the pushed commit's tree
             command = f"{_shell_command('git', 'checkout', commit[:12])} && {command}"
         row = {"id": check["id"], "receipt": check["receipt"], "location": location, "status": None, "failed": "",
@@ -19716,10 +19772,15 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     staged = _git(repo, "add", "--", DECLARATION, DONE_POLICY, ".proofbundle/.gitignore", deadline=deadline)
     if staged.returncode != 0:
         raise GateError("git could not stage the done check")
+    # B30-2: the block of the Stop hook names this key file, wherever --key put it
+    unrecorded = _record_key_path(environ, repo, key_path)
+    recorded = "" if unrecorded is None else (f" The gate directory does not record the key file ({unrecorded}), so a "
+                                              "block names the default key file; set PROOFBUNDLE_KEY to this one.")
     return (f"proofbundle done check set up in {repo}: test key {key_path} (a local test key, never a release key), "
             f"{DONE_POLICY} pins it, {DECLARATION} declares the done check, .proofbundle/.gitignore keeps the receipt "
             f"and the done check's own files out of the tree. Staged. Next: git commit -m \"declare the done check\"; then the tests run with a "
-            f"receipt: {check_command(_done_section(doc['done'])['checks'][0], dict(environ, PROOFBUNDLE_KEY=key_path))}")
+            f"receipt: {check_command(_done_section(doc['done'])['checks'][0], dict(environ, PROOFBUNDLE_KEY=key_path))}"
+            f"{recorded}")
 
 
 def done_init_command(argv: list[str]) -> int:
