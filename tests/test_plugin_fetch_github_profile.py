@@ -209,7 +209,8 @@ CONFIG_ASKS = {
     "http.proxy": [("http.proxy", "http://127.0.0.1:3128")],
     "http.sslVerify": [("http.sslVerify", "false")],
     "http.extraHeader": [("http.extraHeader", "X: y")],
-    "core.sshCommand": [("core.sshCommand", "ssh -v")],
+    # core.sshCommand with every URL of the remote https on github.com is free since Nachtrag 31 (D76); with an ssh URL,
+    # an ssh push URL or a rewrite onto ssh it asks (tests/test_plugin_n31_ssh_https_fetch_d76.py)
     "core.askPass": [("core.askPass", "{tmp}/ask")],
     "core.fsmonitor": [("core.fsmonitor", "{tmp}/fsm")],
     "a promisor": [("remote.origin.promisor", "true")],
@@ -250,10 +251,11 @@ def test_E1B_control_a_configuration_the_profile_does_not_know_asks(tmp_path, re
 
 ENV_ASKS = {"HTTPS_PROXY": "http://127.0.0.1:3128", "https_proxy": "http://127.0.0.1:3128",
             "ALL_PROXY": "http://127.0.0.1:3128", "all_proxy": "socks5://127.0.0.1:1", "HTTP_PROXY": "http://x:1",
-            "http_proxy": "http://x:1", "GIT_SSH": "/bin/true", "GIT_SSH_COMMAND": "ssh -v",
-            "GIT_ASKPASS": "/bin/true", "SSH_ASKPASS": "/bin/true", "GIT_SSL_NO_VERIFY": "1",
-            "GIT_SSL_CAINFO": "/tmp/x.pem", "GIT_HTTP_USER_AGENT": "x", "GIT_TRACE": "1", "GIT_EXEC_PATH": "/x",
-            "GIT_OPTIONAL_LOCKS": "1"}   # GIT_PAGER without the bound host is free since Nachtrag 20 (D48)
+            "http_proxy": "http://x:1", "GIT_ASKPASS": "/bin/true", "SSH_ASKPASS": "/bin/true",
+            "GIT_SSL_NO_VERIFY": "1", "GIT_SSL_CAINFO": "/tmp/x.pem", "GIT_HTTP_USER_AGENT": "x", "GIT_TRACE": "1",
+            "GIT_EXEC_PATH": "/x", "GIT_OPTIONAL_LOCKS": "1"}
+# GIT_PAGER without the bound host is free since Nachtrag 20 (D48); GIT_SSH and GIT_SSH_COMMAND with every URL of the
+# remote https on github.com since Nachtrag 31 (D76, tests/test_plugin_n31_ssh_https_fetch_d76.py)
 
 
 @pytest.mark.parametrize("name", list(ENV_ASKS))

@@ -4019,3 +4019,29 @@ these forms now ask there with the reason of D37 instead of possible_unmodeled_p
 Tests: tests/test_plugin_n31_remote_read_d75.py. Two older tests used `git remote -v` as their form outside class a
 and use `git remote show origin` now, which reaches the remote and stays outside (tests/test_plugin_codex_read_steps_text.py,
 tests/test_plugin_review20_codex_read_text.py).
+
+## D76. An ssh setting alone does not hold the ask of the fetch of D45 from https on github.com (Nachtrag 31, R3, 2026-10-18)
+
+delta's `git -C <wt> fetch -q --prune origin` asked once core.sshCommand stood in the configuration (the text named
+core.sshcommand). D45 kept core.sshCommand, GIT_SSH and GIT_SSH_COMMAND asking by owner choice, though an https fetch
+started none of them (measured then). Owner choice of 2026-10-18, 15:3x Berlin: where every URL of the remote, with
+insteadOf applied, is https://github.com/<owner>/<repo>, these three alone no longer hold the ask, after a measurement
+that an https fetch then starts no ssh.
+
+Measured with git 2.43.0 under strace against a stand-in for github.com in a network namespace of its own
+(truth_remote_n31.py of the delivery): `git fetch -q --prune origin` from https://github.com/o/r with core.sshCommand,
+GIT_SSH or GIT_SSH_COMMAND naming a marker program, with all three, and with all three and an ssh push URL beside the
+https URL, started the programs of the baseline (git-remote-https, rev-list, unpack-objects, maintenance), no marker,
+and connected only to github.com:443. With an ssh URL, an ssh:// URL or url.git@github.com:.insteadOf onto the https
+URL the fetch started the marker as its ssh.
+
+The rule (_fetch_profile_problem with own_known, for the fetch form of D45 and so for the fetch of D71, never for
+ls-remote of D59 or the remote read of D61): core.sshCommand at any scope and GIT_SSH and GIT_SSH_COMMAND in the hook's
+environment are noted instead of counted. They hold no ask only where every URL of the remote is https on github.com:
+the one URL is (D45, and no insteadOf acts on it, D51), each push URL is and no insteadOf acts on it, and without a push
+URL no pushInsteadOf acts on the URL; the order says every URL of the remote, and a fetch reads no push URL (D52), so
+these are held to the rule of the order, not to what the fetch reads. The pass names the settings and D76.
+core.askPass, GIT_ASKPASS, SSH_ASKPASS, GIT_SSH_VARIANT, ssh.variant, a prefix assignment of the command and every
+other key or name keep their rule. Under Codex the fetch is never free (D45).
+Tests: tests/test_plugin_n31_ssh_https_fetch_d76.py. tests/test_plugin_fetch_github_profile.py listed core.sshCommand,
+GIT_SSH and GIT_SSH_COMMAND among the configuration and environment that ask; they left the lists with a note to D76.

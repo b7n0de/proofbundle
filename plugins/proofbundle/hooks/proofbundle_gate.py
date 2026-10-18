@@ -1917,7 +1917,8 @@ _HOOKS_NOT_RUN_BY_FETCH = frozenset({
 #: The keys the fetch profile knows to start no program for the fetch and to keep it on github.com: those of the read
 #: profile (D34, D44; the identity, the stat and line-ending settings, the display settings, gc.auto and
 #: maintenance.auto, whose gc runs git's own programs and the two hooks judged above) less core.sshCommand and
-#: core.askPass (owner choice: they ask, though an https fetch started neither: measured), and fetch.prune (measured:
+#: core.askPass (owner choice: they ask, though an https fetch started neither: measured; core.sshCommand holds the ask
+#: of the fetch of D45 no longer where every URL of the remote is https on github.com, D76), and fetch.prune (measured:
 #: deletes tracking refs, starts nothing). Every other key, the url.*, http.*, credential.*, remote.* and submodule.*
 #: families included, is judged below or keeps the ask.
 _FETCH_INERT_KEYS = (_READ_INERT_KEYS - {"core.sshcommand", "core.askpass"}) | frozenset({"fetch.prune"})
@@ -1935,7 +1936,8 @@ _FETCH_GITHUB_URL = re.compile(r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*)/
 #: GIT_* names in the hook's environment the fetch profile accepts: the configuration files and entries git reads into
 #: the list the profile reads, the identity, the prompt switch and the editors a fetch does not start. GIT_ASKPASS, the
 #: ssh names, GIT_SSL_* and GIT_HTTP_* (they select a program or change how the fetch connects or what it trusts) and
-#: every other GIT_* name ask; GIT_OPTIONAL_LOCKS=0 of the Bash tool does not (_tool_inert, D41).
+#: every other GIT_* name ask; GIT_OPTIONAL_LOCKS=0 of the Bash tool does not (_tool_inert, D41). GIT_SSH and
+#: GIT_SSH_COMMAND do not hold the ask of the fetch of D45 where every URL of the remote is https on github.com (D76).
 _FETCH_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|COUNT|KEY_[0-9]+|VALUE_[0-9]+)"
                               r"|(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|TERMINAL_PROMPT|EDITOR|SEQUENCE_EDITOR)")
 #: The proxy names libcurl reads for an https URL (measured: with HTTPS_PROXY, https_proxy or ALL_PROXY the fetch
@@ -1994,7 +1996,8 @@ def _fetch_gh_helper(value: str, environ: dict, deadline: float, inert_pagers: l
 
 def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ: dict | None = None,
                            inert_pagers: list | None = None, found_url: list | None = None,
-                           bound_pagers: list | None = None, own_known: bool = False) -> str | None:
+                           bound_pagers: list | None = None, own_known: bool = False,
+                           ssh_noted: list | None = None) -> str | None:
     """None when the fetch of D45 from `remote` in the repository at directory starts only git's own programs and
     connects only to github.com, else what the fetch profile found (Ergänzung 1 to Nachtrag 19). Read as the read
     profile reads (D34): the effective configuration with every include in the hook's environment, the effective hook
@@ -2015,7 +2018,9 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
       fetch.recurseSubmodules reads false (measured: the default recursion fetched the submodule from its own URL);
     - any key or GIT_* name the profile does not know.
     With own_known, for the fetch form of D45 alone, core.fsmonitor naming git's own daemon on a git without one in the
-    person's own global or system file does not count (D74).
+    person's own global or system file does not count (D74), and neither do core.sshCommand, GIT_SSH and GIT_SSH_COMMAND
+    in the hook's environment where every URL of the remote, the push URLs included and with every rewrite applied, is
+    https://github.com/<owner>/<repo> (D76: an https fetch started no ssh, measured); ssh_noted, a list, gets them.
     found_url, a list, gets the URL of the remote when the profile finds nothing. With inert_pagers, a list, core.pager,
     PAGER and GIT_PAGER are noted there instead of counted; with bound_pagers, a list, a pager.<command> key of git and
     the pager of gh in the gh helper's gh profile are, the ones the measurement of D48 did not cover."""
@@ -2029,6 +2034,9 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     if entries is None:
         return f"the gate cannot read the effective configuration ({why})"
     urls, rules, recurse_off = [], [], False
+    ssh: list = []            # D76: core.sshCommand, GIT_SSH and GIT_SSH_COMMAND, where each stands
+    push_urls: list = []      # D76: remote.<remote>.pushurl
+    push_rewrites: list = []  # D76: the values of url.<base>.pushInsteadOf
     url_where: list = []      # where each URL and rule stands: a reason names the key and its file, never the value (D49)
     rewrites: list = []       # (base, value, where) of each url.<base>.insteadOf (D51)
     rule_where: list = []
@@ -2051,8 +2059,14 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
                     not (own_known and _fsmonitor_known(scope, origin, value, directory, deadline, environ)):
                 return f"fsmonitor, which the fetch starts: {where}"
             continue
+        if own_known and lowered == "core.sshcommand":
+            ssh.append(where)     # D76: judged against every URL of the remote below
+            continue
         if section == "remote" and subsection == remote:
-            if variable in ("pushurl", "push"):
+            if variable == "pushurl":
+                push_urls.append(value)     # D52: a fetch does not read it; D76 judges it for an ssh setting
+                continue
+            if variable == "push":
                 continue    # D52: a fetch reads neither (measured: the same programs, connection and refs)
             if variable == "url":
                 urls.append(value)
@@ -2067,7 +2081,8 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
         if section == "remote" and subsection and variable in ("url", "pushurl", "fetch", "push"):
             continue        # another remote's address and rules, which a fetch from this remote does not read
         if section == "url" and variable == "pushinsteadof":
-            continue        # D51: pushInsteadOf rewrites a push, never a fetch (measured)
+            push_rewrites.append(value)     # D51: it rewrites a push, never a fetch (measured); D76 judges it
+            continue
         if section == "url" and variable == "insteadof":
             rewrites.append((subsection, value, where))    # judged against the remote's URL below (D51)
             continue
@@ -2107,12 +2122,30 @@ def _fetch_profile_problem(directory: str, remote: str, deadline: float, environ
     if problem is not None:
         return problem.replace("a hook: ", "a hook the fetch or its maintenance may start: ", 1)
     for name in sorted(environ):
+        if own_known and name in ("GIT_SSH", "GIT_SSH_COMMAND"):
+            ssh.append(f"{name} in the hook's environment")     # D76: judged against every URL of the remote below
+            continue
         problem = _fetch_env_problem(name, environ[name])
         if problem is not None and inert_pagers is not None and name in ("PAGER", "GIT_PAGER"):
             inert_pagers.append(f"{name} in the hook's environment")
             continue
         if problem is not None:
             return f"{problem} in the hook's environment"
+    if ssh:
+        # D76: the ssh settings hold no ask only where every URL of the remote, with every rewrite applied, is https on
+        # github.com: the URL itself is (above, and no insteadOf acts on it, D51), each push URL is and no insteadOf
+        # acts on it, and no pushInsteadOf acts on the URL
+        for pushed in push_urls:
+            matched_push = _FETCH_GITHUB_URL.fullmatch(pushed or "")
+            if matched_push is None or matched_push.group(2) in (".", "..", ".git") or \
+                    any(value is None or pushed.startswith(value) for _base, value, _where in rewrites):
+                return (f"an ssh setting, and a push URL of the remote {remote} is not https://github.com/<owner>/"
+                        f"<repo> once git rewrites it: {ssh[0]}")
+        if not push_urls and any(value is None or urls[0].startswith(value) for value in push_rewrites):
+            return (f"an ssh setting, and a pushInsteadOf rule rewrites the URL of the remote {remote} for a push: "
+                    f"{ssh[0]}")
+        if ssh_noted is not None:
+            ssh_noted.extend(ssh)
     if not recurse_off:
         if os.path.lexists(os.path.join(paths["gitdir"], "modules")):
             return "a submodule: the folder modules in the git directory"
@@ -2133,9 +2166,10 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
     inert_pagers: list = []
     bound_pagers: list | None = [] if _no_terminal_host(host, os.environ) else None
     url: list = []
+    ssh: list = []
     try:
         problem = (_fetch_profile_problem(directory, remote, deadline, os.environ, inert_pagers, url, bound_pagers,
-                                          own_known=True)
+                                          own_known=True, ssh_noted=ssh)
                    if directory is not UNKNOWN else "the gate cannot tell which repository the call acts on")
     except GateError as exc:
         problem = f"the fetch profile reached no result ({exc})"
@@ -2146,10 +2180,14 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
         pagers += (f" A pager is named ({'; '.join(bound_pagers)}) and does not count: AI_AGENT in the hook's "
                    "environment names a host whose Bash tool gives the command no terminal "
                    "(DECISIONS.md D42)." if bound_pagers else "")
+        pagers += (f" An ssh setting is named ({'; '.join(ssh)}) and does not count: every URL of the remote is "
+                   "https://github.com/<owner>/<repo> with every rewrite applied, and an https fetch starts no ssh, "
+                   "measured with core.sshCommand, GIT_SSH and GIT_SSH_COMMAND (DECISIONS.md D76)." if ssh else "")
+        settings = "transport helper or askpass setting" if ssh else "transport helper, ssh or askpass setting"
         return Verdict("pass", f"proofbundle gate: {name} is free. The fetch profile of the repository at {directory} "
                                f"found the remote {remote} at a URL of the form https://github.com/<owner>/<repo> "
                                "with the one fetch rule of a clone, no URL "
-                               "rewrite, proxy, transport helper, ssh or askpass setting, no credential helper but "
+                               f"rewrite, proxy, {settings}, no credential helper but "
                                "those it knows, no hook the fetch or its maintenance starts, no fsmonitor, no "
                                "submodule it would fetch, and every key and environment setting it read is one it "
                                "knows to keep the fetch to git's own programs and github.com (DECISIONS.md D45)."
