@@ -4121,3 +4121,35 @@ Under Codex no read form is free (D37). Not measured: git 2.51.1 of delta's mach
 configuration (hook.<name>.command of later versions; a key the profile does not know keeps the ask).
 Tests: tests/test_plugin_n31e1_read_hooks_d78.py. tests/test_plugin_ask_load_a_read.py held every walking form not free
 beside a post-index-change hook; git grep and git ls-files started it in no measured state and are free there now.
+
+## D82. A substitution bash runs is seen wherever bash runs it (Nachtrag 34, C31-1 to C31-3, 2026-10-18)
+
+D79 to D81 are taken by Nachtrag 32, which follows this one.
+
+Found by Cowork in the gate of Nachtrag 31 and measured here with GNU bash 5.2.21 and a marker program in place of a real
+command (messung/truth_n34.jsonl): bash runs a substitution in the index of a name it reads, single quotes or not
+(`[ -v 'a[$(…)]' ]`, `test -v`, `[[ -v`, `read 'a[$(…)]'`); in an arithmetic expansion, quoted or not (`$(( $(…) ))`,
+`$(( '…' ))`, `$[ … ]`); in the index of a parameter expansion (`${a['$(…)']}`, `"${x:-'$(…)'}"`); after an apostrophe
+inside double quotes (`"it's $(…)"`) and after an escaped quote (`it\'s $(…)`); and in `$((…) )`, which bash reads as a
+command substitution of a subshell. It does not run one for `-R`, the arithmetic comparisons of `[`, the options of
+`read` other than its names and `-a`, or a default in single quotes in an unquoted `${…}`. The gate of 89d2e8b7 let each
+of the first through with `git push origin main` hidden in it (messung/probe_89d2e8b7.jsonl): the read forms of D66 and
+D77 freed the command before the scan, the data steps of D72 freed `test -v`, and the scanner of substitutions that D3,
+D38, D66, D67, D69 and D73 share skipped the inside of `$(( ))` and believed quotes bash does not.
+
+The rule:
+- The scanner of substitutions (_subst_bodies) reads quotes as bash does: a single quote inside double quotes or after a
+  backslash is no quote; it counts every substitution inside an arithmetic expansion and a parameter expansion, quoted
+  or not; it reads `$((…) )` as a command substitution where the inner parenthesis closes before the end; it counts a
+  process substitution. Every rule that reads it sees the same bodies.
+- The net (D27) takes these bodies too, so a substitution inside an arithmetic or a parameter expansion is a context of
+  its own for the program position.
+- `read` is a read form (D66) only where each word it takes as a name is a plain name written as such: the operands
+  after its options and the value of -a; an option outside `help read` makes the run no read form.
+- `[` (D77) and `test` count `-v` only before a plain name, in the read forms and in the data steps of D72.
+- The step parser of D72 refuses `$[ ]`, as it refuses `$(( ))` with a substitution or an index.
+
+Nothing gets freer (messung/probe_fix.jsonl against messung/probe_89d2e8b7.jsonl): of 296 probe rows 132 go from free to
+held, none from held to free. Not modeled: an arithmetic over the value of a variable the command does not set
+(`$((X))`, `${!X}`), where the value comes from the environment of the host and the agent sets none in a read form
+(owner question). Tests: tests/test_plugin_n34_hidden_commands_d82.py.

@@ -3071,47 +3071,95 @@ def _assignment_neutral(word: str) -> bool:
 
 
 def _subst_bodies(raw: str) -> list[str]:
-    """The command bodies inside a word's command substitutions (`$(...)`, `` `...` ``); single quotes
-    suppress substitution, and `$((...))` arithmetic is not a command body."""
+    """The command bodies inside a word's command substitutions (`$(...)`, `` `...` ``, `<(...)`, `>(...)`), as bash
+    finds them (D82): single quotes suppress substitution only where bash reads them as quotes, never inside double
+    quotes or after a backslash; and in an arithmetic expansion (`$((...))`, `$[...]`) and a parameter expansion
+    (`${...}`) every substitution counts, quoted or not, because bash expands an index or an expression there. A
+    `$((...) )` whose inner parenthesis closes before the end is a command substitution of a subshell, as bash reads
+    it. Arithmetic itself is no command body."""
     return [raw[start:end] for start, end in _subst_body_spans(raw)]
 
 
-def _subst_body_spans(raw: str) -> list[tuple[int, int]]:
-    """The start and end offsets in raw of the bodies _subst_bodies returns, in their order (D67)."""
-    bodies, i, n = [], 0, len(raw)
+def _shell_close(raw: str, i: int, opener: str, closer: str) -> int:
+    """The index of the `closer` that closes an `opener` whose content starts at i, quotes and backslashes respected
+    as bash reads them in a substitution; len(raw) when none does."""
+    depth, n = 1, len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == _BACKSLASH:
+            i += 2
+            continue
+        if ch == "'":
+            j = raw.find("'", i + 1)
+            i = n if j < 0 else j + 1
+            continue
+        if ch == '"':
+            i += 1
+            while i < n and raw[i] != '"':
+                i += 2 if raw[i] == _BACKSLASH else 1
+            i += 1
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return n
+
+
+def _subst_body_spans(raw: str, start: int = 0, end: int | None = None, quotes: bool = True) -> list[tuple[int, int]]:
+    """The start and end offsets in raw of the bodies _subst_bodies returns, in their order (D67, D82). With quotes
+    False (inside an arithmetic or a parameter expansion) no quote suppresses a substitution."""
+    bodies, i = [], start
+    n = len(raw) if end is None else end
+    double = False
     while i < n:
         c = raw[i]
-        if c == "'":
+        if c == _BACKSLASH:
+            i += 2
+            continue
+        if quotes and c == '"':
+            double = not double
+            i += 1
+            continue
+        if quotes and c == "'" and not double:
             j = raw.find("'", i + 1)
-            if j < 0:
+            if j < 0 or j >= n:
                 break
-            i = j + 1; continue
+            i = j + 1
+            continue
         if c == "`":
-            j = raw.find("`", i + 1)
-            if j < 0:
-                break
-            bodies.append((i + 1, j)); i = j + 1; continue
-        if c == "$" and i + 1 < n and raw[i + 1] == "(":
-            depth, j, quote = 0, i + 1, None
-            while j < n:  # track quotes so a `)` inside '…'/"…" does not close the body (R11-1 case 3)
-                ch = raw[j]
-                if quote is not None:
-                    if ch == quote:
-                        quote = None
-                elif ch in "'\"":
-                    quote = ch
-                elif ch == "(":
-                    depth += 1
-                elif ch == ")":
-                    depth -= 1
-                    if depth == 0:
-                        break
-                j += 1
+            j = i + 1
+            while j < n and raw[j] != "`":
+                j += 2 if raw[j] == _BACKSLASH else 1
             if j >= n:
                 break
-            if not raw[i + 2:j].startswith("("):  # not $(( )) arithmetic
-                bodies.append((i + 2, j))
-            i = j + 1; continue
+            bodies.append((i + 1, j))
+            i = j + 1
+            continue
+        if c in "<>" and not double and i + 1 < n and raw[i + 1] == "(":   # a process substitution
+            j = _shell_close(raw, i + 2, "(", ")")
+            if j >= n:
+                break
+            bodies.append((i + 2, j))
+            i = j + 1
+            continue
+        if c == "$" and i + 1 < n and raw[i + 1] in "([{":
+            opener = raw[i + 1]
+            closer = {"(": ")", "[": "]", "{": "}"}[opener]
+            j = _shell_close(raw, i + 2, opener, closer)
+            if j >= n:
+                break
+            if opener == "(" and raw.startswith("(", i + 2) and _shell_close(raw, i + 3, "(", ")") == j - 1:
+                bodies.extend(_subst_body_spans(raw, i + 3, j - 1, quotes=False))   # $(( … )): an expression
+            elif opener == "(":
+                bodies.append((i + 2, j))                                            # $( … ), $(( … ) … )
+            else:
+                bodies.extend(_subst_body_spans(raw, i + 2, j, quotes=False))       # $[ … ], ${ … }
+            i = j + 1
+            continue
         i += 1
     return bodies
 
@@ -3703,6 +3751,9 @@ def _net_unmodeled(text: str, depth: int = 0) -> bool:
     bodies, boundary_ok = _net_subcontexts(text)
     if not boundary_ok:
         return True
+    # D82: every body the scanner of substitutions finds counts too, the inside of an arithmetic or a parameter
+    # expansion included, where bash expands a substitution whatever its quotes
+    bodies += [body for body in _subst_bodies(text) if body not in bodies]
     return any(_net_unmodeled(body, depth + 1) for body in bodies)
 
 
@@ -9968,6 +10019,9 @@ def _sh_expansion_at(s: str, i: int, depth: int):
         if "$(" in inner or "`" in inner or "[" in inner:
             raise _ShUnmodeled("a substitution or an index inside an arithmetic expansion")
         return _ShSub("arith", inner), end + 2
+    if s.startswith("$[", i):
+        # the old arithmetic expansion, in which bash expands a substitution whatever its quotes (D82)
+        raise _ShUnmodeled("an arithmetic expansion of the form $[ ]")
     if s.startswith("$(", i):
         end = _sh_match_paren(s, i + 2)
         inner = s[i + 2:end]
@@ -10122,6 +10176,8 @@ def _sh_kind(step: _ShStep) -> str:
         return "carrier"
     if h == "printf" and _sh_printf_sets_variable(step):
         return "other"     # printf -v or a %n conversion sets a variable, which may be exported (R20-1)
+    if h in ("test", "[") and _test_names_an_expression(args):
+        return "other"     # -v before a word that is no plain name: bash expands its index as an expression (D82)
     if h in _SH_DATA:
         return "data"
     return "other"
@@ -15320,10 +15376,13 @@ def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
         return True
     program, args = words[0], words[1:]
     if program[2] == "[" and used is not None:
-        # the shell's test command (D60, D77): a builtin of bash, whose every operator only tests; its last word `]`
-        return bool(args) and args[-1][2] == "]"
+        # the shell's test command (D60, D77): a builtin of bash, whose every operator only tests; its last word `]`;
+        # `-v` only before a plain name, as bash expands the index of a name as an expression (D82)
+        return bool(args) and args[-1][2] == "]" and not _test_names_an_expression([a[0] for a in args[:-1]])
     if _unreadable_word(program):
         return False
+    if program[0] == "read":
+        return _read_names_plain(args)
     if program[0] == "find":
         return not any(_unreadable_word(a) or a[0] in _READ_ONLY_FIND_ACTIONS for a in args)
     if program[0] == "xargs":
@@ -15340,6 +15399,53 @@ def _read_only_run(run: list[tuple], used: set | None = None) -> bool:
         used.add(program[0])
         return _read_program_args(program[0], args)
     return program[0] in ("grep", "read", "echo")
+
+
+#: A name as bash reads it in an assignment: no index, no expression (D82).
+_PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+#: The options of the read builtin of bash 5.2 (`help read`), those with a value and those without (D82).
+_READ_VALUE_OPTIONS = frozenset("adinNptu")
+_READ_FLAG_OPTIONS = frozenset("ers")
+
+
+def _test_names_an_expression(words: list[str]) -> bool:
+    """Whether a test (`[` or `test`) gives `-v` a word that is no plain name: bash expands the index of `a[…]` as an
+    expression, and a substitution in it runs, single quotes or not (C31-1, measured with bash 5.2.21; D82). `-R` and
+    the arithmetic comparisons read an integer and run nothing (measured)."""
+    return any(word == "-v" and (k + 1 == len(words) or not _PLAIN_NAME.fullmatch(words[k + 1]))
+               for k, word in enumerate(words))
+
+
+def _read_names_plain(args: list[tuple]) -> bool:
+    """Whether every word the read builtin takes as a name is a plain name written as such (C31-2, D82): the operands
+    after its options and the value of -a. bash assigns to `a[…]` and expands its index as an expression, and a
+    substitution in it runs, single quotes or not (measured with bash 5.2.21); the other options read a number, a
+    delimiter or a text and run nothing (measured). An option the builtin does not know, and a name the shell builds
+    or rewrites, make the run no read form."""
+    words, i = list(args), 0
+    while i < len(words) and words[i][0].startswith("-") and words[i][0] != "-":
+        if _unreadable_word(words[i]):
+            return False
+        word = words[i][0]
+        i += 1
+        if word == "--":
+            break
+        for k, letter in enumerate(word[1:], start=2):
+            if letter in _READ_FLAG_OPTIONS:
+                continue
+            if letter not in _READ_VALUE_OPTIONS:
+                return False
+            value = word[k:] if k < len(word) else (words[i][0] if i < len(words) else None)
+            if value is None:
+                return False
+            if k == len(word):
+                if letter == "a" and (_unreadable_word(words[i]) or not _PLAIN_NAME.fullmatch(value)):
+                    return False
+                i += 1
+            elif letter == "a" and not _PLAIN_NAME.fullmatch(value):
+                return False
+            break
+    return all(not _unreadable_word(w) and _PLAIN_NAME.fullmatch(w[0]) for w in words[i:])
 
 
 def _read_only_form(command: str, depth: int = 0, used: set | None = None) -> bool:
