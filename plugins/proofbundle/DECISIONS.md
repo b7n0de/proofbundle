@@ -5012,3 +5012,37 @@ a forced push the autonomous answer blocks included (owner question in the repor
 by its form only, the gate does not know the cards of the Leitstand; the fetcher's file is trusted as the owner's
 answer, as the gate's directory is trusted as a person's (D25); a release of another spelling of the same effect frees
 nothing; the time is the farmer's clock. Tests: tests/test_plugin_n42_release_d111.py.
+
+## D112. A variable of the hook's environment like HOME in a path word is put in (Nachtrag 41, point 2, O40-3, 2026-10-19)
+
+Order: variables from the environment of the hook like HOME are put in by the gate, after a measurement; code of other
+languages stays unread (D8), cd stays class e; no case that asks or denies today becomes free. Found in PLUGIN_N35 as
+the open siblings of F35-1 and F35-2 (O40-3): a word `$D/x` of a variable the command does not set named no path, so
+`rm -r $ELSE/build`, `echo x >> $RC/.bashrc`, `cp f $CFG/settings.json` or `cat $KEYS/config` got no answer where
+the same words with the path written out are denied.
+
+Measured with Claude Code 2.1.303 (truth_env_o403.sh: the stand-in API on the loopback, three Bash calls, a fresh
+HOME, no network; the names of each environment with a sha256 prefix of the value, never the value): without a start
+file 24 names have the same value in the PreToolUse hook and in the Bash call, among them HOME, PATH, TMPDIR,
+XDG_CONFIG_HOME, LANG and a name set when Claude Code started; PWD differs after a cd, CLAUDE_PROJECT_DIR is the
+hook's only, AI_AGENT has another value, and an export of one call is gone in the next (O34-1). With a ~/.bashrc that
+exports TMPDIR and XDG_CONFIG_HOME anew, exactly these two differ: a start file of the shell may set another value.
+
+The rule (_sh_env_word_paths in _sh_word_paths and _sh_line_values, so every guard that reads the paths of a word has
+it: D96, D97, D100, D101, D102, D104, D105): a word that starts with `$X` or `${X}` (quoted or not, with a literal
+rest), or with `${X:-w}` or `${X-w}` with a literal w, where X is in the hook's environment and the command does not
+set it, names the path with the hook's value too, an unquoted value split into its fields as bash splits it; for
+`${X:-w}` and `${X-w}` with X unset there (or empty, with the colon) the literal w. Not put in: the names the call sets
+itself or did not see with the hook's value (_HOOK_ENV_NOT_IN_CALL: PWD, OLDPWD, SHLVL, _, CLAUDE_PROJECT_DIR,
+AI_AGENT, and every name starting with BASH), and a name the command sets (D100 reads it; set in a way the gate cannot
+read, `$(mktemp -d)`, it keeps today's answer). The path is a candidate: a target that was not known stays not known
+where the gate counts that (write_targets), so nothing that asked or denied becomes free. A write the gate judges as a
+file-tool write (D96, D97, the state of a repository) names the word as written where the shell makes its path of
+the environment, never the path (_sh_spelled, D49); found with this rule for `~/.bashrc` and `$HOME/.bashrc` already
+at f18b3183.
+
+Limits, named: a start file that sets another value (measured for TMPDIR and XDG_CONFIG_HOME) makes the gate judge
+the hook's value, which may be another file; a step that uses a name before another step of the command sets it is
+judged with the command's value only, where bash takes the hook's; code of other languages, xargs and a relative path
+after cd stay as they are. Under Codex the same words are put in (not measured; the paths only add). Tests:
+tests/test_plugin_n41_hook_env_d112.py.

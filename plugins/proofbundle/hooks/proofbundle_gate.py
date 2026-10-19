@@ -10588,9 +10588,51 @@ def _sh_path_words(step: "_ShStep", environ, values: "dict | None" = None) -> li
 #: D100 (Nachtrag 39, the siblings of F35-1 and F35-2): a word that starts with a parameter expansion, `$X`, `${X}`,
 #: quoted or not, with a literal rest, of a variable the command itself sets (_sh_line_values).
 _SH_VAR_WORD = re.compile(r"(\"?)\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})(/[^\s'\"$`\\*?\[\]{}]*)?\1")
+#: D112 (Nachtrag 41, point 2, O40-3): `${X:-w}` or `${X-w}` at the start of a word, quoted or not, with a literal word w
+#: and a literal rest.
+_SH_DEFAULT_WORD = re.compile(r"(\"?)\$\{([A-Za-z_][A-Za-z0-9_]*)(:?-)([^\s'\"$`\\*?\[\]{}]*)\}(/[^\s'\"$`\\*?\[\]{}]*)?\1")
+#: D112: the names of the hook's environment the gate does not put into a word: those bash sets itself in the call (PWD
+#: and OLDPWD change with cd, SHLVL, _, BASH*) and those a Bash call of Claude Code 2.1.303 did not see with the hook's
+#: value (measured, truth_env_o403.sh: CLAUDE_PROJECT_DIR is the hook's only, AI_AGENT has another value).
+_HOOK_ENV_NOT_IN_CALL = frozenset({"PWD", "OLDPWD", "SHLVL", "_", "CLAUDE_PROJECT_DIR", "AI_AGENT"})
 #: D100: the most words the gate reads of the brace expansion of one word; more and it names none (bash has no limit).
 _SH_BRACE_MAX = 64
 _SH_BRACE_RANGE = re.compile(r"(-?\d+)\.\.(-?\d+)|([A-Za-z])\.\.([A-Za-z])")
+
+
+def _hook_env_value(name: str, environ) -> str | None:
+    """D112: the value a variable of the hook's environment has, as the gate puts it into a word (an empty value too);
+    None where the name is not set there or is one the call sets itself or did not see with the hook's value. A start
+    file of the shell may set another value (measured), so a path made with it is a candidate only."""
+    if environ is None or name in _HOOK_ENV_NOT_IN_CALL or name.startswith("BASH"):
+        return None
+    value = environ.get(name)
+    return value if isinstance(value, str) else None
+
+
+def _sh_env_word_paths(m_var, m_default, environ, values: "dict | None") -> list[str]:
+    """D112: the paths a word of _SH_VAR_WORD (m_var) or of _SH_DEFAULT_WORD (m_default) names with the hook's
+    environment: the value with the rest, an unquoted one also split into its fields as bash splits it; for
+    `${X:-w}` and `${X-w}` the literal w where X is not set there (or is empty, with the colon). Nothing for a name
+    the command sets itself (values holds it, with or without a value the gate knows): that one is the command's
+    (D100), also where a step uses it before the step that sets it, which bash would expand with the hook's value."""
+    if m_var is not None:
+        quoted, name, rest = m_var.group(1), m_var.group(2) or m_var.group(3), m_var.group(4) or ""
+        value = None if name in (values or {}) else _hook_env_value(name, environ)
+    else:
+        quoted, name, op, default, rest = (m_default.group(1), m_default.group(2), m_default.group(3),
+                                           m_default.group(4), m_default.group(5) or "")
+        value = None if name in (values or {}) else _hook_env_value(name, environ)
+        if (value is None or (op == ":-" and not value)) and name not in (values or {}) and \
+                not (environ is not None and name in environ and _hook_env_value(name, environ) is None):
+            value = default
+    if value is None:
+        return []
+    found = [value + rest]
+    fields = value.split()
+    if not quoted and len(fields) > 1:
+        found.extend(fields[:-1] + [fields[-1] + rest])
+    return [p for p in dict.fromkeys(found) if p]
 
 
 def _sh_brace_first(word: str) -> tuple[str, list[str] | None, str] | None:
@@ -10666,15 +10708,17 @@ def _sh_word_paths(word: "_ShWord", environ, values: "dict | None" = None) -> li
             if p and not _SH_GLOB_CHARS.search(os.path.dirname(p)):
                 found.append(p)
         return found
-    m = _SH_VAR_WORD.fullmatch(raw) if values else None
+    m = _SH_VAR_WORD.fullmatch(raw)
     if m is None:
-        return []
+        d = _SH_DEFAULT_WORD.fullmatch(raw)
+        return _sh_env_word_paths(None, d, environ, values) if d is not None else []   # D112
     rest, found = m.group(4) or "", []
-    for value in values.get(m.group(2) or m.group(3), ()):
+    for value in (values or {}).get(m.group(2) or m.group(3), ()):
         found.append(value + rest)
         fields = value.split()
         if not m.group(1) and len(fields) > 1:
             found.extend(fields[:-1] + [fields[-1] + rest])
+    found.extend(_sh_env_word_paths(m, None, environ, values))   # D112: a name the command does not set
     return [p for p in dict.fromkeys(found) if p]
 
 
@@ -10691,12 +10735,19 @@ def _sh_line_values(steps: list, environ) -> dict[str, list[str]]:
         for w in words:
             name, _eq, value = w.value.partition("=")
             raw_value = w.raw.partition("=")[2]
+            values.setdefault(name, [])   # D112: a name the command sets is the command's, not the hook's
             if w.literal and not raw_value.startswith("~"):
                 values.setdefault(name, []).append(value)
                 continue
             named = _sh_word_path(_ShWord(raw_value, value, [], False, True), environ)
             if named is not None:
                 values.setdefault(name, []).append(named)
+                continue
+            m_var, m_default = _SH_VAR_WORD.fullmatch(raw_value), _SH_DEFAULT_WORD.fullmatch(raw_value)
+            if m_var is not None or m_default is not None:   # D112: the hook's value, as one field (an assignment)
+                env = _sh_env_word_paths(m_var, m_default, environ, values)
+                if env:
+                    values.setdefault(name, []).append(env[0])
     return values
 
 
@@ -11467,6 +11518,27 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
         raise
 
 
+def _sh_spelled(step: "_ShStep", base: str | None, environ, values: dict) -> dict[str, str]:
+    """D112 (D49): the word as written for each path a word of the step names only after the shell expands it (a tilde,
+    `$HOME`, a variable of the hook's environment or of the command, a brace): a reason names that word, never the
+    path the gate made of the environment."""
+    words = [w for w in step.cmd.words[1:] if not w.literal]
+    words += [r.target for r in step.cmd.redirs if isinstance(r.target, _ShWord) and not r.target.literal]
+    spelled: dict[str, str] = {}
+    for w in words:
+        for path in _sh_word_paths(w, environ, values):
+            full = os.path.normpath(os.path.join(base, path)) if base else os.path.normpath(path)
+            spelled.setdefault(full, w.raw)
+    return spelled
+
+
+def _name_as_written(verdict: "Verdict", path: str, word: str) -> None:
+    """D112 (D49): the verdict of a write names the word as written where it named the path made of it."""
+    for made in dict.fromkeys((path, os.path.realpath(path))):
+        for field in ("detail", "failed", "evidence", "next_step"):
+            setattr(verdict, field, getattr(verdict, field).replace(made, word))
+
+
 def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple[list, set, dict]:
     """(the verdicts of the writes the gate guards, the ids of the steps that make them, each verdict's step): every
     file a step writes (write_targets) and, for a program the gate does not model, every path its words name (D96),
@@ -11491,6 +11563,11 @@ def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple
                 written = decide_write("Write", {"file_path": os.path.join(base, t)}, base, deadline, "claude",
                                        environ)
                 if written is not None:
+                    full = os.path.normpath(os.path.join(base, t))
+                    word = _sh_spelled(step, base, env_now, values).get(full)
+                    if word is not None:   # D112 (D49): the reason names the word as written
+                        for v in written.verdicts:
+                            _name_as_written(v, full, word)
                     protected.add(id(s))
                     verdicts.extend(written.verdicts)
                     writers.update((id(v), s) for v in written.verdicts)
