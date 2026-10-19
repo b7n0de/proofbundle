@@ -130,10 +130,10 @@ def _benign_fixtures() -> dict[str, object]:
         # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
         "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
-        # `report` als SEKUNDAERER Parameter (16.10.2026): adapters.junit_ctrf.verify_test_receipt nimmt
-        # (bundle, report) — `bundle` ist der gefuzzte Primaerparameter, `report` der Pfad des Berichts, gegen den
-        # eine gueltige Quittung geprueft wuerde. Ein leerer Pfad ist typgueltig und endet, falls er je gelesen
-        # wird, in einer benannten Abweisung (`unreadable`), nie in einer rohen Ausnahme.
+        # `report` as a SECONDARY parameter (2026-10-16): adapters.junit_ctrf.verify_test_receipt takes
+        # (bundle, report). `bundle` is the fuzzed primary parameter, `report` the path of the report a valid
+        # receipt would be checked against. An empty path is of the right type and, if it is ever read, ends in a
+        # named refusal (`unreadable`), never in a raw exception.
         "report": "",
     }
 
