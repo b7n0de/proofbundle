@@ -80,7 +80,10 @@ def issuer_key_fingerprint(alg, pub) -> Optional[str]:
     public key>"`` (for example ``"ed25519:ABCD…"``). ``None`` when the algorithm is not one this verifier
     accepts or the key is not bytes, so a caller fails closed rather than guessing a prefix — an
     algorithm-confused or key-absent pin must never match a verifying key (Nachtrag 32, the Critical's pin)."""
-    prefix = _ISSUER_FP_PREFIX.get(alg) if isinstance(alg, str) else None
+    # The characters of the algorithm, not the caller's object: `isinstance(alg, str)` held for a str subclass
+    # whose `__hash__` is None or raises, and the lookup raised TypeError (second reading of c0b1dab3, Z1-1).
+    text = _zeichen_von(alg)
+    prefix = _ISSUER_FP_PREFIX.get(text) if text is not None else None
     if prefix is None or not isinstance(pub, (bytes, bytearray)):
         return None
     return prefix + base64.b64encode(bytes(pub)).decode("ascii")

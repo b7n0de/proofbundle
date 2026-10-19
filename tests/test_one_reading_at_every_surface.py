@@ -3,7 +3,7 @@
 SOURCE. Lens run 11 at cd5d39f431ea0cc4732cf64d2d6f23bdc08b1508 found the class of round 11 at
 surfaces round 11 did not touch: F1 to F3 (P0), F4 to F7 (P1), and outside its targets O1 (an
 expected value compared through the caller's own `__ne__`) and O2 (a switch read by its truth). The
-cases F1 to F7 below rebuild the lens's probes (/mnt/bigstore/claude_scratch/lens-d4r11/probe, not
+cases F1 to F7 below rebuild the lens's probes (/mnt/<speicher>/claude_scratch/lens-d4r11/probe, not
 shipped) as tests. The other cases are this round's sweep of the public verify and emit surfaces.
 
 THE PROPERTY. A public verify or emit surface reads the caller's object once, by what it stores,

@@ -108,8 +108,10 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 #   * entry-point discovery finds `proofbundle`; `ProofbundleHooks` is a real `Hooks` subclass and
 #     carries all 17 `on_*` methods of the 0.3.261 API — no method went missing, none was added that
 #     we fail to implement
-#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 10 of 10 — against the REAL
-#     package, no mocks. The count is re-derived by
+#   * `test_inspect_hook.py` 9 of 9, together with `test_adapters.py` 13 of 13 — against the REAL
+#     package, no mocks. On 2026-08-31 `test_adapters.py` had 10 cases and passed 10 of 10; the
+#     three added on 2026-10-18 were run against this version too, see that date below. The count
+#     is re-derived by
 #     tests/test_shipped_comment_numbers.py, which fails when it drifts; it said 19 from 5.1.0
 #     to 6.0.0 and was wrong the day it was written (RESTRISIKO_600 R7).
 #   * the fixture recorded under 0.3.217 still reads (`version=2`, `status=success`), so the log
@@ -131,7 +133,14 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # stops inside 0.3.264. The one entry marked breaking (0.3.266, the score payload of `inspect ctl`)
 # concerns a control channel this package does not call.
 # The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
-inspect = ['inspect_ai>=0.3.112,<=0.3.266']
+#
+# 2026-10-18, THE COUNT MOVED, from 10 to 13 cases in `test_adapters.py` (three cases for a run that
+# stopped early), and the two files were run again instead of the number being raised. Each of
+# 0.3.261 through 0.3.266 in its own FRESH env (python 3.10.12, `inspect_ai==<version>` plus this
+# package built from the branch, no mocks): the two files run together, 22 passed, nothing skipped,
+# nothing failed, in every one of the six versions. Measured at 4480c5d7 and again at e1b835a0,
+# which reads the early stop as the library writes it and binds a count only when the log set it.
+inspect = ['inspect_ai>=0.3.112,<=0.3.280']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -154,7 +163,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (74 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (76 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -169,9 +178,13 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   requires a complete stream and nothing after it), and mypy **2.3.0** was re-run over the 73 and
 #   exits 0. On 2026-09-28 it became 74 (`src/proofbundle/_plain_value.py`, the one reader that copies
 #   a caller's value from its storage into exact built-in types), and mypy **2.3.0** was re-run over
-#   the 74 and exits 0. The other seven versions were NOT re-run for any of the four new files; that is the same boundary
-#   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
-#   than absorbed into the sentence above.
+#   the 74 and exits 0. On 2026-10-15 it became 75 (`src/proofbundle/_strict_cbor.py`, the strict CBOR
+#   reader beside `_strict_json`), and mypy **2.3.0** was re-run over the 75 and exits 0. On
+#   2026-10-17 it became 76 (`src/proofbundle/_schema_shapes.py`, the one definition of the three
+#   shapes the predicate schemas share, read as ECMA-262), and mypy **2.3.0** was re-run over the 76
+#   and exits 0. The other seven versions were NOT re-run for any of the six new files; that is the
+#   same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated
+#   here rather than absorbed into the sentence above.
 #
 #   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
 #   `--local-partial-types` and `--strict-bytes` (PEP 688: `bytearray`/`memoryview` no longer
@@ -186,8 +199,8 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # the code — those venvs had no `cryptography`, so the `type: ignore[attr-defined]` on the
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
-dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
+dev = ["pytest>=7", "ruff>=0.5,<0.18", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.280']
 
 [project.urls]
 Homepage = "https://b7n0de.com"

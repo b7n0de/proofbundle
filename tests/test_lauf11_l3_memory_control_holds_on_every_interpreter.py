@@ -8,15 +8,25 @@ be strictly larger as its control. The Codex search measured 320.9 B both times 
 whose table check (640 B) held. CPython 3.12.14 is not installed here (NOT MEASURED); on 3.11.17, 3.12.3 and 3.13.16
 the two readings differ by 0.1 B. This file feeds the test the child output the Codex search measured and others:
 equal readings pass, a reading above the table fails, and a child that did not run fails.
+
+Since the merge of main 17b92440 the test also states what each interpreter does (main, measured 2026-10-16): on
+CPython 3.10 breaking the key sharing costs 216.4 B per element, so equal readings there mean the break did not
+happen and fail; from 3.11 on it costs nothing measurable, so equal readings pass. The owner chose that control on
+2026-10-19. The cases below follow the interpreter they run on, and a real 3.10 reading checks the other direction.
 """
 from __future__ import annotations
 
 import subprocess
+import sys
 import unittest
 
 import test_lauf11_l3_testlast_ist_gedeckelt as L3
 
 TEST = "test_die_tabelle_traegt_auch_ungeteilte_instanz_dicts"
+#: Equal readings are a broken measurement on CPython 3.10 and the expected one from 3.11 on.
+EQUAL_READINGS = "failed" if sys.version_info < (3, 11) else "passed"
+#: A real cost of the break, as measured in the worker of pull request 309, is expected on 3.10 only.
+REAL_COST = "passed" if sys.version_info < (3, 11) else "failed"
 
 
 def _run_with_child_output(stdout: str, returncode: int = 0) -> unittest.TestResult:
@@ -38,12 +48,16 @@ def _verdict(result: unittest.TestResult) -> str:
     return "failed" if result.failures or result.errors else "passed"
 
 
-def test_equal_readings_as_measured_on_cpython_3_12_14_pass():
-    assert _verdict(_run_with_child_output("320.9 320.9\n")) == "passed"
+def test_equal_readings_as_measured_on_cpython_3_12_14_follow_the_interpreter():
+    assert _verdict(_run_with_child_output("320.9 320.9\n")) == EQUAL_READINGS
 
 
-def test_control_readings_as_measured_here_pass():
-    assert _verdict(_run_with_child_output("328.8 328.9\n")) == "passed"
+def test_control_readings_as_measured_here_follow_the_interpreter():
+    assert _verdict(_run_with_child_output("328.8 328.9\n")) == EQUAL_READINGS
+
+
+def test_a_real_cost_of_the_break_follows_the_interpreter():
+    assert _verdict(_run_with_child_output("356.6 572.8\n")) == REAL_COST
 
 
 def test_control_a_shared_reading_above_the_table_fails():

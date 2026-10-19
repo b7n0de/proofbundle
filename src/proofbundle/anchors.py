@@ -236,22 +236,29 @@ def receipt_canonical_root(bundle: dict) -> bytes:
     itself is not rewritten. Measured on 126ed1dc: a bundle and its twin gave two roots, so an
     anchor over one did not cover the other. An anchor stamped before this change over a bundle
     with a high ``s`` in one of those signatures no longer matches; measured on 2026-09-26, none of
-    the JSON files tracked in this repository carries an ES256 ``sd_jwt_vc``."""
-    try:
-        import rfc8785  # noqa: PLC0415
-    except ImportError as exc:   # pragma: no cover - guarded by the extra
-        raise BundleFormatError(
-            "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
+    the JSON files tracked in this repository carries an ES256 ``sd_jwt_vc``.
+
+    A BUNDLE-scope quantity, deliberately distinct from the STATEMENT content root (no Statement
+    shape requirement, since a receipt bundle is not an in-toto Statement). The JCS mechanics come
+    from the one canonicalizer home, ``canonical.canonicalize_statement``, and not from a second
+    inline rfc8785 call: that duplication had already cost a double fix (the round-5
+    structural-budget guard of the peer had to be applied here again in round 7; deep-gate lens
+    finding of 2026-08-24, carried onto main on 2026-10-17). The anchor-layer error contract is
+    preserved: every failure is the documented ``BundleFormatError``, never a raw error."""
     from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids an import cycle
     from .errors import ProofBundleError  # noqa: PLC0415
     try:
-        # adversarial re-audit round 7: bound depth (<=64) / node count BEFORE rfc8785.dumps recurses — a deeply
-        # nested bundle made rfc8785.dumps raise a raw RecursionError (a RuntimeError, NOT the ValueError arm
-        # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
-        # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
-        enforce_structural_budget(bundle)
         from .bundle import _canonical_signature_form  # noqa: PLC0415 - local import, as above
-        return hashlib.sha256(rfc8785.dumps(_canonical_signature_form(bundle))).digest()
+        from .canonical import CanonicalizerUnavailable, canonicalize_statement  # noqa: PLC0415
+        # The budget bounds depth and node count before anything walks the bundle, as it did before the
+        # delegation: `_canonical_signature_form` reads the bundle first, and canonicalize_statement
+        # applies its own guard to that form afterwards.
+        enforce_structural_budget(bundle)
+        try:
+            return hashlib.sha256(canonicalize_statement(_canonical_signature_form(bundle))).digest()
+        except CanonicalizerUnavailable as exc:   # pragma: no cover - guarded by the extra
+            raise BundleFormatError(
+                "receipt anchoring needs the RFC 8785 canonicalizer — install proofbundle[anchors]") from exc
     except BundleFormatError:
         raise
     except (ProofBundleError, ValueError, RecursionError) as exc:

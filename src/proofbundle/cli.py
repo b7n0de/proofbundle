@@ -370,6 +370,13 @@ def _detect_features() -> list:
     return features
 
 
+#: How to update, said where a user looks (Z43). There is deliberately no self-update and no check
+#: at start-up: the tool promises to work offline, and a verifier that fetches and runs its own new
+#: version would verify with code nobody looked at. The installer is named because a plain `pip`
+#: into an externally managed Python is refused since PEP 668.
+UPDATE_HINT = "update with 'pipx upgrade proofbundle' or 'pip install -U proofbundle'"
+
+
 def _version_string() -> str:
     feature_line = ", ".join(_detect_features()) or "(none detected)"
     return (
@@ -377,12 +384,81 @@ def _version_string() -> str:
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
         f"features: {feature_line}\n"
-        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1\n"
+        f"{UPDATE_HINT}"
     )
 
 
+#: The top-level command list, grouped by what a reader wants to do (Z43, draft of 2026-09-10).
+#: Every short line is written out rather than cut from the long help: cutting once turned "pb1."
+#: into "pb1". `tests/test_cli_top_help_grouped.py` holds this table and the registered commands
+#: equal, so a command cannot be added without a line here, and a line cannot outlive its command.
+_COMMAND_GROUPS = (
+    ("Verify", (
+        ("verify", "verify an evidence bundle JSON file"),
+        ("verify-proof", "verify a C2SP .tlog-proof file offline"),
+        ("verify-opening", "verify one sample opening against a samples root"),
+        ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+    )),
+    ("Emit and commit", (
+        ("emit", "sign and anchor a payload into a bundle"),
+        ("emit-eval", "emit a signed eval receipt from a claim JSON"),
+        ("show-eval", "verify an eval receipt and print the claim"),
+        ("prereg", "hash an eval protocol to commit to it before the run"),
+        ("evalcard", "hash an external Eval Card to reference it from a claim"),
+        ("hf-token", "pack a receipt into a pb1. token, or verify one"),
+        ("audit-challenge", "derive k audit indices from a samples root"),
+    )),
+    ("Statements over a receipt", (
+        ("decision", "decision-receipt/v0.1: an agent decision"),
+        ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
+        ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
+    )),
+    ("Time anchors", (
+        ("anchor", "package, verify and inspect external time anchors  (experimental)"),
+    )),
+    ("Export to other formats", (
+        ("intoto", "DSSE-signed in-toto eval-result attestation  (proposed)"),
+        ("svr", "in-toto Summary Verification Result, svr/v0.1  (proposed)"),
+    )),
+    ("Try it", (
+        ("demo", "run the whole trust story in memory, offline"),
+    )),
+)
+
+
+def _grouped_epilog() -> str:
+    breite = max(len(name) for _titel, zeilen in _COMMAND_GROUPS for name, _text in zeilen)
+    out = ["commands"]
+    for titel, zeilen in _COMMAND_GROUPS:
+        out.append(f"  {titel}")
+        out.extend(f"    {name:<{breite}}   {text}" for name, text in zeilen)
+        out.append("")
+    out += ["run 'proofbundle <command> --help' for the options and exit codes of one command",
+            "run 'proofbundle --version' for version, spec revision and optional features",
+            UPDATE_HINT]
+    return "\n".join(out)
+
+
+class _TopHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Leaves out argparse's flat command list; the grouped list in the epilog replaces it (Z43).
+
+    WHY NOT ``help=argparse.SUPPRESS`` ON EACH SUBPARSER. Hiding a subparser that way is not honoured
+    the same way across the supported Pythons (3.10 to 3.14); some render the literal marker. This
+    formatter drops the one section and nothing else, and the epilog is raw so its layout survives.
+    """
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            return ""
+        return super()._format_action(action)
+
+
 class _VersionAction(argparse.Action):
-    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    """Like argparse's built-in ``action='version'``, but prints the raw multi-line block verbatim
+    (the version/build facts plus the upgrade hint; the number of lines is not a contract, and the
+    docstring said "4-line" while the block had grown — an adversarial lens measured six).
     The built-in action runs the string through HelpFormatter, which collapses embedded newlines
     into a single space-joined line — wrong for this multi-line output. Same external contract:
     ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
@@ -1878,7 +1954,7 @@ def _historical_now_posix(value):
     # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
     # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"[.,](\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
@@ -1984,6 +2060,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
         print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
         print("=> OK" if ok else "=> FAILED")
@@ -2089,6 +2167,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2270,7 +2350,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -3102,9 +3184,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
+        formatter_class=_TopHelpFormatter,
+        epilog=_grouped_epilog(),
     )
     parser.add_argument("--version", action=_VersionAction)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     verify = sub.add_parser(
         "verify", help="verify an evidence bundle JSON file",
@@ -3338,7 +3422,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
