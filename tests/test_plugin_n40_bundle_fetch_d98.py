@@ -236,3 +236,25 @@ def test_B40_1_the_gate_reads_no_file_under_a_ssh_folder(env, monkeypatch):
     finally:
         monkeypatch.undo()
     assert not any(".ssh" in p.split(os.sep) for p in opened), opened
+
+
+def test_B40_1_each_guard_of_the_file_names_its_own_reason(env):
+    """Each guard holds on its own, not only behind another (mutants M98c and M98f to M98h of the delivery)."""
+    b = env["B"].parent
+    assert gate._bundle_fetch_form(["-q", "b/topic.bundle", SPEC]) is None
+    assert gate._bundle_fetch_form(["-q", str(env["B"]), SPEC]) == str(env["B"])
+    assert "absolute" in gate._bundle_file_problem("b/topic.bundle")
+    assert "symbolic link" in gate._bundle_file_problem(str(b / "link.bundle"))
+    assert "regular file" in gate._bundle_file_problem(str(b / "ordner.bundle"))
+    os.mkfifo(b / "fifo.bundle")
+    assert "regular file" in gate._bundle_file_problem(str(b / "fifo.bundle"))
+    assert "signature" in gate._bundle_file_problem(str(b / "kein.bundle"))
+    assert gate._bundle_file_problem(str(env["B"])) is None
+
+
+def test_B40_1_a_promisor_remote_is_named_by_the_bundle_check_itself(env):
+    """The partial-clone refusal of the gate's own reads (R7-7) stands behind it; the check names it first (M98u)."""
+    _git(env["C"], "config", "remote.origin.promisor", "true")
+    problem = gate._bundle_fetch_problem(str(env["C"]), str(env["B"]), time.monotonic() + 60,
+                                         {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"]})
+    assert problem is not None and "promisor" in problem, problem
