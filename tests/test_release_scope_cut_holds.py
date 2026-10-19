@@ -1693,16 +1693,22 @@ def test_RED_a_guard_that_did_not_run_is_not_a_guard_that_found_nothing(tmp_path
     when no table header names a branch column, and both of its callers kept only the list it
     returned. So a scope whose branch column is headed `Head` let its nameless row vanish: at
     76f260a2 `pruefe` was green for `fix/a1` and the file check green, over a row neither read. The
-    control is the same file with the column headed `Branch`, where the nameless row is named."""
+    control is the same file with the column headed `Branch`, where the nameless row is named.
+
+    SINCE THE SECOND ROUND OF THE LENS ON PULL REQUEST 328 the branch reader and the guard read the
+    same tables, so the run no longer reaches the guard over a `Head` column: the reader itself
+    finds no branch column and no branch, and `pruefe` is RED for that reason. The file check still
+    reaches the guard and still says it did not run."""
     gate = _load(REPO / "scripts" / "b7_release_scope_title_gate.py", "gate_guard_state")
     p = tmp_path / "9.9.9.md"
-    for head, said in (("Head", "did not run"), ("Branch", "nameless")):
+    for head, said_run, said_file in (("Head", "kein einziger Zweig", "did not run"),
+                                      ("Branch", "nameless", "nameless")):
         p.write_text(_HEAD_NOT_BRANCH.replace("| Head |", f"| {head} |"), encoding="utf-8")
         d = gate.pruefe(branch="fix/a1", title="[9.9.9 A1] fix(x): y", version="9.9.9",
                         scope_pfad=p)
-        assert d["urteil"] == "ROT" and any(said in g for g in d["gruende"]), (head, d)
+        assert d["urteil"] == "ROT" and any(said_run in g for g in d["gruende"]), (head, d)
         f = gate.pruefe_umfangsdatei(p)
-        assert f["urteil"] == "ROT" and any(said in g for g in f["gruende"]), (head, f)
+        assert f["urteil"] == "ROT" and any(said_file in g for g in f["gruende"]), (head, f)
 
 
 def test_RED_the_card_does_not_count_a_scope_whose_branches_it_cannot_read(tmp_path, monkeypatch):
