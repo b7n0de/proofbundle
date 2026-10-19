@@ -704,3 +704,105 @@ def test_written_files_are_exit_zero_under_a_stdout_that_cannot_encode_the_path(
                        env={**os.environ, "PYTHONPATH": str(REPO / "src"), "PYTHONIOENCODING": "ascii"})
     assert p.returncode == 0, p.stderr
     assert out.exists() and b"\\xe9" in p.stdout
+
+
+# --- lens run 2: rules the code kept and no case planted a defect against, each red under that defect -----------------
+
+@pytest.mark.parametrize("child", ["failure", "error", "skipped", "flakyFailure"])
+def test_an_outcome_element_outside_a_testcase_is_refused(child):
+    """F2: no case pinned where an outcome may stand. With failure allowed under testsuite,
+    <testsuite><failure/><testcase/></testsuite> read as one passed test and passed=True."""
+    with pytest.raises(ReportRefused) as exc:
+        read_junit_xml(f"<testsuite name='s'><{child}/><testcase name='t'/></testsuite>".encode())
+    assert exc.value.code == "structure"
+
+
+@pytest.mark.parametrize("field,value", [("passed", True), ("n", 1), ("metric", "acc"), ("comparator", ">"),
+                                         ("threshold", "0")])
+def test_check_compares_the_signed_verdict_and_its_terms_with_the_report(field, value):
+    """F3: a check that left one of these out answered ok for a hand-signed passed=True over a failing report."""
+    report = VECTORS / "junit/pytest-9.1.1_mixed.xml"
+    result = verify_test_receipt(_receipt_with_claim(report, lambda c: c.__setitem__(field, value)), report)
+    assert result["ok"] is False and "the receipt signs [" in result["reason"]
+
+
+@pytest.mark.parametrize("key", ["non_claims", "verdict_rule", "tests_failed", "tests_errors", "pass_rate_floor"])
+def test_check_refuses_a_receipt_that_lacks_a_provenance_field(key):
+    """F4: the case for a missing field popped receipt_profile, which an earlier step refuses, so a check that
+    skipped every missing field answered ok for a receipt without non_claims or a count."""
+    report = VECTORS / "junit/pytest-9.1.1_mixed.xml"
+    result = verify_test_receipt(_receipt_with(report, lambda p: p.pop(key)), report)
+    assert result["ok"] is False and f"lacks provenance.{key}" in result["reason"]
+
+
+def test_check_refuses_a_receipt_that_carries_samples():
+    """F5 (a): the sixth optional claim field, the one the case for N1 did not name."""
+    import base64
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+
+    def with_samples(claim):
+        claim["samples"] = {"root_b64": base64.b64encode(bytes(32)).decode(), "n": claim["n"],
+                            "leaf_alg": "sha256-rfc6962-sdjwt-v1"}
+    result = verify_test_receipt(_receipt_with_claim(report, with_samples), report)
+    assert result["ok"] is False and "samples" in result["reason"]
+
+
+@pytest.mark.parametrize("value", [-1.0, -2.0, -1e3])
+def test_a_negative_float_is_no_count(value):
+    """F5 (b): the float branch of N2 had no case at its lower bound, so -1.0 passed as a non-negative count."""
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["results"]["tests"][0]["retries"] = value
+    with pytest.raises(ReportRefused) as exc:
+        read_ctrf_json(json.dumps(doc).encode())
+    assert exc.value.code == "bad_value"
+
+
+@pytest.mark.parametrize("tests", [[1], [None], ["x"], [[]]])
+def test_a_ctrf_test_that_is_no_object_is_refused(tests):
+    """F6: without the rule, read_ctrf_json raised TypeError out of the never-raise check."""
+    doc = json.loads((VECTORS / "ctrf/syn_minimal_passed.json").read_text(encoding="utf-8"))
+    doc["results"]["tests"] = tests
+    with pytest.raises(ReportRefused) as exc:
+        read_ctrf_json(json.dumps(doc).encode())
+    assert exc.value.code == "bad_value"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a FIFO (os.mkfifo)")
+def test_a_fifo_is_refused_at_once_not_read(tmp_path):
+    """F7: the report is opened without blocking; opened blocking, a FIFO without a writer hangs the reader. The read
+    runs in a child with a time limit, so a hang is a red case and not a stopped suite."""
+    fifo = tmp_path / "report.xml"
+    os.mkfifo(fifo)
+    code = ("import sys\nfrom proofbundle.adapters.junit_ctrf import ReportRefused, from_junit_xml\n"
+            "try:\n    from_junit_xml(sys.argv[1])\nexcept ReportRefused as exc:\n    print(exc.code)\n")
+    p = subprocess.run([sys.executable, "-c", code, str(fifo)], capture_output=True, text=True, timeout=60, cwd=REPO,
+                       env={**os.environ, "PYTHONPATH": str(REPO / "src")})
+    assert p.stdout.strip() == "not_a_file", p.stdout + p.stderr
+
+
+def test_the_pinned_issuers_are_a_list_not_one_text():
+    """F8 (a): without the type guard, one string that merely contains the issuer passed as a pin."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    bundle = _receipt_with(report, lambda p: None)
+    issuer = verify_test_receipt(bundle, report)["claim"]["issuer"]
+    result = verify_test_receipt(bundle, report, expected_issuers=f"xx {issuer} yy")
+    assert result["ok"] is False and "a list of issuer strings" in result["reason"]
+
+
+@pytest.mark.parametrize("attribute", ["errors", "skipped"])
+def test_the_errors_and_skipped_attributes_are_compared_with_their_elements(attribute):
+    """F8 (b): tests= and failures= had cases, errors= and skipped= had none."""
+    with pytest.raises(ReportRefused) as exc:
+        read_junit_xml(f"<testsuite name='s' tests='1' {attribute}='1'><testcase name='t'/></testsuite>".encode())
+    assert exc.value.code == "count_mismatch"
+
+
+def test_check_names_the_issuer_it_verified(tmp_path):
+    """F8 (c): the issuer line of check-test-receipt had no case."""
+    report = VECTORS / "junit/pytest-9.1.1_all_passed.xml"
+    out = tmp_path / "r.json"
+    assert _run("emit-test-receipt", "--junit", str(report), "--out", str(out),
+                "--new-key", str(tmp_path / "k.key")).returncode == 0
+    issuer = verify_test_receipt(str(out), report)["claim"]["issuer"]
+    r = _run("check-test-receipt", str(out), "--report", str(report))
+    assert r.returncode == 0 and f"issuer     {issuer}" in r.stdout
