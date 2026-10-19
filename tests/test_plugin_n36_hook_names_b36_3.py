@@ -100,10 +100,13 @@ def test_B36_3_control_a_sample_never_counts_and_codex_keeps_its_answer(repo, fo
     assert decision in ("ask", "deny") and not any(r.startswith("free_") for r in reasons), reasons
 
 
-def test_B36_3_control_the_siblings_of_point_5_of_nachtrag_33_stay_as_they_are(repo):
-    """The state check of add and commit (D40) still counts a file of a name git does not document; point 5 of Nachtrag
-    33 is ordered for it, not this one."""
+def test_B36_3_the_siblings_of_point_5_of_nachtrag_33_follow_d107(repo):
+    """Changed in Nachtrag 33 (D107): point 5 settled the names for every count, so the state check of add and commit
+    (D40) no longer counts a file of a name git does not document; a real pre-commit still counts."""
     _hook(repo / ".git" / "hooks", "pre-commit.local")
+    decision, _reasons = decided(repo, "git add readme.md")
+    assert decision == "pass", decision
+    _hook(repo / ".git" / "hooks", "pre-commit")
     decision, _reasons = decided(repo, "git add readme.md")
     assert decision == "ask", decision
 

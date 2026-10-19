@@ -4868,3 +4868,29 @@ runs a script of the work tree, or the pre-commit framework, which reads .pre-co
 what the session wrote there); the gate reads the hook when it answers and git opens it later, so a swap in between
 needs a second process (D27, the class of the D98 limit); a Bash step in another language that writes a hook is not
 gated (D8). Tests: tests/test_plugin_n33_recorded_hooks_d106.py.
+
+## D107. A file of the hook folder counts as a hook only by a name git runs and where git may run it (Nachtrag 33, point 5, 2026-10-19)
+
+Order of Nachtrag 33, point 5: as a hook counts only a file with exactly the name of a hook git runs and with the right
+to execute; red with `pre-push.vor-ruff-<date>`, green after, a counter case with a real `pre-push`. Found by delta
+(1518Z): a backup `pre-push.vor-ruff-20260919` in the hook folder let fetch, `worktree add` and push ask despite https.
+Measured at 63b88d07 (hook_names_n33.py): with the backup the fetch of an https remote asked (remote_read_not_modeled),
+without it and with a real pre-push it was free (free_after_fetch_profile); worktree add and push asked in all three for
+reasons of their own.
+
+Measured with git 2.43.0 (truth_hook_names_n33.sh: `git commit` and a fetch from a local repository, each hook a
+marker): git ran pre-commit, post-commit and reference-transaction by their name when executable and through a symbolic
+link to an executable file, not when not executable, and never under a name with a suffix (.vor-ruff-20260919, .local,
+.bak).
+
+The rule (_hook_problem, _hook_runnable): a file of the effective hook folder counts only where its name, in any letter
+case, is one of _GIT_HOOK_NAMES (githooks(5) of git 2.43; a file system that ignores the case finds `Pre-Commit` as
+pre-commit, so the case does not free a name) and where git may run it: an executable file, or a link whatever it
+points to now (its target can change outside the hook folder, so a link to a file without the right to execute, or to
+no file, counts too). The lists of the forms (D3, D40, D45, D78, D91) then say which of these hooks the form runs; D106
+then leaves the recorded ones out. B36-3 had settled the names for the read forms (D78); D107 settles them for every
+count. A hook git runs counts as before.
+
+Limits, named: a file without the right to execute does not count, and a Bash step that sets the right (chmod) is
+denied where the gate reads it (write_to_repo_state), but not in the code of another language (D8); the gate reads the
+folder when it answers (D27). Tests: tests/test_plugin_n33_hook_names_d107.py.

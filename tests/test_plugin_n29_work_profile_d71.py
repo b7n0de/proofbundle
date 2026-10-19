@@ -250,7 +250,8 @@ def test_D71_the_pre_push_hook_of_level_2_leaves_the_form_free(tmp_path):
     assert _decide(repo, "git checkout topic") == ("pass", ["free_work_profile"])
 
 
-@pytest.mark.parametrize("hook", ["post-checkout", "post-index-change", "reference-transaction", "an-unknown-hook"])
+# changed in Nachtrag 33 (D107): a file of a name git does not run is no hook; a documented name in another case is
+@pytest.mark.parametrize("hook", ["post-checkout", "post-index-change", "reference-transaction", "Post-Checkout"])
 def test_D71_control_any_other_hook_keeps_a_local_form_asking(tmp_path, hook):
     repo = _repo(tmp_path)
     _hook(repo, hook)

@@ -268,7 +268,9 @@ def test_E1B_control_an_environment_the_profile_does_not_know_asks(tmp_path, rep
     assert _asked(out), (name, out and out.text)
 
 
-@pytest.mark.parametrize("hook", ["reference-transaction", "pre-auto-gc", "post-fetch", "probe"])
+# changed in Nachtrag 33 (D107): git runs a hook only by a name of githooks(5), so post-fetch and probe are no hooks;
+# a name in another letter case counts, as a file system that ignores the case finds it
+@pytest.mark.parametrize("hook", ["reference-transaction", "pre-auto-gc", "Reference-Transaction", "PRE-AUTO-GC"])
 def test_E1B_control_a_hook_the_fetch_or_its_maintenance_may_start_asks(tmp_path, repo, hook):
     w.proxy(tmp_path, repo / ".git" / "hooks" / hook, "hook")
     assert _asked(_decide(repo, "git -C {a} fetch -q origin main"))

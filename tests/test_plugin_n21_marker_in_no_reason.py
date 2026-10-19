@@ -69,7 +69,8 @@ def _gh_helper(t, repo, mp):
 # --- the cases: (what the profile reads, the setting, the commands, a word the reason holds where the profile saw it) --
 
 def hooks_path_folder(t, repo, mp):
-    w.proxy(t, t / f"{MARK}-hooks" / "probe-hook", "hook")
+    # changed in Nachtrag 33 (D107): a hook counts only by a name git runs, so reference-transaction for probe-hook
+    w.proxy(t, t / f"{MARK}-hooks" / "reference-transaction", "hook")
     # changed in Nachtrag 36 (B36-3): a read form counts only a hook git starts for it, post-index-change for status
     w.proxy(t, t / f"{MARK}-hooks" / "post-index-change", "hook")
     w.git(repo, "config", "core.hooksPath", str(t / f"{MARK}-hooks"))
@@ -121,7 +122,8 @@ def bad_boolean(t, repo, mp):
 
 def linked_worktree_hook(t, repo, mp):
     """The command names the worktree; git takes the main clone, its hooks and its config from the .git file."""
-    w.proxy(t, repo / ".git" / "hooks" / "probe-hook", "hook")
+    # changed in Nachtrag 33 (D107): a hook counts only by a name git runs, so reference-transaction for probe-hook
+    w.proxy(t, repo / ".git" / "hooks" / "reference-transaction", "hook")
     # changed in Nachtrag 36 (B36-3): a read form counts only a hook git starts for it, post-index-change for status
     w.proxy(t, repo / ".git" / "hooks" / "post-index-change", "hook")
 

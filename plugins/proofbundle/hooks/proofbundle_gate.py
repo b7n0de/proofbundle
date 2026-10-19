@@ -1379,9 +1379,19 @@ def _hook_directory_named(paths: dict) -> str:
     return "the repository's own hook directory" if own else "the hook directory core.hooksPath names"
 
 
+def _hook_runnable(path: str) -> bool:
+    """D107: whether git may run the file at path as a hook: an executable file, or a link whatever it points to now
+    (its target can change outside the hook directory). Measured with git 2.43.0 (truth_hook_names_n33.sh): git ran a
+    hook only with the right to execute, also through a link to an executable file."""
+    return os.path.islink(path) or (os.path.isfile(path) and os.access(path, os.X_OK))
+
+
 def _hook_problem(paths: dict, counts) -> str | None:
-    """The first hook of the effective hook directory that counts (counts(name) true; a .sample never does) as a reason
-    names it, or None: the hook's file name and the directory by its role (_hook_directory_named), no path."""
+    """The first hook of the effective hook directory that counts as a reason names it, or None: the hook's file name
+    and the directory by its role (_hook_directory_named), no path. A file is a hook only by a name of _GIT_HOOK_NAMES
+    in any letter case (git runs no other: a .sample, a backup such as pre-push.vor-ruff-<date>, a .local; a file system
+    that ignores the case finds the name in any case) and only where git may run it (_hook_runnable, D107); counts
+    (the name in lower case) then says whether the form runs it."""
     hooks = paths["hooks"]
     if not hooks or not os.path.lexists(hooks):
         return None
@@ -1393,7 +1403,7 @@ def _hook_problem(paths: dict, counts) -> str | None:
     except OSError as exc:
         return f"a hook: {named} cannot be read ({_os_error(exc)})"
     for name in names:
-        if not name.endswith(".sample") and counts(name):
+        if name.lower() in _GIT_HOOK_NAMES and _hook_runnable(os.path.join(hooks, name)) and counts(name.lower()):
             return f"a hook: {name} in {named}"
     return None
 
