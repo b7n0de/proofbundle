@@ -184,7 +184,9 @@ def test_D94_a_card_is_counted_of_its_own():
 
 def test_D94_the_answer_hook_stands_in_hooks_json_after_every_gated_call_and_not_for_codex():
     hooks = json.loads((HOOKS / "hooks.json").read_text())["hooks"]
-    matchers = [entry["matcher"] for entry in hooks["PreToolUse"]]
+    # the hook of the key paths of D102 never asks, so it has no answer hook
+    matchers = [entry["matcher"] for entry in hooks["PreToolUse"]
+                if "proofbundle_secrets.py" not in entry["hooks"][0]["command"]]
     for event in ("PostToolUse", "PostToolUseFailure"):
         assert [entry["matcher"] for entry in hooks[event]] == matchers
         for entry in hooks[event]:

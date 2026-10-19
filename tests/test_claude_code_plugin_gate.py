@@ -955,7 +955,8 @@ def test_an_mcp_tool_the_gate_does_not_know_gets_no_answer(shim, repo, tool):
 def _hook_entries() -> list[dict]:
     config = json.loads(HOOKS.read_text(encoding="utf-8"))
     assert set(config) <= {"description", "hooks"}
-    groups = config["hooks"]["PreToolUse"]
+    # D102 (Nachtrag 33): Read and Grep have a hook of their own, the small script of the key paths
+    groups = [g for g in config["hooks"]["PreToolUse"] if "proofbundle_secrets.py" not in g["hooks"][0]["command"]]
     # Nachtrag 19b, Punkt 8: the file tools join, so a write to a repository's configuration or hooks is judged
     assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER, "^(Write|Edit|MultiEdit|NotebookEdit)$"]
     assert groups[0]["hooks"] == groups[1]["hooks"] == groups[2]["hooks"], "every matcher runs the same gate"

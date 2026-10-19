@@ -12889,13 +12889,171 @@ def _house_findings(command: str, cwd: str | None, deadline: float) -> list:
     return found
 
 
-def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float) -> "Outcome | None":
+# --- D102 to D104: the guards of Nachtrag 33 that hold for every command, git or not ---------------------------------
+
+#: D102: the module of the key paths beside the gate, which the hook of Read and Grep runs on its own; loaded on first use.
+_SECRETS_FILE = "proofbundle_secrets.py"
+_SECRETS_MODULE = None
+
+
+def _secrets():
+    """The module of the key paths (D102), from the gate's own folder; a GateError where it cannot be loaded, which
+    denies the call, as every failure of the gate does."""
+    global _SECRETS_MODULE
+    if _SECRETS_MODULE is None:
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), _SECRETS_FILE)
+        try:
+            spec = importlib.util.spec_from_file_location("proofbundle_secrets", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except (OSError, SyntaxError, ImportError, AttributeError) as exc:
+            raise GateError(f"the list of key paths of D102 ({_SECRETS_FILE} beside the gate) cannot be loaded "
+                            f"({type(exc).__name__})") from exc
+        _SECRETS_MODULE = module
+    return _SECRETS_MODULE
+
+
+def _guard_steps(command: str, cwd: str | None) -> list | None:
+    """The steps of a command as class c reads them, with the steps of each literal script a step runs as text (D100),
+    to the depth of MAX_NESTING; None where the parser does not model the command."""
+    steps: list = []
+    try:
+        _sh_walk(_sh_parse(command), cwd, steps)
+    except (_ShUnmodeled, RecursionError):
+        return None
+    out: list = []
+
+    def add(step, depth):
+        out.append(step)
+        if step.kind in ("other", "carrier"):
+            for nested in _sh_nested_steps(step, depth):
+                add(nested, depth + 1)
+
+    for s in steps:
+        add(s, 0)
+    return out
+
+
+def _guard_word_paths(word: "_ShWord", environ, values: dict) -> list[str]:
+    """Every path a word names as D96 reads it (_sh_word_paths), and of the word as the gate reads it (an expansion as
+    written, which is the same or stricter) each value after `=` and each rest of a short option bundle (`--key=F`,
+    `-iF`); a tilde there is read as at the start of a word, which bash does not do after an option, so stricter."""
+    named = _sh_word_paths(word, environ, values)
+    found = list(named)
+    path = named[0] if named else word.value
+    if "=" in path:
+        found.append(path.partition("=")[2])
+    if path.startswith("-") and not path.startswith("--"):
+        found.extend(path[k:] for k in range(2, len(path)))
+    return [p for p in dict.fromkeys(found) if p and p not in ("-", "--") and "://" not in p]
+
+
+def _guard_redirects(step: "_ShStep", environ, values: dict) -> list[tuple[str, str, str]]:
+    """(the path, how it is opened: in, out or append, the target as written) of each redirection of a step to a file;
+    a here-document, a here-string and a duplication of a descriptor open none."""
+    found = []
+    for r in step.cmd.redirs:
+        if isinstance(r.target, _ShHeredoc) or r.op in ("<<<",):
+            continue
+        if r.op in (">&", "<&") and (r.target.value.isdigit() or r.target.value == "-"):
+            continue
+        how = "in" if r.op in ("<", "<&") else ("append" if r.op in (">>", "&>>") else "out")
+        targets = [r.target.value] if r.target.literal else _sh_word_paths(r.target, environ, values)
+        found.extend((t, how, r.target.raw) for t in targets if t)
+    return found
+
+
+def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) -> list:
+    """D102 (Nachtrag 33, fallbook l01 and l02): a deny for every step that names a key file, a credential store or a
+    folder of keys (proofbundle_secrets.py), in a word, an assignment or a redirection, nested scripts included; a step
+    of a program that only names or tests a path (ls, test, [) counts by its redirections only. Where the parser does
+    not model the command, every word of the net's normal form counts. The gate compares paths, it opens none of them."""
+    sec = _secrets()
+    home = environ.get("HOME")
+    found: list = []
+
+    def finding(step_name: str, word: str, role: str):
+        return _HouseFinding(
+            "deny", "secret_path", step_name,
+            f"proofbundle gate: {step_name} names {word!r}, which is {role}; the gate denies every call that names a "
+            "key file, a credential store or a folder of keys, under both hosts, and it compares paths only, it never "
+            "opens such a file (Nachtrag 33; DECISIONS.md D102).",
+            f"{step_name} names a key path ({role})",
+            "leave keys and credentials to a person; never read, copy or send them")
+
+    def check(path: str, base: str | None, step_name: str, word: str) -> bool:
+        known = base or os.path.isabs(path) or path == "~" or path.startswith("~/")
+        role = sec.secret_problem(path, base, home) if known else sec.relative_role(path)
+        if role is None:
+            return False
+        found.append(finding(step_name, word, role))
+        return True
+
+    if steps is None:
+        for token in re.split(r"[\s;&|()<>`]+", _net_normal_form(_house_strip_heredocs(_drop_comments(command)))):
+            if token and check(token, cwd, "the command", token):
+                break
+        return found
+    values = _sh_line_values(steps, environ)
+    for s in steps:
+        name = s.head or "an assignment"
+        base = s.cwd
+        hit = False
+        if s.head not in sec.NAME_ONLY_PROGRAMS:
+            for word in list(s.cmd.words) + list(s.cmd.assigns):
+                raw_value = word.raw.partition("=")[2] if word in s.cmd.assigns else None
+                paths = (_guard_word_paths(word, environ, values) if raw_value is None else
+                         [p for p in [_sh_word_path(_ShWord(raw_value, word.value.partition("=")[2], [], False, True),
+                                                    environ)] if p])
+                if any(check(p, base, name, word.raw) for p in paths):
+                    hit = True
+                    break
+        if not hit:
+            for path, _how, raw in _guard_redirects(s, environ, values):
+                if check(path, base, name, raw):
+                    break
+    return found
+
+
+#: D102: the file tools of Claude Code that read a path their input names (proofbundle_secrets.READ_TOOLS).
+READ_TOOLS = frozenset({"Read", "Grep"})
+
+
+def decide_read(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude",
+                environ: dict | None = None) -> Outcome | None:
+    """D102 (Nachtrag 33, fallbook l01): a deny where Read or Grep reads a key file, a credential store or a folder of
+    keys (proofbundle_secrets.py), under both hosts; None for every other read, which the gate does not gate. The hook
+    of these tools runs proofbundle_secrets.py, which hands only such a call to the gate."""
+    environ = os.environ if environ is None else environ
+    sec = _secrets()
+    role = sec.read_problem(tool, tool_input, cwd, environ.get("HOME"))
+    if role is None:
+        return None
+    path = tool_input.get(sec.READ_TOOLS[tool])
+    verdict = Verdict("deny", f"proofbundle gate: {tool} would read {path!r}, which is {role}; the gate denies every call "
+                              "that names a key file, a credential store or a folder of keys, under both hosts, and it "
+                              "compares paths only, it never opens such a file (Nachtrag 33; DECISIONS.md D102).",
+                      "secret_path", evidence="the path the tool names", failed=f"{tool} names a key path ({role})",
+                      next_step="leave keys and credentials to a person; never read, copy or send them")
+    return Outcome("deny", verdict.text(), [verdict], step=tool)
+
+
+def _guard_findings(command: str, cwd: str | None, environ) -> list:
+    """The guards of Nachtrag 33 a command meets: D102 (a key path)."""
+    environ = os.environ if environ is None else environ
+    steps = _guard_steps(command, cwd)
+    return _guard_secret(steps, command, cwd, environ)
+
+
+def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
+                      environ: dict | None = None) -> "Outcome | None":
     """D73: the house rules go before every answer that lets a call run, D71 and a rule of a person included. A house
     deny decides; a house ask decides unless the gate denies. The house verdicts follow the gate's own in the log, and
     the short line names the house rule that decides, its step and its word (D72). The long reason leads with the house
     rule where it changes the decision and follows the gate's own text where both have the same one. Under Codex an ask
-    is a deny (answer)."""
-    findings = sorted(_house_findings(command, cwd, deadline), key=lambda f: _HOUSE_ORDER.index(f.decision))
+    is a deny (answer). The guards of Nachtrag 33 (D102 to D104) hold in the same way (_guard_findings)."""
+    findings = sorted(_house_findings(command, cwd, deadline) + _guard_findings(command, cwd, environ),
+                      key=lambda f: _HOUSE_ORDER.index(f.decision))
     if not findings:
         return outcome
     verdicts = [Verdict(f.decision, f.detail, f.reason_id, evidence="the words of the command", failed=f.failed,
@@ -14072,6 +14230,8 @@ _SHORT_REASONS = {
                           "das Schreiben das Verzeichnis des Tors trifft"),
     "write_to_host_settings": ("D101", "the write targets the settings of the host, where hooks and permissions stand",
                                "das Schreiben die Einstellungen des Wirts trifft, wo Haken und Rechte stehen"),
+    "secret_path": ("D102", "the call names a key file or a credential store",
+                    "der Aufruf eine Schlüsseldatei oder einen Zugangsspeicher nennt"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -15176,7 +15336,7 @@ FANG_REASONS = frozenset({
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
-    "write_to_host_settings"})
+    "write_to_host_settings", "secret_path"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
@@ -19209,6 +19369,11 @@ def main(argv: list[str] | None = None) -> int:
             cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
             verdict = decide_write(tool, event.get("tool_input"), cwd, deadline, host=host)
             actions = [f"file {tool}"] if verdict is not None else []
+        elif isinstance(tool, str) and tool in READ_TOOLS:
+            cwd = event.get("cwd")
+            cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+            verdict = decide_read(tool, event.get("tool_input"), cwd, deadline, host=host)   # D102
+            actions = [f"read {tool}"] if verdict is not None else []
         else:
             tool = "Bash"
             command, cwd = _command_from_event(event)
@@ -19266,7 +19431,7 @@ def _step_of_event(event: object) -> str | None:
     tool = event.get("tool_name")
     if isinstance(tool, str) and tool.startswith("mcp__"):
         return f"MCP {tool.rsplit('__', 1)[-1]}"
-    if isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+    if isinstance(tool, str) and (tool in FILE_WRITE_TOOLS or tool in READ_TOOLS):
         return tool
     try:
         command, cwd = _command_from_event(event)

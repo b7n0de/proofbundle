@@ -341,7 +341,9 @@ def test_the_hook_matcher_covers_the_file_tools():
     import re
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         assert any(re.fullmatch(m, tool) for m in matchers), (tool, matchers)
-    assert not any(re.fullmatch(m, "Read") for m in matchers)
+    # D102 (Nachtrag 33): Read has a hook of its own, the small script of the key paths, never the gate's write path
+    readers = [h for h in hooks if re.fullmatch(h["matcher"], "Read")]
+    assert readers and all("proofbundle_secrets.py" in x["command"] for h in readers for x in h["hooks"])
 
 
 # --- siblings found while writing the per-entry table of D3 (Nachtrag 19b, Punkt 9) --------------------------

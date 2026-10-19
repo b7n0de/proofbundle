@@ -286,8 +286,11 @@ def test_D85_the_plugin_hook_of_claude_code_starts_the_gate_with_the_flag_and_co
     plugin = pathlib.Path(gate.__file__).resolve().parent.parent
     claude = json.loads((plugin / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     for group in claude["PreToolUse"]:
+        # D102 (Nachtrag 33): the hook of Read and Grep starts the small script of the key paths, which hands a key path
+        # to the gate with the same flag
+        script = "proofbundle_secrets.py" if group["matcher"] == "^(Read|Grep)$" else "proofbundle_gate.py"
         assert group["hooks"][0]["command"].startswith(
-            'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous ||'), group
+            f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}" --autonomous ||'), group
     for event in ("Stop", "TaskCompleted"):
         assert gate.AUTONOMOUS_FLAG not in json.dumps(claude[event])
     codex = (plugin / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")

@@ -4723,3 +4723,33 @@ Limits, named: a copy out of a settings file (`cp ~/.claude/settings.json /tmp/x
 direction of cp (owner question O39-2); the plugins folder of a plugin loaded from elsewhere (`--plugin-dir`) and the
 files a hook of the settings runs are not named; the plugin's own .mcp.json in a checkout of proofbundle is a settings
 file by its name. Tests: tests/test_plugin_n33_host_settings_d101.py.
+
+## D102. A call that names a key file, a credential store or a folder of keys is denied (Nachtrag 33, fallbook l01 and l02, 2026-10-19)
+
+Order of Nachtrag 33, point 1: a matcher for Read, and reading key paths in Bash denied; the gate compares paths only,
+it never opens such a file. Found by delta's fallbook (gate 44db2056): `Read <key>` reached no hook of either host, and
+`cat <key>` got no answer; measured again at 63b88d07 (probe_n33.py): the same, and `base64 < ~/.ssh/id_ed25519` too.
+
+The rule: proofbundle_secrets.py beside the gate names the key paths by role: a folder `.ssh` or `.gnupg` anywhere in a
+path and every file in it; a store of credentials by its last parts (`.netrc`, `.git-credentials`, `.aws/credentials`,
+`.config/gh/hosts.yml`, `.docker/config.json`, `.kube/config`, `.pypirc`, `.npmrc`, `.claude/.credentials.json`,
+`.codex/auth.json`, the two files of gcloud); a private key of ssh by its name (`id_rsa`, `id_ed25519` and their kin); a key
+file by its ending (`.key`, `.pem`, `.p12`, `.pfx`, `.ppk`, `.jks`, `.keystore`) unless its name says it is public
+(`.pub`, `public`, `cert`, `.crt`, `chain`). A path counts as written and after the links it goes through; the walk
+stops before it touches a part that is a key path, so the gate never stats, lists or opens anything in a folder of keys.
+
+The hook of Read and Grep (hooks.json, matcher `^(Read|Grep)$`) runs proofbundle_secrets.py on its own: it lets every
+other read pass without starting the gate (measured with Python 3.13: 39 ms a call, the gate 350 ms, most of it the
+compilation of the gate), and it hands a key path, or an event it cannot read, to the gate, which denies it as
+secret_path, logs it and writes the short line (decide_read). In Bash, every word, assignment and redirection of every
+step, the steps of a script a step runs as text included (D100), that names such a path is denied under both hosts, as
+a house rule is (_guard_secret in _with_house_rules); ls, test and [ count by their redirections only, since they only
+name or test a path. A tilde after `=` counts as at the start of a word, which is stricter than bash. Where the parser
+does not model the command, every word of the net's normal form counts. Without proofbundle_secrets.py beside it the
+gate denies every Bash call (GateError). A reason names the word as the command wrote it and the role, never a path
+HOME decides (D49).
+
+Limits, named: Codex has no Read tool, its reads are Bash calls; a key under another name and ending is not named;
+`cat ~/.ssh/id_rsa.pub` and `ssh -i <key>` are denied, being in the folder; a word that only mentions `.ssh/` as text
+(`grep -rn .ssh/ src`) is denied; the code of another language (python3 -c) is not read (D8). Tests:
+tests/test_plugin_n33_secret_paths_d102.py.
