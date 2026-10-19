@@ -606,6 +606,20 @@ def test_the_report_is_never_overwritten_through_a_hard_link_or_by_the_key(tmp_p
     assert r.returncode == 2 and not (tmp_path / "same").exists()
 
 
+def test_the_signing_key_is_never_overwritten_by_the_receipt(tmp_path):
+    """Lens run 2, F1: `--key K --out K` wrote the receipt over the key and exited 0, also through a hard link."""
+    from proofbundle.emit import generate_signer, save_signer
+    key = tmp_path / "k.key"
+    save_signer(generate_signer(), str(key))
+    before = key.read_bytes()
+    os.link(key, tmp_path / "hard.json")
+    for out in (key, tmp_path / "hard.json"):
+        r = _run("emit-test-receipt", "--junit", str(VECTORS / "junit/pytest-9.1.1_all_passed.xml"), "--out", str(out),
+                 "--key", str(key))
+        assert r.returncode == 2 and "--out names the key file" in r.stderr
+        assert key.read_bytes() == before
+
+
 def test_a_claim_the_emitter_refuses_writes_no_key(tmp_path):
     """N5: a report the reader accepts but whose claim the emitter refuses (a tool name past the verifier's string
     limit) left a new key file behind, against the command's own docstring."""
