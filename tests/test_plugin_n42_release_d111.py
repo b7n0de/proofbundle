@@ -1,7 +1,7 @@
 """D111, Nachtrag 42: an owner's release on a card frees exactly one command once.
 
 The order (owner word of 2026-10-19, 16:32 Berlin, way A: work from the phone, not in the terminal): today the owner
-typed lines with `!` into delta's terminal twice, though he had answered A on the card in the Leitstand (the bundle
+typed lines with `!` into delta's terminal twice, after answering A on the card in the Leitstand (the bundle
 fetch, card OA-aab72ad709; `git add` and `git commit` for PR 328, card OA-bd5cf3ae01). D93 makes an external effect a
 card, D94 counts yes and no; what was missing is the way back from the answer to the gate. A release of the owner frees
 exactly one command once: bound to the sha256 of the command as written, to the session that put the card and to 15

@@ -4984,8 +4984,8 @@ terminal): an owner's release frees exactly one command once, bound to the sha25
 session that put the card and 15 minutes from the answer; its source is a file only the fetcher at the farmer writes,
 never the session, and a write of the session into it or its folder is denied with the weight of _D72_WRITES; a second
 call, another command, another session or an expired release stay blocked; the log names the card and the sha256 and
-the bilanz counts the release. Found by the owner: twice on 2026-10-19 he typed a line with `!` into delta's terminal
-though he had answered A on the card (the fetch of the bundle N37, card OA-aab72ad709; `git add` and `git commit` for
+the bilanz counts the release. Found by the owner: twice on 2026-10-19 the owner typed a line with `!` into delta's
+terminal after answering A on the card (the fetch of the bundle N37, card OA-aab72ad709; `git add` and `git commit` for
 PR 328, card OA-bd5cf3ae01). D93 makes an external effect a card and D94 counts yes and no; the way back from the answer
 to the gate was missing.
 
