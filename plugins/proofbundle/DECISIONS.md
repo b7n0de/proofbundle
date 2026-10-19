@@ -4805,3 +4805,26 @@ no file.
 Limits, named: a step whose directory the gate cannot tell (after a `cd` it does not resolve, D33), a word it cannot
 name (`rm -rf "$X"/y` with X not set in the command), the code of another language and xargs keep their answer; a write
 with `>` outside is no append and gets the hint of D105 at most. Tests: tests/test_plugin_n33_outside_work_d104.py.
+
+## D105. A hint is a pass with a line and a context for the model, never an ask (Nachtrag 33, fallbook S6 and S8, 2026-10-19)
+
+Order of Nachtrag 33, point 1, and reading 2 of Cowork: S6, S8 and S10 are hints, the call goes on with a message to the
+agent and no ask; measure which way brings the message into the context of the agent. Found by delta's fallbook: `mv`
+took the manifest out of the package where cp was meant (S6), and a here-document went to /tmp, which is not the
+scratch of the session (S8).
+
+Measured with Claude Code 2.1.303 and the stand-in API (truth_host_n33.sh hint, one PreToolUse hook per variant, no
+permission decision): additionalContext reached the model, as a system message after the tool's result, and the call
+ran; systemMessage, plain stdout and stderr did not reach the model; the additionalContext of a PostToolUse hook did,
+after the call. Claude Code 2.1.302 is no longer in this container (NOT MEASURED).
+
+The rule: _guard_hints gives a pass with hint_move_out where `mv` (behind a wrapper too) takes a file of the repository
+out of it, and, where the hook's environment names a session of Claude Code, hint_tmp_not_scratch where a step writes
+(a redirection, a data step of D95, the target of mv, cp or install) into /tmp or the temp folder outside the folder of
+the session and the other work folders of D104 (a repository that lies in /tmp is one). The hook prints the short line as systemMessage and the long reason as additionalContext, no
+permissionDecision (pre_tool_answer); a hint stands beside an ask or a deny of the same call and never changes it. The
+log names the hint's reason. S10 is no rule: the fallbook writes its form without the redirection it speaks of (owner
+question O33-4).
+
+Limits, named: Codex shows a hint as Codex shows a warning (D12), not measured; a move of a file the index does not
+track counts as one of the repository. Tests: tests/test_plugin_n33_hints_d105.py.

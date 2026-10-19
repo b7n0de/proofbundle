@@ -13328,6 +13328,88 @@ def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
     return found
 
 
+#: D105 (Nachtrag 33, fallbook S6 and S8): the reasons of a hint, a pass with a line for the person and a context for
+#: the model, no permission decision (measured with Claude Code 2.1.303, truth_host_n33.sh hint: additionalContext of a
+#: PreToolUse hook reaches the model as a system message after the tool's result and the call runs; systemMessage,
+#: stdout and stderr reach the person or nobody).
+HINT_REASONS = frozenset({"hint_move_out", "hint_tmp_not_scratch"})
+
+
+def _copy_move_operands(words: list) -> tuple[list, "_ShWord | str | None"]:
+    """(the sources, the target) of the words after mv, cp or install: the word after -t, the text after
+    `--target-directory=`, else the last operand; options before `--` are left out."""
+    operands, target, options, j = [], None, True, 0
+    while j < len(words):
+        w = words[j].value
+        if options and w == "--":
+            options = False
+        elif options and w in ("-t", "--target-directory"):
+            target = words[j + 1] if j + 1 < len(words) else None
+            j += 1
+        elif options and w.startswith("--target-directory="):
+            target = w.partition("=")[2]   # a literal folder, as text
+        elif not (options and w.startswith("-") and len(w) > 1):
+            operands.append(words[j])
+        j += 1
+    if target is None and len(operands) >= 2:
+        target, operands = operands[-1], operands[:-1]
+    return operands, target
+
+
+def _within(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def _guard_hints(steps: list | None, environ) -> list:
+    """D105 (Nachtrag 33, fallbook S6, S8): a hint, never an ask, where `mv` takes a file of the repository out of it (a
+    copy may have been meant), and, in a session of Claude Code, where a step writes into /tmp or the temp folder
+    outside the folder of the session and the other work folders of D104 (it is not the scratch of the session). Where
+    the parser does not model the command, or the step's directory is unknown, none."""
+    if steps is None:
+        return []
+    found, values = [], _sh_line_values(steps, environ)
+    sessions = _session_folders(environ)
+    environ_folders = {}
+    temps = {os.path.realpath("/tmp"), os.path.realpath(environ.get("TMPDIR") or tempfile.gettempdir())}
+    for s in steps:
+        base = s.cwd
+        if base is None or not s.words:
+            continue
+        k = _guard_program(s.words)
+        head = os.path.basename(s.words[k])
+        sources, target = _copy_move_operands(s.cmd.words[k + 1:]) if head in ("mv", "cp", "install") else ([], None)
+        dest = [target] if isinstance(target, str) else (_sh_word_paths(target, environ, values) if target else [])
+        top = _repo_top(base)
+        if head == "mv" and top and dest:
+            d = os.path.realpath(os.path.join(base, dest[0]))
+            moved = [w for w in sources for p in _sh_word_paths(w, environ, values)
+                     if _within(os.path.realpath(os.path.join(base, p)), top) and os.path.lexists(os.path.join(base, p))]
+            if moved and not _within(d, top):
+                found.append(_HouseFinding(
+                    "pass", "hint_move_out", "mv",
+                    f"proofbundle gate, hint (D105): mv takes {moved[0].raw!r} out of the repository; if a copy was "
+                    "meant, cp keeps the file where it is (Nachtrag 33).",
+                    "mv takes a file of the repository out of it", "use cp if the file should stay"))
+        if sessions:
+            targets = [t for t, how, _raw in _guard_redirects(s, environ, values) if how in ("out", "append")]
+            targets += [t for t in s.write_targets(environ, values)[0] + dest if t not in targets]
+            for t in targets:
+                path = os.path.realpath(os.path.join(base, t))
+                if path in _NO_FILE_TARGETS or path.startswith("/dev/"):
+                    continue
+                folders = environ_folders.setdefault(base, _work_folders(base, environ))
+                if any(_within(path, root) for root in temps) and not any(_within(path, f) for f in folders):
+                    found.append(_HouseFinding(
+                        "pass", "hint_tmp_not_scratch", head,
+                        f"proofbundle gate, hint (D105): {head} writes into the temp folder outside the folder of this "
+                        "session, which is not the scratch of the session; files the session keeps belong in its "
+                        "scratch (Nachtrag 33).",
+                        f"{head} writes into the temp folder outside the folder of the session",
+                        "write files of the session into its scratch folder"))
+                    break
+    return found
+
+
 #: D102: the file tools of Claude Code that read a path their input names (proofbundle_secrets.READ_TOOLS).
 READ_TOOLS = frozenset({"Read", "Grep"})
 
@@ -13353,11 +13435,12 @@ def decide_read(tool: str, tool_input: object, cwd: str, deadline: float, host: 
 
 def _guard_findings(command: str, cwd: str | None, environ) -> list:
     """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload), D104 (a delete or an append
-    outside the work folder)."""
+    outside the work folder), D105 (a hint)."""
     environ = os.environ if environ is None else environ
     steps = _guard_steps(command, cwd)
     runs = [[value for value, _built in words] for words, _k, _d in _house_runs(command, cwd)]
-    return _guard_secret(steps, command, cwd, environ) + _guard_upload(runs) + _guard_outside(steps, cwd, environ)
+    return (_guard_secret(steps, command, cwd, environ) + _guard_upload(runs) + _guard_outside(steps, cwd, environ)
+            + _guard_hints(steps, environ))
 
 
 def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
@@ -14548,6 +14631,10 @@ _SHORT_REASONS = {
     "secret_path": ("D102", "the call names a key file or a credential store",
                     "der Aufruf eine Schlüsseldatei oder einen Zugangsspeicher nennt"),
     "upload_to_host": ("D103", "a file or data goes to a host outside", "eine Datei oder Daten an einen fremden Host gehen"),
+    "hint_move_out": ("D105", "mv takes a file of the repository out of it; a copy may have been meant",
+                      "mv eine Datei aus dem Repository nimmt; gemeint war vielleicht cp"),
+    "hint_tmp_not_scratch": ("D105", "/tmp is not the scratch folder of the session",
+                             "/tmp nicht der Scratch-Ordner der Sitzung ist"),
     "delete_outside_work": ("D104", "it deletes recursively outside the work folder",
                             "es außerhalb des Arbeitsordners rekursiv löscht"),
     "append_outside_work": ("D104", "it appends to a file outside the work folder",
@@ -14633,7 +14720,8 @@ _SHORT_TEMPLATES = {
            "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
            "go": "Gate lets {step} run: own work branch under the standing GO, measured, receipt in the log (D92).",
            "maschine": "Gate lets {step} run: the house's form checker passes the text, receipt in the log (D92).",
-           "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d})."},
+           "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d}).",
+           "hinweis": "Gate notes at {step} that {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
            "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
            "handover": "Tor übergibt {step} an die Prüfung beim Push ({d}).",
@@ -14643,7 +14731,8 @@ _SHORT_TEMPLATES = {
            "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
            "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen, Quittung im Log (D92).",
            "maschine": "Tor lässt {step} laufen: Formprüfer des Hauses grün, Quittung im Log (D92).",
-           "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d})."},
+           "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d}).",
+           "hinweis": "Tor weist bei {step} darauf hin, dass {reason} ({d})."},
 }
 _SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
 _SHORT_UNKNOWN_TIME = {"en": "unknown", "de": "unbekannt"}
@@ -14798,6 +14887,12 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
     if decision == "pass" and klasse in ("go", "maschine"):
         # D87, D92: a call a machine check frees stays visible, as a call a rule frees does: one line, no decision
         short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form=klasse)
+        return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                               "additionalContext": outcome.text}}
+    if decision == "pass" and any(v.reason_id in HINT_REASONS for v in outcome.verdicts):
+        # D105: a hint is a line for the person and the long reason as context for the model (measured: it reaches the
+        # model after the tool's result), no permission decision; the call runs
+        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form="hinweis")
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                                "additionalContext": outcome.text}}
     if decision == "pass":
@@ -19737,7 +19832,8 @@ def main(argv: list[str] | None = None) -> int:
     if verdict is not None:
         printed = None
         try:
-            if verdict.decision != "pass" or any(v.reason_id == "approved_by_rule" for v in verdict.verdicts) or \
+            if verdict.decision != "pass" or any(v.reason_id in ("approved_by_rule", *HINT_REASONS)
+                                                 for v in verdict.verdicts) or \
                     (verdict.autonomy or {}).get("klasse") in ("go", "maschine"):
                 printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
