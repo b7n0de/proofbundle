@@ -29,27 +29,25 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._membership import require_switch, type_name
-from ._statement_payload import load_statement_strict
-from .budget import DEFAULT_BUDGET
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
+from .budget import DEFAULT_BUDGET, render_safe
 from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _richtlinie_von,
                         _zeichen_von, _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
+from ._membership import is_member
 from ._wire_b64 import decode_b64
+# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for `pattern`),
+# from the one definition in _schema_shapes. The private copy that stood here was corrected to `\A..\Z`
+# with [0-9] in round 11 (lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion`
+# with a trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
 TRUST_PACK_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for
-# `pattern`): `$` is the end of the input and `\d` is [0-9]. Under Python `re`, `$` also matches before a
-# final newline and `\d` matches every Unicode decimal digit, so these are written `\A..\Z` with [0-9]
-# (round 11, lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion` with a
-# trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 _ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
               "timeAuthorities", "witnesses")
@@ -96,13 +94,18 @@ class TrustPackError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> TypeGuard[dict]:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def _zahl_text(v: Any) -> str:
     """A relying party's number for a message: an exact int as its digits, any other value by its type only,
-    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis)."""
-    return int.__repr__(v) if type(v) is int else f"a value of type {type_name(v)}"
+    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis).
+
+    The digits are bounded: `int.__repr__` raised ValueError for an int past the int->str cap
+    (CVE-2020-10735), so `verify_trust_pack` with `prev_version` or `prev_root_threshold` = `10**5000`
+    raised out of the message that explains the refusal. `render_safe` describes such an int by its bit
+    length, and for an exact int it runs no method of the caller's."""
+    return render_safe(v) if type(v) is int else f"a value of type {type_name(v)}"
 
 
 def _is_int(v: Any) -> TypeGuard[int]:
@@ -147,7 +150,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -195,17 +198,24 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                     continue
                 alg = kv.get("alg", "ed25519")
                 if alg not in _KEY_ALGS:
-                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {alg!r}")
+                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
                 allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
+                # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
+                if "scheme" in kv and kv.get("scheme") != "ed25519":
+                    errors.append(f"keys[{kid!r}].scheme, when present, must be 'ed25519'")
                 # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
                 # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
                 # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
                 want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
-                label = _KEY_ALG_LABEL.get(alg, "Ed25519")
+                # A dict lookup hashes its key, and `alg` comes from the pack: a list here raised TypeError out of
+                # this validator and out of verify_trust_pack, before any signature was counted (same gate).
+                # An `alg` that is not one of _KEY_ALGS is already an error above; it is labelled as Ed25519.
+                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"
                 try:
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
@@ -309,12 +319,12 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     if not (_is_int(th) and th >= 1):
         errs.append("threshold must be an integer >= 1")
     elif isinstance(kids, list) and isinstance(th, int) and th > len(kids):
-        errs.append(f"threshold ({th}) exceeds the number of keyIds ({len(kids)})")
+        errs.append(f"threshold ({render_safe(th)}) exceeds the number of keyIds ({len(kids)})")
     # dead-on-arrival: after removing revoked keys the role can never meet threshold.
     if isinstance(kids, list) and _is_int(th) and th >= 1:
         live = [k for k in kids if k not in revoked]
         if len(live) < th:
-            errs.append(f"threshold ({th}) can never be met — only {len(live)} non-revoked keyIds")
+            errs.append(f"threshold ({render_safe(th)}) can never be met — only {len(live)} non-revoked keyIds")
     return errs
 
 
@@ -333,6 +343,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise TrustPackError(
             "trust packs need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise TrustPackError(
+            f"a trust pack value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -395,12 +411,12 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
     name = subject_name or f"trust-pack:{predicate.get('trustPackId', '')}:v{predicate.get('version', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": TRUST_PACK_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, TrustPackError)
 
 
 @_ein_stand(aussen={"signers": "signierer_je_name"})
