@@ -20,6 +20,7 @@ and C2 and C3 as the fallbook means them.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
@@ -32,6 +33,7 @@ import pytest
 import test_claude_code_plugin_gate as cg
 import test_plugin_n29_work_profile_d71 as d71
 import test_plugin_n37_machine_check_d92 as d92
+from _plugin_env import plugin_env
 
 gate = d71.gate
 pytestmark = d71.pytestmark
@@ -356,6 +358,17 @@ def _matched(config: dict, tool: str) -> bool:
     return False
 
 
+@contextlib.contextmanager
+def _environment(env: dict):
+    """os.environ is exactly `env` while the repositories of the probe are made in-process, then as it was."""
+    with pytest.MonkeyPatch.context() as patch:
+        for name in [n for n in os.environ if n not in env]:
+            patch.delenv(name)
+        for name, value in env.items():
+            patch.setenv(name, value)
+        yield
+
+
 @pytest.fixture(scope="module")
 def world(tmp_path_factory):
     """The folders, programs and repositories of the probe, made once: a HOME of its own, a stand-in gh and uv, the
@@ -372,15 +385,10 @@ def world(tmp_path_factory):
     (w / "bin" / "uv").chmod(0o755)
     tmp = w / "tmp"
     (tmp / f"claude-{os.getuid()}" / "-fallbook" / SESSION).mkdir(parents=True)
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GH_")) and k not in
-           ("PAGER", "XDG_CONFIG_HOME") and not k.lower().endswith("_proxy")}
-    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "LC_ALL": "C", "HOME": str(home),
-                "PROOFBUNDLE_GATE_DIR": str(w / "gatedir"), "TMPDIR": str(tmp), "CLAUDE_CODE_SESSION_ID": SESSION,
-                "PATH": f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin"})
-    saved = dict(os.environ)
-    os.environ.clear()
-    os.environ.update(env)
-    try:
+    env = plugin_env(without=("GIT_", "GH_"), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, LC_ALL="C",
+                     HOME=str(home), PROOFBUNDLE_GATE_DIR=str(w / "gatedir"), TMPDIR=str(tmp),
+                     CLAUDE_CODE_SESSION_ID=SESSION, PATH=f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin")
+    with _environment(env):
         (w / "b").mkdir()
         r = d71._repo(w / "b")
         d71._git(r, "update-ref", "refs/remotes/origin/main", "main")
@@ -392,9 +400,6 @@ def world(tmp_path_factory):
         d71._git(r, "commit", "-q", "-m", "W")
         (w / "d").mkdir()
         repos = {"b7n0de": r, "lokal": cg.repo.__wrapped__(w / "d")}
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
     for repo in repos.values():
         (repo / "note.md").write_text("## Summary\n\nText.\n")
         (repo / "tool.py").write_text("print('x')\n")
@@ -474,13 +479,8 @@ def test_fallbook_C2_at_eight_open_prs(world, tmp_path):
 def test_fallbook_C3_red_text(world, tmp_path):
     """C3 as the fallbook means it: the text of the file breaks the house form (rule (c): a tool attribution), and the
     house's form checker stands at the default branch the remote records (D109)."""
-    saved = dict(os.environ)
-    try:
-        os.environ.update(world["env"])
+    with _environment(world["env"]):
         repo = d92._fixture(tmp_path)
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
     (repo / "note.md").write_text("Generated with a tool.\n")
     case = next(c for c in CASES if c["id"] == "C3")
     for host in ("claude", "codex"):
