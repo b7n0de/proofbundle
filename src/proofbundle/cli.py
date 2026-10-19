@@ -1954,7 +1954,7 @@ def _historical_now_posix(value):
     # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
     # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"[.,](\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
@@ -2033,6 +2033,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
         print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
         print("=> OK" if ok else "=> FAILED")
@@ -2129,6 +2131,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2301,7 +2305,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -3371,7 +3377,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 

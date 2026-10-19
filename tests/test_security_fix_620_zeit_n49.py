@@ -35,6 +35,20 @@ def _raw(sk) -> bytes:
     return sk.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 
 
+def _signed_past_the_emitter(pred: dict, sk) -> dict:
+    """A receipt signed directly, as a hostile signer would sign it. The validator reads nested types now
+    (deep gate L3-Z195-05), so the emitter refuses an unreadable validity.expiresAt; the verify side has to
+    hold on its own, which is what these cases measure."""
+    import rfc8785
+    from proofbundle import dsse
+    from proofbundle.decision import DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE, STATEMENT_TYPE
+    from proofbundle.subject_binding import derive_subject_digest
+    stmt = {"_type": STATEMENT_TYPE,
+            "subject": [{"name": "decision", "digest": {"sha256": derive_subject_digest(pred)}}],
+            "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": pred}
+    return dsse.sign_envelope(rfc8785.dumps(stmt), sk, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+
+
 class K4_01ADecisionReceiptExpiresAtIsPartOfTheVerdict(unittest.TestCase):
     """A declared validity.expiresAt is judged against one evaluation time; expired or unreadable fails closed,
     an absent expiresAt is unchanged (freshness_ok None)."""
@@ -42,7 +56,7 @@ class K4_01ADecisionReceiptExpiresAtIsPartOfTheVerdict(unittest.TestCase):
     def _base(self):
         return json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
 
-    def _verify(self, *, expires=..., now=None):
+    def _verify(self, *, expires=..., now=None, past_the_emitter=False):
         from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
         pred = self._base()
         if expires is ...:
@@ -51,7 +65,8 @@ class K4_01ADecisionReceiptExpiresAtIsPartOfTheVerdict(unittest.TestCase):
             pred["validity"]["expiresAt"] = expires
         aud, nonce = pred["validity"]["audience"][0], pred["validity"]["nonce"]
         sk = generate_signer()
-        env = emit_decision_receipt(pred, sk, strict=True)
+        env = (_signed_past_the_emitter(pred, sk) if past_the_emitter
+               else emit_decision_receipt(pred, sk, strict=True))
         return verify_decision_receipt(env, _raw(sk), strict=True, expected_audience=aud,
                                        expected_nonce=nonce, now=now)
 
@@ -61,7 +76,7 @@ class K4_01ADecisionReceiptExpiresAtIsPartOfTheVerdict(unittest.TestCase):
         self.assertIs(r["freshness_ok"], False)
 
     def test_an_unreadable_expiresat_is_not_positive(self):
-        r = self._verify(expires="not-a-timestamp", now=1_700_000_000)
+        r = self._verify(expires="not-a-timestamp", now=1_700_000_000, past_the_emitter=True)
         self.assertIs(r["ok"], False)
         self.assertIs(r["freshness_ok"], False)
 
