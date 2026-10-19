@@ -4661,3 +4661,32 @@ CLAUDE_CONFIG_DIR, BASH_ENV) and paths, never a file's content.
 Limits: a relative BASH_ENV is not read (the shell's folder decides it). A file a start file sources by another name is
 not named, but ~/.bash_aliases. The settings of Claude Code (~/.claude/settings.json) are no start file of the shell
 (passages w01 and w02 of satz_v1, Nachtrag 33). Tests: tests/test_plugin_n39_shell_start_d97.py.
+
+## D100. A path the command spells out itself is judged as a literal one (Nachtrag 39, the siblings of F35-1 and F35-2, 2026-10-19)
+
+Order of Nachtrag 39: a Bash command that writes into the hook folder, and one that writes a start file of the shell,
+carries the weight of _D72_WRITES, as a class with its siblings. Measured at the head of D97 (n39/werkzeug of the
+delivery, siblings_n39.py, 26 forms): D96 and D97 judged `cp f.txt .git/hooks/pre-commit`, but `bash -c 'cp f.txt
+.git/hooks/pre-commit'`, `sh -c 'echo x > .git/hooks/pre-commit'`, `R=.git/hooks; cp f.txt $R/pre-commit` and
+`cp f.txt .git/hook{s,x}/pre-commit` got no answer there, as at f9e5f18e.
+
+Measured with GNU bash 5.2.21 and dash as sh, an empty folder per form with HOME in it, no network (truth_siblings_n39.py,
+25 forms): the script of `bash -c`, `bash -lc`, `bash -c --`, `sh -c`, `env bash -c` and of eval (one word or several)
+wrote what it says, nested too; a variable a step of the command set alone (`R=DIR;`, `R=DIR &&`), with export or with
+declare wrote where `$R/x`, `"$R/x"` and `${R}/x` name, a value `~/x` or `$HOME/x` from HOME; a brace wrote each word bash
+makes of it (`{q,r}`, `s{1..3}`, `{t,u{v,w}}`, `~/.{a,b}`), `x{y}` was a name. A prefix assignment (`H=DIR touch ./$H/o`)
+and one in a subshell did not reach the word.
+
+The rule: class c judges, as the command's own steps and in the step's directory, the steps of the literal script of a
+shell of _SHELL_DASH_C run with -c (named by any word of a step the gate does not model, so behind env or sudo too) and of
+eval with literal words, to a depth of MAX_NESTING (_sh_nested_steps); a word `$X/rest`, `${X}/rest` or `"$X/rest"` of a
+variable the command sets in a step of assignments only or with export, declare, typeset, local or readonly names each of
+its values with the rest, an unquoted value also split into its fields (_sh_line_values, _sh_word_paths); a word with
+braces and no quote or substitution names each word of its brace expansion, at most _SH_BRACE_MAX (64), a range longer
+than that none (_sh_brace_expand). Each such path is judged as D96 and D97 judge one (decide_write): an ask, a deny into
+the gate's directory, the weight of _D72_WRITES on the line; the step that runs the script is the one that writes.
+
+Limits, named: a variable the command does not set and one with a default (`${X:-y}`), a script the shell builds, the
+code of another language (python3 -c, perl -e, an awk program), what xargs reads from its input, and a relative path after
+cd (D33) keep their answer; an assignment in a subshell counts, which is stricter than bash. Tests:
+tests/test_plugin_n39_path_siblings_d100.py.

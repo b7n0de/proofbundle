@@ -10443,7 +10443,8 @@ def _getopt_candidates(words: list[str]) -> list[str]:
     return [w for w in dict.fromkeys(out) if w]
 
 
-def _getopt_writes(step: "_ShStep", temp: bool = True, environ=None) -> tuple[list[str], bool, str | None]:
+def _getopt_writes(step: "_ShStep", temp: bool = True, environ=None, values: "dict | None" = None
+                   ) -> tuple[list[str], bool, str | None]:
     """(the files a data step of _GETOPT_SPECS or tac writes as getopt reads it, whether a word is not literal, the
     problem that keeps the gate from reading it) under D95. sort writes the file of each -o (`-` is a file there) and
     temporary files in the directory of -T or of a TMPDIR assignment before it; uniq writes its second operand where it
@@ -10486,7 +10487,7 @@ def _getopt_writes(step: "_ShStep", temp: bool = True, environ=None) -> tuple[li
         targets.extend(_getopt_candidates(words))
         environ = os.environ if environ is None else environ
         targets.extend(p for w in step.cmd.words[1:] if not w.literal
-                       for p in [_sh_word_path(w, environ)] if p is not None)   # D96: `~/x`, `$HOME/x`
+                       for p in _sh_word_paths(w, environ, values))   # D96: `~/x`, `$HOME/x`; D100
     return list(dict.fromkeys(targets)), unknown, problem
 
 
@@ -10545,17 +10546,18 @@ def _sh_word_path(word: "_ShWord", environ) -> str | None:
     return None
 
 
-def _sh_path_words(step: "_ShStep", environ) -> list[str]:
+def _sh_path_words(step: "_ShStep", environ, values: "dict | None" = None) -> list[str]:
     """D96: every path a step of a program the gate does not model (other, carrier) names in its words, as a file it may
     write: each word bash makes into a path (_sh_word_path), and of a literal word each value after `=` and each rest
     of a short option bundle (`of=F`, `--target-directory=F`, `-tF`, `-oF`); an option word is judged as a path too, as
-    after `--` it is one. The program word itself, `-`, `--` and a URL are not."""
+    after `--` it is one. The program word itself, `-`, `--` and a URL are not. D100: each path _sh_word_paths names (a
+    brace expansion; with values, a variable the command sets)."""
     paths: list[str] = []
     for word in step.cmd.words[1:]:
-        path = _sh_word_path(word, environ)
-        if path is None:
+        named = _sh_word_paths(word, environ, values)
+        if not named:
             continue
-        found = [path]
+        path, found = named[0], list(named)
         if word.literal:
             if "=" in path:
                 found.append(path.partition("=")[2])
@@ -10565,6 +10567,169 @@ def _sh_path_words(step: "_ShStep", environ) -> list[str]:
             if p and p not in ("-", "--") and "://" not in p and p not in paths:
                 paths.append(p)
     return paths
+
+
+#: D100 (Nachtrag 39, the siblings of F35-1 and F35-2): a word that starts with a parameter expansion, `$X`, `${X}`,
+#: quoted or not, with a literal rest, of a variable the command itself sets (_sh_line_values).
+_SH_VAR_WORD = re.compile(r"(\"?)\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})(/[^\s'\"$`\\*?\[\]{}]*)?\1")
+#: D100: the most words the gate reads of the brace expansion of one word; more and it names none (bash has no limit).
+_SH_BRACE_MAX = 64
+_SH_BRACE_RANGE = re.compile(r"(-?\d+)\.\.(-?\d+)|([A-Za-z])\.\.([A-Za-z])")
+
+
+def _sh_brace_first(word: str) -> tuple[str, list[str] | None, str] | None:
+    """D100: (the text before, the alternatives, the text after) of the first brace of word that bash expands: one with a
+    comma at its own level or a range `a..b` of numbers or of letters, None for the alternatives of a range longer than
+    _SH_BRACE_MAX; a brace without either stays a name."""
+    for i, ch in enumerate(word):
+        if ch != "{":
+            continue
+        depth, parts, start = 0, [], i + 1
+        for j in range(i + 1, len(word)):
+            c = word[j]
+            if c == "{":
+                depth += 1
+            elif c == "}" and depth:
+                depth -= 1
+            elif c == "," and not depth:
+                parts.append(word[start:j])
+                start = j + 1
+            elif c == "}":
+                if parts:
+                    return word[:i], parts + [word[start:j]], word[j + 1:]
+                m = _SH_BRACE_RANGE.fullmatch(word[i + 1:j])
+                if m is None:
+                    break
+                a, b = (int(m.group(1)), int(m.group(2))) if m.group(1) is not None else \
+                    (ord(m.group(3)), ord(m.group(4)))
+                if abs(b - a) >= _SH_BRACE_MAX:
+                    return word[:i], None, word[j + 1:]   # more words than the gate reads
+                seq = range(a, b + 1) if a <= b else range(a, b - 1, -1)
+                return word[:i], [str(n) if m.group(1) is not None else chr(n) for n in seq], word[j + 1:]
+    return None
+
+
+def _sh_brace_expand(raw: str) -> list[str] | None:
+    """D100: the words bash's brace expansion makes of a word as written (`a{b,c}d`, `s{1..3}`, `{t,u{v,w}}`), in bash's
+    order; None where the word has a quote, a `$`, a backquote, a backslash or a blank, which the gate does not expand
+    here, or where more than _SH_BRACE_MAX words come out. A word without such a brace is its own one word."""
+    if re.search(r"[\s'\"$`\\]", raw):
+        return None
+    out: list[str] = []
+    todo = [raw]
+    while todo:
+        word = todo.pop(0)
+        found = _sh_brace_first(word)
+        if found is None:
+            out.append(word)
+        else:
+            before, alternatives, after = found
+            if alternatives is None:
+                return None
+            todo[:0] = [before + a + after for a in alternatives]
+        if len(out) + len(todo) > _SH_BRACE_MAX:
+            return None
+    return out
+
+
+def _sh_word_paths(word: "_ShWord", environ, values: "dict | None" = None) -> list[str]:
+    """Every path bash may make of a word where the gate can name it: the one of _sh_word_path (D96); else (D100) each
+    word of the brace expansion of a word without a quote or a substitution, a tilde at its start read as D96 reads
+    it; else, for `$X/rest` of a variable the command sets (values), each of its values with the rest, an unquoted
+    value also split into its fields as bash splits it. [] where the gate cannot name one."""
+    one = _sh_word_path(word, environ)
+    if one is not None:
+        return [one]
+    raw = word.raw
+    expanded = _sh_brace_expand(raw) if not word.subs and not word.quoted and "{" in raw else None
+    if expanded is not None:
+        found = []
+        for p in expanded:
+            if p.startswith("~"):
+                p = _sh_word_path(_ShWord(p, p, [], False, True), environ)
+            if p and not _SH_GLOB_CHARS.search(os.path.dirname(p)):
+                found.append(p)
+        return found
+    m = _SH_VAR_WORD.fullmatch(raw) if values else None
+    if m is None:
+        return []
+    rest, found = m.group(4) or "", []
+    for value in values.get(m.group(2) or m.group(3), ()):
+        found.append(value + rest)
+        fields = value.split()
+        if not m.group(1) and len(fields) > 1:
+            found.extend(fields[:-1] + [fields[-1] + rest])
+    return [p for p in dict.fromkeys(found) if p]
+
+
+def _sh_line_values(steps: list, environ) -> dict[str, list[str]]:
+    """D100: the values the command's steps set each variable to, where the gate can name them: a step of assignments
+    only and an assignment among the arguments of export, declare, typeset, local or readonly (in a subshell too, which
+    is stricter than bash); a literal value, or one bash makes into a path from `~` or `$HOME` as D96 reads it. An
+    assignment before a program does not count: bash expands the program's words before it sets it (measured)."""
+    values: dict[str, list[str]] = {}
+    for s in steps:
+        words = list(s.cmd.assigns) if not s.words else []
+        if s.head in _DECLARATION_BUILTINS:
+            words += [w for w in s.cmd.words[1:] if _ASSIGNMENT.match(w.value)]
+        for w in words:
+            name, _eq, value = w.value.partition("=")
+            raw_value = w.raw.partition("=")[2]
+            if w.literal and not raw_value.startswith("~"):
+                values.setdefault(name, []).append(value)
+                continue
+            named = _sh_word_path(_ShWord(raw_value, value, [], False, True), environ)
+            if named is not None:
+                values.setdefault(name, []).append(named)
+    return values
+
+
+def _sh_nested_steps(step: "_ShStep", depth: int) -> list:
+    """D100: the steps of the script a step runs as text, where the script is literal: the string of `-c` of a shell of
+    _SHELL_DASH_C named by any word of the step (behind env or sudo too), or the words of eval; walked in the step's
+    directory. [] where there is none, the depth reaches MAX_NESTING or the gate cannot read the script, which then
+    keeps the answer it has."""
+    if depth >= MAX_NESTING:
+        return []
+    words = step.cmd.words
+    script = None
+    if step.head == "eval" and len(words) > 1 and all(w.literal for w in words[1:]):
+        script = " ".join(w.value for w in words[1:])
+    k = next((i for i, w in enumerate(words) if os.path.basename(w.value) in _SHELL_DASH_C), None)
+    if script is None and k is not None:
+        rest = [w.value for w in words[k + 1:]]
+        c_at = next((i for i, w in enumerate(rest)
+                     if w.startswith("-") and not w.startswith("--") and w != "-" and "c" in w[1:]), None)
+        at = None if c_at is None else next((i for i in range(c_at + 1, len(rest))
+                                             if not (rest[i].startswith("-") and rest[i] != "-")), None)
+        if at is not None and words[k + 1 + at].literal:
+            script = rest[at]
+    if script is None:
+        return []
+    nested: list = []
+    try:
+        _sh_walk(_sh_parse(script, depth + 1), step.cwd, nested)
+    except (_ShUnmodeled, RecursionError):
+        return []
+    return nested
+
+
+def _sh_step_writes(step: "_ShStep", environ, values: dict, depth: int = 0) -> list[tuple]:
+    """(the step that writes, a path) for every file the step writes (write_targets), every path a word of a program the
+    gate does not model names (D96), and (D100) the same for each step of a literal script it runs as text, with the
+    values the script sets too."""
+    targets, _unknown = step.write_targets(environ, values)
+    if step.kind in ("other", "carrier"):
+        targets = targets + [p for p in _sh_path_words(step, environ, values) if p not in targets]
+    found = [(step, t) for t in targets]
+    nested = _sh_nested_steps(step, depth) if step.kind in ("other", "carrier") else []
+    if nested:
+        inner = {k: list(v) for k, v in values.items()}
+        for k, v in _sh_line_values(nested, environ).items():
+            inner.setdefault(k, []).extend(v)
+        for n in nested:
+            found.extend(_sh_step_writes(n, environ, inner, depth + 1))
+    return found
 
 
 class _ShStep:
@@ -10585,10 +10750,10 @@ class _ShStep:
             parts.append(r.target.body if isinstance(r.target, _ShHeredoc) else r.target.value)
         return "\n".join(parts)
 
-    def write_targets(self, environ=None) -> tuple[list[str], bool]:
+    def write_targets(self, environ=None, values: "dict | None" = None) -> tuple[list[str], bool]:
         """(the files the step's output redirections and the data steps of D95 (sort, uniq, tee, tac) open for writing,
         each literal or a word bash makes into a path the gate can name (D96: `~/x`, `$HOME/x`), whether any target is
-        not known). Duplications of a descriptor and /dev/null open no file."""
+        not known; D100: each path _sh_word_paths names). Duplications of a descriptor and /dev/null open no file."""
         environ = os.environ if environ is None else environ
         targets, unknown = [], False
         for r in self.cmd.redirs:
@@ -10602,9 +10767,7 @@ class _ShStep:
             if t.literal:
                 targets.append(t.value)
             else:
-                named = _sh_word_path(t, environ)   # D96
-                if named is not None:
-                    targets.append(named)
+                targets.extend(_sh_word_paths(t, environ, values))   # D96, D100
                 unknown = True
         if self.head == "tee":
             for w in self.cmd.words[1:]:
@@ -10613,13 +10776,11 @@ class _ShStep:
                 if w.literal:
                     targets.append(w.value)
                 else:
-                    named = _sh_word_path(w, environ)   # D96
-                    if named is not None:
-                        targets.append(named)
+                    targets.extend(_sh_word_paths(w, environ, values))   # D96, D100
                     unknown = True
         if self.head in _GETOPT_SPECS or self.head in _GETOPT_TEMP_NAMES:
             # D95: the files the step writes as getopt reads its words (`tee -- -x`, `sort -uo F`, `uniq IN F`)
-            written, not_literal, _problem = _getopt_writes(self, environ=environ)
+            written, not_literal, _problem = _getopt_writes(self, environ=environ, values=values)
             targets.extend(t for t in written if t not in targets)
             unknown = unknown or not_literal
         return targets, unknown
@@ -11291,7 +11452,9 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
 def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple[list, set, dict]:
     """(the verdicts of the writes the gate guards, the ids of the steps that make them, each verdict's step): every
     file a step writes (write_targets) and, for a program the gate does not model, every path its words name (D96),
-    judged as a file-tool write (decide_write); the state files of a folder are read once for the command."""
+    judged as a file-tool write (decide_write); the state files of a folder are read once for the command. D100: with
+    the values the command sets and the steps of a literal script a step runs as text (_sh_step_writes); the step
+    that runs the script is the one that writes."""
     verdicts: list = []
     protected: set = set()
     writers: dict = {}
@@ -11299,16 +11462,14 @@ def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple
     global _STATE_FILES_MEMO
     _STATE_FILES_MEMO = {}   # one read of the state files per folder for this command (D96)
     try:
+        values = _sh_line_values(steps, env_now)   # D100
         for s in steps:
-            targets, _unknown = s.write_targets(env_now)
-            if s.kind in ("other", "carrier"):
-                # D96: a program the gate does not model may write any path its words name (cp, mv, install, ln, dd,
-                # rm, chmod, …): each such path is judged as a write
-                targets = targets + [p for p in _sh_path_words(s, env_now) if p not in targets]
-            for t in targets:
-                if s.cwd is None and not os.path.isabs(t):
+            # D96: a program the gate does not model may write any path its words name (cp, mv, install, ln, dd, rm,
+            # chmod, …): each such path is judged as a write; D100: also in a literal script the step runs as text
+            for step, t in _sh_step_writes(s, env_now, values):
+                if step.cwd is None and not os.path.isabs(t):
                     continue   # the directory is unknown; the write keeps today's answer (not judged), named in D33
-                base = s.cwd if s.cwd is not None else cwd
+                base = step.cwd if step.cwd is not None else cwd
                 written = decide_write("Write", {"file_path": os.path.join(base, t)}, base, deadline, "claude",
                                        environ)
                 if written is not None:
