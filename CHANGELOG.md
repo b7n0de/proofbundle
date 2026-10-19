@@ -11,6 +11,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ### Added
 
 - Add a signer interface, `proofbundle.signer`: `sign_bytes` takes bytes and returns the signature, the algorithm and the key id. The key file stays the default and signs exactly as before. An optional PKCS#11 signer (the `[pkcs11]` extra) signs with an Ed25519 key held in a token, selected by an RFC 7512 URI with `--token-uri` on every command that signs; the PIN comes from a prompt or from the environment variable `--token-pin-env` names, never from the URI or the command line. A token that fails ends the command with exit 2, and there is no fallback to a key file. When it is opened, the signer makes one test signature and checks it against the token's public key object, so the key it states is the key that signs. Only Ed25519 is signed: a token key of another kind is refused. `ExternalSigner` is the interface for a key management service; no provider is included. See `docs/SIGNERS.md`.
+- Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
+
+### Fixed
+
+- The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
 
 ## [6.3.0] - 2026-10-14
 
