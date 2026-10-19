@@ -405,6 +405,8 @@ _COMMAND_GROUPS = (
         ("emit", "sign and anchor a payload into a bundle"),
         ("emit-eval", "emit a signed eval receipt from a claim JSON"),
         ("show-eval", "verify an eval receipt and print the claim"),
+        ("emit-test-receipt", "sign a JUnit XML or CTRF JSON test report into an eval receipt"),
+        ("check-test-receipt", "check a test receipt against the report it names"),
         ("prereg", "hash an eval protocol to commit to it before the run"),
         ("evalcard", "hash an external Eval Card to reference it from a claim"),
         ("hf-token", "pack a receipt into a pb1. token, or verify one"),
