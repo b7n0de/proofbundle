@@ -76,7 +76,8 @@ def test_R20_3_control_the_direct_path_keeps_its_ask(tmp_path, host):
     path = tmp_path / "home" / ".config" / "gh" / "config.yml"
     path.write_text("", encoding="utf-8")
     decision, reasons = b._decide(repo, f"echo 'pager: less' >> {shlex.quote(str(path))}; gh pr view 1", host)
-    assert decision == "ask" and "step_after_state_change" in reasons, reasons
+    # the append lies outside the work folder and is denied since D104 (Nachtrag 33); the step keeps its reason
+    assert decision in ("ask", "deny") and "step_after_state_change" in reasons, reasons
 
 
 @pytest.mark.parametrize("host", ["claude", "codex"])
@@ -85,7 +86,8 @@ def test_R20_3_control_a_write_to_an_unrelated_file_stays_free(tmp_path, kind, h
     repo = b._repo(tmp_path)
     _linked(tmp_path, "config.yml", kind)
     other = tmp_path / "notes.txt"
-    decision, reasons = b._decide(repo, f"echo x >> {shlex.quote(str(other))}; gh pr view 1", host)
+    # a write with `>`: an append outside the work folder is denied since D104 (Nachtrag 33)
+    decision, reasons = b._decide(repo, f"echo x > {shlex.quote(str(other))}; gh pr view 1", host)
     assert decision in b.FREE and reasons == ["free_after_gh_profile"], (decision, reasons)
 
 
@@ -101,5 +103,6 @@ def test_R20_3_sibling_a_write_to_the_git_program_keeps_the_git_step_from_being_
     decision, reasons = b._decide(repo, f"echo '# changed' >> {shlex.quote(str(wrapper))}; git log --oneline -1")
     assert decision in ("ask", "deny") and "free_after_read_profile" not in reasons, (decision, reasons)
     other = tmp_path / "notes.txt"
-    decision, reasons = b._decide(repo, f"echo x >> {shlex.quote(str(other))}; git log --oneline -1")
+    # a write with `>`: an append outside the work folder is denied since D104 (Nachtrag 33)
+    decision, reasons = b._decide(repo, f"echo x > {shlex.quote(str(other))}; git log --oneline -1")
     assert decision in b.FREE, (decision, reasons)

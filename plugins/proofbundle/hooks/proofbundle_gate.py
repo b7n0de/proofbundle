@@ -13168,6 +13168,166 @@ def _guard_upload(runs: list) -> list:
     return found
 
 
+#: D104 (Nachtrag 33, fallbook r01 and S9): the file in the gate's directory that names further work folders, each with
+#: a name; a person writes it (the model never writes the gate's directory, D25).
+WORK_FOLDERS_FILE = "work-folders.json"
+WORK_FOLDERS_SCHEMA = "proofbundle-plugin/work-folders/v0.1"
+MAX_WORK_FOLDERS_BYTES = 64 * 1024
+#: The targets of an append that open no file.
+_NO_FILE_TARGETS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"})
+
+
+def _repo_top(directory: str | None) -> str | None:
+    """The folder of the repository a directory lies in, found by its .git (a folder or a file), no git run; None
+    outside one."""
+    if not directory or not os.path.isabs(directory):
+        return None
+    here = os.path.realpath(directory)
+    while True:
+        if os.path.lexists(os.path.join(here, ".git")):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def _session_folders(environ) -> list[str]:
+    """D104: the folders of the session of Claude Code under the temp folder, <temp>/claude-<uid>/<any>/<session id>
+    (measured with Claude Code 2.1.303), where CLAUDE_CODE_SESSION_ID names one."""
+    session = environ.get("CLAUDE_CODE_SESSION_ID")
+    if not session or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", session):
+        return []
+    root = os.path.join(os.path.realpath(environ.get("TMPDIR") or tempfile.gettempdir()), f"claude-{os.getuid()}")
+    try:
+        return [os.path.realpath(os.path.join(root, p, session)) for p in sorted(os.listdir(root))
+                if os.path.isdir(os.path.join(root, p, session))]
+    except OSError:
+        return []
+
+
+def _work_folders(directory: str | None, environ) -> list[str]:
+    """D104: the work folders of a step, each resolved: the repository of its directory, the repository (else the
+    folder) of CLAUDE_PROJECT_DIR, the folder of the session under the temp folder (<temp>/claude-<uid>/<any>/<session
+    id>, measured with Claude Code 2.1.303) where CLAUDE_CODE_SESSION_ID names one, and each folder the gate's
+    work-folders.json names with a name. An unreadable declaration names none."""
+    folders = []
+    top = _repo_top(directory)
+    if top:
+        folders.append(top)
+    project = environ.get("CLAUDE_PROJECT_DIR")
+    if project and os.path.isabs(project):
+        folders.append(_repo_top(project) or os.path.realpath(project))
+    folders.extend(_session_folders(environ))
+    gate_dir = _gate_dir(environ)
+    if gate_dir is not None:
+        try:
+            raw = _read_regular(os.path.join(gate_dir, WORK_FOLDERS_FILE), MAX_WORK_FOLDERS_BYTES + 1)
+            data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_WORK_FOLDERS_BYTES else None
+        except (OSError, ValueError, UnicodeDecodeError):
+            data = None
+        if isinstance(data, dict) and data.get("schema") == WORK_FOLDERS_SCHEMA and isinstance(data.get("ordner"), list):
+            for entry in data["ordner"]:
+                if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"].strip() and \
+                        isinstance(entry.get("pfad"), str) and os.path.isabs(entry["pfad"]):
+                    folders.append(os.path.realpath(entry["pfad"]))
+    return list(dict.fromkeys(folders))
+
+
+def _outside_work(path: str, folders: list[str], follow: bool) -> bool:
+    """Whether a path lies outside every work folder or is the root of one: its folder resolved and, for an append
+    (follow), the file too; a delete removes a link itself, so its last part counts as written."""
+    target = _realpath(path) if follow else os.path.join(_realpath(os.path.dirname(path)), os.path.basename(path))
+    for root in folders:
+        if target.startswith(root.rstrip(os.sep) + os.sep):
+            return False
+    return True
+
+
+def _rm_targets(words: list[str]) -> list[int] | None:
+    """The indexes of the operands of a recursive rm (words with rm first), or None where it does not recurse."""
+    recursive, operands, options = False, [], True
+    for k, w in enumerate(words[1:], start=1):
+        if options and w == "--":
+            options = False
+        elif options and w.startswith("--"):
+            recursive = recursive or w == "--recursive"
+        elif options and w.startswith("-") and len(w) > 1:
+            recursive = recursive or "r" in w[1:] or "R" in w[1:]
+        else:
+            operands.append(k)
+    return operands if recursive else None
+
+
+def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
+    """D104 (Nachtrag 33, fallbook r01, S9): a deny for a recursive delete (`rm -r`, `find … -delete`) whose target is
+    not in a work folder or is the root of one, and for an append (`>>`, `&>>`, `tee -a`) into a file not in a work
+    folder (_work_folders), under both hosts. A relative target of a step whose directory the gate cannot tell (after
+    a `cd` it does not resolve) and a word it cannot name keep their answer. Where the parser does not model the
+    command, nothing."""
+    if steps is None:
+        return []
+    found = []
+    values = _sh_line_values(steps, environ)
+    for s in steps:
+        # after a directory change the gate does not resolve (D33), an absolute target is judged against the work
+        # folders of the hook's directory, which is the same or stricter; a relative one keeps its answer
+        base = s.cwd if s.cwd is not None else cwd
+        if base is None:
+            continue
+        folders = _work_folders(base, environ)
+        k = _guard_program(s.words) if s.words else 0
+        words = s.cmd.words[k:]
+        head = os.path.basename(words[0].value) if words else ""
+        name = head or "a redirection"
+        deletes, appends = [], []
+        if head == "rm":
+            for j in _rm_targets([w.value for w in words]) or []:
+                deletes.extend((p, words[j].raw) for p in _sh_word_paths(words[j], environ, values))
+        if head == "find" and any(w.value == "-delete" for w in words):
+            for w in words[1:]:
+                if w.value.startswith(("-", "(", "!")):
+                    break
+                deletes.extend((p, w.raw) for p in _sh_word_paths(w, environ, values))
+        if head == "tee" and any(w.value in ("-a", "--append") or
+                                 (w.value.startswith("-") and not w.value.startswith("--") and "a" in w.value)
+                                 for w in words[1:]):
+            appends.extend((p, w.raw) for w in words[1:] if not w.value.startswith("-")
+                           for p in _sh_word_paths(w, environ, values))
+        appends.extend((p, raw) for p, how, raw in _guard_redirects(s, environ, values) if how == "append")
+        for path, raw in deletes:
+            if s.cwd is None and not os.path.isabs(path) and not path.startswith("~"):
+                continue
+            path = os.path.normpath(os.path.join(base, os.path.expanduser(path) if path.startswith("~") else path))
+            if _SH_GLOB_CHARS.search(os.path.basename(path)):
+                path = os.path.join(os.path.dirname(path), "x")
+            if _outside_work(path, folders, follow=False):
+                found.append(_HouseFinding(
+                    "deny", "delete_outside_work", name,
+                    f"proofbundle gate: {name} deletes {raw!r} recursively outside the work folder, or the root of one; "
+                    "the work folder is the repository of the call, the scratch of the session and each folder a "
+                    "person names in the gate's work-folders.json (Nachtrag 33; DECISIONS.md D104).",
+                    f"{name} deletes recursively outside the work folder",
+                    "delete inside the repository or the scratch of the session, or have a person name the folder"))
+                break
+        for path, raw in appends:
+            if path in _NO_FILE_TARGETS or path.startswith("/dev/fd/"):
+                continue
+            if s.cwd is None and not os.path.isabs(path):
+                continue
+            path = os.path.normpath(os.path.join(base, path))
+            if _outside_work(path, folders, follow=True):
+                found.append(_HouseFinding(
+                    "deny", "append_outside_work", name,
+                    f"proofbundle gate: {name} appends to {raw!r} outside the work folder; the work folder is the "
+                    "repository of the call, the scratch of the session and each folder a person names in the gate's "
+                    "work-folders.json (Nachtrag 33; DECISIONS.md D104).",
+                    f"{name} appends outside the work folder",
+                    "append inside the repository or the scratch of the session, or have a person name the folder"))
+                break
+    return found
+
+
 #: D102: the file tools of Claude Code that read a path their input names (proofbundle_secrets.READ_TOOLS).
 READ_TOOLS = frozenset({"Read", "Grep"})
 
@@ -13192,11 +13352,12 @@ def decide_read(tool: str, tool_input: object, cwd: str, deadline: float, host: 
 
 
 def _guard_findings(command: str, cwd: str | None, environ) -> list:
-    """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload)."""
+    """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload), D104 (a delete or an append
+    outside the work folder)."""
     environ = os.environ if environ is None else environ
     steps = _guard_steps(command, cwd)
     runs = [[value for value, _built in words] for words, _k, _d in _house_runs(command, cwd)]
-    return _guard_secret(steps, command, cwd, environ) + _guard_upload(runs)
+    return _guard_secret(steps, command, cwd, environ) + _guard_upload(runs) + _guard_outside(steps, cwd, environ)
 
 
 def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
@@ -14387,6 +14548,10 @@ _SHORT_REASONS = {
     "secret_path": ("D102", "the call names a key file or a credential store",
                     "der Aufruf eine Schlüsseldatei oder einen Zugangsspeicher nennt"),
     "upload_to_host": ("D103", "a file or data goes to a host outside", "eine Datei oder Daten an einen fremden Host gehen"),
+    "delete_outside_work": ("D104", "it deletes recursively outside the work folder",
+                            "es außerhalb des Arbeitsordners rekursiv löscht"),
+    "append_outside_work": ("D104", "it appends to a file outside the work folder",
+                            "es an eine Datei außerhalb des Arbeitsordners anhängt"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -15495,7 +15660,7 @@ FANG_REASONS = frozenset({
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
-    "write_to_host_settings", "secret_path", "upload_to_host"})
+    "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024

@@ -4775,3 +4775,33 @@ no host to send to.
 Limits, named: nc, ftp, sftp, the clients of clouds (aws s3, gsutil), `gh gist create` and code of another language that
 sends are not read; an upload to the loopback without a scheme (`localhost:8080/x`) asks; `curl -X POST` without a body
 is no upload. Tests: tests/test_plugin_n33_upload_d103.py.
+
+## D104. A recursive delete or an append outside the work folder is denied (Nachtrag 33, fallbook r01 and S9, 2026-10-19)
+
+Order of Nachtrag 33, point 1: recursive delete and append outside the work folder are denied; the work folder is the
+repository of cwd and the scratch of the session, further ones only from a declaration with names; measure on the corpus
+first which targets occur today, and name every new ask. Found by delta's fallbook (gate 44db2056): `rm -rf <path>` and
+`python3 <script> >> <audit log>` outside got no answer; the same at 63b88d07.
+
+Measured before the rule (n33/werkzeug of the delivery, ziele_n33.py): the corpus (435 commands) has no `rm -r` and six
+appends, all to a relative path in the repository; the 4846 Bash commands of the session that built this delete
+recursively 211 times in its scratch, 94 times through a variable of it, 60 times by a relative path and three times in
+another place of /tmp (one a probe of its own, two the fallbook's forms written into a file), and append 137 times
+relatively, 67 times into the scratch, once to /dev, twice to /tmp and five times to ~ (the fallbook's and D97's forms).
+Measured with Claude Code 2.1.303 (truth_host_n33.sh hint env): the hook's environment carries CLAUDE_PROJECT_DIR and
+CLAUDE_CODE_SESSION_ID and no TMPDIR, and Claude Code keeps a folder of the session at
+<temp>/claude-<uid>/<project>/<session id>/.
+
+The rule: _guard_outside denies, under both hosts, `rm` with -r, -R or --recursive and `find … -delete` whose target is
+not in a work folder or is the root of one (delete_outside_work), and an append (`>>`, `&>>`, `tee -a`) into a file not in
+a work folder (append_outside_work). The work folders (_work_folders): the repository of the step's directory, found by
+its .git without running git; the repository, else the folder, of CLAUDE_PROJECT_DIR; the folder of the session under
+the temp folder where CLAUDE_CODE_SESSION_ID names one; and each folder the file work-folders.json in the gate's
+directory names with a name (schema proofbundle-plugin/work-folders/v0.1, `{"ordner": [{"name": …, "pfad": …}]}`), which
+only a person writes (D25); an entry without a name or an unreadable file names none. A delete counts after the links of
+its folder, an append also after the link of the file. /dev/null, /dev/stdout, /dev/stderr, /dev/tty and /dev/fd/* open
+no file.
+
+Limits, named: a step whose directory the gate cannot tell (after a `cd` it does not resolve, D33), a word it cannot
+name (`rm -rf "$X"/y` with X not set in the command), the code of another language and xargs keep their answer; a write
+with `>` outside is no append and gets the hint of D105 at most. Tests: tests/test_plugin_n33_outside_work_d104.py.

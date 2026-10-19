@@ -94,7 +94,8 @@ INTO_SHELL_START = [
 @pytest.mark.parametrize("form", INTO_SHELL_START)
 def test_D100_a_path_the_command_spells_out_into_a_start_file_asks(repo, form):
     out = _out(repo, form)
-    assert out is not None and out.decision == "ask" and "write_to_shell_start" in _ids(out), (form, _ids(out))
+    # an append outside the work folder is denied since D104 (Nachtrag 33); the write still names the start file
+    assert out is not None and out.decision in ("ask", "deny") and "write_to_shell_start" in _ids(out), (form, _ids(out))
 
 
 @pytest.mark.parametrize("form", ["bash -c 'touch {GATE}/x'", "G={GATE}; cp f.txt $G/mode", "rm {GATE}/{mode,rules.json}"])

@@ -114,7 +114,8 @@ def test_D97_control_writes_beside_the_start_files_and_reads_get_no_answer(repo,
 
 
 def test_D97_the_write_gives_the_chain_its_reason_and_the_line_its_weight(repo):
-    out = _out(repo, "echo x >> ~/.bashrc && git status")
+    # a write with `>`: an append to ~/.bashrc is outside the work folder and denied since D104 (Nachtrag 33)
+    out = _out(repo, "echo x > ~/.bashrc && git status")
     assert out.decision == "ask" and "write_to_shell_start" in _ids(out), _ids(out)
     line = d72._line(out)
     assert " git status because the write touches a file the shell runs before a later call (D97)." in line, line

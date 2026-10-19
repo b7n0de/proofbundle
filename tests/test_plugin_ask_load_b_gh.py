@@ -173,7 +173,8 @@ def test_FREE_an_empty_GH_PAGER_overrides_the_configured_pager(tmp_path, monkeyp
 
 def test_FREE_a_write_outside_the_gh_configuration_before_a_gh_step(tmp_path):
     other = tmp_path / "notes.txt"
-    decision, reasons = _decide(_repo(tmp_path), f"echo x >> {shlex.quote(str(other))}; gh pr view 41")
+    # a write with `>`: an append outside the work folder is denied since D104 (Nachtrag 33)
+    decision, reasons = _decide(_repo(tmp_path), f"echo x > {shlex.quote(str(other))}; gh pr view 41")
     assert decision in FREE, reasons
 
 
@@ -264,7 +265,8 @@ def test_KEEP_a_write_into_the_gh_configuration_before_a_gh_step(tmp_path):
     configuration folder before the gh step changes what that answer read."""
     path = tmp_path / "home" / ".config" / "gh" / "config.yml"
     decision, reasons = _decide(_repo(tmp_path), f"echo 'pager: less' >> {shlex.quote(str(path))}; gh pr view 41")
-    assert decision == "ask" and "step_after_state_change" in reasons, reasons
+    # the append lies outside the work folder and is denied since D104 (Nachtrag 33); the step keeps its reason
+    assert decision in ("ask", "deny") and "step_after_state_change" in reasons, reasons
 
 
 ENV_KEEP = [("PAGER", "less"), ("PAGER", ""), ("GH_PAGER", "less"), ("GH_FORCE_TTY", "1"), ("GH_HOST", "evil.example"),
