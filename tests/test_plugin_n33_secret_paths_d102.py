@@ -98,6 +98,18 @@ def test_D102_a_link_to_a_key_counts_and_the_walk_touches_no_key_path(repo, tmp_
     assert out is not None and "secret_path" in _ids(out)
 
 
+def test_D102_a_link_in_home_is_followed_from_the_tilde(repo):
+    """`~` is HOME: a link below it that leads into a folder of keys counts, where the same words below the work folder
+    would name nothing."""
+    keys = os.path.join(_home(), ".ssh")
+    os.makedirs(keys, exist_ok=True)
+    os.symlink(keys, os.path.join(_home(), "keys-link"))
+    out = _out(repo, "cat ~/keys-link/config")
+    assert out is not None and out.decision == "deny" and "secret_path" in _ids(out), _ids(out)
+    out = gate.decide_read("Read", {"file_path": "~/keys-link/config"}, str(repo), time.monotonic() + 60)
+    assert out is not None and out.decision == "deny", out
+
+
 @pytest.mark.parametrize("form", ["ls ~/.ssh", "ls -la ~/.ssh/", "test -f ~/.ssh/id_rsa", "[ -f ~/.ssh/id_rsa ]",
                                   "cat issuer.pub.pem", "cat docs/public.key", "cat ca-chain.pem", "cat notes.md",
                                   "cat ~/.sshrc", "grep -rn ssh src/", "cat id_rsa.pub", "git status",

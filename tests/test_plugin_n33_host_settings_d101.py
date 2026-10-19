@@ -109,6 +109,19 @@ def test_D101_a_symbolic_and_a_hard_link_to_an_account_file_count(repo, tmp_path
         assert out is not None and "write_to_host_settings" in _ids(out), (name, _ids(out))
 
 
+def test_D101_a_link_to_a_settings_file_not_yet_there_or_to_a_settings_folder_counts(repo, tmp_path):
+    """The resolved path decides where no file is there yet to compare (a link to a settings file that does not exist,
+    a link to the plugins folder)."""
+    claude = os.path.join(_home(), ".claude")
+    os.makedirs(os.path.join(claude, "plugins"), exist_ok=True)
+    (tmp_path / "ln").mkdir()
+    os.symlink(os.path.join(claude, "settings.local.json"), tmp_path / "ln" / "dangling")
+    os.symlink(os.path.join(claude, "plugins"), tmp_path / "ln" / "plugins")
+    for path in (tmp_path / "ln" / "dangling", tmp_path / "ln" / "plugins" / "x.json"):
+        out = _write("Write", str(path), repo)
+        assert out is not None and _ids(out) == ["write_to_host_settings"], (path, _ids(out))
+
+
 #: Shell forms that write a settings file; each got no answer at 63b88d07.
 SHELL_FORMS = [
     "echo '{}' > ~/.claude/settings.json", "echo x >> {H}/.claude/settings.json", "printf x > \"$HOME/.claude.json\"",
