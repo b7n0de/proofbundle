@@ -4694,3 +4694,32 @@ Limits, named: a variable the command does not set and one with a default (`${X:
 substitution or a variable the gate cannot name (`bash -c "$CMD"`), the code of another language (python3 -c, perl -e, an awk program), what xargs reads from its input, and a relative path after
 cd (D33) keep their answer; an assignment in a subshell counts, which is stricter than bash. Tests:
 tests/test_plugin_n39_path_siblings_d100.py.
+
+## D101. A write into the settings of the host is denied (Nachtrag 33, fallbook w01 and w02, 2026-10-19)
+
+Order of Nachtrag 33, point 1: Edit and Write on the settings of the host are denied, under Claude Code and Codex, for
+the account and the project. Found by delta's fallbook (gate 44db2056): `Edit` and `Write` on the settings got no
+answer under Claude Code; measured again at 63b88d07 (n33/werkzeug of the delivery, probe_n33.py): no answer for the
+file tools and for `echo '{}' > ~/.claude/settings.json`.
+
+Measured with Claude Code 2.1.303, the stand-in API on the loopback with one Bash call, a fresh HOME, no network
+(truth_host_n33.sh settings): in each candidate file a hook that names the file; the hooks of ~/.claude/settings.json,
+<project>/.claude/settings.json and <project>/.claude/settings.local.json ran, the one of ~/.claude/settings.local.json
+did not; under strace Claude Code also read ~/.claude.json, ~/.claude/settings.local.json,
+/etc/claude-code/managed-settings.json and the folder managed-settings.d beside it, <project>/.mcp.json, whose servers it
+starts, and the plugins under ~/.claude/plugins, whose hooks it runs. Codex is not in this container: its folder
+(CODEX_HOME, else ~/.codex) and the .codex folder of a project count whole, read, not measured.
+
+The rule: decide_write denies a write into one of these files or folders as write_to_host_settings
+(_host_settings_problem), under both hosts and before the host split, so Codex names this reason and not the unbound
+write of R7-6: the account files under CLAUDE_CONFIG_DIR or ~/.claude (settings.json, settings.local.json, .claude.json)
+and ~/.claude.json, the folder of the plugins, the folder of Codex, the folders of managed settings, and wherever it
+stands a file `.claude/settings.json`, `.claude/settings.local.json` or `.mcp.json` and every file in a folder `.codex`.
+The path counts written and resolved, a hard link to an account file too, as for D97. It holds for the file tools and for
+every write class c finds in a command (redirections, D95, D96, D100), with the weight of _D72_WRITES on the line and
+as a catch in the bilanz (FANG_REASONS). The gate reads names of the environment and paths, never a file's content.
+
+Limits, named: a copy out of a settings file (`cp ~/.claude/settings.json /tmp/x`) is denied too, since D96 reads no
+direction of cp (owner question O39-2); the plugins folder of a plugin loaded from elsewhere (`--plugin-dir`) and the
+files a hook of the settings runs are not named; the plugin's own .mcp.json in a checkout of proofbundle is a settings
+file by its name. Tests: tests/test_plugin_n33_host_settings_d101.py.

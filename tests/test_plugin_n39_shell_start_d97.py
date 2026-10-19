@@ -106,7 +106,7 @@ def test_D97_a_link_to_a_start_file_counts(repo, tmp_path):
 
 
 @pytest.mark.parametrize("form", ["echo x > ~/.bashrc.bak", "echo x > ~/notes.txt", "cp f.txt ~/bin/tool",
-                                  "echo x > ~/.claude/settings.json", "echo x > ~/.claude/shell-snapshots-old",
+                                  "echo x > ~/.claude/CLAUDE.md", "echo x > ~/.claude/shell-snapshots-old",
                                   "echo x > /etc/profile.bak", "cat ~/.bashrc", "grep alias ~/.bashrc",
                                   "head -3 ~/.profile", "ls -la ~/.claude/shell-snapshots"])
 def test_D97_control_writes_beside_the_start_files_and_reads_get_no_answer(repo, form):

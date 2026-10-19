@@ -11307,7 +11307,7 @@ def _sh_deciding(own: list, decision: str) -> tuple[str | None, "Verdict | None"
 
 #: D72: the writes the gate guards, which a line names before any step: one into the gate's own directory (D25) and one
 #: into the configuration or the hooks of a repository (D8).
-_D72_WRITES = frozenset({"write_to_gate_dir", "write_to_repo_state", "write_to_shell_start"})
+_D72_WRITES = frozenset({"write_to_gate_dir", "write_to_repo_state", "write_to_shell_start", "write_to_host_settings"})
 
 
 def _d72_write(verdicts: list, decision: str) -> "Verdict | None":
@@ -13374,6 +13374,75 @@ def _shell_start_problem(path: str, cwd: str, environ) -> str | None:
     return None
 
 
+#: D101 (Nachtrag 33, w01 and w02): the settings of the host, where its hooks and permissions stand, by role. Measured
+#: with Claude Code 2.1.303 (truth_host_n33.sh settings: a fresh HOME, in each candidate file a hook that names the
+#: file): it runs the hooks of ~/.claude/settings.json, <project>/.claude/settings.json and
+#: <project>/.claude/settings.local.json, and it reads ~/.claude.json, ~/.claude/settings.local.json,
+#: /etc/claude-code/managed-settings.json and the folder managed-settings.d beside it, <project>/.mcp.json, whose servers
+#: it starts, and the plugins under ~/.claude/plugins, whose hooks it runs. Codex is not in this container: its folder
+#: (CODEX_HOME, else ~/.codex) and the .codex folder of a project count whole, read, not measured. A project file counts
+#: wherever it stands, by its last parts, since every repository is a project of the host.
+_HOST_SETTINGS_ACCOUNT_FILES = ("settings.json", "settings.local.json", ".claude.json")
+_HOST_SETTINGS_PROJECT_FILES = ((".claude", "settings.json"), (".claude", "settings.local.json"))
+_HOST_SETTINGS_NAMES = (".mcp.json",)
+_HOST_SETTINGS_FOLDER_NAMES = (".codex",)
+_HOST_SETTINGS_SYSTEM_DIRS = ("/etc/claude-code", "/Library/Application Support/ClaudeCode", "/etc/codex")
+
+
+def _host_settings_paths(environ) -> tuple[set, set]:
+    """(the settings files, the folders whose every file counts) of the hosts for the hook's environment (D101): the
+    account files under CLAUDE_CONFIG_DIR or ~/.claude and ~/.claude.json, the plugins folder of Claude Code, the
+    folder of Codex, the folders of managed settings. The gate reads names of the environment and paths, never a file's
+    content."""
+    files, dirs = set(), set(_HOST_SETTINGS_SYSTEM_DIRS)
+    home = environ.get("HOME")
+    configs = [c for c in (environ.get("CLAUDE_CONFIG_DIR"),
+                           os.path.join(home, ".claude") if home and os.path.isabs(home) else None)
+               if c and os.path.isabs(c)]
+    for config in configs:
+        files |= {os.path.join(config, name) for name in _HOST_SETTINGS_ACCOUNT_FILES}
+        dirs.add(os.path.join(config, "plugins"))
+    if home and os.path.isabs(home):
+        files.add(os.path.join(home, ".claude.json"))
+        dirs.add(os.path.join(home, ".codex"))
+    codex = environ.get("CODEX_HOME")
+    if codex and os.path.isabs(codex):
+        dirs.add(codex)
+    return files, dirs
+
+
+def _host_settings_problem(path: str, cwd: str, environ) -> str | None:
+    """Why a write to path writes the settings of a host, where its hooks and permissions stand (D101), by role; None for
+    any other file. The path counts written and resolved, a hard link to an account file counts too, as for the start
+    files of the shell (D97), and a project's file counts wherever it stands, by its last parts."""
+    if not os.path.isabs(path):
+        if not (isinstance(cwd, str) and os.path.isabs(cwd)):
+            return None
+        path = os.path.join(cwd, path)
+    lexical, target = os.path.normpath(path), os.path.realpath(path)
+    for candidate in (lexical, target):
+        parts = candidate.split(os.sep)
+        if tuple(parts[-2:]) in _HOST_SETTINGS_PROJECT_FILES or parts[-1] in _HOST_SETTINGS_NAMES:
+            return f"{lexical} is a settings file of the host, where its hooks, permissions or servers stand"
+        if any(part in _HOST_SETTINGS_FOLDER_NAMES for part in parts[:-1]):
+            return f"{lexical} is in a settings folder of the host"
+    files, dirs = _host_settings_paths(environ)
+    for f in sorted(files):
+        if lexical in (os.path.normpath(f), os.path.realpath(f)) or target in (os.path.normpath(f), os.path.realpath(f)):
+            return f"{lexical} is a settings file of the host, where its hooks and permissions stand"
+        try:
+            if os.path.exists(target) and os.path.exists(f) and os.path.samefile(target, f):
+                return f"{lexical} is the same file as a settings file of the host"
+        except OSError:
+            return f"the gate cannot tell whether {lexical} is a settings file of the host"
+    for d in sorted(dirs):
+        for root in {os.path.normpath(d), os.path.realpath(d)}:
+            for candidate in (lexical, target):
+                if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
+                    return f"{lexical} is in a settings folder of the host"
+    return None
+
+
 def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude",
                  environ: dict | None = None) -> Outcome | None:
     """None for a file-tool write the gate does not gate; else NOT MEASURED, ask under Claude and deny under
@@ -13404,6 +13473,17 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
                                   failed=f"{tool} would write {target} inside the gate directory {gate_dir}",
                                   next_step="a human edits the gate's mode and rules directly, outside the agent")
                 return Outcome("deny", verdict.text(), [verdict])
+    for target in targets or []:
+        # D101: the settings of a host, where its hooks and permissions stand, under both hosts, before the host split
+        why = _host_settings_problem(target, cwd, environ)
+        if why:
+            verdict = Verdict("deny", f"the settings of the host hold its hooks, its permissions and the programs it "
+                                      f"starts, so {tool} must never write them: a write there can turn off this gate "
+                                      f"or allow what it asks. {why} (DECISIONS.md D101).",
+                              "write_to_host_settings", evidence="the settings files and folders of the hosts",
+                              failed=f"{tool} would write {target}, a settings file of the host",
+                              next_step="a person changes the host's settings directly, outside the agent")
+            return Outcome("deny", verdict.text(), [verdict])
     if host == "codex":
         why = (f"under Codex the hook does not bind {tool} to the filesystem and directory the write acts in: an "
                "apply_patch without `*** Environment ID:` writes into the turn's primary environment, which need "
@@ -13981,6 +14061,8 @@ _SHORT_REASONS = {
     "state_not_measured": ("D26", "the working state cannot be read", "der Arbeitsstand nicht lesbar ist"),
     "write_to_gate_dir": ("D25", "the write targets the gate's own directory",
                           "das Schreiben das Verzeichnis des Tors trifft"),
+    "write_to_host_settings": ("D101", "the write targets the settings of the host, where hooks and permissions stand",
+                               "das Schreiben die Einstellungen des Wirts trifft, wo Haken und Rechte stehen"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -15084,7 +15166,8 @@ FANG_REASONS = frozenset({
     "house_kill_own", "house_kill_pattern", "house_tag_out", "verification_failed", "not_done", "no_receipt",
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
-    "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start"})
+    "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
+    "write_to_host_settings"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
