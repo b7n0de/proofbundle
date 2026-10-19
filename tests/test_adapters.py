@@ -101,6 +101,100 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(claim["provenance"]["scored_samples"], 1)
         self.assertEqual(claim["provenance"]["unscored_samples"], 1)
 
+    def _inspect_log(self):
+        """The real fixture, read fresh and copied; only the copy is mutated."""
+        try:
+            from inspect_ai.log import read_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        return deepcopy(read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval"),
+                                      header_only=True))
+
+    def test_inspect_ai_binds_the_completeness_of_the_run(self):
+        """The counts `EvalResults` carries and the adapter did not read until 2026-09-14, as the
+        recorded log carries them: 2 planned, 2 completed, no early stop."""
+        log = self._inspect_log()
+        claim, _ = from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.00",
+                                       timestamp=TS, model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        self.assertEqual(claim["provenance"]["total_samples"], 2)
+        self.assertEqual(claim["provenance"]["completed_samples"], 2)
+        for field in ("logged_samples", "early_stopping_manager", "early_stopped_samples"):
+            self.assertNotIn(field, claim["provenance"], "the recorded log carries no such fact")
+
+    def test_inspect_ai_an_early_stopped_run_is_told_apart_from_a_complete_one(self):
+        """THE CASE this is about, and it is the catch proof at the same time.
+
+        Two runs with IDENTICAL sample counts, the same `scored_samples`, the same
+        `unscored_samples` and the same `n`, and one of them was stopped early. Before the fix their
+        signed receipts could not be told apart, which was the finding. If this assertion falls, the
+        difference has gone from the signature again.
+
+        THE EARLY STOP IN THE FORM THE LIBRARY WRITES IT, an `EarlyStoppingSummary`. The first
+        version of this case set a bool, a type the library never delivers, and the binding it
+        proved was dead for every real log (second reading, 2026-10-18). Two managers that stopped
+        the same samples are told apart as well.
+        """
+        try:
+            from inspect_ai.util import EarlyStop, EarlyStoppingSummary
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        common = dict(comparator=">=", threshold="0.00", timestamp=TS,
+                      model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        complete = self._inspect_log()
+        self.assertIsNone(complete.results.early_stopping, "a complete run carries no summary")
+        stops = [EarlyStop(id=3, epoch=1), EarlyStop(id=4, epoch=1)]
+        early = deepcopy(complete)
+        early.results.early_stopping = EarlyStoppingSummary(manager="m", early_stops=stops,
+                                                            metadata={})
+        other = deepcopy(complete)
+        other.results.early_stopping = EarlyStoppingSummary(manager="other", early_stops=stops,
+                                                            metadata={})
+        a, _ = from_inspect_ai_log(complete, "accuracy", **common)
+        b, _ = from_inspect_ai_log(early, "accuracy", **common)
+        c, _ = from_inspect_ai_log(other, "accuracy", **common)
+        self.assertEqual(a["n"], b["n"], "the precondition of the case, the same sample count")
+        self.assertEqual(a["provenance"]["scored_samples"], b["provenance"]["scored_samples"])
+        self.assertNotEqual(a["provenance"], b["provenance"],
+                            "an early-stopped run looks like a complete one in the receipt")
+        self.assertEqual(b["provenance"]["early_stopped_samples"], 2)
+        self.assertEqual(b["provenance"]["early_stopping_manager"], "m")
+        self.assertNotEqual(b["provenance"], c["provenance"], "two managers read as one")
+
+    def test_inspect_ai_invents_no_completeness_where_the_log_carries_none(self):
+        """The other direction: absent fields are NOT invented as zeros. An invented value would be
+        worse than a missing one, because it looks like a measurement.
+
+        THE LOG IS WRITTEN WITHOUT THE KEYS AND READ BY THE REAL READER, which fills
+        `total_samples` and `completed_samples` with their default 0. The first version deleted the
+        attributes from a loaded object, a state the reader never produces, and the adapter signed
+        the two zeros while this case was green (second reading, 2026-10-18)."""
+        import json
+        import os
+        import tempfile
+        try:
+            from inspect_ai.log import read_eval_log, write_eval_log
+        except ImportError:
+            self.skipTest("inspect_ai not installed")
+        with tempfile.TemporaryDirectory() as raw:
+            full = os.path.join(raw, "full.json")
+            write_eval_log(read_eval_log(str(FX / "inspect_logs" / "safety_refusal_demo.eval")),
+                           full, format="json")
+            with open(full, encoding="utf-8") as fh:
+                data = json.load(fh)
+            for key in ("total_samples", "completed_samples", "logged_samples", "early_stopping"):
+                data["results"].pop(key, None)
+            bare = os.path.join(raw, "bare.json")
+            with open(bare, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+            self.assertEqual(read_eval_log(bare).results.total_samples, 0,
+                             "the precondition: the reader fills the default")
+            claim, _ = from_inspect_ai_log(bare, "accuracy", comparator=">=", threshold="0.00",
+                                           timestamp=TS, model_salt=b"0" * 16,
+                                           dataset_salt=b"1" * 16)
+        for field in ("total_samples", "completed_samples", "logged_samples",
+                      "early_stopping_manager", "early_stopped_samples"):
+            self.assertNotIn(field, claim["provenance"], f"{field} was invented")
+
     def test_inspect_ai_scorer_change_changes_signed_provenance(self):
         try:
             from inspect_ai.log import read_eval_log

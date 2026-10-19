@@ -27,9 +27,15 @@
         "provenance_version_status",
         "envelope_profile_rule",
         "agent_review_predicate",
-        "cap1_document"
+        "cap1_document",
+        "content_root_vector"
       ],
-      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`). provenance_version_status (5.0.0) checks a provenance block against the reported-version status rule: every harness-reported version field carries an explicit three-value status, a mandatory reason when it is not `reported`, and the pair may not contradict itself. envelope_profile_rule (5.1) checks one rule of the receipt-envelope profile (docs/RECEIPT_ENVELOPE_PROFILE.md) through OUR OWN emit/verify path; each rule R1-R5 carries one counter-proof and one positive control, and the case declares WHICH expectation axis it asserts (contentRootHex / nonConformantDiffers / canonicalizeRefuses / classification) - a case declaring none is a fail-closed FAIL, never a silent pass."
+      "description": "Dispatch key for the runner. New kinds are added additively (fail-closed: an unknown kind is a per-case FAIL, never a silent skip). outcome_relation (3.4.0, WP-B) mirrors decision_relation on the action-outcome verify path. relation_statement (3.5.0, WP-A) is the standalone relation-statement/v0.1 verify path (`relation-statement verify`). provenance_version_status (5.0.0) checks a provenance block against the reported-version status rule: every harness-reported version field carries an explicit three-value status, a mandatory reason when it is not `reported`, and the pair may not contradict itself. envelope_profile_rule (5.1) checks one rule of the receipt-envelope profile (docs/RECEIPT_ENVELOPE_PROFILE.md) through OUR OWN emit/verify path; each rule R1-R5 carries one counter-proof and one positive control, and the case declares WHICH expectation axis it asserts (contentRootHex / nonConformantDiffers / canonicalizeRefuses / classification) - a case declaring none is a fail-closed FAIL, never a silent pass. content_root_vector pins the ONE statement content-root primitive (ADR 0002): canonical bytes, roots on both sides of the two-part rule, cross-predicate root references, declared-algorithm binding (confusion rejected, named legacy accepted), and envelope-signature invariance."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["canonical", "pair_reference", "binding", "envelope_invariance"],
+      "description": "content_root_vector only: which check family the case exercises. An unknown/missing mode is a per-case FAIL (fail-closed)."
     },
     "input": {
       "type": "string",
@@ -132,7 +138,18 @@
             "type": "string"
           },
           "description": "cap1_document only: the EXACT set of CAP-1 rules (R0-R8 ids) that must fire on the document; [] means conformant. Compared as a set, fail-closed — a counter-proof that fails for the wrong reason proves nothing about its rule."
-        }
+        },
+        "contentRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "content_root_vector: the pinned 64-hex statement content root."},
+        "decisionRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "evidenceRoot": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "objectAndBytesAgree": {"const": true, "description": "content_root_vector canonical mode: definitional — must be literally true (iteration 2, lens 3: bool('false') is True, so a string here was exploitable; the handler enforces the same floor dependency-free)."},
+        "evidenceRefBindsRoot": {"const": true, "description": "content_root_vector pair_reference mode: definitional — must be literally true; the measured binding is additionally an unconditional handler floor (iteration 2, lens 2)."},
+        "bindingOk": {"type": "boolean", "description": "content_root_vector binding mode: JSON boolean only — both verdicts are valid declarations (confusion rejected / legacy accepted)."},
+        "jcsFile": {"type": "string"},
+        "decisionJcsFile": {"type": "string"},
+        "evidenceJcsFile": {"type": "string"},
+        "secondEnvelope": {"type": "string"},
+        "alg": {"type": "string"}
       }
     },
     "crossFormatId": {

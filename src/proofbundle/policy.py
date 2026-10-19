@@ -25,7 +25,8 @@ from datetime import datetime, timezone
 from typing import Union, cast
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
+from .budget import (DEFAULT_BUDGET, int_magnitude_ok, render_key_list, render_keys_safe, render_safe,
+                     render_text)
 from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _plain_for_jcs, _pruefkopie, _zeichen_von,
                         _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
@@ -1736,7 +1737,15 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 add("policy:assurance_prereg", not weak,
                     "self_attested without prereg_sha256 (weakest, rejected by policy)" if weak
                     else "assurance/pre-registration acceptable")
-            if max_age is not None:
+            if (isinstance(max_age, int) and not isinstance(max_age, bool)
+                    and not int_magnitude_ok(max_age)):
+                # An age bound past the integer budget is no bound this evaluator judges, and
+                # `check_freshness` would write it in decimal in its reason, which raised ValueError
+                # for `10**5000` out of this verdict surface. load_policy refuses such a value too.
+                add("policy:freshness", False,
+                    f"sd_jwt.max_iat_age_seconds is {render_safe(max_age)}, past the integer "
+                    "budget — freshness not judged (fail-closed)")
+            elif max_age is not None:
                 fresh = check_freshness(claim, max_age_seconds=max_age, now=now)
                 add("policy:freshness", bool(fresh.get("fresh")),
                     fresh.get("reason", ""))
@@ -1767,27 +1776,30 @@ def explain_policy(policy: dict) -> list:
     if policy.get("requiresIdentityOverlay") is True:
         lines.append("raw template (requiresIdentityOverlay:true) — must be instantiated (policy:not_template)")
     if policy.get("policyPurpose") is not None:
-        lines.append(f"policyPurpose == {policy['policyPurpose']!r} (wrong verifier path fails)")
+        lines.append(f"policyPurpose == {render_safe(policy['policyPurpose'])} (wrong verifier path fails)")
     if policy.get("valid_from") is not None:
-        lines.append(f"not valid before {policy['valid_from']} (policy:not_before)")
+        lines.append(f"not valid before {render_safe(policy['valid_from'], quote=False)} (policy:not_before)")
     if policy.get("valid_until") is not None:
-        lines.append(f"expires {policy['valid_until']} (policy:not_expired)")
+        lines.append(f"expires {render_safe(policy['valid_until'], quote=False)} (policy:not_expired)")
     if policy.get("allowed_schema_versions"):
-        lines.append(f"schema version in {policy['allowed_schema_versions']}")
+        lines.append(f"schema version in {render_safe(policy['allowed_schema_versions'], quote=False)}")
     for issuer in _as_list(policy.get("allowed_issuers", [])):
+        if not isinstance(issuer, dict):
+            continue   # an entry that is no object pins nothing (load_policy refuses it); `.get` raised
         who = issuer.get("issuer") or issuer.get("kid") or "(unnamed)"
         key = issuer.get("public_key_b64", "")
-        lines.append(f"issuer {who}: public key pinned ({key[:12]}…)")
+        lines.append(f"issuer {render_safe(who, quote=False)}: public key pinned "
+                     f"({render_text(key)[:12]}…)")
     sig = _as_dict(policy.get("signature"))
     if sig.get("allowed_algs"):
-        lines.append(f"signature alg in {sig['allowed_algs']}")
+        lines.append(f"signature alg in {render_safe(sig['allowed_algs'], quote=False)}")
     if sig.get("require_expected_signer"):
         lines.append("signer MUST match an allowed_issuers entry (require_expected_signer)")
     mk = _as_dict(policy.get("merkle"))
     if mk.get("required_hash_alg") is not None:
         # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
         # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
-        lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
+        lines.append(f"merkle.hash_alg == {render_safe(mk['required_hash_alg'])}")
     if mk.get("require_authenticated_root"):
         lines.append("merkle root MUST be authenticated (--expected-root or trusted_roots; coherent-rewrap guard)")
     if mk.get("trusted_roots"):
@@ -1800,7 +1812,7 @@ def explain_policy(policy: dict) -> list:
     if sdj.get("require_key_binding_when_cnf_present"):
         lines.append("SD-JWT: key binding required when cnf present")
     if sdj.get("expected_aud") is not None:
-        lines.append(f"SD-JWT: audience == {sdj['expected_aud']!r}")
+        lines.append(f"SD-JWT: audience == {render_safe(sdj['expected_aud'])}")
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
@@ -1819,7 +1831,7 @@ def explain_policy(policy: dict) -> list:
         lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")
     asr = _as_dict(policy.get("assurance"))
     if asr.get("minimum_level") is not None:
-        lines.append(f"assurance_level >= {asr['minimum_level']!r}")
+        lines.append(f"assurance_level >= {render_safe(asr['minimum_level'])}")
     if asr.get("reject_self_attested_without_prereg"):
         lines.append("self_attested without prereg_sha256 rejected")
     # WP3 (v2-audit): the anchors section is a REAL pin — the CLI (`_cmd_verify`) reads
@@ -1833,9 +1845,9 @@ def explain_policy(policy: dict) -> list:
     req_anchor = anc.get("require_anchor")
     req_target = anc.get("require_anchor_target")
     if req_anchor is not None or req_target is not None:
-        detail = f"type={req_anchor!r}" if req_anchor is not None else "any type"
+        detail = f"type={render_safe(req_anchor)}" if req_anchor is not None else "any type"
         if req_target is not None:
-            detail += f", target={req_target!r}"
+            detail += f", target={render_safe(req_target)}"
         if anc.get("allow_pending"):
             detail += " (pending accepted)"
         lines.append(f"external time anchor required ({detail})")
@@ -1846,7 +1858,8 @@ def explain_policy(policy: dict) -> list:
     rel = _as_dict(policy.get("relations"))
     if rel.get("require_relation_resolution"):
         lines.append("lineage relations must resolve (target attached + verified): "
-                     + ", ".join(rel["require_relation_resolution"]))
+                     + ", ".join(render_safe(r, quote=False)
+                                 for r in _as_list(rel["require_relation_resolution"])))
     if rel.get("reject_superseded"):
         lines.append("superseded receipt rejected (an attached, verified successor blocks automation)")
     # reject_retracted (3.5.0, relation-statement standalone) is ENFORCED at exit-3 by the verify path
@@ -1861,20 +1874,21 @@ def explain_policy(policy: dict) -> list:
     rsig = _as_dict(rel.get("relation_signer"))
     for relname, rule in rsig.items():
         if isinstance(rule, dict) and rule.get("mode") == "pinned":
-            lines.append(f"relation_signer[{relname}]: successor issuer key pinned to a set of "
-                         f"{len(_as_list(rule.get('keys')))} key(s)")
+            lines.append(f"relation_signer[{render_safe(relname, quote=False)}]: successor issuer key "
+                         f"pinned to a set of {len(_as_list(rule.get('keys')))} key(s)")
         elif isinstance(rule, dict) and rule.get("mode") == "same-key":
-            lines.append(f"relation_signer[{relname}]: successor issuer key MUST equal the target's "
-                         "(same-key)")
+            lines.append(f"relation_signer[{render_safe(relname, quote=False)}]: successor issuer key MUST "
+                         "equal the target's (same-key)")
     rtgt = _as_dict(rel.get("require_relation_target"))
     for relname, roots in rtgt.items():
         n = len(roots) if isinstance(roots, list) else 1
-        lines.append(f"require_relation_target[{relname}]: edge MUST resolve to one of {n} pinned "
-                     "parent root(s)")
+        lines.append(f"require_relation_target[{render_safe(relname, quote=False)}]: edge MUST resolve "
+                     f"to one of {n} pinned parent root(s)")
     dr = _as_dict(policy.get("decision_receipt"))
     if dr:
         active = [k for k in dr if dr.get(k)]
-        lines.append(f"decision_receipt section active ({len(active)} knob(s): {sorted(active)})")
+        lines.append(f"decision_receipt section active ({len(active)} knob(s): "
+                     f"{render_key_list(active)})")
     return lines
 
 
