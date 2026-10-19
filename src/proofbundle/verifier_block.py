@@ -102,7 +102,8 @@ def _names_a_case(name: Any) -> bool:
     ``["\\u00a0"]`` and no other list counted as a named case, and the statement was signed and joined as
     a passing run over nothing; the producer refused only the empty ``caseId``). Names are otherwise
     opaque, as the in-toto predicate leaves them: case, script and lookalikes are not judged."""
-    return isinstance(name, str) and any(unicodedata.category(c) not in _SHOWS_NOTHING for c in name)
+    return isinstance(name, str) and any(not is_member(unicodedata.category(c), _SHOWS_NOTHING)
+                                         for c in name)
 
 
 def _is_digest(obj: Any) -> bool:
