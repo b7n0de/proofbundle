@@ -1036,6 +1036,10 @@ _SWEEP = {
         "its arguments go to build_eval_claim",
     ("src/proofbundle/adapters/promptfoo.py", "from_promptfoo_results"): "not affected: parses a results "
         "file; its arguments go to build_eval_claim",
+    ("src/proofbundle/adapters/junit_ctrf.py", "from_junit_xml"): "not affected: reads a report file once, by "
+        "its descriptor; the claim it builds goes through build_eval_claim, which reads its arguments once",
+    ("src/proofbundle/adapters/junit_ctrf.py", "from_ctrf_json"): "not affected: reads a report file once, by "
+        "its descriptor; the claim it builds goes through build_eval_claim, which reads its arguments once",
     ("src/proofbundle/agent_review.py", "body_core_bytes"): _c("agent_review.body_core_bytes"),
     ("src/proofbundle/agent_review.py", "prepare_body_for_disclosure"): _c("agent_review.prepare_body_for_disclosure"),
     ("src/proofbundle/agent_review.py", "replace_disclosure_block"): _c("agent_review.replace_disclosure_block"),

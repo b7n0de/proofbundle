@@ -57,5 +57,20 @@ trust is sound, or the eval inside was honest — proofbundle checks the *Verifi
 receipt binding, never raw hardware evidence (see EXPERIMENTAL_ENCLAVE.md). "TEE-attested" is never
 "computation proven correct".
 
+## Test report receipts (`emit-test-receipt`)
+
+A receipt over a JUnit XML or CTRF JSON report (`adapters.junit_ctrf`) proves which report, by its
+SHA-256, was signed by which key, and how its counts read under the stated rule. It does **not**
+prove:
+
+- **That the tests are meaningful.** A suite of empty tests passes as well as a thorough one.
+- **That the report came from the real run.** Anyone holding the key can sign a report written by
+  hand. `--commit` names the commit the signer says the report is about; nothing checks it.
+- **That the report is complete.** Measured on 2026-10-16: a jest test file that failed to load was
+  missing from both the jest-junit and the CTRF report of the same run, and nothing in either file
+  showed that it existed. Skipped tests are not passes, but which tests run is the signer's choice.
+
+The same three sentences stand in every such receipt, as `provenance.non_claims`.
+
 If you need any of the things on this list, a receipt is the wrong tool for that part — use it for the
 one thing it does, and reach for an audit, a benchmark study, or a governance process for the rest.

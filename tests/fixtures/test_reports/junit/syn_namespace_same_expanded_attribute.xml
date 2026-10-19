@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:a="urn:u" xmlns:b="urn:u" a:x="1" b:x="2" name="s"><testcase name="a"/></testsuite>

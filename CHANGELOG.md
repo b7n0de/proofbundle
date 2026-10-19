@@ -10,6 +10,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Added
 
+- Add `proofbundle emit-test-receipt`, which signs a JUnit XML report (pytest, Maven Surefire, jest-junit) or a CTRF 0.2.x JSON report into an eval receipt that `show-eval` verifies, and `proofbundle check-test-receipt`, which checks such a receipt against its report: the digest, the whole provenance and the verdict. The Python API is `proofbundle.adapters.from_junit_xml`, `from_ctrf_json`, `read_junit_xml`, `read_ctrf_json` and `verify_test_receipt`. The claim is `pass_rate >= 1`, where passed means no failure, no error and at least one passed test, so a report of skipped tests only does not pass. The receipt records the report's SHA-256, an optional commit, the five counts, the rule and what it does not prove. A report with a document type declaration, entities, processing instructions, duplicate attributes or keys, an encoding other than UTF-8, fields CTRF does not define or of the wrong kind, text that is not NFC, or counts that contradict the tests they count is refused with a reason code. See `INTEGRATIONS.md` and `docs/NON_CLAIMS.md`.
 - Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
 
 ### Fixed

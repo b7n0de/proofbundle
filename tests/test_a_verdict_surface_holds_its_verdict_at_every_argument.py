@@ -248,6 +248,10 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         return json.loads(base64.b64decode(umschlag["payload"]))
 
     ev_bundle = ec.emit_eval_receipt(_sweep._claim("0.10"), t)
+    from proofbundle.adapters import junit_ctrf
+    tr_bericht = wurzel / "tests" / "fixtures" / "test_reports" / "junit" / "pytest-9.1.1_all_passed.xml"
+    tr_bundle = ec.emit_eval_receipt(junit_ctrf.from_junit_xml(
+        tr_bericht, timestamp="2026-10-16T00:00:00Z", model_salt=b"m" * 16, dataset_salt=b"d" * 16)[0], t)
     # eval-result v0.2 (pull request 301): a statement its own builder writes from the receipt's claim.
     v02_aussage = intoto.to_eval_result_v02_statement(
         ec.decode_eval_claim(ev_bundle), subject=[{"name": "eval-receipt", "digest": {"sha256": "a" * 64}}],
@@ -483,6 +487,10 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("verifier_block.require_valid_verifier_block", lambda w: vb.require_valid_verifier_block(w(vb_block))),
         ("verifier_block.validate_test_result_statement", lambda w: vb.validate_test_result_statement(w(vb_s0))),
         ("verifier_block.validate_verifier_block", lambda w: vb.validate_verifier_block(w(vb_block))),
+        # 2026-10-16, KRAXO-ADAPTER-JUNIT-CTRF-01: a test receipt the adapter builds from a real pytest report,
+        # checked against that report. The report is a path and passed unwrapped, as the sweep passes paths.
+        ("adapters.junit_ctrf.verify_test_receipt",
+         lambda w: junit_ctrf.verify_test_receipt(w(tr_bundle), tr_bericht)),
     ]
     if ml is not None:
         mldsa = [
@@ -629,6 +637,9 @@ _KONTROLLE_AUSNAHMEN: "dict[tuple[str, str], str]" = {
 _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "adapters.agt_receipt.verify_agt_receipt(now)",
     "adapters.agt_receipt.verify_agt_receipt_chain(kwargs.now)",
+    # 2026-10-16: the report is a path, passed unwrapped as every path of this file; that a changed report changes
+    # the verdict is held by tests/test_junit_ctrf_adapter.py (another report, a changed byte, a missing file).
+    "adapters.junit_ctrf.verify_test_receipt(report)",
     "agent_review.emit_agent_review(signer)",
     "agent_review.validate_statement_shape(predicate)",
     "anchors.verify_anchor(now)",

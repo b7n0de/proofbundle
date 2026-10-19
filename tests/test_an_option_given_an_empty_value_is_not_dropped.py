@@ -614,6 +614,7 @@ _PFLICHT = "required: argparse refuses a call without it, so there is no absent 
 _DATEI_OPTIONEN_OHNE_FALL = {
     ("emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("emit-eval", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("emit-test-receipt", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("intoto", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("svr", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("decision emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",

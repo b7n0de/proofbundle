@@ -71,6 +71,10 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-10-16, KRAXO-ADAPTER-JUNIT-CTRF-01: `verify_test_receipt` checks a test receipt against its
+    # report and answers {"ok", "reason", "claim"} for any receipt and any report. The population guard
+    # named it on its first run, which is the guard working.
+    "adapters.junit_ctrf",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -405,6 +409,13 @@ _OUT_OF_SCOPE = frozenset({
     # through its prefix, not here. Measured beforehand: no other scanned module exports these names.
     "export_eval_result_v02_dsse",  "receipt_evidence",  "to_eval_result_v02_predicate",
     "to_eval_result_v02_statement",
+    # 2026-10-16, `proofbundle.adapters.junit_ctrf` (KRAXO-ADAPTER-JUNIT-CTRF-01). The two readers and the two
+    # producers REFUSE by contract: a report they cannot read honestly ends in `ReportRefused`, a ValueError with a
+    # stable code and a reason, because counts read from a half-understood report would be numbers that look like
+    # facts. That refusal is the order's requirement ("every refusal names its reason"), not a crash. The one
+    # function of the module that judges a signed receipt, `verify_test_receipt`, is in the NENNER through its
+    # prefix and never raises. Measured beforehand: no other module defines these four names.
+    "from_ctrf_json",  "from_junit_xml",  "read_ctrf_json",  "read_junit_xml",
 })
 
 

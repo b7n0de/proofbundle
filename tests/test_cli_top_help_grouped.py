@@ -78,6 +78,8 @@ EXPECTED_GROUP = {
     "emit": "Emit and commit",
     "emit-eval": "Emit and commit",
     "show-eval": "Emit and commit",
+    "emit-test-receipt": "Emit and commit",
+    "check-test-receipt": "Emit and commit",
     "prereg": "Emit and commit",
     "evalcard": "Emit and commit",
     "hf-token": "Emit and commit",
@@ -97,8 +99,8 @@ EXPECTED_GROUP = {
 #: findings of that day, a hardening at ONE place with the neighbouring place left open.
 EXPECTED_ORDER_PER_GROUP = {
     "Verify": ["verify", "verify-proof", "verify-opening", "verify-enclave", "policy"],
-    "Emit and commit": ["emit", "emit-eval", "show-eval", "prereg", "evalcard", "hf-token",
-                        "audit-challenge"],
+    "Emit and commit": ["emit", "emit-eval", "show-eval", "emit-test-receipt", "check-test-receipt",
+                        "prereg", "evalcard", "hf-token", "audit-challenge"],
     "Statements over a receipt": ["decision", "outcome", "relation-statement"],
     "Time anchors": ["anchor"],
     "Export to other formats": ["intoto", "svr"],

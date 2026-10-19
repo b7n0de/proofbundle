@@ -405,6 +405,8 @@ _COMMAND_GROUPS = (
         ("emit", "sign and anchor a payload into a bundle"),
         ("emit-eval", "emit a signed eval receipt from a claim JSON"),
         ("show-eval", "verify an eval receipt and print the claim"),
+        ("emit-test-receipt", "sign a JUnit XML or CTRF JSON test report into an eval receipt"),
+        ("check-test-receipt", "check a test receipt against the report it names"),
         ("prereg", "hash an eval protocol to commit to it before the run"),
         ("evalcard", "hash an external Eval Card to reference it from a claim"),
         ("hf-token", "pack a receipt into a pb1. token, or verify one"),
@@ -622,6 +624,111 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         print(f"age        {_s(fresh['age_seconds'])}s")
     for w in claim_warnings(claim):
         print(f"WARNING    {_s(w)}")
+    print("=> OK")
+    return 0
+
+
+def _same_file(first, second) -> bool:
+    """Whether two CLI paths name one file: the same real path, or, when both exist, the same inode (a hard link)."""
+    import os  # noqa: PLC0415
+    try:
+        if os.path.realpath(first) == os.path.realpath(second):
+            return True
+        return os.path.exists(first) and os.path.exists(second) and os.path.samefile(first, second)
+    except (OSError, ValueError):
+        return False
+
+
+def _print_written(line: str) -> None:
+    """The success line of a command whose files are already written. A stdout that cannot encode a character of a
+    path gets the escaped form, never an exception that would turn written files into exit 2."""
+    text = _safe_line(line)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", "backslashreplace").decode("ascii"))
+
+
+def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
+    """A JUnit XML or CTRF JSON report to a signed eval receipt (adapters/junit_ctrf.py). The report is read, the
+    claim built and a whole emission run with a throwaway key before the real key is touched, so a refused report or
+    claim writes neither a receipt nor a key."""
+    from .adapters.junit_ctrf import REPORT_MAX_BYTES, from_ctrf_json, from_junit_xml  # noqa: PLC0415
+    from .evalclaim import EvalClaimError, emit_eval_receipt  # noqa: PLC0415
+    report, build = (args.junit, from_junit_xml) if args.junit is not None else (args.ctrf, from_ctrf_json)
+    if args.max_report_bytes is not None and args.max_report_bytes < 1:
+        _err(f"--max-report-bytes must be at least 1, got {args.max_report_bytes}")
+        return 2
+    max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
+    if _same_file(args.out, report):
+        _err("--out names the report itself; the receipt would overwrite the report it is about")
+        return 2
+    if args.new_key is not None and (_same_file(args.new_key, report) or _same_file(args.new_key, args.out)):
+        _err("--new-key names the report or the output; the key would overwrite it")
+        return 2
+    # NO TWO OF THE FOUR FILES ARE ONE: the report, --out, --key and --new-key. Of their six pairs, --key with --new-key
+    # is refused by `_resolve_signer`, and the other five are checked here. `--key K --out K` wrote the receipt over the
+    # signing key (lens run 2, F1), and `--key R` with the report R read a 32-byte report as the signing key, so the
+    # published report was the secret (Codex on 25b2f354, P1). `emit-eval` on main writes over its key the same way, and
+    # that neighbour is tracked with the other writes of `--out`.
+    if args.key is not None and _same_file(args.out, args.key):
+        _err("--out names the key file; the receipt would overwrite the signing key")
+        return 2
+    if args.key is not None and _same_file(args.key, report):
+        _err("--key names the report; the report would be read as the signing key")
+        return 2
+    try:
+        claim, _ = build(report, commit=args.commit, suite=args.suite, timestamp=args.timestamp,
+                         max_bytes=max_bytes)
+        # The same emission with a key nobody keeps: every refusal of the emitter (a verifier limit, a string it
+        # cannot canonicalise) comes here, before `--new-key` writes a key file.
+        emit_eval_receipt(claim, generate_signer())
+    except (EvalClaimError, ValueError) as exc:
+        _err(exc)
+        return 2
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        bundle = emit_eval_receipt(claim, signer)
+    except (EvalClaimError, ValueError) as exc:
+        _err(exc)
+        return 2
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(bundle, handle, indent=2)
+            handle.write("\n")
+    except OSError as exc:
+        _err(exc)
+        return 2
+    p = claim["provenance"]
+    _print_written(f"wrote test receipt {args.out} ({p['report_format']}: {p['tests_total']} tests, "
+                   f"{p['tests_passed']} passed, {p['tests_failed']} failed, {p['tests_errors']} errors, "
+                   f"{p['tests_skipped']} skipped; passed={claim['passed']})")
+    return 0
+
+
+def _cmd_check_test_receipt(args: argparse.Namespace) -> int:
+    from .adapters.junit_ctrf import REPORT_MAX_BYTES, verify_test_receipt  # noqa: PLC0415
+    try:
+        _refuse_weak_issuer_pins(getattr(args, "expect_issuer", None) or [])
+    except ValueError as exc:
+        _err(exc)
+        return 2
+    if args.max_report_bytes is not None and args.max_report_bytes < 1:
+        _err(f"--max-report-bytes must be at least 1, got {args.max_report_bytes}")
+        return 2
+    max_bytes = args.max_report_bytes if args.max_report_bytes is not None else REPORT_MAX_BYTES
+    result = verify_test_receipt(args.receipt, args.report, expected_issuers=args.expect_issuer, max_bytes=max_bytes)
+    if not result["ok"]:
+        print(_safe_line(f"=> FAILED: {result['reason']}"), file=sys.stderr)
+        return 1
+    print(_safe_line(result["reason"]))
+    print(_safe_line(f"issuer     {result['claim']['issuer']}"))
+    print(_safe_line(f"verdict    passed={result['claim']['passed']} (exit 0 says the receipt is about this report, "
+                     "not that the run passed)"))
+    print("note       a receipt proves which report was signed by which key, not that the tests are meaningful "
+          "or that the report came from the real run")
     print("=> OK")
     return 0
 
@@ -3277,6 +3384,39 @@ def build_parser() -> argparse.ArgumentParser:
                                 "pass; with it, an issuer mismatch fails with exit 1. A pin naming a "
                                 "low-order or non-canonical Ed25519 key is refused (exit 2, SPEC 4b)")
     show_eval.set_defaults(func=_cmd_show_eval)
+
+    emit_test = sub.add_parser(
+        "emit-test-receipt",
+        help="sign a JUnit XML or CTRF JSON test report into an eval receipt (pass_rate >= 1: no failure, no "
+             "error, at least one passed test); verify it with show-eval and check-test-receipt")
+    emit_report = emit_test.add_mutually_exclusive_group(required=True)
+    emit_report.add_argument("--junit", default=None, metavar="FILE", help="a JUnit XML report")
+    emit_report.add_argument("--ctrf", default=None, metavar="FILE", help="a CTRF JSON report (specVersion 0.2.x)")
+    emit_test.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
+    emit_test.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
+    emit_test.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_test.add_argument("--commit", default=None, metavar="SHA",
+                           help="the full git object name (40 or 64 lowercase hex) the report is about, e.g. "
+                                "$GITHUB_SHA or $CI_COMMIT_SHA")
+    emit_test.add_argument("--suite", default=None,
+                           help="the suite name in the claim (default: the report's own name)")
+    emit_test.add_argument("--timestamp", default=None, metavar="ISO8601",
+                           help="the claim timestamp (default: now, UTC)")
+    emit_test.add_argument("--max-report-bytes", dest="max_report_bytes", type=int, default=None,
+                           metavar="N", help="refuse a larger report (default 64 MiB)")
+    emit_test.set_defaults(func=_cmd_emit_test_receipt)
+
+    _check_test_text = ("verify a test receipt and check it against the report it names: the digest, the whole "
+                        "provenance and the verdict (exit 0 ok; 1 not ok, for any reason, an unreadable receipt or "
+                        "report included; 2 a refused --expect-issuer pin or a malformed option)")
+    check_test = sub.add_parser("check-test-receipt", help=_check_test_text, description=_check_test_text)
+    check_test.add_argument("receipt", help="path to the receipt bundle JSON")
+    check_test.add_argument("--report", required=True, help="path to the JUnit XML or CTRF JSON report")
+    check_test.add_argument("--expect-issuer", dest="expect_issuer", action="append", default=None,
+                            metavar="ISSUER", help="pin the accepted issuer ('ed25519:…'), repeatable, as in show-eval")
+    check_test.add_argument("--max-report-bytes", dest="max_report_bytes", type=int, default=None, metavar="N",
+                            help="refuse a larger report (default 64 MiB); give the limit the receipt was made with")
+    check_test.set_defaults(func=_cmd_check_test_receipt)
 
     verify_proof = sub.add_parser(
         "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")

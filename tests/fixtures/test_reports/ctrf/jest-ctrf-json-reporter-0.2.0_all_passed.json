@@ -1,0 +1,58 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.2.0",
+  "reportId": "3a499b4f-d28a-4ff2-8ada-2a11271a788f",
+  "timestamp": "2026-10-16T07:20:51.201Z",
+  "generatedBy": "jest-ctrf-json-reporter",
+  "results": {
+    "tool": {
+      "name": "jest"
+    },
+    "summary": {
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "pending": 0,
+      "skipped": 0,
+      "other": 0,
+      "start": 1792135251202,
+      "stop": 1792135251409
+    },
+    "tests": [
+      {
+        "testId": "ctrf:jest:v1:c1dd5ce60201f1890d72413e665c71d63ccf3fa937803fec65baa6ca5219e7bd",
+        "executionId": "89f80266-0713-4842-b630-5196847be635",
+        "attemptId": "0258f5df-56b5-4c0f-befc-9c867da1dea2",
+        "name": "group one",
+        "duration": 1,
+        "status": "passed",
+        "rawStatus": "passed",
+        "type": "unit",
+        "filePath": "/work/jsgen/allpass/__tests__/b.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "b.test.js",
+          "group"
+        ]
+      },
+      {
+        "testId": "ctrf:jest:v1:19fd7f13771fdc2e4bfa45fdc170dfb42d74bf13e9fb8f5c94b9adaa14021f46",
+        "executionId": "872f139f-83b8-43b4-80e9-5c9b725f21b7",
+        "attemptId": "1468be3f-5007-44c2-b4e6-14a9b4151e7c",
+        "name": "group two",
+        "duration": 0,
+        "status": "passed",
+        "rawStatus": "passed",
+        "type": "unit",
+        "filePath": "/work/jsgen/allpass/__tests__/b.test.js",
+        "retries": 0,
+        "flaky": false,
+        "suite": [
+          "b.test.js",
+          "group"
+        ]
+      }
+    ]
+  }
+}

