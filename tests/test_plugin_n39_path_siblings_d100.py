@@ -24,6 +24,7 @@ set, a script the shell builds, a relative path after cd) are green at both.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import sys
@@ -69,6 +70,8 @@ INTO_REPO_STATE = [
     "declare D=.git; tee $D/config < f.txt", "R='.git/hooks'; touch $R/x", "cp f.txt .git/hook{s,x}/pre-commit",
     "cp f.txt .git/{hooks,info}/pre-commit", "touch .git/hooks/{pre-commit,pre-push}", "rm -f .git/hooks/x{1..3}",
     "chmod +x .git/{hooks/pre-commit,description}",
+    # after the mutants M100d and M100l: a script the outer shell expands first, a value split into its fields
+    "R=.git/hooks; sh -c \"cp f.txt $R/pre-commit\"", "F='f.txt .git/hooks/pre-commit'; cp $F",
 ]
 
 
@@ -84,6 +87,7 @@ def test_D100_a_path_the_command_spells_out_into_configuration_or_hooks_asks(rep
 INTO_SHELL_START = [
     "bash -c 'echo x >> ~/.bashrc'", "eval 'echo x >> ~/.bashrc'", "B=~/.bashrc; echo x >> $B",
     "P=$HOME/.profile; cp f.txt \"$P\"", "cp f.txt ~/.{bashrc,profile}", "sh -c 'cp f.txt ~/.bash_profile'",
+    "bash -c \"echo x >> $HOME/.bashrc\"", "eval \"cp f.txt $HOME/.profile\"",
 ]
 
 
@@ -123,6 +127,7 @@ def test_D100_control_other_folders_reads_and_words_the_command_does_not_spell_g
     ("a{b,c}d", ["abd", "acd"]), ("{1..3}", ["1", "2", "3"]), ("x{a..c}", ["xa", "xb", "xc"]),
     ("{a,b}{c,d}", ["ac", "ad", "bc", "bd"]), ("{a,b{c,d}}", ["a", "bc", "bd"]), ("x{y}", ["x{y}"]),
     ("a{b,c", ["a{b,c"]), ("{3..1}", ["3", "2", "1"]), ("'{a,b}'", None), ("$X{a,b}", None), ("{1..100}", None),
+    ("{a,b}" * 7, None), ("{a,b}" * 6, ["".join(c) for c in itertools.product("ab", repeat=6)]),   # 128 and 64 words
 ])
 def test_D100_the_words_of_a_brace_expansion(raw, expected):
     assert gate._sh_brace_expand(raw) == expected, (raw, gate._sh_brace_expand(raw))

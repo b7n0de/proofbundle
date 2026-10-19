@@ -10685,15 +10685,17 @@ def _sh_line_values(steps: list, environ) -> dict[str, list[str]]:
 
 
 def _sh_nested_steps(step: "_ShStep", depth: int) -> list:
-    """D100: the steps of the script a step runs as text, where the script is literal: the string of `-c` of a shell of
-    _SHELL_DASH_C named by any word of the step (behind env or sudo too), or the words of eval; walked in the step's
-    directory. [] where there is none, the depth reaches MAX_NESTING or the gate cannot read the script, which then
-    keeps the answer it has."""
+    """D100: the steps of the script a step runs as text: the string of `-c` of a shell of _SHELL_DASH_C named by any
+    word of the step (behind env or sudo too), or the words of eval; walked in the step's directory. A script word with
+    an expansion counts as written (`bash -c "echo x >> $HOME/.bashrc"`): the outer shell expands it first with the same
+    values the inner reading resolves, so the reading is the same or stricter (measured, truth_siblings_n39.py). []
+    where there is none, the depth reaches MAX_NESTING or the gate cannot read the script, which then keeps the answer
+    it has."""
     if depth >= MAX_NESTING:
         return []
     words = step.cmd.words
     script = None
-    if step.head == "eval" and len(words) > 1 and all(w.literal for w in words[1:]):
+    if step.head == "eval" and len(words) > 1:
         script = " ".join(w.value for w in words[1:])
     k = next((i for i, w in enumerate(words) if os.path.basename(w.value) in _SHELL_DASH_C), None)
     if script is None and k is not None:
@@ -10702,7 +10704,7 @@ def _sh_nested_steps(step: "_ShStep", depth: int) -> list:
                      if w.startswith("-") and not w.startswith("--") and w != "-" and "c" in w[1:]), None)
         at = None if c_at is None else next((i for i in range(c_at + 1, len(rest))
                                              if not (rest[i].startswith("-") and rest[i] != "-")), None)
-        if at is not None and words[k + 1 + at].literal:
+        if at is not None:
             script = rest[at]
     if script is None:
         return []

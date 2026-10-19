@@ -4675,18 +4675,22 @@ Measured with GNU bash 5.2.21 and dash as sh, an empty folder per form with HOME
 wrote what it says, nested too; a variable a step of the command set alone (`R=DIR;`, `R=DIR &&`), with export or with
 declare wrote where `$R/x`, `"$R/x"` and `${R}/x` name, a value `~/x` or `$HOME/x` from HOME; a brace wrote each word bash
 makes of it (`{q,r}`, `s{1..3}`, `{t,u{v,w}}`, `~/.{a,b}`), `x{y}` was a name. A prefix assignment (`H=DIR touch ./$H/o`)
-and one in a subshell did not reach the word.
+and one in a subshell did not reach the word. Added after the mutants of D100 (30 forms): a script the outer shell
+expands first wrote where the expansion points (`bash -c "touch $HOME/DIR/x"`, `eval "touch $HOME/DIR/x"`,
+`R=DIR; sh -c "touch $R/x"`), and an unquoted value with a blank was split into two files (`F='a b'; touch $F`), a quoted
+one was not.
 
-The rule: class c judges, as the command's own steps and in the step's directory, the steps of the literal script of a
-shell of _SHELL_DASH_C run with -c (named by any word of a step the gate does not model, so behind env or sudo too) and of
-eval with literal words, to a depth of MAX_NESTING (_sh_nested_steps); a word `$X/rest`, `${X}/rest` or `"$X/rest"` of a
+The rule: class c judges, as the command's own steps and in the step's directory, the steps of the script of a shell of
+_SHELL_DASH_C run with -c (named by any word of a step the gate does not model, so behind env or sudo too) and of eval,
+to a depth of MAX_NESTING (_sh_nested_steps); an expansion in that script is read as written, which the outer shell
+expands first with the same values, so the reading is the same or stricter; a word `$X/rest`, `${X}/rest` or `"$X/rest"` of a
 variable the command sets in a step of assignments only or with export, declare, typeset, local or readonly names each of
 its values with the rest, an unquoted value also split into its fields (_sh_line_values, _sh_word_paths); a word with
 braces and no quote or substitution names each word of its brace expansion, at most _SH_BRACE_MAX (64), a range longer
 than that none (_sh_brace_expand). Each such path is judged as D96 and D97 judge one (decide_write): an ask, a deny into
 the gate's directory, the weight of _D72_WRITES on the line; the step that runs the script is the one that writes.
 
-Limits, named: a variable the command does not set and one with a default (`${X:-y}`), a script the shell builds, the
-code of another language (python3 -c, perl -e, an awk program), what xargs reads from its input, and a relative path after
+Limits, named: a variable the command does not set and one with a default (`${X:-y}`), a script that is only a
+substitution or a variable the gate cannot name (`bash -c "$CMD"`), the code of another language (python3 -c, perl -e, an awk program), what xargs reads from its input, and a relative path after
 cd (D33) keep their answer; an assignment in a subshell counts, which is stricter than bash. Tests:
 tests/test_plugin_n39_path_siblings_d100.py.
