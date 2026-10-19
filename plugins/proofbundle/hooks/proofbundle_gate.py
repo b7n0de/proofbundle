@@ -1165,13 +1165,30 @@ def _git_true(directory: str, value: str | None, deadline: float) -> bool:
     return out.returncode == 0 and out.stdout == b"true\n"
 
 
+#: D99: read forms whose subcommand git did not always have built in (fsmonitor--daemon: git 2.36); free only where
+#: the git on PATH lists it among its built-in commands.
+_READ_BUILTIN_ONLY = frozenset({"fsmonitor--daemon"})
+
+
+def _git_builtin(directory: str, name: str, deadline: float) -> bool:
+    """D99: whether name is a built-in command of the git on PATH (`git --list-cmds=builtins`, which starts nothing and
+    reads no configuration of commands). Where it is not, git runs an alias of that name or a program git-<name> on
+    PATH or in its exec path for the word."""
+    out = _run_git(directory, ("--list-cmds=builtins",), deadline)
+    return out.returncode == 0 and name.encode() in out.stdout.split(b"\n")
+
+
 def _fsmonitor_known(scope: str, origin: str, value: str | None, directory: str, deadline: float,
                      environ: dict) -> bool:
     """Whether core.fsmonitor names git's own daemon (a value git reads as true) in the person's own global or system
     file, on a git that has no such daemon: `git fsmonitor--daemon status` exits 128 and says it is not supported on
     this platform (measured with git 2.43.0 on Linux, where the value then started nothing). Where git has the daemon it
-    starts it, which was not measured, and the key counts as before (D74)."""
+    starts it, which was not measured, and the key counts as before (D74). The gate asks `fsmonitor--daemon status` only
+    of a git that has the command built in (D99): on one without it (git before 2.36) the word runs an alias or a
+    program of that name."""
     if not _own_file(scope, origin, directory, deadline, environ) or not _git_true(directory, value, deadline):
+        return False
+    if not _git_builtin(directory, "fsmonitor--daemon", deadline):
         return False
     probe = _run_git(directory, ("fsmonitor--daemon", "status"), deadline)
     return probe.returncode == 128 and b"not supported on this platform" in probe.stderr
@@ -1869,6 +1886,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     entries of `git lfs install` count only where an attribute assigns a filter to a path of the index, and
     core.fsmonitor naming git's own daemon on a git without one does not count (D74)."""
     environ = os.environ if environ is None else environ
+    if sub in _READ_BUILTIN_ONLY and not _git_builtin(directory, sub, deadline):
+        # D99: on a git without the command, the word runs an alias or a program git-<name> on PATH instead
+        return f"git {sub} is no built-in command of the git on PATH"
     walks = sub in _READ_WALKS
     filters: list[str] = []
     paths, why = _repo_paths(directory, deadline)
@@ -11363,11 +11383,18 @@ def _work_git_form(sub: str, args: list[str], directory: str | None) -> _WorkFor
         rest = [w for w in args[1:] if w not in ("-q", "--quiet")]
         if args[:1] == ["verify"] and len(rest) == 1 and rest[0] not in ("", "-") and not rest[0].startswith("-"):
             return _WorkForm("read", "git bundle verify", directory, ())
+        if args[:1] == ["list-heads"] and len(args) == 2 and args[1] not in ("", "-") and not args[1].startswith("-"):
+            # D99 (Nachtrag 40, B40-2): the heads of one bundle file, read as verify reads it (measured: git only, no
+            # hook, nothing written)
+            return _WorkForm("read", "git bundle list-heads", directory, ())
         if args[:1] == ["create"] and len(rest) >= 2 and rest[0] not in ("", "-") and not rest[0].startswith("-") \
                 and all(w in ("--all", "--branches", "--tags") or (_work_rev(w.replace("..", "", 1)) and
                                                                     "..." not in w) for w in rest[1:]):
             return _WorkForm("target", "git bundle create", directory, (("file", rest[0]),))
         return None
+    if sub == "fsmonitor--daemon" and args == ["status"]:
+        # D99 (Nachtrag 40, B40-3): the state of git's own daemon; the read profile adds that git has it built in
+        return _WorkForm("read", "git fsmonitor--daemon status", directory, ())
     if sub == "fetch":
         remote = _fetch_form(args)
         return _WorkForm("fetch", f"git fetch {remote}", directory, ()) if remote is not None else None

@@ -4527,3 +4527,27 @@ Limits: the file can change between the gate's check and git's run; the check re
 the clone lacks makes git fail, which changes nothing. Measured with git 2.43.0 only; git 2.34.1 at the farmer is NOT
 MEASURED. Tests: tests/test_plugin_n40_bundle_b40.py.
 
+
+## D99. The heads of a bundle and the state of git's own fsmonitor daemon are reads (Nachtrag 40, B40-2 and B40-3, 2026-10-19)
+
+Found by delta at f9e5f18e: `git -C <clone> bundle list-heads <bundle>` and `git fsmonitor--daemon status` were blocked
+under the switch (possible_unmodeled_push); `git -C <clone> bundle verify <bundle>` ran free (D91). Order: list-heads and
+verify of a file are reads; fsmonitor--daemon status is a read, start, stop and run are not.
+
+Measured with git 2.43.0 (truth_b40.py): `bundle list-heads <file>`, inside a repository and outside, and `bundle verify
+[-q] <file>` started git only (verify a second git for the connectivity check), no hook, and wrote nothing;
+`fsmonitor--daemon` status, start, stop and run exited 128 on this platform ("not supported on this platform"), started
+nothing and wrote nothing. git added the daemon in 2.36; on an older git such as delta's 2.34.1 the word
+`fsmonitor--daemon` is no built-in command, and git runs an alias of that name or a program git-fsmonitor--daemon on PATH
+in its place (gitcli, read, not measured on 2.34.1).
+
+The rule: `git bundle list-heads <file>` (one file, not `-`, no option) joins `git bundle verify` as a read form of D71
+and of the local class of D91, and so does `git fsmonitor--daemon status` (status alone); both are free where the read
+profile of D34 finds nothing, and the read profile frees fsmonitor--daemon only where the git on PATH lists it among its
+built-in commands (`git --list-cmds=builtins`, _git_builtin). The same question now comes before the gate's own probe of
+D74: _fsmonitor_known runs `git fsmonitor--daemon status` only on a git that has it built in, else the person's
+core.fsmonitor counts as it did before D74.
+
+Limits: list-heads with ref names, list-heads or verify of standard input, and the daemon's other subcommands keep their
+answer. Under Codex both keep the ask of D41. The forms are free under the switch (D91) and in the work profile of D71,
+not by decide() alone. Tests: tests/test_plugin_n40_bundle_b40.py.
