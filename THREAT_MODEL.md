@@ -1,6 +1,6 @@
 # Threat model — what a proofbundle receipt catches, and what it structurally cannot
 
-Revision: 2026-07-13
+Revision: 2026-10-14
 
 A proofbundle receipt is a **tamper-evident, signed statement of authorship and integrity** over an eval or
 test result. It is deliberately *not* a proof that the number is true or that the evaluation was well
@@ -70,6 +70,13 @@ not *correctness of the computation*.)
   and signing only the best one, and **pre-registration remains the only answer** to both. Self-challenge
   mode is grindable by re-salting (documented bound; real audits use an auditor nonce or a public
   beacon). Every opened sample is burned — openings are auditor-directed, never public.
+- **A caller's own Python objects in the same process.** JSON, the CLI and files reach the verifiers only as
+  plain values. A caller that hands its own Python objects to the API (a `dict`, `str` or `list` subclass whose
+  methods run the caller's code, or a value whose special methods raise) is code in the same process, outside
+  this boundary. Where such an object made a verifier answer ok, PASS or a signed property it should not, or made
+  a written byte differ from the judged one, 6.2.0 closed it. Where it only makes an exception escape at a surface
+  documented as never raising, that is a named limit: RESTRISIKO_620.md lists the measured sites under "a caller's
+  own Python objects can make a never-raise surface raise". Pass plain values or the package's own types.
 
 ## Assurance levels (weakest → strongest)
 
@@ -141,8 +148,8 @@ What it does not:
 
 proofbundle attests eval/test *run* results, offline, via the standards stack (Ed25519 + RFC 6962 + optional
 SD-JWT / in-toto). [ai-audit-trail](https://pypi.org/project/ai-audit-trail/) records *runtime* agent
-Decision Receipts (a different layer). [ValiChord](https://github.com/topeuph-ai/ValiChord) builds
-attestation bundles from inspect_ai logs post-hoc (its v1 library is unsigned — signatures are v2 scope).
+Decision Receipts (a different layer). [ValiChord](https://github.com/ValiChord/ValiChord) builds
+attestation bundles from inspect_ai logs post-hoc (its format is unsigned; no format version carries a signature).
 Challenge-response / key-binding for forced fresh disclosure follows RFC 9901 (SD-JWT Key Binding).
 
 ## Ed25519 edge-case envelope (C2) — cross-verifier divergence on crafted signatures
