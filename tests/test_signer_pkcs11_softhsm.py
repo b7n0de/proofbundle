@@ -32,9 +32,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+import unittest
+
 import pytest
 
-pkcs11 = pytest.importorskip("pkcs11", reason="the [pkcs11] extra (python-pkcs11) is not installed")
+# `unittest.SkipTest` and not `pytest.importorskip` or `pytest.skip`: CI also runs this directory under
+# `python -m unittest discover` (the job crypto-floor), which reads pytest's skip as an error importing the module,
+# while pytest reads `unittest.SkipTest` as a skip of the module too.
+try:
+    import pkcs11
+except ImportError:
+    raise unittest.SkipTest("the [pkcs11] extra (python-pkcs11) is not installed") from None
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 from cryptography.hazmat.primitives.serialization import (Encoding, NoEncryption, PrivateFormat,  # noqa: E402
@@ -60,8 +68,8 @@ def _find_softhsm():
         (p for p in _LIB_CANDIDATES if os.path.isfile(p)), None)
     util = os.environ.get("PROOFBUNDLE_TEST_SOFTHSM2_UTIL") or shutil.which("softhsm2-util")
     if not lib or not util or not os.path.isfile(lib) or not os.path.isfile(util):
-        pytest.skip("SoftHSM2 (libsofthsm2.so and softhsm2-util) not found; set PROOFBUNDLE_TEST_SOFTHSM2_LIB "
-                    "and PROOFBUNDLE_TEST_SOFTHSM2_UTIL", allow_module_level=True)
+        raise unittest.SkipTest("SoftHSM2 (libsofthsm2.so and softhsm2-util) not found; set "
+                                "PROOFBUNDLE_TEST_SOFTHSM2_LIB and PROOFBUNDLE_TEST_SOFTHSM2_UTIL")
     return os.path.abspath(lib), os.path.abspath(util)
 
 

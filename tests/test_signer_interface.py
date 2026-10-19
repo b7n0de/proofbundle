@@ -401,7 +401,7 @@ def _prompt_raising(monkeypatch, raised):
     import getpass
     import warnings
 
-    def fake(prompt="Password: ", stream=None):
+    def fake(prompt="", stream=None):
         if raised is getpass.GetPassWarning:
             warnings.warn("Can not control echo on the terminal.", getpass.GetPassWarning, stacklevel=2)
             return "read-from-stdin"
