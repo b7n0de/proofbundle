@@ -135,6 +135,67 @@ class TestDecisionWiresEvidenceLevels(unittest.TestCase):
         self.assertEqual(r2["evidence_levels"]["evidenceRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertTrue(r2["evidence_bound"])  # old boolean field still unaffected
 
+    def test_the_outcome_ref_level_reads_the_digest_inside_the_ref(self):
+        """L1-SEM-03 (self-gate of 2026-07-31, measured again on main 570dd164): the level of
+        `actionOutcome.outcomeRef` was computed over its {uri, digest} wrapper, so the golden example
+        decision_receipt_allow.json read CLAIMED, "no well-formed sha256 digest object present", and no
+        evidence_resolver could promote it. It reads the digest inside the ref now, as each evidenceRefs entry
+        does, and the resolver is asked about that digest object."""
+        from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
+        p = self._pred("allow")
+        self.assertEqual(p["actionOutcome"]["status"], "executed")
+        ref = p["actionOutcome"]["outcomeRef"]
+        s, pub = _keys()
+        env = emit_decision_receipt(p, s, strict=True)
+        r = verify_decision_receipt(env, pub, strict=True)
+        self.assertEqual(r["evidence_levels"]["actionOutcome.outcomeRef"]["level"],
+                         EvidenceLevel.REFERENCE_WELL_FORMED)
+        gefragt = []
+        r2 = verify_decision_receipt(env, pub, strict=True,
+                                     evidence_resolver=lambda d: gefragt.append(d) or True)
+        self.assertEqual(r2["evidence_levels"]["actionOutcome.outcomeRef"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn(ref["digest"], gefragt, "the resolver is asked about the digest object")
+        self.assertNotIn(ref, gefragt, "the resolver is never handed the wrapper")
+        self.assertTrue(r2["action_outcome_proven"])   # the legacy field is unchanged
+        # Every digest is content-resolved here, so no legacy field overstates and the deprecation warning,
+        # which fires while a proven or bound field is not backed by CONTENT_RESOLVED, stays away.
+        self.assertFalse([w for w in r2["warnings"] if w.startswith("DEPRECATED")], r2["warnings"])
+
+    def test_control_an_outcome_ref_without_a_usable_digest_stays_claimed(self):
+        import hashlib
+
+        from proofbundle import dsse
+        from proofbundle.decision import (DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE,
+                                          STATEMENT_TYPE, DecisionReceiptError, _rfc8785_bytes,
+                                          emit_decision_receipt, verify_decision_receipt)
+        for name, ref, status, erwartet in (
+                ("ref null", None, "executed", EvidenceLevel.CLAIMED),
+                ("uri only", {"uri": "urn:proofbundle:tool-outcome:x"}, "executed", EvidenceLevel.CLAIMED),
+                ("digest not hex", {"uri": "urn:x", "digest": {"sha256": "x"}}, "executed", EvidenceLevel.CLAIMED),
+                ("not executed", {"uri": "urn:x", "digest": {"sha256": "c" * 64}}, "blocked", None)):
+            with self.subTest(fall=name):
+                p = copy.deepcopy(self._pred("allow"))
+                p["actionOutcome"]["outcomeRef"] = ref
+                p["actionOutcome"]["status"] = status
+                s, pub = _keys()
+                if name == "digest not hex":
+                    # The producer refuses this predicate since its validator reads the schema's
+                    # sha256Digest shape (pull request 382), and so does build_decision_statement, so
+                    # the statement is built here in the producer's form and signed without either:
+                    # what this control holds is the verifier's level for a receipt that reaches it.
+                    with self.assertRaises(DecisionReceiptError):
+                        emit_decision_receipt(p, s, strict=True)
+                    statement = {"_type": STATEMENT_TYPE,
+                                 "subject": [{"name": "decision:x", "digest": {
+                                     "sha256": hashlib.sha256(_rfc8785_bytes(p)).hexdigest()}}],
+                                 "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": p}
+                    env = dsse.sign_envelope(_rfc8785_bytes(statement), s,
+                                             payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+                else:
+                    env = emit_decision_receipt(p, s, strict=True)
+                r = verify_decision_receipt(env, pub, strict=True, evidence_resolver=lambda d: True)
+                self.assertEqual(r["evidence_levels"]["actionOutcome.outcomeRef"]["level"], erwartet)
+
     def test_empty_evidence_refs_evidence_level_is_none(self):
         from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
         p = copy.deepcopy(self._pred("deny"))
