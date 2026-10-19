@@ -183,7 +183,7 @@ def test_D102_hooks_json_runs_the_read_hook_for_read_and_grep_only():
 
 def test_D102_without_the_list_of_key_paths_the_gate_denies(repo, monkeypatch):
     monkeypatch.setattr(gate, "_SECRETS_FILE", "missing_secrets.py")
-    monkeypatch.setattr(gate, "_SECRETS_MODULE", None)
+    monkeypatch.setattr(gate, "_SECRETS_MODULE", {})
     with pytest.raises(gate.GateError, match="D102"):
         _out(repo, "cat notes.md")
 

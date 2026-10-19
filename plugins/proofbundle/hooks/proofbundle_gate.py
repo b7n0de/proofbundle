@@ -48,6 +48,7 @@ import binascii
 import calendar
 import collections
 import concurrent.futures
+import contextvars
 import errno
 import fnmatch
 import hashlib
@@ -11552,8 +11553,7 @@ def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple
     protected: set = set()
     writers: dict = {}
     env_now = os.environ if environ is None else environ
-    global _STATE_FILES_MEMO
-    _STATE_FILES_MEMO = {}   # one read of the state files per folder for this command (D96)
+    memo = _STATE_FILES_MEMO.set({})   # one read of the state files per folder for this command (D96)
     try:
         values = _sh_line_values(steps, env_now)   # D100
         for s in steps:
@@ -11575,7 +11575,7 @@ def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple
                     verdicts.extend(written.verdicts)
                     writers.update((id(v), s) for v in written.verdicts)
     finally:
-        _STATE_FILES_MEMO = None
+        _STATE_FILES_MEMO.reset(memo)
     return verdicts, protected, writers
 
 
@@ -13042,16 +13042,17 @@ def _house_findings(command: str, cwd: str | None, deadline: float) -> list:
 
 # --- D102 to D104: the guards of Nachtrag 33 that hold for every command, git or not ---------------------------------
 
-#: D102: the module of the key paths beside the gate, which the hook of Read and Grep runs on its own; loaded on first use.
+#: D102: the module of the key paths beside the gate, which the hook of Read and Grep runs on its own; loaded on first use
+#: and kept under "module" in _SECRETS_MODULE, so no function rebinds a module-level name (N405-a).
 _SECRETS_FILE = "proofbundle_secrets.py"
-_SECRETS_MODULE = None
+_SECRETS_MODULE: dict = {}
 
 
 def _secrets():
     """The module of the key paths (D102), from the gate's own folder; a GateError where it cannot be loaded, which
     denies the call, as every failure of the gate does."""
-    global _SECRETS_MODULE
-    if _SECRETS_MODULE is None:
+    module = _SECRETS_MODULE.get("module")
+    if module is None:
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), _SECRETS_FILE)
         try:
             spec = importlib.util.spec_from_file_location("proofbundle_secrets", path)
@@ -13060,8 +13061,8 @@ def _secrets():
         except (OSError, SyntaxError, ImportError, AttributeError) as exc:
             raise GateError(f"the list of key paths of D102 ({_SECRETS_FILE} beside the gate) cannot be loaded "
                             f"({type(exc).__name__})") from exc
-        _SECRETS_MODULE = module
-    return _SECRETS_MODULE
+        _SECRETS_MODULE["module"] = module
+    return module
 
 
 def _guard_steps(command: str, cwd: str | None) -> list | None:
@@ -14047,13 +14048,14 @@ def _write_targets(tool: str, tool_input: object) -> list[str] | None:
     return [path] if isinstance(path, str) and path else None
 
 
-#: D96: the state files of each folder, read once while class c judges the writes of one command; None outside it.
-_STATE_FILES_MEMO: "dict | None" = None
+#: D96: the state files of each folder, read once while class c judges the writes of one command; None outside it. A
+#: context variable, set and reset by _sh_write_verdicts, so no function rebinds a module-level name (N405-a).
+_STATE_FILES_MEMO: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar("_STATE_FILES_MEMO", default=None)
 
 
 def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     """_state_files_read, once per folder while _STATE_FILES_MEMO is set (D96), else every time."""
-    memo = _STATE_FILES_MEMO
+    memo = _STATE_FILES_MEMO.get()
     if memo is not None and directory in memo:
         return memo[directory]
     result = _state_files_read(directory, deadline)
@@ -19972,9 +19974,10 @@ _READ_ONLY_DUPLICATES = frozenset({">&", "1>&", "2>&"})
 #: The closed grammar of a read program (D77): the short switches without a value, with one (attached or the next word)
 #: and with an optional one (attached only); the long switches without a value, with one (`--name=value` or the next
 #: word) and with an optional one (`--name=value` only); and whether an obsolete `-NUM` counts.
-_ReadGrammar = collections.namedtuple("_ReadGrammar", ("flags", "values", "optional", "long_flags", "long_values",
-                                                       "long_optional", "number"),
-                                      defaults=(frozenset(), frozenset(), frozenset(), frozenset(), frozenset(), False))
+_ReadProgramGrammar = collections.namedtuple("_ReadProgramGrammar", ("flags", "values", "optional", "long_flags",
+                                                                     "long_values", "long_optional", "number"),
+                                             defaults=(frozenset(), frozenset(), frozenset(), frozenset(), frozenset(),
+                                                       False))
 
 
 #: The read programs of owner choice O26-1 (Ergänzung 1 to Nachtrag 31, D77) with their closed grammars, GNU coreutils
@@ -19987,31 +19990,32 @@ _ReadGrammar = collections.namedtuple("_ReadGrammar", ("flags", "values", "optio
 #: one named exception: from a pipe of 0.8 MB on it writes temporary files of its own in TMPDIR, opened with O_EXCL and
 #: mode 0600 and removed by sort itself (truth_sort_temp_e1.sh); -o, -T, -S, -m, every long option and every option not
 #: measured stay out. cd stays with D33.
-_READ_TAIL = _ReadGrammar(frozenset("qvz"), frozenset("nc"), long_flags=frozenset({"--quiet", "--silent", "--verbose",
-                                                                                   "--zero-terminated"}),
-                          long_values=frozenset({"--lines", "--bytes"}), number=True)
+_READ_TAIL = _ReadProgramGrammar(frozenset("qvz"), frozenset("nc"),
+                                 long_flags=frozenset({"--quiet", "--silent", "--verbose", "--zero-terminated"}),
+                                 long_values=frozenset({"--lines", "--bytes"}), number=True)
 _READ_PROGRAMS = {
     "head": _READ_TAIL,
     "tail": _READ_TAIL,
-    "wc": _ReadGrammar(frozenset("cmlwL"), long_flags=frozenset({"--bytes", "--chars", "--lines", "--words",
-                                                                 "--max-line-length"})),
-    "ls": _ReadGrammar(frozenset("aAbBcCdfFgGhHiklLmnNopqQrRsStuUvxX1"), frozenset("wTI"),
-                       long_flags=frozenset({"--all", "--almost-all", "--escape", "--ignore-backups", "--directory",
-                                             "--file-type", "--full-time", "--group-directories-first", "--no-group",
-                                             "--human-readable", "--si", "--dereference-command-line", "--dereference",
-                                             "--inode", "--kibibytes", "--literal", "--numeric-uid-gid",
-                                             "--hide-control-chars", "--show-control-chars", "--quote-name",
-                                             "--reverse", "--recursive", "--size", "--author"}),
-                       long_values=frozenset({"--width", "--tabsize", "--ignore", "--hide", "--sort", "--time",
-                                              "--time-style", "--format", "--indicator-style", "--quoting-style",
-                                              "--block-size"}),
-                       long_optional=frozenset({"--color", "--classify"})),
-    "date": _ReadGrammar(frozenset("uR"), frozenset("dr"), frozenset("I"),
-                         long_flags=frozenset({"--utc", "--universal", "--rfc-email"}),
-                         long_values=frozenset({"--date", "--reference", "--rfc-3339"}),
-                         long_optional=frozenset({"--iso-8601"})),
-    "sleep": _ReadGrammar(frozenset()),
-    "sort": _ReadGrammar(frozenset("bcfnrsuVz"), frozenset("kt")),
+    "wc": _ReadProgramGrammar(frozenset("cmlwL"), long_flags=frozenset({"--bytes", "--chars", "--lines", "--words",
+                                                                        "--max-line-length"})),
+    "ls": _ReadProgramGrammar(frozenset("aAbBcCdfFgGhHiklLmnNopqQrRsStuUvxX1"), frozenset("wTI"),
+                              long_flags=frozenset({"--all", "--almost-all", "--escape", "--ignore-backups",
+                                                    "--directory", "--file-type", "--full-time",
+                                                    "--group-directories-first", "--no-group", "--human-readable",
+                                                    "--si", "--dereference-command-line", "--dereference", "--inode",
+                                                    "--kibibytes", "--literal", "--numeric-uid-gid",
+                                                    "--hide-control-chars", "--show-control-chars", "--quote-name",
+                                                    "--reverse", "--recursive", "--size", "--author"}),
+                              long_values=frozenset({"--width", "--tabsize", "--ignore", "--hide", "--sort", "--time",
+                                                     "--time-style", "--format", "--indicator-style",
+                                                     "--quoting-style", "--block-size"}),
+                              long_optional=frozenset({"--color", "--classify"})),
+    "date": _ReadProgramGrammar(frozenset("uR"), frozenset("dr"), frozenset("I"),
+                                long_flags=frozenset({"--utc", "--universal", "--rfc-email"}),
+                                long_values=frozenset({"--date", "--reference", "--rfc-3339"}),
+                                long_optional=frozenset({"--iso-8601"})),
+    "sleep": _ReadProgramGrammar(frozenset()),
+    "sort": _ReadProgramGrammar(frozenset("bcfnrsuVz"), frozenset("kt")),
 }
 #: The read programs xargs may start (D77): those none of whose options writes, follows a file or sets a time, as the
 #: words xargs reads from its input become their arguments too.
