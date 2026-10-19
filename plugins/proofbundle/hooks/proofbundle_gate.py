@@ -1420,7 +1420,7 @@ def _checkout_state_problem(directory: str, target: str, deadline: float, enviro
 def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None,
                               hooks_not_run: frozenset = _HOOKS_NOT_RUN_BY_ADD_COMMIT,
                               signing_inert: bool = False, own_known: frozenset = frozenset(),
-                              hook_counts=None) -> str | None:
+                              hook_counts=None, recorded_hooks: bool = False) -> str | None:
     """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
     else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
     --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
@@ -1433,7 +1433,9 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     core.fsmonitor names git's own daemon on a git without one, does not count; "lfs", for a form that brings no other
     tree into the work tree, lets the four entries of `git lfs install` count only where an attribute assigns a filter
     to a path of the index or to an untracked path git add would take. hook_counts, for a form measured to start no
-    hook at all (`git merge-tree --write-tree`, D91), takes the place of the count by hooks_not_run."""
+    hook at all (`git merge-tree --write-tree`, D91), takes the place of the count by hooks_not_run. recorded_hooks,
+    for the forms of D106 in autonomous operation only, leaves a hook the owner recorded out of the count
+    (_hook_recorded)."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1461,7 +1463,11 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
                     f"{origin_of(scope, origin)}")
-    problem = _hook_problem(paths, hook_counts or (lambda name: name not in hooks_not_run))
+    counts = hook_counts or (lambda name: name not in hooks_not_run)
+    if recorded_hooks:   # D106
+        recorded, counted = _recorded_hooks(paths, environ), counts
+        counts = lambda name: counted(name) and not _hook_recorded(paths["hooks"], name, recorded)  # noqa: E731
+    problem = _hook_problem(paths, counts)
     if problem is not None:
         return problem
     for name in sorted(environ):
@@ -14684,6 +14690,7 @@ _SHORT_REASONS = {
                             "ein eigener Arbeitszweig unter dem stehenden GO, gemessen"),
     # the local class that can be taken back (D91): a pass in the log, an ask for a program, a deny for a guarded write
     "free_local_reversible": ("D91", "local and can be taken back, checked", "lokal und umkehrbar, geprüft"),
+    "free_recorded_hooks": ("D106", "local, its hooks as the owner recorded them", "lokal, Haken wie vom Owner festgehalten"),
     "free_bundle_fetch": ("D98", "it fetches a local bundle, checked", "es holt ein lokales Bündel, geprüft"),
     "local_program": ("D91", "a local form starts a program of the clone the gate does not see",
                       "eine lokale Form ein Programm des Klons startet, das das Tor nicht sieht"),
@@ -15366,7 +15373,8 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
     out = decide(text, directory, deadline, "claude", environ)
     if out is not None and out.decision == "ask":
         out = _autonomy_external(out, text, directory, deadline, environ) or \
-            _autonomy_local(out, text, directory, deadline, environ) or out   # D91
+            _autonomy_recorded(out, directory, deadline, environ) or \
+            _autonomy_local(out, text, directory, deadline, environ) or out   # D106, D91
         if out.decision == "ask" and (out.autonomy or {}).get("klasse") == "aussen":
             return "external", ""
     if out is None or out.decision in _AUTONOMY_FREE:
@@ -15422,6 +15430,9 @@ def _autonomy_answer(outcome: "Outcome | None", command: str | None, cwd: str, d
         kept = _autonomy_external(outcome, command, cwd, deadline, environ)
         if kept is not None:
             return kept
+        recorded = _autonomy_recorded(outcome, cwd, deadline, environ)   # D106
+        if recorded is not None:
+            return recorded
         local = _autonomy_local(outcome, command, cwd, deadline, environ)   # D91
         if local is not None:
             return local
@@ -16085,10 +16096,12 @@ def _local_write_problem(form: _WorkForm, directory: str, deadline: float,
     return None
 
 
-def _local_program_problem(form: _WorkForm, directory: str, deadline: float, environ: dict) -> str | None:
+def _local_program_problem(form: _WorkForm, directory: str, deadline: float, environ: dict,
+                           recorded_hooks: bool = False) -> str | None:
     """None when the check of the form's class finds nothing that starts a program the gate does not see, else what it
     found: the read profile of D34 for a read; the checkout check of D40 for `worktree add`; the state check of D40
-    with no hook counted for merge-tree (measured: it starts none) and with the hooks of D71 for every other form."""
+    with no hook counted for merge-tree (measured: it starts none) and with the hooks of D71 for every other form,
+    with recorded_hooks those the owner recorded left out (D106)."""
     if form.kind == "read":
         bound = [] if _no_terminal_host("claude", environ) else None
         return _read_profile_problem(form.name.split(" ")[1], directory, deadline, environ, inert_pagers=bound)
@@ -16098,7 +16111,8 @@ def _local_program_problem(form: _WorkForm, directory: str, deadline: float, env
         return _add_commit_state_problem(directory, deadline, environ, hook_counts=lambda _name: False,
                                          own_known=_OWN_FSMONITOR)
     return _add_commit_state_problem(directory, deadline, environ, hooks_not_run=_HOOKS_NOT_RUN_BY_WORK,
-                                     own_known=_OWN_KNOWN if form.name in _WORK_LFS_FORMS else _OWN_FSMONITOR)
+                                     own_known=_OWN_KNOWN if form.name in _WORK_LFS_FORMS else _OWN_FSMONITOR,
+                                     recorded_hooks=recorded_hooks)
 
 
 def _local_declaration_changes(form: _WorkForm, directory: str, deadline: float) -> bool:
@@ -16151,8 +16165,12 @@ def _autonomy_local(outcome: "Outcome", command: str, cwd: str, deadline: float,
             return None
         declaration = written is None and _local_declaration_changes(form, directory, deadline)
         program = None if written or declaration else _local_program_problem(form, directory, deadline, environ)
+        recorded = program is not None and form.name in _RECORDED_HOOK_FORMS and \
+            _local_program_problem(form, directory, deadline, environ, recorded_hooks=True) is None
     except GateError:
         return None
+    if recorded:
+        return _recorded_pass(outcome, [form.name], directory)   # D106
     cause = next((v for v in outcome.verdicts if v.decision == "ask"), None)
     if written is not None or declaration:
         reason = "write_to_repo_state" if written is not None else "write_to_declaration"
@@ -16181,6 +16199,167 @@ def _autonomy_local(outcome: "Outcome", command: str, cwd: str, deadline: float,
                       repo=directory)
     new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
     return _autonomy_record(new, "lokal", wirkung=[form.name])
+
+
+# --- D106: a hook of the own clone is free where the owner recorded the hook state (Nachtrag 41, O39-1) -------------
+
+#: D106: the file in the gate directory, which only a person writes (D25), that records the hooks of a clone:
+#: {"schema": HOOK_STATE_SCHEMA, "klone": [{"pfad": <absolute path of the clone>, "haken": {<hook name>: <sha256>}}]}.
+#: `proofbundle_gate.py hook-state <path>` prints the entry of a clone as it is now and writes nothing.
+HOOK_STATE_FILE = "hook-state.json"
+HOOK_STATE_SCHEMA = "proofbundle-plugin/hook-state/v0.1"
+MAX_HOOK_STATE_BYTES = 64 * 1024
+#: The most bytes of a hook the gate hashes; a larger one is never the recorded hook.
+MAX_RECORDED_HOOK_BYTES = 1024 * 1024
+#: The forms whose hooks a record frees in autonomous operation: delta's forms of Nachtrag 41 (card OA-4d2e5b284c), as
+#: the state check of D3 frees add and commit and the local class of D91 frees commit and merge.
+_RECORDED_HOOK_FORMS = frozenset({"git add", "git commit", "git merge"})
+#: The evidence of the not-free answer of D3 for each of its two forms (_state_free_verdict).
+_STATE_FREE_EVIDENCE = {f"the repository state {name} runs with": name for name in ("git add", "git commit")}
+_HOOK_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def _hook_state_entries(environ) -> list[tuple[str, dict]]:
+    """D106: the clones hook-state.json in the gate directory records, each (its path resolved, {hook name: sha256}).
+    A file that does not read whole records nothing: no regular file, more than MAX_HOOK_STATE_BYTES, not strict JSON
+    (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
+    gate_dir = _gate_dir(environ)
+    if gate_dir is None:
+        return []
+    try:
+        raw = _read_regular(os.path.join(gate_dir, HOOK_STATE_FILE), MAX_HOOK_STATE_BYTES + 1)
+        data = strict_json(raw) if len(raw) <= MAX_HOOK_STATE_BYTES else None
+    except (OSError, ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, dict) or set(data) != {"schema", "klone"} or data["schema"] != HOOK_STATE_SCHEMA or \
+            not isinstance(data["klone"], list):
+        return []
+    entries = []
+    for entry in data["klone"]:
+        if not isinstance(entry, dict) or set(entry) != {"pfad", "haken"} or not isinstance(entry["pfad"], str) or \
+                not os.path.isabs(entry["pfad"]) or not isinstance(entry["haken"], dict):
+            return []
+        if not all(_HOOK_NAME.fullmatch(name) and isinstance(sha, str) and _SHA256_HEX.fullmatch(sha)
+                   for name, sha in entry["haken"].items()):
+            return []
+        entries.append((_realpath(entry["pfad"]), dict(entry["haken"])))
+    return entries
+
+
+def _own_hook_directory(paths: dict) -> str | None:
+    """D106: the clone's own hook directory, <common directory resolved>/hooks, where git takes the hooks from it; None
+    where core.hooksPath names another folder, and where the hook directory is a link (it resolves to another path)."""
+    if not paths.get("common") or not paths.get("hooks"):
+        return None
+    own = os.path.join(_realpath(paths["common"]), "hooks")
+    return None if _realpath(paths["hooks"]) != own else own
+
+
+def _recorded_hooks(paths: dict, environ) -> dict:
+    """D106: {hook name: sha256} the owner recorded for the clone at paths, by its work tree or by its common directory
+    (a linked work tree shares the hooks of its clone); {} where git does not take the hooks from the clone's own hook
+    directory, where no entry names the clone, or where more than one does."""
+    if _own_hook_directory(paths) is None:
+        return {}
+    top, common = paths.get("toplevel"), _realpath(paths["common"])
+    found = [hooks for root, hooks in _hook_state_entries(environ)
+             if (top and root == _realpath(top)) or _realpath(os.path.join(root, ".git")) == common]
+    return found[0] if len(found) == 1 else {}
+
+
+def _hook_recorded(hooks: str, name: str, recorded: dict) -> bool:
+    """D106: whether the hook of that name is the one the owner recorded: a regular file, opened without following a
+    link, whose at most MAX_RECORDED_HOOK_BYTES bytes hash to the recorded sha256."""
+    want = recorded.get(name)
+    if want is None:
+        return False
+    try:
+        raw = _read_regular(os.path.join(hooks, name), MAX_RECORDED_HOOK_BYTES + 1)
+    except (OSError, ValueError):
+        return False
+    return len(raw) <= MAX_RECORDED_HOOK_BYTES and hashlib.sha256(raw).hexdigest() == want
+
+
+def _recorded_pass(outcome: "Outcome", names: list[str], directory: str) -> "Outcome":
+    """D106: the pass of autonomous operation for forms whose only program the state check found is a recorded hook."""
+    verdict = Verdict("pass", f"proofbundle gate: {' and '.join(names)} is free in autonomous operation: every hook it "
+                              f"starts in the clone at {directory} is one the owner recorded in the hook state of the "
+                              "gate directory, with the bytes it holds now, and the state check found nothing else "
+                              "that starts a program (Nachtrag 41, O39-1; DECISIONS.md D106).", "free_recorded_hooks",
+                      repo=directory)
+    new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
+    return _autonomy_record(new, "lokal", wirkung=names)
+
+
+def _autonomy_recorded(outcome: "Outcome", cwd: str, deadline: float, environ: dict) -> "Outcome | None":
+    """D106 (Nachtrag 41, O39-1): the answer to an ask of decide() whose every verdict that is no pass is the not-free
+    answer of D3 for `git add` or `git commit` (a form of its own or their chain): a pass where the state check of each
+    repository finds nothing with the hooks the owner recorded left out (_recorded_hooks, _hook_recorded), in a
+    repository that does not overlap the gate directory. None otherwise, and D91 and D85 answer. cwd is unused: each
+    verdict names its repository."""
+    if outcome is None or outcome.decision != "ask":
+        return None
+    asks = [v for v in outcome.verdicts if v.decision != "pass"]
+    if not asks or any(v.reason_id != "git_form_not_free" or v.evidence not in _STATE_FREE_EVIDENCE
+                       or not isinstance(v.repo, str) or not os.path.isabs(v.repo) for v in asks):
+        return None
+    directories = list(dict.fromkeys(v.repo for v in asks))
+    try:
+        for directory in directories:
+            _paths, problem = _repo_overlap_problem(directory, deadline, environ)
+            if problem is not None or _add_commit_state_problem(directory, deadline, environ, own_known=_OWN_KNOWN,
+                                                                recorded_hooks=True) is not None:
+                return None
+    except GateError:
+        return None
+    return _recorded_pass(outcome, list(dict.fromkeys(_STATE_FREE_EVIDENCE[v.evidence] for v in asks)),
+                          ", ".join(directories))
+
+
+def hook_state_command(argv: list[str]) -> int:
+    """D106: `hook-state <path>` prints the entry of hook-state.json for the clone at path as it is now: its work tree
+    and the sha256 of every hook of its own hook directory that is a regular file; a .sample is left out, and so is a
+    link or any other entry, named on stderr. It writes nothing: a person reads the entry and copies it into the file.
+    Exit 1 where the path is no work tree or git takes the hooks from elsewhere (core.hooksPath, a link), 2 for a
+    wrong call."""
+    if len(argv) != 1:
+        print("usage: proofbundle_gate.py hook-state <path of the clone>", file=sys.stderr)
+        return 2
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    try:
+        paths, why = _repo_paths(os.path.abspath(argv[0]), deadline)
+    except GateError as exc:
+        paths, why = None, str(exc)
+    if paths is None or paths["toplevel"] is None:
+        print(f"hook-state: no git work tree there ({why or 'not inside one'})", file=sys.stderr)
+        return 1
+    own = _own_hook_directory(paths)
+    if own is None:
+        print("hook-state: git takes the hooks of this clone from core.hooksPath or through a link, not from its own "
+              "hook directory; D106 records only those", file=sys.stderr)
+        return 1
+    hooks = {}
+    try:
+        names = sorted(os.listdir(own)) if os.path.isdir(own) else []
+    except OSError as exc:
+        print(f"hook-state: the hook directory cannot be read ({_os_error(exc)})", file=sys.stderr)
+        return 1
+    for name in names:
+        if name.endswith(".sample"):
+            continue
+        try:
+            raw = _read_regular(os.path.join(own, name), MAX_RECORDED_HOOK_BYTES + 1)
+        except (OSError, ValueError):
+            raw = None
+        if raw is None or len(raw) > MAX_RECORDED_HOOK_BYTES or not _HOOK_NAME.fullmatch(name):
+            print(f"hook-state: left out {name!r}: a link, no regular file, a name of another shape or more than "
+                  f"{MAX_RECORDED_HOOK_BYTES} bytes; it stays a hook the gate counts", file=sys.stderr)
+            continue
+        hooks[name] = hashlib.sha256(raw).hexdigest()
+    print(json.dumps({"schema": HOOK_STATE_SCHEMA, "klone": [{"pfad": _realpath(paths["toplevel"]), "haken": hooks}]},
+                     indent=2))
+    return 0
 
 
 # --- D92: gh pr edit --body-file with the house's form checker, a receipt in place of a click (Nachtrag 37) ---------
@@ -19766,6 +19945,8 @@ def main(argv: list[str] | None = None) -> int:
         return bilanz_command(argv[1:])
     if argv[:1] == ["done-statement"]:
         return done_statement_command(argv[1:])
+    if argv[:1] == ["hook-state"]:
+        return hook_state_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

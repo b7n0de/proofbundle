@@ -4828,3 +4828,43 @@ question O33-4).
 
 Limits, named: Codex shows a hint as Codex shows a warning (D12), not measured; a move of a file the index does not
 track counts as one of the repository. Tests: tests/test_plugin_n33_hints_d105.py.
+
+## D106. A hook of the own clone is free where the owner recorded the hook state (Nachtrag 41, O39-1, 2026-10-19)
+
+Order of Nachtrag 41, point 1 (owner answers of 2026-10-19 14:5x Berlin, O39-1 and O37-1 as recommended): a hook of the
+own clone is free where the owner recorded the hook state; the forms of delta, `git add`, `git commit` and `git merge`
+of main in the own work clone with a pre-commit hook, under the flag; caught at least a changed hook, a new hook,
+core.hooksPath on a foreign folder and a hook as a link. Found by delta's card OA-4d2e5b284c (PR 328): at 63b88d07,
+under `--autonomous` with a pre-commit hook, `git add` was blocked (D3 asks, no form of D91, no rewrite:
+autonomy_blocked), and `git commit` and `git merge -F <file> main` kept the owner's ask (local_program of D91).
+
+Measured at 63b88d07 (n41/d106/probe_base.py of the delivery, git 2.43.0, three repositories): without a hook every
+form of the list is free; with a pre-commit hook add is blocked and commit and merge ask, in the declared repository of
+b7n0de and in the others alike. A bare `git merge main` is blocked with and without a hook: it is no form of D91 (an
+editor on a terminal), and D106 does not change that (owner question in the report).
+
+The rule: the file hook-state.json in the gate's directory, which only a person writes (D25: decide_write and the
+redirections of a Bash step into the gate directory are denied, write_to_gate_dir), records clones,
+`{"schema": "proofbundle-plugin/hook-state/v0.1", "klone": [{"pfad": <absolute path>, "haken": {<name>: <sha256>}}]}`;
+`proofbundle_gate.py hook-state <path>` prints the entry of a clone as it is now and writes nothing. A file that does
+not read whole records nothing: no regular file, more than 64 KiB, a repeated key, another schema, another key, a
+relative path, a hook name of another shape, a value that is not 64 lower-case hex digits. In autonomous operation
+(Claude Code with the flag, D85), and only for `git add`, `git commit` and `git merge`:
+- an ask whose every verdict that is no pass is the not-free answer of D3 for add or commit (a form of its own or their
+  chain, _autonomy_recorded), and a form of D91 named git commit or git merge whose only finding is a program
+  (_autonomy_local), is free (free_recorded_hooks, klasse lokal, no line to the user) where the state check of D3 or
+  D91 finds nothing once the recorded hooks are left out of its count; a rewrite of D85 counts such a call as free;
+- a hook is left out only where git takes the hooks from the clone's own hook directory (core.hooksPath on another
+  folder, or a hook directory that is a link, records nothing), where exactly one entry names the clone by its work
+  tree or by its common directory (a linked work tree shares the hooks of its clone), and where the hook is a regular
+  file, opened without following a link, whose bytes, at most 1 MiB, hash to the recorded value. A changed hook, a new
+  hook, a link and every other source of a program the state check reads (a filter, fsmonitor, a key or GIT_* name it
+  does not know) count as before.
+
+Not changed: decide(), every answer without the flag and every answer under Codex; the other forms of D91 (switch,
+checkout, worktree add, stash, rebase) count their hooks as before; a repository that overlaps the gate directory gets
+no free answer. Limits, named: the record binds the bytes of the hook, not what the hook reads or starts (a hook that
+runs a script of the work tree, or the pre-commit framework, which reads .pre-commit-config.yaml of the work tree, runs
+what the session wrote there); the gate reads the hook when it answers and git opens it later, so a swap in between
+needs a second process (D27, the class of the D98 limit); a Bash step in another language that writes a hook is not
+gated (D8). Tests: tests/test_plugin_n33_recorded_hooks_d106.py.
