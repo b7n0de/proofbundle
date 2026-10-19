@@ -39,6 +39,8 @@ list. Items marked **[repo]** are enforced by files in this repository and are r
   silently re-pin one (root-of-trust protection).
 - **[Owner · to verify]** Private keys live only where the maintainer controls them (local, 0600, or a hardware/KMS
   custodian), never in CI for the offline-verifiable artifacts.
+- **[repo]** A key held in a PKCS#11 token can sign with `--token-uri` on every command that signs (the
+  `[pkcs11]` extra); when to use a key file and when a token is in [SIGNERS.md](SIGNERS.md).
 
 ## CI / supply chain
 

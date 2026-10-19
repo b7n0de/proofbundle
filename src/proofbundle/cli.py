@@ -487,12 +487,40 @@ def _resolve_signer(args):
     they were read by their truth, so `--key K --new-key ''` signed with K and exited 0, and `--key '' --new-key N`
     wrote N, each exactly as if the empty option had not been given. Both given is refused whatever they hold, and
     a key file that cannot be read or written, the empty path included, is refused with exit 2, not a raw
-    traceback."""
+    traceback.
+
+    ``--token-uri`` (Z380) selects an Ed25519 key in a PKCS#11 token by an RFC 7512 URI instead of a file
+    (`signer.Pkcs11Signer`). It is refused beside ``--key`` or ``--new-key``, and ``--token-pin-env`` without it, since
+    each would be applied by nothing. The PIN comes from the environment variable ``--token-pin-env`` names, or from a
+    prompt on the terminal; never from the command line. A token that fails ends the command with exit 2, and
+    no key file is read, written or generated after it: there is no fallback."""
     new_key = getattr(args, "new_key", None)
     key = getattr(args, "key", None)
+    token_uri = getattr(args, "token_uri", None)
+    token_pin_env = getattr(args, "token_pin_env", None)
     if new_key is not None and key is not None:
         print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
         return None
+    if token_uri is not None and (key is not None or new_key is not None):
+        print("ERROR: use either --token-uri or a key file (--key, --new-key), not both: a token is never paired "
+              "with a file", file=sys.stderr)
+        return None
+    if token_pin_env is not None and token_uri is None:
+        print("ERROR: --token-pin-env names the variable that holds a token's PIN and applies to --token-uri only",
+              file=sys.stderr)
+        return None
+    if token_uri is not None:
+        from .signer import Pkcs11Signer, SignerError, pin_from_env, pin_from_prompt  # noqa: PLC0415
+        try:
+            pin = pin_from_env(token_pin_env) if token_pin_env is not None else pin_from_prompt()
+            signer = Pkcs11Signer.open(token_uri, pin=pin)
+        except SignerError as exc:
+            _err(exc)
+            return None
+        # `main` closes it when the command ends: the PKCS#11 login holds for the token and the whole process, so
+        # a second `main` in this process could not log in to the same token while it stays open (lens run 1, F6).
+        args.opened_token_signer = signer
+        return signer
     try:
         if new_key is not None:
             signer = generate_signer()
@@ -3129,6 +3157,20 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _token_options(p: argparse.ArgumentParser) -> None:
+    """The two options every command that signs takes beside --key and --new-key (Z380, `_resolve_signer`)."""
+    p.add_argument("--token-uri", dest="token_uri", default=None, metavar="PKCS11_URI",
+                   help="sign with an Ed25519 key held in a PKCS#11 token instead of a key file, selected by an "
+                        "RFC 7512 URI that names the module by its absolute path, e.g. "
+                        "'pkcs11:token=release;object=release-key?module-path=/usr/lib/softhsm/libsofthsm2.so'. "
+                        "Needs the [pkcs11] extra. The PIN is asked for on the terminal, or read from the "
+                        "variable --token-pin-env names; a PIN in the URI is refused. A token that fails ends the "
+                        "command (exit 2); there is no fallback to a key file")
+    p.add_argument("--token-pin-env", dest="token_pin_env", default=None, metavar="NAME",
+                   help="with --token-uri: the NAME of the environment variable that holds the token's user PIN "
+                        "(never the PIN itself; the command line is readable by other processes)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -3248,6 +3290,7 @@ def build_parser() -> argparse.ArgumentParser:
     emit.add_argument("--out", required=True, help="path to write the bundle JSON")
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit.add_argument("--new-key", help="generate a signing key and save it to this file")
+    _token_options(emit)
     emit.set_defaults(func=_cmd_emit)
 
     emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON")
@@ -3255,6 +3298,7 @@ def build_parser() -> argparse.ArgumentParser:
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
+    _token_options(emit_eval)
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
@@ -3356,6 +3400,7 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--out", help="path to write the DSSE attestation JSON (export)")
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
     intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
+    _token_options(intoto)
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
                         default="receipt",
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
@@ -3383,6 +3428,7 @@ def build_parser() -> argparse.ArgumentParser:
     svr.add_argument("--out", help="path to write the SVR attestation JSON (emit)")
     svr.add_argument("--key", help="the verifier's 32 byte raw Ed25519 seed file to sign the SVR")
     svr.add_argument("--new-key", help="generate a signing key and save it to this file")
+    _token_options(svr)
     svr.add_argument("--policy-uri", help="optional verifier.policy URI (SVR v0.1 extension field)")
     svr.add_argument("--policy-sha256", help="optional verifier.policy digest (sha256 hex)")
     svr.add_argument("--verify", action="store_true", help="verify an SVR instead of emitting one (needs --pub)")
@@ -3474,6 +3520,7 @@ def build_parser() -> argparse.ArgumentParser:
     d_emit.add_argument("--out", required=True, help="output path for the signed decision receipt")
     d_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
     d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    _token_options(d_emit)
     d_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates (skip strict-mode required fields)")
     d_emit.set_defaults(func=_cmd_decision_emit)
 
@@ -3542,6 +3589,7 @@ def build_parser() -> argparse.ArgumentParser:
     o_emit.add_argument("--out", required=True, help="output path for the signed outcome receipt")
     o_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
     o_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    _token_options(o_emit)
     o_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates")
     o_emit.set_defaults(func=_cmd_outcome_emit)
 
@@ -3599,6 +3647,7 @@ def build_parser() -> argparse.ArgumentParser:
     rs_emit.add_argument("--out", required=True, help="output path for the signed relation statement")
     rs_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
     rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    _token_options(rs_emit)
     rs_emit.set_defaults(func=_cmd_relation_statement_emit)
 
     rs_verify = rsub.add_parser(
@@ -3753,6 +3802,11 @@ def main(argv=None) -> int:
             import traceback  # noqa: PLC0415
             traceback.print_exc()
         return 2
+    finally:
+        # A token signer `_resolve_signer` opened ends its session with the command (Z380, lens run 1, F6).
+        opened = getattr(args, "opened_token_signer", None)
+        if opened is not None:
+            opened.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

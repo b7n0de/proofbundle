@@ -71,6 +71,10 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-10-16, Z380: the signer interface. `parse_pkcs11_uri` reads a PKCS#11 URI the caller pastes, so it
+    # reads untrusted text and must answer every input with a typed refusal (SignerError) or a value; its name
+    # falls in no prefix family and is named in the pattern below. The other three functions are outside.
+    "signer",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -123,6 +127,9 @@ _NAME_PATTERN = re.compile(
     # whatever the caller hands in and must hand back a value (the exact bytes or text, or None) for
     # every input, never raise; so they belong in the denominator, like the rule they feed.
     r"|plain_bytes|plain_text"
+    # 2026-10-16, Z380: `parse_pkcs11_uri` reads the RFC 7512 URI that selects a signing key, text a caller
+    # pastes; a refusal is a SignerError, never a raw crash. In the denominator, like the readers above.
+    r"|parse_pkcs11_uri"
     # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
     # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
     # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —
@@ -405,6 +412,13 @@ _OUT_OF_SCOPE = frozenset({
     # through its prefix, not here. Measured beforehand: no other scanned module exports these names.
     "export_eval_result_v02_dsse",  "receipt_evidence",  "to_eval_result_v02_predicate",
     "to_eval_result_v02_statement",
+    # 2026-10-16, Z380, `proofbundle.signer`. Three helpers of the signing side, one reason each:
+    #   `key_id_of` names the signer's OWN public key (`ed25519:` and its base64) and refuses one that is not
+    #       32 bytes with a SignerError; no verifier calls it.
+    #   `pin_from_env` and `pin_from_prompt` build the PIN source of the signer. They take a variable name or a
+    #       prompt from the caller who signs, read no foreign bytes, and refuse a wrong name with a SignerError
+    #       that does not repeat it. Measured beforehand: no other scanned module defines these names.
+    "key_id_of",  "pin_from_env",  "pin_from_prompt",
 })
 
 

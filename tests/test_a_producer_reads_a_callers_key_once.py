@@ -52,6 +52,9 @@ every call of the rule's helpers by file and function, and the scan checks it in
     scripts/gen_findings_register.py      assemble                     the register's signer key
     scripts/sign_readiness_artifact.py    assemble                     the artifact's signer key
     scripts/pre_tag_receipt.py            assemble_receipt             the receipt's signer key
+    src/proofbundle/signer.py             key_id_of                    the key id a relying party pins
+    src/proofbundle/signer.py             ExternalSigner.__init__      the key the signer states for every
+                                                                       receipt it signs
 
 Every other call of the rule is on a verifier's side, on bytes the verifier parsed itself or on a
 caller's pin it only compares (`_RULE_SITES` names each with its reason).
@@ -660,7 +663,41 @@ class TheReaders(unittest.TestCase):
             self.assertIsNone(plain_text(other))
 
 
-# ── 6. every call of the rule under src/ and scripts/ is read and named ────────────────────────────
+# ── 6. the signer interface (Z380): the key it names or states is the key it judged ────────────────
+
+class TheSignerInterfaceJudgesTheKeyItHolds(_Contract):
+    """`signer.key_id_of` names a key and `signer.ExternalSigner` states one in every receipt it signs (its
+    `public_key()` is what the producers write). Both apply the rule to the key the value HOLDS and name or
+    state exactly that key."""
+
+    def _result_of(self, call, decode):
+        from proofbundle.signer import SignerError
+        try:
+            out = call()
+        except SignerError as exc:
+            return "refused", str(exc)
+        return "written", decode(out)
+
+    def test_key_id_of_names_the_key_it_holds(self):
+        from proofbundle.signer import key_id_of
+        for name, cls in RAW_FORMS.items():
+            for stored, other, label in _pairs():
+                with self.subTest(form=name, direction=label):
+                    v = _raw_form(cls, stored, other)
+                    self._holds(stored, self._result_of(lambda: key_id_of(v),
+                                                        lambda kid: base64.b64decode(kid.split(":", 1)[1])))
+
+    def test_an_external_signer_states_the_key_it_holds(self):
+        from proofbundle.signer import ExternalSigner
+        for name, cls in RAW_FORMS.items():
+            for stored, other, label in _pairs():
+                with self.subTest(form=name, direction=label):
+                    v = _raw_form(cls, stored, other)
+                    self._holds(stored, self._result_of(lambda: ExternalSigner(v),
+                                                        lambda s: s.public_key().public_bytes_raw()))
+
+
+# ── 7. every call of the rule under src/ and scripts/ is read and named ────────────────────────────
 
 #: The helpers that apply the trust-anchor rule, by name.
 _RULE_NAMES = {"ed25519_trust_anchor_weakness", "_validate_pinned_ed25519_pubkey", "_refuse_weak_ed25519_vkey",
@@ -711,6 +748,8 @@ _RULE_SITES = {
     ("src/proofbundle/policy_profiles.py", "instantiate_template"): (1, "PRODUCER, ProducersOfKeyText"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/signature.py", "verify_ed25519_pinned"): (1, "the verify primitive"),
+    ("src/proofbundle/signer.py", "key_id_of"): (1, "PRODUCER, TheSignerInterfaceJudgesTheKeyItHolds"),
+    ("src/proofbundle/signer.py", "ExternalSigner.__init__"): (1, "PRODUCER, TheSignerInterfaceJudgesTheKeyItHolds"),
     ("src/proofbundle/trust_pack.py", "validate_trust_pack_predicate"): (
         1, "the validator; its producers read the predicate once first, ProducersOfKeyText"),
 }

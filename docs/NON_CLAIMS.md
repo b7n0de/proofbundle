@@ -30,6 +30,9 @@ It also does **not**:
 - **Require any specific anchor service.** External time anchors (RFC 3161 TSA, OpenTimestamps) are
   *optional*. Without them a pre-registration timestamp is producer-clock testimony only; that
   limitation is stated, never hidden. proofbundle is not tied to any one TSA, calendar, or vendor.
+- **Say where the signing key was kept.** A receipt signed with a key in a PKCS#11 token is byte-identical to
+  one signed with the same key from a file. That a key lives in hardware is the signer's own statement; the
+  verifier cannot check it (see [SIGNERS.md](SIGNERS.md)).
 - **Depend on a network to verify.** Verification is offline and pure-Python. An anchor, if present,
   is verified against material bundled at emit time, not by calling out.
 
