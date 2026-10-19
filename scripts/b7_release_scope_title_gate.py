@@ -28,12 +28,10 @@ says so quietly reads, in a pull-request check list, exactly like one that passe
 from __future__ import annotations
 
 import argparse
-import html
 import importlib.util
 import json
 import pathlib
 import re
-import unicodedata
 
 REPO =pathlib.Path(__file__).resolve().parents[1]
 
@@ -84,7 +82,11 @@ _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 
 #: Where the scope ends. Everything after that (Out, rationales, owner doors) is NOT the set
 #: against which a pull request is checked — those are lines that are explicitly not being built.
-_ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
+#:
+#: SPACES AND TABS, NOT `\s` (the third lens on pull request 328, 2026-10-19). `\s` matches a line
+#: break, so a heading `##` alone on its line and a paragraph below it that begins with `Out` ended
+#: the scope there, and every table between that line and the real `## Out` went unread.
+_ENDE_DES_UMFANGS = re.compile(r"^##[ \t]+Out\b", re.M)
 
 #: A scope file is named by the release it scopes: `docs/release_scope/<major>.<minor>.<patch>.md`.
 _UMFANGSDATEI = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)\.md$")
@@ -288,14 +290,15 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
                         "des Umfangs nicht bestimmbar, und die ganze Datei als Umfang zu lesen "
                         "waere eine Vergroesserung der Pruefmenge, keine Messung")
     im_umfang = text[: schnitt.start()]
-    # ONE READING OF THE IN SECTION, THE ONE GITHUB RENDERS (`_lies_zweige` over `_tabellen_gfm`).
-    # The reader, the rule of an unstarted release, the line count and the guard against unreadable
-    # lines all read the same tables now. The second round of the lens on pull request 328
-    # (2026-10-18) refuted all five of its targets against the line-by-line reading, among them a
-    # decoy delimiter above the real header, a row wider or narrower than its header, a row with
-    # blank space after its last pipe, a decorated branch cell, and a backticked cell of a table
-    # without a branch column read as a branch. Every one of those is a question about the TABLE,
-    # and a line does not know its table.
+    # ONE READING OF THE IN SECTION (`_lies_zweige` over `_tabellen_gfm`). The reader, the rule of
+    # an unstarted release, the line count and the guard against unreadable lines all read the same
+    # tables. The second round of the lens on pull request 328 (2026-10-18) refuted all five of its
+    # targets against the line-by-line reading, among them a decoy delimiter above the real header,
+    # a row wider or narrower than its header, a row with blank space after its last pipe, a
+    # decorated branch cell, and a backticked cell of a table without a branch column read as a
+    # branch. Every one of those is a question about the TABLE, and a line does not know its table.
+    # Since round 4 the reading is a list of the kinds of line the scope files carry, not an
+    # imitation of GitHub's renderer (owner card OA-0db4496c88, see `_tabellen_gfm`).
     zu_zweig, mitlaeufer, unlesbar = _lies_zweige(im_umfang)
     if unlesbar:
         return {}, [], f"NICHT MESSBAR: {unlesbar}"
@@ -330,22 +333,6 @@ _ZWEIGSTAMM = re.compile(r"branch|zweig", re.IGNORECASE)
 _ZWEIGFORM = re.compile(r"^[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)+$")
 #: A delimiter cell of a GFM table: dashes, optionally a colon on either side.
 _TRENNZELLE = re.compile(r"^:?-+:?$")
-#: What may stand in front of a table row on its line: indentation, quote markers, a list marker.
-_ZEILENVORSATZ = re.compile(r"^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?")
-#: A list marker inside that prefix; a row that carries one starts a list item and ends a table.
-_LISTENMARKE = re.compile(r"(?:^|[\s>])(?:[-*+]|\d+[.)])\s+$")
-#: The fence of a fenced code block (CommonMark 4.5): at most three spaces, then three or more
-#: backticks or tildes.
-_ZAUN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-#: The start of an HTML comment BLOCK (CommonMark 4.6, type 2): `<!--` at the start of a line,
-#: after at most three spaces. A comment in the middle of a line is inline and starts no block:
-#: `| A1 | x <!-- c --> | `fix/a1` |` is a table row on the page, and a reader that hid the whole
-#: line would drop its branch.
-_KOMMENTARBLOCK = re.compile(r"^ {0,3}<!--")
-#: A line that starts another block and so ends a table (GFM 4.10): a heading, a fence, a thematic
-#: break, HTML.
-_BLOCKBEGINN = re.compile(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|<"
-                          r"|(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$)")
 #: A branch cell that is exactly one code span whose content carries no backtick.
 _CODESPAN = re.compile(r"^(`+)([^`]+)\1$")
 #: THE RIDER, AS A POSITIVE GRAMMAR (asked for by round 2 of the lens on pull request 328). A rider
@@ -358,190 +345,176 @@ _CODESPAN = re.compile(r"^(`+)([^`]+)\1$")
 _MITLAEUFER = re.compile(rf"^(?:(?:(?:mit|with)\s+|=\s*)?{_KENNUNG}"
                          rf"(?:\s*(?:/|,|\+|und|and)\s*{_KENNUNG})*"
                          r"|[-–—]?|n/a|N/A|n\.a\.|(?i:none(?: yet)?))$")
-#: Default ignorable code points (Unicode DerivedCoreProperties.txt, Default_Ignorable_Code_Point),
-#: as ranges. A renderer shows none of them, so a header cell `Bra<U+034F>nch` is `Branch` on the
-#: page; category Cf alone misses U+034F, U+115F, U+3164, U+FE00 to U+FE0F, U+FFA0 and the
-#: variation selectors above U+E0100 (lens round 2, case T1: 268 code points slipped where Cf alone
-#: was taken out). The ranges are the whole property as Unicode lists it; category Cf is taken out
-#: on top.
-_IGNORIERBAR = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
-                (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
-                (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
-                (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
-                (0xE0000, 0xE0FFF))
 
-
-def _ignorierbar(ch: str) -> bool:
-    o = ord(ch)
-    return any(a <= o <= b for a, b in _IGNORIERBAR) or unicodedata.category(ch) == "Cf"
-
-
-def _kopfwort(zelle: str) -> str:
-    """A header cell as a reader of the page sees its word: entities resolved, inline HTML and
-    the markup characters `*`, `_`, `~`, backtick and backslash taken out, NFKC, no default
-    ignorable code point, case folded. `&#66;ranch`, `Bra&shy;nch`, `Bra<span></span>nch`,
-    `**B**ranch` and full-width letters all read `branch` (lens round 2, T1)."""
-    s = re.sub(r"<[^>]*>", "", html.unescape(zelle))
-    s = unicodedata.normalize("NFKC", s)
-    s = "".join(ch for ch in s if not _ignorierbar(ch))
-    return re.sub(r"[*_~`\\]", "", s).casefold()
+#: THE KINDS OF LINE THIS READER READS IN AN IN SECTION, AND NO OTHER (owner card OA-0db4496c88,
+#: option A, 2026-10-19). Three rounds of the lens on pull request 328 refuted a reader that tried
+#: to read the section the way GitHub renders it. The third, at a0ae5aab, let a branch pass outside
+#: the scope behind an indented fence, the comment `<!-->`, a line of inline HTML below a table, a
+#: fence whose info string holds a backtick, and inline HTML in a header cell; the reader before it
+#: had read most of those correctly. A reader built after a renderer meets the renderer's grammar
+#: one rule at a time, and the next rule is the one it misses.
+#:
+#: This reader reads only the kinds of line the scope files carry, measured on 2026-10-19 over every
+#: scope file of main efdc06d7 and of this branch: blank lines, headings, prose, list items and
+#: indented lines, none of them with a `|`; a fence of three backticks with an optional name, closed
+#: by three backticks alone; and tables with a `|` at both ends of every line, set off above by a
+#: blank line or a heading, ended by a blank line, a heading or a fence, every row as wide as its
+#: header, every header cell plain words. Every other line makes the section NOT MEASURABLE: HTML, a
+#: quote, a tilde fence, an indented fence, a line with a `|` outside a table, a row cut off from
+#: its table, an escaped pipe in a table. A form GitHub renders plainly that this list leaves out is
+#: a false alarm the scope file can avoid. A form it renders in a way this reader would not see is a
+#: branch outside the scope, and only the first may happen here.
+_UEBERSCHRIFT = re.compile(r"^#{1,6}(?:[ \t]|$)")
+_LISTENPUNKT = re.compile(r"^(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]+|$)")
+#: The opening fence: three backticks at the start of the line and an optional name of letters,
+#: digits and `_+.-`. The closing fence is three backticks alone. A line inside the block that
+#: starts with fence characters and is not that closing line is NOT MEASURABLE: whether it closes
+#: the block depends on its exact form, and this reader does not decide that.
+_ZAUN = re.compile(r"^```[A-Za-z0-9_+.-]*[ \t]*$")
+_ZAUNZEICHEN = ("```", "~~~")
+#: A line of a table: `|` at the start of the line and `|` as its last character but spaces and
+#: tabs.
+_TABELLENZEILE = re.compile(r"^\|.*\|[ \t]*$")
+#: A header cell: words of ASCII letters and digits, separated by a space, a hyphen or a comma and a
+#: space. Measured, every header cell of every In table on main and on this branch has that form,
+#: among them `Why it is patch-safe` and `Why it moved, and the state it moved in`. A header cell is
+#: not normalised any more: markup, an entity, inline HTML or any other character makes the section
+#: NOT MEASURABLE, because what GitHub shows of such a cell is not decided here.
+_KOPFZELLE = re.compile(r"^[A-Za-z0-9]+(?:(?:, | |-)[A-Za-z0-9]+)*$")
 
 
 def _zweigstellen(kopf: list[str]) -> list[int]:
-    """The cells of a header that name a branch column (`_ZWEIGSTAMM` over `_kopfwort`)."""
-    return [i for i, z in enumerate(kopf) if _ZWEIGSTAMM.search(_kopfwort(z))]
+    """The cells of a header that name a branch column (`_ZWEIGSTAMM`)."""
+    return [i for i, z in enumerate(kopf) if _ZWEIGSTAMM.search(z)]
 
 
-def _zellen_gfm(rest: str) -> list[str]:
-    """The cells of a table row as GFM splits them: at every pipe a backslash does not escape, a
-    leading and a trailing pipe dropped, each cell trimmed of spaces and tabs only. A pipe inside a
-    code span splits as well (GFM 4.10, example 200); a no-break space is no blank space here, so a
-    row with one after its last pipe does not end with a pipe."""
-    s = rest.strip(" \t")
-    teile, akt, i = [], [], 0
-    while i < len(s):
-        if s[i] == "\\" and i + 1 < len(s):
-            akt.append(s[i:i + 2])
-            i += 2
-            continue
-        if s[i] == "|":
-            teile.append("".join(akt))
-            akt = []
-        else:
-            akt.append(s[i])
-        i += 1
-    teile.append("".join(akt))
-    if s.startswith("|"):
-        teile = teile[1:]
-    if len(teile) > 1 and s.endswith("|") and not _entwertet(s, len(s) - 1):
-        teile = teile[:-1]
-    return [t.strip(" \t") for t in teile]
+def _zellen(zeile: str) -> list[str]:
+    """The cells of a table line: split at every pipe, the first and the last pipe dropped, each
+    cell trimmed of spaces and tabs only. A pipe inside a code span splits as well, as on GitHub
+    (GFM 4.10, example 200)."""
+    return [z.strip(" \t") for z in zeile.rstrip(" \t")[1:-1].split("|")]
 
 
-def _entwertet(s: str, i: int) -> bool:
-    """Whether the character at `i` is escaped by an odd run of backslashes before it."""
-    n = 0
-    while i - n - 1 >= 0 and s[i - n - 1] == "\\":
-        n += 1
-    return n % 2 == 1
+def _gezeigt(zeile: str) -> str:
+    """A line as a reason shows it: trimmed of spaces and tabs only, because a no-break space at
+    its end can be the reason it fails, and `strip()` would take that out of the line shown."""
+    return zeile.strip(" \t")[:60]
 
 
-def _vorsatz(zeile: str) -> tuple[str, str]:
-    m = _ZEILENVORSATZ.match(zeile)
-    return zeile[:m.end()], zeile[m.end():]
+def _ist_trenner(zeile: str) -> bool:
+    return bool(_TABELLENZEILE.match(zeile)) and all(_TRENNZELLE.match(z) for z in _zellen(zeile))
 
 
-def _kanonisch(zeile: str) -> bool:
-    """A row in the one form this reader reads: `|` at the start of the line, nothing in front of
-    it, and an unescaped `|` as the last character but spaces and tabs."""
-    rechts = zeile.rstrip(" \t")
-    return (zeile.startswith("|") and rechts.endswith("|")
-            and not _entwertet(rechts, len(rechts) - 1))
-
-
-def _ist_trenner(rest: str) -> bool:
-    if "|" not in rest:
-        return False
-    zellen = _zellen_gfm(rest)
-    return bool(zellen) and all(_TRENNZELLE.match(z) for z in zellen)
-
-
-def _maske(zeilen: list[str]) -> tuple[list[bool], str | None]:
-    """(True for every line in which GitHub renders no table, why the mask is not measurable or
-    None). Masked are the lines of a fenced code block and of an HTML comment block: a table there
-    is code, or invisible, on the page (lens round 2, case T2, where each turned a real unstarted
-    scope NOT MEASURABLE).
-
-    AN INDENTED CODE BLOCK IS NOT MASKED, on purpose. Four spaces after a blank line are code at the
-    top level and a continuation inside a list item, and a reader that cannot tell the two apart and
-    hides the lines would drop the branches of a table in a list. Unmasked, such a table is read in
-    a form this reader does not read, and a branch column there is NOT MEASURABLE, which is the
-    direction a guess may err in here.
-
-    A FENCE OR A COMMENT THAT NEVER CLOSES IS NOT MEASURABLE. On the page it runs to the end of the
-    document and takes every table after it along; in a scope file that is a mistake, and the
-    branches after it would go unread."""
-    maske = [False] * len(zeilen)
-    zaun, kommentar = None, None
-    for i, z in enumerate(zeilen):
-        rest = _vorsatz(z)[1]
-        if kommentar is not None:
-            maske[i] = True
-            if "-->" in z:
-                kommentar = None
-            continue
-        if zaun is not None:
-            maske[i] = True
-            m = _ZAUN.match(z) or _ZAUN.match(rest)
-            if m and m.group(1)[0] == zaun[1][0] and len(m.group(1)) >= len(zaun[1]) and not (
-                    z.strip() if _ZAUN.match(z) else rest.strip()).strip(zaun[1][0]):
-                zaun = None
-            continue
-        m = _ZAUN.match(z) or _ZAUN.match(rest)
-        if m:
-            zaun, maske[i] = (i, m.group(1)), True
-            continue
-        if _KOMMENTARBLOCK.match(z) or _KOMMENTARBLOCK.match(rest):
-            maske[i] = True
-            if "-->" not in z[z.index("<!--") + 4:]:
-                kommentar = i
-    if zaun is not None:
-        return maske, (f"the fenced block opened at line {zaun[0] + 1} of the In section never "
-                       "closes, so every table after it is code on the page and its branches would "
-                       "go unread")
-    if kommentar is not None:
-        return maske, (f"the HTML comment opened at line {kommentar + 1} of the In section never "
-                       "closes, so every table after it is invisible on the page and its branches "
-                       "would go unread")
-    return maske, None
+def _art(zeile: str) -> str | None:
+    """The kind of a line outside a fence and outside a table, or None for a line of no kind of the
+    list above."""
+    if not zeile.strip(" \t"):
+        return "leer"
+    if zeile.startswith("|"):
+        return "tabellenzeile" if _TABELLENZEILE.match(zeile) else None
+    if "|" in zeile:
+        return None
+    rest = zeile.lstrip(" \t")
+    if rest.startswith(_ZAUNZEICHEN):
+        return "zaun" if _ZAUN.match(zeile) else None
+    if _UEBERSCHRIFT.match(zeile):
+        return "ueberschrift"
+    if rest != zeile:
+        return None if rest.startswith(("<", ">")) else "eingerueckt"
+    m = _LISTENPUNKT.match(zeile)
+    if m:
+        return None if zeile[m.end():].startswith(("<", ">", *_ZAUNZEICHEN)) else "liste"
+    return None if zeile.startswith(("<", ">")) else "prosa"
 
 
 def _tabellen_gfm(im_umfang: str) -> dict:
-    """Every table of the In section as GitHub renders it (GFM 4.10): a header row directly above
-    a delimiter row with the SAME number of cells, then every following line until a blank line or
-    the start of another block.
+    """Every table of the In section, read under the kinds of line above (`_art`).
 
-    Returns {"tabellen": [{kopf, zeilen: [(cells, line)], kanonisch, nummern, kopf_nr}],
-    "waisen": [(cells, line, number)], "unlesbar": why the section is not measurable, or None}. A
-    waise is a line that starts with `|` and stands in no table, such as a row cut off from its
-    table by a blank line. A line that only looks like a delimiter but has another number of cells
-    than the row above it starts no table, so a decoy delimiter above the real header decides
-    nothing (lens round 2, case T1-A). The lines are split as CommonMark splits them, a lone CR
-    included."""
+    Returns {"tabellen": [{kopf, zeilen: [(cells, line)]}], "unlesbar": why the section is not
+    measurable, or None}. A table is a header line, a delimiter line of the same width below it and
+    every table line after that up to a blank line, a heading or a fence. The section is not
+    measurable at the first line that breaks the list, and the reason names the line. The lines are
+    split as CommonMark splits them, a lone CR included."""
     zeilen = re.split(r"\r\n|\r|\n", im_umfang)
-    maske, unlesbar = _maske(zeilen)
-    tabellen, i = [], 0
-    while i < len(zeilen) - 1:
-        if maske[i] or maske[i + 1]:
+
+    def nicht(warum: str) -> dict:
+        return {"tabellen": [], "unlesbar": warum}
+
+    def ort(i: int) -> str:
+        return f"line {i + 1} of the In section, {_gezeigt(zeilen[i])!r},"
+
+    tabellen: list[dict] = []
+    zaun, i = None, 0
+    while i < len(zeilen):
+        z = zeilen[i]
+        if zaun is not None:
+            if z.rstrip(" \t") == "```":
+                zaun = None
+            elif z.lstrip(" \t").startswith(_ZAUNZEICHEN):
+                return nicht(f"{ort(i)} starts with fence characters inside the fenced block "
+                             f"opened at line {zaun + 1} and is not its closing ``` alone; whether "
+                             "it closes the block depends on its form, and this reader does not "
+                             "guess")
             i += 1
             continue
-        k_vor, k_rest = _vorsatz(zeilen[i])
-        t_vor, t_rest = _vorsatz(zeilen[i + 1])
-        if "|" not in k_rest or not _ist_trenner(t_rest) or k_vor.count(">") != t_vor.count(">"):
+        if z.startswith("|") and "\\|" in z:
+            return nicht(f"{ort(i)} carries an escaped pipe; whether it splits a cell differs "
+                         "between renderers, and this reader does not guess")
+        art = _art(z)
+        if art is None:
+            return nicht(f"{ort(i)} is of no kind this reader reads (a blank line, a heading, "
+                         "prose, a list item or an indented line, each without `|`, a fence ``` or "
+                         "```name, a table with `|` at both ends of its lines); a line of another "
+                         "kind is NOT MEASURABLE rather than read as GitHub might render it")
+        if art == "zaun":
+            zaun = i
+        if art != "tabellenzeile":
             i += 1
             continue
-        kopf = _zellen_gfm(k_rest)
-        if len(kopf) != len(_zellen_gfm(t_rest)):
-            i += 1
-            continue
-        tab = {"kopf": kopf, "zeilen": [], "nummern": {i, i + 1}, "kopf_nr": i,
-               "kanonisch": _kanonisch(zeilen[i]) and _kanonisch(zeilen[i + 1])}
+        kopf = _zellen(z)
+        if (i + 1 == len(zeilen) or not _ist_trenner(zeilen[i + 1])
+                or len(_zellen(zeilen[i + 1])) != len(kopf)):
+            return nicht(f"{ort(i)} has the form of a table row and stands in no table (no "
+                         "delimiter line of its width below it); GitHub shows it as text or reads "
+                         "it into a table this reader does not see, and whether it is a scope line "
+                         "is not decided here")
+        if i and zeilen[i - 1].strip(" \t") and not _UEBERSCHRIFT.match(zeilen[i - 1]):
+            return nicht(f"the table at line {i + 1} of the In section follows "
+                         f"{_gezeigt(zeilen[i - 1])!r} without a blank line or a heading "
+                         "between; GitHub may read that line into the table or the table into it, "
+                         "and this reader does not guess which")
+        fremd = [c for c in kopf if not _KOPFZELLE.match(c)]
+        if fremd:
+            return nicht(f"the header cell {fremd[0]!r} of the table at line {i + 1} of the In "
+                         "section is not plain words (letters and digits, separated by a space, a "
+                         "hyphen or a comma); what GitHub shows of a cell in another form is not "
+                         "decided here")
+        tab = {"kopf": kopf, "zeilen": []}
         j = i + 2
-        while j < len(zeilen) and not maske[j]:
-            vor, rest = _vorsatz(zeilen[j])
-            if (not rest.strip(" \t") or vor.count(">") != k_vor.count(">")
-                    or _BLOCKBEGINN.match(rest) or (_LISTENMARKE.search(vor) and vor != k_vor)):
-                break
-            tab["zeilen"].append((_zellen_gfm(rest), zeilen[j]))
-            tab["kanonisch"] = tab["kanonisch"] and _kanonisch(zeilen[j])
-            tab["nummern"].add(j)
+        while (j < len(zeilen) and zeilen[j].strip(" \t") and not _UEBERSCHRIFT.match(zeilen[j])
+               and not _ZAUN.match(zeilen[j])):
+            zeile = zeilen[j]
+            if "\\|" in zeile:
+                return nicht(f"{ort(j)} carries an escaped pipe; whether it splits a cell differs "
+                             "between renderers, and this reader does not guess")
+            if not _TABELLENZEILE.match(zeile):
+                return nicht(f"{ort(j)} follows the table at line {i + 1} without a blank line "
+                             "and is no line of the table form (`|` at both ends); GitHub reads it "
+                             "as a row of that table or as a block that ends it, and this reader "
+                             "does not guess which")
+            zellen = _zellen(zeile)
+            if len(zellen) != len(kopf):
+                return nicht(f"the row {_gezeigt(zeile)!r} has {len(zellen)} cells under a "
+                             f"header of {len(kopf)}; GitHub pads or cuts such a row, so its cells "
+                             "are not the ones this reader reads")
+            tab["zeilen"].append((zellen, zeile))
             j += 1
         tabellen.append(tab)
         i = j
-    tabellen_zeilen = {n for t in tabellen for n in t["nummern"]}
-    waisen = [(_zellen_gfm(_vorsatz(z)[1]), z, n) for n, z in enumerate(zeilen)
-              if n not in tabellen_zeilen and not maske[n] and _vorsatz(z)[1].startswith("|")]
-    return {"tabellen": tabellen, "waisen": waisen, "unlesbar": unlesbar}
+    if zaun is not None:
+        return nicht(f"the fenced block opened at line {zaun + 1} of the In section never closes, "
+                     "so every table after it is code on the page and its branches would go unread")
+    return {"tabellen": tabellen, "unlesbar": None}
 
 
 def _kennung_der_zeile(zellen: list[str]) -> str | None:
@@ -560,64 +533,36 @@ def _lies_zweige(im_umfang: str) -> tuple[dict[str, list[str]], list[str], str |
     `| Item | Why |` became the branch `make release` (lens round 2, T3).
 
     A TABLE WITH A BRANCH COLUMN IS READ WHOLE OR NOT AT ALL. Not measurable, with the reason: a
-    branch column that is not the last header cell or that stands in more than one cell; a table in
-    a form other than `|` at both ends of every line, at the start of the line (the forms this
-    reader does not read); a row with another number of cells than its header (GitHub pads or cuts
-    it, so its branch cell is another cell); a row without a readable identifier (its branch would
-    leave the count); a branch cell that is neither exactly one code span nor a rider of
-    `_MITLAEUFER`.
+    branch column that is not the last header cell or that stands in more than one cell; a row
+    without a readable identifier (its branch would leave the count); a branch cell that is neither
+    exactly one code span nor a rider of `_MITLAEUFER`. What `_tabellen_gfm` refuses in every table
+    (a line of no listed kind, a row of another width than its header, a header cell that is not
+    plain words, a row that stands in no table) is refused before any of this.
 
-    A LINE THAT LOOKS LIKE A ROW AND STANDS IN NO TABLE (a waise) is not measurable when it names a
-    branch, in a code span or as a cell: GitHub shows it as text, and whether it is a scope line is
-    not decided here. Without a branch, and with an identifier in its first cell, it rides along,
-    as the line-by-line reader read it, so a row a blank line cut off from its table neither
-    vanishes from the count nor turns an unstarted scope NOT MEASURABLE (lens round 2, T2)."""
+    A ROW CUT OFF FROM ITS TABLE RODE ALONG UNTIL ROUND 4 when it named no branch (lens round 2,
+    T2). It stands in no table, and that is NOT MEASURABLE now, whatever it names (owner card
+    OA-0db4496c88): no scope file carries one, and the rule that read it as text had to guess
+    which of its cells could be a branch."""
     zu_zweig: dict[str, list[str]] = {}
     mitlaeufer: list[str] = []
     gelesen = _tabellen_gfm(im_umfang)
     if gelesen["unlesbar"]:
         return {}, [], gelesen["unlesbar"]
-    koepfe = {t["kopf_nr"] for t in gelesen["tabellen"]}
-    for zellen, z, nr in gelesen["waisen"]:
-        if nr + 1 in koepfe and _zweigstellen(zellen):
-            # A ROW GLUED ABOVE A HEADER THAT NAMES A BRANCH COLUMN (lens round 2, survivor L24).
-            # GitHub takes only the line directly above the delimiter for the header and shows
-            # this one as text, so the table below reads without a branch column; whoever wrote it
-            # meant one.
-            return {}, [], (f"the line {z.strip()[:60]!r} names a branch column and stands glued "
-                            "above the header of a table, which GitHub shows as text; whether its "
-                            "table assigns branches is not decided here")
-        if (any(_ZWEIGFORM.match(c.strip(" ")) for c in re.findall(r"`([^`]+)`", z))
-                or any(_ZWEIGFORM.match(c.strip("* ")) for c in zellen)):
-            return {}, [], (f"the line {z.strip()[:60]!r} names a branch and stands in no table "
-                            "GitHub renders (a blank line or another block cut it off); this "
-                            "reader does not guess whether it is a scope line")
-        if _kennung_der_zeile(zellen):
-            mitlaeufer.append(_kennung_der_zeile(zellen))
     for tab in gelesen["tabellen"]:
         kopf, stellen = tab["kopf"], _zweigstellen(tab["kopf"])
         if not stellen:
             mitlaeufer += [k for k in (_kennung_der_zeile(zellen) for zellen, _z in tab["zeilen"])
                            if k]
             continue
-        if any(i != len(kopf) - 1 for i in stellen) or len(stellen) > 1:
-            i = next((i for i in stellen if i != len(kopf) - 1), stellen[0])
+        if stellen != [len(kopf) - 1]:
+            i = next(i for i in stellen if i != len(kopf) - 1)
             return {}, [], (f"the table header {kopf} names a branch column in cell {i + 1} of "
                             f"{len(kopf)}, and this reader reads the last cell only, so the "
                             "branches of that column are not the ones it would read")
-        if not tab["kanonisch"]:
-            return {}, [], (f"a table whose header names a branch column is in a form this reader "
-                            f"skips (header {kopf}); a row is read when it starts with `|` at the "
-                            "start of its line and ends with `|`, and a row it skips is a branch "
-                            "it never reads")
         for zellen, z in tab["zeilen"]:
-            if len(zellen) != len(kopf):
-                return {}, [], (f"the row {z.strip()[:60]!r} has {len(zellen)} cells under a "
-                                f"header of {len(kopf)}; GitHub pads or cuts such a row, so its "
-                                "branch cell is not the one this reader reads")
             kennung = _kennung_der_zeile(zellen)
             if not kennung:
-                return {}, [], (f"the row {z.strip()[:60]!r} of a table with a branch column "
+                return {}, [], (f"the row {_gezeigt(z)!r} of a table with a branch column "
                                 "carries no readable identifier in its first cell (ohne lesbare "
                                 "Kennung); its branch would leave the count unread")
             zelle = zellen[stellen[0]]
@@ -638,11 +583,6 @@ def _lies_zweige(im_umfang: str) -> tuple[dict[str, list[str]], list[str], str |
                                 "a code span nor a rider (`mit X`, `with X`, `= X`, identifiers, a "
                                 "dash, n/a, or empty); this reader does not guess which")
     return zu_zweig, mitlaeufer, None
-
-
-def _zweigspalte_unlesbar(im_umfang: str) -> str | None:
-    """Why `lies_umfang` cannot read the In section, or None (the reason of `_lies_zweige`)."""
-    return _lies_zweige(im_umfang)[2]
 
 
 def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
@@ -709,14 +649,14 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
         return [], ("NICHT MESSBAR: kein Abschnitt '## Out' gefunden — die Grenze des Umfangs ist "
                     "nicht bestimmbar")
     # THE SAME TABLES AS THE BRANCH READER (`_tabellen_gfm`), and the same lines: every row with an
-    # identifier, of every table and every waise of the In section. The line-by-line count read
-    # rows the page does not show as rows and skipped rows it does, so the card could count a
-    # line the reader never saw, or miss one it did (lens on pull request 328, round 2, T1).
+    # identifier, of every table of the In section. The line-by-line count read rows the page does
+    # not show as rows and skipped rows it does, so the card could count a line the reader never
+    # saw, or miss one it did (lens on pull request 328, round 2, T1).
     gelesen = _tabellen_gfm(text[: schnitt.start()])
     if gelesen["unlesbar"]:
         return [], f"NICHT MESSBAR: {gelesen['unlesbar']}"
     aus: list[tuple[str, str, str]] = []
-    for zellen, *_rest in [r for t in gelesen["tabellen"] for r in t["zeilen"]] + gelesen["waisen"]:
+    for zellen, _z in (r for t in gelesen["tabellen"] for r in t["zeilen"]):
         kennung = _kennung_der_zeile(zellen)
         if kennung:
             aus.append((kennung, zellen[0], zellen[-1]))
