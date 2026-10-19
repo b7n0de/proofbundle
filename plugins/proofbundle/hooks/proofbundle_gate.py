@@ -11533,10 +11533,10 @@ def _sh_spelled(step: "_ShStep", base: str | None, environ, values: dict) -> dic
 
 
 def _name_as_written(verdict: "Verdict", path: str, word: str) -> None:
-    """D112 (D49): the verdict of a write names the word as written where it named the path made of it."""
-    for made in dict.fromkeys((path, os.path.realpath(path))):
-        for field in ("detail", "failed", "evidence", "next_step"):
-            setattr(verdict, field, getattr(verdict, field).replace(made, word))
+    """D112 (D49): the verdict of a write names the word as written where it named the path made of it (the reasons
+    of decide_write name the path as given, also through a link)."""
+    for field in ("detail", "failed", "evidence", "next_step"):
+        setattr(verdict, field, getattr(verdict, field).replace(path, word))
 
 
 def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple[list, set, dict]:

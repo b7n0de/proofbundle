@@ -164,3 +164,22 @@ def test_D112_the_reason_of_a_write_names_the_word_as_written(world, monkeypatch
     assert out is not None and out.decision in ("ask", "deny"), (form, _ids(out))
     assert str(world["home"]) not in out.text and str(world["repo"]) not in out.text, out.text
     assert word in out.text, (word, out.text)
+
+
+def test_D112_a_default_with_the_colon_counts_an_empty_value_as_unset(world):
+    """`${X:-w}` gives w where X is empty, `${X-w}` gives the empty value (bash): EMPTY is set and empty."""
+    out = _out(world, "cp f.txt ${EMPTY:-{H}/.claude}/settings.json")
+    assert "write_to_host_settings" in _ids(out), _ids(out)
+    out = _out(world, "cp f.txt ${EMPTY-{H}/.claude}/settings.json")
+    assert "write_to_host_settings" not in _ids(out), _ids(out)
+
+
+def test_D112_the_reason_names_the_word_also_where_a_link_resolves_the_path(world, tmp_path, monkeypatch):
+    """A write through a link to the repository: the reason names neither the link nor the folder it resolves to."""
+    link = tmp_path / "repo-link"
+    os.symlink(world["repo"], link)
+    monkeypatch.setenv("REPO_LINK", str(link))
+    out = _out(world, "cp f.txt $REPO_LINK/.git/hooks/pre-commit")
+    assert out is not None and out.decision in ("ask", "deny"), _ids(out)
+    assert str(world["repo"]) not in out.text and str(link) not in out.text, out.text
+    assert "$REPO_LINK/.git/hooks/pre-commit" in out.text, out.text
