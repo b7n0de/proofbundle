@@ -4914,3 +4914,31 @@ the reason names: the text in a file, sent with --body-file or `-F body=@<file>`
 Limits, named: a text that means the two characters (a path such as `C:\new`, a snippet of code) is denied too; a text
 from a file is judged by D109, not here; a text built by the shell is not read. Tests:
 tests/test_plugin_n33_text_newline_d108.py.
+
+## D109. The text of a file a gh call sends is judged by the house's form checker (Nachtrag 33, point 3, fallbook C3, 2026-10-19)
+
+Order of Nachtrag 33, point 3: where the command names a file as the body, the gate reads it and checks it with the
+form checkers of the house way; where the form fails, it denies; where there is no checker, it asks and says so. Found
+by delta's fallbook (gate 44db2056): `gh pr comment <n> -R <repo> --body-file <file>` asked for the net
+(net_unmodeled_git), never for the text.
+
+The rule (_guard_text_form, in the guards of Nachtrag 33, under both hosts): the file of `gh pr create|new|edit|comment|
+review` and `gh issue create|new|edit|comment` given with --body-file, --body-file=, -F or -F joined to the name, and of
+`gh api` with a field `-F body=@<file>` (also --field, --field=, -F joined), behind a wrapper, in a chain and in a string
+a shell runs. The gate reads it only where it lies in the work tree or the temp folder and no part below them starts
+with a dot (_autonomy_write_place, as D92), where it is no key path (D102, checked before any read; D102 denies the
+call) and where it is a regular UTF-8 file of at most MAX_PR_BODY_BYTES. The house's form checker (scripts/
+b7_pr_form_gate.py at the default branch the remote records, never the work tree) judges it as D92 runs it
+(_house_form_judge): rules (b) and (c) for the description of a pull request, rule (c) alone for a comment, a review or
+an issue, since the house footer belongs to a description; where rule (c) cannot measure, such a text is unchecked,
+whatever rule (b) says. Red: a deny (text_form_red, a catch of D88) with the checker's reasons. No checker, a checker
+that cannot measure, or a file the gate does not read: an ask that says which (text_form_unchecked, NOT MEASURED).
+Green adds nothing; the call keeps its answer, under --autonomous the owner's ask or card for its external effect (D85,
+D93).
+
+Changed: `gh pr edit <n> --body-file <file>` with a red body is denied by D109 in decide() before the autonomous answer
+of D92, with the same checker's rule; D92 and its receipt answer a body D109 lets through
+(tests/test_plugin_n37_machine_check_d92.py). Limits, named: the house has no checker for a commit message, so a push's
+commit messages are not judged (S3, owner question); the notes of a release (`gh release create -F`), `gh api --input`
+and a text on standard input are not read; the text of --body in the command is judged by D108 only; the gate reads
+the file when it answers (D27). Tests: tests/test_plugin_n33_text_form_d109.py.

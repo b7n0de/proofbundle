@@ -13506,15 +13506,121 @@ def _guard_text_newline(runs: list) -> list:
     return found
 
 
-def _guard_findings(command: str, cwd: str | None, environ) -> list:
+#: D109 (Nachtrag 33, point 3, fallbook C3): the gh forms that send the text of a file (gh 2.89.0, `gh <command> --help`),
+#: and whether the text is the description of a pull request (rules (b) and (c) of the house's checker) or another text
+#: (rule (c) alone: the house footer belongs to a description).
+_BODY_FILE_FORMS = {("pr", "create"): True, ("pr", "new"): True, ("pr", "edit"): True, ("pr", "comment"): False,
+                    ("pr", "review"): False, ("issue", "comment"): False, ("issue", "create"): False,
+                    ("issue", "new"): False, ("issue", "edit"): False}
+
+
+def _gh_body_file(words: list[str]) -> tuple[str, bool] | None:
+    """(the file, whether its text is the description of a pull request) a gh call (words with gh first) sends as its
+    text: the value of --body-file or -F of a form of _BODY_FILE_FORMS, or of a field `-F body=@<file>` of `gh api`;
+    None for any other call and for standard input."""
+    if len(words) < 3:
+        return None
+    if words[1] == "api":
+        for k, w in enumerate(words[2:], start=2):
+            value = None
+            if w in ("-F", "--field") and k + 1 < len(words):
+                value = words[k + 1]
+            elif w.startswith("--field="):
+                value = w.partition("=")[2]
+            elif w.startswith("-F") and len(w) > 2:
+                value = w[2:]
+            if value is not None and value.partition("=")[0] == "body" and value.partition("=")[2].startswith("@"):
+                path = value.partition("=")[2][1:]
+                return (path, False) if path and path != "-" else None
+        return None
+    description = _BODY_FILE_FORMS.get((words[1], words[2]))
+    if description is None:
+        return None
+    for k, w in enumerate(words[3:], start=3):
+        path = words[k + 1] if w in ("--body-file", "-F") and k + 1 < len(words) else \
+            w.partition("=")[2] if w.startswith("--body-file=") else w[2:] if w.startswith("-F") and len(w) > 2 else None
+        if path is not None:
+            return (path, description) if path and path != "-" else None
+    return None
+
+
+def _guard_text_form(runs: list, cwd: str | None, deadline: float, environ) -> list:
+    """D109 (Nachtrag 33, point 3, fallbook C3): where a gh call sends the text of a file, the house's form checker
+    (HOUSE_FORM_CHECKER at the default branch the remote records, run as D92 runs it) judges it: rules (b) and (c) for
+    the description of a pull request, rule (c) alone for a comment, a review or an issue (where rule (c) cannot measure,
+    the text is unchecked, whatever rule (b) says). A text it finds red is denied under
+    both hosts; where there is no checker, it cannot measure or the gate does not read the file (outside the work tree
+    and the temp folder, below a name with a dot, a key path of D102, no regular UTF-8 file of at most
+    MAX_PR_BODY_BYTES), the call asks and the reason says so. A text it passes adds nothing: the call keeps its answer."""
+    found = []
+    sec = _secrets()
+    for words, directory in runs:
+        k = _guard_program(words)
+        if not words or os.path.basename(words[k]) != "gh":
+            continue
+        named = _gh_body_file(words[k:])
+        if named is None:
+            continue
+        path, description = named
+        base = directory or cwd
+        step = " ".join(words[k:k + 3])
+        reasons, why = None, None
+        if base is None or not os.path.isabs(base):
+            why = "the gate cannot tell the folder the call runs in"
+        elif sec.secret_problem(path, base, environ.get("HOME")) is not None:
+            continue   # D102 denies the call; the gate never reads a key path
+        else:
+            full = os.path.realpath(path if os.path.isabs(path) else os.path.join(base, path))
+            repo = _repo_top(base) or os.path.realpath(base)
+            try:
+                if not _autonomy_write_place(full, repo, deadline):
+                    why = "the text file lies outside the work tree and the temp folder, or below a name with a dot"
+                else:
+                    body = _read_regular(full, MAX_PR_BODY_BYTES + 1)
+                    body.decode("utf-8")
+                    found_checker = None if len(body) > MAX_PR_BODY_BYTES else _house_form_checker(repo, deadline)
+                    if len(body) > MAX_PR_BODY_BYTES:
+                        why = f"the text file is longer than {MAX_PR_BODY_BYTES} bytes"
+                    elif found_checker is None:
+                        why = f"the house's form checker ({HOUSE_FORM_CHECKER}) is not at the default branch the remote " \
+                              "records here"
+                    else:
+                        reasons = _house_form_judge(found_checker[0], body, deadline,
+                                                    None if description else ("(c)",))
+                        if reasons is None:
+                            why = "the house's form checker cannot measure the text here"
+            except (GateError, OSError, UnicodeDecodeError):
+                why = "the gate cannot read the text file as a regular UTF-8 file"
+        if reasons:
+            said = "; ".join(reasons)
+            found.append(_HouseFinding(
+                "deny", "text_form_red", step,
+                f"proofbundle gate: {step} sends a text the house's form checker ({HOUSE_FORM_CHECKER} at the remote's "
+                f"default branch) finds red: {said}. Correct the file and send it again (Nachtrag 33; DECISIONS.md "
+                "D109).",
+                f"{step} sends a text the house's form checker finds red: {said}",
+                "correct the text as the checker names it"))
+        elif why:
+            found.append(_HouseFinding(
+                "ask", "text_form_unchecked", step,
+                f"proofbundle gate: {step} sends the text of a file, and no house form checker judged it: {why} "
+                "(Nachtrag 33; DECISIONS.md D109).",
+                f"{step} sends a text no house form checker judged ({why})",
+                "have a person read the text before it goes out"))
+    return found
+
+
+def _guard_findings(command: str, cwd: str | None, environ, deadline: float) -> list:
     """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload), D104 (a delete or an append
-    outside the work folder), D105 (a hint), D108 (a literal backslash-n in a gh text)."""
+    outside the work folder), D105 (a hint), D108 (a literal backslash-n in a gh text), D109 (the text of a file)."""
     environ = os.environ if environ is None else environ
     steps = _guard_steps(command, cwd)
-    house = [words for words, _k, _d in _house_runs(command, cwd)]
-    runs = [[value for value, _built in words] for words in house]
+    house = _house_runs(command, cwd)
+    runs = [[value for value, _built in words] for words, _k, _d in house]
     return (_guard_secret(steps, command, cwd, environ) + _guard_upload(runs) + _guard_outside(steps, cwd, environ)
-            + _guard_hints(steps, environ) + _guard_text_newline(house))
+            + _guard_hints(steps, environ) + _guard_text_newline([words for words, _k, _d in house])
+            + _guard_text_form([(words, directory) for words, (_w, _k, directory) in zip(runs, house)], cwd, deadline,
+                               environ))
 
 
 def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
@@ -13524,7 +13630,7 @@ def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, 
     the short line names the house rule that decides, its step and its word (D72). The long reason leads with the house
     rule where it changes the decision and follows the gate's own text where both have the same one. Under Codex an ask
     is a deny (answer). The guards of Nachtrag 33 (D102 to D104) hold in the same way (_guard_findings)."""
-    findings = sorted(_house_findings(command, cwd, deadline) + _guard_findings(command, cwd, environ),
+    findings = sorted(_house_findings(command, cwd, deadline) + _guard_findings(command, cwd, environ, deadline),
                       key=lambda f: _HOUSE_ORDER.index(f.decision))
     if not findings:
         return outcome
@@ -14715,6 +14821,10 @@ _SHORT_REASONS = {
                             "es an eine Datei außerhalb des Arbeitsordners anhängt"),
     "text_literal_newline": ("D108", "a text for GitHub carries a literal backslash-n where a line break was meant",
                              "ein Text für GitHub ein wörtliches Backslash-n trägt, wo ein Zeilenumbruch gemeint war"),
+    "text_form_red": ("D109", "the house's form checker finds the text of the file red",
+                      "die Formprüfung des Hauses den Text der Datei rot findet"),
+    "text_form_unchecked": ("D109", "no house form checker judged the text of the file",
+                            "keine Formprüfung des Hauses den Text der Datei beurteilt hat"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -15837,7 +15947,7 @@ FANG_REASONS = frozenset({
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
     "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work",
-    "text_literal_newline"})
+    "text_literal_newline", "text_form_red"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
@@ -16501,11 +16611,12 @@ def _house_form_checker(directory: str, deadline: float) -> tuple[bytes, str] | 
     return content.stdout, blob
 
 
-def _house_form_judge(checker: bytes, body: bytes, deadline: float) -> list[str] | None:
+def _house_form_judge(checker: bytes, body: bytes, deadline: float, rules: tuple | None = None) -> list[str] | None:
     """The reasons of rules (b) and (c) of the house's form checker for the text, from the checker run by this
     interpreter in a folder of its own, with no network the gate opens and only PATH and the locale in its
     environment: the measured reds where there is one; empty where it is green; None where it cannot measure (only a
-    NOT MEASURABLE of its own, such as the CommonMark parser rule (c) needs, an error, the time)."""
+    NOT MEASURABLE of its own, such as the CommonMark parser rule (c) needs, an error, the time). rules, where given,
+    keeps the reasons of those rules only (D109: rule (c) for a text that is no description)."""
     folder = tempfile.mkdtemp(prefix="pb-house-form-")
     try:
         files = {}
@@ -16524,6 +16635,8 @@ def _house_form_judge(checker: bytes, body: bytes, deadline: float) -> list[str]
         reasons = json.loads(proc.stdout.decode("utf-8"))
         if not isinstance(reasons, list) or not all(isinstance(r, str) for r in reasons):
             return None
+        if rules is not None:
+            reasons = [r for r in reasons if r.startswith(rules)]
         red = [r for r in reasons if "NOT MEASURABLE" not in r]
         return red if red or len(red) == len(reasons) else None
     except (OSError, ValueError, subprocess.TimeoutExpired):

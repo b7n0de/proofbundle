@@ -168,9 +168,10 @@ def test_D92_a_body_the_checker_finds_red_is_blocked_with_its_reason(tmp_path, t
     repo = _fixture(tmp_path)
     body = _body(tmp_path, text)
     answer, entry = _hook(repo, tmp_path, f"gh pr edit 388 --body-file {body}")
-    assert _decision(answer) == "deny" and "pr_form_red" in entry["reason_ids"], answer
+    # changed in Nachtrag 33 (D109): the same checker judges the same file in decide() under both hosts, so a red body
+    # is denied there with the checker's rule, before the autonomous answer of D92 and its receipt
+    assert _decision(answer) == "deny" and "text_form_red" in entry["reason_ids"], answer
     assert rule in answer["hookSpecificOutput"]["permissionDecisionReason"]
-    assert entry["quittung"]["art"] == "pr_edit"
 
 
 @pytest.mark.parametrize("case", ["not_measurable", "no_checker", "dot_folder", "link_out", "other_repo", "extra_option",
