@@ -4942,3 +4942,37 @@ of D92, with the same checker's rule; D92 and its receipt answer a body D109 let
 commit messages are not judged (S3, owner question); the notes of a release (`gh release create -F`), `gh api --input`
 and a text on standard input are not read; the text of --body in the command is judged by D108 only; the gate reads
 the file when it answers (D27). Tests: tests/test_plugin_n33_text_form_d109.py.
+
+## D110. The open pull requests of a session are counted, and house rule H3 reads the count (Nachtrag 33, point 6, owner choice O30-1 A, 2026-10-19)
+
+Order of Nachtrag 33, point 6, owner choice O30-1 A of 2026-10-18: a counter of open pull requests per session in the
+plugin data directory, kept through PostToolUse, taken down at `gh pr merge` and `gh pr close` of the session; C2 of the
+fallbook as its case: at `gh pr create` the gate asks because the session already holds 8 open pull requests. Until
+now H3 (D73) asked at every new pull request, as the gate could not count the pull requests of one session.
+
+Measured with Claude Code 2.1.303 and the stand-in API (n41/werkzeug/truth_post_n41.sh of the delivery, two Bash
+calls): PostToolUse of a call that ended 0 carries tool_response with stdout, the address of the pull request the call
+printed; PostToolUseFailure of a call that ended 1 carries no tool_response, only error; CLAUDE_CODE_SESSION_ID in the
+environment of the PreToolUse, PostToolUse and PostToolUseFailure hooks equals the session_id of the event.
+
+The rule: the hook after a call (proofbundle_answered.py, already run after every Bash call for D94) keeps
+open-prs.json in CLAUDE_PLUGIN_DATA, `{"schema": "proofbundle-plugin/open-prs/v0.1", "sitzungen": {<session id>:
+["owner/repo#number", …]}}`, the 64 sessions written last. After a Bash call that ran (PostToolUse only), where the
+command may open a pull request (a gh call of `pr create` or `pr new`, the mutation createPullRequest, `gh api` on a
+…/pulls endpoint with a method POST, a field or an input and no GET; read wide on purpose, in any shell syntax), it
+adds each address of a pull request the output names, else one entry of unknown number: the count errs high, never
+low. Where `gh pr merge` or `gh pr close` names a pull request by number or address as a whole command of its own, it
+takes that entry off; a number without -R takes off the one entry of that number and none where two repositories hold
+it; a merge of the current branch, a word of another kind or a command with shell syntax takes nothing off. It never
+blocks or changes a call, and D94 goes on as before. The gate's H3 (_house_counted, _open_prs_count) reads the count of
+the session CLAUDE_CODE_SESSION_ID names: below HOUSE_PR_LIMIT (8) its ask falls away, at 8 or more it asks with the
+count (house_pr_limit_reached, a catch of D88), and where the environment names no session or no data folder, or the
+file does not read whole (strict JSON, the schema, at most 256 KiB), it asks as before (house_pr_limit, NOT MEASURED).
+No file in the folder is a count of 0.
+
+Not changed: a call that opens a pull request keeps every other answer it has (the ask of D85 for its external effect,
+the card of D93); under Codex, whose hook names no session of Claude Code, H3 asks as before. Limits, named: `gh pr
+merge --auto` takes the pull request off when auto-merge is set, not when it merges (the owner's word: at gh pr merge);
+a pull request merged or closed on GitHub or by another session stays counted; an MCP tool that opens one is not
+counted; the file lies in the plugins folder of Claude Code, which D101 guards against writes the gate reads, not
+against code of another language (D8). Tests: tests/test_plugin_n33_pr_count_d110.py.

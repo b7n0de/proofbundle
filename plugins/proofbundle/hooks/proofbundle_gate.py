@@ -12859,10 +12859,65 @@ def _house_h3(step: str) -> "_HouseFinding":
     return _HouseFinding(
         "ask", "house_pr_limit", step,
         f"proofbundle gate: house rule H3: a session may hold at most {HOUSE_PR_LIMIT} open pull requests. Every "
-        "session writes through the account b7n0de, so a count by author counts all sessions, and the gate cannot count "
-        f"the pull requests of one session yet (owner question O30-1), so every new pull request asks ({_HOUSE_NOTE}).",
-        "the gate cannot count the open pull requests of this session",
+        "session writes through the account b7n0de, so a count by author counts all sessions, and the gate cannot read "
+        "the count of this session (D110: the hook's environment names no session or no plugin data directory of "
+        f"Claude Code, or the count cannot be read), so this new pull request asks ({_HOUSE_NOTE}).",
+        "the gate cannot read the count of the open pull requests of this session",
         f"check that this session holds fewer than {HOUSE_PR_LIMIT} open pull requests, then confirm")
+
+
+#: D110 (Nachtrag 33, point 6, owner choice O30-1 A): the open pull requests of each session, which the hook after a
+#: call (proofbundle_answered.py) counts in the plugin data directory, {"schema", "sitzungen": {session id: [...]}}.
+OPEN_PRS = "open-prs.json"
+OPEN_PRS_SCHEMA = "proofbundle-plugin/open-prs/v0.1"
+MAX_OPEN_PRS_BYTES = 256 * 1024
+
+
+def _open_prs_count(environ) -> int | None:
+    """D110: how many open pull requests the session the hook's environment names (CLAUDE_CODE_SESSION_ID, measured
+    with Claude Code 2.1.303 equal to the session_id of the event) opened, as the hook after each call counted them in
+    CLAUDE_PLUGIN_DATA; None where the environment names no session or no such folder, or the count cannot be read. No
+    file in the folder is a count of 0: the hook writes it with the first pull request."""
+    session = environ.get("CLAUDE_CODE_SESSION_ID")
+    directory = environ.get("CLAUDE_PLUGIN_DATA")
+    if not session or not directory or not os.path.isabs(directory) or not os.path.isdir(directory):
+        return None
+    try:
+        raw = _read_regular(os.path.join(directory, OPEN_PRS), MAX_OPEN_PRS_BYTES + 1)
+        data = strict_json(raw) if len(raw) <= MAX_OPEN_PRS_BYTES else None
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("schema") != OPEN_PRS_SCHEMA or not isinstance(data.get("sitzungen"), dict):
+        return None
+    own = data["sitzungen"].get(session, [])
+    return len(own) if isinstance(own, list) else None
+
+
+def _house_counted(findings: list, environ) -> list:
+    """D110: house rule H3 with the count of the session: its finding falls away where the session holds fewer than
+    HOUSE_PR_LIMIT open pull requests, names the count where it holds as many or more (house_pr_limit_reached), and
+    stays as it is where the gate cannot read the count (_open_prs_count)."""
+    if not any(f.reason_id == "house_pr_limit" for f in findings):
+        return findings
+    count = _open_prs_count(os.environ if environ is None else environ)
+    if count is None:
+        return findings
+    kept = []
+    for f in findings:
+        if f.reason_id != "house_pr_limit":
+            kept.append(f)
+        elif count >= HOUSE_PR_LIMIT:
+            kept.append(_HouseFinding(
+                "ask", "house_pr_limit_reached", f.step,
+                f"proofbundle gate: house rule H3: a session may hold at most {HOUSE_PR_LIMIT} open pull requests, and "
+                f"this session holds {count}, as the hook after each call counted them: up for each pull request a "
+                "call opened, down for each `gh pr merge` or `gh pr close` of one of them (Nachtrag 33, owner choice "
+                f"O30-1 A; DECISIONS.md D110; {_HOUSE_NOTE}).",
+                f"this session already holds {count} open pull requests",
+                "merge or close a pull request of this session first, or have the owner confirm this one"))
+    return kept
 
 
 def _house_h4(step: str, chain: bool) -> "_HouseFinding":
@@ -13630,7 +13685,8 @@ def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, 
     the short line names the house rule that decides, its step and its word (D72). The long reason leads with the house
     rule where it changes the decision and follows the gate's own text where both have the same one. Under Codex an ask
     is a deny (answer). The guards of Nachtrag 33 (D102 to D104) hold in the same way (_guard_findings)."""
-    findings = sorted(_house_findings(command, cwd, deadline) + _guard_findings(command, cwd, environ, deadline),
+    findings = sorted(_house_counted(_house_findings(command, cwd, deadline), environ)
+                      + _guard_findings(command, cwd, environ, deadline),
                       key=lambda f: _HOUSE_ORDER.index(f.decision))
     if not findings:
         return outcome
@@ -14844,8 +14900,10 @@ _SHORT_REASONS = {
     # the house rules (D73): ask
     "house_tag_out": ("D73", "a tag goes out, and a v-tag can start a release that needs an owner GO",
                       "ein Tag nach außen geht und ein v-Tag eine Veröffentlichung mit Owner-GO auslösen kann"),
-    "house_pr_limit": ("D73", f"a session may hold at most {HOUSE_PR_LIMIT} open PRs, and the gate cannot count them yet",
-                       f"eine Sitzung höchstens {HOUSE_PR_LIMIT} offene PRs halten soll und das Tor sie noch nicht zählt"),
+    "house_pr_limit_reached": ("D110", f"this session already holds {HOUSE_PR_LIMIT} or more open PRs",
+                               f"die Sitzung schon {HOUSE_PR_LIMIT} oder mehr offene PRs hält"),
+    "house_pr_limit": ("D73", f"a session may hold at most {HOUSE_PR_LIMIT} open PRs, and the gate cannot read the count",
+                       f"eine Sitzung höchstens {HOUSE_PR_LIMIT} offene PRs halten soll und das Tor die Zählung nicht lesen kann"),
     "house_kill_pattern": ("D73", "the pattern can also match its own command line; run it alone",
                            "das Muster auch die eigene Befehlszeile treffen kann; führe ihn einzeln aus"),
     "house_kill_own": ("D73", "the target can be its own shell or the host; name the process id",
@@ -15947,7 +16005,7 @@ FANG_REASONS = frozenset({
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
     "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work",
-    "text_literal_newline", "text_form_red"})
+    "text_literal_newline", "text_form_red", "house_pr_limit_reached"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
