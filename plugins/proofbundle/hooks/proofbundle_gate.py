@@ -13449,14 +13449,72 @@ def decide_read(tool: str, tool_input: object, cwd: str, deadline: float, host: 
     return Outcome("deny", verdict.text(), [verdict], step=tool)
 
 
+#: D108 (Nachtrag 33, fallbook S4): the options of gh that carry a text GitHub shows (gh 2.89.0, `gh <command> --help`):
+#: a body, a title, the subject of a merge commit and release notes; for `gh api` the fields, whose value follows
+#: `key=`. Outside `gh api`, -F names a body file and -m a milestone or the merge strategy, so neither carries a text.
+_GH_TEXT_OPTIONS = frozenset({"--body", "-b", "--title", "-t", "--subject", "--notes", "-n"})
+_GH_FIELD_OPTIONS = frozenset({"-f", "--raw-field", "-F", "--field"})
+
+
+def _gh_text_values(words: list) -> list[str]:
+    """The texts a gh call (its words as (value, whether the shell builds it), gh first) sends as written: the value of
+    each option of _GH_TEXT_OPTIONS, and under `gh api` the value after `key=` of each field of _GH_FIELD_OPTIONS; as
+    the next word, after `=`, or joined to a short option. A word the shell builds (an expansion, a substitution) is
+    no text as written and is left out."""
+    api = len(words) > 1 and words[1][0] == "api"
+    options = _GH_FIELD_OPTIONS if api else _GH_TEXT_OPTIONS
+    texts, k = [], 1
+    while k < len(words):
+        word, built = words[k]
+        name, eq, value = word.partition("=")
+        found = None
+        if built:
+            pass
+        elif name.startswith("--") and eq and name in options:
+            found = value
+        elif word in options and k + 1 < len(words):
+            found = None if words[k + 1][1] else words[k + 1][0]
+            k += 1
+        elif len(word) > 2 and not word.startswith("--") and word[:2] in options:
+            found = word[2:]
+        if found is not None:
+            texts.append(found.partition("=")[2] if api else found)
+        k += 1
+    return texts
+
+
+def _guard_text_newline(runs: list) -> list:
+    """D108 (Nachtrag 33, fallbook S4): a deny, under both hosts, for a gh call whose text carries the two characters
+    backslash and n, which bash keeps as they are in quotes and GitHub shows as they are, where a line break was meant.
+    A text in $'…' carries the line break itself and is no case. runs: the words of each run as (value, built)."""
+    found = []
+    for words in runs:
+        values = [value for value, _built in words]
+        k = _guard_program(values)
+        if not values or os.path.basename(values[k]) != "gh":
+            continue
+        if any("\\n" in text for text in _gh_text_values(words[k:])):
+            step = " ".join(values[k:k + 3])
+            found.append(_HouseFinding(
+                "deny", "text_literal_newline", step,
+                f"proofbundle gate: {step} sends a text that carries a literal backslash and n; bash keeps them as they "
+                "are in quotes and GitHub shows them as two characters where a line break was meant. Write the text "
+                "into a file and send it with --body-file (under gh api -F body=@<file>), or write the line breaks in "
+                "$'…' (Nachtrag 33; DECISIONS.md D108).",
+                f"{step} sends a text with a literal backslash-n",
+                "send the text from a file (--body-file, -F body=@file) or write the line breaks in $'…'"))
+    return found
+
+
 def _guard_findings(command: str, cwd: str | None, environ) -> list:
     """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload), D104 (a delete or an append
-    outside the work folder), D105 (a hint)."""
+    outside the work folder), D105 (a hint), D108 (a literal backslash-n in a gh text)."""
     environ = os.environ if environ is None else environ
     steps = _guard_steps(command, cwd)
-    runs = [[value for value, _built in words] for words, _k, _d in _house_runs(command, cwd)]
+    house = [words for words, _k, _d in _house_runs(command, cwd)]
+    runs = [[value for value, _built in words] for words in house]
     return (_guard_secret(steps, command, cwd, environ) + _guard_upload(runs) + _guard_outside(steps, cwd, environ)
-            + _guard_hints(steps, environ))
+            + _guard_hints(steps, environ) + _guard_text_newline(house))
 
 
 def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
@@ -14655,6 +14713,8 @@ _SHORT_REASONS = {
                             "es außerhalb des Arbeitsordners rekursiv löscht"),
     "append_outside_work": ("D104", "it appends to a file outside the work folder",
                             "es an eine Datei außerhalb des Arbeitsordners anhängt"),
+    "text_literal_newline": ("D108", "a text for GitHub carries a literal backslash-n where a line break was meant",
+                             "ein Text für GitHub ein wörtliches Backslash-n trägt, wo ein Zeilenumbruch gemeint war"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -15776,7 +15836,8 @@ FANG_REASONS = frozenset({
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
-    "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work"})
+    "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work",
+    "text_literal_newline"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024

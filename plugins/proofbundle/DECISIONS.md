@@ -4894,3 +4894,23 @@ count. A hook git runs counts as before.
 Limits, named: a file without the right to execute does not count, and a Bash step that sets the right (chmod) is
 denied where the gate reads it (write_to_repo_state), but not in the code of another language (D8); the gate reads the
 folder when it answers (D27). Tests: tests/test_plugin_n33_hook_names_d107.py.
+
+## D108. A gh text with a literal backslash-n is denied (Nachtrag 33, point 3, fallbook S4, 2026-10-19)
+
+Order of Nachtrag 33, point 3: where a command names a text that goes out, the gate checks it with the house's form;
+the fallbook's S4 denies a `gh api` reply whose text carries a literal line break character. Found by delta's fallbook
+(gate 44db2056): `gh api <path> -f <value>` asked, but for the net (net_unmodeled_git), never for the text.
+
+The rule (_guard_text_newline, in the guards of Nachtrag 33): the texts a gh call sends as written (_gh_text_values,
+gh 2.89.0 by `gh <command> --help`) are the value of --body, -b, --title, -t, --subject, --notes and -n, and under
+`gh api` the value after `key=` of each field (-f, --raw-field, -F, --field), as the next word, after `=` or joined to a
+short option; behind a wrapper, in a chain and in a string a shell runs too. Outside `gh api`, -F names a body file and
+-m a milestone or the merge strategy, so neither is a text; a word the shell builds (an expansion, a substitution) is
+no text as written. A text that carries the two characters backslash and n is denied under both hosts
+(text_literal_newline, a catch of D88): bash keeps them as they are in single and double quotes, and GitHub shows them
+as two characters where a line break was meant. A text in $'…' carries the line break itself and is no case. The way
+the reason names: the text in a file, sent with --body-file or `-F body=@<file>`, or the line breaks in $'…'.
+
+Limits, named: a text that means the two characters (a path such as `C:\new`, a snippet of code) is denied too; a text
+from a file is judged by D109, not here; a text built by the shell is not read. Tests:
+tests/test_plugin_n33_text_newline_d108.py.
