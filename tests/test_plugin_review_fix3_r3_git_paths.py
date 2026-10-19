@@ -20,6 +20,7 @@ import pathlib
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -67,6 +68,7 @@ def test_git_reads_the_prefixed_attribute_file(prefixed_attributes):
     assert _attr(repo).endswith("review: one")
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_digest_binds_the_prefixed_attribute_file(prefixed_attributes):
     repo, attrs = prefixed_attributes
     before = _digest(repo)
@@ -76,6 +78,7 @@ def test_the_digest_binds_the_prefixed_attribute_file(prefixed_attributes):
     assert before is not None and after is not None and before != after
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_rule_bound_before_the_attribute_change_no_longer_frees(tmp_path, prefixed_attributes):
     repo, attrs = prefixed_attributes
     env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
@@ -88,6 +91,7 @@ def test_a_rule_bound_before_the_attribute_change_no_longer_frees(tmp_path, pref
     assert decision == "ask" and "approved_by_rule" not in entry["reason_ids"], entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_digest_binds_a_relative_attribute_file_under_the_work_tree(tmp_path):
     repo = n24._repo(tmp_path)
     (repo / "rel").mkdir()

@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_n29_work_profile_d71 as d71
@@ -78,6 +79,7 @@ STATE = ["git -C {R} add notes.md", "git add notes.md", "git -C {R} commit -m on
 WORK = ["git commit --amend --no-edit", "git stash push -m note", "git branch feature-o"]
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("block", sorted(BLOCKS))
 @pytest.mark.parametrize("form", READ + STATE)
 def test_D74_the_lfs_block_in_the_global_file_leaves_the_form_free(tmp_path, form, block):
@@ -87,6 +89,7 @@ def test_D74_the_lfs_block_in_the_global_file_leaves_the_form_free(tmp_path, for
     assert _decide(repo, form, tmp_path) == ("pass", [reason]), form
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("block", sorted(BLOCKS))
 @pytest.mark.parametrize("form", WORK)
 def test_D74_the_lfs_block_leaves_a_form_of_d71_free_that_brings_no_other_tree(tmp_path, form, block):
@@ -162,6 +165,7 @@ def test_D74_control_a_counter_case_keeps_its_answer(tmp_path, monkeypatch, case
     assert decision in ("ask", "deny") and not any(r.startswith("free_") for r in reasons), (case, form, reasons)
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_D74_an_untracked_path_the_attribute_names_keeps_add_but_not_status(tmp_path):
     """git add runs the clean filter for an untracked path an attribute assigns it to; git status lists such a path and
     hashes none of it, so the read form stays free."""
@@ -194,6 +198,7 @@ def test_D74_control_fsmonitor_true_keeps_the_forms_it_was_not_measured_for(tmp_
     assert decision == "ask" and not any(r.startswith("free_") for r in reasons), (form, reasons)
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_D74_own_file_is_the_scope_file_git_reads_without_an_include(tmp_path, monkeypatch):
     repo = d71._repo(tmp_path, declaration=None)
     monkeypatch.delenv("GIT_CONFIG_NOSYSTEM")     # git var names no system file while it is set

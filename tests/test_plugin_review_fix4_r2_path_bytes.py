@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -81,6 +82,7 @@ def test_git_reads_the_file_with_the_byte(ff_attributes):
     assert _attr(str(repo)).endswith(b"review: two")
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_digest_binds_the_file_with_the_byte(ff_attributes):
     repo, attrs = ff_attributes
     before = _digest(repo)
@@ -89,6 +91,7 @@ def test_the_digest_binds_the_file_with_the_byte(ff_attributes):
     assert before is not None and after is not None and before != after
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, ff_attributes):
     repo, attrs = ff_attributes
     env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
@@ -102,6 +105,7 @@ def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, ff_attributes)
     assert decision == "ask" and "approved_by_rule" not in entry["reason_ids"], entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_codex_denies_before_and_after_the_change(tmp_path, ff_attributes):
     repo, attrs = ff_attributes
     env, gate_dir = n24._gate_env(tmp_path, tmp_path / "logs")
@@ -187,6 +191,7 @@ def ff_repo(tmp_path) -> pathlib.Path:
     return repo
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_new_hook_changes_the_digest_of_a_repository_whose_path_has_the_byte(ff_repo):
     before = _digest(ff_repo)
     hook = ff_repo / ".git" / "hooks" / "pre-commit"
@@ -206,6 +211,7 @@ def test_a_write_into_the_git_directory_of_that_repository_is_gated(ff_repo, lea
         == "ask"
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_value_changed_from_the_byte_to_the_replacement_character_changes_the_digest(tmp_path):
     repo = n24._repo(tmp_path)
     subprocess.run(["git", "-C", str(repo), "config", "review.value", os.fsdecode(b"x" + FF)], check=True,

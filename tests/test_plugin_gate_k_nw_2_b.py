@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 
+import _git_version as _gv
 import pytest
 from _plugin_env import plugin_env
 
@@ -394,6 +395,7 @@ def test_the_free_answer_under_codex_says_which_directory_was_checked(tmp_path):
     assert "the session directory" in outcome.text and "does not tell the gate where a command runs" in outcome.text
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_human_rule_still_frees_a_form_the_state_check_refuses(tmp_path, monkeypatch):
     """N24 stays as it was: in with-approvals mode a rule bound to the state digest frees the plain form even where
     the state check refuses it (here a signing program), because a person wrote the rule for that state."""

@@ -9,6 +9,7 @@ Red at 49e0b0f7 and at every head since 135f9f9f, green after; the controls are 
 """
 from __future__ import annotations
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -29,12 +30,14 @@ def _ruled(tmp_path):
     return env, repo
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_CONTROL_the_rule_frees_its_form_as_the_whole_command(tmp_path):
     env, repo = _ruled(tmp_path)
     decision, entry = n24._hook(env, repo, "claude", FORM)
     assert decision is None and entry["applied_rule"]["form"] == FORM, entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("command", STEPS)
 def test_RED_a_rule_frees_no_step_of_a_longer_command(tmp_path, command):
     env, repo = _ruled(tmp_path)
@@ -43,6 +46,7 @@ def test_RED_a_rule_frees_no_step_of_a_longer_command(tmp_path, command):
     assert "approved_by_rule" not in entry["reason_ids"] and "applied_rule" not in entry, (command, entry)
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("command", [FORM] + STEPS)
 def test_CONTROL_codex_denies_with_or_without_the_rule(tmp_path, command):
     env, repo = _ruled(tmp_path)

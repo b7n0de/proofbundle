@@ -17,6 +17,7 @@ import pathlib
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -60,6 +61,7 @@ def test_a_relative_attribute_file_without_a_work_tree_leaves_the_digest_unknown
     assert gate._bound_state_digest(bare, time.monotonic() + 30, plugin_env()) is None
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_control_an_absolute_attribute_file_of_a_bare_repository_is_bound(tmp_path):
     attrs = tmp_path / "attrs"
     attrs.write_text("a review=one\n", encoding="utf-8")

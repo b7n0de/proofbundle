@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_done_check as dc
@@ -91,6 +92,7 @@ def test_the_push_is_resolved_from_the_configuration_git_push_reads(env, tmp_pat
     assert entry["verdict"] == "ask", entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_state_digest_reads_the_configuration_git_reads(tmp_path, monkeypatch):
     """A change of the repository's configuration changes the digest also while GIT_CONFIG names another file."""
     repo = tmp_path / "repo"

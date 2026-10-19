@@ -32,6 +32,7 @@ import subprocess
 import sys
 import time
 
+import _git_version as _gv
 import pytest
 from _plugin_env import plugin_env
 
@@ -229,6 +230,7 @@ def _hook(env: dict, repo: pathlib.Path, command: str) -> str | None:
     return answer.get("hookSpecificOutput", {}).get("permissionDecision")
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("form,frees", [("git blame *", False), ("git blame -- *", False), ("git blame 'a*'", True),
                                         ("git blame a.txt", True)])
 def test_a_rule_frees_no_form_with_a_word_the_shell_rewrites(tmp_path, repo, form, frees):

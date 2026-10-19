@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 
+import _git_version as _gv
 import pytest
 
 import test_claude_code_plugin_gate as cg
@@ -327,6 +328,7 @@ def test_the_language_file_is_read_like_the_mode(tmp_path):
 
 # --- a call a human rule frees stays visible (F15-2, D25) ---------------------------------------------------------------
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("language", ["en", "de"])
 def test_a_call_a_rule_frees_shows_the_short_line_with_the_time_of_the_rules(tmp_path, language):
     """Review Runde 15, F15-2: a shell command can switch the mode and the rules unseen, and every call a rule frees

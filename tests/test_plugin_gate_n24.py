@@ -26,6 +26,7 @@ import pathlib
 import subprocess
 import sys
 
+import _git_version as _gv
 import pytest
 from _plugin_env import plugin_env
 
@@ -115,6 +116,7 @@ def _write_hook(env: dict, repo: pathlib.Path, host: str, tool: str, tool_input:
 
 
 # --- L1: strict mode is the default, and a rule does not act in it -------------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l1_strict_default_ignores_a_matching_free_rule(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -130,6 +132,7 @@ def test_l1_strict_default_ignores_a_matching_free_rule(tmp_path):
 
 
 # --- L2: with-approvals, a matching free rule frees the exact form in the exact repo (red at 096b7191) -------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l2_with_approvals_a_matching_free_rule_passes(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -157,6 +160,7 @@ def test_l2_without_a_rule_the_same_form_still_asks(tmp_path):
 
 
 # --- L3: push and gh are never freed, even by a rule that names them -----------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l3_a_rule_naming_push_or_gh_never_frees_it(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -211,6 +215,7 @@ def test_l6_an_ordinary_file_in_the_repo_is_not_denied_by_the_gate_dir_rule(tmp_
 
 
 # --- L5: a change to the program-selecting state stops a rule acting -----------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l5_a_config_change_stops_the_rule(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -225,6 +230,7 @@ def test_l5_a_config_change_stops_the_rule(tmp_path):
     assert _hook(env, repo, "claude", "git stash list")[0] is None
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l5_a_new_hook_stops_the_rule(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -255,6 +261,7 @@ def test_l7_a_malformed_rule_file_asks(tmp_path, content):
     assert _hook(env, repo, "claude", "git stash list")[0] == "ask", content
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l7_a_duplicate_key_in_the_rule_file_asks(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -268,6 +275,7 @@ def test_l7_a_duplicate_key_in_the_rule_file_asks(tmp_path):
 
 
 # --- L8: under Codex, rules are ignored and every form denies ------------------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l8_codex_denies_even_with_a_matching_free_rule(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -281,6 +289,7 @@ def test_l8_codex_denies_even_with_a_matching_free_rule(tmp_path):
 
 
 # --- L9: a missing or unreadable mode file is strict ---------------------------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("mode_text", ["", "   ", "on", "approve", "x" * 200,
                                        "with-approvals" + " " * 60])   # a valid word padded past the size limit
 def test_l9_an_unknown_or_oversized_mode_is_strict(tmp_path, mode_text):
@@ -295,6 +304,7 @@ def test_l9_an_unknown_or_oversized_mode_is_strict(tmp_path, mode_text):
 
 
 # --- L10: a rule with effect "ask" forces a question even in with-approvals ----------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_l10_an_ask_rule_forces_a_question(tmp_path):
     logs = tmp_path / "logs"
     env, gate_dir = _gate_env(tmp_path, logs)
@@ -308,6 +318,7 @@ def test_l10_an_ask_rule_forces_a_question(tmp_path):
 
 
 # --- the state-digest CLI (red at 096b7191: the subcommand is new) -------------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_state_digest_cli_prints_the_digest_and_a_skeleton(tmp_path):
     env, _ = _gate_env(tmp_path, tmp_path / "logs")
     repo = _repo(tmp_path)
@@ -331,6 +342,7 @@ def test_state_digest_cli_outside_a_repository_reports_and_exits_1(tmp_path):
 
 
 # --- a path invocation or a global option is never a rule candidate ------------------------------------------------
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("command", [
     "/usr/bin/git stash list",             # a program path, not a bare git
     "git -c core.pager=less stash list",   # a per-command config option

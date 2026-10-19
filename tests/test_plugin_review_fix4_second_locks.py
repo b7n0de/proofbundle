@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -41,6 +42,7 @@ def _init(repo: pathlib.Path) -> pathlib.Path:
     return repo
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_m1e_a_relative_attribute_file_is_bound_where_git_reads_it_from_a_subdirectory(tmp_path):
     """git opens a relative core.attributesFile against the work tree, also for a command started in a subdirectory;
     the digest computed from that subdirectory follows the work-tree file."""
@@ -57,6 +59,7 @@ def test_m1e_a_relative_attribute_file_is_bound_where_git_reads_it_from_a_subdir
     assert before is not None and after is not None and before != after
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_m2b_two_bytes_that_are_not_utf8_are_two_states(tmp_path):
     """FE and FF in the same value: a serialisation that replaces both by one character would make them one state."""
     repo = _init(tmp_path / "r")
@@ -67,6 +70,7 @@ def test_m2b_two_bytes_that_are_not_utf8_are_two_states(tmp_path):
     assert before is not None and after is not None and before != after
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("separator", ["\x1c", "\x1d", "\x1e", "\x85", " "])
 def test_m2c_a_repository_whose_path_carries_a_line_separator_is_read(tmp_path, separator):
     """str.splitlines splits on these, git does not: the layout stays readable and a new hook changes the digest."""
@@ -79,6 +83,7 @@ def test_m2c_a_repository_whose_path_carries_a_line_separator_is_read(tmp_path, 
     assert before is not None and after is not None and before != after
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_m2d_a_work_tree_whose_name_ends_in_a_blank_binds_its_relative_attribute_file(tmp_path):
     repo = _init(tmp_path / "r ")
     (repo / "rel").mkdir()

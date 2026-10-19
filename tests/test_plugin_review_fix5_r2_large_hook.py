@@ -17,6 +17,7 @@ import pathlib
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -114,6 +115,7 @@ def test_codex_denies_before_and_after_the_change(tmp_path, large):
     assert before == "deny" and after == "deny" and "approved_by_rule" not in entry["reason_ids"], entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 @pytest.mark.parametrize("size", [4096, gate.MAX_HOOK_BYTES])
 def test_control_a_hook_read_in_full_is_bound_by_its_bytes(tmp_path, size):
     """The reviewer's control and the bound itself: a hook up to MAX_HOOK_BYTES is hashed, and a swap changes the
@@ -138,6 +140,7 @@ def test_one_byte_over_the_bound_is_unknown(tmp_path):
     assert _digest(repo) is None
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_hook_entry_git_cannot_exec_is_bound_by_name_and_mode(tmp_path):
     """The other fixed marker of the digest, measured: git cannot exec a directory as a hook ("cannot exec ...
     Permission denied"), so a change inside it changes nothing git runs and the digest may stay; turning the entry into

@@ -19,6 +19,7 @@ import pathlib
 import subprocess
 import time
 
+import _git_version as _gv
 import pytest
 
 import test_plugin_gate_n24 as n24
@@ -76,6 +77,7 @@ def test_git_reads_the_default_attribute_file(default_attributes):
     assert _attr(repo).endswith("review: two")
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_digest_binds_the_default_attribute_file(default_attributes):
     repo, attrs = default_attributes
     before = _digest(repo)
@@ -85,6 +87,7 @@ def test_the_digest_binds_the_default_attribute_file(default_attributes):
     assert before != after, "a change of the attribute file git reads must change the digest"
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, default_attributes):
     """The form is `git stash list`, which asks without a rule; `git status` was the form until FIX-18 part B, and
     class a (D34) frees it after the read profile without any rule."""
@@ -101,6 +104,7 @@ def test_a_rule_bound_before_the_change_no_longer_frees(tmp_path, default_attrib
     assert "approved_by_rule" not in entry["reason_ids"] and "git_form_not_free" in entry["reason_ids"], entry
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_codex_denies_before_and_after_the_change(tmp_path, default_attributes):
     """Control: under Codex no rule frees a form (D12/D16), so the answer is deny either side of the change."""
     repo, attrs = default_attributes
@@ -115,6 +119,7 @@ def test_codex_denies_before_and_after_the_change(tmp_path, default_attributes):
     assert "approved_by_rule" not in entry["reason_ids"]
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_control_an_explicit_utf8_attribute_file_changes_the_digest(tmp_path, monkeypatch):
     """The reviewer's control, green before and after: an explicit core.attributesFile was already bound."""
     home = tmp_path / "home"
@@ -131,6 +136,7 @@ def test_control_an_explicit_utf8_attribute_file_changes_the_digest(tmp_path, mo
     assert before is not None and before != _digest(repo)
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_without_home_and_xdg_git_reads_no_global_file_and_the_digest_stands(tmp_path, monkeypatch):
     """git var exits 1 with no value where git reads no global attribute file (measured with git 2.43): that is a
     known absence, not an unknown state, so the digest is computed."""
@@ -160,6 +166,7 @@ def _answer(code: int, out: bytes) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(["git"], code, out, b"")
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_the_digest_binds_the_system_attribute_file_git_names(tmp_path, monkeypatch):
     """Sibling: git reads $(prefix)/etc/gitattributes unless GIT_ATTR_NOSYSTEM is set; the test cannot write the
     real one, so git var's answer is pointed at a test file. Red at f0e25574, which never read the system file."""
@@ -184,6 +191,7 @@ def test_an_attribute_source_git_cannot_name_leaves_the_digest_unknown(tmp_path,
     assert _digest(repo) is None
 
 
+@_gv.needs_git(2, 42, "git var names the configuration and attribute files git reads")
 def test_with_git_attr_nosystem_git_reads_no_system_file(tmp_path, monkeypatch):
     """Control: git var exits 1 for the system file under GIT_ATTR_NOSYSTEM (measured), and the digest stands."""
     monkeypatch.setenv("GIT_ATTR_NOSYSTEM", "1")
