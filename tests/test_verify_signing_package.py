@@ -12,11 +12,23 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import sys
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+for _p in (str(ROOT), str(ROOT / "src")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from proofbundle.signature import (  # noqa: E402
+    TRUST_ANCHOR_REFUSAL,
+    ed25519_trust_anchor_weakness,
+    verify_ed25519,
+)
+from tests.test_trust_anchor_keys_refused_on_every_surface import I1, I2, I3, UNIV  # noqa: E402
+
 _SPEC = importlib.util.spec_from_file_location("vsp", ROOT / "scripts" / "verify_signing_package.py")
 vsp = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(vsp)
@@ -32,7 +44,7 @@ def _canon(obj: dict) -> bytes:
 
 
 def _package(tmp_path: pathlib.Path, *, binds: bool = True, kind: str = "statement",
-             body_extra: dict | None = None) -> pathlib.Path:
+             body_extra: dict | None = None, anchor_b64: str = PUB_B64) -> pathlib.Path:
     pkg = tmp_path / "pkg"
     pkg.mkdir(parents=True, exist_ok=True)
     body = {"schema": "example/v1", "version": "1.2.3", "produced_at": "2026-09-22T00:00:00Z"}
@@ -44,7 +56,7 @@ def _package(tmp_path: pathlib.Path, *, binds: bool = True, kind: str = "stateme
     (pkg / "art.body.json").write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     (pkg / "art.payload.bin").write_bytes(payload)
     manifest = {
-        "anchor": {"public_key_b64": PUB_B64, "role": "release", "not_after": "2027-01-01"},
+        "anchor": {"public_key_b64": anchor_b64, "role": "release", "not_after": "2027-01-01"},
         "candidate": {"commit": HEAD, "tree_digest": "b" * 64,
                       "sdist_sha256": "c" * 64, "wheel_sha256": "d" * 64},
         "artifacts": [{
@@ -232,8 +244,7 @@ def test_the_receipt_form_comes_from_the_library(tmp_path):
     fn, source = vsp._receipt_payload()
     assert fn is not None, source
     assert "pre_tag_receipt_lib" in source
-    import sys as _sys
-    _sys.path.insert(0, str(ROOT / "scripts"))
+    sys.path.insert(0, str(ROOT / "scripts"))
     from pre_tag_receipt_lib import canonical_bytes
     assert fn is canonical_bytes
 
@@ -274,3 +285,99 @@ def test_a_missing_body_is_a_finding_AND_not_measurable(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 1
     assert "MISSING" in out and "NOT MEASURABLE" in out
+
+
+# ── the anchor is a TRUSTED key: the trust-anchor rule, and one decoder for its text ────────────
+
+#: The three encodings of the identity point. Under each, R = identity and S = 0 (`UNIV`) verifies on
+#: the bare SPEC section 4a profile for every message, so this signature exists without a private key.
+IDENTITY = (I1, I2, I3)
+
+
+@pytest.mark.parametrize("key", IDENTITY, ids=lambda k: k.hex()[:8])
+def test_a_signature_nobody_made_does_not_verify_under_a_weak_anchor(tmp_path, capsys, key):
+    """THE FORGERY THE BARE PROFILE LETS THROUGH. The first version of `after` checked the signature
+    with `cryptography` directly and printed VERIFIES here. The precondition shows the forgery is live
+    on exactly these bytes, so the refusal cannot come from a signature that never verified."""
+    pkg = _package(tmp_path, anchor_b64=base64.b64encode(key).decode("ascii"))
+    assert verify_ed25519(key, UNIV, (pkg / "art.payload.bin").read_bytes()) is True
+    f = pkg / "art.sig.b64"
+    f.write_text(base64.b64encode(UNIV).decode("ascii") + "\n", encoding="utf-8")
+    rc = vsp.after(pkg, "art", f)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "DOES NOT VERIFY" in out
+    assert TRUST_ANCHOR_REFUSAL[ed25519_trust_anchor_weakness(key)] in out
+    assert not (pkg / "art.signed.json").exists()
+
+
+@pytest.mark.parametrize("key", IDENTITY, ids=lambda k: k.hex()[:8])
+def test_a_weak_anchor_is_a_finding_before_anything_is_signed(tmp_path, capsys, key):
+    """The same key, one step earlier. A key the reader passes and the manifest names says the two
+    agree, not that the key can stand as a trusted one, so the match alone is no pass."""
+    weak = base64.b64encode(key).decode("ascii")
+    pkg = _package(tmp_path, anchor_b64=weak)
+    rc = vsp.before(pkg, anchor_pubkey=weak, expected_head=HEAD)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "matches the key you passed" in out
+    assert TRUST_ANCHOR_REFUSAL[ed25519_trust_anchor_weakness(key)] in out and "do not sign" in out
+
+
+def test_a_sound_anchor_passes_the_rule(tmp_path, capsys):
+    """Counter-direction: without it a rule that refused every key would pass the two cases above."""
+    pkg = _package(tmp_path)
+    assert vsp.before(pkg, anchor_pubkey=PUB_B64, expected_head=HEAD) == 0
+    assert "can stand as a trusted Ed25519 key" in capsys.readouterr().out
+
+
+def test_a_manifest_without_an_anchor_key_is_a_finding(tmp_path, capsys):
+    pkg = _package(tmp_path)
+    m = json.loads((pkg / vsp.DEFAULT_MANIFEST).read_text())
+    del m["anchor"]
+    (pkg / vsp.DEFAULT_MANIFEST).write_text(json.dumps(m))
+    assert vsp.before(pkg) == 1
+    assert "is missing from the manifest" in capsys.readouterr().out
+
+
+def test_a_second_spelling_of_the_signature_is_refused(tmp_path, capsys):
+    """ONE SIGNATURE, ONE ACCEPTED TEXT. `base64.b64decode` drops a character outside the alphabet,
+    and with validate=True it still takes a non-zero pad bit, so both spellings below decode to the
+    signature's own bytes there (the precondition). The package's decoder refuses both, and the real
+    spelling still verifies (`test_a_real_signature_verifies_and_assembles_a_preview`)."""
+    pkg = _package(tmp_path)
+    real = _sign(pkg).read_text(encoding="utf-8").strip()
+    raw = base64.b64decode(real, validate=True)
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    assert real.endswith("==")      # 64 bytes: the last group holds one byte and four pad bits
+    last = alphabet[alphabet.index(real[-3]) | 1]
+    assert last != real[-3]
+    spellings = {"junk at position 0": "!" + real, "a non-zero pad bit": real[:-3] + last + "=="}
+    assert base64.b64decode(spellings["junk at position 0"]) == raw
+    assert base64.b64decode(spellings["a non-zero pad bit"], validate=True) == raw
+    for name, text in spellings.items():
+        f = pkg / "art.sig.b64"
+        f.write_text(text + "\n", encoding="utf-8")
+        rc = vsp.after(pkg, "art", f, anchor_pubkey=PUB_B64)
+        out = capsys.readouterr().out
+        assert rc == 1, name
+        assert "the signature is not canonical base64" in out, name
+
+
+def test_without_the_signature_module_the_anchor_rule_is_NOT_MEASURABLE(tmp_path, monkeypatch, capsys):
+    pkg = _package(tmp_path)
+
+    def absent(_pub):
+        raise ImportError("simulated: no proofbundle.signature")
+    monkeypatch.setattr(vsp, "_trusted_anchor", absent)
+    rc = vsp.before(pkg, anchor_pubkey=PUB_B64)
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "anchor rule   : NOT MEASURABLE" in out and "not a pass" in out
+
+
+def test_without_the_signature_module_after_is_NOT_MEASURABLE(tmp_path, monkeypatch, capsys):
+    pkg = _package(tmp_path)
+    monkeypatch.setattr(vsp, "_ed25519_verifier", lambda: (None, "simulated: no proofbundle.signature"))
+    assert vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64) == 2
+    assert "NOT MEASURABLE" in capsys.readouterr().out

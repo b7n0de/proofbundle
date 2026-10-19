@@ -679,6 +679,10 @@ _RULE_SITES = {
     ("scripts/pre_tag_receipt_lib.py", "verify_receipt"): (1, "verifier: a key it decoded itself"),
     ("scripts/render_site_data.py", "_check_receipt"): (1, "verifier: a key it decoded itself"),
     ("scripts/sign_readiness_artifact.py", "assemble"): (1, "PRODUCER, TheAssembleSteps"),
+    ("scripts/verify_signing_package.py", "_trusted_anchor"): (1, "verifier: a key it decoded itself from "
+                                                                  "the manifest, a plain str json.loads "
+                                                                  "made; the preview `after` writes "
+                                                                  "carries that same text"),
     ("src/proofbundle/adapters/agt_receipt.py", "_schwaeche"): (1, "verifier: plain text or bytes the "
                                                                    "list reader copied"),
     ("src/proofbundle/adapters/agt_receipt.py", "_vertrauensliste"): (3, "verifier: the same copies"),

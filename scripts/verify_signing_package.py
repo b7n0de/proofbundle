@@ -16,8 +16,8 @@ a canonicalizer is available, re-derives the payload bytes FROM THE BODY. Only t
 is what I sign" measured rather than asserted.
 
 THREE STATES, NOT TWO. If the derivation cannot be recomputed here (no canonicalizer) or a signature
-cannot be checked (no `cryptography`), the answer is NOT MEASURABLE -- exit code 2. That is not a
-pass. A tool that quietly downgrades "could not check" to "fine" is worse than no tool, because the
+cannot be checked (no `proofbundle.signature`, which needs `cryptography`), the answer is NOT
+MEASURABLE -- exit code 2. That is not a pass. A tool that quietly downgrades "could not check" to "fine" is worse than no tool, because the
 reader stops looking.
 
 NOTHING ABOUT A PARTICULAR RELEASE IS BUILT IN. The anchor key, the manifest name and the expected
@@ -46,7 +46,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import pathlib
@@ -87,22 +86,60 @@ def _receipt_payload():
         return None, f"pre_tag_receipt_lib not importable ({exc})"
 
 
-def _ed25519_verifier():
-    try:
-        from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
-            Ed25519PublicKey)
-    except ImportError as exc:
-        return None, f"cryptography not importable ({exc})"
+def _trusted_anchor(pub_b64) -> "tuple[bytes | None, str | None]":
+    """The anchor key as the 32 bytes a signature is checked under, judged the way the package judges
+    every key a caller trusts: (raw, None) for a key that can stand, (None, why) for one that cannot.
+    Raises ImportError when proofbundle is not importable here, which the callers report as NOT
+    MEASURABLE.
 
-    def verify(pub_b64: str, sig_b64: str, data: bytes) -> bool:
-        pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64))
+    THE ANCHOR IS A TRUSTED KEY, so it gets the trust-anchor rule of SPEC section 4b. Under a key of
+    small order a signature made with no private key verifies on the bare SPEC section 4a profile, and
+    the first version of this tool checked with that profile, so a package whose anchor named such a
+    key showed VERIFIES over a signature nobody made. tests/test_release_tooling_refuses_weak_pinned_keys.py
+    holds every Ed25519 check under scripts/ to the rule.
+
+    ONE DECODER, the package's. `base64.b64decode` takes a second spelling of the same bytes (a
+    character outside the alphabet it drops, a non-zero pad bit), so one key or one signature had more
+    than one accepted text (tests/test_lauf11_l2_scripts_dekodieren_strikt.py)."""
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    from proofbundle.signature import (  # noqa: PLC0415
+        TRUST_ANCHOR_REFUSAL,
+        ed25519_trust_anchor_weakness,
+    )
+    if pub_b64 is None:
+        return None, "is missing from the manifest (anchor.public_key_b64)"
+    try:
+        raw = decode_b64(pub_b64)
+    except ValueError as exc:
+        return None, f"is not canonical base64 ({exc})"
+    weakness = ed25519_trust_anchor_weakness(raw)
+    if weakness is not None:
+        return None, (f"is a {weakness} Ed25519 key, refused as a trusted key: "
+                      f"{TRUST_ANCHOR_REFUSAL[weakness]}")
+    return raw, None
+
+
+def _ed25519_verifier():
+    """(function, source) or (None, reason). The function answers (ok, why) for an anchor key in
+    base64, a signature in base64 and the signed bytes, through `verify_ed25519_pinned`."""
+    try:
+        from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        from proofbundle.signature import verify_ed25519_pinned  # noqa: PLC0415
+    except ImportError as exc:
+        return None, f"proofbundle.signature not importable ({exc})"
+
+    def verify(pub_b64, sig_b64: str, data: bytes) -> "tuple[bool, str]":
+        raw, refusal = _trusted_anchor(pub_b64)
+        if raw is None:
+            return False, f"the anchor key {refusal}"
         try:
-            pub.verify(base64.b64decode(sig_b64), data)
-            return True
-        except InvalidSignature:
-            return False
-    return verify, "cryptography"
+            sig = decode_b64(sig_b64)
+        except ValueError as exc:
+            return False, f"the signature is not canonical base64 ({exc})"
+        if verify_ed25519_pinned(raw, sig, data):
+            return True, ""
+        return False, "the signature does not verify over these bytes under this key"
+    return verify, "proofbundle.signature.verify_ed25519_pinned"
 
 
 def _sha256(p: pathlib.Path) -> str:
@@ -164,6 +201,20 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         findings += 1
     else:
         print(f"# anchor key    : {anchor} (matches the key you passed)")
+    # A KEY NOBODY HOLDS IS NO ANCHOR, and that is decided before anything is signed under it. A
+    # matching key passed by the reader says the package names the key the reader meant, not that the
+    # key can stand as a trusted one.
+    try:
+        _raw, refusal = _trusted_anchor(anchor)
+    except ImportError as exc:
+        print(f"# anchor rule   : NOT MEASURABLE, proofbundle.signature not importable ({exc})")
+        not_measurable += 1
+    else:
+        if refusal:
+            print(f"# anchor rule   : the anchor key {refusal} -- do not sign")
+            findings += 1
+        else:
+            print("# anchor rule   : the anchor key can stand as a trusted Ed25519 key (SPEC section 4b)")
 
     if expected_head:
         print(f"# expected head : {expected_head} (independent, from you)")
@@ -252,9 +303,10 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         print(f"VERDICT: {findings} finding(s) -- do not sign until they are resolved")
         return 1
     if not_measurable:
-        print(f"VERDICT: NOT MEASURABLE -- for {not_measurable} artefact(s) the equality body -> payload could")
-        print("         not be recomputed here (no canonicalizer, or a file is missing). That is not a pass:")
-        print("         install rfc8785 and cryptography, run 'before' again, and only then sign.")
+        print(f"VERDICT: NOT MEASURABLE -- {not_measurable} check(s) could not be made here: the equality")
+        print("         body -> payload (no canonicalizer, or a file is missing) or the anchor rule (no")
+        print("         proofbundle.signature). That is not a pass: install proofbundle with rfc8785 and")
+        print("         cryptography, run 'before' again, and only then sign.")
         return 2
     print("VERDICT: everything checked and consistent")
     return 0
@@ -289,13 +341,14 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
               "the signature was not checked against your key.")
         return 1
     if verify is None:
-        print("VERDICT: NOT MEASURABLE -- without cryptography the signature cannot be checked here. "
-              "That is not a pass.")
+        print(f"VERDICT: NOT MEASURABLE -- without proofbundle.signature the signature cannot be checked "
+              f"here ({crypto_source}). That is not a pass.")
         return 2
-    ok = verify(pub_b64, sig_b64, payload)
+    ok, why = verify(pub_b64, sig_b64, payload)
     print(f"VERDICT: the signature {'VERIFIES' if ok else 'DOES NOT VERIFY'} over exactly these bytes "
           f"with the anchor key {str(pub_b64)[:16]}...")
     if not ok:
+        print(f"         {why}")
         return 1
 
     target = package / f"{artifact}.signed.json"

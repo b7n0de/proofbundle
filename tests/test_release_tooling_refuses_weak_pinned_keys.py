@@ -236,6 +236,8 @@ THIRD_PARTY = {
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
     "markdown_it": "a CommonMark parser, for reading what a Markdown text renders; it verifies no signature",
+    "rfc8785": "the RFC 8785 JSON canonicalizer, for recomputing the bytes a signature runs over; it verifies "
+               "no signature",
 }
 
 _LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")
