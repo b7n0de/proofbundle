@@ -24,6 +24,8 @@ Owner-Anordnung OA-afa1e17cfa Option B (11.09.2026) und Deep Gate Lauf 11, Fund 
 """
 from __future__ import annotations
 
+import types
+
 #: Obergrenze für EINE abgeleitete Testlast. 64 MiB ist reichlich über jedem legitimen Wert dieser
 #: Suite und weit unter dem, was einen Runner tötet.
 MAX_TESTLAST_BYTES = 64 * 1024 * 1024
@@ -45,7 +47,11 @@ HARTER_LASTDECKEL = MAX_TESTLAST_BYTES // 64
 #: `ArchiveTimeStamp("sha256", "a"*64, i)` kostet 292 B, nicht 256 (305 MiB gemessen); ein
 #: 64-Zeichen-Hex-String in einer Liste 121 B, nicht 64. Dieselbe Klasse wie der phi4-Fund an
 #: `bytes_je_element=64`: eine Zahl, die an der Form hängt statt an der Messung.
-KOSTEN_JE_ELEMENT = {
+#:
+#: Read-only at run time (counter review 2026-10-17): a test that changed an entry in place lowered the cap for every
+#: test after it, in a form no reading of the source lists. A mapping proxy refuses assignment, deletion and update.
+#: It is no wall: gc and ctypes still reach the dict below it (third counter review, 2026-10-17).
+KOSTEN_JE_ELEMENT = types.MappingProxyType({
     "data_digests": 128,  # ["%064x" % i ...]: 121,9 B/Element gemessen (str-Objekt + Zeiger)
     "disclosures": 256,  # sd-jwt-Disclosure
     "input_bytes": 1,  # ein Byte
@@ -62,7 +68,7 @@ KOSTEN_JE_ELEMENT = {
     "signatures": 320,  # [{"sig": "AA=="} ...] je ein frisches dict: 240,1 B gemessen
     "string_len": 1,  # ein Zeichen
     "witnesses": 2048,  # Witness-vkey: ML-DSA-44 = 1313 B Schluesselmaterial, base64 ~1800 B
-}
+})
 
 
 def gedeckelt(wert: int, *, bytes_je_element: int) -> int:
