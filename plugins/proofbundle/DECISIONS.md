@@ -4551,3 +4551,56 @@ core.fsmonitor counts as it did before D74.
 Limits: list-heads with ref names, list-heads or verify of standard input, and the daemon's other subcommands keep their
 answer. Under Codex both keep the ask of D41. The forms are free under the switch (D91) and in the work profile of D71,
 not by decide() alone. Tests: tests/test_plugin_n40_bundle_b40.py.
+## D95. A data step that writes a file is a write, read as getopt reads its words (Nachtrag 37, point 4, and Nachtrag 39, F35-3, 2026-10-19)
+
+Order (B37-1, B37-2): a data step that writes a file counts as writing, read as getopt reads it (bundled short options,
+a value directly at the option, abbreviations of long options, `-` and `--` as operands), measured with GNU coreutils 9.4
+and 8.32; every program of _SH_DATA that can write a file checked, built or not affected, with a measurement; a write
+into `.git/hooks`, `.git/config` or the gate's directory carries the weight of _D72_WRITES. Measured by Cowork at
+89d2e8b7 and 9e0d071b under Claude Code without an ask: `sort -uo <file>` and uniq with an output file as its second
+operand write the file, into `.git/hooks` and `.git/config` too; the lines of _sh_changes_state read only words that
+start with `-o` or `--output` and operands that do not start with `-` (135f9f9f, class c). Nachtrag 39 (F35-3): a data
+step with an effect is no read (`date -s`, `sort -T`, `sort --compress-program`, the siblings in _SH_DATA); found in
+PLUGIN_N35, where `date -s 2020-01-01 && git status` was free.
+
+Measured with GNU coreutils 9.4 under strace -f, one empty folder per form, no network (n37b/werkzeug of the delivery:
+truth_data_writes_n37.py, 70 forms, and truth_getopt_n37b.py, 121 forms; date only as the user nobody with an empty
+capability set and EPERM injected into every call that sets the clock, so no form could set it):
+- sort writes the file of every -o as getopt reads it (`-uoF`, `-uo F`, `--o=F`, `--outp F`, `F` after the operands);
+  `-` is a file there, not the standard output; `-t -o`, `-k -o`, `-to` and `-- -o` write nothing (the option takes the
+  word, or it is an operand); `+POS1 -POS2` is a key; from a large input it writes temporary files `sortXXXXXX` into
+  the folder of -T (in every spelling, `--t=` and `--te=` included) or of TMPDIR; an abbreviated --compress-program
+  (`--compress-p=`, `--co=`, `--co P`) starts the program, `--c=` is ambiguous and starts nothing; `-y` takes an
+  attached value and a following word only of digits.
+- uniq writes its second operand unless it is `-`; the obsolete `+N` is an option before `--` and a file after it, and
+  under POSIXLY_CORRECT every word after the first operand is a file (`uniq IN -c` writes `-c`).
+- tee writes every operand, `-` included, and every word after `--` (`tee -- -x` writes `-x`).
+- tac writes `cutmpXXXXXX` into TMPDIR when its input is a pipe.
+- date calls clock_settime for -s, --set, --se, -us and an operand that is no `+FORMAT` (`date 0101000020`).
+- Every other program of _SH_DATA (echo, printf, cat, head, tail, grep, rg, wc, cut, tr, nl, column, jq, fold, fmt, rev,
+  ls, pwd, basename, dirname, realpath, readlink, stat, sleep, seq, expr, comm, join, paste, the sum programs, cmp,
+  diff, du, df, id, whoami, uname, printenv, which, test, sed and awk in their data forms, find without an action)
+  opened no file for writing in the forms measured: not affected. sed with -i or a w command, awk with output into a
+  file and find with an action were carriers before D95 and stay so.
+GNU coreutils 8.32 is NOT MEASURED: no such program in this container, no network.
+
+The rule: _GETOPT_SPECS holds for sort, uniq, tee and date the short options as getopt's string and the long options
+with the option each stands for, as measured; _getopt_read reads the words as GNU getopt_long does (a bundle letter by
+letter, a value attached or the next word, a long option by its name or by a prefix that names one option or several
+that stand for the same option with the same kind of value, `-` an operand, `--` ends the options, under POSIXLY_CORRECT
+the first operand ends them for uniq and tee). _getopt_writes gives the files the step writes: the outputs of every
+reading the hook's environment may hold (default, POSIXLY_CORRECT, the strict obsolete `+N`), the temporary files in the
+folder of -T or of a TMPDIR assignment before the step (sort, tac), and, where a word is not literal or getopt would
+refuse an option, every word that may be a file. These files join the step's redirections in write_targets: each is
+judged as a file-tool write (decide_write), so a write into the configuration or the hooks asks (write_to_repo_state)
+and one into the gate's directory is denied (write_to_gate_dir), alone and in a chain, with the weight of _D72_WRITES
+on the line. _getopt_kind makes the step no data step where date sets the clock (other), where sort starts a compress
+program in any spelling (carrier), and where a word is not literal or getopt refuses an option (other). The old rules
+stay: an -o word of sort or two operands of uniq change the state, the full --compress-program is a carrier; the reading
+of getopt adds every other spelling of the same.
+
+Limits: a TMPDIR the session's environment holds, not the command, is not read (the gate reads no value of the hook's
+environment for this). A file a program writes because a word the shell builds names it is not judged, as for a
+redirection the shell builds (D33), except `~/x` and `$HOME/x`, which D96 names; the step is no data step, so a git
+step after it is not free. A copy command (cp, mv, install, ln) is no data step; D96 judges its words. Tests:
+tests/test_plugin_n37_data_writes_d95.py.

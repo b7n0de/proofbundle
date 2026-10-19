@@ -10314,6 +10314,198 @@ _SH_SAFE_AWK = re.compile(r"^\s*([A-Za-z0-9_$!=<>&|.\"' /^\\-]*)?\s*\{\s*print(f
                           r"|^\s*NR\s*[<>=!]=?\s*\d+\s*$")
 
 
+#: D95 (Nachtrag 37, point 4): the data steps of _SH_DATA that can write a file or set the clock, read as GNU getopt_long
+#: reads their words, measured with GNU coreutils 9.4 under strace -f (truth_getopt_n37b.py, truth_data_writes_n37.py).
+#: Per program: the short options as getopt's string (":" takes a value, attached or the next word; "::" an optional
+#: value, attached only; a leading "-" returns operands in place), the long options by name with the option they stand
+#: for and "", ":" or "::", whether options end at the first operand under POSIXLY_CORRECT, and the short options whose
+#: value is the next word only where that word is all digits (sort -y, kept for Solaris). A long option may be cut to any
+#: prefix that names one option, or several that stand for the same option with the same kind of value (`date --u`).
+_GETOPT_SPECS = {
+    "sort": ("-bcCdfghik:mMno:rRsS:t:T:uVy:z", {
+        "ignore-leading-blanks": ("b", ""), "check": ("check", "::"), "compress-program": ("compress-program", ":"),
+        "debug": ("debug", ""), "dictionary-order": ("d", ""), "ignore-case": ("f", ""),
+        "files0-from": ("files0-from", ":"), "general-numeric-sort": ("g", ""), "ignore-nonprinting": ("i", ""),
+        "key": ("k", ":"), "merge": ("m", ""), "month-sort": ("M", ""), "numeric-sort": ("n", ""),
+        "human-numeric-sort": ("h", ""), "version-sort": ("V", ""), "random-sort": ("R", ""),
+        "random-source": ("random-source", ":"), "sort": ("sort", ":"), "output": ("o", ":"), "reverse": ("r", ""),
+        "stable": ("s", ""), "batch-size": ("batch-size", ":"), "buffer-size": ("S", ":"),
+        "field-separator": ("t", ":"), "temporary-directory": ("T", ":"), "unique": ("u", ""),
+        "zero-terminated": ("z", ""), "parallel": ("parallel", ":"), "help": ("help", ""),
+        "version": ("version", "")}, False, "y"),
+    "uniq": ("-0123456789Dcdf:is:uw:z", {
+        "count": ("c", ""), "repeated": ("d", ""), "all-repeated": ("D", "::"), "group": ("group", "::"),
+        "ignore-case": ("i", ""), "unique": ("u", ""), "skip-fields": ("f", ":"), "skip-chars": ("s", ":"),
+        "check-chars": ("w", ":"), "zero-terminated": ("z", ""), "help": ("help", ""), "version": ("version", "")},
+        True, ""),
+    "tee": ("aip", {"append": ("a", ""), "ignore-interrupts": ("i", ""), "output-error": ("output-error", "::"),
+                    "help": ("help", ""), "version": ("version", "")}, True, ""),
+    "date": ("d:f:I::r:Rs:u", {
+        "date": ("d", ":"), "debug": ("debug", ""), "file": ("f", ":"), "iso-8601": ("I", "::"),
+        "reference": ("r", ":"), "resolution": ("resolution", ""), "rfc-email": ("R", ""), "rfc-822": ("R", ""),
+        "rfc-2822": ("R", ""), "rfc-3339": ("rfc-3339", ":"), "set": ("s", ":"), "uct": ("u", ""), "utc": ("u", ""),
+        "universal": ("u", ""), "help": ("help", ""), "version": ("version", "")}, False, ""),
+}
+#: The name of the temporary file sort and tac make in their temporary directory (measured: sortXXXXXX, cutmpXXXXXX).
+_GETOPT_TEMP_NAMES = {"sort": "sortXXXXXX", "tac": "cutmpXXXXXX"}
+#: The obsolete key of sort, `+POS1 -POS2`, which sort reads as a key where the word after `+POS1` is `-` and a digit
+#: (measured: `sort +0 -1 -o OUT IN` writes OUT).
+_GETOPT_SORT_OLD_KEY = re.compile(r"\+[0-9]")
+_GETOPT_SORT_OLD_END = re.compile(r"-[0-9]")
+#: The obsolete `+N` of uniq (skip N characters) where getopt returns it as an operand before `--` (measured).
+_GETOPT_UNIQ_SKIP = re.compile(r"\+[0-9]+")
+
+
+def _getopt_read(name: str, words: list[str], posix: bool = False) -> tuple[list, list, str | None]:
+    """The words after the program name as GNU getopt_long reads them for the program of _GETOPT_SPECS: (the options as
+    (option, value or None), the operands as (word, whether it came after `--`), the problem that ends the program
+    before it reads anything, or None). posix reads as under POSIXLY_CORRECT, for a program whose options end at the
+    first operand there. A bundle of short options is read letter by letter; a value is the rest of the word or the
+    next word; a long option is its name or a prefix of it, with `=value` or the next word; `-` is an operand and `--`
+    makes every later word one."""
+    short, longs, posix_stops, digits_only = _GETOPT_SPECS[name]
+    letters, i = {}, 0
+    spec = short.lstrip("-")
+    while i < len(spec):
+        j = i + 1
+        while j < len(spec) and spec[j] == ":":
+            j += 1
+        letters[spec[i]] = spec[i + 1:j]
+        i = j
+    options, operands, i = [], [], 0
+    while i < len(words):
+        word = words[i]
+        i += 1
+        if posix and posix_stops and operands:
+            operands.extend((w, True) for w in words[i - 1:])   # every later word is an operand, `--` included
+            break
+        if word == "--":
+            operands.extend((w, True) for w in words[i:])
+            break
+        if name == "sort" and _GETOPT_SORT_OLD_KEY.match(word) and i < len(words) and \
+                _GETOPT_SORT_OLD_END.match(words[i]):
+            i += 1   # +POS1 -POS2, a key
+            continue
+        if word.startswith("--"):
+            long, equals, value = word[2:].partition("=")
+            found = longs.get(long)
+            if found is None:
+                named = {v for n, v in longs.items() if long and n.startswith(long)}
+                if len(named) != 1:
+                    return options, operands, f"option '{word}' is {'ambiguous' if named else 'unrecognized'}"
+                found = named.pop()
+            option, kind = found
+            if kind == "" and equals:
+                return options, operands, f"option '{word}' doesn't allow an argument"
+            if kind == ":" and not equals:
+                if i == len(words):
+                    return options, operands, f"option '{word}' requires an argument"
+                value, i = words[i], i + 1
+            options.append((option, value if equals or kind == ":" else None))
+            continue
+        if word.startswith("-") and word != "-":
+            for k, letter in enumerate(word[1:], start=2):
+                kind = letters.get(letter)
+                if kind is None:
+                    return options, operands, f"invalid option -- '{letter}'"
+                if kind == "":
+                    options.append((letter, None))
+                    continue
+                if k < len(word):
+                    options.append((letter, word[k:]))
+                elif kind == "::":
+                    options.append((letter, None))
+                elif i == len(words):
+                    return options, operands, f"option requires an argument -- '{letter}'"
+                elif letter in digits_only and not re.fullmatch(r"[0-9]*", words[i]):
+                    options.append((letter, ""))   # sort -y leaves a word that is not all digits as an operand
+                else:
+                    options.append((letter, words[i]))
+                    i += 1
+                break
+            continue
+        operands.append((word, False))
+    return options, operands, None
+
+
+def _getopt_candidates(words: list[str]) -> list[str]:
+    """Every word a program may take as a file it writes where the gate cannot read its options: each word, each value
+    after `=`, and each rest of a short option bundle after its first letter (an attached value)."""
+    out = []
+    for word in words:
+        if word in ("-", "--"):
+            continue
+        out.append(word)
+        if word.startswith("--"):
+            out.append(word.partition("=")[2])
+        elif word.startswith("-"):
+            out.extend(word[k:] for k in range(2, len(word)))
+    return [w for w in dict.fromkeys(out) if w]
+
+
+def _getopt_writes(step: "_ShStep", temp: bool = True) -> tuple[list[str], bool, str | None]:
+    """(the files a data step of _GETOPT_SPECS or tac writes as getopt reads it, whether a word is not literal, the
+    problem that keeps the gate from reading it) under D95. sort writes the file of each -o (`-` is a file there) and
+    temporary files in the directory of -T or of a TMPDIR assignment before it; uniq writes its second operand where it
+    is not `-`, read with and without the obsolete `+N` and under POSIXLY_CORRECT, whichever the hook's environment
+    holds; tee writes every operand, `-` included, read both ways; tac writes a temporary file in the directory of a
+    TMPDIR assignment. Where a word is not literal or the options cannot be read, every word that may be a file is
+    named (_getopt_candidates). temp=False leaves out the temporary files."""
+    name, words = step.head, step.words[1:]
+    unknown = not all(w.literal for w in step.cmd.words[1:])
+    targets: list[str] = []
+    temp_name = _GETOPT_TEMP_NAMES.get(name) if temp else None
+    if temp_name is not None:
+        for a in step.cmd.assigns:
+            key, _eq, value = a.value.partition("=")
+            if key == "TMPDIR":
+                if a.literal and value:
+                    targets.append(os.path.join(value, temp_name))
+                else:
+                    unknown = True
+    if name not in _GETOPT_SPECS or name == "date":
+        return targets, unknown, None
+    readings = [(False, False)] if name == "sort" else [(False, False), (True, False)] if name == "tee" else \
+        [(False, False), (False, True), (True, False), (True, True)]
+    problem = None
+    for posix, plus_files in readings:
+        options, operands, why = _getopt_read(name, words, posix)
+        if why is not None:
+            problem = why
+            continue
+        if name == "sort":
+            targets.extend(v for o, v in options if o == "o")
+            targets.extend(os.path.join(v, temp_name) for o, v in options if o == "T" and v and temp_name)
+        elif name == "tee":
+            targets.extend(w for w, _after in operands)
+        else:
+            files = [w for w, after in operands if after or plus_files or not _GETOPT_UNIQ_SKIP.fullmatch(w)]
+            if len(files) >= 2 and files[1] != "-":
+                targets.append(files[1])
+    if problem is not None or unknown:
+        targets.extend(_getopt_candidates(words))
+    return list(dict.fromkeys(targets)), unknown, problem
+
+
+def _getopt_kind(step: "_ShStep") -> str | None:
+    """The kind D95 gives a data step of _GETOPT_SPECS, or None for data: other where the gate cannot read its options
+    (a word not literal, an option getopt refuses) or where date sets the clock (-s, --set or an operand that is no
+    `+FORMAT`, measured: each calls clock_settime); carrier where sort starts a compress program in any spelling."""
+    name = step.head
+    if name not in _GETOPT_SPECS:
+        return None
+    if not all(w.literal for w in step.cmd.words[1:]):
+        return "other"
+    options, operands, problem = _getopt_read(name, step.words[1:])
+    if problem is not None:
+        return "other"
+    if name == "date" and (any(o == "s" for o, _v in options) or any(not w.startswith("+") for w, _a in operands)):
+        return "other"
+    if name == "sort" and any(o == "compress-program" for o, _v in options):
+        return "carrier"
+    return None
+
+
 class _ShStep:
     """One simple command as bash would execute it: its words, the directory it runs in (None where unknown),
     whether it stands alone at the top level, the size of its pipeline, and the steps that run before it or beside it
@@ -10333,8 +10525,8 @@ class _ShStep:
         return "\n".join(parts)
 
     def write_targets(self) -> tuple[list[str], bool]:
-        """(the literal files the step's output redirections and tee open for writing, whether any target is not
-        literal). Duplications of a descriptor and /dev/null open no file."""
+        """(the literal files the step's output redirections and the data steps of D95 (sort, uniq, tee, tac) open
+        for writing, whether any target is not literal). Duplications of a descriptor and /dev/null open no file."""
         targets, unknown = [], False
         for r in self.cmd.redirs:
             if isinstance(r.target, _ShHeredoc) or r.op in ("<", "<<<", "<&"):
@@ -10356,6 +10548,11 @@ class _ShStep:
                     targets.append(w.value)
                 else:
                     unknown = True
+        if self.head in _GETOPT_SPECS or self.head in _GETOPT_TEMP_NAMES:
+            # D95: the files the step writes as getopt reads its words (`tee -- -x`, `sort -uo F`, `uniq IN F`)
+            written, not_literal, _problem = _getopt_writes(self)
+            targets.extend(t for t in written if t not in targets)
+            unknown = unknown or not_literal
         return targets, unknown
 
 
@@ -10395,6 +10592,9 @@ def _sh_kind(step: _ShStep) -> str:
         return "other"     # printf -v or a %n conversion sets a variable, which may be exported (R20-1)
     if h in ("test", "[") and _test_names_an_expression(args):
         return "other"     # -v before a word that is no plain name: bash expands its index as an expression (D82)
+    kind = _getopt_kind(step) if h in _SH_DATA else None
+    if kind is not None:
+        return kind        # D95: sort's compress program in any spelling, date setting the clock, unreadable options
     if h in _SH_DATA:
         return "data"
     return "other"
@@ -10600,6 +10800,8 @@ def _sh_changes_state(step: _ShStep, protected: bool, later: _ShStep | None = No
             return True
         if step.head == "uniq" and len([w for w in step.words[1:] if not w.startswith("-")]) >= 2:
             return True
+        if step.head in ("sort", "uniq") and _getopt_writes(step, temp=False)[0]:
+            return True     # D95: the output file in any spelling getopt reads (`sort -uo F`, `sort --out=F`, `uniq +1 IN F`)
         return bool(step.cmd.assigns) and not all(_assignment_neutral(w.value) for w in step.cmd.assigns)
     if step.kind == "git":
         sub_words = step.words[1:]
