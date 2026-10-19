@@ -13411,35 +13411,44 @@ def _host_settings_paths(environ) -> tuple[set, set]:
     return files, dirs
 
 
+def _realpath(path: str) -> str:
+    """The path after its links, or as written where it holds a NUL byte, which names no file (os.path.realpath raises)."""
+    try:
+        return os.path.realpath(path)
+    except ValueError:
+        return os.path.normpath(path)
+
+
 def _host_settings_problem(path: str, cwd: str, environ) -> str | None:
-    """Why a write to path writes the settings of a host, where its hooks and permissions stand (D101), by role; None for
-    any other file. The path counts written and resolved, a hard link to an account file counts too, as for the start
-    files of the shell (D97), and a project's file counts wherever it stands, by its last parts."""
+    """Why a write to path writes the settings of a host, where its hooks and permissions stand (D101), by role and
+    without the path, which HOME or CLAUDE_CONFIG_DIR may decide (D49); None for any other file. The path counts written
+    and resolved, a hard link to an account file counts too, as for the start files of the shell (D97), and a project's
+    file counts wherever it stands, by its last parts."""
     if not os.path.isabs(path):
         if not (isinstance(cwd, str) and os.path.isabs(cwd)):
             return None
         path = os.path.join(cwd, path)
-    lexical, target = os.path.normpath(path), os.path.realpath(path)
+    lexical, target = os.path.normpath(path), _realpath(path)
     for candidate in (lexical, target):
         parts = candidate.split(os.sep)
         if tuple(parts[-2:]) in _HOST_SETTINGS_PROJECT_FILES or parts[-1] in _HOST_SETTINGS_NAMES:
-            return f"{lexical} is a settings file of the host, where its hooks, permissions or servers stand"
+            return "the file is a settings file of the host, where its hooks, permissions or servers stand"
         if any(part in _HOST_SETTINGS_FOLDER_NAMES for part in parts[:-1]):
-            return f"{lexical} is in a settings folder of the host"
+            return "the file is in a settings folder of the host"
     files, dirs = _host_settings_paths(environ)
     for f in sorted(files):
-        if lexical in (os.path.normpath(f), os.path.realpath(f)) or target in (os.path.normpath(f), os.path.realpath(f)):
-            return f"{lexical} is a settings file of the host, where its hooks and permissions stand"
+        if lexical in (os.path.normpath(f), _realpath(f)) or target in (os.path.normpath(f), _realpath(f)):
+            return "the file is a settings file of the host, where its hooks and permissions stand"
         try:
             if os.path.exists(target) and os.path.exists(f) and os.path.samefile(target, f):
-                return f"{lexical} is the same file as a settings file of the host"
-        except OSError:
-            return f"the gate cannot tell whether {lexical} is a settings file of the host"
+                return "the file is the same file as a settings file of the host"
+        except (OSError, ValueError):
+            return "the gate cannot tell whether the file is a settings file of the host"
     for d in sorted(dirs):
-        for root in {os.path.normpath(d), os.path.realpath(d)}:
+        for root in {os.path.normpath(d), _realpath(d)}:
             for candidate in (lexical, target):
                 if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
-                    return f"{lexical} is in a settings folder of the host"
+                    return "the file is in a settings folder of the host"
     return None
 
 
@@ -13481,7 +13490,7 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
                                       f"starts, so {tool} must never write them: a write there can turn off this gate "
                                       f"or allow what it asks. {why} (DECISIONS.md D101).",
                               "write_to_host_settings", evidence="the settings files and folders of the hosts",
-                              failed=f"{tool} would write {target}, a settings file of the host",
+                              failed=f"{tool} would write a settings file of the host",
                               next_step="a person changes the host's settings directly, outside the agent")
             return Outcome("deny", verdict.text(), [verdict])
     if host == "codex":
