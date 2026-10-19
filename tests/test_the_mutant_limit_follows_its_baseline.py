@@ -34,10 +34,11 @@ def _modul():
     return mc
 
 
-def _fahre(monkeypatch, tmp_path, *, basislinie_s: float, mutant_s: float):
+def _fahre(monkeypatch, tmp_path, *, basislinie_s: float, mutant_s: float, bestaetigung_s: float = 1.0):
     """One operator on a planted tree; the baseline run takes `basislinie_s`, the mutant run
-    `mutant_s` on the fake clock. A run whose limit is shorter stops at the limit and leaves no
-    verdict, as a run that `subprocess` ends with `TimeoutExpired` does. Returns (gaps, output)."""
+    `mutant_s`, each run that confirms the killer `bestaetigung_s` on the fake clock. A run whose
+    limit is shorter stops at the limit and leaves no verdict, as a run that `subprocess` ends with
+    `TimeoutExpired` does. Returns (gaps, output)."""
     mc = _modul()
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "x.py").write_text("alt\n", encoding="utf-8")
@@ -48,14 +49,12 @@ def _fahre(monkeypatch, tmp_path, *, basislinie_s: float, mutant_s: float):
 
     def lauf(work, *, auswahl=None, aus=None, gruen=None, grenze=3600):
         mutiert = (work / "src" / "x.py").read_text(encoding="utf-8") == "neu\n"
-        if auswahl == selektion:
-            braucht = mutant_s if mutiert else basislinie_s
-            if grenze < braucht:
-                uhr["jetzt"] += grenze
-                return None
-            uhr["jetzt"] += braucht
-        else:
-            uhr["jetzt"] += 1.0             # the killer runs again by itself
+        # the killer runs again by itself, under the mutant and on the restored tree
+        braucht = (mutant_s if mutiert else basislinie_s) if auswahl == selektion else bestaetigung_s
+        if grenze < braucht:
+            uhr["jetzt"] += grenze
+            return None
+        uhr["jetzt"] += braucht
         rot = {KILLER: "call:AssertionError"} if mutiert else {}
         if aus is not None:
             aus.append(rot)
@@ -88,6 +87,15 @@ def test_a_baseline_past_3600_s_runs_under_its_own_limit(monkeypatch, tmp_path):
     gaps, text = _fahre(monkeypatch, tmp_path, basislinie_s=4000.0, mutant_s=4100.0)
     assert gaps == 0 and "KILLED" in text, text
     assert "limit per mutant run: 6000 s" in text, text
+
+
+def test_the_confirmation_of_a_killer_runs_under_the_same_limit(monkeypatch, tmp_path):
+    """The neighbour the second reading of 06ed1dd9 named: a killer that is a module which failed to
+    collect runs again as its whole file, and that can take as long as the mutant run. Under a fixed
+    3600 s the confirmation left no verdict, the kill did not count, and the mutant read SURVIVED,
+    a gap (red at 06ed1dd9)."""
+    gaps, text = _fahre(monkeypatch, tmp_path, basislinie_s=3435.0, mutant_s=3700.0, bestaetigung_s=3700.0)
+    assert gaps == 0 and "KILLED" in text and "confirmed=1" in text, text
 
 
 def test_ANTI_PARITY_a_run_that_really_hangs_stays_not_measurable(monkeypatch, tmp_path):
@@ -128,18 +136,21 @@ def test_the_limit_reaches_the_subprocess(monkeypatch, tmp_path):
     assert gesehen == [5153, 3600], gesehen
 
 
-def test_the_baseline_names_its_limit(monkeypatch, tmp_path):
+def test_the_baseline_names_its_limit_and_measures_its_duration(monkeypatch, tmp_path):
     mc = _modul()
     gesehen = []
+    uhr = {"jetzt": 100.0}
 
     def lauf(work, *, auswahl=None, aus=None, gruen=None, grenze=3600):
         gesehen.append(grenze)
+        uhr["jetzt"] += 1234.5
         aus.append({})
         gruen.append({KILLER})
         return 0
 
     monkeypatch.setattr(mc, "_red_count", lauf)
+    monkeypatch.setattr(mc, "time", types.SimpleNamespace(monotonic=lambda: uhr["jetzt"]))
     with contextlib.redirect_stdout(io.StringIO()):
         b = mc._basislinie(tmp_path, ("tests/test_x.py",), {})
     assert mc.GRENZE_BASISLINIE == 5400 and gesehen == [5400], gesehen
-    assert b.bestanden == frozenset({KILLER}) and b.dauer >= 0.0
+    assert b.bestanden == frozenset({KILLER}) and b.dauer == 1234.5, b

@@ -2209,8 +2209,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
                 _t1 = time.monotonic()
                 laufbar = tuple(sorted({kn for kn in (_knoten_der_kennung(work, t) for t in toeter) if kn}))
                 if laufbar:
+                    # The same limit as the mutant run: a killer that is a module which failed to
+                    # collect runs as its whole file, and a confirmation under a fixed 3600 s could
+                    # cost a verdict the mutant run had (second reading of 06ed1dd9).
                     aus2: list = []
-                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2), aus2)
+                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2, grenze=grenze),
+                                              aus2)
                 _bestaetigung += time.monotonic() - _t1
         finally:
             path.write_bytes(roh)  # restore the pristine bytes held in memory
@@ -2242,7 +2246,8 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             if laufbar:
                 aus3: list = []
                 gruen3: list = []
-                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3), aus3)
+                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3,
+                                                 grenze=grenze), aus3)
                 rein_bestanden = gruen3[0] if gruen3 else None
             _bestaetigung += time.monotonic() - _t2
             bestaetigt, wackelt = _bestaetigt(toeter, unter_mutant, rein_rot, rein_bestanden)
