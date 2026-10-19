@@ -22,16 +22,27 @@ THE RUN MUST ALSO REALLY HAPPEN IN CI. The first version ran only when `tools/pb
 existed, and measured, NO job that runs this file with pytest builds the Rust tree. The hit rate in
 the real pipeline was zero, and a case that never measures looks like care. The `rust-parity` job
 builds the tree and runs this file explicitly since then; the case below pins exactly that.
+
+THE TOOLCHAIN AND THE BUILT TREE COME FROM THE SEAM, tests/_pb_verify_rs.py, as for every test that
+needs the Rust tree. The first version skipped by itself when `cargo` was not on PATH or `target/`
+did not exist, and tests/test_pb_verify_rs_seam.py refused it, measured in hermetic-cleanroom on
+676c9f29: in the test jobs CI pins the built binary and sets PROOFBUNDLE_REQUIRE_PB_VERIFY_RS=1, and
+a skip of its own there would be a green check over an empty set. The seam uses the pin, builds once
+per process under a lock otherwise, and fails instead of skipping where CI requires the binary.
 """
 from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 
 REPO = Path(__file__).resolve().parents[1]
 RUST = REPO / "tools" / "pb_verify_rs"
@@ -255,8 +266,9 @@ def _pinned_surface_or_skip(channel: str) -> str:
     """Is the pinned toolchain running here? Otherwise a SKIP that says WHY nothing was measured."""
     if not RUST.is_dir():
         pytest.skip("tools/pb_verify_rs is not here (package run instead of a checkout)")
-    if shutil.which("cargo") is None:
-        pytest.skip("NOT MEASURED: no `cargo` on PATH, and that is not a passed run")
+    # The seam answers whether the toolchain is here and the tree is built: the pinned binary, one build
+    # per process, a skip that says NOT MEASURED, or a failure where CI requires the binary.
+    _pb_verify_rs.binary_or_skip()
     # A REDIRECTED TOOL IS NOT A PINNED SURFACE. `RUSTFMT` binds a foreign program while
     # `rustc --version` still reports the pin; a cross-read brought a REAL formatting error past this
     # case that way.
@@ -290,14 +302,12 @@ def test_the_rust_tree_is_formatted_under_the_pinned_toolchain():
 
 
 def test_the_linter_is_green_where_the_tree_already_stands():
-    """The linter run. It pulls NO full compilation into the suite.
+    """The linter run, on the tree the seam built or pinned.
 
-    Measured: 3.5 s on a built tree, minutes on a cold one. It therefore runs only where the tree
-    stands, and that this is really the case in CI is held by `test_the_rust_job_runs_this_file`."""
+    Measured: 3.5 s on a built tree, minutes on a cold one. It runs where the seam has the tree, the
+    one build every Rust test of a process shares, and that it really runs in CI is held by
+    `test_the_rust_job_runs_this_file`."""
     toolchain = _pinned_surface_or_skip(_pinned_channel())
-    if not (RUST / "target").is_dir():
-        pytest.skip("NOT MEASURED: the Rust tree is not built here; a full compilation does not "
-                    "belong in this suite, it runs in the Rust job")
     r = _run("cargo", "clippy", "--all-targets", "--", "-D", "warnings")
     assert r.returncode == 0, (
         f"`cargo clippy --all-targets -- -D warnings` under {toolchain} ended with "
