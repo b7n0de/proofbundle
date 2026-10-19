@@ -620,6 +620,20 @@ def test_the_signing_key_is_never_overwritten_by_the_receipt(tmp_path):
         assert key.read_bytes() == before
 
 
+def test_the_report_is_never_read_as_the_signing_key(tmp_path):
+    """Codex on 25b2f354, P1: a valid JUnit report of exactly 32 bytes is also an Ed25519 seed, so `--key R` with the
+    report R signed with the report as the key and published the secret with it, also through a hard link."""
+    report = tmp_path / "report.xml"
+    report.write_bytes(b"<testsuite/>" + b" " * 20)
+    assert len(report.read_bytes()) == 32 and read_junit_xml(report.read_bytes()).tests == 0
+    os.link(report, tmp_path / "hard.key")
+    for key in (report, tmp_path / "hard.key"):
+        out = tmp_path / "r.json"
+        r = _run("emit-test-receipt", "--junit", str(report), "--out", str(out), "--key", str(key))
+        assert r.returncode == 2 and "--key names the report" in r.stderr
+        assert not out.exists()
+
+
 def test_a_claim_the_emitter_refuses_writes_no_key(tmp_path):
     """N5: a report the reader accepts but whose claim the emitter refuses (a tool name past the verifier's string
     limit) left a new key file behind, against the command's own docstring."""

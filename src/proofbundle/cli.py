@@ -666,10 +666,16 @@ def _cmd_emit_test_receipt(args: argparse.Namespace) -> int:
     if args.new_key is not None and (_same_file(args.new_key, report) or _same_file(args.new_key, args.out)):
         _err("--new-key names the report or the output; the key would overwrite it")
         return 2
-    # `--key K --out K` wrote the receipt over the signing key and exited 0 (lens run 2, F1); `emit-eval` on main does
-    # the same, and that neighbour is tracked with the other writes of `--out`.
+    # NO TWO OF THE FOUR FILES ARE ONE: the report, --out, --key and --new-key. Of their six pairs, --key with --new-key
+    # is refused by `_resolve_signer`, and the other five are checked here. `--key K --out K` wrote the receipt over the
+    # signing key (lens run 2, F1), and `--key R` with the report R read a 32-byte report as the signing key, so the
+    # published report was the secret (Codex on 25b2f354, P1). `emit-eval` on main writes over its key the same way, and
+    # that neighbour is tracked with the other writes of `--out`.
     if args.key is not None and _same_file(args.out, args.key):
         _err("--out names the key file; the receipt would overwrite the signing key")
+        return 2
+    if args.key is not None and _same_file(args.key, report):
+        _err("--key names the report; the report would be read as the signing key")
         return 2
     try:
         claim, _ = build(report, commit=args.commit, suite=args.suite, timestamp=args.timestamp,
