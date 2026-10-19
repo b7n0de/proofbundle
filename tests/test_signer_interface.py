@@ -358,11 +358,13 @@ _TOKEN_FIELDS = ["token", "manufacturer", "model", "serial", "library-manufactur
 
 
 @pytest.mark.parametrize("attribute", _TOKEN_FIELDS)
-@pytest.mark.parametrize("value", ["ab%EF%BF%BD", "x%20", "x%C2%A0", "x%E3%80%80"])
+@pytest.mark.parametrize("value", ["ab%EF%BF%BD", "a%EF%BF%BDb", "%EF%BF%BDab", "x%20", "x%C2%A0", "x%E3%80%80"])
 def test_uri_values_python_pkcs11_cannot_tell_apart_are_refused(attribute, value):
     """python-pkcs11 0.10.0 gives these fields with bytes that are not UTF-8 replaced by U+FFFD and all trailing
     whitespace removed (`types._CK_UTF8CHAR_to_str`), so `token=ab%EF%BF%BD` selected a token labelled
-    b"ab\xff" (lens run 1, F3). A value with U+FFFD or with trailing whitespace is refused."""
+    b"ab\xff" (lens run 1, F3). A value with U+FFFD anywhere, or with trailing whitespace, is refused. The U+FFFD
+    in the middle and at the start are rows of their own: with the end only, a reader that refused it at the
+    end alone passed this case (lens run 2, T1)."""
     with pytest.raises(SignerError, match="U\\+FFFD or ends in whitespace"):
         parse_pkcs11_uri(f"pkcs11:{attribute}={value}")
 
@@ -503,6 +505,41 @@ def test_pin_from_env_checks_the_variable_again_when_it_is_read(monkeypatch):
         read()
 
 
+class _StubToken:
+    """A token as `_login` sees it: `open(user_pin=...)`, recording each PIN it was given."""
+
+    def __init__(self):
+        self.pins = []
+
+    def open(self, user_pin=None):
+        self.pins.append(user_pin)
+        return object()
+
+
+_STUB_PKCS11 = type("_StubPkcs11", (), {"exceptions": type("exceptions", (), {
+    "PKCS11Error": type("PKCS11Error", (Exception,), {})})})
+
+
+@pytest.mark.parametrize("answer", [None, 42, 1.5, "", b"", bytearray(), ["1234"], b"\xff\xfe"])
+def test_login_refuses_an_answer_of_the_pin_source_that_is_no_pin_before_the_token_sees_it(answer):
+    """Without the extra and without a token: `_login` with a stub token. The only other case of this rule needs
+    SoftHSM2 and python-pkcs11, which CI does not install, so the mutation operator of the rule survived there
+    (lens run 2, T4)."""
+    from proofbundle import signer as module
+    token = _StubToken()
+    with pytest.raises(SignerError, match="the PIN source gave no PIN"):
+        module._login(_STUB_PKCS11, token, lambda: answer)
+    assert token.pins == []
+
+
+@pytest.mark.parametrize("answer", ["1234", b"1234", bytearray(b"1234")])
+def test_login_gives_the_token_the_pin_as_text(answer):
+    from proofbundle import signer as module
+    token = _StubToken()
+    module._login(_STUB_PKCS11, token, lambda: answer)
+    assert token.pins == ["1234"]
+
+
 @pytest.mark.parametrize("uri,pin,reason", [
     ("pkcs11:token=x?module-path=/nonexistent/x.so", "1234", "function that returns the PIN"),
     ("pkcs11:token=x;type=public?module-path=/nonexistent/x.so", lambda: "1", "a signature needs a private key"),
@@ -587,6 +624,70 @@ def test_cli_refuses_a_token_uri_combination_that_would_be_applied_by_nothing(tm
     assert not (tmp_path / "b.json").exists()
     err = capsys.readouterr().err
     assert reason in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("extra,reason", [
+    (["--key", "", "--token-uri", "pkcs11:token=x" + _MOD], "a token is never paired with a file"),
+    (["--new-key", "", "--token-uri", "pkcs11:token=x" + _MOD], "a token is never paired with a file"),
+    (["--token-pin-env", ""], "applies to --token-uri only"),
+    (["--token-uri", "pkcs11:token=x?module-path=/nonexistent/lib.so", "--token-pin-env", ""],
+     "the value given is not one and is not shown"),
+])
+def test_cli_an_empty_key_or_token_option_is_refused_and_not_dropped(tmp_path, capsys, extra, reason):
+    """Each row names the refusal that only the EMPTY option gives. A command line that dropped the empty option
+    would end in another refusal with the same exit code: an empty file option beside `--token-uri` would sign with
+    the token, an empty `--token-pin-env` alone would ask for a key file, and one beside `--token-uri` would ask at
+    the prompt (lens run 2, T3)."""
+    assert cli.main(_emit_args(tmp_path, *extra)) == 2
+    assert not (tmp_path / "b.json").exists()
+    err = capsys.readouterr().err
+    assert reason in err and "Traceback" not in err
+
+
+class _Escapes(Exception):
+    """An exception no handler of the command line catches, so it leaves `cli.main`."""
+
+
+class _TokenSignerStandIn:
+    """What `Pkcs11Signer.open` returns, as `_resolve_signer` and the producer use it, counting `close`."""
+
+    def __init__(self, *, fail: bool):
+        self._key = Ed25519PrivateKey.generate()
+        self._fail = fail
+        self.closed = 0
+
+    def public_key(self):
+        return self._key.public_key()
+
+    def sign(self, data):
+        if self._fail:
+            raise _Escapes()
+        return self._key.sign(bytes(data))
+
+    def close(self):
+        self.closed += 1
+
+
+@pytest.mark.parametrize("ending", ["success", "refused", "escaped"])
+def test_cli_closes_the_token_signer_however_the_command_ends(tmp_path, monkeypatch, ending):
+    """The PKCS#11 login holds for the token and the whole process (lens run 1, F6), so `main` closes the signer in
+    its `finally`. A main that closed it only after a command that returned, or only after one that succeeded,
+    passed the cases with a token, which end in success only (lens run 2, T2)."""
+    from proofbundle import signer as module
+    stand_in = _TokenSignerStandIn(fail=ending == "escaped")
+    monkeypatch.setattr(module.Pkcs11Signer, "open", classmethod(lambda cls, uri, *, pin: stand_in))
+    monkeypatch.setenv("PB_PIN", "1234")
+    payload = tmp_path / "p.bin"
+    if ending != "refused":
+        payload.write_bytes(b"x")
+    argv = ["emit", "--payload-file", str(payload), "--out", str(tmp_path / "b.json"),
+            "--token-uri", "pkcs11:token=x" + _MOD, "--token-pin-env", "PB_PIN"]
+    if ending == "escaped":
+        with pytest.raises(_Escapes):
+            cli.main(argv)
+    else:
+        assert cli.main(argv) == (0 if ending == "success" else 2)
+    assert stand_in.closed == 1
 
 
 def test_cli_token_uri_with_a_pin_in_it_is_refused_and_the_pin_not_shown(tmp_path, capsys):
