@@ -122,7 +122,7 @@ class _Reader:
     def _count(self, k: int, offset: int) -> None:
         self.items += k
         if self.items > self.max_items:
-            raise CborInvalid(f"more than {self.max_items} array elements, map pairs and string chunks", offset)
+            raise CborInvalid(f"more than {_grenze(self.max_items)} array elements, map pairs and string chunks", offset)
 
     def head(self, i: int):
         """-> (major type, argument or None for an indefinite length, offset after the head)."""
@@ -145,7 +145,7 @@ class _Reader:
 
     def item(self, i: int, depth: int):
         if depth > self.max_depth:
-            raise CborInvalid(f"nesting deeper than {self.max_depth}", i)
+            raise CborInvalid(f"nesting deeper than {_grenze(self.max_depth)}", i)
         start = i
         mt, arg, i = self.head(i)
         if mt == 0:
@@ -163,7 +163,7 @@ class _Reader:
                         break
                     cpos = i
                     if depth + 1 > self.max_depth:
-                        raise CborInvalid(f"nesting deeper than {self.max_depth}", cpos)
+                        raise CborInvalid(f"nesting deeper than {_grenze(self.max_depth)}", cpos)
                     cmt, carg, j = self.head(i)
                     if cmt != mt or carg is None:
                         raise CborInvalid("a chunk of an indefinite string is not a definite string of its type", cpos)
@@ -274,6 +274,13 @@ class _Reader:
         return struct.unpack(">d", raw)[0], i
 
 
+def _grenze(wert) -> str:
+    """A limit in a refusal, rendered bounded: a caller's limit of `-10**5000` raised ValueError out of the
+    message that names it (the public-surface generator, 2026-10-18). An ordinary int renders as `str()`."""
+    from .budget import render_safe  # noqa: PLC0415 - local import avoids an import cycle
+    return render_safe(wert, quote=False)
+
+
 def _budget(max_bytes, max_depth, max_items):
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     return (DEFAULT_BUDGET.input_bytes if max_bytes is None else max_bytes,
@@ -293,7 +300,7 @@ def load_item_strict(data: bytes, offset: int = 0, *, max_bytes: int | None = No
     data = bytes(data)
     mb, md, mi = _budget(max_bytes, max_depth, max_items)
     if len(data) > mb:
-        raise CborInvalid(f"input of {len(data)} bytes exceeds {mb}", 0)
+        raise CborInvalid(f"input of {len(data)} bytes exceeds {_grenze(mb)}", 0)
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0 or offset > len(data):
         raise CborInvalid("offset outside the input", 0)
     return _Reader(data, md, mi).item(offset, 0)
