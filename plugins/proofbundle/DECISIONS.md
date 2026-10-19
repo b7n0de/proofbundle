@@ -4484,3 +4484,46 @@ were yes, with ja, nein and ja_quote, each owner question O37-5.
 
 Limits: a no and a yes after which Claude Code never ran the call (a crash, the session ended) read alike; the measure of
 yes is the call that ran. A tool_use_id of two calls is not one the gate tells apart. Tests: tests/test_plugin_n37_answers_d94.py.
+
+## D98. The fetch of a local bundle into refs/remotes/beilage/ is free (Nachtrag 40, B40-1, 2026-10-19)
+
+Found by delta at f9e5f18e (20261019T0819Z, card OA-f4a38d2ac0): under the switch of D85 the gate blocked, with no free
+way and no card, `git -C <clone> fetch -q <local bundle> refs/heads/<branch>:refs/remotes/beilage/<name>`
+(remote_read_not_modeled). Every order to delta brings its heads as a bundle; before D85 that cost a click, under D85 a
+block only the owner can lift at the terminal. Order: free, with no transport helper, no upload-pack and no network; catch
+cases at least a folder in place of the file, ext:: and every other transport form, a symbolic link as the bundle, a
+target outside refs/remotes/beilage/, a `+` before the refspec, a foreign refspec among several, --upload-pack, and -c
+before fetch.
+
+Measured with git 2.43.0 under GIT_TRACE2_EVENT and strace -f, every hook of githooks(5) a marker in a fresh clone, no
+network (n40/werkzeug of the delivery, truth_b40.py, 24 forms): the fetch of a regular bundle file of version 2 or 3 by
+its absolute path started git's own programs and the hook reference-transaction (twice) and nothing else, connected
+nowhere and wrote the tracking ref the refspec names (no tag, also from a bundle with tags); fetched again, it changed
+nothing and started no hook. http.proxy, a credential helper, core.sshCommand, core.askPass, HTTPS_PROXY, GIT_SSH,
+GIT_SSH_COMMAND, GIT_ASKPASS, SSH_ASKPASS, another remote's proxy and hook files git does not start (pre-push.local,
+pre-commit.local) started nothing for it, and --upload-pack was ignored (a warning). A folder in the bundle's place, and a
+url.<base>.insteadOf whose value was the bundle's path, made git start git-upload-pack through a shell; core.fsmonitor set
+to a program started it; a symbolic link to the bundle was followed; a remote named as the path was ignored with a
+warning. Without a refspec the fetch failed (no HEAD).
+
+The rule: `git -C <literal absolute path> fetch [-q|--quiet] [--no-tags] <absolute path> <ref>:refs/remotes/beilage/
+<name>…`, as the whole command with no prefix assignment, no redirection and no other global option, every word
+literal, is free under Claude Code (free_bundle_fetch) where
+- the path lies in no folder named .ssh, as written and once resolved, and names a regular file, no symbolic link, whose
+  first 16 bytes are the signature of a git bundle (`# v2 git bundle` or `# v3 git bundle`); the gate reads those bytes
+  and nothing else of it (_bundle_file_problem);
+- every refspec is a ref name without `+`, glob, `^`, `..` or `@{` to a name under refs/remotes/beilage/ that git accepts
+  (_bundle_fetch_form);
+- the bundle check of the repository finds nothing (_bundle_fetch_problem): the fetch profile of D45 without what a bundle
+  does not reach, that is no promisor key, no fsmonitor git does not read as false (D74 for git's own daemon), no
+  url.<base>.insteadOf without a value or with one that is a prefix of the path, no remote named as the path, no hook
+  reference-transaction or pre-auto-gc (by name in lower case, B36-3), no submodule unless fetch.recurseSubmodules reads
+  false, and no other key or GIT_* name the fetch profile does not know.
+Every other form keeps its answer: the ask of D41 (remote_read_not_modeled) with what the check found, the block of D85
+under the switch. Under Codex the fetch keeps the ask of D41, as the fetch of D45 does. As a step of a longer command it
+keeps the whole command's answer (_ShKeep), as ls-remote does (D59).
+
+Limits: the file can change between the gate's check and git's run; the check reads it once. A bundle with prerequisites
+the clone lacks makes git fail, which changes nothing. Measured with git 2.43.0 only; git 2.34.1 at the farmer is NOT
+MEASURED. Tests: tests/test_plugin_n40_bundle_b40.py.
+

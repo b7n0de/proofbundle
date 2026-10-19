@@ -481,6 +481,12 @@ _FETCH_FREE = "\x00fetch-free"
 #: remote. Under Claude Code the judge frees it only after the fetch profile of D45 for that remote
 #: (_fetch_profile_problem); under Codex it keeps the ask of D41. It is never free as a step of a longer command.
 _LS_REMOTE_FREE = "\x00ls-remote-free"
+#: Detail marker for `git -C <literal absolute path> fetch [-q|--quiet] [--no-tags] <absolute path> <ref>:refs/remotes/
+#: beilage/<name>…` as the whole command (Nachtrag 40, B40-1, DECISIONS.md D98). The name of the call carries the path.
+#: Under Claude Code the judge frees it only where the path names a git bundle and the bundle check of its repository
+#: finds nothing (_bundle_fetch_verdict); under Codex it keeps the ask of D41. It is never free as a step of a longer
+#: command.
+_BUNDLE_FETCH_FREE = "\x00bundle-fetch-free"
 #: The answer to a read form of class a under Codex, the explanation and the next step of the reviewer's answer 4 of
 #: review round 20, word for word (owner choice 3 of 2026-10-15; DECISIONS.md D37).
 _CODEX_READ_FORM_EXPLANATION = (
@@ -504,7 +510,7 @@ _READ_NOT_FREE = "\x00read-not-free"
 #: redirection does not change into an unresolved push (R2-2).
 _MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_READ_FREE], [_READ_FREE_DRIVERS_OFF],
                    [_GH_READ_FREE], [_MAYBE_PUSH], [_READ_NOT_FREE], [_CHECKOUT_FREE], [_FETCH_FREE],
-                   [_LS_REMOTE_FREE])
+                   [_LS_REMOTE_FREE], [_BUNDLE_FETCH_FREE])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -2226,6 +2232,175 @@ def _fetch_free_verdict(name: str, directory: str | None, deadline: float, host:
         next_step=asked.next_step, repo=directory)
 
 
+# --- git fetch from a local bundle (Nachtrag 40, B40-1, DECISIONS.md D98) ---------------------------------------------
+#
+# Found by delta at f9e5f18e (20261019T0819Z): under the switch of D85 the fetch of the bundle an order brings was
+# blocked with no free way (remote_read_not_modeled). Measured with git 2.43.0 under GIT_TRACE2_EVENT and strace -f, every
+# hook a marker, no network (truth_b40.py of the delivery): the fetch of a regular bundle file by its absolute path
+# started git's own programs and the hook reference-transaction only and connected nowhere; http.proxy, a credential
+# helper, core.sshCommand, core.askPass, the proxy names, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, SSH_ASKPASS, another
+# remote's proxy and hook files git does not start (pre-push.local) started nothing for it; a folder in its place and a
+# url.<base>.insteadOf that rewrote its path started git-upload-pack through a shell, core.fsmonitor its program.
+
+#: D98: the options of the fetch of a local bundle the gate frees, none of which takes a value.
+_BUNDLE_FETCH_OPTIONS = frozenset({"-q", "--quiet", "--no-tags"})
+#: D98: the one place that fetch writes, tracking refs under refs/remotes/beilage/.
+_BUNDLE_FETCH_DEST = "refs/remotes/beilage/"
+#: D98: the first line of a git bundle of version 2 or 3 (gitformat-bundle(5)), the only bytes the gate reads of it.
+_BUNDLE_SIGNATURES = (b"# v2 git bundle\n", b"# v3 git bundle\n")
+#: D98: the hooks the fetch and the maintenance it starts run (measured for D45 and here: reference-transaction for every
+#: ref update, pre-auto-gc where gc is due), by name in lower case as B36-3 reads them; git starts no hook of another name.
+_HOOKS_STARTED_BY_BUNDLE_FETCH = frozenset({"reference-transaction", "pre-auto-gc"})
+#: D98: names of the hook's environment that start nothing for the fetch of a bundle (measured): the proxy names, the ssh
+#: and the askpass programs.
+_BUNDLE_INERT_ENV = _FETCH_PROXY_ENV | frozenset({"GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS"})
+
+
+def _bundle_fetch_form(args: list[str], rewrites: list[bool] | None = None) -> str | None:
+    """D98 (Nachtrag 40, B40-1): the path of `fetch [-q|--quiet] [--no-tags] <absolute path> <ref>:refs/remotes/beilage/
+    <name>…` (the words after `fetch`), or None for any other form: the options first and each without a value, then one
+    absolute path and one or more refspecs, each a ref name (_ls_remote_pattern) to a name under refs/remotes/beilage/
+    (_fetch_branch), every word literal, no expansion, no word the shell may rewrite and no `--`. A `+` (a forced
+    update), a glob, a second colon, any other destination, a URL or a relative path, a missing refspec and every other
+    option (--upload-pack, --prune among them) stay as they are."""
+    if (rewrites is not None and any(rewrites[:len(args)])) or any("$" in a for a in args):
+        return None
+    k = 0
+    while k < len(args) and args[k] in _BUNDLE_FETCH_OPTIONS:
+        k += 1
+    if k + 1 >= len(args) or not args[k].startswith("/"):
+        return None
+    for spec in args[k + 1:]:
+        source, colon, dest = spec.partition(":")
+        if not colon or not _ls_remote_pattern(source) or not dest.startswith(_BUNDLE_FETCH_DEST) \
+                or not _fetch_branch(dest[len(_BUNDLE_FETCH_DEST):]):
+            return None
+    return args[k]
+
+
+def _bundle_file_problem(path: str) -> str | None:
+    """D98: None where path is absolute, lies in no folder named .ssh (as written and once resolved), and names a regular
+    file, no symbolic link, that starts with the signature of a git bundle of version 2 or 3; else what it is. The gate
+    reads the first 16 bytes of that file and nothing else, and opens nothing under a .ssh folder."""
+    if not os.path.isabs(path):
+        return "the bundle is not named by an absolute path"
+    if ".ssh" in path.split("/") or ".ssh" in os.path.realpath(path).split(os.sep):
+        return "the bundle lies in a folder named .ssh, which the gate does not open"
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        return f"the bundle cannot be read ({_os_error(exc)})"
+    if stat.S_ISLNK(st.st_mode):
+        return "the bundle is a symbolic link, which git follows"
+    if not stat.S_ISREG(st.st_mode):
+        return "the bundle is not a regular file (a folder makes git start upload-pack)"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+        try:
+            head = os.read(fd, 16)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        return f"the bundle cannot be read ({_os_error(exc)})"
+    if head not in _BUNDLE_SIGNATURES:
+        return "the file does not start with the signature of a git bundle"
+    return None
+
+
+def _bundle_fetch_problem(directory: str, bundle: str, deadline: float, environ: dict | None = None) -> str | None:
+    """D98: None when the fetch of the bundle at the absolute path bundle in the repository at directory starts only
+    git's own programs, else what the bundle check found. Read as the fetch profile of D45 reads (the effective
+    configuration with every include, the effective hook directory, the hook's environment), without what a bundle
+    does not reach (measured: http.*, credential.*, core.sshCommand, core.askPass, another remote's settings, the proxy
+    names, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS and SSH_ASKPASS started nothing for it; a fetch starts no pager, D48).
+    Not free: a promisor key; fsmonitor that git does not read as false (D74 for git's own daemon); a
+    url.<base>.insteadOf with no value or whose value is a prefix of the path; a remote named as the path; a hook of
+    _HOOKS_STARTED_BY_BUNDLE_FETCH; a submodule unless fetch.recurseSubmodules reads false; any other key or GIT_* name
+    the fetch profile does not know."""
+    environ = os.environ if environ is None else environ
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        return f"the gate cannot read the repository's layout and configuration ({why})"
+    if paths["gitdir"] is None or paths["toplevel"] is None:
+        return "the directory is not inside a git work tree"
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return f"the gate cannot read the effective configuration ({why})"
+    recurse_off = False
+    origin_of = _origin_namer(directory, deadline, paths)
+    for scope, origin, key, value in entries:
+        lowered, where = key.lower(), f"{_shown_key(key)} {origin_of(scope, origin)}"
+        section, _dot, rest = key.partition(".")
+        subsection, _dot, variable = rest.rpartition(".")
+        section, variable = section.lower(), variable.lower()
+        if re.match(_PARTIAL_CLONE_KEYS, lowered):
+            return f"a lazy fetch from a promisor remote: {where}"
+        if lowered == "core.fsmonitor":
+            if not _git_false(directory, value, deadline) and \
+                    not _fsmonitor_known(scope, origin, value, directory, deadline, environ):
+                return f"fsmonitor, which the fetch starts: {where}"
+            continue
+        if section in ("remote", "remotes"):
+            if subsection == bundle:
+                return f"a remote named as the bundle's path: {where}"
+            continue    # another remote's settings, which a fetch from a path does not read (measured: its proxy)
+        if section == "url" and variable == "insteadof" and (not value or bundle.startswith(value)):
+            return f"a URL rewrite that acts on the bundle's path: {where}"
+        if section in ("url", "http", "credential") or lowered in ("core.sshcommand", "core.askpass", "core.pager") \
+                or lowered.startswith("pager."):
+            continue    # measured: none started a program or reached a host for the fetch of a bundle; no pager (D48)
+        if lowered == "fetch.recursesubmodules":
+            recurse_off = _git_false(directory, value, deadline)
+            if recurse_off:
+                continue
+            return f"a submodule recursion: {where}"
+        if lowered not in _FETCH_INERT_KEYS and not _FETCH_INERT_PATTERN.fullmatch(lowered):
+            return ("a configuration key the bundle check does not know to keep the fetch to git's own programs: "
+                    f"{where}")
+    problem = _hook_problem(paths, lambda name: name.lower() in _HOOKS_STARTED_BY_BUNDLE_FETCH)
+    if problem is not None:
+        return problem.replace("a hook: ", "a hook the fetch or its maintenance may start: ", 1)
+    for name in sorted(environ):
+        if name in _BUNDLE_INERT_ENV or name in ("PAGER", "GIT_PAGER"):
+            continue
+        problem = _fetch_env_problem(name, environ[name])
+        if problem is not None:
+            return f"{problem} in the hook's environment"
+    if not recurse_off:
+        if os.path.lexists(os.path.join(paths["gitdir"], "modules")):
+            return "a submodule: the folder modules in the git directory"
+        problem = _has_submodule(directory, paths["toplevel"], deadline)
+        if problem is not None:
+            return f"{problem}, which the fetch may fetch from its own URL"
+    return None
+
+
+def _bundle_fetch_verdict(name: str, directory: str | None, deadline: float, host: str = "claude") -> Verdict:
+    """D98 (Nachtrag 40, B40-1): the verdict for the fetch of a local bundle under Claude Code: pass where the file is a
+    git bundle (_bundle_file_problem) and the bundle check of the repository finds nothing (_bundle_fetch_problem), else
+    the ask of D41 with what was found."""
+    bundle = name.split(" ", 2)[2]
+    try:
+        if directory is UNKNOWN:
+            problem = "the gate cannot tell which repository the call acts on"
+        else:
+            problem = _bundle_file_problem(bundle) or _bundle_fetch_problem(directory, bundle, deadline, os.environ)
+    except GateError as exc:
+        problem = f"the bundle check reached no result ({exc})"
+    if problem is None:
+        return Verdict("pass", "proofbundle gate: git fetch from a local bundle into refs/remotes/beilage/ is free. The "
+                               "file is a git bundle, no link and in no .ssh folder; the bundle check of the repository "
+                               f"at {directory} found no URL rewrite of its path, no hook the fetch or its maintenance "
+                               "starts, no fsmonitor, no submodule it would fetch and no promisor remote, and every key "
+                               "and environment setting it read is one it knows to keep the fetch to git's own programs "
+                               "(Nachtrag 40, B40-1; DECISIONS.md D98).", "free_bundle_fetch", repo=directory)
+    asked = _unmodeled_read_or_checkout("git fetch", host)
+    return Verdict(
+        "ask", f"{asked.detail} The bundle check of D98 found {problem}, so this fetch is not the one it frees.",
+        "remote_read_not_modeled", evidence=asked.evidence, failed=f"{asked.failed}; the bundle check found {problem}",
+        next_step=asked.next_step, repo=directory)
+
+
 def _ls_remote_free_verdict(name: str, directory: str | None, deadline: float, host: str = "claude") -> Verdict:
     """The verdict for the ls-remote form of D59 under Claude Code: pass when the fetch profile of D45 finds nothing for
     its remote, else the ask of D41 with what it found (Nachtrag 22, part 3). Measured with git 2.43.0 under strace
@@ -2997,6 +3172,12 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
             # D45 (Ergänzung 1 to Nachtrag 19): the command fetches from one named remote with one absolute -C; the
             # judge frees it under Claude Code only after the fetch profile of the repository the -C path names.
             return f"git fetch {remote}", directory, [_FETCH_FREE]
+        bundle = _bundle_fetch_form(args, None if rewrites is None else rewrites[i + 1:])
+        if bundle is not None:
+            # D98 (Nachtrag 40, B40-1): the command fetches from one absolute path into refs/remotes/beilage/ with one
+            # absolute -C; the judge frees it under Claude Code only where the path is a git bundle and the bundle check
+            # of the repository the -C path names finds nothing.
+            return f"git fetch {bundle}", directory, [_BUNDLE_FETCH_FREE]
     if sub == "ls-remote" and free_base is _FROM_DIRECTORY and start is not UNKNOWN and directory is not UNKNOWN \
             and _one_absolute_c(words, i, c_count, not_measured, rewrites):
         remote = _ls_remote_form(args, None if rewrites is None else rewrites[i + 1:])
@@ -3221,6 +3402,10 @@ def _resolve_single(words: list[tuple], directory: str | None,
         # a fetch that is not the form of D45 as the whole command keeps today's answer, a prefix assignment the fetch
         # profile does not accept included (it counts as the hook's environment does, as for class a, D34)
         return [("git fetch", UNKNOWN, None)]
+    if detail == [_BUNDLE_FETCH_FREE] and (not (bare and neutral_only) or any(rewritten) or words[:i]):
+        # D98: the fetch of a bundle is free only as the whole command and without a prefix assignment; any other keeps
+        # the answer it had before
+        return [("git fetch", UNKNOWN, None)]
     if detail == [_LS_REMOTE_FREE] and (not (bare and neutral_only) or any(rewritten) or any(
             _fetch_env_problem(w[0].partition("=")[0]) for w in words[:i])):
         # D59: an ls-remote that is not the form as the whole command, a prefix assignment the fetch profile does not
@@ -3234,7 +3419,7 @@ def _resolve_single(words: list[tuple], directory: str | None,
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
     if cdir is not UNKNOWN and detail not in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE], [_FETCH_FREE],
-                                              [_LS_REMOTE_FREE]) \
+                                              [_LS_REMOTE_FREE], [_BUNDLE_FETCH_FREE]) \
             and any(rewritten):
         # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
         # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
@@ -4121,7 +4306,7 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                 return disabling
         if _redirection_present(text):  # the free forms are free only without a redirection (K-NW-2 B, a, b)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d in ([_STATE_FREE], *_READ_FREE_DETAILS, [_CHECKOUT_FREE])
-                     else ("git fetch", UNKNOWN, [_MAYBE_PUSH]) if d == [_FETCH_FREE]
+                     else ("git fetch", UNKNOWN, [_MAYBE_PUSH]) if d in ([_FETCH_FREE], [_BUNDLE_FETCH_FREE])
                      else ("git ls-remote", UNKNOWN, [_MAYBE_PUSH]) if d == [_LS_REMOTE_FREE]
                      else (n, c, d)
                      for n, c, d in calls if d != [_GH_READ_FREE]]
@@ -10592,7 +10777,7 @@ def _gh_short_name(words: list[str]) -> str:
 
 #: D72: the markers of a call that changes the repository, and of one that may transfer objects.
 _D72_LOCAL = frozenset({_NOT_FREE, _STATE_FREE, _CHECKOUT_FREE})
-_D72_TRANSFER = frozenset({_MAYBE_PUSH, _FETCH_FREE, _LS_REMOTE_FREE})
+_D72_TRANSFER = frozenset({_MAYBE_PUSH, _FETCH_FREE, _LS_REMOTE_FREE, _BUNDLE_FETCH_FREE})
 
 
 def _d72_call_weight(name: str, detail) -> int:
@@ -10861,6 +11046,8 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_ls_remote_profile"
                                                          for v in answer.verdicts):
             raise _ShKeep("`git ls-remote` is free only as the whole command (D59)")
+        if answer is not None and len(steps) > 1 and any(v.reason_id == "free_bundle_fetch" for v in answer.verdicts):
+            raise _ShKeep("the fetch of a local bundle is free only as the whole command (D98)")
         if answer is not None and len(steps) > 1 and any(v.reason_id == "free_after_state_check"
                                                          for v in answer.verdicts):
             # K-NW-2 B frees `git add` and `git commit -m` as the whole command (D3) and, since the owner's choice of
@@ -12957,6 +13144,11 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             verdicts.append(_unmodeled_read_or_checkout("git fetch", host) if host == "codex" else
                             _fetch_free_verdict(name, resolved, deadline, host))
             continue
+        if detail == [_BUNDLE_FETCH_FREE]:
+            # D98 (Nachtrag 40, B40-1): free under Claude Code after the bundle check, under Codex the ask of D41
+            verdicts.append(_unmodeled_read_or_checkout("git fetch", host) if host == "codex" else
+                            _bundle_fetch_verdict(name, resolved, deadline, host))
+            continue
         if detail == [_LS_REMOTE_FREE]:
             # D59 (Nachtrag 22, part 3): free under Claude Code after the fetch profile of D45, under Codex the ask of
             # D41
@@ -13225,6 +13417,7 @@ _SHORT_REASONS = {
                             "ein eigener Arbeitszweig unter dem stehenden GO, gemessen"),
     # the local class that can be taken back (D91): a pass in the log, an ask for a program, a deny for a guarded write
     "free_local_reversible": ("D91", "local and can be taken back, checked", "lokal und umkehrbar, geprüft"),
+    "free_bundle_fetch": ("D98", "it fetches a local bundle, checked", "es holt ein lokales Bündel, geprüft"),
     "local_program": ("D91", "a local form starts a program of the clone the gate does not see",
                       "eine lokale Form ein Programm des Klons startet, das das Tor nicht sieht"),
     "write_to_declaration": ("D91", "the form writes the evidence declaration", "die Form die Erklärung der Belege "
