@@ -13015,6 +13015,159 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
     return found
 
 
+#: D103 (Nachtrag 33, fallbook c01 and c02): the closed list of the forms that send a file or data to a host, read from
+#: the manuals of curl 8, wget 1.21, OpenSSH scp 9 and rsync 3 (not measured here: this container has no host to send
+#: to). curl: the long options and the letters of short options that send a body or a file.
+_UPLOAD_CURL_LONG = frozenset({"--form", "--form-string", "--data", "--data-ascii", "--data-binary", "--data-raw",
+                               "--data-urlencode", "--json", "--upload-file"})
+_UPLOAD_CURL_LETTERS = frozenset("FdT")
+#: wget: the options that send a body, and the methods that do with --method.
+_UPLOAD_WGET = frozenset({"--post-data", "--post-file", "--body-data", "--body-file"})
+_UPLOAD_WGET_METHODS = frozenset({"POST", "PUT", "PATCH"})
+#: scp: the letters of short options that take a value (OpenSSH 9), so the operands can be told apart.
+_UPLOAD_SCP_VALUES = frozenset("cDFiJlmoPSX")
+#: rsync: the options that take a value as the next word, so the operands can be told apart.
+_UPLOAD_RSYNC_VALUES = frozenset({"-e", "--rsh", "--rsync-path", "-f", "--filter", "--exclude", "--include",
+                                  "--exclude-from", "--include-from", "--files-from", "-T", "--temp-dir",
+                                  "--partial-dir", "--compare-dest", "--copy-dest", "--link-dest", "--backup-dir",
+                                  "--suffix", "--chmod", "--chown", "--usermap", "--groupmap", "--timeout",
+                                  "--contimeout", "--port", "--sockopts", "--out-format", "--log-file",
+                                  "--log-file-format", "--max-size", "--min-size", "--bwlimit", "--password-file",
+                                  "-B", "--block-size", "--modify-window", "--iconv", "--checksum-choice",
+                                  "--compress-choice", "--compress-level", "--skip-compress", "--max-delete",
+                                  "--address", "--outbuf", "--info", "--debug", "-M", "--remote-option",
+                                  "--write-batch", "--only-write-batch", "--read-batch", "--protocol"})
+_UPLOAD_PROGRAMS = ("curl", "wget", "scp", "rsync")
+#: The hosts of the loopback, to which a call is no upload outside.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
+
+
+def _guard_program(words: list[str]) -> int:
+    """The index of the program of a run of words behind its prefix assignments and the wrappers of _HOUSE_WRAPPERS with
+    their options, as D73 reads it; the last word where there is no other."""
+    k = 0
+    while k < len(words):
+        if _ASSIGNMENT.match(words[k]):
+            k += 1
+            continue
+        wrapper = _HOUSE_WRAPPERS.get(os.path.basename(words[k]))
+        if wrapper is None:
+            return k
+        values, own = wrapper
+        k += 1
+        while k < len(words) and words[k].startswith("-") and words[k] != "-":
+            k += 2 if words[k] in values else 1
+        k += own
+    return max(len(words) - 1, 0)
+
+
+def _upload_host_foreign(url: str) -> bool:
+    """Whether a word with `://` names a host other than the loopback; a host the gate cannot read counts as foreign."""
+    try:
+        host = urllib.parse.urlsplit(url).hostname
+    except ValueError:
+        return True
+    if not host:
+        return True
+    if host in _LOOPBACK_HOSTS:
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
+
+
+def _upload_remote(operand: str) -> str | None:
+    """The host of an operand of scp or rsync that names a path on a host (`[user@]host:path`, `host::module`,
+    `scp://…`, `rsync://…`), or None for a local path; a colon after the first slash is a local name."""
+    if "://" in operand:
+        try:
+            return urllib.parse.urlsplit(operand).hostname or ""
+        except ValueError:
+            return ""
+    head, colon, _rest = operand.partition(":")
+    if not colon or "/" in head or not head:
+        return None
+    return head.rpartition("@")[2].strip("[]")
+
+
+def _upload_form(words: list[str]) -> str | None:
+    """D103: the form by which a call of curl, wget, scp or rsync (words with the program first) sends a file or data
+    to a host other than the loopback, or None. curl and wget: an option of the closed list and a word with `://` of a
+    foreign host, or none the gate can read (`$URL`, a host without a scheme); scp and rsync: a last operand on a host
+    and an earlier local one."""
+    head = os.path.basename(words[0]) if words else ""
+    rest = words[1:]
+    if head in ("curl", "wget"):
+        form = None
+        for w in rest:
+            name = w.partition("=")[0]
+            if head == "curl" and name in _UPLOAD_CURL_LONG:
+                form = form or f"curl {name}"
+            elif head == "curl" and w.startswith("-") and not w.startswith("--") and len(w) > 1:
+                letter = next((c for c in w[1:] if c in _UPLOAD_CURL_LETTERS), None)
+                if letter is not None:
+                    form = form or f"curl -{letter}"
+            elif head == "wget" and name in _UPLOAD_WGET:
+                form = form or f"wget {name}"
+        if head == "wget":
+            for k, w in enumerate(rest):
+                method = w.partition("=")[2] if w.startswith("--method=") else \
+                    (rest[k + 1] if w == "--method" and k + 1 < len(rest) else None)
+                if method is not None and method.upper() in _UPLOAD_WGET_METHODS:
+                    form = form or f"wget --method {method.upper()}"
+        if form is None:
+            return None
+        urls = [w for w in rest if "://" in w]
+        return form if not urls or any(_upload_host_foreign(u) for u in urls) else None
+    if head in ("scp", "rsync"):
+        operands, k = [], 0
+        while k < len(rest):
+            w = rest[k]
+            if w == "--":
+                operands.extend(rest[k + 1:])
+                break
+            if head == "scp" and w.startswith("-") and len(w) > 1:
+                k += 2 if w[-1] in _UPLOAD_SCP_VALUES and len(w) == 2 else 1
+                continue
+            if head == "rsync" and w.startswith("-") and len(w) > 1:
+                k += 2 if w in _UPLOAD_RSYNC_VALUES else 1
+                continue
+            operands.append(w)
+            k += 1
+        if len(operands) < 2:
+            return None
+        host = _upload_remote(operands[-1])
+        if host is None or all(_upload_remote(o) is not None for o in operands[:-1]):
+            return None
+        if host and (host in _LOOPBACK_HOSTS or host == "127.0.0.1"):
+            return None
+        return f"{head} to a host"
+    return None
+
+
+def _guard_upload(runs: list) -> list:
+    """D103 (Nachtrag 33, fallbook c01, c02): an ask for every run of words that calls curl, wget, scp or rsync, behind a
+    wrapper too, in a form of _upload_form; under Codex an ask is a deny (answer). Fetching stays free."""
+    found = []
+    for words in runs:
+        k = _guard_program(words) if words else None
+        if k is None or os.path.basename(words[k]) not in _UPLOAD_PROGRAMS:
+            continue
+        form = _upload_form(words[k:])
+        if form is None:
+            continue
+        name = os.path.basename(words[k])
+        found.append(_HouseFinding(
+            "ask", "upload_to_host", name,
+            f"proofbundle gate: {name} sends a file or data to a host outside ({form}); the gate asks before anything of "
+            "the session leaves the machine, over a closed list of forms, and lets every fetch run (Nachtrag 33; "
+            "DECISIONS.md D103).",
+            f"{name} sends a file or data to a host outside ({form})",
+            "ask the owner whether the file may leave; a fetch stays free"))
+    return found
+
+
 #: D102: the file tools of Claude Code that read a path their input names (proofbundle_secrets.READ_TOOLS).
 READ_TOOLS = frozenset({"Read", "Grep"})
 
@@ -13039,10 +13192,11 @@ def decide_read(tool: str, tool_input: object, cwd: str, deadline: float, host: 
 
 
 def _guard_findings(command: str, cwd: str | None, environ) -> list:
-    """The guards of Nachtrag 33 a command meets: D102 (a key path)."""
+    """The guards of Nachtrag 33 a command meets: D102 (a key path), D103 (an upload)."""
     environ = os.environ if environ is None else environ
     steps = _guard_steps(command, cwd)
-    return _guard_secret(steps, command, cwd, environ)
+    runs = [[value for value, _built in words] for words, _k, _d in _house_runs(command, cwd)]
+    return _guard_secret(steps, command, cwd, environ) + _guard_upload(runs)
 
 
 def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, deadline: float,
@@ -14232,6 +14386,7 @@ _SHORT_REASONS = {
                                "das Schreiben die Einstellungen des Wirts trifft, wo Haken und Rechte stehen"),
     "secret_path": ("D102", "the call names a key file or a credential store",
                     "der Aufruf eine Schlüsseldatei oder einen Zugangsspeicher nennt"),
+    "upload_to_host": ("D103", "a file or data goes to a host outside", "eine Datei oder Daten an einen fremden Host gehen"),
     # inactive, shown once per session and repository
     "nothing_declared": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
     "nothing_declared_locally": ("D5", "the repository declares no evidence", "das Repository keine Belege erklärt"),
@@ -14536,6 +14691,7 @@ AUTONOMY_EFFECTS = {
     "programm": ("a local form that starts a program of the own clone the gate does not see (a hook, a filter, "
                  "fsmonitor; D91, owner question O37-1)",
                  "eine lokale Form, die ein Programm des eigenen Klons startet, das das Tor nicht sieht (D91)"),
+    "upload": ("a file or data sent to a host outside (D103)", "eine Datei oder Daten, die an einen fremden Host gehen (D103)"),
 }
 #: The gh pairs with an external effect, by the entry of AUTONOMY_EFFECTS (gh 2.89.0, `gh <command> --help`); every
 #: other pair is none. `gh api` is judged by its method (_autonomy_gh_api_writes).
@@ -14651,6 +14807,9 @@ def _autonomy_effect(words: list[str]) -> str | None:
         if words[1] == "api":
             return "gh_write" if _autonomy_gh_api_writes(words[2:]) else None
         return _AUTONOMY_GH.get((words[1], words[2])) if len(words) >= 3 else None
+    k = _guard_program(words) if head not in _UPLOAD_PROGRAMS else 0
+    if os.path.basename(words[k]) in _UPLOAD_PROGRAMS and _upload_form(words[k:]) is not None:
+        return "upload"   # D103
     return None
 
 
@@ -15336,7 +15495,7 @@ FANG_REASONS = frozenset({
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
-    "write_to_host_settings", "secret_path"})
+    "write_to_host_settings", "secret_path", "upload_to_host"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024

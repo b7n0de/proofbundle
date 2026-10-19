@@ -4753,3 +4753,25 @@ Limits, named: Codex has no Read tool, its reads are Bash calls; a key under ano
 `cat ~/.ssh/id_rsa.pub` and `ssh -i <key>` are denied, being in the folder; a word that only mentions `.ssh/` as text
 (`grep -rn .ssh/ src`) is denied; the code of another language (python3 -c) is not read (D8). Tests:
 tests/test_plugin_n33_secret_paths_d102.py.
+
+## D103. Sending a file or data to a host outside asks (Nachtrag 33, fallbook c01 and c02, 2026-10-19)
+
+Order of Nachtrag 33, point 1: an upload to a foreign host asks, over a closed list of forms (such as `curl -F`,
+`--data*`, `-T`, `wget --post-*`, scp and rsync to a foreign host); fetching stays free. Found by delta's fallbook (gate
+44db2056): `curl -F <file> <url>` and `curl --data-binary <file> <url>` got no answer under either host; the same at
+63b88d07 (probe_n33.py).
+
+The rule: _upload_form reads a call of curl, wget, scp or rsync, behind a wrapper (sudo, env, timeout and the others of
+D73) and in a script a step runs as text (D100) too. curl sends with -F, -d or -T, in a bundle of short options too, or
+with --form, --form-string, --data, --data-ascii, --data-binary, --data-raw, --data-urlencode, --json or --upload-file;
+wget with --post-data, --post-file, --body-data, --body-file, or a --method of POST, PUT or PATCH; scp and rsync where the
+last operand names a path on a host (`[user@]host:path`, `host::module`, `scp://`, `rsync://`) and an earlier one is
+local. A host other than the loopback, or one the gate cannot read from a word with `://` (a variable, a host without
+a scheme), makes the call an upload_to_host: an ask under Claude Code, which in autonomous operation stays an ask of the
+owner (the effect `upload` of AUTONOMY_EFFECTS, and a card in the profile of b7n0de, D93), a deny under Codex. The forms
+are read from the manuals of curl 8, wget 1.21, OpenSSH scp 9 and rsync 3, not measured with strace: this container has
+no host to send to.
+
+Limits, named: nc, ftp, sftp, the clients of clouds (aws s3, gsutil), `gh gist create` and code of another language that
+sends are not read; an upload to the loopback without a scheme (`localhost:8080/x`) asks; `curl -X POST` without a body
+is no upload. Tests: tests/test_plugin_n33_upload_d103.py.
