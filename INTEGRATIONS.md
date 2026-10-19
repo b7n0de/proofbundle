@@ -213,7 +213,7 @@ proofbundle is the **standards-native, offline receipt** of an eval or test *run
 framework's own plugin API. It is complementary to its neighbours: [ai-audit-trail](https://pypi.org/project/ai-audit-trail/)
 records **runtime** agent Decision Receipts (FastAPI / LangChain / MCP, ISO 42001) — a different layer;
 [ValiChord](https://github.com/ValiChord/ValiChord) builds attestation bundles from inspect_ai logs
-**post-hoc** (its v1 library is unsigned — JCS + SHA-256 Merkle + HMAC; signatures are v2 scope). proofbundle's angle is the **opt-in auto-emit via the native
+**post-hoc** (its format is unsigned: JCS + RFC 6962 Merkle since v2, plus HMAC-derived audit challenges; no format version carries a signature). proofbundle's angle is the **opt-in auto-emit via the native
 plugin** (an inspect_ai hook + a pytest11 plugin) plus the standards stack (Ed25519 + RFC 6962 + SD-JWT +
 in-toto). Honest scope: it attests authenticity + integrity of the run, not the correctness of the
 computation.

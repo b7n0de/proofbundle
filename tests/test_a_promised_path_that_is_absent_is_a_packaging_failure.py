@@ -186,6 +186,48 @@ class TheManifestIsReadAsSetuptoolsReadsIt(unittest.TestCase):
             self.assertNotIn("src/loose.py", fall["shipped"])
 
 
+_VERZEICHNISSE = REPO / "tests" / "fixtures" / "manifest_semantics" / "verzeichnisse.json"
+
+#: (case, directory) where the reader promises a directory under which the real sdist carried no file: the pattern
+#: can match below it, and the directory holds no file of that kind. The loud direction, named so it cannot grow.
+_LAUT_BY_DESIGN = {("recursive_include_star", "internal"), ("include_star_directory", "internal")}
+
+
+class ADirectoryIsPromisedWhereSetuptoolsShipsBelowIt(unittest.TestCase):
+    """Review round 22, R22-3: the directory form of the promise compared segments literally, so `graft inter*` did
+    not promise `interop/`, although setuptools shipped 21 files there. The oracle is setuptools again: for each
+    template of `verzeichnisse.json` a real `build_sdist` recorded the files it carries, and every directory with a
+    shipped file below it must be promised."""
+
+    def test_every_directory_setuptools_shipped_into_is_promised(self):
+        daten = json.loads(_VERZEICHNISSE.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(int(daten["setuptools"].split(".")[0]), 68)
+        laut = set()
+        for name, fall in daten["cases"].items():
+            with tempfile.TemporaryDirectory() as tmp:
+                wurzel = pathlib.Path(tmp)
+                (wurzel / "MANIFEST.in").write_text(fall["template"], encoding="utf-8")
+                (wurzel / "pyproject.toml").write_text(fall["pyproject"], encoding="utf-8")
+                for d in daten["directories"]:
+                    shipped = any(s.startswith(d + "/") for s in fall["shipped"])
+                    promised = cf._manifest_verspricht_verzeichnis(d, wurzel)
+                    with self.subTest(case=name, directory=d):
+                        if shipped:
+                            self.assertIs(promised, True, f"setuptools shipped below {d!r} under {fall['template']!r}")
+                    if promised and not shipped:
+                        laut.add((name, d))
+        self.assertEqual(laut, _LAUT_BY_DESIGN)
+
+    def test_the_directory_vectors_measure_the_finding(self):
+        """Each pattern form of the finding ships below `interop/`, and the literal reading would have missed it."""
+        faelle = json.loads(_VERZEICHNISSE.read_text(encoding="utf-8"))["cases"]
+        for name in ("graft_star", "graft_question_mark", "recursive_include_star", "include_star_directory"):
+            with self.subTest(case=name):
+                self.assertTrue(any(s.startswith("interop/") for s in faelle[name]["shipped"]))
+                self.assertNotIn("interop", faelle[name]["template"].split())
+        self.assertFalse(any(s.startswith("interop/") for s in faelle["no_template_lines"]["shipped"]))
+
+
 class TheDistributionCarriesItsManifest(unittest.TestCase):
     """Runs in the checkout and from the extracted sdist alike. Without MANIFEST.in the rule above loses
     the template's promises, so the file must travel with the tests. Since 227B-01 this case is no longer
