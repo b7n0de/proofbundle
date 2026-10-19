@@ -25,6 +25,11 @@ D77 on that path; xargs starts its program by path, so the session does not coun
 
 RED at 53a8f4f7 (B36-3): every shadowed bare word; `command <name>` and the absolute path, which D77 did not read. The
 forms of a session that defines nothing, and Codex, are controls, green at both.
+
+Changed in Nachtrag 38, point 4: the silent cases read the version of the host's read programs, and with GNU coreutils
+8.32, as at the Farmer, 31 of them were red where the gate rightly keeps the chain (B36-1; measured with the programs of
+/usr/bin bound over by wrappers naming 8.32, sim832_n38.sh). The home of each case now holds read programs naming the
+measured version first on PATH (_measured_coreutils), and the absolute path of a case is that of its own ls ({LS}).
 """
 from __future__ import annotations
 
@@ -36,6 +41,7 @@ import time
 
 import pytest
 
+import _measured_coreutils as mc
 import test_plugin_n26_read_only_d66 as d66
 
 gate = d66.gate
@@ -72,6 +78,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("SHELL", "/bin/bash")
     monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    mc.version_on_path(tmp_path / "coreutils", monkeypatch)
     (tmp_path / "home").mkdir()
     (tmp_path / "w").mkdir()
     (tmp_path / "w" / "README.md").write_text("x\n")
@@ -83,13 +90,19 @@ def snapshot(home: pathlib.Path, text: str, name: str = "snapshot-bash-179233102
     folder = folder or home / ".claude" / "shell-snapshots"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / name
+    text = text.replace("{LS}", _ls(home))
     path.write_text("# Snapshot file\nunalias -a 2>/dev/null || true\nshopt -u expand_aliases\n# Functions\n"
                     f"{text}\n# Aliases\nexport PATH=/usr/local/bin:/usr/bin:/bin\n")
     return path
 
 
+def _ls(home: pathlib.Path) -> str:
+    """The absolute path of the case's own ls, which names the measured version (`{LS}` in a form)."""
+    return str(home.parent / "coreutils" / "ls")
+
+
 def decided(home: pathlib.Path, command: str, host: str = "claude"):
-    out = gate.decide(command, str(home.parent / "w"), time.monotonic() + 60, host)
+    out = gate.decide(command.replace("{LS}", _ls(home)), str(home.parent / "w"), time.monotonic() + 60, host)
     return None if out is None else out.decision
 
 
@@ -134,7 +147,7 @@ def test_B36_2_a_session_the_gate_cannot_measure_keeps_a_bare_word_asking(home, 
 
 
 @pytest.mark.parametrize("kind", ["eval", "function", "alias"])
-@pytest.mark.parametrize("command", [f"command ls -la; {SEARCH}", f"{LS} -la; {SEARCH}",
+@pytest.mark.parametrize("command", [f"command ls -la; {SEARCH}", f"{{LS}} -la; {SEARCH}",
                                      f"command head -5 README.md; {SEARCH}", f"{SEARCH}; command ls",
                                      f"command wc -l README.md && {SEARCH}"])
 def test_B36_2_command_and_the_absolute_path_are_silent_past_an_alias_or_a_function(home, command, kind):
@@ -143,7 +156,7 @@ def test_B36_2_command_and_the_absolute_path_are_silent_past_an_alias_or_a_funct
     assert decided(home, command) is None, (command, kind)
 
 
-@pytest.mark.parametrize("command", [f"command ls -la; {SEARCH}", f"{LS} -la; {SEARCH}"])
+@pytest.mark.parametrize("command", [f"command ls -la; {SEARCH}", f"{{LS}} -la; {SEARCH}"])
 def test_B36_2_command_and_the_absolute_path_are_silent_where_the_session_is_not_measured(home, monkeypatch,
                                                                                          tmp_path, command):
     """The order: "Sonst still nur `command <name>` oder der absolute Pfad"."""
@@ -156,7 +169,7 @@ def test_B36_2_command_and_the_absolute_path_are_silent_where_the_session_is_not
     ("command () { colorls; }", f"command ls -la; {SEARCH}"),
     ("alias command='command '", f"command ls -la; {SEARCH}"),
     ("hash -p /opt/colorls/bin/colorls ls", f"command ls -la; {SEARCH}"),
-    (f"{LS} () {{ colorls; }}", f"{LS} -la; {SEARCH}"),
+    ("{LS} () { colorls; }", f"{{LS}} -la; {SEARCH}"),
 ])
 def test_B36_2_control_what_shadows_command_or_the_path_keeps_it_asking(home, definition, command):
     snapshot(home, definition)
@@ -196,7 +209,7 @@ def test_B36_2_control_no_snapshot_folder_under_bash_is_measured_as_no_definitio
     assert decided(home, command) is None, command
 
 
-@pytest.mark.parametrize("command", [f"ls -la; {SEARCH}", f"command ls -la; {SEARCH}", f"{LS} -la; {SEARCH}"])
+@pytest.mark.parametrize("command", [f"ls -la; {SEARCH}", f"command ls -la; {SEARCH}", f"{{LS}} -la; {SEARCH}"])
 def test_B36_2_control_codex_keeps_its_answer(home, command):
     snapshot(home, "true")
     assert decided(home, command, "codex") in ("ask", "deny"), command   # D77 is off under Codex (D37)

@@ -15,10 +15,18 @@ a wrapper other than xargs, and the same command under Codex keep their answer.
 
 RED at 0c4e10e8 (the head of Nachtrag 31 before Ergänzung 1): the free chains under Claude Code and the unit rows of the
 new grammar. The counter cases and the answers under Codex are controls, green at both. No case reaches a network.
+
+Changed in Nachtrag 38, point 4: the silent cases read the version of the host's read programs, and with GNU coreutils
+8.32, as at the Farmer, 29 of them were red where the gate rightly keeps the chain (B36-1; measured with the programs of
+/usr/bin bound over by wrappers naming 8.32, sim832_n38.sh). The repository of each case now has read programs naming
+the measured version first on PATH (_measured_coreutils); one case reads the host's own programs and expects silence
+exactly where their version is measured.
 """
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -26,6 +34,7 @@ import time
 import pytest
 
 import _gate_answer as ga
+import _measured_coreutils as mc
 import test_plugin_gate_n2c_push_done as n2c
 
 gate = n2c.gate
@@ -78,6 +87,7 @@ KEEP = [
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    mc.version_on_path(tmp_path / "coreutils", monkeypatch)
     subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path / "r")], check=True, timeout=60)
     (tmp_path / "r" / "README.md").write_text("git push\n")
     return tmp_path / "r"
@@ -218,9 +228,21 @@ def test_D77_the_hook_as_the_host_runs_it(repo, tmp_path, host, silent):
     """The whole hook path, `python -I gate --host <host>` with the event on stdin."""
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": "[ -d .git ] && ls -la .git/hooks | head -3 && echo gh"}})
-    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(tmp_path), "LANG": "C",
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "LANG": "C",
            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
            "PROOFBUNDLE_GATE_DIR": str(tmp_path / "gatedir")}
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host], event, env, cwd=str(repo))
     assert proc.returncode == 0, proc.stderr
     assert (ga.parsed(proc, entry) is None) is silent, ga.parsed(proc, entry)
+
+
+def test_D77_on_the_hosts_own_programs_a_chain_is_silent_exactly_where_their_version_is_measured(repo, monkeypatch):
+    """Nachtrag 38, point 4: the host's head, read as the gate reads it, decides; silent with a measured version (9.4
+    here), asked with any other (8.32 at the Farmer)."""
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    head = shutil.which("head")
+    line = subprocess.run([head, "--version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[:1] \
+        if head else []
+    measured = bool(line) and any(line[0] == f"head (GNU coreutils) {v}" for v in gate._READ_PROGRAM_VERSIONS)
+    out = decided(repo, f"head -5 README.md; {SEARCH}")
+    assert (out is None) is measured, (line, shown(out))

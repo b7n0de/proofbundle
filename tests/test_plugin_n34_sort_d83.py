@@ -9,6 +9,10 @@ named exception; -o, -T, -S, -m, the long options and every option not measured 
 RED at 9f1ef309 (D82): sort with each measured option behind a chain the steps of D72 do not free (xargs grep, a while
 loop), naming git only as data; a chain of data steps alone (`grep -rln git src | sort`) was free there already. The
 options left out, sort under Codex and sort behind xargs are controls, green at both.
+
+Changed in Nachtrag 38, point 4: the free cases expected the version of the host they ran on, and at the Farmer (GNU
+coreutils 8.32, delta's run of 2026-10-18) all eleven were red, where the gate rightly keeps the chain (B36-1). They now
+name the measured version themselves (_measured_coreutils), and the same chains with a sort of 8.32 are the catch case.
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ import time
 
 import pytest
 
+import _measured_coreutils as mc
 import test_plugin_n26_read_only_d66 as d66
 
 gate = d66.gate
@@ -42,9 +47,18 @@ def decided(repo, command, host):
 
 
 @pytest.mark.parametrize("command", FREE)
-def test_D83_sort_with_a_measured_option_is_a_read_form_under_claude_code(repo, command):
+def test_D83_sort_with_a_measured_option_is_a_read_form_under_claude_code(repo, tmp_path_factory, monkeypatch, command):
+    mc.version_on_path(tmp_path_factory.mktemp("coreutils"), monkeypatch)
     out = decided(repo, command, "claude")
     assert out is None, (command, out and [v.reason_id for v in out.verdicts])
+
+
+@pytest.mark.parametrize("command", FREE)
+def test_D83_control_a_sort_of_a_version_not_measured_keeps_the_answer(repo, tmp_path_factory, monkeypatch, command):
+    """B36-1 from the other side (Nachtrag 38, point 4): the same chain where sort and tail name 8.32, as at the Farmer."""
+    mc.version_on_path(tmp_path_factory.mktemp("coreutils"), monkeypatch, "8.32")
+    out = decided(repo, command, "claude")
+    assert out is not None and out.decision in ("ask", "deny"), command
 
 
 @pytest.mark.parametrize("command", HELD)
