@@ -1,8 +1,9 @@
 name: pr-form
 
 # The pull-request form gate (owner decision 2026-09-28): a pull request carries a milestone, its
-# description ends with exactly the two lines of the house footer, and it carries no tool
-# attribution, no session link and no retired closing sentence. The judgement is
+# description ends with the house footer, since 2026-10-17 the one sentence `Assisted by little
+# helpers.`, and it carries no tool attribution, no session link and no retired closing sentence.
+# The judgement is
 # scripts/b7_pr_form_gate.py; it reads the milestone and the description from the event payload the
 # runner writes, with no API call and no token.
 #
