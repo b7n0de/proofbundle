@@ -91,13 +91,18 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
     all container lengths): a value that nests itself or shares one container along exponentially many
     paths is refused before it is copied. Iterative, so a deep value never reaches the recursion limit."""
     max_depth, max_nodes = _depth_and_nodes(budget)
+    # THE LABEL IS TEXT: `what` names the parameter in a refusal, and a value that is no str had no
+    # bounded text there (`what=10**5000` raised ValueError and a hostile `__format__` its own
+    # exception out of the f-string below; the public-surface generator, 2026-10-18). A str is itself.
+    from .budget import render_text  # noqa: PLC0415 - local import avoids an import cycle
+    label = render_text(what)
     box: list = [None]
     stack: list = [(value, box, 0, 1, "")]
     tuples: list = []                    # (parent, slot, list) to turn into tuples, deepest last
     nodes = 0
     while stack:
         cur, parent, slot, depth, path = stack.pop()
-        where = f"{what}{path}"
+        where = f"{label}{path}"
         if depth > max_depth:
             raise error(f"{where} nests deeper than {max_depth} levels")
         t = type(cur)

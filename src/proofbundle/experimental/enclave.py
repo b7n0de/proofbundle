@@ -107,7 +107,8 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     signature under ``verifier_pubkey`` (the RATS Verifier key — a supplied trust anchor),
     ``eat_nonce`` == ``expected_binding`` (from :func:`enclave_binding_for`), and — if given —
     ``eat_profile`` == ``expected_profile``. Freshness (``iat``/``exp``) is reported and only
-    judged when ``now`` is supplied.
+    judged when ``now`` is supplied; ``now`` is the relying party's clock as an exact POSIX-seconds ``int``, and any
+    other value (a bool, a float, a string) fails the verify closed.
 
     Returns ``{ok, tier, profile, ueid, nonce_ok, fresh, iat, exp, detail}``. ``ok`` covers
     signature + typ/alg + binding (+ profile if requested); ``tier`` is the Verifier's declared
@@ -116,6 +117,15 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     """
     result = {"ok": False, "tier": None, "profile": None, "ueid": None, "nonce_ok": False,
               "fresh": None, "iat": None, "exp": None, "detail": ""}
+    # 6.2.1 ZT-03 (Z309): the clock as an exact int, read once at entry (the one rule for a caller's number,
+    # _plain_value.plain_int, as kbjwt and decision read it). `False` compared as POSIX 0 and 150.5 or "150" were
+    # judged as given; each is a malformed relying-party clock and fails closed, never an unjudged freshness.
+    if now is not None:
+        from .._plain_value import plain_int  # noqa: PLC0415
+        if plain_int(now) is None:
+            result["detail"] = "enclave now (relying-party clock) must be a POSIX-seconds integer (fail-closed)"
+            return result
+        now = plain_int(now)
     # The token as the text it holds, read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the shape
     # check and the split were two readings, a `str` subclass through its own `count` and `split`, and a count
     # that answered 2 beside a split into four parts escaped this surface as a raw ValueError.
@@ -222,5 +232,12 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     if exp is not None:
         claims["exp"] = exp
     header = {"alg": "EdDSA", "typ": EAT_TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(claims).encode())
+    # The claims come from the caller and are serialized: one without a JSON form (`iat=10**5000`, a
+    # set, bytes, a nesting deeper than the interpreter allows) raised raw from `json.dumps` (lens run 10
+    # generator on d6d89763). Refused by the module's typed error, as a malformed binding is elsewhere.
+    try:
+        claims_json = json.dumps(claims)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"attestation claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

@@ -641,6 +641,21 @@ _DATEI_LESER = frozenset({"_open_input", "open", "load_bundle", "resolve_policy_
                           "load_signer", "_resolve_signer", "decode_eval_claim"})
 
 
+def _bindungen(knoten: ast.AST) -> "list[tuple[str, ast.AST]]":
+    """(name, value) for every local name an assignment binds: ``x = v``, and each name of ``a, b = v, w`` with the
+    value at its place (pull request 301: ``version, evaluator = args.predicate_version, args.evaluator`` bound the
+    option to a name the guards did not follow, and the truth read of ``evaluator`` after it was not seen)."""
+    if not (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1):
+        return []
+    ziel, wert = knoten.targets[0], knoten.value
+    if isinstance(ziel, ast.Name):
+        return [(ziel.id, wert)]
+    if (isinstance(ziel, (ast.Tuple, ast.List)) and isinstance(wert, (ast.Tuple, ast.List))
+            and len(ziel.elts) == len(wert.elts)):
+        return [(z.id, w) for z, w in zip(ziel.elts, wert.elts) if isinstance(z, ast.Name)]
+    return []
+
+
 def _optionsziele_in(ausdruck: ast.AST, alias: dict) -> set:
     ziele: set = set()
     for knoten in ast.walk(ausdruck):
@@ -662,11 +677,11 @@ def _datei_ziele(quelle: str) -> set[str]:
         alias: dict = {}
         for _ in range(3):   # a name bound from a name bound from the option
             for knoten in ast.walk(funktion):
-                if (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1
-                        and isinstance(knoten.targets[0], ast.Name)):
-                    gefunden = _optionsziele_in(knoten.value, alias)
-                    if gefunden:
-                        alias.setdefault(knoten.targets[0].id, set()).update(gefunden)
+                if isinstance(knoten, ast.Assign):
+                    for name, wert in _bindungen(knoten):
+                        gefunden = _optionsziele_in(wert, alias)
+                        if gefunden:
+                            alias.setdefault(name, set()).update(gefunden)
                 elif isinstance(knoten, (ast.For, ast.comprehension)) and isinstance(knoten.target, ast.Name):
                     gefunden = _optionsziele_in(knoten.iter, alias)
                     if gefunden:
@@ -736,6 +751,8 @@ _ERLAUBTE_WAHRHEITSLESUNGEN = {
     ("_cmd_policy_instantiate", "output"): "an empty --output writes the policy to stdout, the documented default",
     ("_cmd_svr", "policy_uri"): "emit side: content the producer writes, no restriction a verifier relies on",
     ("_cmd_svr", "policy_sha256"): "emit side: content the producer writes, no restriction a verifier relies on",
+    ("_cmd_intoto", "evaluator"): ("an empty --evaluator is refused with exit 2 before the signer is resolved, and any "
+                                   "other value that is no URI is refused by the v0.2 exporter (exit 2)"),
 }
 
 
@@ -772,11 +789,10 @@ def _wahrheitslesungen(quelle: str, optionen: set[str]) -> set[tuple[str, str]]:
             continue
         alias: dict[str, str] = {}
         for knoten in ast.walk(funktion):
-            if (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1
-                    and isinstance(knoten.targets[0], ast.Name)):
-                ziel = _optionsziel(knoten.value)
+            for name, wert in _bindungen(knoten):
+                ziel = _optionsziel(wert)
                 if ziel in optionen:
-                    alias[knoten.targets[0].id] = ziel
+                    alias[name] = ziel
 
         def ziel_von(ausdruck: ast.AST) -> str | None:
             if isinstance(ausdruck, ast.Name):
@@ -816,11 +832,10 @@ def _leervergleiche(quelle: str, optionen: set[str]) -> set[tuple[str, str]]:
             continue
         alias: dict[str, str] = {}
         for knoten in ast.walk(funktion):
-            if (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1
-                    and isinstance(knoten.targets[0], ast.Name)):
-                ziel = _optionsziel(knoten.value)
+            for name, wert in _bindungen(knoten):
+                ziel = _optionsziel(wert)
                 if ziel in optionen:
-                    alias[knoten.targets[0].id] = ziel
+                    alias[name] = ziel
         for knoten in ast.walk(funktion):
             if not (isinstance(knoten, ast.Compare) and all(isinstance(o, (ast.Eq, ast.NotEq)) for o in knoten.ops)):
                 continue
@@ -871,6 +886,20 @@ class EveryTruthReadOfAnOptionIsNamed(unittest.TestCase):
         self.assertEqual(_wahrheitslesungen(gepflanzt, {"policy", "anchor_type", "anchors", "aud", "nonce", "eat"}),
                          {("_x", "policy"), ("_x", "anchor_type"), ("_x", "anchors"), ("_x", "aud"),
                           ("_x", "nonce"), ("_x", "eat")})
+
+    def test_control_a_name_bound_in_a_tuple_is_followed(self) -> None:
+        """Pull request 301: a name bound beside another in one assignment is a local name bound to the option, and
+        each of the three guards follows it. Planted once for each."""
+        gepflanzt = ("def _x(args):\n"
+                     "    version, evaluator = args.predicate_version, args.evaluator\n"
+                     "    if not evaluator:\n        pass\n"
+                     "    [a, nonce] = [1, args.nonce]\n"
+                     "    if nonce == \"\":\n        pass\n"
+                     "    erstes, pfad = None, args.policy\n"
+                     "    open(pfad)\n")
+        self.assertEqual(_wahrheitslesungen(gepflanzt, {"evaluator", "nonce", "policy"}), {("_x", "evaluator")})
+        self.assertEqual(_leervergleiche(gepflanzt, {"evaluator", "nonce", "policy"}), {("_x", "nonce")})
+        self.assertEqual(_datei_ziele(gepflanzt), {"policy"})
 
     def test_control_an_is_not_none_read_is_not_a_truth_read(self) -> None:
         sauber = ("def _x(args):\n"

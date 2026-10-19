@@ -51,7 +51,10 @@ import re
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from ._membership import is_member, require_switch
+from ._membership import as_dict, as_list, is_member, require_switch
+# The one renderer for a value from outside in a message: an integer too long to write in decimal
+# (CVE-2020-10735 cap) is described, not printed, and an ordinary value renders as repr() did.
+from .budget import render_safe
 from .canonical import (_ein_stand, _eine_kopie, _feld_von, _folge_von, _pruefkopie,
                         _richtlinie_von, _zeichen_von)
 from .errors import ProofBundleError
@@ -89,10 +92,15 @@ DISCLOSURE_SELFREF_TOKEN = "<selfref>"
 _SELFREF_FULL = re.compile(r"sha256:[0-9a-f]{64}")
 _SELFREF_SHORT = re.compile(r"\[[0-9a-f]{12}\]\(")
 
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")
+#: ASCII DIGITS, NOT `\d` (owner decision, 2026-09-26). Python's `\d` takes every
+#: Unicode decimal digit, so "２０２６-01-01T00:00:00Z" (fullwidth) and "0.1.٣" (Arabic-Indic) passed
+#: both checks; RFC 3339 and the schemas' ECMA-262 `\d` mean 0-9 only. A bug fix in v0.1, v0.2 and
+#: v0.3 alike, all three read these two constants; the exception to the version rule is in the
+#: CHANGELOG, with the measurement that no receipt or vector in this repository is affected.
+_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
 _GIT_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 #: The assurance ladder. v0.1 ACCEPTS only the weakest rung — see `_ASSURANCE_ALLOWED_V0_1`.
 _ASSURANCE_ALL = {"selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"}
@@ -154,6 +162,16 @@ class AgentReviewError(ProofBundleError):
     """An agent-review predicate is malformed (fail-closed)."""
 
 
+class _NotCanonicalizable(AgentReviewError):
+    """A value the strict parser reads and RFC 8785 (JCS) cannot represent, or a structure over the
+    canonicalizer's budget: either way there is no canonical form.
+
+    `loads_strict` admits an integer outside +-(2**53 - 1), NaN and Infinity; the canonicalizer
+    refuses each with a ValueError of its own (IntegerDomainError, FloatDomainError). As an
+    AgentReviewError it reaches the typed handling every caller already has, and the verifiers
+    tell it apart from a payload that has a canonical form and does not match it."""
+
+
 def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
@@ -169,6 +187,23 @@ def _text_once(value: Any, refusal: str) -> str:
     if text is None:
         raise AgentReviewError(refusal)
     return text
+
+
+def _utf8(text: str, was: str) -> bytes:
+    """The UTF-8 bytes a digest is taken over, or AgentReviewError when there are none.
+
+    A str that holds a lone surrogate has no UTF-8 form. Measured on d5747000: an `observed_body`
+    holding one made `.encode` below raise UnicodeEncodeError, which `_pruefe_sichtbaren_block` does
+    not catch, and `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+    `verify_agent_review_any` answered `internal_error`, "a defect in the verifier". As the module's
+    own error it is what a body without a single canonical core already is: NOT_MEASURABLE, which
+    blocks. The same mapping as for a statement RFC 8785 cannot write (`_rfc8785_bytes`)."""
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise AgentReviewError(
+            f"{was} has no UTF-8 form (a lone surrogate), so no digest can be taken over it: "
+            f"{exc}") from exc
 
 
 @_ein_stand
@@ -191,12 +226,12 @@ def body_core_bytes(body: str) -> bytes:
             f"{n_begin} disclosure blocks found — a duplicated block has no single canonical core, "
             "fail-closed (an attacker who may add a second block could otherwise choose the digest)")
     if n_begin == 0:
-        return body.encode("utf-8")
+        return _utf8(body, "the body")
     start = body.index(DISCLOSURE_BEGIN)
     end = body.index(DISCLOSURE_END) + len(DISCLOSURE_END)
     if end <= start:
         raise AgentReviewError("disclosure end marker precedes its begin marker — fail-closed")
-    return (body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:]).encode("utf-8")
+    return _utf8(body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:], "the body")
 
 
 @_ein_stand
@@ -309,7 +344,7 @@ def disclosure_core_bytes(body: str) -> bytes:
     innen = body[start:end].strip("\n")
     innen = _SELFREF_FULL.sub(f"sha256:{DISCLOSURE_SELFREF_TOKEN}", innen)
     innen = _SELFREF_SHORT.sub(f"[{DISCLOSURE_SELFREF_TOKEN}](", innen)
-    return innen.encode("utf-8")
+    return _utf8(innen, "the disclosure block")
 
 
 @_ein_stand
@@ -326,15 +361,19 @@ def findings_root(findings: list[dict]) -> str:
     Order-independent by construction: each finding is canonicalized on its own, the leaf digests are
     SORTED, and the root is taken over their concatenation. Two producers that list the same findings
     in a different order must not disagree, or the root would report tampering where there is none.
+
+    A finding that holds a value RFC 8785 cannot represent (an integer outside +-(2**53 - 1), NaN,
+    Infinity) raises AgentReviewError, never the canonicalizer's own ValueError. Measured on
+    8ecb6edf: `findings[0] = 2**53` in a correctly signed receipt reached the loop below, and the
+    three verifiers, which catch AgentReviewError here, answered `internal_error`. The mapping
+    lives in `_rfc8785_bytes`, the one canonicalization of this module.
     """
-    from . import canonical  # noqa: PLC0415
     leaves = []
-    for f in findings:
+    for i, f in enumerate(findings):
         try:
-            leaves.append(hashlib.sha256(canonical.canonicalize_statement(f)).hexdigest())
-        except canonical.CanonicalizerUnavailable as exc:
-            raise AgentReviewError(
-                "findingsRoot needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+            leaves.append(hashlib.sha256(_rfc8785_bytes(f)).hexdigest())
+        except _NotCanonicalizable as exc:
+            raise _NotCanonicalizable(f"findingsRoot: findings[{i}] is {exc}") from exc
     return hashlib.sha256("".join(sorted(leaves)).encode("ascii")).hexdigest()
 
 
@@ -386,11 +425,14 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
     named exception each, instead of copied lists that drift apart."""
     errors: list[str] = []
     if not isinstance(predicate, dict):
-        return ["predicate must be a JSON object"]
+        # A CODE, so that the verdict's top reason names the predicate's shape. Measured on 8ecb6edf:
+        # a signed v0.2 receipt whose predicate is `[1]` answered with POLICY_NOT_EVALUABLE as its
+        # only code, a sentence about the policy for a defect of the receipt.
+        return [_shape_err("PREDICATE_NOT_OBJECT", "predicate must be a JSON object")]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
-            errors.append(f"unknown field {k!r} (additionalProperties:false)")
+        if not is_member(k, _ALLOWED_TOP):
+            errors.append(f"unknown field {render_safe(k)} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
             errors.append(f"missing required field {req!r}")
@@ -447,7 +489,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
         if (isinstance(tot_, int) and not isinstance(tot_, bool) and isinstance(lst_, list)
                 and tot_ > len(lst_) and not cov_.get("knownGaps")):
             errors.append(
-                f"findingsTotal {tot_} exceeds the {len(lst_)} findings listed, but coverage.knownGaps "
+                f"findingsTotal {render_safe(tot_)} exceeds the {len(lst_)} findings listed, but coverage.knownGaps "
                 "is empty — an unlisted finding must be named as a gap, never left as a silent "
                 "difference between two numbers")
 
@@ -468,7 +510,7 @@ def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                                  code_teil="PRODUCER_VERIFIER")
                                   for e in validate_verifier_block(pr[k]))
                 elif k not in _PRODUCER_FIELDS:
-                    errors.append(f"producer.{k} is not an allowed field")
+                    errors.append(f"producer.{render_safe(k, quote=False)} is not an allowed field")
                 elif not isinstance(pr[k], str):
                     errors.append(f"producer.{k} must be a string")
     return errors
@@ -484,8 +526,8 @@ def _validate_subject(sc: Any) -> list[str]:
     required, allowed = ((_PR_REQUIRED, _PR_ALLOWED) if kind == "githubPullRequest"
                          else (_ISSUE_REQUIRED, _ISSUE_ALLOWED))
     for k in sc:
-        if k not in allowed:
-            errs.append(f"unknown field {k!r} for kind {kind!r}")
+        if not is_member(k, allowed):
+            errs.append(f"unknown field {render_safe(k)} for kind {kind!r}")
     for req in required:
         if req not in sc:
             errs.append(f"missing {req!r} (required for {kind})")
@@ -511,7 +553,7 @@ def _validate_declaration(dec: Any, *, zusatz: frozenset = frozenset()) -> list[
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in dec:
         if k not in _DECLARATION_FIELDS | zusatz:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for req in ("authoring", "reviewRuns", "findings", "findingsTotal", "nonClaims"):
         if req not in dec:
             errs.append(f"missing {req!r}")
@@ -625,7 +667,7 @@ def _validate_finding(f: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in f:
         if k not in ("id", "severity", "title", "disposition", "fixCommit", "reason", "evidenceRef"):
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for req in ("id", "severity", "title", "disposition"):
         if req not in f:
             errs.append(f"missing {req!r}")
@@ -679,8 +721,16 @@ def derive_limitation_codes(predicate: dict) -> list[str]:
         return sorted(codes)
     dec = predicate.get("declaration")
     dec = dec if isinstance(dec, dict) else {}
-    rungs = {i.get("assurance") for i in
-             (dec.get("authoring") or []) + (dec.get("reviewRuns") or []) if isinstance(i, dict)}
+    # A RUNG IS A STRING, AND ONLY AN ARRAY HOLDS RUNGS (measured on c3bd89a4). `(x or [])` replaced a
+    # falsy value only: `authoring: {"a": []}` reached the `+` as a dict and raised `TypeError`, and
+    # `assurance: []` raised one level down, when the set hashed it. `derive_limitation_codes` is a
+    # never-raise surface, and `evaluate_limitation_policy` reads through it, so the policy answer
+    # became "policy could not be evaluated: unhashable type". A value the validator refuses names no
+    # rung here; with none named IDENTITY_UNBOUND stands, which is the direction a reader can rely on.
+    # Before, an item without `assurance` put `None` into the set, and `{None} <= {"selfDeclared"}` is
+    # false, so a missing rung dropped IDENTITY_UNBOUND.
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     if not rungs or rungs <= {"selfDeclared"}:
         codes.add("IDENTITY_UNBOUND")
     beob = predicate.get("observations")
@@ -776,7 +826,7 @@ def _cap1_abdeckung(cov: dict) -> list:
             errs.append(_shape_err(
                 "CAP1_STATUS_CONTRADICTS_STRATA",
                 f"status {st} contradicts the strata: integrity.complete is "
-                f"{integ.get('complete') if isinstance(integ, dict) else None!r}, which derives "
+                f"{render_safe(integ.get('complete') if isinstance(integ, dict) else None)}, which derives "
                 f"{abgeleitet} — a stated status that disagrees with its own accounting is a claim "
                 f"the accounting refutes"))
     return errs
@@ -798,8 +848,8 @@ def _widerspruch_in_altfeldern(cov: dict) -> list[str]:
     if _is_zahl(obs) and _is_zahl(exp) and obs < exp:
         errs.append(_shape_err(
             "COMPLETE_UNDER_EXPECTATION",
-            f"status COMPLETE but observedRuns {obs} < expectedRuns {exp} — the counters beside the "
-            f"status refute it"))
+            f"status COMPLETE but observedRuns {render_safe(obs)} < expectedRuns {render_safe(exp)} — "
+            f"the counters beside the status refute it"))
     if _is_zahl(exp) and exp == 0:
         errs.append(_shape_err(
             "COMPLETE_OVER_NOTHING",
@@ -832,7 +882,7 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in cov:
         if k not in _COVERAGE_LEGACY_FIELDS and k not in zusatz:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     if "status" not in cov:
         errs.append("missing 'status'")
     elif not is_member(cov.get("status"), _COVERAGE_STATUS):
@@ -851,7 +901,7 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
                 errs.append(f"{numf} must be an integer or null, not {type(v).__name__} "
                             f"(a boolean is an int in Python and is rejected explicitly)")
             elif v < 0:
-                errs.append(f"{numf} must not be negative, got {v} — a negative run count describes "
+                errs.append(f"{numf} must not be negative, got {render_safe(v)} — a negative run count describes "
                             f"nothing that can have happened")
     # MIT STRATA GILT DIE BUCHFUEHRUNG, NICHT DIE ALTEN ZAEHLER (CAP-1 Teil B, v0.2). Sobald einer
     # der drei CAP-1-Blocks da ist, urteilen R0-R8 ueber Vollstaendigkeit und Luecken; die
@@ -915,7 +965,7 @@ def _validate_times(t: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in t:
         if k not in _TIME_FIELDS:
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     if "declaredAt" not in t:
         errs.append("missing 'declaredAt'")
     for k in _TIME_FIELDS:
@@ -936,7 +986,7 @@ def _validate_supersession(sup: Any) -> list[str]:
         return [_shape_err("SECTION_NOT_OBJECT", "must be an object")]
     for k in sup:
         if k not in ("supersedes", "corrects", "withdraws"):
-            errs.append(f"unknown field {k!r}")
+            errs.append(f"unknown field {render_safe(k)}")
     for k in ("supersedes", "corrects", "withdraws"):
         v = sup.get(k)
         if k in sup:
@@ -1122,11 +1172,17 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
             # abgewehrter Uebernahmeversuch aus wie ein leerer Eingang.
             ungeprueft_mit_anspruch.append(d)
             continue
+        # A RELATION THIS RESOLVER CANNOT READ ORDERS NOTHING, as a relation that is no object already
+        # did one line down (measured on c3bd89a4, with the envelope's digest named as verified): a
+        # `supersession` that is no object raised `AttributeError` here, a relation list that is a
+        # number raised `TypeError`, and so did a `priorDigest` that is no object. Read as absent, such
+        # a relation corrects nothing, so the envelope stays a candidate: an unreadable claim can
+        # only add candidates and make the chain ambiguous, never name a false `current`.
         for feld in ("corrects", "supersedes", "withdraws"):
-            for rel in (sup.get(feld) or []):
+            for rel in as_list(as_dict(sup).get(feld)):
                 if not isinstance(rel, dict):
                     continue
-                prior = (rel.get("priorDigest") or {}).get("sha256")
+                prior = as_dict(rel.get("priorDigest")).get("sha256")
                 if not isinstance(prior, str):
                     continue
                 korrigiert.setdefault(prior, []).append(d)
@@ -1252,6 +1308,29 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
+def _als_zeile(wert: object, feld: str) -> str:
+    """A text the renderers write into the disclosure AS IT IS, or AgentReviewError when it is none.
+
+    THE RENDERED BYTES ARE BOUND (`disclosureCoreDigest` covers the block), so a digest, a URL or a
+    line is not rendered bounded here the way a message is: a clipped URL is another URL. A value that
+    is no string has no place in the line at all, and the renderer refuses it by its own typed error,
+    as it refuses an invalid predicate. Measured on d6d89763: `receipt_url=10**5000` and
+    `leaf_url=10**5000` raised ValueError from the f-string, `receipt_digest=[10**5000]` from its
+    `[:12]` slice, a 3000-deep list RecursionError, and `pruefweg=5` TypeError from the join."""
+    if isinstance(wert, str):
+        return wert
+    raise AgentReviewError(f"{feld} must be a string, not {type(wert).__name__}")
+
+
+def _listed_of_recorded(fnd: list, total: object) -> str | None:
+    """The phrase `<n> listed of <total> recorded` when the recorded total is a count other than the
+    listed one, else None. ONE PLACE FOR BOTH RENDERERS: a count is an int and not a bool, and it is
+    rendered bounded, so `10**5000` reads `<int, 16610 bits>` instead of raising ValueError."""
+    if isinstance(total, int) and not isinstance(total, bool) and total != len(fnd):
+        return f"{len(fnd)} listed of {render_safe(total)} recorded"
+    return None
+
+
 @_ein_stand
 def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None,
                             legacy_v01: bool | None = None) -> str:
@@ -1261,36 +1340,65 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     weakest rung present, and the `Limits` line reproduces the predicate's own limitations verbatim.
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
+
+    Raises :class:`AgentReviewError` for an invalid predicate and for a ``receipt_digest`` that is set
+    and no string (see ``_als_zeile``).
     """
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
-    dec = predicate["declaration"]
-    cov = predicate["coverage"]
-    runs = dec.get("reviewRuns") or []
-    fnd = dec.get("findings") or []
+    beleg = _als_zeile(receipt_digest, "receipt_digest") if receipt_digest else None
+    # The sections are read as the verifiers read them: one that is no object is absent (lens run 7 on
+    # 8ecb6edf, with the validator in front removed: a predicate, `declaration` or `coverage` that is
+    # no object raised TypeError, KeyError or AttributeError here and in the line renderer).
+    praed = as_dict(predicate)
+    dec = as_dict(praed.get("declaration"))
+    cov = as_dict(praed.get("coverage"))
+    # `as_list`, not `(x or [])`: the validator above makes these arrays, and the renderer does not
+    # lean on that for the one idiom that let a truthy non-list through in the verifiers.
+    runs = as_list(dec.get("reviewRuns"))
+    fnd = as_list(dec.get("findings"))
     by_disp: dict[str, int] = {}
+    # Entries are read as the verifiers read them, not as the validator promises them: an entry that
+    # is no object, or a rung or disposition that is no string, names nothing here (lens run 7 on the
+    # branch: `assurance: []` in an entry reached the set below unfiltered; the validator in front
+    # refuses it, so no public call raised, and the renderer must not be what depends on that).
     for f in fnd:
-        by_disp[f.get("disposition", "open")] = by_disp.get(f.get("disposition", "open"), 0) + 1
-    rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + runs}
+        d = f.get("disposition", "open") if isinstance(f, dict) else None
+        if isinstance(d, str):
+            by_disp[d] = by_disp.get(d, 0) + 1
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + runs
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = "selfDeclared"
     for rung in ("selfDeclared", "runnerObserved", "platformAttested", "independentlyWitnessed"):
         if rung in rungs:
             weakest = rung
             break
-    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in (dec.get("authoring") or [])})) or "not stated"
+    # A RENDERER DOES NOT RAISE, and a number too long to write in decimal made both of them do so
+    # (lens run 8 on d5747000): `findingsTotal = 10**5000` passes the validator, a non-negative integer
+    # not below the list, and its f-string raised ValueError ("Exceeds the limit (4300) for integer
+    # string conversion"). The count is rendered bounded now (`render_safe`: `<int, 16610 bits>`), the
+    # one renderer for a value from outside in a message. With the validator taken away, `assertedBy`
+    # and `coverage.status` raised the same way; a value that is no string is unreadable there and read
+    # as absent, as an `assurance` that is no string already is. `findingsTotal` of `true` is no count
+    # either. A valid predicate renders the bytes it rendered before (`_RENDER_PINS`).
+    authoring = ", ".join(sorted({str(a.get("assertedBy")) for a in as_list(dec.get("authoring"))
+                                  if isinstance(a, dict) and isinstance(a.get("assertedBy"), str)})
+                          ) or "not stated"
     findings_txt = (", ".join(f"{n} {d}" for d, n in sorted(by_disp.items())) or "none recorded")
-    total = dec.get("findingsTotal")
-    listed_txt = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
-                  else f"{len(fnd)} total")
+    listed_txt = _listed_of_recorded(fnd, dec.get("findingsTotal")) or f"{len(fnd)} total"
+    status = cov.get("status")
     lines = {
         "Involvement": authoring,
-        "Review": f"{len(runs)} run(s), coverage {cov.get('status', 'UNKNOWN')}",
+        "Review": f"{len(runs)} run(s), coverage {status if isinstance(status, str) else 'UNKNOWN'}",
         "Findings": f"{listed_txt} ({findings_txt})",
         "Assurance": f"{weakest} — not independently witnessed",
-        "Limits": "; ".join(predicate.get("limitations") or []),
+        # The same idiom as two reads above, and it was left here: `limitations: 5` or `true` passed
+        # the `or` and `[5]` or `[[1]]` reached the join, each a TypeError (lens run 7 on 8ecb6edf).
+        # A list, and of it the strings; a valid predicate holds nothing else, so its line is the same.
+        "Limits": "; ".join(x for x in as_list(praed.get("limitations")) if isinstance(x, str)),
     }
     body = "\n".join(f"- **{k}:** {lines[k]}" for k in _HUMAN_LINE_ORDER)
-    tail = f"\n- **Receipt:** `sha256:{receipt_digest}`" if receipt_digest else ""
+    tail = f"\n- **Receipt:** `sha256:{beleg}`" if beleg else ""
     return f"{DISCLOSURE_BEGIN}\n{body}{tail}\n{DISCLOSURE_END}"
 
 
@@ -1313,44 +1421,87 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     ``leaf_witnessed`` must be a bool, and ``legacy_v01`` None or a bool; anything else raises
     :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``). ``leaf_witnessed`` was read by its
     truth, so ``leaf_witnessed="false"`` dropped the "not yet in a witnessed checkpoint" caveat.
+
+    Raises :class:`AgentReviewError` for an invalid predicate, and for a ``receipt_digest`` or
+    ``receipt_url`` that is no string, or a ``leaf_url`` or ``pruefweg`` that is set and no string.
     """
     require_switch(leaf_witnessed, "leaf_witnessed")
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
     receipt_digest = _text_once(receipt_digest, "receipt_digest must be a string")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
-    dec = predicate["declaration"]
-    rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
+    beleg = _als_zeile(receipt_digest, "receipt_digest")
+    beleg_url = _als_zeile(receipt_url, "receipt_url")
+    blatt_url = _als_zeile(leaf_url, "leaf_url") if leaf_url else None
+    weg = _als_zeile(pruefweg, "pruefweg") if pruefweg else None
+    # As in the block renderer: a predicate or `declaration` that is no object is read as absent.
+    dec = as_dict(as_dict(predicate).get("declaration"))
+    rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
+             if isinstance(i, dict) and isinstance(i.get("assurance"), str)}
     weakest = next((r for r in ("selfDeclared", "runnerObserved", "platformAttested",
                                 "independentlyWitnessed") if r in rungs), "selfDeclared")
-    fnd, total = dec.get("findings") or [], dec.get("findingsTotal")
-    zahl = (f"{len(fnd)} listed of {total} recorded" if isinstance(total, int) and total != len(fnd)
-            else f"{len(fnd)}")
-    teile = [f"Agent review receipt: [{receipt_digest[:12]}]({receipt_url})",
-             f"`sha256:{receipt_digest}`",
+    fnd = as_list(dec.get("findings"))
+    zahl = _listed_of_recorded(fnd, dec.get("findingsTotal")) or f"{len(fnd)}"
+    teile = [f"Agent review receipt: [{beleg[:12]}]({beleg_url})",
+             f"`sha256:{beleg}`",
              f"{zahl} findings",
              f"assurance {weakest}, not independently witnessed"]
-    if leaf_url:
-        teile.append(f"[transparency log entry]({leaf_url})"
+    if blatt_url:
+        teile.append(f"[transparency log entry]({blatt_url})"
                      + ("" if leaf_witnessed else ", not yet in a witnessed checkpoint"))
-    if pruefweg:
+    if weg:
         # DER BEZUGSORT, und warum er nicht "pip install" heisst (Owner-Entscheid 31.08.2026).
         # Eine Zeile, die zum Nachrechnen auffordert, muss sagen WOMIT. Solange das
         # veroeffentlichte Release dieses Predicate nicht traegt, waere `pip install` eine
         # Anleitung, die beim Leser fehlschlaegt — und eine fehlschlagende Anleitung ist schlimmer
         # als keine, weil sie den Beleg als kaputt erscheinen laesst statt als noch nicht
         # ausgeliefert. Der Bezugsort wechselt auf den Paketnamen, sobald ein Release ihn traegt.
-        teile.append(pruefweg)
+        teile.append(weg)
     return "- " + " · ".join(teile)
 
 
 # ── Emit / verify ───────────────────────────────────────────────────────────────────────────────
 def _rfc8785_bytes(obj: Any) -> bytes:
+    """The RFC 8785 (JCS) bytes of `obj`, and the ONE place this module maps what the canonicalizer
+    refuses to a typed error.
+
+    `canonical.canonicalize_statement` lets the canonicalizer's ValueError family through on
+    purpose (IntegerDomainError, FloatDomainError), and the structural budget raises
+    BudgetExceeded. The in-toto verifiers and `anchors.receipt_canonical_root` already map both to
+    their own typed refusal; this module did not. Measured on 8ecb6edf: a correctly signed v0.1,
+    v0.2 or v0.3 receipt with `2**53` in `subjectContext` or in a finding made all four verify
+    surfaces answer `internal_error`, and `emit_agent_review` raised a bare IntegerDomainError for
+    `subjectContext.humanRef = 2**53` after the validator had passed the predicate."""
     from . import canonical  # noqa: PLC0415
     try:
         return canonical.canonicalize_statement(obj)
     except canonical.CanonicalizerUnavailable as exc:
         raise AgentReviewError(
             "agent-review receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # The one tuple every wrapper names (canonical.NOT_CANONICALIZABLE); it is the list this
+        # function carried on its own before, (ProofBundleError, ValueError, RecursionError).
+        raise _NotCanonicalizable(f"not RFC 8785 (JCS) canonicalizable: {exc}") from exc
+
+
+def _canonical_binding(statement: object, body: bytes) -> tuple[bool, str]:
+    """Is the signed payload the RFC 8785 form of the statement it parses to? `(ok, error)`.
+
+    ONE HELPER FOR BOTH VERIFIER BODIES, for the reason `_zielbindung` gives for its own. Two
+    refusals, not one. A statement that holds a value RFC 8785 cannot represent has no canonical
+    form at all: that is STATEMENT_NOT_CANONICALIZABLE, a typed verdict about the receipt, where
+    8ecb6edf answered `internal_error`, a verdict about the verifier. Any other payload that differs
+    from the canonical form of its statement is not canonical, with the sentence it always had."""
+    nicht_kanonisch = "payload is not RFC-8785 canonical (hash_binding fail-closed)"
+    try:
+        gleich = _rfc8785_bytes(statement) == body
+    except _NotCanonicalizable as exc:
+        return False, _shape_err(
+            "STATEMENT_NOT_CANONICALIZABLE",
+            f"the signed statement has no RFC 8785 (JCS) canonical form, so its hash binding cannot "
+            f"be checked (hash_binding fail-closed): {exc}")
+    except Exception:  # noqa: BLE001 — the answer is a verdict, never a raise
+        return False, nicht_kanonisch
+    return gleich, "" if gleich else nicht_kanonisch
 
 
 def _rfc8785_available() -> bool:
@@ -1473,10 +1624,29 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
             raise AgentReviewError("invalid agent-review/v0.2 predicate: " + "; ".join(errs))
     else:
         require_valid_agent_review_predicate(predicate)
+    # THE EMITTER SIDE OF THE VERIFIER'S RULE (second reading of 2026-10-18, a neighbour of the six
+    # emitters of `_statement_payload.refuse_an_unwritable_subject`). `verify_agent_review` derives the
+    # subject's name and digest from the signed subjectContext and refuses any other; measured on main
+    # 570dd164, an override in capitals, of 63 characters, a foreign digest and a foreign name were each
+    # signed here and then refused there. An override is accepted only when it IS the derived value; None
+    # and the empty string still mean the derived value, as they did, and a value that is no string is
+    # refused.
+    from .budget import render_safe  # noqa: PLC0415 - the bounded renderer, for a caller's value
+    from .canonical import _zeichen_von  # noqa: PLC0415 - its characters, no code of the caller runs
+    name, digest = _subject_name(predicate), _subject_digest(predicate)
+    for feld, wert, abgeleitet in (("subject_name", subject_name, name), ("subject_sha256", subject_sha256, digest)):
+        if wert is None:
+            continue
+        text = _zeichen_von(wert)
+        if text is None:
+            raise AgentReviewError(f"{feld} must be a string, got {type(wert).__name__}")
+        if text and text != abgeleitet:
+            raise AgentReviewError(
+                f"{feld} cannot be written: the verifier derives it from the signed subjectContext as "
+                f"{abgeleitet!r} and refuses any other value, got {render_safe(text)}")
     return {
         "_type": STATEMENT_TYPE,
-        "subject": [{"name": subject_name or _subject_name(predicate),
-                     "digest": {"sha256": subject_sha256 or _subject_digest(predicate)}}],
+        "subject": [{"name": name, "digest": {"sha256": digest}}],
         "predicateType": (AGENT_REVIEW_PREDICATE_TYPE_V03 if _ist_v03
                           else AGENT_REVIEW_PREDICATE_TYPE_V02 if _ist_v02
                           else AGENT_REVIEW_PREDICATE_TYPE),
@@ -1833,7 +2003,7 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
         else:
             errs.append(_shape_err(
                 "STATEMENT_TYPE_MISMATCH",
-                f"_type is {t!r}, expected {INTOTO_STATEMENT_TYPE!r} "
+                f"_type is {render_safe(t)}, expected {INTOTO_STATEMENT_TYPE!r} "
                 "(the in-toto spec requires it; an unread _type is an unagreed shape)"))
 
     subj = statement.get("subject")
@@ -2000,7 +2170,7 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
         if k not in ("_type", "subject", "predicateType", "predicate"):
             errs.append(_shape_err(
                 "UNKNOWN_STATEMENT_FIELD",
-                f"unknown statement field {k!r} — this profile allows no extras"))
+                f"unknown statement field {render_safe(k)} — this profile allows no extras"))
     return errs
 
 
@@ -2043,7 +2213,7 @@ def validate_time_claim(tc: object) -> list[str]:
         return [f"timeClaim must be an object, got {type(tc).__name__}"]
     for k in tc:
         if k not in ("kind", "value", "assertedBy", "assurance", "evidenceRef"):
-            errs.append(f"unknown timeClaim field {k!r}")
+            errs.append(f"unknown timeClaim field {render_safe(k)}")
     for req in ("kind", "value", "assertedBy", "assurance"):
         if req not in tc:
             errs.append(f"timeClaim is missing {req!r} — a time without a source is not a claim, "
@@ -2055,7 +2225,12 @@ def validate_time_claim(tc: object) -> list[str]:
     # DIE TRAGENDE REGEL: eine DEKLARIERTE Zeit kann nicht mehr als selbst deklariert sein. Wer
     # eine hoehere Sprosse behauptet, meint eine Beobachtung — und die gehoert in `observations`,
     # mit Beobachter-Identitaet und Beleg.
-    if tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS):
+    #
+    # THROUGH is_member, AS THE CHECK ABOVE. A set difference of two constants is still a set, and
+    # `x in` a set hashes x: `assurance: []` raised TypeError here after the check above had already
+    # recorded the typed error, and `verify_agent_review_v02` answered `internal_error` on a signed
+    # receipt (review of fc863e2e). For a hashable value the answer is the same.
+    if is_member(tc.get("assurance"), _TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS):
         errs.append(f"timeClaim.assurance {tc.get('assurance')!r} claims more than a declaration "
                     "can carry — a time above selfDeclared belongs in observations, with a named "
                     "observer and its own evidence")
@@ -2137,8 +2312,11 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
     # Ein selbstgebautes Fixture prueft die Form, die man im Kopf hat, nicht die, die es gibt —
     # und ein Gate-Meta-Test kann eine Regel nicht retten, wenn beide dieselbe Wirklichkeit
     # verfehlen. Deshalb steht der Fall jetzt im Konformitaetskorpus, der die echte Form erzwingt.
+    # `as_list`, not `(... or [])`: `findings: 5` made this VALIDATOR raise `TypeError` on c3bd89a4
+    # (and with it both verifiers and both renderers, which call it), after the v0.1 part above had
+    # already recorded "findings must be an array".
     _dec = predicate.get("declaration")
-    for i, f in enumerate((_dec.get("findings") if isinstance(_dec, dict) else None) or []):
+    for i, f in enumerate(as_list(as_dict(_dec).get("findings"))):
         if not isinstance(f, dict):
             continue
         fc = f.get("fixCommit")
@@ -2148,7 +2326,7 @@ def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = Fal
             errs.append(_shape_err(
                 "FIXCOMMIT_NOT_FULL_SHA",
                 f"declaration.findings[{i}].fixCommit must be the full 40-character "
-                f"lowercase hex sha — got {fc!r}"))
+                f"lowercase hex sha — got {render_safe(fc)}"))
 
     sc = predicate.get("subjectContext")
     if isinstance(sc, dict) and not isinstance(sc.get("disclosureCoreDigest"), str):
@@ -2234,8 +2412,15 @@ def _zeitachsen(predicate: dict) -> dict:
     zeiten: dict = _z if isinstance(_z, dict) else {}
 
     fach = [tc for tc in tcs if isinstance(tc, dict) and tc.get("kind") == "reviewCompleted"]
-    event = "ABSENT" if not fach else (
-        "CONFLICT" if len({tc.get("value") for tc in fach}) > 1 else "SELF_DECLARED")
+    # DISTINCT BY EQUALITY, NOT BY HASH (measured on c3bd89a4). The set hashed every `value`, and a
+    # signed v0.2 receipt whose `reviewCompleted` value was `[]` made `verify_agent_review_v02` answer
+    # `internal_error` although the validator had already refused the value. A list compares with `==`
+    # and hashes nothing; for a hashable value the count is the one the set gave.
+    werte: list = []
+    for tc in fach:
+        if tc.get("value") not in werte:
+            werte.append(tc.get("value"))
+    event = "ABSENT" if not fach else ("CONFLICT" if len(werte) > 1 else "SELF_DECLARED")
 
     obs = "ABSENT"
     mit_id: list = []
@@ -2325,7 +2510,7 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
     # isinstance-Test daneben tut beides sichtbar.
     if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
         return {"decision": "insufficient_evidence", "policy_kind": art,
-                "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
+                "reason": f"unknown policy kind {render_safe(art)} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
     zustand = axes.get(achse, "NOT_EVALUATED")
     # A state counts only as a plain str: `axes` is the caller's, and an object whose own __eq__ and
@@ -2524,12 +2709,10 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
 
     canonical_ok = None
     if _rfc8785_available():
-        try:
-            canonical_ok = _rfc8785_bytes(statement) == body
-        except Exception:
-            canonical_ok = False
+        canonical_ok, _kanon_fehler = _canonical_binding(statement, body)
         if canonical_ok is False:
-            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+            r["errors"].append(_kanon_fehler)
+            _codes_sammeln(r["errors"][-1:])
     else:
         r["errors"].append(
             "RFC-8785 (JCS) canonicalizer unavailable — proofbundle requires rfc8785 (core dependency); "
@@ -2572,7 +2755,9 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
             r["assurance_ok"] = False
         elif isinstance(dec.get("findingsRoot"), str):
             try:
-                r["findings_root_ok"] = findings_root(dec.get("findings") or []) == dec["findingsRoot"]
+                # `as_list`: `findings: 5` beside a findingsRoot made the loop in `findings_root`
+                # raise `TypeError` (measured on c3bd89a4, internal_error on a signed receipt).
+                r["findings_root_ok"] = findings_root(as_list(dec.get("findings"))) == dec["findingsRoot"]
                 if not r["findings_root_ok"]:
                     r["errors"].append(
                         "findingsRoot does not cover the published findings list — a finding was added, "
@@ -2593,9 +2778,14 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
         # Der Linter meldete nur den `in`-Test eine Zeile darunter; der schwerere Defekt war die
         # Menge selbst, und ohne den ausgefuehrten Gegenversuch haette ich nur den kleineren
         # gefixt und mich fuer fertig gehalten.
+        #
+        # AND THE LIST ITSELF WAS THE NEXT DOOR (measured on c3bd89a4): `(x or [])` let a truthy
+        # non-list through, `authoring: {"a": []}` made `dict + list` raise here, and a signed receipt
+        # came back as `internal_error` while the validator had already said "authoring must be an
+        # array". The same line stands in the v0.2 path below and in `derive_limitation_codes`.
         rungs = [] if not dec_getypt else [
             i.get("assurance")
-            for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])
+            for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
             if isinstance(i, dict)]
         over = sorted({repr(x) for x in rungs
                        if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
@@ -2861,12 +3051,10 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 
     canonical_ok = None
     if _rfc8785_available():
-        try:
-            canonical_ok = _rfc8785_bytes(statement) == body
-        except Exception:                                        # noqa: BLE001
-            canonical_ok = False
+        canonical_ok, _kanon_fehler = _canonical_binding(statement, body)
         if canonical_ok is False:
-            r["errors"].append("payload is not RFC-8785 canonical (hash_binding fail-closed)")
+            r["errors"].append(_kanon_fehler)
+            _codes_sammeln(r["errors"][-1:])
     else:
         r["errors"].append("RFC-8785 (JCS) canonicalizer unavailable — hash_binding fail-closed")
 
@@ -2960,7 +3148,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
                 "so both fail closed rather than staying unknown")
         elif isinstance(dec_v2.get("findingsRoot"), str):
             try:
-                r["findings_root_ok"] = findings_root(dec_v2.get("findings") or []) == dec_v2["findingsRoot"]
+                r["findings_root_ok"] = findings_root(as_list(dec_v2.get("findings"))) == dec_v2["findingsRoot"]
                 if not r["findings_root_ok"]:
                     r["errors"].append("findingsRoot does not cover the published findings list")
             except AgentReviewError as exc:
@@ -2971,8 +3159,10 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # und liess diesen Block laufen — er ueberschrieb `assurance_ok` zwei Zeilen spaeter
             # wieder auf True. Dieselbe Falle, die der v0.1-Kommentar bereits namentlich nennt:
             # "ein Fix, der danach verworfen wird, sieht im Quelltext richtig aus und wirkt nicht."
+            # `as_list`, as in the v0.1 path: `authoring: {"a": []}` raised `TypeError` here on
+            # c3bd89a4, and v0.2 and v0.3 answered a signed receipt with `internal_error`.
             rungs = [i.get("assurance")
-                     for i in (dec_v2.get("authoring") or []) + (dec_v2.get("reviewRuns") or [])
+                     for i in as_list(dec_v2.get("authoring")) + as_list(dec_v2.get("reviewRuns"))
                      if isinstance(i, dict)]
             over = sorted({repr(x) for x in rungs
                            if x is not None and not is_member(x, _ASSURANCE_ALLOWED_V0_1)})
@@ -3001,6 +3191,20 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # der eine Pfad.
             _st = locals().get("statement")
             _praed = _st.get("predicate") if isinstance(_st, dict) else None
+            # A PREDICATE THAT IS NO OBJECT IS NOT AN EMPTY ONE. `_praed or {}` replaced a falsy value
+            # only: measured on 8ecb6edf, `predicate: []`, `0` or an absent predicate was held against
+            # the policy as `{}`, and `[1]`, `"x"` or `5` reached `evaluate_limitation_policy`, whose
+            # refusal named the policy. There is nothing to evaluate; the refusal names the shape, and
+            # PREDICATE_NOT_OBJECT from the validator above is the verdict's first reason.
+            if not isinstance(_praed, dict):
+                _lage = ("absent" if not (isinstance(_st, dict) and "predicate" in _st)
+                         else "null" if _praed is None
+                         else "an array" if isinstance(_praed, list)
+                         else "a string" if isinstance(_praed, str)
+                         else "a boolean" if isinstance(_praed, bool) else "a number")
+                raise AgentReviewError(
+                    f"the predicate is {_lage}, not an object, so there is nothing to hold against the "
+                    f"policy")
             # ONE READING OF THE POLICY (deep gate 6.2.0 at 2348f0a7, found by the extended sweep): the plain
             # copy of what it stores, for the limitation rule and the time rule alike. `policy.get("time")`
             # read the caller's dict through its own `get`. A policy that is no JSON object is refused here and
@@ -3008,7 +3212,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             _pol = _richtlinie_von(policy)
             if _pol is None:
                 raise ValueError("the policy is not a JSON object that can be read by what it stores")
-            _pe = evaluate_limitation_policy(_praed or {}, _pol)
+            _pe = evaluate_limitation_policy(_praed, _pol)
             r["policy_decision"] = _pe["decision"]
             r["policy_name"] = _pe.get("policy_name")
             r["policy_digest"] = _pe.get("policy_digest")
@@ -3297,8 +3501,9 @@ def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
     import hashlib as _h  # noqa: PLC0415
-    import json as _j  # noqa: PLC0415
     from pathlib import Path as _P  # noqa: PLC0415
+    from ._strict_json import loads_reject_duplicate_keys  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
     # Eine oeffentliche Flaeche darf keine ROHE Ausnahme durchlassen — das ist eine Eigenschaft des
     # Projekts (tests/test_never_raise_surface_family_property.py), nicht Geschmack: wer einen
     # rohen TypeError faengt, faengt auch den aus einer ganz anderen Zeile mit. `_P(5)` wirft
@@ -3314,8 +3519,13 @@ def load_policy(pfad=None) -> dict:
         roh = p.read_bytes()
     except OSError as e:
         raise AgentReviewError(f"policy not readable: {p}: {e}") from e
+    # A key written twice has no one value: a last-wins reader would take `"blocking": []` after
+    # `"blocking": [...]` and lift the blocking list, while a first-wins reader would block. The digest
+    # binds the bytes, not one reading of them, so a policy with a duplicate key is refused.
     try:
-        d = _j.loads(roh.decode("utf-8"))
+        d = loads_reject_duplicate_keys(roh.decode("utf-8"))
+    except BundleFormatError as e:
+        raise AgentReviewError(f"policy carries a duplicate JSON key: {p}: {e}") from e
     except (UnicodeDecodeError, ValueError) as e:
         raise AgentReviewError(f"policy is not valid UTF-8 JSON: {p}: {e}") from e
     if not isinstance(d, dict):
@@ -3375,7 +3585,7 @@ def _pruefe_policy_form(policy: dict, *, quelle: str | None = None) -> None:
         art = zeit.get("kind") if isinstance(zeit, dict) else None
         if not isinstance(art, str) or not is_member(art, _POLICY_ACHSE):
             raise AgentReviewError(f"policy{wo}: time must be an object with kind in "
-                                   f"{sorted(_POLICY_ACHSE)}, got {zeit!r}")
+                                   f"{sorted(_POLICY_ACHSE)}, got {render_safe(zeit)}")
     name = policy.get("name")
     if name is not None and not isinstance(name, str):
         raise AgentReviewError(f"policy{wo}: name must be a string, not {type(name).__name__}")

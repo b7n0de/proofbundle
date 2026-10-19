@@ -2155,6 +2155,9 @@ _LENGTH_32 = {
     ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
     ("cli.py", "_expected_pack_root"): (1, "a root, no key"),
     ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
+    ("dsse.py", "openssh_sha256_keyid"): (1, "a key ID, a hash input of the signer's own key; nothing is "
+                                             "accepted by it, and no verifier calls it (Z239 F3)"),
+    ("dsse.py", "_default_keyid"): (1, "reads the signer's own key to name it; writes no key and accepts none"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
     ("evalclaim.py", "_field_violation"): (1, "a root, no key (the samples root; D4, PR 300, moved this "

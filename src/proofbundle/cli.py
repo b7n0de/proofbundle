@@ -370,6 +370,13 @@ def _detect_features() -> list:
     return features
 
 
+#: How to update, said where a user looks (Z43). There is deliberately no self-update and no check
+#: at start-up: the tool promises to work offline, and a verifier that fetches and runs its own new
+#: version would verify with code nobody looked at. The installer is named because a plain `pip`
+#: into an externally managed Python is refused since PEP 668.
+UPDATE_HINT = "update with 'pipx upgrade proofbundle' or 'pip install -U proofbundle'"
+
+
 def _version_string() -> str:
     feature_line = ", ".join(_detect_features()) or "(none detected)"
     return (
@@ -377,12 +384,81 @@ def _version_string() -> str:
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
         f"features: {feature_line}\n"
-        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1\n"
+        f"{UPDATE_HINT}"
     )
 
 
+#: The top-level command list, grouped by what a reader wants to do (Z43, draft of 2026-09-10).
+#: Every short line is written out rather than cut from the long help: cutting once turned "pb1."
+#: into "pb1". `tests/test_cli_top_help_grouped.py` holds this table and the registered commands
+#: equal, so a command cannot be added without a line here, and a line cannot outlive its command.
+_COMMAND_GROUPS = (
+    ("Verify", (
+        ("verify", "verify an evidence bundle JSON file"),
+        ("verify-proof", "verify a C2SP .tlog-proof file offline"),
+        ("verify-opening", "verify one sample opening against a samples root"),
+        ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+    )),
+    ("Emit and commit", (
+        ("emit", "sign and anchor a payload into a bundle"),
+        ("emit-eval", "emit a signed eval receipt from a claim JSON"),
+        ("show-eval", "verify an eval receipt and print the claim"),
+        ("prereg", "hash an eval protocol to commit to it before the run"),
+        ("evalcard", "hash an external Eval Card to reference it from a claim"),
+        ("hf-token", "pack a receipt into a pb1. token, or verify one"),
+        ("audit-challenge", "derive k audit indices from a samples root"),
+    )),
+    ("Statements over a receipt", (
+        ("decision", "decision-receipt/v0.1: an agent decision"),
+        ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
+        ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
+    )),
+    ("Time anchors", (
+        ("anchor", "package, verify and inspect external time anchors  (experimental)"),
+    )),
+    ("Export to other formats", (
+        ("intoto", "DSSE-signed in-toto eval-result attestation  (proposed)"),
+        ("svr", "in-toto Summary Verification Result, svr/v0.1  (proposed)"),
+    )),
+    ("Try it", (
+        ("demo", "run the whole trust story in memory, offline"),
+    )),
+)
+
+
+def _grouped_epilog() -> str:
+    breite = max(len(name) for _titel, zeilen in _COMMAND_GROUPS for name, _text in zeilen)
+    out = ["commands"]
+    for titel, zeilen in _COMMAND_GROUPS:
+        out.append(f"  {titel}")
+        out.extend(f"    {name:<{breite}}   {text}" for name, text in zeilen)
+        out.append("")
+    out += ["run 'proofbundle <command> --help' for the options and exit codes of one command",
+            "run 'proofbundle --version' for version, spec revision and optional features",
+            UPDATE_HINT]
+    return "\n".join(out)
+
+
+class _TopHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Leaves out argparse's flat command list; the grouped list in the epilog replaces it (Z43).
+
+    WHY NOT ``help=argparse.SUPPRESS`` ON EACH SUBPARSER. Hiding a subparser that way is not honoured
+    the same way across the supported Pythons (3.10 to 3.14); some render the literal marker. This
+    formatter drops the one section and nothing else, and the epilog is raw so its layout survives.
+    """
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            return ""
+        return super()._format_action(action)
+
+
 class _VersionAction(argparse.Action):
-    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    """Like argparse's built-in ``action='version'``, but prints the raw multi-line block verbatim
+    (the version/build facts plus the upgrade hint; the number of lines is not a contract, and the
+    docstring said "4-line" while the block had grown — an adversarial lens measured six).
     The built-in action runs the string through HelpFormatter, which collapses embedded newlines
     into a single space-joined line — wrong for this multi-line output. Same external contract:
     ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
@@ -885,7 +961,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # (NOT_EVALUATED) and exit 1 dominates.
     policy_ok = None
     policy_result = None       # HISTORICAL evaluation (now=verification_time): drives the exit code + POLICY line
-    policy_result_now = None   # CURRENT evaluation (now=None): drives safeForAutomation + the tree-context inputs
+    policy_result_now = None   # CURRENT evaluation (now=_jetzt): drives safeForAutomation + the tree-context inputs
+    # 6.2.1 ZT-01 (Z309): the present instant of this verify, read once; the current evaluation and the
+    # present-tense lifecycle flags below are judged at it.
+    from datetime import datetime, timezone  # noqa: PLC0415
+    _jetzt = datetime.now(timezone.utc)
     if policy is not None and crypto_ok:
         # A-P0-2 §6.3: in historical mode `now` is the explicit --verification-time — the POLICY verdict +
         # exit code answer "was it valid THEN". But safeForAutomation is a PRESENT-tense "safe to act on now"
@@ -896,10 +976,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # The anchors section was applied above (the requirement and the trust material), so the evaluator gets the
         # policy without it; it refuses any rule it does not apply itself (T16).
         _ohne_anker = {k: v for k, v in policy.items() if k != "anchors"}
-        policy_result = evaluate_policy(bundle, result, _ohne_anker, now=verification_time)
+        policy_result = evaluate_policy(bundle, result, _ohne_anker,
+                                        now=_jetzt if verification_time is None else verification_time)
         policy_ok = policy_result["policy_ok"]
         policy_result_now = (policy_result if verification_time is None
-                             else evaluate_policy(bundle, result, _ohne_anker, now=None))
+                             else evaluate_policy(bundle, result, _ohne_anker, now=_jetzt))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -951,8 +1032,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
     from .policy import policy_expired as _policy_expired  # noqa: PLC0415
     from .policy import policy_not_yet_valid as _policy_not_yet_valid  # noqa: PLC0415
-    pol_expired = bool(policy is not None and _policy_expired(policy))          # at the REAL current time
-    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy))  # A-P0-2 not-before mirror
+    pol_expired = bool(policy is not None and _policy_expired(policy, now=_jetzt))  # at the REAL current time
+    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy, now=_jetzt))  # not-before mirror
     # A-P0-1 §5.3/§5.4: the atomic tree context. True via (a) a verified --trusted-checkpoint whose
     # (root, size) both match, (b) a policy trusted_checkpoints match at CURRENT time (policy_result_now,
     # so an expired-today checkpoint never authenticates even in historical mode), or (c) an RP-supplied
@@ -1008,7 +1089,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             current_status = "EXPIRED"
         elif pol_not_yet_valid:
             current_status = "NOT_YET_VALID"
-        elif policy is not None and _policy_expired(policy) is None and _policy_not_yet_valid(policy) is None:
+        elif (policy is not None and _policy_expired(policy, now=_jetzt) is None
+              and _policy_not_yet_valid(policy, now=_jetzt) is None):
             current_status = "NO_LIFECYCLE_WINDOW"
         else:
             current_status = "VALID"
@@ -1867,7 +1949,13 @@ def _historical_now_posix(value):
     # sub-second fraction cannot be represented and must NOT be silently truncated to the whole second (which
     # read `…00.750000Z` as `…00` and so BEFORE an expiry at `…00.500000Z`, passing an expired receipt). Reject
     # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
-    if dt.microsecond:
+    # 6.2.1 R6b-5 (Z309): the fraction is judged on the TEXT, before the parse can lose it. The parser keeps six
+    # digits, so `…00.0000001Z` reached here as microsecond 0 and passed as the whole second. Every digit of a
+    # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
+    # parser of Python 3.11 and later accepts it, so the text check reads both separators.
+    import re as _re  # noqa: PLC0415
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
+    if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
                          "(fail-closed)")
@@ -1892,9 +1980,13 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # 6.2.1 R6b-7 (Z309): an explicit instant judges the EAT freshness AS OF that instant, so the output says so.
+    _historical = getattr(args, "verification_time", None)
     if args.json:
-        print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
-                                              "fresh", "detail")}))
+        _rep = {k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok", "fresh", "detail")}
+        if _historical is not None:
+            _rep["verification_time"] = {"mode": "HISTORICAL", "time": _historical}
+        print(json.dumps(_rep))
     else:
         # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
         # Token-Bytes tragen. Gleiche Behandlung wie oben.
@@ -1903,6 +1995,8 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         if res["ok"]:
             print(f"    tier    {_safe_line(str(res['tier']))}")
             print(f"    profile {_safe_line(str(res['profile']))}")
+        if _historical is not None:
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(_historical))})")
         print("=> OK" if res["ok"] else "=> FAILED")
     return 0 if res["ok"] else 1
 
@@ -1911,7 +2005,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
     from .intoto import (  # noqa: PLC0415
-        EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
+        EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_PREDICATE_TYPES, export_eval_result_dsse,
+        export_eval_result_v02_dsse, receipt_evidence, verify_eval_result_dsse,
     )
     if args.verify:
         if args.pub is None:
@@ -1927,37 +2022,86 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = decode_b64(args.pub)
-            res = verify_eval_result_dsse(envelope, pub)
+            # BOTH eval-result versions, each under its own contract: the library judges the type the
+            # statement declares (v0.1 as released, v0.2 with its shape), and the type check happens here,
+            # against the two types, so a signed v0.2 envelope is not refused for being v0.2.
+            res = verify_eval_result_dsse(envelope, pub, expected_predicate_type=None)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
             return 2
         pt = res.get("predicate_type")
-        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {pt!r})"
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] eval-result attestation{note}")
-        print("=> OK" if res["ok"] else "=> FAILED")
-        return 0 if res["ok"] else 1
+        ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
+        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
+        print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
+        if res.get("predicate_shape_ok") is False:
+            print(f"    {_safe_line(res['predicate_shape_detail'])}")
+        print("=> OK" if ok else "=> FAILED")
+        return 0 if ok else 1
 
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    # The version decides which flags mean something; a flag the chosen version does not read is refused,
+    # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
+    version, evaluator = args.predicate_version, args.evaluator
+    if version == "v0.1":
+        if evaluator is not None or args.receipt_uri is not None:
+            print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
+                  file=sys.stderr)
+            return 2
+    elif version == "v0.2":
+        if not isinstance(evaluator, str) or not evaluator:
+            print("ERROR: --predicate-version v0.2 requires --evaluator <URI> (the party that ran the "
+                  "evaluation; there is no default)", file=sys.stderr)
+            return 2
+    else:
+        print(f"ERROR: unknown --predicate-version {_safe_line(repr(version))}", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
     try:
-        bundle = load_bundle(args.receipt)
+        if version == "v0.2":
+            # ONE READ: the evidence digest names exactly the bytes the claim is decoded from, the whole
+            # receipt file with its signature, never its internal Merkle root.
+            with _open_input(args.receipt, binary=True) as handle:
+                raw = _read_capped_bytes(handle)
+            bundle = loads_strict(raw.decode("utf-8"))
+            if not isinstance(bundle, dict):
+                raise BundleFormatError(f"bundle must be a JSON object, got {type(bundle).__name__}")
+        else:
+            bundle = load_bundle(args.receipt)
         claim = decode_eval_claim(bundle)
         if claim is None:
             print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
             return 1
         roots = recompute_merkle_root_b64(bundle)
-        envelope = export_eval_result_dsse(
-            claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
-            subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
+        if version == "v0.2":
+            model = None
+            if args.subject_profile == "public-model":
+                # The public model is disclosed as the subject; the predicate identifies it once, by the
+                # same name and digest, instead of by a salted commitment.
+                model = {"name": args.subject_name,
+                         "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
+            envelope = export_eval_result_v02_dsse(
+                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                subject_name=args.subject_name, subject_sha256=args.subject_sha256,
+                root_b64=roots.get("stated_b64"), model=model,
+                evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
+        else:
+            envelope = export_eval_result_dsse(
+                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
-    print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+    if version == "v0.2":
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+    else:
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
     return 0
 
 
@@ -1987,6 +2131,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2159,7 +2305,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -2350,18 +2498,25 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # (a policy expired/not-yet-valid TODAY stays unsafe even when the historical POLICY verdict passes); this
     # surfaces the two lifecycle verdicts so a consumer sees why. CURRENT_POLICY_STATUS is the present-tense
     # lifecycle (read at the real current time); HISTORICAL_POLICY_STATUS is the verdict AS OF the instant.
+    # 6.2.1 R6b-7 (Z309): the explicit instant also pins the receipt freshness without a policy, so every accepted
+    # historical call is labelled; without a policy both policy statuses read NOT_EVALUATED.
     _vtr = None
-    if getattr(args, "verification_time", None) is not None and isinstance(policy, dict):
-        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
-        _cur_exp, _cur_nyv = _pexp(policy), _pnyv(policy)
-        if _cur_exp is True:
-            _cur = "EXPIRED"
-        elif _cur_nyv is True:
-            _cur = "NOT_YET_VALID"
-        elif _cur_exp is None and _cur_nyv is None:
-            _cur = "NO_LIFECYCLE_WINDOW"
+    if getattr(args, "verification_time", None) is not None:
+        if isinstance(policy, dict):
+            from datetime import datetime, timezone  # noqa: PLC0415
+            from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+            _jetzt = datetime.now(timezone.utc)   # 6.2.1 ZT-01 (Z309): one present reading for both statuses
+            _cur_exp, _cur_nyv = _pexp(policy, now=_jetzt), _pnyv(policy, now=_jetzt)
+            if _cur_exp is True:
+                _cur = "EXPIRED"
+            elif _cur_nyv is True:
+                _cur = "NOT_YET_VALID"
+            elif _cur_exp is None and _cur_nyv is None:
+                _cur = "NO_LIFECYCLE_WINDOW"
+            else:
+                _cur = "VALID"
         else:
-            _cur = "VALID"
+            _cur = "NOT_EVALUATED"
         _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
                 "historical_policy_status": ("PASS" if result["policy_ok"] else
                                              "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
@@ -2984,9 +3139,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
+        formatter_class=_TopHelpFormatter,
+        epilog=_grouped_epilog(),
     )
     parser.add_argument("--version", action=_VersionAction)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     verify = sub.add_parser(
         "verify", help="verify an evidence bundle JSON file",
@@ -3211,8 +3368,17 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+                        help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
+                             "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
+    intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
+                                            "required, no default")
+    intoto.add_argument("--receipt-uri", help="v0.2: where the receipt can be fetched, written as the uri of "
+                                              "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
-                        help="verify an exported attestation instead of emitting one (needs --pub)")
+                        help="verify an exported attestation instead of emitting one (needs --pub); accepts "
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 

@@ -63,6 +63,11 @@ from proofbundle.signature import (  # noqa: E402
     verify_ed25519_pinned,
 )
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 P = (1 << 255) - 19
 I1 = b"\x01" + b"\x00" * 31                  # identity, canonical
 I2 = b"\x01" + b"\x00" * 30 + b"\x80"        # identity, x-sign bit set
@@ -796,16 +801,9 @@ RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
 
 def _rust_binary():
-    """Same lookup as tests/test_lauf11_l1_l4_rust_strukturbudget_und_kreuzvergleich.py: the built
-    binary, else a release build, else None (and the class says it did not run)."""
-    import shutil
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
+    """The binary through tests/_pb_verify_rs.py: pinned, or built once per process under a lock, or
+    a skip that names why (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 class RustParity(unittest.TestCase):
@@ -814,9 +812,6 @@ class RustParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _rust_binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs is missing or cargo is absent — "
-                                    "the parity cases did NOT run (env_blocked, never green)")
 
     def _run(self, *args):
         return subprocess.run([str(self.rust), *args], capture_output=True, text=True, timeout=120)
@@ -911,8 +906,10 @@ class RustParity(unittest.TestCase):
     def test_the_trust_pack_threshold_agrees(self):
         import tempfile
         from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
-        # A Statement v1, so the refusal below is the key's and not the missing `_type`'s.
+        # A Statement v1 with a subject, so the refusal below is the key's and not the missing `_type`'s or
+        # the missing subject's (the Statement oracle reads the subject since 2026-10-17).
         stmt = {"_type": "https://in-toto.io/Statement/v1",
+                "subject": [{"name": "trust-pack:tp:v1", "digest": {"sha256": "a" * 64}}],
                 "predicate": {"keys": {"l1": {"publicKey": _b64(I1)}, "l2": {"publicKey": _b64(I2)}},
                               "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}}
         env = {"payload": _b64(json.dumps(stmt).encode()), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
@@ -942,6 +939,7 @@ class RustParity(unittest.TestCase):
                     py = [e for e in validate_trust_pack_predicate(pred)
                           if e.startswith("keys['dm1'].publicKey is a")]
                     env = {"payload": _b64(json.dumps({"_type": "https://in-toto.io/Statement/v1",
+                                                       "subject": [{"digest": {"sha256": "a" * 64}}],
                                                        "predicate": pred}).encode()),
                            "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
                            "signatures": [{"keyid": "r1", "sig": _b64(UNIV)}]}

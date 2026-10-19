@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from ._membership import require_switch
+from ._strict_json import loads_reject_duplicate_keys
 from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
 from .canonical import _ein_stand
+from .errors import BundleFormatError
 
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
 
@@ -73,10 +75,17 @@ class ChiaRpcError(RuntimeError):
 
 def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict:
     """Call ``chia rpc <service> <method> '<json>'`` and return the parsed dict. Raises ChiaRpcError on
-    any failure (missing binary, timeout, non-zero exit, non-JSON, ``success:false``)."""
+    any failure (missing binary, timeout, non-zero exit, non-JSON, ``success:false``), and on a
+    request with no JSON form (a caller's ``store_id`` of ``10**5000``, a set, bytes, a nesting deeper
+    than the interpreter allows), which raised raw from ``json.dumps`` (lens run 10 generator)."""
+    try:
+        anfrage = json.dumps(payload)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ChiaRpcError(f"chia rpc {service} {method}: the request has no JSON form "
+                           f"({type(exc).__name__})") from exc
     try:
         proc = subprocess.run(
-            [_CHIA_BIN, "rpc", service, method, json.dumps(payload)],
+            [_CHIA_BIN, "rpc", service, method, anfrage],
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except FileNotFoundError as exc:
@@ -85,8 +94,12 @@ def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict
         raise ChiaRpcError(f"chia rpc {service} {method} timed out") from exc
     if proc.returncode != 0:
         raise ChiaRpcError(f"chia rpc {service} {method} exit {proc.returncode}: {(proc.stderr or proc.stdout)[:200]}")
+    # A key the answer names twice has no one value: a last-wins reader would read
+    # `{"success": false, "success": true}` as success. The answer is refused, not read.
     try:
-        data = json.loads(proc.stdout)
+        data = loads_reject_duplicate_keys(proc.stdout)
+    except BundleFormatError as exc:
+        raise ChiaRpcError(f"chia rpc {service} {method}: response carries a duplicate JSON key") from exc
     except ValueError as exc:
         raise ChiaRpcError(f"chia rpc {service} {method}: non-JSON response") from exc
     # 3.6.3 never-raise residual: chia data_layer/full_node RPC always answers with a JSON object; a
@@ -98,6 +111,15 @@ def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict
     if data.get("success") is False:
         raise ChiaRpcError(f"chia rpc {service} {method}: {data.get('error', 'success=false')}")
     return data
+
+
+def _json_bytes(obj: dict) -> bytes:
+    """The anchor proof as JSON bytes, or ChiaRpcError when a value in it has no JSON form (a caller's
+    ``network`` of ``10**5000``): the same refusal ``_rpc`` gives a request, never a raw one."""
+    try:
+        return json.dumps(obj).encode()
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ChiaRpcError(f"the exported anchor has no JSON form ({type(exc).__name__})") from exc
 
 
 def _hx(b: bytes) -> str:
@@ -174,7 +196,7 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     return {
         "type": ANCHOR_TYPE, "target": target,
         "canonicalRoot": base64.b64encode(bytes(canonical_root)).decode(),
-        "proof": base64.b64encode(json.dumps(proof_obj).encode()).decode(),
+        "proof": base64.b64encode(_json_bytes(proof_obj)).decode(),
     }
 
 

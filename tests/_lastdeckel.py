@@ -24,6 +24,8 @@ Owner-Anordnung OA-afa1e17cfa Option B (11.09.2026) und Deep Gate Lauf 11, Fund 
 """
 from __future__ import annotations
 
+import types
+
 #: Obergrenze für EINE abgeleitete Testlast. 64 MiB ist reichlich über jedem legitimen Wert dieser
 #: Suite und weit unter dem, was einen Runner tötet.
 MAX_TESTLAST_BYTES = 64 * 1024 * 1024
@@ -45,19 +47,28 @@ HARTER_LASTDECKEL = MAX_TESTLAST_BYTES // 64
 #: `ArchiveTimeStamp("sha256", "a"*64, i)` kostet 292 B, nicht 256 (305 MiB gemessen); ein
 #: 64-Zeichen-Hex-String in einer Liste 121 B, nicht 64. Dieselbe Klasse wie der phi4-Fund an
 #: `bytes_je_element=64`: eine Zahl, die an der Form hängt statt an der Messung.
-KOSTEN_JE_ELEMENT = {
+#:
+#: Read-only at run time (counter review 2026-10-17): a test that changed an entry in place lowered the cap for every
+#: test after it, in a form no reading of the source lists. A mapping proxy refuses assignment, deletion and update.
+#: It is no wall: gc and ctypes still reach the dict below it (third counter review, 2026-10-17).
+KOSTEN_JE_ELEMENT = types.MappingProxyType({
     "data_digests": 128,  # ["%064x" % i ...]: 121,9 B/Element gemessen (str-Objekt + Zeiger)
     "disclosures": 256,  # sd-jwt-Disclosure
     "input_bytes": 1,  # ein Byte
     "int_bits": 1,  # ein Bit
     "json_depth": 2,  # eine Klammer je Ebene
-    "json_nodes": 40,  # list(range(n)): 36,0 B/Element gemessen (PyLong + Zeiger)
+    # list(range(n)), a PyLong and a pointer: 36.0 B per element on CPython 3.10.12, 40.0 B on 3.11.15, 3.12.15 and
+    # 3.13.16, 39.8 B on 3.14.8 (2026-10-16). 40 sat exactly on the measurement from 3.11 on; 48 adds one pointer.
+    "json_nodes": 48,
     "merkle_path": 128,  # [bytes(32)]: 73,5 B gemessen; Hex-Form wie data_digests 121,9 B
-    "renewal_ats_chain": 384,  # [[ArchiveTimeStamp]] wie in der Kostenkurve: 356,7 B gemessen (nackt 292,8)
+    # [[ArchiveTimeStamp]] as in the cost curve: 356.6 B while the instance dicts share their keys, 572.6 B once
+    # one instance of the class breaks the sharing in the process (CPython 3.10.12, 2026-10-08; CI 3.10 under
+    # worksteal measured 572.8 B). The table carries the unshared case, because the suite can produce it.
+    "renewal_ats_chain": 640,
     "signatures": 320,  # [{"sig": "AA=="} ...] je ein frisches dict: 240,1 B gemessen
     "string_len": 1,  # ein Zeichen
     "witnesses": 2048,  # Witness-vkey: ML-DSA-44 = 1313 B Schluesselmaterial, base64 ~1800 B
-}
+})
 
 
 def gedeckelt(wert: int, *, bytes_je_element: int) -> int:

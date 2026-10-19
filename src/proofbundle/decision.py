@@ -11,18 +11,21 @@ Field names are lowerCamelCase (ITE-9); only the proofbundle-local trust policy 
 from __future__ import annotations
 
 import hashlib
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, cast
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .budget import render_keys_safe, render_safe
 from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
                         _pruefkopie, _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError, _origin_token
-from .subject_binding import nested_closure_violations
+from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member, require_switch, type_name
+# RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms), 64-hex and 0.1.x, as the
+# schema reads them (ECMA-262): one definition in _schema_shapes, not a private copy per module.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X, SHA256_HEX as _SHA256_HEX
+from ._schema_shapes import is_sha256_digest
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -30,11 +33,6 @@ DECISION_SCHEMA_VERSION = "0.1.0"
 _DECISION_ORIGIN_DOMAIN = b"decision-receipt-v1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-# RFC3339 with a mandatory trailing Z (no generic timestamps, no offset forms).
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
 
@@ -107,6 +105,69 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "inputSnapshot[]": ("name", "uri", "digest", "mediaType"),
 }
 
+# Nested schema TYPES (deep gate Z195, L3-Z195-03 and L3-Z195-05): the closure above says which keys may
+# appear, not what they hold, and 311 type-confused predicates that schemas/decision-receipt-v0.1.schema.json
+# refuses passed this validator (measured on main 10f3466b), a JSON null among them. Every schema path with
+# a declared type is either here or checked by its own code above and below; the schema-derived test in
+# tests/test_the_decision_validator_refuses_what_its_schema_refuses.py fails when one is neither. Kinds:
+# `sha256` is the schema's sha256Digest object, `rfc3339z` its timestamp string. `decisionMaker.version`
+# stays untyped, as in the schema: it is the versioned extensions container.
+_NESTED_TYPES: dict[str, "str | tuple[str, ...]"] = {
+    "agent.version": "string",
+    "agent.configurationDigest": "sha256",
+    "principal.authnContextRef": "object",
+    "principal.authnContextRef.uri": "string",
+    "principal.authnContextRef.digest": "sha256",
+    "delegationRefs": "array",
+    "proposedAction.target": "object",
+    "proposedAction.target.name": "string",
+    "proposedAction.target.uri": "string",
+    "proposedAction.target.digest": "sha256",
+    "proposedAction.method": "string",
+    "proposedAction.parametersDigest": "sha256",
+    "proposedAction.parametersSchemaRef": "object",
+    "proposedAction.parametersSchemaRef.uri": "string",
+    "proposedAction.parametersSchemaRef.digest": "sha256",
+    "inputSnapshot[].name": "string",
+    "inputSnapshot[].uri": "string",
+    "inputSnapshot[].mediaType": "string",
+    "policyBoundary.policyDigest": "sha256",
+    "policyBoundary.bundleRevision": "string",
+    "policyBoundary.validFrom": "rfc3339z",
+    "policyBoundary.validUntil": "rfc3339z",
+    "evidenceRefs[].uri": "string",
+    "evidenceRefs[].predicateType": "string",
+    "decision.humanReadableSummary": "string",
+    "decision.obligations": "array",
+    "decision.allowedScope": "array",
+    "notChecked": "array",
+    # A bare string entry is the deprecated legacy form, and the schema says so (owner decision,
+    # 2026-09-26): the object form {field, reason, impact} is preferred, a string stays
+    # allowed. This validator did not read the type of an entry before, and the vendored third-party
+    # receipt in conformance/decision/crossimpl/schema-conformant writes strings.
+    "notChecked[]": ("object", "string"),
+    "notChecked[].field": "string",
+    "notChecked[].reason": "string",
+    "notChecked[].impact": "string",
+    "decisionChangeConditions": "array",
+    "decisionChangeConditions[]": "object",
+    "decisionChangeConditions[].conditionType": "string",
+    "decisionChangeConditions[].description": "string",
+    "decisionChangeConditions[].requiredEvidenceType": "string",
+    "actionOutcome.performedAt": ("rfc3339z", "null"),
+    "actionOutcome.outcomeRef": ("object", "null"),
+    "actionOutcome.outcomeRef.uri": "string",
+    "actionOutcome.outcomeRef.digest": "sha256",
+    "traceContext": "object",
+    "privacy.rawInputsIncluded": "boolean",
+    "privacy.redactionProfile": "string",
+    "privacy.erased": "array",
+    "privacy.masked": "array",
+    "validity.audience": "array",
+    "validity.nonce": "string",
+    "validity.expiresAt": "rfc3339z",
+}
+
 
 def _typed_digest_error(td: Any) -> str | None:
     """The typed-digest-reference invariant — ONE definition, mirrored by schemas/decision-receipt.
@@ -154,7 +215,7 @@ class DecisionReceiptError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like `sha256Digest` (gate on 3562dc71, lens A, 228bcA-01)
 
 
 @_ein_stand
@@ -198,9 +259,11 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         if field not in predicate:
             errors.append(f"missing required field '{field}'" + (" (strict)" if field not in _REQUIRED_ALWAYS else ""))
 
-    # schemaVersion
+    # schemaVersion. PRESENT, not "not None" (deep gate Z195, L3-Z195-03): the required-field loop above
+    # checks presence only, so a check that skipped None let a JSON null satisfy a required field, and
+    # decision verify --strict reported safeForAutomation=true for it. outcome.py always read presence.
     sv = predicate.get("schemaVersion")
-    if sv is not None and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
+    if "schemaVersion" in predicate and (not isinstance(sv, str) or not _SEMVER_0_1_X.match(sv)):
         errors.append(f"schemaVersion must be a 0.1.x string, got {render_safe(sv)}")
 
     # decisionId (Finding 04, analogous to trustPackId in trust_pack.py): the required-field loop above only
@@ -212,13 +275,13 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
 
     # decisionType enum
     dt = predicate.get("decisionType")
-    if dt is not None and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
+    if "decisionType" in predicate and (not isinstance(dt, str) or not is_member(dt, _DECISION_TYPES)):
         errors.append(f"decisionType must be one of {sorted(_DECISION_TYPES)}, got {render_safe(dt)}")
 
     # RFC3339-Z time fields
     for path in _TIME_PATHS:
         v = predicate.get(path)
-        if v is not None and (not isinstance(v, str) or not _RFC3339_Z.match(v)):
+        if path in predicate and (not isinstance(v, str) or not _RFC3339_Z.match(v)):
             errors.append(f"{path} must be RFC3339 with trailing Z, got {render_safe(v)}")
 
     # decision.verdict + reasonCodes
@@ -239,7 +302,8 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
         for k in ("policyEngine", "policyId", "decisionPath"):
             if not isinstance(pb.get(k), str) or not pb.get(k):
                 errors.append(f"policyBoundary.{k} must be a non-empty string")
-        if strict and not _is_digest(pb.get("policyDigest")):
+        # Presence here, the value in _NESTED_TYPES: one message per fact, whichever mode asked.
+        if strict and "policyDigest" not in pb:
             errors.append("policyBoundary.policyDigest with a sha256 is required in strict mode")
     elif "policyBoundary" in predicate:
         errors.append("policyBoundary must be a JSON object")
@@ -313,9 +377,10 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     val = predicate.get("validity")
     if isinstance(val, dict):
         if strict:
-            if not (isinstance(val.get("audience"), list) and val["audience"]):
+            # Presence and non-emptiness here, the type in _NESTED_TYPES (one message per fact).
+            if "audience" not in val or val.get("audience") == []:
                 errors.append("validity.audience (non-empty list) is required in strict mode when validity is present")
-            if not isinstance(val.get("nonce"), str) or not val.get("nonce"):
+            if "nonce" not in val or val.get("nonce") == "":
                 errors.append("validity.nonce is required in strict mode when validity is present")
     elif "validity" in predicate:
         errors.append("validity must be a JSON object")
@@ -323,9 +388,9 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # privacy inner shape: a bare {} must not pass strict — rawInputsIncluded is the field the policy's
     # allow_raw_inputs gate reads, so it MUST be an explicit boolean (§5.5 privacy).
     priv = predicate.get("privacy")
-    if priv is not None and not isinstance(priv, dict):
+    if "privacy" in predicate and not isinstance(priv, dict):
         errors.append("privacy must be a JSON object")
-    elif strict and isinstance(priv, dict) and not isinstance(priv.get("rawInputsIncluded"), bool):
+    elif strict and isinstance(priv, dict) and "rawInputsIncluded" not in priv:
         errors.append("privacy.rawInputsIncluded (boolean) is required in strict mode")
 
     # relationships (optional, relation/v0.1 EXPERIMENTAL): typed, SIGNED lineage edges to earlier
@@ -342,6 +407,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     # close these nested objects — an undeclared key inside decision/policyBoundary/proposedAction/
     # decisionMaker/evidenceRefs[] (and their sub-objects) previously rode along silently.
     errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
+    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))
 
     return errors
 
@@ -438,6 +504,15 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise DecisionReceiptError(
             "decision receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first (a lone surrogate, a
+        # nesting too deep, an integer past its bit budget). On d5747000 only the first did, and
+        # emit_decision_receipt raised a bare BundleFormatError for a decisionId that is a lone
+        # surrogate.
+        raise DecisionReceiptError(
+            f"a decision receipt value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -472,7 +547,8 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
     is self-attesting what the statement applies to — a generic in-toto consumer that matches by
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
-    the subject a true commitment to the signed predicate."""
+    the subject a true commitment to the signed predicate. Its form is checked: an override the verifier
+    would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of being signed."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
@@ -480,12 +556,12 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
     name = subject_name or f"decision:{predicate.get('decisionId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": DECISION_RECEIPT_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, DecisionReceiptError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})
@@ -755,6 +831,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # whose signature failed (mirrors the anchors/policy gates below). On a forged envelope they all stay
     # None, so a consumer can never read e.g. audience_ok=True or action_outcome_proven=True on bytes
     # nobody signed (fix-review: action_outcome_proven was computed pre-auth before).
+    # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below. Bound
+    # here, before the block that reads the predicate: a signed statement whose predicate is no object skips that
+    # block, and the relations gate below raised UnboundLocalError for it (second reading of 4be8f120, F2).
+    _sw = None
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
         # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
@@ -790,8 +870,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         from . import assurance as _assurance  # noqa: PLC0415
         ao = predicate.get("actionOutcome") if isinstance(predicate.get("actionOutcome"), dict) else None
         _ao_applicable = isinstance(ao, dict) and ao.get("status") == "executed"
+        # THE DIGEST, NOT ITS WRAPPER (L1-SEM-03 of the self-gate of 2026-07-31, measured again on main
+        # 570dd164). `outcomeRef` is {uri, digest}; the classifier and the resolver take the digest object, as
+        # each evidenceRefs entry hands them `x.get("digest")`. Handed the wrapper, every executed outcome read
+        # CLAIMED with "no well-formed sha256 digest object present", the golden example
+        # examples/decision_receipt_allow.json included, and no evidence_resolver could ever promote it.
+        _ao_ref = (ao or {}).get("outcomeRef")
         _outcome_level = _assurance.classify_digest_evidence(
-            (ao or {}).get("outcomeRef"), applicable=_ao_applicable, evidence_resolver=evidence_resolver)
+            _ao_ref.get("digest") if isinstance(_ao_ref, dict) else None,
+            applicable=_ao_applicable, evidence_resolver=evidence_resolver)
         _evref_levels = None
         if isinstance(ev, list) and ev:
             _evref_levels = _assurance.evidence_ladder_summary(*[
@@ -831,7 +918,6 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
-        _sw = None  # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below.
         if _linie is not None:
             r["lineage"] = _linie
             # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine
@@ -1085,7 +1171,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                           "errors": ["policy not evaluated: the evaluation time (now) is malformed "
                                      "(fail-closed)"]}
                 else:
-                    _pol_now = datetime.fromtimestamp(int(cast("int | float", _eval_now_posix)), tz=timezone.utc)
+                    # 6.2.1 R6b-4 (Z309): the same instant, not truncated. `int(...)` cut the wall-clock reading
+                    # to the whole second, so at 00.75 a policy that ended at 00.5 was still valid and one that
+                    # began at 00.5 was not yet valid, while the receipt was judged at 00.75.
+                    _pol_now = datetime.fromtimestamp(cast("int | float", _eval_now_posix), tz=timezone.utc)
                     pe = evaluate_decision_policy(
                         statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
                         signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,

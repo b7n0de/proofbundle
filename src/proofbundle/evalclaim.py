@@ -33,7 +33,7 @@ from .budget import render_keys_safe, render_safe
 from .canonical import _ein_stand, _plain_for_jcs, _type_name, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
-from ._membership import is_bool, is_member
+from ._membership import as_dict, is_bool, is_member
 from ._strict_json import enforce_structural_budget
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
@@ -1119,7 +1119,8 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     verify never judged it — an old receipt could be replayed as new. Returns
     {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
-    from datetime import datetime, timezone  # noqa: PLC0415
+    import math  # noqa: PLC0415
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
     from .canonical import _zahl_von  # noqa: PLC0415
     # One reading of each caller value, by what it holds (round 12): the claim as the plain copy of what
     # it stores, the clock by its own type, the bound as an exact number (a subclass of int or float is
@@ -1165,13 +1166,17 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     # OverflowError in the SUBTRACTION — reachable from show-eval (age line) and from a policy
     # max_iat_age_seconds. Out of range is "not parsed", never a crash on a never-raise surface.
     try:
-        age = int((ref - dt).total_seconds())
+        delta = ref - dt
     except OverflowError:
         return {"parsed": False, "age_seconds": None, "fresh": None,
                 "reason": f"timestamp {ts!r} is out of the representable range"}
+    # 6.2.1 Codex P2 (Z309): the bound is judged on the exact age, and the reported whole seconds round down.
+    # `int()` truncated toward zero, so a claim 0.4 s in the future read as age 0 (fresh) and one 60.5 s old
+    # read as 60 within a bound of 60.
+    age = math.floor(delta.total_seconds())
     if max_age_seconds is None:
         return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
-    fresh = 0 <= age <= max_age_seconds
+    fresh = delta >= timedelta(0) and delta.total_seconds() <= max_age_seconds
     return {"parsed": True, "age_seconds": age, "fresh": fresh,
             "reason": (f"age {age}s within {max_age_seconds}s" if fresh
                        else f"age {age}s outside [0, {max_age_seconds}]s — possible replay or clock skew")}
@@ -1190,7 +1195,10 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         return None
     # the canonical bundle form (the only one verify_bundle accepts) stores the compact SD-JWT under "compact";
     # sd_jwt/token are accepted as fallbacks for a bare token dict/string.
-    token = sd if isinstance(sd, str) else (sd.get("compact") or sd.get("sd_jwt") or sd.get("token") or "")
+    # `as_dict` (measured on c3bd89a4): a truthy `sd_jwt_vc` that is neither a string nor an object (`[1]`,
+    # `5`, `true`) passed `if not sd` and raised AttributeError at `.get` out of this never-raise surface.
+    felder = as_dict(sd)
+    token = sd if isinstance(sd, str) else (felder.get("compact") or felder.get("sd_jwt") or felder.get("token") or "")
     if not isinstance(token, str) or "." not in token:
         return None
     from ._strict_json import loads_strict  # noqa: PLC0415

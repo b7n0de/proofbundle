@@ -15,8 +15,10 @@ trust-pack threshold subcommand. A sweep fails when a module that reports struct
 Statement parses without the oracle, and a second one when a Rust function parses a DSSE payload
 without `statement_typ_problem`.
 
-WHAT IS NOT IN SCOPE. `intoto --verify` and `svr --verify` list what their `ok` covers, `_type` is not on
-that list, and they report no structure_ok; the jury refuted L3-Z195-02 for that reason.
+WHAT IS NOT IN SCOPE HERE. `intoto --verify` and `svr --verify` list what their `ok` covers and report
+no structure_ok; the jury refuted L3-Z195-02 because `_type` was not on that list. Since 2026-10-17 it
+is: the three in-toto verifiers read `_type` through `statement_type_problem`, the oracle of this file,
+as part of the Statement layer (tests/test_the_intoto_verifiers_read_the_statement_layer.py).
 """
 from __future__ import annotations
 
@@ -43,6 +45,11 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "proofbundle"
 sys.path.insert(0, str(REPO / "conformance"))
 from common_vocabulary import compare, exit_class, label_from_verify  # noqa: E402
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 PT = "application/vnd.in-toto+json"
 _DELETE = object()
 
@@ -146,7 +153,8 @@ SINGLE_SIGNER = {"decision": _decision, "outcome": _outcome, "relation_statement
 class TheOracle(unittest.TestCase):
 
     def test_the_right_type_passes_and_every_wrong_one_is_named(self):
-        good = {"_type": STATEMENT_TYPE, "subject": [], "predicateType": "x", "predicate": {}}
+        good = {"_type": STATEMENT_TYPE, "subject": [{"digest": {"sha256": "a" * 64}}],
+                "predicateType": "x", "predicate": {}}
         self.assertEqual(load_statement_strict(json.dumps(good).encode()), good)
         for label, value in WRONG_TYPES.items():
             with self.subTest(type=label), self.assertRaises(BundleFormatError) as ctx:
@@ -287,14 +295,9 @@ RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
 
 def _rust_binary():
-    import shutil
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
+    """The binary through tests/_pb_verify_rs.py: pinned, or built once per process under a lock, or
+    a skip that names why (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 class RustParity(unittest.TestCase):
@@ -303,9 +306,6 @@ class RustParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _rust_binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs is missing or cargo is absent — "
-                                    "the parity cases did NOT run (env_blocked, never green)")
 
     def _both(self, verb: str, sub: str, env: dict, sk, related=()):
         from proofbundle.cli import main as cli
