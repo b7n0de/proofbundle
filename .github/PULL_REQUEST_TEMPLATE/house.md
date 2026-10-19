@@ -33,6 +33,4 @@ Head of this branch: `<commit>`, on top of `<base commit>`. <files and lines, me
 
 ## Marking
 
-Written by an AI session of b7n0de under owner review.
-
-Measurement, not certification.
+Assisted by little helpers.

@@ -305,7 +305,7 @@ def _pruefe_richtiger_baum() -> None:
 
     GEMESSEN 04.09.2026 von einer Gegenlese-Linse und selbst nachgestellt: `import proofbundle`
     loest OHNE `PYTHONPATH` ueber die installierte Fassung auf — auf dieser Maschine ist das
-    `/home/konrad/proofbundle/src/proofbundle`, ein ANDERER Worktree desselben Repos mit einem
+    `/home/<nutzer>/proofbundle/src/proofbundle`, ein ANDERER Worktree desselben Repos mit einem
     anderen HEAD. Der Test lief dann durch und pruefte den falschen Checkout. Mit dem
     vorgeschriebenen PYTHONPATH ist es richtig; die Absicherung darf aber nicht in einer
     Anleitung stehen, sonst gilt sie nur, solange sie jemand liest.
