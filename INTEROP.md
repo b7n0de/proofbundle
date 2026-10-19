@@ -61,7 +61,7 @@ for different threats (computation-correctness vs. artifact authenticity/integri
 
 ## ValiChord — an adjacent eval-attestation library
 
-[ValiChord](https://github.com/ValiChord/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Named fairly, the v1 library differs in exactly the standards proofbundle leads with: its format v1 carries **no digital signature** (`signatures` is reserved for v2), uses a **simple SHA-256 Merkle tree** (no RFC 6962 domain separation), and has **no SD-JWT, no in-toto, and no Every Eval Ever converter**; blind peer consensus and an attested log live in its Holochain layer (v2 scope). proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
+[ValiChord](https://github.com/ValiChord/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Since format v2 (August 2026) it also uses an **RFC 6962 domain-separated Merkle tree** (v1.x used a plain SHA-256 tree and remains verifiable). Named fairly, it still differs in the standards proofbundle leads with: **no format version carries a digital signature**, and it has **no SD-JWT, no in-toto, and no Every Eval Ever converter**. Separately, ValiChord runs a Holochain protocol in which independent validators give blind commit–reveal verdicts on whether a result reproduces; the attestation format is not yet wired to it. proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
 
 ## CSOAI inspect-receipts — measured, three pinned commits
 
@@ -160,12 +160,12 @@ projects should reconcile — that is a conversation in the issue, not a measure
 | Does NOT | Carry metric/threshold/commitment fields | Bring a policy-verifier ecosystem (predicate self-hosted, unregistered) |
 | Interop | — | proofbundle **exports** a DSSE-signed test-result view (`export_intoto_dsse`) |
 
-### vs ValiChord (per its docs; not independently re-verified here)
-| | ValiChord v1 | proofbundle |
+### vs ValiChord (per its docs and code, checked 2026-10-18)
+| | ValiChord `valichord_attestation` v2 | proofbundle |
 |---|---|---|
-| Crypto today | JCS + plain SHA-256 Merkle + HMAC; **no signature** (v2 scope) | Ed25519 + RFC 6962 domain-separated Merkle + SD-JWT/KB + C2SP |
+| Crypto today | JCS + RFC 6962 domain-separated Merkle + HMAC-derived challenges; **no signature** | Ed25519 + RFC 6962 domain-separated Merkle + SD-JWT/KB + C2SP |
 | Offline | Yes | Yes |
-| Proves | Integrity vs a shared secret / future Holochain net | Third-party-verifiable public-key authorship |
+| Proves | Content integrity against a published hash, plus selective disclosure of committed samples; **not** authorship | Third-party-verifiable public-key authorship |
 
 **One-line positionings:** DSSE = the signing *envelope* (proofbundle emits into it). C2SP =
 transparency-log *wire formats* (proofbundle verifies them, incl. real Rekor artifacts). SD-JWT VC
@@ -183,7 +183,8 @@ threshold verdicts with salted model/dataset commitments and per-sample audit ho
 from one file. **The bound:** it attests who claimed what and that nothing changed since — never
 that the eval was honest, well-designed, or the only run performed.
 
-_Neighbour claims about ValiChord / ai-audit-trail here are sourced to their own docs; standards
+_Neighbour claims about ValiChord / ai-audit-trail here are sourced to their own docs (ValiChord
+re-checked 2026-10-18 against its format v2); standards
 versions verified 2026-07 (Rekor v2 GA Oct 2025; RFC 9901 Nov 2025; in-toto test-result v0.1)._
 
 ## Decision receipts (`decision-receipt/v0.1`)
