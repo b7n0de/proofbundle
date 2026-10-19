@@ -10443,7 +10443,7 @@ def _getopt_candidates(words: list[str]) -> list[str]:
     return [w for w in dict.fromkeys(out) if w]
 
 
-def _getopt_writes(step: "_ShStep", temp: bool = True) -> tuple[list[str], bool, str | None]:
+def _getopt_writes(step: "_ShStep", temp: bool = True, environ=None) -> tuple[list[str], bool, str | None]:
     """(the files a data step of _GETOPT_SPECS or tac writes as getopt reads it, whether a word is not literal, the
     problem that keeps the gate from reading it) under D95. sort writes the file of each -o (`-` is a file there) and
     temporary files in the directory of -T or of a TMPDIR assignment before it; uniq writes its second operand where it
@@ -10484,6 +10484,9 @@ def _getopt_writes(step: "_ShStep", temp: bool = True) -> tuple[list[str], bool,
                 targets.append(files[1])
     if problem is not None or unknown:
         targets.extend(_getopt_candidates(words))
+        environ = os.environ if environ is None else environ
+        targets.extend(p for w in step.cmd.words[1:] if not w.literal
+                       for p in [_sh_word_path(w, environ)] if p is not None)   # D96: `~/x`, `$HOME/x`
     return list(dict.fromkeys(targets)), unknown, problem
 
 
@@ -10506,6 +10509,64 @@ def _getopt_kind(step: "_ShStep") -> str | None:
     return None
 
 
+#: D96 (Nachtrag 39, F35-1): a word bash turns into a path the gate can name without a value it is not given: a literal
+#: word; a tilde at its start with a literal rest (`~/x`, `~user/x`, bash's tilde expansion); `$HOME` or `${HOME}` at its
+#: start, quoted or not, with a literal rest, from the hook's environment, which is the session's; a glob in the last
+#: component only, which names files in that folder (the word stands for them). Anything else is not known.
+_SH_TILDE = re.compile(r"~([A-Za-z_][A-Za-z0-9_.-]*)?(/[^\s'\"$`\\*?\[\]{}~]*)?")
+_SH_HOME_WORD = re.compile(r"(\"?)(?:\$HOME|\$\{HOME\})(/[^\s'\"$`\\*?\[\]{}]*)?\1")
+_SH_GLOB_CHARS = re.compile(r"[*?\[]")
+
+
+def _sh_word_path(word: "_ShWord", environ) -> str | None:
+    """The path bash makes of a word, where the gate can name it (D96), else None."""
+    if word.literal:
+        return word.value
+    raw = word.raw
+    m = _SH_TILDE.fullmatch(raw)
+    if m is not None:
+        user, rest = m.group(1), m.group(2) or ""
+        if user is None:
+            home = environ.get("HOME")
+        else:
+            try:
+                import pwd
+                home = pwd.getpwnam(user).pw_dir
+            except (ImportError, KeyError):
+                return None
+        return home + rest if home and os.path.isabs(home) else None
+    m = _SH_HOME_WORD.fullmatch(raw)
+    if m is not None:
+        home = environ.get("HOME")
+        return home + (m.group(2) or "") if home and os.path.isabs(home) else None
+    if not word.subs and not word.quoted and _SH_GLOB_CHARS.search(word.value) and \
+            not _SH_GLOB_CHARS.search(os.path.dirname(word.value)) and not re.search(r"[{}~]", word.value):
+        return word.value
+    return None
+
+
+def _sh_path_words(step: "_ShStep", environ) -> list[str]:
+    """D96: every path a step of a program the gate does not model (other, carrier) names in its words, as a file it may
+    write: each word bash makes into a path (_sh_word_path), and of a literal word each value after `=` and each rest
+    of a short option bundle (`of=F`, `--target-directory=F`, `-tF`, `-oF`); an option word is judged as a path too, as
+    after `--` it is one. The program word itself, `-`, `--` and a URL are not."""
+    paths: list[str] = []
+    for word in step.cmd.words[1:]:
+        path = _sh_word_path(word, environ)
+        if path is None:
+            continue
+        found = [path]
+        if word.literal:
+            if "=" in path:
+                found.append(path.partition("=")[2])
+            if path.startswith("-") and not path.startswith("--"):
+                found.extend(path[k:] for k in range(2, len(path)))
+        for p in found:
+            if p and p not in ("-", "--") and "://" not in p and p not in paths:
+                paths.append(p)
+    return paths
+
+
 class _ShStep:
     """One simple command as bash would execute it: its words, the directory it runs in (None where unknown),
     whether it stands alone at the top level, the size of its pipeline, and the steps that run before it or beside it
@@ -10524,9 +10585,11 @@ class _ShStep:
             parts.append(r.target.body if isinstance(r.target, _ShHeredoc) else r.target.value)
         return "\n".join(parts)
 
-    def write_targets(self) -> tuple[list[str], bool]:
-        """(the literal files the step's output redirections and the data steps of D95 (sort, uniq, tee, tac) open
-        for writing, whether any target is not literal). Duplications of a descriptor and /dev/null open no file."""
+    def write_targets(self, environ=None) -> tuple[list[str], bool]:
+        """(the files the step's output redirections and the data steps of D95 (sort, uniq, tee, tac) open for writing,
+        each literal or a word bash makes into a path the gate can name (D96: `~/x`, `$HOME/x`), whether any target is
+        not known). Duplications of a descriptor and /dev/null open no file."""
+        environ = os.environ if environ is None else environ
         targets, unknown = [], False
         for r in self.cmd.redirs:
             if isinstance(r.target, _ShHeredoc) or r.op in ("<", "<<<", "<&"):
@@ -10539,6 +10602,9 @@ class _ShStep:
             if t.literal:
                 targets.append(t.value)
             else:
+                named = _sh_word_path(t, environ)   # D96
+                if named is not None:
+                    targets.append(named)
                 unknown = True
         if self.head == "tee":
             for w in self.cmd.words[1:]:
@@ -10547,10 +10613,13 @@ class _ShStep:
                 if w.literal:
                     targets.append(w.value)
                 else:
+                    named = _sh_word_path(w, environ)   # D96
+                    if named is not None:
+                        targets.append(named)
                     unknown = True
         if self.head in _GETOPT_SPECS or self.head in _GETOPT_TEMP_NAMES:
             # D95: the files the step writes as getopt reads its words (`tee -- -x`, `sort -uo F`, `uniq IN F`)
-            written, not_literal, _problem = _getopt_writes(self)
+            written, not_literal, _problem = _getopt_writes(self, environ=environ)
             targets.extend(t for t in written if t not in targets)
             unknown = unknown or not_literal
         return targets, unknown
@@ -10867,22 +10936,45 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
         return _sh_judge(steps, cwd, deadline, host, environ, whole, judge_whole,
                          plain_chain=_sh_plain_chain(command, tree, steps))
     except _ShKeep as keep:
-        if keep.floor == "ask" and (whole is None or whole.decision not in ("ask", "deny")):
-            verdict = Verdict(
-                "ask", f"NOT MEASURED: {keep}. A program that runs text as code, or one the gate does not know, may "
-                       "start git or gh from that text, and the gate does not read code (owner answers 6 and 9 of "
-                       "2026-10-14, DESIGN_ask_load.md 3.3).",
-                "code_names_git", evidence="none, the gate reads no code",
-                failed=str(keep), next_step="run the git or gh call as its own command, or have a person review it")
-            return Outcome("ask", verdict.text(), list(whole.verdicts if whole else []) + [verdict])
-        if whole is None or host == "codex" or whole.decision not in ("deny", "ask", "warn") or \
-                (len(steps) < 2 and keep.step is None and not any(_sh_generic_chain_verdict(v)
-                                                                   for v in whole.verdicts)):
-            return whole
-        # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to; the
-        # short line names the heaviest git or gh step, the kept step where it weighs as much (D72)
-        return Outcome(whole.decision, _sh_keep_reason(keep, steps, whole, judge_whole, cwd), whole.verdicts,
-                       whole.applied_rule, step=_sh_short_name(_sh_heaviest([keep.step, *steps])))
+        return _sh_with_writes(_sh_kept(keep, steps, whole, host, judge_whole, cwd), getattr(keep, "writes", []))
+
+
+def _sh_with_writes(outcome: "Outcome | None", writes: list) -> "Outcome | None":
+    """D96: the answer a command keeps (_ShKeep) together with the writes of its steps the gate guards, which come
+    first as in class c (D72 names them): the stricter decision of the two and the verdicts of both."""
+    if not writes:
+        return outcome
+    known = list(outcome.verdicts) if outcome is not None else []
+    added = [w for w in writes if all(w is not v for v in known)]
+    if not added:
+        return outcome
+    decisions = [v.decision for v in added] + ([outcome.decision] if outcome is not None else [])
+    decision = min(decisions, key=lambda d: _SH_STRICTNESS.index(d) if d in _SH_STRICTNESS else len(_SH_STRICTNESS))
+    text = " ".join(v.text() for v in added) + (f" {outcome.text}" if outcome is not None and outcome.text else "")
+    return Outcome(decision, text, added + known, outcome.applied_rule if outcome is not None else None,
+                   step=outcome.step if outcome is not None else None)
+
+
+def _sh_kept(keep: "_ShKeep", steps: list, whole: "Outcome | None", host: str, judge_whole, cwd: str
+             ) -> "Outcome | None":
+    """The answer of a command class c keeps (_ShKeep): raised to ask where the keep says so, else the whole command's
+    answer, with the reason of the kept step where it belongs to one (D46)."""
+    if keep.floor == "ask" and (whole is None or whole.decision not in ("ask", "deny")):
+        verdict = Verdict(
+            "ask", f"NOT MEASURED: {keep}. A program that runs text as code, or one the gate does not know, may "
+                   "start git or gh from that text, and the gate does not read code (owner answers 6 and 9 of "
+                   "2026-10-14, DESIGN_ask_load.md 3.3).",
+            "code_names_git", evidence="none, the gate reads no code",
+            failed=str(keep), next_step="run the git or gh call as its own command, or have a person review it")
+        return Outcome("ask", verdict.text(), list(whole.verdicts if whole else []) + [verdict])
+    if whole is None or host == "codex" or whole.decision not in ("deny", "ask", "warn") or \
+            (len(steps) < 2 and keep.step is None and not any(_sh_generic_chain_verdict(v)
+                                                               for v in whole.verdicts)):
+        return whole
+    # D46: the reason says why the command keeps the whole command's answer, and names the step it belongs to; the
+    # short line names the heaviest git or gh step, the kept step where it weighs as much (D72)
+    return Outcome(whole.decision, _sh_keep_reason(keep, steps, whole, judge_whole, cwd), whole.verdicts,
+                   whole.applied_rule, step=_sh_short_name(_sh_heaviest([keep.step, *steps])))
 
 
 #: How the reason says a decision of a step's own answer (D46).
@@ -11185,12 +11277,54 @@ def _sh_plain_chain(command: str, tree: _ShList, steps: list) -> bool:
 
 def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
               judge_whole, plain_chain: bool = False) -> Outcome | None:
-    released = False   # a K-NW-2 B step left free in a plain chain (Nachtrag 2)
+    """Class c: the writes of the steps first (D96), so that a command that keeps the whole command's answer carries
+    them, then the steps (_sh_judge_steps)."""
+    writes, protected, writers = _sh_write_verdicts(steps, cwd, deadline, environ)
+    try:
+        return _sh_judge_steps(steps, cwd, deadline, host, environ, whole, judge_whole, plain_chain, list(writes),
+                               protected, writers)
+    except _ShKeep as keep:
+        keep.writes = writes
+        raise
+
+
+def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple[list, set, dict]:
+    """(the verdicts of the writes the gate guards, the ids of the steps that make them, each verdict's step): every
+    file a step writes (write_targets) and, for a program the gate does not model, every path its words name (D96),
+    judged as a file-tool write (decide_write); the state files of a folder are read once for the command."""
     verdicts: list = []
+    protected: set = set()
+    writers: dict = {}
+    env_now = os.environ if environ is None else environ
+    global _STATE_FILES_MEMO
+    _STATE_FILES_MEMO = {}   # one read of the state files per folder for this command (D96)
+    try:
+        for s in steps:
+            targets, _unknown = s.write_targets(env_now)
+            if s.kind in ("other", "carrier"):
+                # D96: a program the gate does not model may write any path its words name (cp, mv, install, ln, dd,
+                # rm, chmod, …): each such path is judged as a write
+                targets = targets + [p for p in _sh_path_words(s, env_now) if p not in targets]
+            for t in targets:
+                if s.cwd is None and not os.path.isabs(t):
+                    continue   # the directory is unknown; the write keeps today's answer (not judged), named in D33
+                base = s.cwd if s.cwd is not None else cwd
+                written = decide_write("Write", {"file_path": os.path.join(base, t)}, base, deadline, "claude",
+                                       environ)
+                if written is not None:
+                    protected.add(id(s))
+                    verdicts.extend(written.verdicts)
+                    writers.update((id(v), s) for v in written.verdicts)
+    finally:
+        _STATE_FILES_MEMO = None
+    return verdicts, protected, writers
+
+
+def _sh_judge_steps(steps: list, cwd: str, deadline: float, host: str, environ, whole: Outcome | None,
+                    judge_whole, plain_chain: bool, verdicts: list, protected: set, writers: dict) -> Outcome | None:
+    released = False   # a K-NW-2 B step left free in a plain chain (Nachtrag 2)
     own: list = []     # each git and gh step with its answer on its own, for the text of the reason (D46)
     free_fetches: set = set()   # the fetch steps of D45 whose own answer is free
-    protected: set = set()
-    writers: dict = {}   # each verdict of a write the gate guards, with the step that writes (D72)
     for s in steps:
         if s.kind == "unresolved":
             raise _ShKeep(f"the command word {s.cmd.words[0].raw!r} is built by the shell or names git or gh in "
@@ -11200,17 +11334,6 @@ def _sh_judge(steps: list, cwd: str, deadline: float, host: str, environ, whole:
             named = any(_SH_GIT_TEXT.search(t.code_text()) for t in steps)
             raise _ShKeep(f"{s.head} has a word the shell may rewrite, and it may start the program that word names",
                           "ask" if named else None)
-    for s in steps:
-        targets, _unknown = s.write_targets()
-        for t in targets:
-            if s.cwd is None and not os.path.isabs(t):
-                continue   # the directory is unknown; the write keeps today's answer (not judged), named in D33
-            base = s.cwd if s.cwd is not None else cwd
-            written = decide_write("Write", {"file_path": os.path.join(base, t)}, base, deadline, "claude", environ)
-            if written is not None:
-                protected.add(id(s))
-                verdicts.extend(written.verdicts)
-                writers.update((id(v), s) for v in written.verdicts)
     carriers = [s for s in steps if s.kind == "carrier"]
     for s in steps:
         if s.kind in ("carrier", "other") and _SH_GIT_TEXT.search(s.code_text()):
@@ -12888,7 +13011,22 @@ def _write_targets(tool: str, tool_input: object) -> list[str] | None:
     return [path] if isinstance(path, str) and path else None
 
 
+#: D96: the state files of each folder, read once while class c judges the writes of one command; None outside it.
+_STATE_FILES_MEMO: "dict | None" = None
+
+
 def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
+    """_state_files_read, once per folder while _STATE_FILES_MEMO is set (D96), else every time."""
+    memo = _STATE_FILES_MEMO
+    if memo is not None and directory in memo:
+        return memo[directory]
+    result = _state_files_read(directory, deadline)
+    if memo is not None:
+        memo[directory] = result
+    return result
+
+
+def _state_files_read(directory: str, deadline: float) -> tuple[set, set, str]:
     """(files, directories, problem): the configuration files and hook directory that select programs for
     the repository at directory, as git resolves them with the hook's environment — every file the effective
     configuration was read from, every file it includes from any origin (also one that is empty or does not

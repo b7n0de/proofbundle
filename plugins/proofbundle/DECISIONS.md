@@ -4604,3 +4604,33 @@ environment for this). A file a program writes because a word the shell builds n
 redirection the shell builds (D33), except `~/x` and `$HOME/x`, which D96 names; the step is no data step, so a git
 step after it is not free. A copy command (cp, mv, install, ln) is no data step; D96 judges its words. Tests:
 tests/test_plugin_n37_data_writes_d95.py.
+
+## D96. A program the gate does not model writes what its words name (Nachtrag 39, F35-1, 2026-10-19)
+
+Order: a Bash command that writes into the hook folder (`cp`, `mv`, `tee`, `install`, `ln`, a redirection) carries the
+weight of _D72_WRITES. Found in PLUGIN_N35 (F35-1): `cp <file> <repo>/.git/hooks/pre-commit` got no answer at 9e0d071b
+and f9e5f18e; only a file tool (Write, Edit) asked. The class: every program of the shell the gate does not model that
+writes, removes or re-modes a file by a path one of its words names, and every word the shell turns into such a path.
+
+Measured with GNU coreutils 9.4 and curl under strace -f, one empty folder per form, no network (n39/werkzeug of the
+delivery, truth_path_words_n39.py, 35 forms): cp, mv, install, ln, dd, touch, truncate, rm, chmod, mkdir, curl -o, tar
+-cf and patch -o each create, change, remove or re-mode the path one of their words names or a file in that folder, in
+every spelling (`-t DIR`, `-tDIR`, `--t=DIR`, `of=OUT`, `-oOUT`, `--output OUT`); mv removes its source; cat and ls
+change nothing. rsync is not in the container (NOT MEASURED).
+
+The rule: for a step of a program the gate does not model (other) and for a carrier, every path its words name is judged
+as a file-tool write (decide_write), each the way bash makes it (_sh_word_path): a literal word; a tilde at its start
+with a literal rest, for the session's HOME or a user's home from the password database; `$HOME` or `${HOME}` at its
+start, quoted or not, with a literal rest, from the hook's environment, which is the session's; a glob in its last
+component only, which names files in that folder. Of a literal word also each value after `=` and each rest of a short
+option bundle count (_sh_path_words). The same naming holds for a redirection and for the outputs of the data steps of
+D95, so `cat > ~/.x` is judged where it was not known before. A write into the configuration or the hooks asks
+(write_to_repo_state), one into the gate's directory is denied (write_to_gate_dir), and the line gives the write its
+weight (D72). Class c judges the writes of the steps first (_sh_write_verdicts) and a command that keeps the whole
+command's answer (_ShKeep, a word the shell builds) carries them (_sh_with_writes): the stricter decision, the verdicts
+of both. The state files of a folder are read once per command (_STATE_FILES_MEMO).
+
+Cost, named: the gate does not know whether such a program reads or writes, so `cp .git/hooks/pre-commit.sample /tmp/x`
+and `cp ~/.bashrc /tmp/x` ask as a copy into them does. A program that runs code (python3 -c, bash -c) writes what its
+code says, which the gate does not read (D8). After `cd` a relative path is not judged (D33, class e not built). Tests:
+tests/test_plugin_n39_path_words_d96.py.
