@@ -11144,7 +11144,7 @@ def _sh_deciding(own: list, decision: str) -> tuple[str | None, "Verdict | None"
 
 #: D72: the writes the gate guards, which a line names before any step: one into the gate's own directory (D25) and one
 #: into the configuration or the hooks of a repository (D8).
-_D72_WRITES = frozenset({"write_to_gate_dir", "write_to_repo_state"})
+_D72_WRITES = frozenset({"write_to_gate_dir", "write_to_repo_state", "write_to_shell_start"})
 
 
 def _d72_write(verdicts: list, decision: str) -> "Verdict | None":
@@ -13152,6 +13152,65 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
     return None
 
 
+#: D97 (Nachtrag 39, F35-2, owner question O38-1): the files a shell runs before a later Bash call of Claude Code, by role.
+#: Measured with Claude Code 2.1.303 and GNU bash 5.2.21 under strace -f (truth_shell_start_n39.sh of the delivery, a
+#: fresh HOME, two Bash calls): before every call bash reads /etc/bash.bashrc, ~/.bashrc and the snapshot of the shell;
+#: when Claude Code makes the snapshot, once per session, bash also reads /etc/profile, the files of /etc/profile.d, the
+#: first of ~/.bash_profile, ~/.bash_login and ~/.profile, and the file BASH_ENV names. Read, not measured (no zsh in this
+#: container): the start files of zsh, and ~/.bash_aliases, which the .bashrc of Debian and Ubuntu reads.
+_SHELL_START_HOME = (".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_aliases")
+_SHELL_START_ZSH = (".zshenv", ".zprofile", ".zshrc", ".zlogin")
+_SHELL_START_SYSTEM_FILES = ("/etc/bash.bashrc", "/etc/profile", "/etc/zshenv", "/etc/zprofile", "/etc/zshrc",
+                             "/etc/zlogin")
+_SHELL_START_SYSTEM_DIRS = ("/etc/profile.d", "/etc/zsh")
+
+
+def _shell_start_paths(environ) -> tuple[set, set]:
+    """(the start files, the folders whose every file counts) for the hook's environment: the files above under HOME and
+    ZDOTDIR, the snapshot folder of Claude Code under CLAUDE_CONFIG_DIR or ~/.claude, and the file BASH_ENV names where it
+    is an absolute path. The gate reads names of the environment and paths, never a file's content."""
+    files, dirs = set(_SHELL_START_SYSTEM_FILES), set(_SHELL_START_SYSTEM_DIRS)
+    home = environ.get("HOME")
+    if home and os.path.isabs(home):
+        files |= {os.path.join(home, name) for name in _SHELL_START_HOME + _SHELL_START_ZSH}
+        dirs.add(os.path.join(home, ".claude", "shell-snapshots"))
+    zdot = environ.get("ZDOTDIR")
+    if zdot and os.path.isabs(zdot):
+        files |= {os.path.join(zdot, name) for name in _SHELL_START_ZSH}
+    config = environ.get("CLAUDE_CONFIG_DIR")
+    if config and os.path.isabs(config):
+        dirs.add(os.path.join(config, "shell-snapshots"))
+    bash_env = environ.get("BASH_ENV")
+    if bash_env and os.path.isabs(bash_env):
+        files.add(bash_env)
+    return files, dirs
+
+
+def _shell_start_problem(path: str, cwd: str, environ) -> str | None:
+    """Why a write to path writes a file the shell runs before a later call (D97), by role; None for any other file. The
+    path counts written and resolved, and a hard link to a start file counts too, as for the hooks (R7-5)."""
+    if not os.path.isabs(path):
+        if not (isinstance(cwd, str) and os.path.isabs(cwd)):
+            return None
+        path = os.path.join(cwd, path)
+    lexical, target = os.path.normpath(path), os.path.realpath(path)
+    files, dirs = _shell_start_paths(environ)
+    for f in sorted(files):
+        if lexical in (os.path.normpath(f), os.path.realpath(f)) or target in (os.path.normpath(f), os.path.realpath(f)):
+            return f"{lexical} is a start file the shell runs before a later call"
+        try:
+            if os.path.exists(target) and os.path.exists(f) and os.path.samefile(target, f):
+                return f"{lexical} is the same file as a start file the shell runs before a later call"
+        except OSError:
+            return f"the gate cannot tell whether {lexical} is a start file of the shell"
+    for d in sorted(dirs):
+        for root in {os.path.normpath(d), os.path.realpath(d)}:
+            for candidate in (lexical, target):
+                if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
+                    return f"{lexical} is in a folder whose files the shell runs before a later call"
+    return None
+
+
 def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude",
                  environ: dict | None = None) -> Outcome | None:
     """None for a file-tool write the gate does not gate; else NOT MEASURED, ask under Claude and deny under
@@ -13194,6 +13253,7 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
                                     "a person make it")
         return Outcome("deny", verdict.text(), [verdict])
     reasons = [f"the gate cannot tell for sure which files this {tool} call writes"] if targets is None else []
+    started = []   # D97: the start files of the shell
     for target in targets or []:
         try:
             why = _protected_write(target, cwd, deadline)
@@ -13201,15 +13261,32 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
             why = f"{exc}, so the gate cannot tell whether {target} is configuration or a hook"
         if why:
             reasons.append(why)
-    if not reasons:
+        start = _shell_start_problem(target, cwd, environ)
+        if start:
+            started.append(start)
+    if not reasons and not started:
         return None
     decision = "deny" if host == "codex" else "ask"
-    verdict = Verdict(decision, f"NOT MEASURED: {tool} would write the configuration or hooks of a git repository, "
-                                f"which select the programs later git calls run: {'; '.join(reasons)}.",
-                      "write_to_repo_state", evidence="the configuration files and hook directory the write touches",
-                      failed="; ".join(reasons),
-                      next_step="change git configuration and hooks yourself, or have a person review the write")
-    return Outcome(decision, verdict.text(), [verdict])
+    verdicts = []
+    if reasons:
+        verdicts.append(Verdict(decision, f"NOT MEASURED: {tool} would write the configuration or hooks of a git "
+                                          "repository, which select the programs later git calls run: "
+                                          f"{'; '.join(reasons)}.",
+                                "write_to_repo_state",
+                                evidence="the configuration files and hook directory the write touches",
+                                failed="; ".join(reasons),
+                                next_step="change git configuration and hooks yourself, or have a person review the "
+                                          "write"))
+    if started:
+        verdicts.append(Verdict(decision, f"NOT MEASURED: {tool} would write a file the shell runs before a later "
+                                          "Bash call, whose code the gate does not read, so a later call would run "
+                                          f"what the write puts there: {'; '.join(started)} (DECISIONS.md D97).",
+                                "write_to_shell_start",
+                                evidence="the start files of the shell, the snapshots of Claude Code and the file "
+                                         "BASH_ENV names",
+                                failed="; ".join(started),
+                                next_step="change the shell's start files yourself, or have a person review the write"))
+    return Outcome(decision, " ".join(v.text() for v in verdicts), verdicts)
 
 
 def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float,
@@ -13704,6 +13781,8 @@ _SHORT_REASONS = {
                            "das Tor weder Ziel noch Inhalt des Werkzeugs bindet"),
     "write_to_repo_state": ("D8", "the write touches git configuration or hooks",
                             "das Schreiben die Git-Konfiguration oder Hooks berührt"),
+    "write_to_shell_start": ("D97", "the write touches a file the shell runs before a later call",
+                             "das Schreiben eine Datei berührt, die die Shell vor einem späteren Aufruf ausführt"),
     # deny
     "sandbox_verifier_unavailable": ("D24B", "the verifier cannot start here", "der Prüfer hier nicht starten kann"),
     "no_receipt": ("D26", "a receipt of a required check is missing", "eine Quittung einer Pflichtprüfung fehlt"),
@@ -14842,7 +14921,7 @@ FANG_REASONS = frozenset({
     "house_kill_own", "house_kill_pattern", "house_tag_out", "verification_failed", "not_done", "no_receipt",
     "stale_receipt", "other_selection", "not_bound", "stale_subject", "rules_changed", "possible_unmodeled_push",
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
-    "push_protected", "push_delete", "push_unmeasured", "write_to_declaration"})
+    "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024

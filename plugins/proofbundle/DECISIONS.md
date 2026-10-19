@@ -4634,3 +4634,30 @@ Cost, named: the gate does not know whether such a program reads or writes, so `
 and `cp ~/.bashrc /tmp/x` ask as a copy into them does. A program that runs code (python3 -c, bash -c) writes what its
 code says, which the gate does not read (D8). After `cd` a relative path is not judged (D33, class e not built). Tests:
 tests/test_plugin_n39_path_words_d96.py.
+
+## D97. A write into a file the shell runs before a later call (Nachtrag 39, F35-2, owner question O38-1, 2026-10-19)
+
+Order: a write into the snapshots of the shell of Claude Code, into the start files of bash and into a file BASH_ENV
+names carries the weight of _D72_WRITES; first measure which files Claude Code runs before a Bash call. Found in
+PLUGIN_N35 (F35-2): `cat > ~/.bashrc <<'EOF' … EOF` got no answer; owner choice O38-1 (19.10.2026): close the class of
+O34-1 at the write, not at the arithmetic.
+
+Measured with Claude Code 2.1.303 and GNU bash 5.2.21 under strace -f (execve, openat), a fresh HOME whose start files
+append their names to a marker log, the stand-in API on the loopback with two Bash calls, no network, with and without
+BASH_ENV (n39/werkzeug of the delivery, truth_shell_start_n39.sh): before every Bash call bash reads /etc/bash.bashrc
+(and what it sources), ~/.bashrc and the snapshot; when Claude Code makes the snapshot, once per session, bash also reads
+/etc/profile, the files of /etc/profile.d, ~/.bash_profile (the first of it, ~/.bash_login and ~/.profile) and the file
+BASH_ENV names, which the calls after it do not read. Claude Code 2.1.302 is no longer in this container (NOT MEASURED).
+Read, not measured: the start files of zsh (none installed) and ~/.bash_aliases, which the .bashrc of Debian and Ubuntu
+reads.
+
+The rule: decide_write names a write into one of these files, through a symbolic or a hard link too, or into a file of
+the snapshot folder (CLAUDE_CONFIG_DIR/shell-snapshots, else ~/.claude/shell-snapshots), /etc/profile.d or /etc/zsh, as
+write_to_shell_start (_shell_start_problem): an ask under Claude Code (a deny under the switch of D85), with the weight
+of _D72_WRITES on the line and as a catch in the bilanz (FANG_REASONS). It holds for the file tools and for every write
+class c finds in a command (redirections, D95, D96). The gate reads names of the environment (HOME, ZDOTDIR,
+CLAUDE_CONFIG_DIR, BASH_ENV) and paths, never a file's content.
+
+Limits: a relative BASH_ENV is not read (the shell's folder decides it). A file a start file sources by another name is
+not named, but ~/.bash_aliases. The settings of Claude Code (~/.claude/settings.json) are no start file of the shell
+(passages w01 and w02 of satz_v1, Nachtrag 33). Tests: tests/test_plugin_n39_shell_start_d97.py.
