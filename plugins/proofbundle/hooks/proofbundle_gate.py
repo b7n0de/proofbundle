@@ -13769,7 +13769,8 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
     outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
-    outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline)
+    outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline,
+                                environ)   # the house rules and the guards read the environment decide() is given
     if outcome is not None and outcome.decision in ("ask", "deny", "warn"):
         # D72: the line names the heaviest git or gh step, not the first, with the reason of that step
         outcome.step = outcome.step or _short_step_name(judged, cwd)
