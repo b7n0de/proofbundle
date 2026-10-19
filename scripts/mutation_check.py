@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import os
 import re
 import shutil
@@ -896,8 +897,32 @@ def _cap_the_address_space_of_the_child() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
 
+#: THE LIMIT OF ONE RUN OF THE SUITE FOLLOWS THE BASELINE OF ITS SELECTION (owner card OA-667bf9346e,
+#: 2026-10-19). Z230 set one fixed limit of 3600 s for every run, when the whole suite took 2168 s in
+#: CI. A selection that reaches almost every module grows with the suite. Measured on the head of pull
+#: request 385 (877bc38f, run 39167414888, shard 17): the baseline over 500 test files took 3435 s,
+#: three mutants were KILLED after 3348 to 3378 s, and `hashalg: B2 deprecated-algorithm reject
+#: disabled` stopped at 3600.0 s in both attempts, NOT MEASURABLE. On main 2379659e the same mutant was
+#: KILLED after 3267 s. A fixed limit turned the growth of the suite into gaps that say nothing about
+#: a mutant.
+#: The limit keeps its first reason (a mutant that removes a resource bound may hang the child), so it
+#: is not dropped: a mutant run may take 1.5 times as long as the baseline over the same selection
+#: took, and never less than 3600 s. The baseline has no measurement before it and runs under 5400 s.
+#: A run past its limit stays NOT MEASURABLE, a gap, as before. The step limit of the CI job (345 min)
+#: still bounds a whole shard, and a shard it cuts is red.
+GRENZE_JE_LAUF = 3600
+GRENZE_BASISLINIE = 5400
+FAKTOR_JE_MUTANT = 1.5
+
+
+def _grenze_je_mutant(basisdauer: float) -> int:
+    """The limit in seconds of one mutant run over a selection whose baseline took `basisdauer`."""
+    return max(GRENZE_JE_LAUF, math.ceil(FAKTOR_JE_MUTANT * basisdauer))
+
+
 def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
-               aus: list | None = None, gruen: list | None = None) -> int | None:
+               aus: list | None = None, gruen: list | None = None,
+               grenze: int = GRENZE_JE_LAUF) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -919,11 +944,11 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
     # when given, receives the red tests of the run by identifier (see `_rote_kennungen`), or None
     # when the report cannot name them; `gruen` receives the tests that passed (see
     # `_bestandene_kennungen`), or None. The count stays the return value, as every caller before
-    # expected.
+    # expected. `grenze` is the limit of the run in seconds (see `GRENZE_JE_LAUF`).
     try:
         with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
             bericht = Path(_b) / "bilanz.xml"
-            proc = _lauf_der_suite(work, bericht, auswahl)
+            proc = _lauf_der_suite(work, bericht, auswahl, grenze)
             rot = _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
             if aus is not None:
                 aus.append(_rote_kennungen(bericht) if rot is not None else None)
@@ -943,7 +968,8 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
 
 
 def _lauf_der_suite(work: Path, bericht: Path | None = None,
-                    auswahl: tuple[str, ...] | None = None) -> subprocess.CompletedProcess:
+                    auswahl: tuple[str, ...] | None = None,
+                    grenze: int = GRENZE_JE_LAUF) -> subprocess.CompletedProcess:
     # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
     # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
     # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
@@ -995,8 +1021,9 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None,
         # Gefunden von der un-Gegenlesung dieses Diffs (K5), nicht vom Autor.
         # 3600 s SINCE Z230 (owner word C, 2026-09-26): the whole suite took 2168 s on main in CI
         # (PR 279, run 36253567619), seven baselines stopped at the former 1800 s, and a selection
-        # that reaches almost every module is almost the whole suite.
-        timeout=3600,
+        # that reaches almost every module is almost the whole suite. 3600 s stays the limit of a
+        # call that names none; a baseline and a mutant run name theirs (see `GRENZE_JE_LAUF`).
+        timeout=grenze,
         # The ceiling of the child's address space (see `CHILD_ADDRESS_SPACE_CAP`): a load past it
         # is a red test in the child, not a dead runner.
         preexec_fn=_cap_the_address_space_of_the_child,
@@ -2040,9 +2067,11 @@ def _kennungen(rot: int | None, aus: list) -> dict[str, str] | None:
 
 
 class Basislinie(NamedTuple):
-    """One baseline: its red tests (identifier -> class) and the tests that passed."""
+    """One baseline: its red tests (identifier -> class), the tests that passed, and how long it took
+    in seconds (the limit of each mutant run over the same selection follows it)."""
     rot: dict[str, str]
     bestanden: frozenset[str]
+    dauer: float = 0.0
 
 
 def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -> Basislinie:
@@ -2050,7 +2079,10 @@ def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -
     failed, or when the run cannot name the tests that passed (the verdict needs them)."""
     aus: list = []
     gruen: list = []
-    kennungen = _kennungen(_red_count(work, auswahl=auswahl, aus=aus, gruen=gruen), aus)
+    _t0 = time.monotonic()
+    kennungen = _kennungen(_red_count(work, auswahl=auswahl, aus=aus, gruen=gruen,
+                                      grenze=GRENZE_BASISLINIE), aus)
+    dauer = time.monotonic() - _t0
     if kennungen is None:
         raise SystemExit("mutation_check: the baseline over a selection left no verdict — without a "
                          "baseline no operator on it can be judged, and a run without a verdict must "
@@ -2067,7 +2099,8 @@ def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -
         raise SystemExit("mutation_check: the baseline over a selection cannot name the tests that "
                          "passed; a killer must be one of them, so no operator on it can be judged")
     print(f"  baseline passed: {len(bestanden)} tests")
-    return Basislinie(kennungen, frozenset(bestanden))
+    print(f"  limit per mutant run: {_grenze_je_mutant(dauer)} s (the baseline took {dauer:.1f} s)")
+    return Basislinie(kennungen, frozenset(bestanden), dauer)
 
 
 def _baum_abdruck(work: Path, dateien: list[str]) -> dict[str, bytes]:
@@ -2160,11 +2193,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         laufbar: tuple[str, ...] = ()
         unter_mutant: dict[str, str] | None = None
         _bestaetigung = 0.0
+        grenze = _grenze_je_mutant(basislinien[auswahl].dauer)
         try:
             path.write_text(mutated, encoding="utf-8")
             _t0 = time.monotonic()
             aus: list = []
-            red = _red_count(work, auswahl=auswahl, aus=aus)
+            red = _red_count(work, auswahl=auswahl, aus=aus, grenze=grenze)
             _dauer = time.monotonic() - _t0
             rote = _kennungen(red, aus)
             if rote is not None:
@@ -2196,7 +2230,7 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             # translated on the way; the German original is in the history.)
             dauern[label] = round(_dauer, 1)
             print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
-                  f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
+                  f"({_dauer:.1f}s, limit {grenze} s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
             gaps += 1
             continue
         bestaetigt: list[str] = []
