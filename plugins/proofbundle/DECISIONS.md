@@ -4976,3 +4976,39 @@ merge --auto` takes the pull request off when auto-merge is set, not when it mer
 a pull request merged or closed on GitHub or by another session stays counted; an MCP tool that opens one is not
 counted; the file lies in the plugins folder of Claude Code, which D101 guards against writes the gate reads, not
 against code of another language (D8). Tests: tests/test_plugin_n33_pr_count_d110.py.
+
+## D111. An owner's release on a card frees exactly one command once (Nachtrag 42, 2026-10-19)
+
+Order of Nachtrag 42 (owner word of 2026-10-19, 16:32 Berlin, choice A: the work goes from the phone, not in the
+terminal): an owner's release frees exactly one command once, bound to the sha256 of the command as written, the
+session that put the card and 15 minutes from the answer; its source is a file only the fetcher at the farmer writes,
+never the session, and a write of the session into it or its folder is denied with the weight of _D72_WRITES; a second
+call, another command, another session or an expired release stay blocked; the log names the card and the sha256 and
+the bilanz counts the release. Found by the owner: twice on 2026-10-19 he typed a line with `!` into delta's terminal
+though he had answered A on the card (the fetch of the bundle N37, card OA-aab72ad709; `git add` and `git commit` for
+PR 328, card OA-bd5cf3ae01). D93 makes an external effect a card and D94 counts yes and no; the way back from the answer
+to the gate was missing.
+
+The rule (_autonomy_release, in autonomous_outcome after D85 to D93, Claude Code with the flag, Bash calls only): the
+fetcher leaves one file per release in the folder freigaben of the gate's directory (_releases), `{"schema":
+"proofbundle-plugin/freigabe/v0.1", "karte": "OA-<10 hex>", "sitzung": <session id>, "sha256": <64 hex>, "antwort":
+"<YYYY-MM-DDTHH:MM:SSZ>"}`; a file that does not read whole is no release (no .json name, a link or no regular file,
+more than 4 KiB, not strict JSON, another schema or key, a card, a session, a sha256 or a time of another shape), and
+the folder must be a folder and no link. For a call decide() asked about whose autonomous answer does not let it run (a
+card, a block, a detour, the owner's ask), a release whose sha256 is that of the command's words as written (UTF-8),
+whose session is the one the hook's environment names (CLAUDE_CODE_SESSION_ID, measured with Claude Code 2.1.303 equal
+to the session_id of the event) and whose answer lies at most 15 minutes back (and not more than 60 seconds ahead, the
+clock skew between the farmer and the Leitstand) lets the call run once (released_by_owner, klasse freigabe, a line
+"Gate lets … run once: the owner released it on the card …" and the long reason with card, time and sha256 to the
+model). Before the pass the gate writes the use to freigaben-genutzt.json in the plugin data directory, under the lock
+of the answer hook (D94); where it cannot write or read that record, nothing is released. The log line carries the
+receipt {art freigabe, karte, sha256, antwort}, and the bilanz counts it per period (freigaben).
+
+Not changed: a deny of decide() stays a deny (a hard rule no dialog may override: a write into the gate's directory,
+hooks turned off, a key path, house rule H1); every answer without the flag and under Codex stays; the session never
+writes a release: every write of a Bash step or a file tool into the gate's directory is denied (write_to_gate_dir,
+D25), mkdir, rm, mv and a link included. A release frees the same as the terminal dialog's yes for the ask of decide(),
+a forced push the autonomous answer blocks included (owner question in the report). Limits, named: the card id is read
+by its form only, the gate does not know the cards of the Leitstand; the fetcher's file is trusted as the owner's
+answer, as the gate's directory is trusted as a person's (D25); a release of another spelling of the same effect frees
+nothing; the time is the farmer's clock. Tests: tests/test_plugin_n42_release_d111.py.

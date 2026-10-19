@@ -14928,6 +14928,8 @@ _SHORT_REASONS = {
                             "ein eigener Arbeitszweig unter dem stehenden GO, gemessen"),
     # the local class that can be taken back (D91): a pass in the log, an ask for a program, a deny for a guarded write
     "free_local_reversible": ("D91", "local and can be taken back, checked", "lokal und umkehrbar, geprüft"),
+    "released_by_owner": ("D111", "the owner released this command once on a card",
+                          "der Owner diesen Befehl einmal auf einer Karte freigab"),
     "free_recorded_hooks": ("D106", "local, its hooks as the owner recorded them", "lokal, Haken wie vom Owner festgehalten"),
     "free_bundle_fetch": ("D98", "it fetches a local bundle, checked", "es holt ein lokales Bündel, geprüft"),
     "local_program": ("D91", "a local form starts a program of the clone the gate does not see",
@@ -14965,6 +14967,7 @@ _SHORT_TEMPLATES = {
            "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
            "go": "Gate lets {step} run: own work branch under the standing GO, measured, receipt in the log (D92).",
            "maschine": "Gate lets {step} run: the house's form checker passes the text, receipt in the log (D92).",
+           "freigabe": "Gate lets {step} run once: the owner released it on the card {hint}, receipt in the log (D111).",
            "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d}).",
            "hinweis": "Gate notes at {step} that {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
@@ -14976,6 +14979,7 @@ _SHORT_TEMPLATES = {
            "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
            "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen, Quittung im Log (D92).",
            "maschine": "Tor lässt {step} laufen: Formprüfer des Hauses grün, Quittung im Log (D92).",
+           "freigabe": "Tor lässt {step} einmal laufen: der Owner gab es auf der Karte {hint} frei, Quittung im Log (D111).",
            "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d}).",
            "hinweis": "Tor weist bei {step} darauf hin, dass {reason} ({d})."},
 }
@@ -15129,9 +15133,11 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
     environ = os.environ if environ is None else environ
     decision = outcome.decision
     klasse = (getattr(outcome, "autonomy", None) or {}).get("klasse")
-    if decision == "pass" and klasse in ("go", "maschine"):
-        # D87, D92: a call a machine check frees stays visible, as a call a rule frees does: one line, no decision
-        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form=klasse)
+    if decision == "pass" and klasse in ("go", "maschine", "freigabe"):
+        # D87, D92, D111: a call a machine check or a release frees stays visible, as a call a rule frees does: one
+        # line, no decision
+        short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form=klasse,
+                           hint=(getattr(outcome, "autonomy", None) or {}).get("quittung", {}).get("karte", ""))
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                                "additionalContext": outcome.text}}
     if decision == "pass" and any(v.reason_id in HINT_REASONS for v in outcome.verdicts):
@@ -15644,11 +15650,19 @@ def _autonomy_checked(command: str, cwd: str, deadline: float, environ: dict) ->
 def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
                        host: str = "claude", environ: dict | None = None, tool: str = "Bash") -> "Outcome | None":
     """The answer of the hook to the outcome of decide() under Claude Code with --autonomous: D85 to D92
-    (_autonomy_answer), and D93 for an ask of the closed list in the work profile of b7n0de (_autonomy_card)."""
+    (_autonomy_answer), D93 for an ask of the closed list in the work profile of b7n0de (_autonomy_card), and D111 for
+    a Bash call decide() asked about that the owner released on a card (_autonomy_release)."""
     answer = _autonomy_answer(outcome, command, cwd, deadline, host, environ, tool)
-    if host != "claude" or answer is None or answer.decision != "ask":
+    if host != "claude" or answer is None:
         return answer
-    return _autonomy_card(answer, command, cwd, deadline, os.environ if environ is None else environ, tool)
+    environ = os.environ if environ is None else environ
+    if answer.decision == "ask":
+        answer = _autonomy_card(answer, command, cwd, deadline, environ, tool)
+    if tool == "Bash" and outcome is not None and outcome.decision == "ask" and answer.decision in ("ask", "deny"):
+        released = _autonomy_release(answer, command, environ)   # D111
+        if released is not None:
+            return released
+    return answer
 
 
 def _autonomy_answer(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
@@ -16135,7 +16149,8 @@ def bilanz(entries: list[dict], bahn: str = "proofbundle", period: str = "tag") 
             continue   # D94: the answer to an ask, no call of its own
         key = entry["ts"][:10] if period == "tag" else "gesamt"
         row = periods.setdefault(key, {"von": entry["ts"], "bis": entry["ts"], "aufrufe": 0, "owner_klicks": 0,
-                                       "umwege": 0, "faenge": 0, "sperren": 0, "karten": 0, "fragen_je_grund": {},
+                                       "umwege": 0, "faenge": 0, "sperren": 0, "karten": 0, "freigaben": 0,
+                                       "fragen_je_grund": {},
                                        "sperren_je_grund": {}, "antworten_je_grund": {}})
         row["bis"] = entry["ts"]
         row["aufrufe"] += 1
@@ -16160,6 +16175,8 @@ def bilanz(entries: list[dict], bahn: str = "proofbundle", period: str = "tag") 
                 row["faenge"] += 1
         if isinstance(entry.get("umweg"), dict):
             row["umwege"] += 1
+        if (entry.get("autonomy") or {}).get("klasse") == "freigabe":
+            row["freigaben"] += 1   # D111
     return {"schema": BILANZ_SCHEMA, "bahn": bahn, "zeitraum": period,
             "zeitraeume": [periods[k] for k in sorted(periods)],
             "kandidaten_zum_freigeben": _release_candidates(entries, answers)}
@@ -16794,6 +16811,141 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
     new = Outcome("deny", f"{verdict.text()} {answer.text}", list(answer.verdicts) + [verdict], None,
                   step=answer.step, cause=verdict)
     return _autonomy_record(new, "karte", wirkung=effects)
+
+
+# --- D111: an owner's release on a card frees exactly one command once (Nachtrag 42) ---------------------------------
+
+#: D111: the folder in the gate's directory where the fetcher at the farmer leaves the owner's answers to cards, one file
+#: per release: {"schema": RELEASE_SCHEMA, "karte": "OA-<10 hex>", "sitzung": <session id>, "sha256": <the sha256 of the
+#: command's words as written, UTF-8>, "antwort": "<UTC time of the answer, YYYY-MM-DDTHH:MM:SSZ>"}. The gate reads it
+#: and never writes it; a write of the session into the gate's directory is denied (write_to_gate_dir, D25, a weight
+#: of _D72_WRITES).
+RELEASES_DIR = "freigaben"
+RELEASE_SCHEMA = "proofbundle-plugin/freigabe/v0.1"
+MAX_RELEASE_BYTES = 4 * 1024
+MAX_RELEASE_FILES = 256
+#: A release frees its command from the owner's answer on for this many seconds (the order: 15 minutes), and not
+#: before the answer beyond RELEASE_SKEW_SECONDS of clock skew between the farmer and the Leitstand.
+RELEASE_SECONDS = 15 * 60
+RELEASE_SKEW_SECONDS = 60
+#: The releases used, in the plugin data directory: the gate writes the use under a lock before the call runs.
+RELEASES_USED = "freigaben-genutzt.json"
+RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
+MAX_RELEASES_USED = 1024
+MAX_RELEASES_USED_BYTES = 512 * 1024
+_CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
+_SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+def command_sha256(command: str) -> str:
+    """D111: the sha256 of a command's words as written, as UTF-8 (a byte that is no UTF-8 as it came)."""
+    return hashlib.sha256(command.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def _releases(environ) -> list[dict]:
+    """D111: the releases in the folder RELEASES_DIR of the gate's directory that read whole, each with its time in
+    seconds (zeit). A file that does not is left out: no file ending in .json, a link, no regular file, more than
+    MAX_RELEASE_BYTES, not strict JSON, another schema or another key, or a card, a session, a sha256 or a time of
+    another shape. The folder itself must be a folder and no link."""
+    gate_dir = _gate_dir(environ)
+    if gate_dir is None:
+        return []
+    folder = os.path.join(gate_dir, RELEASES_DIR)
+    try:
+        if os.path.islink(folder) or not os.path.isdir(folder):
+            return []
+        names = sorted(n for n in os.listdir(folder) if n.endswith(".json"))[:MAX_RELEASE_FILES]
+    except OSError:
+        return []
+    found = []
+    for name in names:
+        try:
+            raw = _read_regular(os.path.join(folder, name), MAX_RELEASE_BYTES + 1)
+            data = strict_json(raw) if len(raw) <= MAX_RELEASE_BYTES else None
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(data, dict) or set(data) != {"schema", "karte", "sitzung", "sha256", "antwort"} or \
+                data["schema"] != RELEASE_SCHEMA:
+            continue
+        card, session, sha, answered = data["karte"], data["sitzung"], data["sha256"], data["antwort"]
+        if not all(isinstance(v, str) for v in (card, session, sha, answered)) or not _CARD_ID.fullmatch(card) or \
+                not _SESSION_ID.fullmatch(session) or not _SHA256_HEX.fullmatch(sha) or \
+                not _UTC_STAMP.fullmatch(answered):
+            continue
+        try:
+            when = calendar.timegm(time.strptime(answered, "%Y-%m-%dT%H:%M:%SZ"))
+        except ValueError:
+            continue
+        found.append({"karte": card, "sitzung": session, "sha256": sha, "antwort": answered, "zeit": when})
+    return found
+
+
+def _release_key(release: dict) -> str:
+    return f"{release['karte']}:{release['sha256']}:{release['sitzung']}:{release['antwort']}"
+
+
+def _releases_used(directory: str) -> dict:
+    """D111: the releases used {key: time of use}; a ValueError where the record does not read whole, so no release is
+    used twice through a record the gate cannot read."""
+    try:
+        raw = _read_regular(os.path.join(directory, RELEASES_USED), MAX_RELEASES_USED_BYTES + 1)
+    except FileNotFoundError:
+        return {}
+    data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
+    if not isinstance(data, dict) or data.get("schema") != RELEASES_USED_SCHEMA or \
+            not isinstance(data.get("genutzt"), dict):
+        raise ValueError("the record of the releases used does not read whole")
+    return dict(data["genutzt"])
+
+
+def _write_releases_used(directory: str, used: dict) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".freigaben-", dir=directory)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"schema": RELEASES_USED_SCHEMA, "genutzt": used}, handle, sort_keys=False)
+    os.replace(tmp, os.path.join(directory, RELEASES_USED))
+
+
+def _autonomy_release(answer: "Outcome", command: str | None, environ, now: float | None = None) -> "Outcome | None":
+    """D111 (Nachtrag 42): the pass for a Bash call decide() asked about and the autonomous answer does not let run,
+    where the owner released exactly this command on a card: a release (_releases) whose sha256 is that of the
+    command's words as written, whose session is the hook's (CLAUDE_CODE_SESSION_ID) and whose answer lies at most
+    RELEASE_SECONDS back, not used before. The use is written to RELEASES_USED in the plugin data directory, under a
+    lock, before the pass; where the gate cannot write it, or cannot read the record, nothing is released."""
+    session = environ.get("CLAUDE_CODE_SESSION_ID")
+    data = environ.get("CLAUDE_PLUGIN_DATA")
+    if not command or not isinstance(session, str) or not _SESSION_ID.fullmatch(session) or not data or \
+            not os.path.isabs(data) or not os.path.isdir(data):
+        return None
+    sha = command_sha256(command)
+    now = time.time() if now is None else now
+    fitting = [r for r in _releases(environ) if r["sha256"] == sha and r["sitzung"] == session
+               and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
+    if not fitting:
+        return None
+    try:
+        hook = _answer_hook()
+        with hook.asks_lock(data, RELEASES_USED):
+            used = _releases_used(data)
+            release = next((r for r in fitting if _release_key(r) not in used), None)
+            if release is None:
+                return None
+            used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+            while len(used) > MAX_RELEASES_USED:
+                used.pop(next(iter(used)))
+            _write_releases_used(data, used)
+    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        return None
+    verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
+                              f"answered at {release['antwort']}. The release frees exactly the command whose words "
+                              f"as written have the sha256 {sha}, once, in this session, within "
+                              f"{RELEASE_SECONDS // 60} minutes of the answer; its use stands in the plugin data "
+                              "(Nachtrag 42; DECISIONS.md D111).", "released_by_owner")
+    new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
+    record = getattr(answer, "autonomy", None) or {}
+    return _autonomy_record(new, "freigabe", wirkung=list(record.get("wirkung") or []),
+                            quittung={"art": "freigabe", "karte": release["karte"], "sha256": sha,
+                                      "antwort": release["antwort"]})
 
 
 # --- D94: the answers to the asks per reason, and the candidates to free (Nachtrag 37, Ergänzung 4) -----------------
@@ -20257,7 +20409,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if verdict.decision != "pass" or any(v.reason_id in ("approved_by_rule", *HINT_REASONS)
                                                  for v in verdict.verdicts) or \
-                    (verdict.autonomy or {}).get("klasse") in ("go", "maschine"):
+                    (verdict.autonomy or {}).get("klasse") in ("go", "maschine", "freigabe"):
                 printed = pre_tool_answer(verdict, host, event, _step_of_event(event))
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
             printed = answer(verdict.decision, verdict.text, host=host)
