@@ -75,9 +75,11 @@ def read_hex(name: str) -> bytes:
 
 
 def item_end(data: bytes, pos: int, depth: int = 0) -> int:
-    """Where the CBOR item at ``pos`` ends. Raises Malformed on truncation or a duplicate map key."""
+    """Where the CBOR item at ``pos`` ends. Raises Malformed on truncation, a duplicate map key, or a map that cbor2
+    reads with fewer entries than it has pairs."""
     if depth > 16 or pos >= len(data):
         raise Malformed("truncated or nested too deeply")
+    start = pos
     major, info, pos = data[pos] >> 5, data[pos] & 31, pos + 1
     if info < 24:
         arg = info
@@ -88,6 +90,10 @@ def item_end(data: bytes, pos: int, depth: int = 0) -> int:
         arg = None
     else:
         raise Malformed(f"a reserved or break head at byte {pos - 1}")
+    if major == 7 and info == 24 and arg < 32:
+        # Not well-formed (RFC 8949 Section 3.3). cbor2 5.9.0 reads f8 14 as false and cbor2 6.1.4 refuses it, so
+        # without this line the verdict on these bytes depended on the installed cbor2 (measured 2026-10-14).
+        raise Malformed(f"a simple value below 32 in the two-byte form at byte {pos - 2}")
     if pos > len(data) or major in (0, 1, 7):
         if pos > len(data):
             raise Malformed("truncated")
@@ -112,7 +118,15 @@ def item_end(data: bytes, pos: int, depth: int = 0) -> int:
             seen.add((type(key).__name__, repr(key)))
             pos = key_end
         pos, count = item_end(data, pos, depth + 1), count + 1
-    return pos + (arg is None)
+    end = pos + (arg is None)
+    if major == 5:
+        # cbor2 builds one dict key from two pairs whose keys are equal in Python: 1 and 1.0, true and 1, 0.0 and -0.0,
+        # and under cbor2 5.9.0 also a simple value n and the array [n]. Which keys are equal depends on the version,
+        # so the entries of the map cbor2 returns are counted against its pairs instead of comparing keys here.
+        entries = len(cbor2.loads(data[start:end]))
+        if entries != count:
+            raise Malformed(f"the map at byte {start} has {count} pairs and cbor2 reads {entries} entries from it")
+    return end
 
 
 def open_sign1(raw: bytes):

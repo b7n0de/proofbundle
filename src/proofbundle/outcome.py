@@ -18,25 +18,24 @@ Field names are lowerCamelCase (ITE-9).
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any, Callable
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .assurance import _is_key_material
+from .budget import render_safe
 from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _draussen, _ein_stand, _eine_kopie, _plain_for_jcs,
                         _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
-from .subject_binding import nested_closure_violations
+from .subject_binding import nested_closure_violations, nested_type_violations
 from ._membership import is_member, require_switch
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _OUTCOME_STATUS = {"executed", "refused", "failed", "partial"}
 _OUTCOME_POLICY_PURPOSE = "outcome"
@@ -71,6 +70,15 @@ _NESTED_ALLOWED: dict[str, tuple[str, ...]] = {
     "sequence": ("runId", "seq"),
 }
 
+# Nested value types the schema declares and no check above reads (gate on 3562dc71, lens A, 228bcA-02,
+# measured with the ECMA-reading generator: every wrong type at these three paths passed, strict or not).
+# The same table-and-walker as decision._NESTED_TYPES; the other nested fields have their own checks.
+_NESTED_TYPES: dict[str, "str | tuple[str, ...]"] = {
+    "traceContext.traceparent": "string",
+    "validity.audience": "array",
+    "validity.nonce": "string",
+}
+
 
 def _as_dict(v):
     """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
@@ -86,7 +94,7 @@ class OutcomeReceiptError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 @_ein_stand
@@ -105,7 +113,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     # additionalProperties:false — any unknown top-level key is fail-closed.
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
 
     for req in _REQUIRED_ALWAYS:
@@ -141,7 +149,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     st = predicate.get("status")
     if "status" in predicate and not is_member(st, _OUTCOME_STATUS):
-        errors.append(f"status must be one of {sorted(_OUTCOME_STATUS)}, got {st!r}")
+        errors.append(f"status must be one of {sorted(_OUTCOME_STATUS)}, got {render_safe(st)}")
 
     for tp in _TIME_PATHS:
         v = predicate.get(tp)
@@ -153,7 +161,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     if "policyPurpose" in predicate and predicate.get("policyPurpose") != _OUTCOME_POLICY_PURPOSE:
         errors.append(
             f"policyPurpose must be {_OUTCOME_POLICY_PURPOSE!r} for an outcome receipt, "
-            f"got {predicate.get('policyPurpose')!r}")
+            f"got {render_safe(predicate.get('policyPurpose'))}")
 
     lim = predicate.get("limitations")
     if "limitations" in predicate and not (isinstance(lim, list) and all(isinstance(x, str) for x in lim)):
@@ -218,6 +226,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     # Nested schema closure (Finding 04): additionalProperties:false at the TOP level does not, by itself,
     # close traceContext/validity — an undeclared key inside either previously rode along silently.
     errors.extend(nested_closure_violations(predicate, _NESTED_ALLOWED))
+    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))
 
     return errors
 
@@ -511,6 +520,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise OutcomeReceiptError(
             "outcome receipts need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise OutcomeReceiptError(
+            f"an outcome receipt value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -547,12 +562,12 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
     name = subject_name or f"outcome:{predicate.get('outcomeId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": ACTION_OUTCOME_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, OutcomeReceiptError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})
@@ -907,6 +922,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
+    # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below. Bound
+    # here, before the block that reads the predicate: a signed statement whose predicate is no object skips that
+    # block, and the relations gate below raised UnboundLocalError for it (second reading of 4be8f120, F2).
+    _sw = None
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # decisionRef binding (replay against another decision fails).
         _dref = _as_dict(predicate.get("decisionRef")).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
@@ -948,7 +967,6 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
         from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _related_gelesen = _related_lesen(related)
-        _sw = None  # Nachtrag 46c: single reading of supersededByAttached, reused by the relation origin stamp below.
         if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             try:

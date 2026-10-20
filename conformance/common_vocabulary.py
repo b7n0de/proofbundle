@@ -83,6 +83,7 @@ CASE_KINDS = frozenset({
     "relation_statement", "provenance_version_status", "envelope_profile_rule",
     "agent_review_predicate",
     "cap1_document",
+    "content_root_vector",
 })
 
 AXES = ("exitClass", "lineage", "policyVerdict")

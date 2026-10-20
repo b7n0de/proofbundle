@@ -242,8 +242,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if not isinstance(sl, dict):
         result["detail"] = "status_list claim missing"
         return result
-    bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
+    # L2-01 (never-raise): a float bits (e.g. 2.0) satisfies `2.0 in (1,2,4,8)` and slipped through, then
+    # `_status_at` did `8 // bits` and byte indexing on a float, a raw TypeError instead of a fail-closed
+    # verdict. The width is read the way the issue side below reads it, as an exact int (not a bool, not
+    # a float, not a subclass), and only then checked against the allowed set.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    bits = plain_int(sl.get("bits"))
+    if bits is None or bits not in _ALLOWED_BITS:
         result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
         return result
     if not isinstance(sl.get("lst"), str):
@@ -346,7 +351,7 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):
         if plain_int(s) is None or not 0 <= s < (1 << bits):
-            raise BundleFormatError(f"status value {s!r} does not fit in {bits} bit(s)")
+            raise BundleFormatError(f"status value {render_safe(s)} does not fit in {bits} bit(s)")
         byte_i, slot = divmod(i, per_byte)
         arr[byte_i] |= s << (slot * bits)
     payload = {"sub": uri, "iat": iat,
@@ -356,5 +361,12 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     if ttl is not None:
         payload["ttl"] = ttl
     header = {"alg": "EdDSA", "typ": TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+    # `uri`, `iat`, `exp` and `ttl` come from the caller and are serialized: one without a JSON form
+    # (`iat=10**5000` passes the int check above, a set, bytes, a nesting deeper than the interpreter
+    # allows) raised raw from `json.dumps` (lens run 10 generator on d6d89763).
+    try:
+        payload_json = json.dumps(payload)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"status list token claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(payload_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

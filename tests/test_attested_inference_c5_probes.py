@@ -314,3 +314,24 @@ def test_zu_tiefes_wird_ersetzt_und_nicht_weggelassen():
         "oberhalb der Grenze MUSS der Digest weiterhin trennen — sonst trennt er gar nichts"
     assert ai._TOO_DEEP in json.dumps(ai._without_credentials(bauen("x"))), \
         "der abgeschnittene Ast wird durch einen Marker ERSETZT, nicht entfernt"
+
+
+# The second reading of 4be8f120 (F1 and Z4): signed material without a JSON form. `binding_present` raised
+# ValueError or TypeError for it, and so did `normalise_provider_evidence` through it; `evidence_digest`
+# mapped a value without a JSON form to its typed error but let a tuple key raise TypeError from the copy
+# without credentials. Measured on 4be8f120 and on main 570dd164.
+_OHNE_JSON_FORM = {
+    "bytes value": {"a": b"x"},
+    "set value": {"a": {1}},
+    "integer past the digit cap": {"a": 10**5000},
+    "tuple key": {("a", "b"): 1},
+}
+
+
+@pytest.mark.parametrize("evidence", list(_OHNE_JSON_FORM.values()), ids=list(_OHNE_JSON_FORM))
+def test_material_without_a_json_form_carries_no_binding_and_has_no_digest(evidence):
+    assert ai.binding_present(evidence, "abcdefgh") is False
+    with pytest.raises(BundleFormatError):
+        ai.evidence_digest(evidence)
+    with pytest.raises(BundleFormatError):
+        ai.normalise_provider_evidence(evidence, provider="p", expected_binding="abcdefgh")
