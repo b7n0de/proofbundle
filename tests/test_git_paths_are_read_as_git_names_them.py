@@ -94,7 +94,7 @@ def test_a_name_that_is_not_utf8_does_not_empty_the_sweep(tmp_path):
     repo = _repo(tmp_path, {"docs/a.md": "current release: 9.9.9\n",
                             f"docs/{QUOTED}.md": "current release: 9.9.9\n"})
     try:
-        fd = os.open(os.fsencode(repo) + b"/docs/\xff.md", os.O_WRONLY | os.O_CREAT, 0o644)
+        fd = os.open(os.fsencode(repo) + b"/docs/\xff.md", os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError as exc:
         pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
     os.write(fd, b"x\n")
@@ -118,7 +118,7 @@ def test_a_record_under_a_quoted_name_resolves_and_is_counted(tmp_path):
 def _write_bytes_name(repo: Path, raw_rel: bytes, content: bytes) -> str:
     """Write a file whose name is raw bytes (not UTF-8) and return the name as Python decodes it."""
     try:
-        fd = os.open(os.fsencode(repo) + b"/" + raw_rel, os.O_WRONLY | os.O_CREAT, 0o644)
+        fd = os.open(os.fsencode(repo) + b"/" + raw_rel, os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError as exc:
         pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
     os.write(fd, content)

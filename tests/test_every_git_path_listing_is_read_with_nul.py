@@ -235,7 +235,7 @@ def test_the_language_gate_lists_untracked_names_as_bytes(repo):
     gate = _language_gate()
     _commit(repo, {"docs/a.md": "An English line.\n"})
     try:
-        fd = os.open(os.fsencode(repo) + b"/\xff.md", os.O_WRONLY | os.O_CREAT, 0o644)
+        fd = os.open(os.fsencode(repo) + b"/\xff.md", os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError as exc:
         pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
     os.write(fd, b"An English line.\n")
@@ -247,7 +247,7 @@ def test_the_language_gate_lists_untracked_names_as_bytes(repo):
 
 def _bytes_file(r: Path, raw: bytes, content: bytes) -> None:
     try:
-        fd = os.open(os.fsencode(r) + b"/" + raw, os.O_WRONLY | os.O_CREAT, 0o644)
+        fd = os.open(os.fsencode(r) + b"/" + raw, os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError as exc:
         pytest.skip(f"this file system refuses a name that is not UTF-8: {exc}")
     os.write(fd, content)
