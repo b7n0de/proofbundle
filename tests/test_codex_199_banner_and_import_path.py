@@ -136,6 +136,47 @@ def test_A_the_surface_itself_is_cut_correctly():
         "a text without a captured block must stay unchanged")
 
 
+def _report_with_captured(lines: str) -> str:
+    """A failure report in pytest's real shape, its separators 80 wide, with `lines` captured."""
+    return (
+        "=================================== FAILURES ===================================\n"
+        "_________________________________ test_etwas __________________________________\n"
+        "\n"
+        "test_probe.py:3: AssertionError\n"
+        "----------------------------- Captured stdout call -----------------------------\n"
+        f"{lines}"
+        "=========================== short test summary info ============================\n"
+        "FAILED test_probe.py::test_etwas\n"
+        "1 failed in 0.10s\n"
+    )
+
+
+@pytest.mark.parametrize("separator", ["---", "===", "___", "--- a heading of the test ---"])
+def test_A_a_separator_the_test_prints_stays_inside_the_capture(tmp_path, separator):
+    """[COUNTS] Codex on pull request 371, round one, P2. The capture closed on ANY line that began
+    with three of `-`, `=` or `_`, so a test printing `---` and then `! ordinary diagnostic !` put the
+    second line back on the top level, and the run counted as NOT MEASURABLE. pytest draws every
+    separator of one run to the same full width, the width of the `Captured` line that opened the
+    block; a shorter line is the test's own text."""
+    m = _load("scripts/mutation_check.py", "_mc_a6")
+    report = _report_with_captured(f"{separator}\n! ordinary diagnostic !\n")
+    assert "! ordinary diagnostic !" not in m._ohne_aufgefangene_ausgabe(report), separator
+    assert m._rote_aus_lauf(_report(tmp_path), report, rc=1) == 1, separator
+
+
+def test_A_the_next_section_of_pytest_still_closes_the_capture():
+    """[COUNTS] Counter-direction: a cut that never closed would hide the summary and the next
+    failure, and a real banner after the block would go unseen."""
+    m = _load("scripts/mutation_check.py", "_mc_a7")
+    report = _report_with_captured("printed\n")
+    without = m._ohne_aufgefangene_ausgabe(report)
+    assert "printed" not in without
+    assert "short test summary info" in without and "1 failed in 0.10s" in without
+    after = report + "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+    assert m._ABBRUCH_BANNER.search(m._ohne_aufgefangene_ausgabe(after)), (
+        "a banner after the captured block must stay visible")
+
+
 def test_A_the_misleading_comment_is_gone():
     """[COUNTS] The text claimed a border of five exclamation marks that the form does not have.
 
@@ -157,9 +198,18 @@ SAMPLES_B = (
     ("import pytest", "import pytest\n\ndef test_x():\n    assert True\n", False),
     ("import my_unittest_helper", "import my_unittest_helper\n", False),
     ("import os, unittest_extras", "import os, unittest_extras\n", False),
+    # Codex on pull request 371, round one, P2: the text path read the REST OF THE LINE.
+    ("a comment after the import", "import os  # unittest is intentionally not used\n", False),
+    ("an alias named unittest", "import os as unittest\n", False),
+    ("a backslash continuation", "import os, \\\n    unittest\n", True),
+    # Neighbours of the same class: names that are not imports, and imports that are not one line.
+    ("a docstring that shows an import", '"""\nimport unittest\n"""\n', False),
+    ("a parenthesised from-import", "from unittest import (\n    mock,\n)\n", True),
+    ("an import inside a function", "def f():\n    import unittest\n", True),
+    ("a second import right after the first", "import os\nimport unittest\n", True),
+    ("an import after a semicolon", "import os; import unittest\n", True),
+    ("an import on the line of a compound statement", "if True: import unittest\n", True),
 )
-
-_TEXT_PATH = re.compile(r"^\s*(?:import\s+[^\n]*\bunittest\b|from\s+unittest\b)", re.MULTILINE)
 
 
 def _ast_path(source: str) -> bool:
@@ -179,25 +229,42 @@ def test_B_node1_the_old_pattern_does_NOT_see_the_multiple_import():
     assert _ast_path(source), "the syntax tree must see it, otherwise there is no difference"
 
 
-def test_B_node2_both_derivations_AGREE_over_all_forms():
+def _both_readers(tmp_path) -> dict[str, tuple[bool, bool]]:
+    """{sample: (text reader says it imports unittest, syntax tree says so)}, measured on the TOOL.
+
+    The first version of these nodes held a copy of the text pattern, so a change of the shipped
+    reader was never measured here; the readers of scripts/test_manifest_gate.py are asked now, on
+    real files, the way the gate asks them."""
+    m = _load("scripts/test_manifest_gate.py", "_tmg_b")
+    d = tmp_path / "tests"
+    d.mkdir()
+    names = {}
+    for i, (name, source, _) in enumerate(SAMPLES_B):
+        (d / f"test_sample_{i:02d}.py").write_text(source, encoding="utf-8")
+        names[f"test_sample_{i:02d}.py"] = name
+    text_only = set(m.pytest_only_modules(d))
+    tree_only = set(m.pytest_only_modules_ast(d))
+    return {name: (f not in text_only, f not in tree_only) for f, name in names.items()}
+
+
+def test_B_node2_both_derivations_AGREE_over_all_forms(tmp_path):
     """[COUNTS] PROPERTY: text and syntax tree measure the same property."""
-    disagree = [(n, bool(_TEXT_PATH.search(q)), _ast_path(q))
-                for n, q, _ in SAMPLES_B if bool(_TEXT_PATH.search(q)) != _ast_path(q)]
+    disagree = {n: v for n, v in _both_readers(tmp_path).items() if v[0] != v[1]}
     assert not disagree, f"text and syntax tree contradict each other: {disagree}"
 
 
-def test_B_node2_both_meet_the_frozen_expectation():
+def test_B_node2_both_meet_the_frozen_expectation(tmp_path):
     """[COUNTS] Agreement alone is not enough, both could be equally wrong."""
-    wrong = [(n, bool(_TEXT_PATH.search(q)), _ast_path(q), expected)
-             for n, q, expected in SAMPLES_B
-             if bool(_TEXT_PATH.search(q)) != expected or _ast_path(q) != expected]
+    expected = {n: e for n, _, e in SAMPLES_B}
+    wrong = {n: (v, expected[n]) for n, v in _both_readers(tmp_path).items() if v != (expected[n],) * 2}
     assert not wrong, f"wrong against the frozen expectation: {wrong}"
 
 
-def test_B_the_tool_in_the_tree_carries_the_same_path():
-    """[COUNTS] The guard does not measure its own copy but the shipped place."""
+def test_B_the_two_readers_of_the_tool_are_two():
+    """[COUNTS] Two derivations with one failure geometry would be one (owner order 2026-09-07):
+    the text reader reads tokens, the second reader the syntax tree, and neither calls the other."""
     m = _load("scripts/test_manifest_gate.py", "_tmg")
-    source = (REPO / "scripts" / "test_manifest_gate.py").read_text(encoding="utf-8")
-    assert "import\\s+[^\\n]*\\bunittest\\b" in source, (
-        "the text path in the tool does not read every name of the statement")
     assert hasattr(m, "pytest_only_modules") and hasattr(m, "pytest_only_modules_ast")
+    import inspect
+    text_reader = inspect.getsource(m._importiert_unittest_lexikalisch)
+    assert "tokenize" in text_reader and "ast." not in text_reader

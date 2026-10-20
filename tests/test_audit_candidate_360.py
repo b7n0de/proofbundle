@@ -133,11 +133,15 @@ class TestTestManifestGate(unittest.TestCase):
     def test_eine_ECHTE_uneinigkeit_zwingt_das_tor_auf_NICHT_ok(self):
         """DIE WIRKUNG, nicht der Wortlaut — und ohne Attrappe.
 
-        Es braucht keinen Monkeypatch, um die zwei Ableitungen zu trennen: eine Datei, die
-        ``import unittest`` NUR in einer Zeichenkette traegt, trennt sie von selbst. Die
-        Zeichenketten-Lesart sieht die Zeile am Zeilenanfang und haelt das Modul fuer ein
-        unittest-Modul; der Syntaxbaum sieht keinen Import-Knoten und haelt es fuer pytest-only.
-        Genau so sieht der Fehler in freier Wildbahn aus — Beispielcode in einem Docstring.
+        No monkeypatch is needed to split the two derivations: a file that tokenizes but does not
+        parse splits them by itself. The token reader finds no import and counts it as pytest-only;
+        the syntax tree cannot read it and leaves it out. That is how a collection error looks in
+        the wild.
+
+        UNTIL 2026-10-20 a docstring holding ``import unittest`` was the split here. That was the
+        misreading of the old text path that Codex reported on pull request 371: it took the rest of
+        the line instead of the imported names. Since the text path reads tokens, both paths read
+        the docstring alike, and the case needs a split that is not a misreading.
 
         Der Fall verlangt zwei Dinge, die die reine Mengengleichheit oben nicht verlangt: dass die
         Uneinigkeit ueberhaupt bis in ``problems`` durchschlaegt, und dass sie ``ok`` toetet. Ohne
@@ -146,8 +150,9 @@ class TestTestManifestGate(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
-            (d / "test_schein.py").write_text(
-                'BEISPIEL = """\nimport unittest\n"""\n\n\ndef test_x():\n    assert True\n')
+            # Every token is valid, the grammar is not: `= =` has no parse. An unclosed bracket
+            # would not do, because the tokenizer refuses it as well and both paths agree.
+            (d / "test_schein.py").write_text("def test_x():\n    assert True\n\n\nx = = 1\n")
             (d / "test_echt.py").write_text(
                 'import unittest\n\n\nclass T(unittest.TestCase):\n'
                 '    def test_y(self):\n        pass\n')

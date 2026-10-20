@@ -1273,13 +1273,22 @@ def _ohne_aufgefangene_ausgabe(text: str) -> str:
     HONEST LIMIT: the sections pytest labels are recognised. If a test prints its lines without
     capture, for example with `-s`, they stand on the top level and cannot be told apart from a
     banner. The mutation run of this gate captures.
+
+    THE BLOCK CLOSES ONLY AT A SEPARATOR OF PYTEST'S WIDTH (Codex on pull request 371, round one,
+    P2). The first version closed it at any line that began with three of `-`, `=` or `_`, so a test
+    that printed `---` and then `! ordinary diagnostic !` put the second line back on the top level
+    and the run counted as NOT MEASURABLE. pytest draws every separator of one run to the same full
+    width (`TerminalWriter.sep` fills the line to `fullwidth`), and the `Captured` line that opened
+    the block has that width. A line the test prints in the same shape AND the same width still
+    closes the block; that is the limit of reading a text, and it is named here.
     """
-    raus, drin = [], False
+    raus, drin, breite = [], False, 0
     for zeile in text.splitlines(keepends=True):
-        if _AUFGEFANGEN_AUF.match(zeile.rstrip("\n")):
-            drin = True
+        roh = zeile.rstrip("\n")
+        if _AUFGEFANGEN_AUF.match(roh):
+            drin, breite = True, len(roh.rstrip())
             continue
-        if drin and _ABSCHNITT_ZU.match(zeile):
+        if drin and _ABSCHNITT_ZU.match(zeile) and len(roh.rstrip()) == breite:
             drin = False
         if not drin:
             raus.append(zeile)
