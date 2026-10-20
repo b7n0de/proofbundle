@@ -245,6 +245,43 @@ def test_D115_a_pinned_key_that_names_a_program_keeps_the_answer_of_a_read(tmp_p
     assert not _free(answered(repo, form)), (key, form)
 
 
+@pytest.mark.parametrize("keys,form", [
+    ([("diff.external", "/bin/true")], "git diff"),
+    ([("diff.drv.textconv", "cat")], "git log -p -1"),
+    ([("diff.drv.textconv", "cat")], "git show HEAD"),
+    ([("log.showSignature", "true")], "git log --oneline -1"),
+    ([("core.alternateRefsCommand", "true")], "git rev-parse HEAD"),
+])
+def test_D115_a_pinned_key_by_which_a_read_starts_a_program_keeps_its_answer(tmp_path, keys, form):
+    """Nachtrag 46, point 2: no external diff, no textconv, no program of any kind for a read, pinned or not. The keys of
+    the corpus contexts prog_diffext, prog_textconv and prog_showsig, which the first pin of D115 left out because
+    _program_source, written for add and commit, names none of them (measured in the pinned variant of the corpus)."""
+    repo = _repo(tmp_path, unknown_key=False)
+    for key, value in keys:
+        d71._git(repo, "config", key, value)
+    (repo / ".gitattributes").write_text("*.md diff=drv\n")
+    d71._git(repo, "add", ".gitattributes")
+    d71._git(repo, "commit", "-q", "-m", "attributes")
+    _pin([_entry(repo)])
+    assert not _free(answered(repo, form)), (keys, form)
+
+
+def test_D114_a_hook_directory_outside_the_clone_pins_nothing(tmp_path):
+    """core.hooksPath on a folder beside the clone (the corpus context prog_hook): the pin names no state of the clone, so
+    the gate pins nothing, and pin-state refuses to print an entry."""
+    repo = _repo(tmp_path, hook=False)
+    outside = tmp_path / "hooks_beside"
+    _hook(outside)
+    _hook(outside, name="post-index-change")
+    d71._git(repo, "config", "core.hooksPath", str(outside))
+    _pin([_entry(repo, outside)])
+    for form in ("git commit -m work", "git status --short"):
+        assert not _free(answered(repo, form)), form
+    proc = subprocess.run([sys.executable, str(gate.__file__), "pin-state", str(repo)], capture_output=True, text=True,
+                          timeout=60)
+    assert proc.returncode == 1 and proc.stdout == "" and "outside" in proc.stderr, (proc.returncode, proc.stderr)
+
+
 def test_D115_a_hook_a_read_starts_is_left_out_only_with_its_pinned_bytes(tmp_path):
     """git status starts post-index-change (D34, _HOOKS_STARTED_BY_READ): with the pin its pinned bytes do not count,
     and a changed hook counts again."""

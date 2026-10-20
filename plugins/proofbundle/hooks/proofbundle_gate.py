@@ -1955,7 +1955,8 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
                 filters.append(where)   # D39 and D74: it counts where an attribute assigns a filter to a path
             continue
         if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered) and \
-                not (_pinned_origin(pin, scope, origin) and _program_source(lowered, value, directory, deadline) is None):
+                not (_pinned_origin(pin, scope, origin) and not _READ_PROGRAM_KEY.search(lowered)
+                     and _program_source(lowered, value, directory, deadline) is None):
             return f"a configuration key the read profile does not know to start no program: {where}"
     if walks:
         started = _HOOKS_STARTED_BY_READ[sub]
@@ -16987,6 +16988,12 @@ _PINNED_LOCAL = frozenset({"add", "commit"})
 _PINNED_EVIDENCE = re.compile(r"the repository state git ([a-z-]+) runs with")
 #: The own branch of a session (Nachtrag 46): a branch under claude/ with a name after the slash.
 _PINNED_BRANCH = re.compile(r"refs/heads/claude/[^\s]+")
+#: D115 (Nachtrag 46, point 2: no pager, no external diff, no textconv, no fsmonitor): a key whose last part names a
+#: program, a driver, a tool, a hook or a signature, which a pin never leaves out of the read profile, though
+#: _program_source, written for add and commit, names none: diff.external, the textconv and command of a diff driver,
+#: log.showSignature, core.alternateRefsCommand and their kind.
+_READ_PROGRAM_KEY = re.compile(r"(command|cmd|program|textconv|tool|driver|process|external|helper|hook|pager|editor|"
+                               r"askpass|signature|filter|fsmonitor)[^.]*$")
 
 
 def _pin_state_entries(environ) -> list[dict]:
@@ -17056,12 +17063,21 @@ def _pinned_config_digest(common: str) -> str | None:
     return None if len(raw) > MAX_PINNED_CONFIG_BYTES else hashlib.sha256(raw).hexdigest()
 
 
+def _pinned_hook_place(paths: dict, top: str) -> bool:
+    """D114: whether the hook directory git uses lies inside the clone, in its git directory or its work tree; a
+    core.hooksPath that points elsewhere is no state of the clone the owner can pin (Nachtrag 46: where it points
+    elsewhere, the ask stays)."""
+    hooks = _realpath(paths["hooks"])
+    return _within(hooks, top) or _within(hooks, _realpath(paths["common"]))
+
+
 def _pinned_clone(directory: str, deadline: float, environ) -> dict | None:
     """D114: the pin of the repository at directory, {"config": <the pinned .git/config, resolved>, "hooks": {name:
     sha256}}, where the condition of Nachtrag 46 holds now: exactly one entry of pin-state.json names its work tree; HEAD
-    is a branch under claude/; the hook directory git uses for it is the pinned one and holds exactly the pinned hooks,
-    each a regular file with the pinned bytes; its .git/config is a regular file with the pinned bytes; and there is no
-    config.worktree. None otherwise: then nothing is pinned and every check counts as before."""
+    is a branch under claude/; the hook directory git uses for it lies inside the clone (_pinned_hook_place), is the
+    pinned one and holds exactly the pinned hooks, each a regular file with the pinned bytes; its .git/config is a
+    regular file with the pinned bytes; and there is no config.worktree. None otherwise: then nothing is pinned and
+    every check counts as before."""
     paths, _why = _repo_paths(directory, deadline)
     if paths is None or paths["toplevel"] is None or not paths["common"] or not paths["hooks"]:
         return None
@@ -17073,6 +17089,8 @@ def _pinned_clone(directory: str, deadline: float, environ) -> dict | None:
     head = _git(directory, "symbolic-ref", "-q", "HEAD", deadline=deadline)
     lines = _git_lines(head.stdout) if head.returncode == 0 else None
     if not lines or len(lines) != 1 or not _PINNED_BRANCH.fullmatch(lines[0]):
+        return None
+    if not _pinned_hook_place(paths, top):
         return None
     if _realpath(paths["hooks"]) != entry["hakenordner"] or _hooks_now(paths["hooks"]) != entry["haken"]:
         return None
@@ -17193,8 +17211,8 @@ def pin_state_command(argv: list[str]) -> int:
     """D114: `pin-state <path>` prints the entry of pin-state.json for the clone at path as it is now: its work tree,
     the hook directory git uses for it, the sha256 of every hook in it but a .sample, and the sha256 of its .git/config.
     It writes nothing: a person reads the entry and copies it into the file. Exit 1 where the path is no work tree or a
-    part cannot be pinned (a hook that is a link or no regular file, a config.worktree, a .git/config that is no regular
-    file), 2 for a wrong call."""
+    part cannot be pinned (a hook directory outside the clone, a hook that is a link or no regular file, a
+    config.worktree, a .git/config that is no regular file), 2 for a wrong call."""
     if len(argv) != 1:
         print("usage: proofbundle_gate.py pin-state <path of the clone>", file=sys.stderr)
         return 2
@@ -17205,6 +17223,10 @@ def pin_state_command(argv: list[str]) -> int:
         paths, why = None, str(exc)
     if paths is None or paths["toplevel"] is None or not paths["common"] or not paths["hooks"]:
         print(f"pin-state: no git work tree there ({why or 'not inside one'})", file=sys.stderr)
+        return 1
+    if not _pinned_hook_place(paths, _realpath(paths["toplevel"])):
+        print("pin-state: git takes the hooks of this clone from a folder outside it (core.hooksPath); D114 pins only a "
+              "hook directory inside the clone", file=sys.stderr)
         return 1
     hooks = _hooks_now(paths["hooks"])
     config = _pinned_config_digest(paths["common"])

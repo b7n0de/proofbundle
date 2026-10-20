@@ -5483,9 +5483,11 @@ holds when the gate answers:
 - the command is plain git calls of the pinned forms joined by `&&` or `;` (_pinned_command), each spelled `git` as
   written (no quotes, no backslash, no path): no other program, no redirection, no pipe, no expansion, no word the
   shell may rewrite, so no other step of the line writes a hook or the configuration between the check and git;
-- exactly one entry names the work tree, HEAD is a branch under refs/heads/claude/, the hook directory git uses is the
-  pinned one and holds exactly the pinned hooks with their bytes (a link, a new, a changed or a missing hook pins
-  nothing), .git/config is a regular file with the pinned bytes, and there is no config.worktree;
+- exactly one entry names the work tree, HEAD is a branch under refs/heads/claude/, the hook directory git uses lies
+  inside the clone (its git directory or its work tree; a core.hooksPath that points elsewhere pins nothing, and
+  pin-state refuses it), is the pinned one and holds exactly the pinned hooks with their bytes (a link, a new, a
+  changed or a missing hook pins nothing), .git/config is a regular file with the pinned bytes, and there is no
+  config.worktree;
 - the repository does not overlap the gate directory, and the state check of D3 finds nothing once the pinned hooks and
   the keys of the pinned .git/config it does not know are left out. A key that names a program by path keeps the
   answer (a filter, fsmonitor with a command, a signature program, a configuration hook); commit.gpgSign with git's
@@ -5513,9 +5515,14 @@ The rule: an ask whose every verdict that is no pass is the not-free answer of D
 options the read grammar of D34 took, is free (free_pinned_state) where the pin of D114 holds for its repository and the
 read profile of D34 finds nothing once the pinned hooks and the keys of the pinned .git/config it does not know are left
 out. The pager keys, fsmonitor, the filter and promisor keys and every key that names a program keep the answer, pinned
-or not; an option that starts a program (`--ext-diff`, `--textconv`, `--show-signature`, a format that reads a
-signature, `-c core.pager=…`) keeps its answer with the pin as without it, and so does a form outside the list
-(rev-list, measured). The command rule of D114 holds here too: `git log | head` keeps its answer.
+or not: a key that _program_source names (written for add and commit) and every key whose last part names a program, a
+driver, a tool, a hook or a signature (_READ_PROGRAM_KEY: diff.external, the textconv and command of a diff driver,
+log.showSignature, core.alternateRefsCommand and their kind). The first pin of D115 (2e464928) left those out where
+_program_source named none: in the pinned variant of the corpus, git diff, log and show went free in the contexts
+prog_diffext, prog_textconv and prog_showsig; the fix of the same day keeps them. An option that starts a program
+(`--ext-diff`, `--textconv`, `--show-signature`, a format that reads a signature, `-c core.pager=…`) keeps its answer
+with the pin as without it, and so does a form outside the list (rev-list, measured). The command rule of D114 holds
+here too: `git log | head` keeps its answer.
 Not changed and limits: as D114. Tests: tests/test_plugin_n46_pinned_state_d114_d115.py.
 
 ## D116. The short line of an ask or a block names what can go wrong, before the D number (Nachtrag 46, Teil C, points 4 and 5, 2026-10-20)
