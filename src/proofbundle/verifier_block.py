@@ -610,11 +610,13 @@ def validate_test_result_statement(statement: Any) -> list[str]:
                     "with name and sha256 digest (the vector set)")
     listen_ok = True
     for k in ("passedTests", "warnedTests", "failedTests"):
+        if k not in pred:
+            continue
         v = pred.get(k)
-        if k in pred and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+        if not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
             errs.append(f"predicate.{k} must be a list of strings")
             listen_ok = False
-        elif k in pred and not all(_names_a_case(x) for x in v):
+        elif not all(_names_a_case(x) for x in v):
             errs.append(f"predicate.{k} holds an entry that names no case (empty, or only spaces, "
                         "control or format characters)")
             listen_ok = False
