@@ -1434,7 +1434,7 @@ def _checkout_state_problem(directory: str, target: str, deadline: float, enviro
 def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None,
                               hooks_not_run: frozenset = _HOOKS_NOT_RUN_BY_ADD_COMMIT,
                               signing_inert: bool = False, own_known: frozenset = frozenset(),
-                              hook_counts=None, recorded_hooks: bool = False) -> str | None:
+                              hook_counts=None, recorded_hooks: bool = False, pin: dict | None = None) -> str | None:
     """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
     else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
     --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
@@ -1449,7 +1449,9 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     to a path of the index or to an untracked path git add would take. hook_counts, for a form measured to start no
     hook at all (`git merge-tree --write-tree`, D91), takes the place of the count by hooks_not_run. recorded_hooks,
     for the forms of D106 in autonomous operation only, leaves a hook the owner recorded out of the count
-    (_hook_recorded)."""
+    (_hook_recorded). pin, for the forms of D114 in autonomous operation only (_pinned_clone), leaves out a hook with the
+    pinned bytes, a key of the pinned .git/config the check does not know, and of its program sources only the default
+    signing program and git's own maintenance (_pinned_source_ok); every other source and every other file counts."""
     environ = os.environ if environ is None else environ
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
@@ -1468,12 +1470,17 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
 
     for i, (scope, origin, key, value) in enumerate(entries):
         source = None if i in known else _program_source(key.lower(), value, directory, deadline)
-        if source is not None and not (signing_inert and source == "signature program"):
+        if source is not None and not (signing_inert and source == "signature program") and \
+                not _pinned_source_ok(pin, scope, origin, key.lower(), source):
             return f"a {source}: {_shown_key(key)} {origin_of(scope, origin)}"
     for i, (scope, origin, key, value) in enumerate(entries):
         lowered = key.lower()
         if (signing_inert and lowered.startswith("gpg.")) or i in known:
             continue
+        if _pinned_origin(pin, scope, origin):
+            source = _program_source(lowered, value, directory, deadline)
+            if source is None or _pinned_source_ok(pin, scope, origin, lowered, source):
+                continue   # D114: a key of the pinned .git/config that names no program by path is the owner's
         if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
             return (f"a configuration key the check does not know to start no program: {_shown_key(key)} "
                     f"{origin_of(scope, origin)}")
@@ -1481,6 +1488,9 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
     if recorded_hooks:   # D106
         recorded, counted = _recorded_hooks(paths, environ), counts
         counts = lambda name: counted(name) and not _hook_recorded(paths["hooks"], name, recorded)  # noqa: E731
+    if pin is not None:   # D114
+        pinned, counted_before = pin["hooks"], counts
+        counts = lambda name: counted_before(name) and not _hook_recorded(paths["hooks"], name, pinned)  # noqa: E731
     problem = _hook_problem(paths, counts)
     if problem is not None:
         return problem
@@ -1889,7 +1899,8 @@ def _filter_assigned(directory: str, configured: str, deadline: float, untracked
 
 
 def _read_profile_problem(sub: str, directory: str, deadline: float, environ: dict | None = None,
-                          drivers_off: bool = False, inert_pagers: list | None = None) -> str | None:
+                          drivers_off: bool = False, inert_pagers: list | None = None,
+                          pin: dict | None = None) -> str | None:
     """None when the repository at directory holds nothing that starts a program for the read form `git <sub>`, else
     what it found (class a, owner answers 1 to 3 of 2026-10-14). Read as K-NW-2 B reads: the effective configuration
     with every include in the hook's environment, the effective hook directory and the hook's GIT_* environment; for a
@@ -1904,7 +1915,9 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
     GIT_PAGER or PAGER in the hook's environment names is noted there and does not count; a prefix assignment of the
     command is judged elsewhere and still counts (_resolve_single). In the person's own global or system file the four
     entries of `git lfs install` count only where an attribute assigns a filter to a path of the index, and
-    core.fsmonitor naming git's own daemon on a git without one does not count (D74)."""
+    core.fsmonitor naming git's own daemon on a git without one does not count (D74). pin, for the forms of D115 in
+    autonomous operation only (_pinned_clone), leaves out a key of the pinned .git/config the profile does not know and a
+    hook with the pinned bytes; a promisor, pager, fsmonitor or filter key counts as before in every file."""
     environ = os.environ if environ is None else environ
     if sub in _READ_BUILTIN_ONLY and not _git_builtin(directory, sub, deadline):
         # D99: on a git without the command, the word runs an alias or a program git-<name> on PATH instead
@@ -1941,13 +1954,16 @@ def _read_profile_problem(sub: str, directory: str, deadline: float, environ: di
             if walks:
                 filters.append(where)   # D39 and D74: it counts where an attribute assigns a filter to a path
             continue
-        if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered):
+        if lowered not in _READ_INERT_KEYS and not _READ_INERT_PATTERN.fullmatch(lowered) and \
+                not (_pinned_origin(pin, scope, origin) and _program_source(lowered, value, directory, deadline) is None):
             return f"a configuration key the read profile does not know to start no program: {where}"
     if walks:
         started = _HOOKS_STARTED_BY_READ[sub]
+        pinned = pin["hooks"] if pin is not None else {}   # D115: a hook with the pinned bytes does not count
         # B36-3: only a hook git starts for this form counts, by its name in lower case (a file system that does not
         # tell the cases apart finds Post-Index-Change too); a file of any other name git never starts (measured)
-        problem = _hook_problem(paths, lambda name: name.lower() in started)
+        problem = _hook_problem(paths, lambda name: name.lower() in started
+                                and not _hook_recorded(paths["hooks"], name.lower(), pinned))
         if problem is not None:
             return problem
     for name in sorted(environ):
@@ -15016,6 +15032,8 @@ _SHORT_REASONS = {
     "released_by_owner": ("D111", "the owner released this command once on a card",
                           "der Owner diesen Befehl einmal auf einer Karte freigab"),
     "free_recorded_hooks": ("D106", "local, its hooks as the owner recorded them", "lokal, Haken wie vom Owner festgehalten"),
+    "free_pinned_state": (None, "local or a read in the own tree, its state as the owner pinned it",
+                          "lokal oder lesend im eigenen Baum, Stand wie vom Owner gepinnt"),
     "free_bundle_fetch": ("D98", "it fetches a local bundle, checked", "es holt ein lokales Bündel, geprüft"),
     "local_program": ("D91", "a local form starts a program of the clone the gate does not see",
                       "eine lokale Form ein Programm des Klons startet, das das Tor nicht sieht"),
@@ -15703,7 +15721,8 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
     if out is not None and out.decision == "ask":
         out = _autonomy_external(out, text, directory, deadline, environ) or \
             _autonomy_recorded(out, directory, deadline, environ) or \
-            _autonomy_local(out, text, directory, deadline, environ) or out   # D106, D91
+            _autonomy_pinned(out, text, directory, deadline, environ) or \
+            _autonomy_local(out, text, directory, deadline, environ) or out   # D106, D114 and D115, D91
         if out.decision == "ask" and (out.autonomy or {}).get("klasse") == "aussen":
             return "external", ""
     if out is None or out.decision in _AUTONOMY_FREE:
@@ -15770,6 +15789,9 @@ def _autonomy_answer(outcome: "Outcome | None", command: str | None, cwd: str, d
         recorded = _autonomy_recorded(outcome, cwd, deadline, environ)   # D106
         if recorded is not None:
             return recorded
+        pinned = _autonomy_pinned(outcome, command, cwd, deadline, environ)   # D114, D115
+        if pinned is not None:
+            return pinned
         local = _autonomy_local(outcome, command, cwd, deadline, environ)   # D91
         if local is not None:
             return local
@@ -16700,6 +16722,258 @@ def hook_state_command(argv: list[str]) -> int:
         hooks[name] = hashlib.sha256(raw).hexdigest()
     print(json.dumps({"schema": HOOK_STATE_SCHEMA, "klone": [{"pfad": _realpath(paths["toplevel"]), "haken": hooks}]},
                      indent=2))
+    return 0
+
+
+# --- D114 and D115: the pinned state of the own clone (Nachtrag 46, Teil B) -------------------------------------------
+
+#: D114: the file in the gate directory, which only a person writes (D25), that pins the state of a clone:
+#: {"schema": PIN_STATE_SCHEMA, "klone": [{"pfad": <work tree>, "hakenordner": <the hook directory git uses>,
+#: "haken": {<hook name>: <sha256>}, "konfig": <sha256 of the clone's .git/config>}]}. `proofbundle_gate.py pin-state
+#: <path>` prints the entry of a clone as it is now and writes nothing.
+PIN_STATE_FILE = "pin-state.json"
+PIN_STATE_SCHEMA = "proofbundle-plugin/pin-state/v0.1"
+MAX_PIN_STATE_BYTES = 64 * 1024
+#: The most bytes of a pinned .git/config the gate hashes; a larger one is never the pinned one.
+MAX_PINNED_CONFIG_BYTES = 1024 * 1024
+#: D115: the read forms of the order that the pin frees, each only where the read grammar of D34 took its options.
+_PINNED_READS = frozenset({"rev-parse", "status", "log", "show", "diff", "ls-files", "merge-base", "cat-file"})
+#: D114: the forms of the state check of D3 the pin frees.
+_PINNED_LOCAL = frozenset({"add", "commit"})
+#: The evidence of the not-free answer of D3 for a form of the state check or of the read profile.
+_PINNED_EVIDENCE = re.compile(r"the repository state git ([a-z-]+) runs with")
+#: The own branch of a session (Nachtrag 46): a branch under claude/ with a name after the slash.
+_PINNED_BRANCH = re.compile(r"refs/heads/claude/[^\s]+")
+
+
+def _pin_state_entries(environ) -> list[dict]:
+    """D114: the clones pin-state.json in the gate directory pins, each {"pfad", "hakenordner", "haken", "konfig"} with
+    both paths resolved. A file that does not read whole pins nothing: no regular file, more than MAX_PIN_STATE_BYTES,
+    not strict JSON (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
+    gate_dir = _gate_dir(environ)
+    if gate_dir is None:
+        return []
+    try:
+        raw = _read_regular(os.path.join(gate_dir, PIN_STATE_FILE), MAX_PIN_STATE_BYTES + 1)
+        data = strict_json(raw) if len(raw) <= MAX_PIN_STATE_BYTES else None
+    except (OSError, ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, dict) or set(data) != {"schema", "klone"} or data["schema"] != PIN_STATE_SCHEMA or \
+            not isinstance(data["klone"], list):
+        return []
+    entries = []
+    for entry in data["klone"]:
+        if not isinstance(entry, dict) or set(entry) != {"pfad", "hakenordner", "haken", "konfig"}:
+            return []
+        if not all(isinstance(entry[k], str) and os.path.isabs(entry[k]) for k in ("pfad", "hakenordner")) or \
+                not isinstance(entry["haken"], dict) or not isinstance(entry["konfig"], str) or \
+                not _SHA256_HEX.fullmatch(entry["konfig"]):
+            return []
+        if not all(_HOOK_NAME.fullmatch(name) and isinstance(sha, str) and _SHA256_HEX.fullmatch(sha)
+                   for name, sha in entry["haken"].items()):
+            return []
+        entries.append({"pfad": _realpath(entry["pfad"]), "hakenordner": _realpath(entry["hakenordner"]),
+                        "haken": dict(entry["haken"]), "konfig": entry["konfig"]})
+    return entries
+
+
+def _hooks_now(hooks: str) -> dict | None:
+    """{name: sha256} of every entry of the hook directory but a .sample, as pin-state reads it; None where an entry is
+    no regular file (a link, a folder, a FIFO), is larger than MAX_RECORDED_HOOK_BYTES or has a name of another shape,
+    or the directory cannot be read. {} where the directory does not exist."""
+    if not os.path.lexists(hooks):
+        return {}
+    if not os.path.isdir(hooks) or os.path.islink(hooks):
+        return None
+    found = {}
+    try:
+        names = sorted(os.listdir(hooks))
+    except OSError:
+        return None
+    for name in names:
+        if name.endswith(".sample"):
+            continue
+        try:
+            raw = _read_regular(os.path.join(hooks, name), MAX_RECORDED_HOOK_BYTES + 1)
+        except (OSError, ValueError):
+            return None
+        if len(raw) > MAX_RECORDED_HOOK_BYTES or not _HOOK_NAME.fullmatch(name):
+            return None
+        found[name] = hashlib.sha256(raw).hexdigest()
+    return found
+
+
+def _pinned_config_digest(common: str) -> str | None:
+    """The sha256 of the clone's .git/config (<common directory>/config), read without following a link; None where it
+    is no regular file or larger than MAX_PINNED_CONFIG_BYTES."""
+    try:
+        raw = _read_regular(os.path.join(common, "config"), MAX_PINNED_CONFIG_BYTES + 1)
+    except (OSError, ValueError):
+        return None
+    return None if len(raw) > MAX_PINNED_CONFIG_BYTES else hashlib.sha256(raw).hexdigest()
+
+
+def _pinned_clone(directory: str, deadline: float, environ) -> dict | None:
+    """D114: the pin of the repository at directory, {"config": <the pinned .git/config, resolved>, "hooks": {name:
+    sha256}}, where the condition of Nachtrag 46 holds now: exactly one entry of pin-state.json names its work tree; HEAD
+    is a branch under claude/; the hook directory git uses for it is the pinned one and holds exactly the pinned hooks,
+    each a regular file with the pinned bytes; its .git/config is a regular file with the pinned bytes; and there is no
+    config.worktree. None otherwise: then nothing is pinned and every check counts as before."""
+    paths, _why = _repo_paths(directory, deadline)
+    if paths is None or paths["toplevel"] is None or not paths["common"] or not paths["hooks"]:
+        return None
+    top = _realpath(paths["toplevel"])
+    found = [e for e in _pin_state_entries(environ) if e["pfad"] == top]
+    if len(found) != 1:
+        return None
+    entry = found[0]
+    head = _git(directory, "symbolic-ref", "-q", "HEAD", deadline=deadline)
+    lines = _git_lines(head.stdout) if head.returncode == 0 else None
+    if not lines or len(lines) != 1 or not _PINNED_BRANCH.fullmatch(lines[0]):
+        return None
+    if _realpath(paths["hooks"]) != entry["hakenordner"] or _hooks_now(paths["hooks"]) != entry["haken"]:
+        return None
+    if _pinned_config_digest(paths["common"]) != entry["konfig"]:
+        return None
+    for base in {paths["gitdir"], paths["common"]}:
+        if base and os.path.lexists(os.path.join(base, "config.worktree")):
+            return None
+    return {"config": _realpath(os.path.join(paths["common"], "config")), "hooks": entry["haken"],
+            "toplevel": top}
+
+
+def _pinned_origin(pin: dict | None, scope: str, origin: str) -> bool:
+    """D114: whether a configuration entry comes from the pinned .git/config: scope local and its origin that file (git
+    names the repository's own file relative to the work tree, and a linked work tree's absolutely)."""
+    if pin is None or scope != "local" or not origin.startswith("file:"):
+        return False
+    path = origin[len("file:"):]
+    if not os.path.isabs(path):
+        path = os.path.join(pin["toplevel"], path)
+    return _realpath(path) == pin["config"]
+
+
+#: D114: the program sources of _program_source a pinned key may name without keeping the answer: the default signing
+#: program of commit.gpgSign, which git takes from PATH like itself (the D27 class), and git's own automatic
+#: maintenance. A filter, a configuration hook, fsmonitor and a signature program a key names by path keep it: such a
+#: key points elsewhere.
+_PINNED_SOURCES = frozenset({"automatic maintenance"})
+
+
+def _pinned_source_ok(pin: dict | None, scope: str, origin: str, key: str, source: str) -> bool:
+    return _pinned_origin(pin, scope, origin) and (source in _PINNED_SOURCES or (source == "signature program"
+                                                                                 and key == "commit.gpgsign"))
+
+
+def _pinned_pass(outcome: "Outcome", names: list[str], directories: list[str], reads: bool) -> "Outcome":
+    """D114 and D115: the pass of autonomous operation for forms whose only finding the pin answers."""
+    d = "D115" if reads else "D114"
+    verdict = Verdict("pass", f"proofbundle gate: {' and '.join(names)} is free in autonomous operation: the clone at "
+                              f"{', '.join(directories)} is the session's own tree on its own claude/ branch, its "
+                              "hooks, its hook directory and its .git/config hold the bytes the owner pinned in the "
+                              "pin state of the gate directory, and the check found nothing else that starts a program "
+                              f"(Nachtrag 46; DECISIONS.md {d}).", "free_pinned_state", repo=", ".join(directories))
+    new = Outcome("pass", verdict.text(), list(outcome.verdicts) + [verdict], None, step=outcome.step)
+    return _autonomy_record(new, "lokal", wirkung=names)
+
+
+#: D114, D115: the operators that may join the steps of a command the pin frees.
+_PINNED_JOINS = frozenset({"&&", ";"})
+
+
+def _pinned_command(command: str) -> bool:
+    """D114 and D115: whether the whole command is plain git calls of _PINNED_LOCAL and _PINNED_READS joined by `&&` or
+    `;`, each `git [-C <absolute path>] <form> …` in the literal grammar: no other program, no redirection, no pipe, no
+    expansion and no word the shell may rewrite. Another step of the same line can change a hook or the configuration
+    after the gate read them and before git runs them (a write in another language is not gated, D8), so the pin
+    answers no such command."""
+    toks = _lex(_drop_comments(command))
+    if not toks or _expansion_present(command):
+        return False
+    steps, step = [], []
+    for tok in toks:
+        if tok[0] == "op" and tok[1] in _PINNED_JOINS and step:
+            steps.append(step)
+            step = []
+        elif tok[0] != "word" or tok[2] or _shell_rewrites(tok[3]) or (not step and tok[3] != "git"):
+            return False
+        else:
+            step.append(tok[1])
+    steps += [step] if step else []
+    for words in steps:
+        k = 3 if words[1:2] == ["-C"] and len(words) > 3 and os.path.isabs(words[2]) else 1
+        if k >= len(words) or words[k] not in _PINNED_LOCAL | _PINNED_READS:
+            return False
+    return bool(steps)
+
+
+def _autonomy_pinned(outcome: "Outcome", command: str, cwd: str, deadline: float,
+                     environ: dict) -> "Outcome | None":
+    """D114 and D115 (Nachtrag 46, Teil B): the answer to an ask of decide() whose every verdict that is no pass is the
+    not-free answer of D3 for `git add` or `git commit` (the state check) or for a read form of _PINNED_READS (the read
+    profile of D34, whose grammar took its options), for a command of plain git calls only (_pinned_command): a pass
+    where each repository is pinned now (_pinned_clone), does not overlap the gate directory, and its check finds
+    nothing with the pin. None otherwise, and D91 and D85 answer. cwd is unused: each verdict names its repository."""
+    if outcome is None or outcome.decision != "ask" or not _pinned_command(command):
+        return None
+    asks = [v for v in outcome.verdicts if v.decision != "pass"]
+    if not asks:
+        return None
+    forms = []
+    for v in asks:
+        m = _PINNED_EVIDENCE.fullmatch(v.evidence or "")
+        if v.reason_id != "git_form_not_free" or m is None or m.group(1) not in _PINNED_LOCAL | _PINNED_READS or \
+                not isinstance(v.repo, str) or not os.path.isabs(v.repo):
+            return None
+        forms.append((m.group(1), v.repo))
+    inert = [] if _no_terminal_host("claude", environ) else None
+    try:
+        for sub, directory in dict.fromkeys(forms):
+            pin = _pinned_clone(directory, deadline, environ)
+            _paths, overlap = _repo_overlap_problem(directory, deadline, environ)
+            if pin is None or overlap is not None:
+                return None
+            if sub in _PINNED_LOCAL:
+                problem = _add_commit_state_problem(directory, deadline, environ, own_known=_OWN_KNOWN, pin=pin)
+            else:
+                problem = _read_profile_problem(sub, directory, deadline, environ, inert_pagers=inert, pin=pin)
+            if problem is not None:
+                return None
+    except GateError:
+        return None
+    names = list(dict.fromkeys(f"git {sub}" for sub, _d in forms))
+    return _pinned_pass(outcome, names, list(dict.fromkeys(d for _s, d in forms)),
+                        reads=all(sub in _PINNED_READS for sub, _d in forms))
+
+
+def pin_state_command(argv: list[str]) -> int:
+    """D114: `pin-state <path>` prints the entry of pin-state.json for the clone at path as it is now: its work tree,
+    the hook directory git uses for it, the sha256 of every hook in it but a .sample, and the sha256 of its .git/config.
+    It writes nothing: a person reads the entry and copies it into the file. Exit 1 where the path is no work tree or a
+    part cannot be pinned (a hook that is a link or no regular file, a config.worktree, a .git/config that is no regular
+    file), 2 for a wrong call."""
+    if len(argv) != 1:
+        print("usage: proofbundle_gate.py pin-state <path of the clone>", file=sys.stderr)
+        return 2
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    try:
+        paths, why = _repo_paths(os.path.abspath(argv[0]), deadline)
+    except GateError as exc:
+        paths, why = None, str(exc)
+    if paths is None or paths["toplevel"] is None or not paths["common"] or not paths["hooks"]:
+        print(f"pin-state: no git work tree there ({why or 'not inside one'})", file=sys.stderr)
+        return 1
+    hooks = _hooks_now(paths["hooks"])
+    config = _pinned_config_digest(paths["common"])
+    worktree = any(base and os.path.lexists(os.path.join(base, "config.worktree"))
+                   for base in (paths["gitdir"], paths["common"]))
+    if hooks is None or config is None or worktree:
+        print("pin-state: the clone cannot be pinned: a hook is a link, no regular file or of another name, the hook "
+              "directory is a link, .git/config is no regular file, or a config.worktree stands beside it",
+              file=sys.stderr)
+        return 1
+    print(json.dumps({"pfad": _realpath(paths["toplevel"]), "hakenordner": _realpath(paths["hooks"]), "haken": hooks,
+                      "konfig": config}, indent=2))
     return 0
 
 
@@ -21873,6 +22147,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_statement_command(argv[1:])
     if argv[:1] == ["hook-state"]:
         return hook_state_command(argv[1:])
+    if argv[:1] == ["pin-state"]:
+        return pin_state_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions, event_text = "claude", None, [], None
     try:

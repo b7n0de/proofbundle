@@ -5456,3 +5456,64 @@ form of D67 gets no receipt either (O28-4, so left in the first pilot); M5 count
 tests/test_plugin_n43_window_note_o28b1.py, tests/test_plugin_n43_d67_form_o28_4.py.
 
 Numbering (owner choice O43-2, 2026-10-20): D113 belongs to this chain; the main line counts on from D114.
+
+## D114. git add and git commit are free in the own tree on the own claude/ branch where the owner pinned its state (Nachtrag 46, Teil B, point 1, 2026-10-20)
+
+Order of Nachtrag 46, Teil B, point 1 (owner choice of 2026-10-20 17:4x Berlin, B lower the cost): in the house profile
+a local `git add` and `git commit` ask no more where the session works in its own tree on its own claude/ branch and the
+hooks, core.hooksPath and .git/config are unchanged against a pinned state; where any of them is new, changed or points
+elsewhere, the ask stays. Push, gh, the MCP write tools and every external effect do not change, and the delivery
+profile does not change (point 3). Reported by the owner from delta (gate 63b88d07, 2026-10-20): add and commit asked in
+the own tree on the own claude/ branch because the repository has a pre-commit hook of its own.
+
+Measured at 70e98e91 (n46/werkzeug/probe_n46_ist.py of the delivery, 1836 answers, repositories of b7n0de and foreign,
+branches claude/topic, topic and main, six configuration states): with a pre-commit hook that is not recorded (D106)
+every add and commit asks or is blocked under `--autonomous`, with commit signing, fsmonitor or an unknown key of
+.git/config also without a hook.
+
+The rule: the file pin-state.json in the gate's directory, which only a person writes (D25: decide_write and the
+redirections of a Bash step into the gate directory are denied, write_to_gate_dir), pins clones,
+`{"schema": "proofbundle-plugin/pin-state/v0.1", "klone": [{"pfad": <work tree>, "hakenordner": <the hook directory git
+uses>, "haken": {<name>: <sha256>}, "konfig": <sha256 of .git/config>}]}`; `proofbundle_gate.py pin-state <path>`
+prints the entry of a clone as it is now and writes nothing. A file that does not read whole pins nothing (no regular
+file, more than 64 KiB, a repeated key, another schema, another key, a relative path, a hook name or a value of another
+shape). In autonomous operation (Claude Code with the flag, D85), an ask whose every verdict that is no pass is the
+not-free answer of D3 for add or commit is free (free_pinned_state, klasse lokal, no line to the user) where all of this
+holds when the gate answers:
+- the command is plain git calls of the pinned forms joined by `&&` or `;` (_pinned_command): no other program, no
+  redirection, no pipe, no expansion, no word the shell may rewrite, so no other step of the line writes a hook or the
+  configuration between the check and git;
+- exactly one entry names the work tree, HEAD is a branch under refs/heads/claude/, the hook directory git uses is the
+  pinned one and holds exactly the pinned hooks with their bytes (a link, a new, a changed or a missing hook pins
+  nothing), .git/config is a regular file with the pinned bytes, and there is no config.worktree;
+- the repository does not overlap the gate directory, and the state check of D3 finds nothing once the pinned hooks and
+  the keys of the pinned .git/config it does not know are left out. A key that names a program by path keeps the
+  answer (a filter, fsmonitor with a command, a signature program, a configuration hook); commit.gpgSign with git's
+  default signing program and git's automatic maintenance do not. Every key of another file (an include, the global
+  or system file, `-c`) and every GIT_* name counts as before.
+
+Not changed: decide(), every answer without the flag and every answer under Codex, push, gh, fetch, tag and every form
+outside add and commit; the delivery profile. Limits, named: the pin binds the bytes of the hooks and of .git/config,
+not what a hook reads or starts (a hook that runs a script of the work tree runs what the session wrote there); the
+gate reads them when it answers and git opens them later, so a swap in between needs a second process (D27, the class of
+the D98 limit); "own tree" is the tree the owner pinned, the gate cannot tell which tree a session was given. Tests:
+tests/test_plugin_n46_pinned_state_d114_d115.py.
+
+## D115. The read forms of the order are free under the same pin (Nachtrag 46, Teil B, point 2, 2026-10-20)
+
+Order of Nachtrag 46, Teil B, point 2: reading git without an ask under the condition of D114, for rev-parse, status,
+log, show, diff, ls-files, merge-base and cat-file, each only with switches that start no foreign program (no pager, no
+external diff, no textconv, no fsmonitor); what the condition cannot prove keeps asking. Reported by the owner from
+delta (2026-10-20): a read-only command with `git rev-parse` was blocked, line verbatim "Tor sperrt git rev-parse: kein
+freier Weg, es fragt nur bei Außenwirkung (D85). Weil git ein Programm starten kann, das das Tor nicht sieht (D3)."
+Measured at 70e98e91 (the probe of D114): with an unknown key of .git/config every read form of the probe is blocked
+under `--autonomous`, with core.pager every one, with fsmonitor 36 of 78.
+
+The rule: an ask whose every verdict that is no pass is the not-free answer of D3 for a read form of the list, whose
+options the read grammar of D34 took, is free (free_pinned_state) where the pin of D114 holds for its repository and the
+read profile of D34 finds nothing once the pinned hooks and the keys of the pinned .git/config it does not know are left
+out. The pager keys, fsmonitor, the filter and promisor keys and every key that names a program keep the answer, pinned
+or not; an option that starts a program (`--ext-diff`, `--textconv`, `--show-signature`, a format that reads a
+signature, `-c core.pager=…`) keeps its answer with the pin as without it, and so does a form outside the list
+(rev-list, measured). The command rule of D114 holds here too: `git log | head` keeps its answer.
+Not changed and limits: as D114. Tests: tests/test_plugin_n46_pinned_state_d114_d115.py.
