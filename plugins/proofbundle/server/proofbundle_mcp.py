@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.1.0"]
+# dependencies = ["proofbundle==6.3.0"]
 # ///
 """MCP server of the proofbundle plugin for Claude Code and Codex.
 

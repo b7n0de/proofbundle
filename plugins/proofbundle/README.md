@@ -461,7 +461,7 @@ state.
 A repository without a declaration, or whose declaration names no done check, gets no block and no message (NOT
 MEASURED), as with the `PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355).
 It needs the proofbundle release whose pytest receipt names the git state and the selection (the release after
-6.2.0); the receipt is still verified by the plugin's pinned `proofbundle==6.1.0`.
+6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.3.0`.
 
 ### With `/goal`
 

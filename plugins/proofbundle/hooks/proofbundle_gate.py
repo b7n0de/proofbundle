@@ -5190,15 +5190,16 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             raise GateError(f"the verifier gave no answer for item {n} (exit {proc.returncode}: {tail[0]})")
         result_obj = reply["result"]
         content = result_obj.get("content") if isinstance(result_obj, dict) else None
-        # Every element of content is checked against the measured contract, not only the first (review Runde 13,
-        # K2). Measured at proofbundle 6.1.0: the MCP server wraps each tool result as content with exactly one
-        # element, the object {"type": "text", "text": <json string>} (server _call_tool). A schema-breaking
-        # sibling block — a second element, a non-object, a wrong type, a non-string text — is not ignored; it
-        # refuses the whole run with GateError, so an invalid stream can never reach a pass (envelope-error status,
-        # R12-4). There is no element the reader leaves unexamined.
+        # Every element of content is checked against the measured contract, not only the first (review Runde 13, K2).
+        # Measured at proofbundle 6.1.0 and again at 6.3.0 (Nachtrag 45): the MCP server wraps each tool result as
+        # content with exactly one element, the object {"type": "text", "text": <json string>} (server _call_tool). A
+        # schema-breaking sibling block — a second element, a non-object, a wrong type, a non-string text — is not
+        # ignored; it refuses the whole run with GateError, so an invalid stream can never reach a pass (envelope-error
+        # status, R12-4). There is no element the reader leaves unexamined.
         if not isinstance(content, list) or len(content) != 1:
             raise GateError(f"the verifier's result for item {n} does not carry exactly one content element, as the "
-                            "proofbundle 6.1.0 tool-result contract requires, which refuses the whole verifier run")
+                            "tool-result contract of the plugin's server requires (measured at proofbundle 6.1.0 and "
+                            "6.3.0), which refuses the whole verifier run")
         block = content[0]
         if not (isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)):
             raise GateError(f"the verifier's result for item {n} is not one text block the gate can read, which "
@@ -20433,11 +20434,11 @@ VSA_PREDICATE_TYPE = "https://slsa.dev/verification_summary/v1"
 #: The verifier of the Verification Summary, a URI that names the plugin's done check; a consumer accepts only the
 #: (signer, verifier) pairs it trusts (SLSA VSA v1.2, verifier).
 VSA_VERIFIER_ID = "https://github.com/b7n0de/proofbundle/tree/main/plugins/proofbundle#done-check"
-PINNED_PROOFBUNDLE = "6.1.0"
+PINNED_PROOFBUNDLE = "6.3.0"
 _RESOURCE_URI = re.compile(r"[a-z][a-z0-9+.-]*:[!-~]+")
 _SIGN_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.1.0"]
+# dependencies = ["proofbundle==6.3.0"]
 # ///
 import hashlib, json, sys
 from proofbundle.dsse import sign_envelope
@@ -20569,7 +20570,7 @@ def done_statement_command(argv: list[str]) -> int:
 
 _KEY_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.1.0"]
+# dependencies = ["proofbundle==6.3.0"]
 # ///
 import base64, os, sys
 from proofbundle.emit import generate_signer, load_signer, save_signer
