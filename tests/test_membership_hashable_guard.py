@@ -1485,6 +1485,12 @@ _OTHER_USES_CLASSIFIED = {
         (1, _OWN_SET.format(x="obj", what="a dict (isinstance(obj, dict) returns before it)")),
     ("proofbundle/relation.py", "validate_relationships", "set(_EDGE_ALLOWED)", "Sub set(edge)"):
         (1, _OWN_SET.format(x="edge", what="a dict (a non-dict edge is skipped by `continue` before it)")),
+    # Seen once pull request 373 (each claim name judged per object) met this guard on main, read at its
+    # source: the payload and every disclosure value come from loads_strict, and the walk visits dicts only.
+    ("proofbundle/sdjwt.py", "_place_disclosures", "_STRUCTURE_NAMES", "BitOr set(node)"):
+        (1, "own value: set(node) is built from a dict (isinstance(node, dict) in the branch before it), whose "
+         "keys that dict already hashed, so the set operation hashes nothing new; the result is tested only "
+         "with `name` after `type(name) is not str` returned"),
 }
 
 

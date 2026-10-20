@@ -135,7 +135,7 @@
       "crosscheck_refs": [
         "_run(\"verify-bundle\""
       ],
-      "notes": "Ed25519 signature + RFC 6962 merkle inclusion + relying-party root/tree-size + SD-JWT issuer-authenticity slice (no cnf / no eval-graft) are covered. NOT covered: Key Binding JWT (holder binding / replay-audience), cross-bundle sd-jwt binding (check_binds_bundle), external anchors (WP-A1 always reports unconfirmed, matching Python's own offline posture but not a full port), and the full sd_jwt_vc issuer-identity check."
+      "notes": "Ed25519 signature + RFC 6962 merkle inclusion + relying-party root/tree-size + SD-JWT issuer-authenticity slice (no cnf / no eval-graft) are covered, and since 2026-10-18 (Codex thread 4303513211 on pull request 373) the sd_jwt_vc block read as bundle.py reads it and its sd-jwt-disclosures check (commitment rooted in the signed payload, _sd_alg, at most 256 disclosures, one place per disclosure, one claim name per object, RFC 9901 section 7.1), held by crosscheck.py _disclosure_bundle_differential on 46 vectors with the same exit code on both sides, which kill 34 of 37 mutants of these rules (the other three equivalent, measured 2026-10-18), plus 4 vectors of a named gap: JSON that Python's loads_strict reads and Rust's strict_parse refuses (NaN, an integer beyond 2^53 - 1, 1E400, a byte order mark) fails in Rust and verifies in Python, as the issuer header and payload already did. NOT covered: Key Binding JWT (holder binding / replay-audience), cross-bundle sd-jwt binding (check_binds_bundle), external anchors (WP-A1 always reports unconfirmed, matching Python's own offline posture but not a full port), and the full sd_jwt_vc issuer-identity check."
     },
     "proofbundle.checkpoint.verify_checkpoint": {
       "status": "PENDING",
@@ -375,7 +375,7 @@
       "status": "PENDING",
       "rust_subcommands": [],
       "crosscheck_refs": [],
-      "notes": "Full SD-JWT compact-serialization verify (structure + optional issuer signature). A NARROW slice of this (issuer Ed25519 signature + eval-root-graft binding, no cnf) lives inside verify-bundle's verify_sdjwt_issuer and is reflected in bundle.verify_bundle's PARTIAL note, not here."
+      "notes": "Full SD-JWT compact-serialization verify (structure + optional issuer signature). A NARROW slice of this (the disclosures check, issuer Ed25519 signature + eval-root-graft binding, no cnf, no ES256) lives inside verify-bundle's verify_sdjwt_issuer and is reflected in bundle.verify_bundle's PARTIAL note, not here."
     },
     "proofbundle.sdjwt_vc.validate_vc_policy": {
       "status": "PENDING",

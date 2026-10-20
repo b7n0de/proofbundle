@@ -138,12 +138,80 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+#: The two names of the SD-JWT's own structure. A disclosure that names a claim ``_sd`` or ``...`` would
+#: overwrite that structure once placed (RFC 9901 section 7.1), so in every object they count as taken.
+_STRUCTURE_NAMES = frozenset({"_sd", "..."})
+
+
+def _place_disclosures(payload: dict, by_digest: dict) -> Optional[str]:
+    """Put every presented disclosure at the one place of the signed payload that refers to it, and return
+    why the presentation is ambiguous, or None when it is not.
+
+    ``by_digest`` maps the digest of each presented disclosure to its parsed JSON array. An object-property
+    disclosure ``[salt, name, value]`` belongs to the object whose ``_sd`` lists its digest, an array-element
+    disclosure ``[salt, value]`` to the array element ``{"...": digest}``. In each object a claim name stands
+    once: two disclosures that name the same claim, or a disclosure and a claim in clear with that name, are
+    two values for one claim, and which one a reader takes depends on the order it merges them in (A1 of the
+    class search for 6.3.1 at f6ea5cc3: ``[salt0, "passed", false]`` and ``[salt1, "passed", true]`` both
+    verified, in either order, with and without a key binding). Names are judged per object, not over the
+    whole payload, so the same name in two different objects is two claims and stays allowed.
+
+    A disclosure has exactly one place: one referred to twice would hold two places (RFC 9901 section 7.1),
+    and placing it once bounds the work by the size of the presentation. A disclosure whose form does not fit
+    its place, or one the payload refers to only from where no disclosure can stand, has no place. The walk
+    is iterative and never raises."""
+    placed: Set[str] = set()
+    stack: list = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            taken = set(node) | _STRUCTURE_NAMES
+            sd = node.get("_sd")
+            for digest in (sd if isinstance(sd, list) else ()):
+                if not isinstance(digest, str) or digest not in by_digest:
+                    continue   # a decoy digest, or a disclosure the holder does not present
+                if digest in placed:
+                    return "an SD-JWT disclosure is referred to from two places (each disclosure has one)"
+                placed.add(digest)
+                parsed = by_digest[digest]
+                if len(parsed) != 3:
+                    return "an array-element SD-JWT disclosure is referred to from an object's _sd"
+                name = parsed[1]
+                if type(name) is not str:
+                    return "an SD-JWT disclosure names its claim with a value that is not a string"
+                if name in taken:
+                    return (f"claim name {name[:40]!r} stands twice in one object: two SD-JWT disclosures, or a "
+                            "disclosure and a claim in clear, give it two values (ambiguous, rejected)")
+                taken.add(name)
+                stack.append(parsed[2])
+            stack.extend(value for key, value in node.items() if key != "_sd")
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, dict) and len(item) == 1 and "..." in item:
+                    digest = item["..."]
+                    if not isinstance(digest, str) or digest not in by_digest:
+                        continue
+                    if digest in placed:
+                        return "an SD-JWT disclosure is referred to from two places (each disclosure has one)"
+                    placed.add(digest)
+                    parsed = by_digest[digest]
+                    if len(parsed) != 2:
+                        return "an object-property SD-JWT disclosure is referred to as an array element"
+                    stack.append(parsed[1])
+                else:
+                    stack.append(item)
+    if placed != set(by_digest):
+        return "an SD-JWT disclosure is referred to only from where no disclosure can stand (no place for it)"
+    return None
+
+
 @_ein_stand
 def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     """Verify an SD-JWT compact serialization.
 
-    Returns a dict with keys: ``structure_ok`` (disclosures all committed),
-    ``sig_checked``, ``sig_ok``, ``alg`` and ``detail``.
+    Returns a dict with keys: ``structure_ok`` (disclosures all committed, each placed where the signed
+    payload refers to it, and no claim name twice in one object), ``sig_checked``, ``sig_ok``, ``alg`` and
+    ``detail``.
     """
     result = {
         "structure_ok": False,
@@ -281,6 +349,15 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         if resolved_count != len(parsed_disclosures):
             # at least one disclosure never became committed — uncommitted / not rooted in the signed payload
             all_committed = False
+        else:
+            # Committed is not yet unambiguous (A1, class search for 6.3.1): every disclosure is placed in the
+            # object or array the signed payload refers to it from, and a claim name stands once per object,
+            # BEFORE structure_ok, and with it the profile and bundle verdicts that read it, is decided.
+            # Identical disclosures share one digest, so the first of a group stands for all of them.
+            reason = _place_disclosures(payload, {dg: group[0][1] for dg, group in digest_groups.items()})
+            if reason is not None:
+                all_committed = False
+                result["detail"] = reason
 
     result["structure_ok"] = all_committed and bool(parts[0])
 
