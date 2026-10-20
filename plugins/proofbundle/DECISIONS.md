@@ -5517,3 +5517,29 @@ or not; an option that starts a program (`--ext-diff`, `--textconv`, `--show-sig
 signature, `-c core.pager=…`) keeps its answer with the pin as without it, and so does a form outside the list
 (rev-list, measured). The command rule of D114 holds here too: `git log | head` keeps its answer.
 Not changed and limits: as D114. Tests: tests/test_plugin_n46_pinned_state_d114_d115.py.
+
+## D116. The short line of an ask or a block names what can go wrong, before the D number (Nachtrag 46, Teil C, points 4 and 5, 2026-10-20)
+
+Order of Nachtrag 46, Teil C (owner choice of 2026-10-20 17:4x Berlin, C sharpen the reasons): for every D number that
+asks or blocks, a short line in everyday words of what can go wrong, before the id; the id stays at the end. Found by
+the retrospective at 89d2e8b7 (delta, 2026-10-18): of 13 mishaps the gate saw, it held 9, only 3 of them with a
+fitting reason, a line that names the danger and not only an id like D3 or D27.
+
+The rule: the short line of D53 for an ask, a deny, a warning, a block of D85 (sperre, umweg) and a card of D93 (karte)
+takes its reason from _SHORT_DANGER, one pair of English and German clauses per reason id, "because <what can go wrong>
+(<D number>)". The not-free answer of D3 names its form (git commit, git add, a read) and the source it found;
+ls-remote, the read forms under Codex and an unknown case have a clause of their own (_SHORT_DANGER_SPECIAL). Eleven
+reason ids already named the danger in their reason and keep it (_SHORT_DANGER_IN_REASON: the house rules H1 to H4, the
+forced, mirrored and deleting push, the literal backslash-n). A card names the danger of the call that needs the owner's
+yes (_short_card_cause), then the card: "Tor sperrt <step>, weil <danger> (<D>); Karte an den Owner (D93)." A line that
+would be longer than 160 characters first takes the short form of the Codex sentence ("Codex kann nicht fragen."), then
+a shorter step name, at least 12 characters, where that makes it fit; only then is it cut, so the danger and its D
+number stay whole (measured for the 95 reason ids, the forms ask, deny, warn, sperre, umweg, karte and the Codex deny,
+steps of 9, 20 and 40 characters, both languages, 3990 lines: none longer than 160 characters, none without its danger
+and D number whole, no Codex line without its sentence; at 70e98e91, 13 German Codex lines with a step of 9 characters
+lost it).
+
+Not changed: the long reason for the model, the reason ids in the log and the bilanz, every decision. The end of a
+session the Stop hook holds keeps its line (Nachtrag 47). The retrospective's 18 cases are a fixture with mishap and
+today's reason; a test shows per case that the line names the danger by its words; whether it fits is judged by the
+retrospective at echo, not here. Tests: tests/test_plugin_n46_danger_line_d116.py.

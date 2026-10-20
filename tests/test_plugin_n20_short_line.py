@@ -178,7 +178,8 @@ def test_an_ask_shows_the_short_line_and_gives_the_model_the_long_reason(shim, r
     _out, answer = run(env, repo, command=CHAIN_ASK)
     specific = answer["hookSpecificOutput"]
     line = short(answer)
-    assert line == "Gate asks at git stash because git may start a program the gate does not see (D3).", line
+    assert line == ("Gate asks at git stash because git can start a program from a setting or hook of the clone nobody "
+                    "checked (D3)."), line   # D116: what can go wrong, before the D number
     assert specific["permissionDecision"] == "ask" and specific["permissionDecisionReason"] == line
     assert specific["additionalContext"].startswith("NOT MEASURED: the step `git stash list` of this command asks")
     assert "Next step: " in specific["additionalContext"]
@@ -189,7 +190,8 @@ def test_the_short_line_is_german_where_a_person_set_it(shim, repo, tmp_path):
     _out, answer = run(env, repo, command=CHAIN_ASK)
     line = short(answer)
     german(line)
-    assert line == "Tor fragt bei git stash, weil git ein Programm starten kann, das das Tor nicht sieht (D3).", line
+    assert line == ("Tor fragt bei git stash, weil git ein ungeprüftes Programm aus Einstellung oder Haken des Klons "
+                    "starten kann (D3)."), line   # D116
     assert answer["hookSpecificOutput"]["additionalContext"].startswith("NOT MEASURED: ")   # the model's text stays
 
 
@@ -212,9 +214,11 @@ def test_a_deny_shows_the_short_line_and_gives_the_model_the_long_reason(shim, r
     assert str(target) not in line and str(tmp_path) not in line, line
     if language == "de":
         german(line)
-        assert line == "Tor sperrt Write, weil das Schreiben das Verzeichnis des Tors trifft (D25).", line
+        assert line == ("Tor sperrt Write, weil das Schreiben die eigenen Regeln und den Modus des Tors ändern "
+                        "könnte (D25)."), line   # D116
     else:
-        assert line == "Gate blocks Write because the write targets the gate's own directory (D25).", line
+        assert line == "Gate blocks Write because the write could change the gate's own rules and mode (D25).", \
+            line   # D116
 
 
 @pytest.mark.parametrize("language", ["en", "de"])
@@ -228,8 +232,9 @@ def test_under_codex_an_ask_is_a_deny_with_the_short_line_and_the_codex_sentence
     assert specific["additionalContext"].endswith("Codex cannot ask, so the gate denies the call.")
     if language == "de":
         german(line)
-        assert line.startswith("Tor sperrt ") and line.endswith("Codex kann nicht fragen, darum sperrt das Tor den "
-                                                                 "Aufruf."), line
+        # D116: the danger and its D number stay whole, so a German line that cannot hold the long Codex sentence takes
+        # its short form
+        assert line.startswith("Tor sperrt ") and line.endswith("(D3). Codex kann nicht fragen."), line
     else:
         assert line.startswith("Gate blocks ") and line.endswith("Codex cannot ask, so the gate blocks the call."), line
 
@@ -243,9 +248,10 @@ def test_under_codex_a_plain_push_warns_with_the_short_line(shim, repo, tmp_path
     line = short(answer)
     assert "permissionDecision" not in specific
     assert specific["additionalContext"].endswith(gate.CODEX_PUSH_WARNING)
-    assert line == ("Tor warnt bei git push, weil der Codex-Haken das Arbeitsverzeichnis nicht mitgibt (D12)."
-                    if language == "de" else
-                    "Gate warns at git push because the Codex hook does not carry the working directory (D12)."), line
+    assert line == ("Tor warnt bei git push, weil das Tor unter Codex nicht weiß, in welchem Repository der Aufruf "
+                    "wirkt (D12)." if language == "de" else
+                    "Gate warns at git push because under Codex the gate cannot tell in which repository the call "
+                    "acts (D12)."), line   # D116
 
 
 @pytest.mark.parametrize("language", ["en", "de"])
@@ -309,7 +315,8 @@ def test_a_reason_of_a_profile_takes_the_decision_its_long_reason_names():
                                   "x. (class a; DECISIONS.md D3, D34).", "git_form_not_free",
                            evidence="the repository state git log runs with")
     line = gate.short_line("ask", gate.Outcome("ask", verdict.detail, [verdict]), "git log", "en")
-    assert line == "Gate asks at git log because a setting may make git start a program (D34).", line
+    assert line == ("Gate asks at git log because even this read can start a program from a setting of the clone "
+                    "nobody checked (D34)."), line   # D116
 
 
 def test_the_language_file_is_read_like_the_mode(tmp_path):

@@ -207,7 +207,8 @@ def test_D72_a_write_into_configuration_or_hooks_gives_the_line_its_reason(tmp_p
     assert [v.reason_id for v in out.verdicts] == reasons      # the reason ids in the log stay
     assert out.decision == "ask" and out.step == step, (out.decision, out.step)
     line = _line(out, host)
-    assert f" {step} because the write touches git configuration or hooks (D8)." in line, line
+    assert f" {step} because the write can change hooks or git settings that start programs later (D8)." in line, \
+        line   # D116: what can go wrong, before the D number
 
 
 @pytest.mark.parametrize("host", HOSTS)
@@ -219,8 +220,8 @@ def test_D72_a_write_into_the_gate_directory_names_its_step_before_a_write_that_
     assert [v.reason_id for v in out.verdicts] == ["write_to_repo_state", "write_to_gate_dir", "git_form_not_free",
                                                    "git_form_not_free"]
     assert out.decision == "deny" and out.step == "git log", (out.decision, out.step)
-    assert _line(out, host) == "Gate blocks git log because the write targets the gate's own directory (D25).", \
-        _line(out, host)
+    assert _line(out, host) == ("Gate blocks git log because the write could change the gate's own rules and mode "
+                                "(D25)."), _line(out, host)   # D116
 
 
 def test_D72_a_write_that_asks_does_not_take_the_line_from_a_deny(tmp_path):

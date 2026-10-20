@@ -185,7 +185,8 @@ def test_D101_the_write_gives_the_chain_its_reason_and_the_line_its_weight(repo)
     out = _out(repo, "echo x > ~/.claude/settings.json && git status")
     assert out.decision == "deny" and "write_to_host_settings" in _ids(out), _ids(out)
     line = d72._line(out)
-    assert "the write targets the settings of the host, where hooks and permissions stand (D101)." in line, line
+    assert "the write could change the host's hooks and permissions, the gate's included (D101)." in line, \
+        line   # D116: what can go wrong, before the D number
 
 
 def test_D101_the_reason_weighs_and_catches():

@@ -215,7 +215,8 @@ def test_D59_control_under_codex_the_answer_of_D41(repo, command):
 def test_D59_under_codex_the_hook_blocks_with_the_D41_line(tmp_path, repo):
     rc, decision, line = _hook(tmp_path, tmp_path, f"git -C {repo} ls-remote origin", host="codex")
     assert (rc, decision) == (0, "deny"), line
-    assert line.startswith("Gate blocks git ls-remote because this ls-remote is not the form the gate frees (D41)."), line
+    assert line.startswith("Gate blocks git ls-remote because this ls-remote can reach another host or start a program "
+                           "nobody checked (D41)."), line   # D116: what can go wrong, before the D number
 
 
 # --- a finding of the profile asks, with the short line of D53 --------------------------------------------------------
@@ -272,8 +273,10 @@ def test_D59_a_finding_of_the_profile_asks_and_names_it(tmp_path, repo, monkeypa
 
 
 @pytest.mark.parametrize("language, line", [
-    (None, "Gate asks at git ls-remote because this ls-remote is not the form the gate frees (D59)."),
-    ("de", "Tor fragt bei git ls-remote, weil dieses ls-remote nicht die Form ist, die das Tor freigibt (D59).")])
+    (None, "Gate asks at git ls-remote because this ls-remote can reach another host or start a program nobody checked "
+           "(D59)."),
+    ("de", "Tor fragt bei git ls-remote, weil dieses ls-remote einen anderen Host erreichen oder ein ungeprüftes "
+           "Programm starten kann (D59).")])   # D116
 @pytest.mark.parametrize("case", ["http.proxy", "reference-transaction hook", "a local path as URL", "HTTPS_PROXY"])
 def test_D59_a_finding_asks_with_the_short_line_of_D53(tmp_path, repo, monkeypatch, case, language, line):
     key, value, _named = FINDINGS[case]
@@ -290,7 +293,8 @@ def test_D59_an_excluded_option_asks_with_the_D41_line_naming_ls_remote(tmp_path
     """Before D59 the line of every ls-remote said `this fetch is not the form the gate frees`."""
     rc, decision, shown = _hook(tmp_path, tmp_path, f"git -C {repo} ls-remote --symref origin")
     assert (rc, decision, shown) == \
-        (0, "ask", "Gate asks at git ls-remote because this ls-remote is not the form the gate frees (D41)."), shown
+        (0, "ask", "Gate asks at git ls-remote because this ls-remote can reach another host or start a program nobody "
+                   "checked (D41)."), shown   # D116
 
 
 def test_D59_the_form_reads_no_word_the_shell_may_rewrite():

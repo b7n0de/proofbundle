@@ -15058,6 +15058,171 @@ _SHORT_LS_REMOTE = ("this ls-remote is not the form the gate frees", "dieses ls-
 _SHORT_CODEX_READ = ("D37", "under Codex no read form is free", "unter Codex keine Leseform frei ist")
 #: An id the table does not know: the long reason, which goes to the model, says why (D19).
 _SHORT_UNKNOWN = ("D19", "the full reason says why", "die volle Begründung sagt, warum")
+#: D116 (Nachtrag 46, Teil C): reason_id -> (English, German) of what can go wrong, for every reason that asks or
+#: blocks a call whose reason of D53 says what the gate cannot tell. It completes "because …" and "weil …" in the short
+#: line in place of that reason, which stays in the long reason and the log. It names no path and no value (D49).
+#: The reasons of _SHORT_DANGER_IN_REASON name what can go wrong already and stand as they are.
+_SHORT_DANGER = {
+    "absence_not_measured": ("a push could go out unchecked, as the gate cannot tell that nothing is declared",
+                             "ein Push ungeprüft hinausgehen könnte, da das Tor nicht sieht, dass nichts erklärt ist"),
+    "declaration_uncommitted": ("the push would be judged by evidence rules that are not committed",
+                                "der Push nach Regeln für Belege beurteilt würde, die nicht committet sind"),
+    "declaration_unread": ("the push could go out without the evidence the repository asks for",
+                           "der Push ohne die Belege hinausgehen könnte, die das Repository verlangt"),
+    "empty_declaration": ("the push would go out with no evidence checked at all",
+                          "der Push ganz ohne geprüfte Belege hinausginge"),
+    "no_commit": ("nothing is committed yet that evidence could bind to",
+                  "noch nichts committet ist, woran Belege binden könnten"),
+    "not_a_work_tree": ("the call may act on a repository the gate cannot check",
+                        "der Aufruf in einem Repository wirken kann, das das Tor nicht prüfen kann"),
+    "checkout_not_modeled": ("a checkout can start hooks and filters of the clone nobody checked",
+                             "ein Auschecken Haken und Filter des Klons starten kann, die niemand geprüft hat"),
+    "code_names_git": ("a program in the command can run git or gh, a push too, from text the gate does not read",
+                       "ein Programm im Befehl git oder gh aus ungelesenem Text starten kann, auch einen Push"),
+    "program_word_unknown": ("the program that runs is a variable, and it can be git push or anything else",
+                             "das Programm eine Variable ist und git push oder etwas anderes sein kann"),
+    "codex_push_not_plain": ("under Codex this push form goes out without the evidence check",
+                             "diese Push-Form unter Codex ohne Prüfung der Belege hinausgeht"),
+    "codex_context_unbound": ("under Codex the gate cannot tell in which repository the call acts",
+                              "das Tor unter Codex nicht weiß, in welchem Repository der Aufruf wirkt"),
+    "directory_unresolved": ("the step can act in another repository than the one the gate checks",
+                             "der Schritt in einem anderen Repository wirken kann als dem, das das Tor prüft"),
+    "done_order_change": ("the command changes what counts as done, so unfinished work could pass",
+                          "der Befehl ändert, was als fertig gilt, und unfertige Arbeit so durchgehen könnte"),
+    "gh_form_not_free": ("gh can start a program or reach another host through a setting nobody checked",
+                         "gh über eine ungeprüfte Einstellung ein Programm oder einen fremden Host erreichen kann"),
+    "git_form_not_free": ("git can start a program from a setting or hook of the clone nobody checked",
+                          "git ein ungeprüftes Programm aus Einstellung oder Haken des Klons starten kann"),
+    "net_unmodeled_git": ("the call can act outside (push, merge, tag, comment), unseen by the gate",
+                          "der Aufruf nach außen wirken kann (Push, Merge, Tag, Kommentar), unsichtbar fürs Tor"),
+    "possible_unmodeled_push": ("the command can send commits to a remote in a form the gate does not resolve",
+                                "der Befehl Commits an einen Remote senden kann, in einer Form, die das Tor nicht "
+                                "auflöst"),
+    "push_not_measured": ("the push can send commits the gate did not check",
+                          "der Push Commits senden kann, die das Tor nicht geprüft hat"),
+    "remote_read_not_modeled": ("this fetch can reach another host or start a program nobody checked",
+                                "dieser fetch einen anderen Host erreichen oder ein ungeprüftes Programm starten kann"),
+    "rules_changed": ("the push changes the rules its own evidence is judged by",
+                      "der Push die Regeln ändert, nach denen seine eigenen Belege beurteilt werden"),
+    "step_after_state_change": ("an earlier step can change what the gate read for this step",
+                                "ein Schritt davor ändern kann, was das Tor für diesen Schritt gelesen hat"),
+    "target_ref_absent": ("a push to a branch that does not exist yet creates it unchecked",
+                          "ein Push auf einen noch fehlenden Zweig ihn ungeprüft anlegt"),
+    "mcp_target_unbound": ("the tool can write to GitHub with a target and content the gate does not bind",
+                           "das Werkzeug auf GitHub schreiben kann, mit Ziel und Inhalt, die das Tor nicht bindet"),
+    "write_to_repo_state": ("the write can change hooks or git settings that start programs later",
+                            "das Schreiben Haken oder Git-Einstellungen ändern kann, die später Programme starten"),
+    "write_to_shell_start": ("the write can plant code the shell runs before a later call",
+                             "das Schreiben Code ablegen kann, den die Shell vor einem späteren Aufruf ausführt"),
+    "sandbox_verifier_unavailable": ("without the verifier the push could go out unchecked",
+                                     "der Push ohne den Prüfer ungeprüft hinausgehen könnte"),
+    "no_receipt": ("the work would count as done without a receipt of a required check",
+                   "die Arbeit ohne Quittung einer Pflichtprüfung als fertig gelten würde"),
+    "claim_without_evidence": ("a claim of the last message would stand without evidence",
+                               "eine Behauptung der letzten Nachricht ohne Beleg stehen bliebe"),
+    "verification_failed": ("the evidence does not verify, so the push could carry an unproven state",
+                            "die Belege nicht bestätigt sind und der Push einen unbelegten Stand tragen könnte"),
+    "not_done": ("the work would count as done while a required check is red",
+                 "die Arbeit als fertig gälte, obwohl eine Pflichtprüfung rot ist"),
+    "other_selection": ("a receipt of another test selection would count for this one",
+                        "eine Quittung einer anderen Testauswahl für diese zählen würde"),
+    "stale_receipt": ("a receipt of an older state would count for the current one",
+                      "eine Quittung eines älteren Stands für den aktuellen zählen würde"),
+    "outside_paths": ("the work would count as done though it changed none of the named paths",
+                      "die Arbeit als fertig gälte, obwohl sie keinen der genannten Pfade änderte"),
+    "no_change": ("the work would count as done though it changed nothing",
+                  "die Arbeit als fertig gälte, obwohl sie nichts geändert hat"),
+    "order_removed": ("with the done order gone, unfinished work could end unchecked",
+                      "ohne den Abschlussauftrag unfertige Arbeit ungeprüft enden könnte"),
+    "order_unreadable": ("an unreadable done order could let unfinished work end unchecked",
+                         "ein unlesbarer Abschlussauftrag unfertige Arbeit ungeprüft enden lassen könnte"),
+    "codex_write_unbound": ("under Codex the gate cannot bind what this write changes",
+                            "das Tor unter Codex nicht binden kann, was dieses Schreiben ändert"),
+    "declaration_not_committed": ("the done check would read evidence rules that are not committed",
+                                  "die Abschlussprüfung Regeln für Belege lesen würde, die nicht committet sind"),
+    "declaration_required": ("the workflow would pass without the evidence it requires",
+                             "der Ablauf ohne die verlangten Belege grün würde"),
+    "gate_error": ("without a verdict the call could run unchecked", "der Aufruf ohne Urteil ungeprüft laufen könnte"),
+    "internal_error": ("without a verdict the call could run unchecked",
+                       "der Aufruf ohne Urteil ungeprüft laufen könnte"),
+    "hook_input": ("a call the gate cannot read could run unchecked",
+                   "ein Aufruf, den das Tor nicht lesen kann, ungeprüft laufen könnte"),
+    "git_directory_unread": ("the check of the push could be skipped where git names no git directory",
+                             "die Prüfung beim Push ausfallen könnte, wo git kein Git-Verzeichnis nennt"),
+    "handover_refused": ("the push could go out with a check meant for another push",
+                         "der Push mit einer Prüfung für einen anderen Push hinausgehen könnte"),
+    "hooks_disabled": ("the command would turn off the check every push goes through",
+                       "der Befehl die Prüfung abschalten würde, die jeder Push durchläuft"),
+    "missing_file": ("without the done policy a receipt signed by anyone would count",
+                     "ohne die Richtlinie der Abschlussprüfung eine Quittung von jedem zählen würde"),
+    "not_bound": ("evidence for another tree would count for this push",
+                  "Belege eines anderen Stands für diesen Push zählen würden"),
+    "order_base_not_measured": ("the work could count as done without the gate seeing what it changed",
+                                "die Arbeit als fertig gelten könnte, ohne dass das Tor sieht, was sie änderte"),
+    "policy_pins_no_signer": ("a receipt signed by anyone would count", "eine von irgendwem signierte Quittung "
+                                                                        "zählen würde"),
+    "stale_subject": ("the evidence names another state than the one that goes out",
+                      "die Belege einen anderen Stand nennen als den, der hinausgeht"),
+    "state_not_measured": ("the work could count as done though the gate cannot read its state",
+                           "die Arbeit als fertig gelten könnte, obwohl das Tor ihren Stand nicht lesen kann"),
+    "write_to_gate_dir": ("the write could change the gate's own rules and mode",
+                          "das Schreiben die eigenen Regeln und den Modus des Tors ändern könnte"),
+    "write_to_host_settings": ("the write could change the host's hooks and permissions, the gate's included",
+                               "das Schreiben Haken und Rechte des Wirts ändern könnte, die des Tors eingeschlossen"),
+    "secret_path": ("the call can read or leak a key or a credential",
+                    "der Aufruf einen Schlüssel oder Zugangswert lesen oder preisgeben kann"),
+    "upload_to_host": ("a file or data leaves for a host outside", "eine Datei oder Daten an einen fremden Host "
+                                                                   "hinausgehen"),
+    "delete_outside_work": ("it deletes recursively outside the work folder, where other files live",
+                            "es außerhalb des Arbeitsordners rekursiv löscht, wo fremde Dateien liegen"),
+    "append_outside_work": ("it writes into a file outside the work folder, such as a log of others",
+                            "es in eine Datei außerhalb des Arbeitsordners schreibt, etwa ein fremdes Log"),
+    "text_form_red": ("a text of the wrong form would go out to GitHub",
+                      "ein Text in falscher Form zu GitHub hinausginge"),
+    "text_form_unchecked": ("a text nobody checked for its form would go out to GitHub",
+                            "ein Text, dessen Form niemand prüfte, zu GitHub hinausginge"),
+    "autonomy_rewrite": ("the call as written is no external effect, and a rewrite of it is free",
+                         "der Aufruf wie geschrieben keine Außenwirkung ist und eine Umschreibung frei ist"),
+    "autonomy_blocked": ("the call is no external effect, and no form of it is free",
+                         "der Aufruf keine Außenwirkung ist und keine Form frei ist"),
+    "push_protected": ("main or a protected branch would change without a pull request",
+                       "main oder ein geschützter Zweig sich ohne PR ändern würde"),
+    "push_unmeasured": ("the push can go somewhere the gate cannot measure",
+                        "der Push an ein Ziel gehen kann, das das Tor nicht messen kann"),
+    "local_program": ("a local form starts a program of the clone nobody checked",
+                      "eine lokale Form ein Programm des Klons startet, das niemand geprüft hat"),
+    "write_to_declaration": ("the form changes the evidence rules the next push is judged by",
+                             "die Form die Regeln der Belege ändert, nach denen der nächste Push beurteilt wird"),
+    "autonomy_card": ("this external effect needs the owner's yes on a card",
+                      "diese Außenwirkung ein Ja des Owners auf einer Karte braucht"),
+    "pr_form_red": ("a pull request text of the wrong form would go out", "ein PR-Text in falscher Form hinausginge"),
+}
+#: D116: the reasons of the table of D53 that name what can go wrong already (the house rules of D73, written for the
+#: same retrospective in Nachtrag 30, the measured push targets of D86, the literal backslash-n of D108).
+_SHORT_DANGER_IN_REASON = frozenset({"house_admin_merge", "house_protection_api", "house_tag_out",
+                                     "house_pr_limit_reached", "house_pr_limit", "house_kill_pattern", "house_kill_own",
+                                     "push_force", "push_mirror", "push_delete", "text_literal_newline"})
+#: D116: what can go wrong for a git form whose answer is the not-free answer of D3, by the form it names.
+_SHORT_DANGER_GIT_FORM = {
+    "git commit": ("a commit takes everything staged, deletions too, and runs hooks nobody checked",
+                   "ein Commit alles Gestagte mitnimmt, auch Löschungen, und ungeprüfte Haken startet"),
+    "git add": ("git add can take more than meant and run filters of the clone nobody checked",
+                "git add mehr als gemeint aufnehmen und ungeprüfte Filter starten kann"),
+    "read": ("even this read can start a program from a setting of the clone nobody checked",
+             "auch dieser Lesebefehl ein ungeprüftes Programm aus den Einstellungen starten kann"),
+}
+#: D116: the special reasons of _short_reason, by their D number and English reason.
+_SHORT_DANGER_SPECIAL = {
+    _SHORT_GIT_FORM[1]: _SHORT_DANGER["git_form_not_free"],
+    _SHORT_LS_REMOTE[0]: ("this ls-remote can reach another host or start a program nobody checked",
+                          "dieses ls-remote einen anderen Host erreichen oder ein ungeprüftes Programm starten kann"),
+    _SHORT_CODEX_READ[1]: ("under Codex the gate cannot bind where a read runs or what it starts",
+                           "das Tor unter Codex nicht binden kann, wo ein Lesebefehl läuft und was er startet"),
+    _SHORT_UNKNOWN[1]: ("the full reason says what can go wrong", "die volle Begründung sagt, was schiefgehen kann"),
+}
+#: The forms of the read profile (D34) a danger names as a read.
+_SHORT_READ_FORMS = re.compile(r"git (rev-parse|status|log|show|diff|ls-files|merge-base|cat-file|grep|rev-list|"
+                               r"branch|tag|remote|config|for-each-ref|describe|shortlog|blame|stash list)\b")
 _SHORT_LAST_D = re.compile(r"\bD([0-9]{1,3}[A-Z]?)\b")
 #: The templates of the short line by decision and language (D53): the step, the reason, the D number.
 _SHORT_TEMPLATES = {
@@ -15067,11 +15232,12 @@ _SHORT_TEMPLATES = {
            "inactive": "Gate is not active here because {reason} ({d}).",
            "stop": "Gate holds the end because {reason} ({d}).",
            "rule": "Gate frees {step} by a rule a person wrote, mode and rules as of {when} (D25).",
-           "umweg": "Gate blocks {step}; rewrite: {hint} (D85). Because {reason} ({d}).",
+           "umweg": "Gate blocks {step} because {reason} ({d}); rewrite: {hint} (D85).",
            "go": "Gate lets {step} run: own work branch under the standing GO, measured, receipt in the log (D92).",
            "maschine": "Gate lets {step} run: the house's form checker passes the text, receipt in the log (D92).",
            "freigabe": "Gate lets {step} run once: the owner released it on the card {hint}, receipt in the log (D111).",
-           "sperre": "Gate blocks {step}: no free way, it asks only for an external effect (D85). Because {reason} ({d}).",
+           "sperre": "Gate blocks {step} because {reason} ({d}); no free way, it asks only for an external effect (D85).",
+           "karte": "Gate blocks {step} because {reason} ({d}); the owner answers on a card (D93).",
            "hinweis": "Gate notes at {step} that {reason} ({d})."},
     "de": {"ask": "Tor fragt bei {step}, weil {reason} ({d}).", "deny": "Tor sperrt {step}, weil {reason} ({d}).",
            "warn": "Tor warnt bei {step}, weil {reason} ({d}).",
@@ -15079,19 +15245,27 @@ _SHORT_TEMPLATES = {
            "inactive": "Tor ist hier nicht aktiv, weil {reason} ({d}).",
            "stop": "Tor hält das Ende auf, weil {reason} ({d}).",
            "rule": "Tor gibt {step} nach einer Regel frei, die ein Mensch schrieb, Modus und Regeln Stand {when} (D25).",
-           "umweg": "Tor sperrt {step}; Umweg: {hint} (D85). Weil {reason} ({d}).",
+           "umweg": "Tor sperrt {step}, weil {reason} ({d}); Umweg: {hint} (D85).",
            "go": "Tor lässt {step} laufen: eigener Arbeitszweig unter dem stehenden GO, gemessen, Quittung im Log (D92).",
            "maschine": "Tor lässt {step} laufen: Formprüfer des Hauses grün, Quittung im Log (D92).",
            "freigabe": "Tor lässt {step} einmal laufen: der Owner gab es auf der Karte {hint} frei, Quittung im Log (D111).",
-           "sperre": "Tor sperrt {step}: kein freier Weg, es fragt nur bei Außenwirkung (D85). Weil {reason} ({d}).",
+           "sperre": "Tor sperrt {step}, weil {reason} ({d}); kein freier Weg, es fragt nur bei Außenwirkung (D85).",
+           "karte": "Tor sperrt {step}, weil {reason} ({d}); Karte an den Owner (D93).",
            "hinweis": "Tor weist bei {step} darauf hin, dass {reason} ({d})."},
 }
 _SHORT_NO_STEP = {"en": "this command", "de": "diesem Befehl"}
+#: The same where the template takes the step as its object ("Tor sperrt diesen Befehl"), D116.
+_SHORT_NO_STEP_OBJECT = {"en": "this command", "de": "diesen Befehl"}
+_SHORT_OBJECT_FORMS = frozenset({"deny", "sperre", "umweg", "karte", "handover", "rule", "go", "maschine", "freigabe"})
 _SHORT_UNKNOWN_TIME = {"en": "unknown", "de": "unbekannt"}
 _STAMP_TIME = re.compile(r"last changed ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)")
 #: What the deny of an ask says under Codex, which has no dialog (D12), in the short line of the deny.
 _SHORT_CODEX_DENY = {"en": "Codex cannot ask, so the gate blocks the call.",
                      "de": "Codex kann nicht fragen, darum sperrt das Tor den Aufruf."}
+#: The short form of a suffix, taken when the line would otherwise cut the long one (D116).
+_SHORT_SUFFIX_SHORT = {_SHORT_CODEX_DENY["en"]: "Codex cannot ask.", _SHORT_CODEX_DENY["de"]: "Codex kann nicht fragen."}
+#: The shortest a step name gets when the line would otherwise cut its reason, D number or suffix (D116).
+_SHORT_STEP_MIN = 12
 
 
 def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
@@ -15110,6 +15284,54 @@ def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
         named = _SHORT_LAST_D.findall(verdict.detail)
         entry = (f"D{named[-1]}" if named else "D3", entry[1], entry[2])
     return entry
+
+
+#: D116: the forms of the short line whose reason is what can go wrong: an ask, a block, a warning, the block of D85, a
+#: rewrite and a card. The held end of the Stop hook keeps its reason (Nachtrag 47 is about it).
+_SHORT_DANGER_FORMS = frozenset({"ask", "deny", "warn", "sperre", "umweg", "karte"})
+#: D116: reasons that say only that the gate cannot read or resolve a call; for the line of a card the danger of a more
+#: specific reason of the same answer comes first.
+_SHORT_DANGER_GENERIC = frozenset({"net_unmodeled_git", "possible_unmodeled_push", "push_not_measured",
+                                   "directory_unresolved", "step_after_state_change", "git_form_not_free",
+                                   "gh_form_not_free"})
+
+
+def _short_card_cause(outcome: "Outcome") -> "Verdict | None":
+    """D116: the verdict whose danger the line of a card of D93 names: the first ask of the answer that is not only the
+    gate's own blind spot (_SHORT_DANGER_GENERIC), else the first ask."""
+    asks = [v for v in outcome.verdicts if v.decision == "ask"]
+    return next((v for v in asks if v.reason_id not in _SHORT_DANGER_GENERIC), asks[0] if asks else None)
+
+
+def _short_git_form_name(verdict: "Verdict") -> str | None:
+    """The git form a not-free answer of D3 names: from its evidence (the state check, the read profile) or from what
+    failed ("<form> may start a program …")."""
+    m = _PINNED_EVIDENCE.fullmatch(verdict.evidence or "")
+    if m is not None:
+        return f"git {m.group(1)}"
+    failed = verdict.failed or ""
+    return failed.split(" may start", 1)[0] if " may start" in failed else None
+
+
+def _short_danger(verdict: "Verdict | None") -> tuple[str, str] | None:
+    """D116 (Nachtrag 46, Teil C): (English, German) of what can go wrong for the verdict that decides, or None where
+    its reason of D53 names that already (_SHORT_DANGER_IN_REASON), and that reason stands."""
+    if verdict is None:
+        return _SHORT_DANGER_SPECIAL[_SHORT_UNKNOWN[1]]
+    if verdict.reason_id == "git_form_not_free" and verdict.detail == _CODEX_READ_FORM_EXPLANATION:
+        return _SHORT_DANGER_SPECIAL[_SHORT_CODEX_READ[1]]
+    if verdict.reason_id == "git_form_not_free":
+        name = _short_git_form_name(verdict)
+        if name in _SHORT_DANGER_GIT_FORM:
+            return _SHORT_DANGER_GIT_FORM[name]
+        if name is not None and _SHORT_READ_FORMS.match(name):
+            return _SHORT_DANGER_GIT_FORM["read"]
+        return _SHORT_DANGER["git_form_not_free"]
+    if verdict.reason_id == "remote_read_not_modeled" and (verdict.failed or "").startswith("git ls-remote "):
+        return _SHORT_DANGER_SPECIAL[_SHORT_LS_REMOTE[0]]
+    if verdict.reason_id not in _SHORT_REASONS:
+        return _SHORT_DANGER_SPECIAL[_SHORT_UNKNOWN[1]]
+    return _SHORT_DANGER.get(verdict.reason_id)   # None for _SHORT_DANGER_IN_REASON: its reason stands
 
 
 def _short_step_name(command: str | None, cwd: str) -> str | None:
@@ -15133,21 +15355,38 @@ def _short_step_name(command: str | None, cwd: str) -> str | None:
 def short_line(decision: str, outcome: "Outcome | None", step: str | None, language: str, form: str | None = None,
                suffix: str = "", hint: str = "") -> str:
     """The one line the user sees for an answer that is no pass (D53): the step that has the decision, the reason in
-    everyday words and the D number, at most SHORT_LINE_MAX characters, in the language a person set. The long reason
-    goes on to the model and the log keeps what it kept."""
+    everyday words and the D number, at most SHORT_LINE_MAX characters, in the language a person set. For an ask, a
+    block, a warning and a held end the reason is what can go wrong, before the D number (D116, _short_danger). The long
+    reason goes on to the model and the log keeps what it kept."""
     language = language if language in _LANGUAGES else "en"
     lead = None
     if outcome is not None:
         lead = outcome.cause or next((v for v in outcome.verdicts if v.decision == decision), None) or \
             (outcome.verdicts[0] if outcome.verdicts else None)   # D72: the verdict of the step or rule that decides
+    if lead is not None and lead.reason_id == "autonomy_card" and outcome is not None and form is None:
+        form, lead = "karte", (_short_card_cause(outcome) or lead)   # D116: the danger of the call, then the card
     d, english, german = _short_reason(lead)
-    name = step or _SHORT_NO_STEP[language]
+    danger = _short_danger(lead) if (form or decision) in _SHORT_DANGER_FORMS else None
+    if danger is not None:
+        english, german = danger
+    name = step or (_SHORT_NO_STEP_OBJECT if (form or decision) in _SHORT_OBJECT_FORMS else _SHORT_NO_STEP)[language]
     if len(name) > _SHORT_STEP_MAX:
         name = name[:_SHORT_STEP_MAX - 1] + "…"
     template = _SHORT_TEMPLATES[language][form or decision]
     when = max(_STAMP_TIME.findall(lead.detail if lead is not None else ""), default=_SHORT_UNKNOWN_TIME[language])
-    line = template.format(step=name, reason=german if language == "de" else english, d=d, when=when, hint=hint)
-    line = f"{line} {suffix}" if suffix else line
+    reason = german if language == "de" else english
+
+    def build(name: str, suffix: str) -> str:
+        line = template.format(step=name, reason=reason, d=d, when=when, hint=hint)
+        return f"{line} {suffix}" if suffix else line
+
+    # D116: a line that is too long takes the short form of its suffix, then a shorter step, and is cut only where
+    # neither fits, so the danger, its D number and the end of the template stay whole where they fit at all
+    suffix = suffix if len(build(name, suffix)) <= SHORT_LINE_MAX else _SHORT_SUFFIX_SHORT.get(suffix, suffix)
+    line = build(name, suffix)
+    room = len(name) - (len(line) - SHORT_LINE_MAX)
+    if len(line) > SHORT_LINE_MAX and room >= _SHORT_STEP_MIN:
+        line = build(name[:room - 1] + "…", suffix)
     if len(line) > SHORT_LINE_MAX:
         line = line[:SHORT_LINE_MAX - 2] + "…."
     return line
