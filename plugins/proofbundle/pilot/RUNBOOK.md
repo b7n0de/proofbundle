@@ -234,5 +234,8 @@ The reconciliation reads nothing the records do not keep, and checks every kept 
 - The events API lists at most 300 events and 90 days; a write it does not list is not counted. "None found" in M5 and
   M6 is bounded by what it returned (contract, section 7).
 - A write the gate does not read gets no receipt (D55); if it arrives it counts under M5, which is how it is found.
+- Under the hook's autonomous answer (Claude Code, `--autonomous`) a write whose answer it changes can lack its
+  receipt of Level 1: the signer service decides without that answer and refuses with `verdict_differs`
+  (O28B-1, D113). If it arrives it counts under M5; the reconciliation says so under `window_notes`.
 - Asked calls are recorded as ESCALATE: the gate does not see the person's answer in the dialog, so an asked write
   that a person allowed counts under M5 as a write without an approval of the gate.

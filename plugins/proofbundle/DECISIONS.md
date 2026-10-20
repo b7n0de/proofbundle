@@ -5428,3 +5428,25 @@ the hook's value, which may be another file; a step that uses a name before anot
 judged with the command's value only, where bash takes the hook's; code of other languages, xargs and a relative path
 after cd stay as they are. Under Codex the same words are put in (not measured; the paths only add). Tests:
 tests/test_plugin_n41_hook_env_d112.py.
+
+## D113. The window says where a receipt of Level 1 can be missing under the autonomous answer (Nachtrag 43, owner choice O28B-1, 2026-10-20)
+
+Found in PLUGIN_N28B_KETTE (finding 2) and measured end to end in Nachtrag 43, point 1: the hook of Claude Code runs
+with --autonomous (hooks.json, D85), and the signer service decides the call again with tool_outcome, without the
+autonomous answer (D58), and signs only where both decisions are the same. For a GitHub write the pilot reads and the
+autonomous answer changes (a pass under the standing GO of D87 or D92, a release on a card of D111, a block of a card of
+D93 or of a push target of D86) it refuses with verdict_differs, and that write gets no receipt of Level 1. The answer of
+the hook stays as it was: a receipt never changes the answer (D55).
+
+Owner choice O28B-1 of 2026-10-20: measure first, and until then the window says so. The rule: the reconciliation of
+every window carries under window_notes one sentence (LEVEL1_UNDER_AUTONOMY in reconcile.py) and prints it after M5
+and M6: under the hook's autonomous answer a write whose answer it changes can lack its receipt of Level 1, and M5
+counts such a write that reaches GitHub, as an effect without an approval, as it counted it before. Nothing about the
+decisions, the receipts, the gate or the service changes.
+
+Measured for choice A (a service that knows the autonomous answer from the operator's setting, never from the
+request; a copy for the measurement only, not delivered): in the hook's environment it agrees with the hook in every
+measured case but the release of D111, which the hook has used up before the service decides; with a data folder of its
+own it agrees on the release and differs on the count of open pull requests of D110 (reasons_differ). A write in the
+form of D67 gets no receipt either (O28-4, so left in the first pilot); M5 counts it where it arrives. Tests:
+tests/test_plugin_n43_window_note_o28b1.py, tests/test_plugin_n43_d67_form_o28_4.py.

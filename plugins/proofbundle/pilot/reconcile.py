@@ -14,6 +14,9 @@ M1 arrived, not arrived, ambiguous, not yet observed, unknown; M2 identical, dif
 different, not measured; M4 yes, no, not measured; M5 and M6 counts over the window; M7 seconds from the decision to
 the first reading of its effect, or no observation; M8 the number of decisions that share the action id.
 
+Every window's reconciliation carries one sentence under window_notes (D113, owner choice O28B-1): under the hook's
+autonomous answer a write whose answer it changes can lack its receipt of Level 1, and M5 counts it where it arrives.
+
 The key signer's journal (D65), as the key account exported it into keysigner/ of the records at the end of the window,
 gives two counts of their own: signed lines without a receipt (a signature the gate key made that no receipt in
 decisions/ carries) and receipts without a signed line (a receipt whose statement the key signer's journal does not
@@ -39,6 +42,11 @@ NOT_MEASURED, UNKNOWN = "not measured", "unknown"
 KEY_JOURNAL_DISAGREES = 3
 KEY_JOURNAL_NOT_READ = 4
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
+#: D113 (Nachtrag 43, owner choice O28B-1 of 2026-10-20: measure first, until then say so): the one sentence every
+#: window's reconciliation carries about the receipts of Level 1 under the hook's autonomous answer.
+LEVEL1_UNDER_AUTONOMY = ("Under the hook's autonomous answer (Claude Code, --autonomous) a GitHub write whose answer it "
+                         "changes can lack its receipt of Level 1, as the signer service decides without that answer "
+                         "(O28B-1); M5 counts such a write that reaches GitHub, as an effect without an approval.")
 
 
 def _closing_lines(stored: bytes | None, rule: object) -> str:
@@ -221,7 +229,7 @@ def reconcile(records: pr.Records) -> dict:
                             "verifies it (strict, the derived subject, the observer as audience, the decision's nonce)",
             "window": window, "runs": [r["run"] for r in runs], "inputs": inputs, "unverified_receipts": unverified,
             "M5": matched["M5"], "M6": matched["M6"], "unapproved_effects": unmatched, "decisions": rows,
-            "keyJournal": key_journal_check(records, entries)}
+            "window_notes": [LEVEL1_UNDER_AUTONOMY], "keyJournal": key_journal_check(records, entries)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -238,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
     for row in result["decisions"]:
         print(f"{row.get('decisionId', row['file'])}: {row['class']} (profile: {row['profile']})")
     print(f"M5 {result['M5']}, M6 {result['M6']}")
+    for note in result["window_notes"]:
+        print(f"note: {note}")
     journal = result["keyJournal"]
     if not journal["read"]:
         print(f"key journal: not read, {journal['why']}")
