@@ -25,14 +25,24 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 python3 "$ROOT/scripts/mutant_signature_guard.py" --staged
 
-if git diff --cached --name-only --diff-filter=ACMR | grep -q '^scripts/'; then
+# EVERY CHANGE TYPE, DELETIONS INCLUDED (Codex on pull request 368, round one, P2): a script deleted
+# while MANIFEST.in still lists it is exactly what the node refuses, and `--diff-filter=ACMR` kept it
+# from ever being asked.
+if git diff --cached --name-only | grep -q '^scripts/'; then
     # FAIL-OPEN ONLY WHEN THE TOOL IS MISSING, and visibly: a developer without pytest should not
     # be kept from committing, but should not believe it was checked either. The gate stays CI;
     # this hook is the early warning, not the decision.
     if PYTHONPATH="$ROOT/src" python3 -c "import pytest" 2>/dev/null; then
-        PYTHONPATH="$ROOT/src" python3 -m pytest \
-            "$ROOT/tests/test_sdist_ohne_signierwerkzeug.py::test_jede_datei_unter_scripts_ist_in_manifest_entschieden" \
-            -q -p no:cacheprovider --no-header
+        # THE STAGED SNAPSHOT, NOT THE WORKING TREE (Codex on pull request 368, round one, P2). The
+        # node reads MANIFEST.in and scripts/ beside its own file, so it is run from a copy of the
+        # index: a decision that is only on disk passed here and failed in CI, and a stale working
+        # tree refused a correct commit.
+        SNAP="$(mktemp -d)"
+        trap 'rm -rf "$SNAP"' EXIT
+        git checkout-index --all --prefix="$SNAP/"
+        PYTHONPATH="$SNAP/src" python3 -m pytest \
+            "$SNAP/tests/test_sdist_ohne_signierwerkzeug.py::test_jede_datei_unter_scripts_ist_in_manifest_entschieden" \
+            -q -p no:cacheprovider --no-header --rootdir "$SNAP"
     else
         echo "pre-commit: pytest is missing, the MANIFEST decision was NOT checked (CI checks it)" >&2
     fi
