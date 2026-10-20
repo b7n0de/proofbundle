@@ -338,7 +338,7 @@ def test_a_missing_payload_after_signing_is_a_finding_not_a_traceback(tmp_path, 
     rc = vsp.after(pkg, "art", sig, anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg))
     out = capsys.readouterr().out
     assert rc == 1
-    assert "payload" in out and "missing" in out
+    assert "payload" in out and "MISSING" in out
     assert not (pkg / "art.signed.json").exists()
 
 

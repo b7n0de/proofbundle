@@ -226,7 +226,8 @@ def test_a_receipt_gets_the_receipt_signature_shape(tmp_path, capsys):
     """A receipt carries the signature as a string plus signer_pubkey; the structured block belongs
     to a statement. Writing the wrong shape produces a file the gate rejects, and the rejection
     would read as a bad signature rather than a bad assembly."""
-    pkg = _package(tmp_path, kind="receipt")
+    # A receipt binds no candidate: its signed form does not carry one (Codex on pull request 369, round 3).
+    pkg = _package(tmp_path, kind="receipt", binds=False)
     vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg))
     preview = json.loads((pkg / "art.signed.json").read_text())
     assert isinstance(preview["signature"], str)

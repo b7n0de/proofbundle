@@ -37,9 +37,18 @@ Manifest shape (JSON):
         {"name": "...", "body": "<file>", "payload": "<file>",
          "body_sha256": "...", "payload_sha256": "...", "target_rel": "...",
          "kind": "receipt" | "statement",        # "receipt" uses the compact nine-field form
-         "binds_candidate": true | false}
+         "binds_candidate": true | false}        # default true; a receipt binds none (see below)
       ]
     }
+
+The candidate's commit is a git object id of 40 or 64 hex digits and its three digests have 64. Every
+field of a body has to be covered by the signed form of its kind: a statement signs the whole body, a
+receipt only its nine fields, so a receipt carries no candidate block and says binds_candidate false.
+A receipt binds its tree through its signed subject_tree_digest; this tool does not compare that value
+with the manifest's candidate, so a receipt's tree is not checked against the candidate here.
+
+`after` judges the whole package again with every check `before` makes, against the head it is given,
+and writes its preview as a new file that never lands on an input of the run.
 
 Usage:
     python3 scripts/verify_signing_package.py before --package <dir> [--expected-head <sha>]
@@ -54,9 +63,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 
 DEFAULT_MANIFEST = "MANIFEST.json"
 #: A file the producer leaves behind while a step is still running. Its presence means the package
@@ -67,6 +78,15 @@ IN_PROGRESS_MARKER = ".step_running"
 #: version compared only the fields the manifest happened to carry, so an empty `candidate` compared
 #: nothing and still printed a match (Codex on pull request 369, round one, P1).
 CANDIDATE_FIELDS = ("commit", "tree_digest", "sdist_sha256", "wheel_sha256")
+#: What each candidate field has to look like to name an object at all.
+_CANDIDATE_FORM = {"commit": re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?"),
+                   "tree_digest": re.compile(r"[0-9a-f]{64}"), "sdist_sha256": re.compile(r"[0-9a-f]{64}"),
+                   "wheel_sha256": re.compile(r"[0-9a-f]{64}")}
+_CANDIDATE_FORM_TEXT = {"commit": "a git object id of 40 or 64 lower-case hex digits",
+                        "tree_digest": "64 lower-case hex digits", "sdist_sha256": "64 lower-case hex digits",
+                        "wheel_sha256": "64 lower-case hex digits"}
+#: The two kinds of artefact, each with its own signed form.
+ARTIFACT_KINDS = ("receipt", "statement")
 
 #: An artefact name is a plain name: it becomes part of a file name inside the package and is never a
 #: path. It starts with a letter or digit, so `.` and `..` are no names.
@@ -200,10 +220,6 @@ def _ed25519_verifier():
     return verify, "proofbundle.signature.verify_ed25519_pinned"
 
 
-def _sha256(p: pathlib.Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()
-
-
 def _inside(package: pathlib.Path, rel, what: str) -> pathlib.Path:
     """A file name the manifest gives, kept inside the package, or a stated reason to stop.
 
@@ -241,13 +257,182 @@ def _derived_payload(a: dict, body: dict) -> "tuple[bytes | None, str]":
     fields, a value the canonical form refuses). The callers report that as a finding, not as NOT
     MEASURABLE: the tool was there, the package was wrong.
     """
-    if a.get("kind") == "receipt":
+    if a["kind"] == "receipt":
         fn, source = _receipt_payload()
         return (fn(body), source) if fn is not None else (None, source)
     fn, source = _canonicalizer()
     if fn is None:
         return None, source
     return fn({k: v for k, v in body.items() if k != "signature"}), source
+
+
+def _judge_artefact(a: dict, body_p: pathlib.Path, pay_p: pathlib.Path, raw: dict, cand: dict,
+                    expected_head: str | None) -> dict:
+    """Every check one artefact gets, over bytes the caller read once (`raw`: role -> bytes, a missing
+    role absent): {"lines", "findings", "not_measurable", "body", "derived"}.
+
+    ONE JUDGEMENT FOR BOTH PHASES (Codex on pull request 369, round three). The digest `after` is bound
+    to says which manifest `before` read, not that `before` accepted it, and anyone can compute it. A
+    body whose candidate differed from the manifest made `before` exit 1 and still print the digest, and
+    `after` then assembled that body with exit 0. `after` now runs these same checks on the artefact it
+    assembles, so a finding of `before` is a finding of `after`.
+
+    EVERY FIELD OF THE BODY IS ONE THE SIGNATURE COVERS (the same round, P1). A receipt is signed in its
+    compact nine-field form, which carries no `candidate`, so `before` reported a candidate as bound
+    that the signature did not cover, and the preview carried it beside a valid signature. The fields
+    the signed form covers are read from the derived payload itself, never from a copied list, and a
+    body field outside them is a finding; a receipt therefore binds no candidate here. Its tree is bound
+    by its signed `subject_tree_digest`, which this tool does not compare with the manifest's candidate.
+    """
+    lines: list = []
+    findings = not_measurable = 0
+    for role, p, expected in (("body", body_p, a.get("body_sha256")),
+                              ("payload", pay_p, a.get("payload_sha256"))):
+        data = raw.get(role)
+        if data is None:
+            lines.append(f"   {role:<8} MISSING: {p.name}")
+            findings += 1
+            continue
+        actual = hashlib.sha256(data).hexdigest()
+        ok = actual == expected
+        lines.append(f"   {role:<8} {p.name}  {len(data)} B  sha256 {actual[:16]}...  "
+                     f"{'matches the manifest' if ok else 'DIFFERS from the manifest'}")
+        if not ok:
+            findings += 1
+
+    body, body_unreadable = None, None
+    if raw.get("body") is not None:
+        try:
+            body = _strict_json(raw["body"], body_p.name)
+        except _NotStrictJson as exc:
+            body_unreadable = str(exc)
+            lines.append(f"   body     not strict JSON ({exc}). Do not sign.")
+            findings += 1
+        except ImportError as exc:
+            body_unreadable = str(exc)
+            lines.append(f"   body     NOT MEASURABLE, it cannot be read strictly here ({exc})")
+            not_measurable += 1
+        else:
+            if not isinstance(body, dict):
+                body_unreadable = "the body is not a JSON object"
+                lines.append("   body     is not a JSON object. Do not sign.")
+                findings += 1
+                body = None
+
+    if body is not None:
+        binds = a.get("binds_candidate", True)
+        if binds and a["kind"] == "receipt":
+            lines.append("   candidate: a receipt's signed form carries no `candidate`, so a receipt binds none -- "
+                         "the manifest must say binds_candidate false for it")
+            findings += 1
+        elif binds:
+            c = body.get("candidate")
+            if c is not None and not isinstance(c, dict):
+                lines.append(f"   candidate is a {type(c).__name__} in the body, not an object -- a binding of "
+                             "that shape binds nothing")
+                findings += 1
+                c = None
+            c = c or {}
+            # EVERY FIELD, NOT THE ONES THAT HAPPEN TO BE THERE. A field the manifest leaves out is a field
+            # nobody binds, and a comparison over no fields is no comparison.
+            missing = [f for f in CANDIDATE_FIELDS if not cand.get(f)]
+            differ = [f for f in CANDIDATE_FIELDS if cand.get(f) and c.get(f) != cand.get(f)]
+            if missing:
+                lines.append(f"   candidate INCOMPLETE: the manifest names no {', '.join(missing)} -- a binding "
+                             "that leaves a field out does not bind it")
+                findings += 1
+            if differ:
+                lines.append("   candidate DIFFERS from the package head")
+                findings += 1
+                for f in differ:
+                    lines.append(f"            {f}: body {str(c.get(f))[:16]}... vs head {str(cand.get(f))[:16]}...")
+            if not missing and not differ:
+                lines.append("   candidate matches the package head")
+            if expected_head and c.get("commit") != expected_head:
+                lines.append(f"            candidate.commit {str(c.get('commit'))[:16]}... is NOT the expected head "
+                             f"{expected_head[:16]}... -- DIFFERS")
+                findings += 1
+        else:
+            # THE OTHER DIRECTION IS THE HARD ONE. An artefact the manifest says does NOT bind a candidate
+            # must not carry half a candidate block either: that would be a binding nobody checks, which is
+            # the exact shape this tool exists to refuse.
+            lines.append("   candidate: the manifest says this artefact binds no candidate")
+            if body.get("candidate"):
+                lines.append("            BUT it carries a candidate block -- a binding nobody checks does not "
+                             "belong in an artefact.")
+                findings += 1
+            if not body.get("version"):
+                lines.append("            AND it carries no version field -- then it binds nothing at all.")
+                findings += 1
+        for key in ("signature", "signer_pubkey"):
+            if key in body:
+                lines.append(f"            the body already carries {key} -- nothing may be signed over that.")
+                findings += 1
+
+    derived, why, broken = None, "a file is missing", None
+    if body is not None and raw.get("payload") is not None:
+        try:
+            derived, why = _derived_payload(a, body)
+        except (ValueError, TypeError) as exc:
+            broken = exc
+    if body_unreadable is not None:
+        lines.append("   derivation not made, the body above could not be read")
+    elif broken is not None:
+        lines.append(f"   derivation IMPOSSIBLE: the body does not have the form its kind prescribes ({broken}). "
+                     "Do not sign.")
+        findings += 1
+    elif derived is None:
+        lines.append(f"   derivation NOT MEASURABLE ({why}) -- the digests above were checked, the equality "
+                     "body -> payload was NOT.")
+        not_measurable += 1
+    else:
+        stored = raw["payload"]
+        if derived == stored:
+            lines.append(f"   derivation body -> payload BYTE IDENTICAL ({len(stored)} B) -- what you read is "
+                         "what you sign.")
+        else:
+            lines.append(f"   derivation DIFFERS: {len(derived)} B from the body, {len(stored)} B in the payload. "
+                         "Do not sign.")
+            findings += 1
+        covered = json.loads(derived)
+        outside = sorted(k for k in body if k not in covered and k not in ("signature", "signer_pubkey"))
+        if outside:
+            lines.append(f"   fields the signature does not cover: {', '.join(outside)} -- a value outside the "
+                         "signed form can be changed after signing. Do not sign.")
+            findings += 1
+    return {"lines": lines, "findings": findings, "not_measurable": not_measurable, "body": body,
+            "derived": derived}
+
+
+def _judge_package(package: pathlib.Path, m: dict, cand: dict, expected_head: str | None):
+    """Every artefact of the package judged with `_judge_artefact`, over bytes read once: (per artefact a
+    tuple (a, body path, payload path, bytes by role, judgement), findings, not measurable).
+
+    EACH FILE IS READ ONCE, and the digest, the parse and the derivation all take those bytes. A second
+    read is a second file as far as the checks are concerned. The bytes are kept by resolved path, so two
+    entries that name the same file judge the same bytes.
+
+    ONE JUDGEMENT OF THE WHOLE PACKAGE FOR BOTH PHASES (Codex on pull request 369, round three, and the
+    reading of its fix). `after` judged only the artefact it assembled and knew no expected head, so a
+    finding of `before` in another artefact or against the head did not stop it. Both phases now judge
+    every artefact here, with the head the caller gives."""
+    gelesen: dict = {}
+    alle, findings, not_measurable = [], 0, 0
+    for a in m["artifacts"]:
+        body_p = package / a["body"]
+        pay_p = package / a["payload"]
+        raw: dict = {}
+        for role, datei in (("body", body_p), ("payload", pay_p)):
+            if datei.is_file():
+                ort = str(datei.resolve())
+                if ort not in gelesen:
+                    gelesen[ort] = datei.read_bytes()
+                raw[role] = gelesen[ort]
+        urteil = _judge_artefact(a, body_p, pay_p, raw, cand, expected_head)
+        alle.append((a, body_p, pay_p, raw, urteil))
+        findings += urteil["findings"]
+        not_measurable += urteil["not_measurable"]
+    return alle, findings, not_measurable
 
 
 def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
@@ -288,7 +473,12 @@ def load_manifest_and_digest(package: pathlib.Path, name: str = DEFAULT_MANIFEST
         raise SystemExit(f"STOP: {p.name} lists no artefacts at all -- there is nothing to check, "
                          "and 'nothing to check' is not 'everything is fine'.")
     # EVERY NAME IS CHECKED HERE, ONCE, before any phase reads a file. Checking at each reader would
-    # leave the next reader to remember it.
+    # leave the next reader to remember it. A name given to two artefacts names neither: `after` took the
+    # first of them (the reading of round three).
+    namen = [a.get("name") if isinstance(a, dict) else None for a in m["artifacts"]]
+    doppelt = sorted({n for n in namen if isinstance(n, str) and namen.count(n) > 1})
+    if doppelt:
+        raise SystemExit(f"STOP: {p.name} gives the artefact name {doppelt[0]!r} more than once. Do not sign.")
     for a in m["artifacts"]:
         if not isinstance(a, dict):
             raise SystemExit(f"STOP: {p.name} lists an artefact that is not an object ({a!r}). Do not sign.")
@@ -298,12 +488,41 @@ def load_manifest_and_digest(package: pathlib.Path, name: str = DEFAULT_MANIFEST
                              "file name inside the package and may not be a path. Do not sign.")
         for role in ("body", "payload"):
             _inside(package, a.get(role), f"the {role} of {name!r}")
+        # A DISCRIMINATOR IS ONE OF ITS VALUES, NOT A TRUTH VALUE (Codex on pull request 369, rounds two
+        # and three). A misspelled `kind` was taken as a statement and `binds_candidate: "no"` as a
+        # binding; both decide which checks and which signed form apply.
+        if a.get("kind") not in ARTIFACT_KINDS:
+            raise SystemExit(f"STOP: the artefact {name!r} names the kind {a.get('kind')!r}; a kind is one of "
+                             f"{', '.join(ARTIFACT_KINDS)}. Do not sign.")
+        if "binds_candidate" in a and not isinstance(a["binds_candidate"], bool):
+            raise SystemExit(f"STOP: binds_candidate of {name!r} is {a['binds_candidate']!r}, not true or false. "
+                             "Do not sign.")
     # A MEMBER OF THE WRONG SHAPE IS A FINDING, NOT A TRACEBACK. `anchor` as a string or `candidate` as a
     # list reached `.get` on a value that has none (the reading of round two, a neighbour of the class the
     # strict reader closes). Absent or null stays absent.
     for key in ("anchor", "candidate"):
         if m.get(key) is not None and not isinstance(m[key], dict):
             raise SystemExit(f"STOP: {p.name} carries `{key}` as {type(m[key]).__name__}, not as an object. "
+                             "Do not sign.")
+    # A CANDIDATE FIELD THAT CANNOT NAME ITS OBJECT BINDS NOTHING (Codex on pull request 369, round
+    # three). The check compared truth values, so `tree_digest: "x"` and a list as `wheel_sha256`, copied
+    # into the body, printed a match. A commit is a 40 or 64 digit object id, a digest 64 hex digits.
+    for field, value in (m.get("candidate") or {}).items():
+        form = _CANDIDATE_FORM.get(field)
+        if form is not None and not (isinstance(value, str) and form.fullmatch(value)):
+            raise SystemExit(f"STOP: candidate.{field} is {value!r}, which is no {field} -- it must be "
+                             f"{_CANDIDATE_FORM_TEXT[field]}. Do not sign.")
+    # THE PREVIEW NEVER LANDS ON AN INPUT (Codex on pull request 369, round three). An artefact whose body
+    # was `art.signed.json` passed every check, and the preview then overwrote the body it had just
+    # checked; the same held for a payload, another artefact's file and the manifest.
+    eingaben = {p.resolve(): p.name}
+    for a in m["artifacts"]:
+        for role in ("body", "payload"):
+            eingaben.setdefault((package / a[role]).resolve(), f"the {role} of {a['name']!r}")
+    for a in m["artifacts"]:
+        ziel = (package / f"{a['name']}.signed.json").resolve()
+        if ziel in eingaben:
+            raise SystemExit(f"STOP: the preview of {a['name']!r} would be written over {eingaben[ziel]}. "
                              "Do not sign.")
     return m, hashlib.sha256(raw).hexdigest()
 
@@ -359,126 +578,16 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         print("#                 with producer values. Fetch the head yourself, e.g. git ls-remote.")
     print()
 
-    # EACH FILE IS READ ONCE, and the digest, the parse and the derivation all take those bytes. A
-    # second read is a second file as far as the checks are concerned. The bytes are kept by resolved
-    # path, so two entries that name the same file judge the same bytes.
-    gelesen: dict = {}
-    for a in m["artifacts"]:
-        name = a["name"]
-        body_p = package / a["body"]
-        pay_p = package / a["payload"]
-        print(f"## {name}")
+    alle, f_paket, n_paket = _judge_package(package, m, cand, expected_head)
+    for a, _body_p, _pay_p, _raw, urteil in alle:
+        print(f"## {a['name']}")
         if a.get("target_rel"):
             print(f"   target in repo: {a['target_rel']}")
-        roh: dict = {}
-        for role, p, expected in (("body", body_p, a.get("body_sha256")),
-                                  ("payload", pay_p, a.get("payload_sha256"))):
-            if not p.is_file():
-                print(f"   {role:<8} MISSING: {p.name}")
-                findings += 1
-                continue
-            ort = str(p.resolve())
-            if ort not in gelesen:
-                gelesen[ort] = p.read_bytes()
-            roh[role] = gelesen[ort]
-            actual = hashlib.sha256(roh[role]).hexdigest()
-            ok = actual == expected
-            print(f"   {role:<8} {p.name}  {len(roh[role])} B  sha256 {actual[:16]}...  "
-                  f"{'matches the manifest' if ok else 'DIFFERS from the manifest'}")
-            if not ok:
-                findings += 1
-
-        body, body_unreadable = None, None
-        if "body" in roh:
-            try:
-                body = _strict_json(roh["body"], body_p.name)
-            except _NotStrictJson as exc:
-                body_unreadable = str(exc)
-                print(f"   body     not strict JSON ({exc}). Do not sign.")
-                findings += 1
-            except ImportError as exc:
-                body_unreadable = str(exc)
-                print(f"   body     NOT MEASURABLE, it cannot be read strictly here ({exc})")
-                not_measurable += 1
-            else:
-                if not isinstance(body, dict):
-                    body_unreadable = "the body is not a JSON object"
-                    print("   body     is not a JSON object. Do not sign.")
-                    findings += 1
-                    body = None
-
-        if body is not None:
-            binds = a.get("binds_candidate", True)
-            if binds:
-                c = body.get("candidate")
-                if c is not None and not isinstance(c, dict):
-                    print(f"   candidate is a {type(c).__name__} in the body, not an object -- a binding of that "
-                          "shape binds nothing")
-                    findings += 1
-                    c = None
-                c = c or {}
-                # EVERY FIELD, NOT THE ONES THAT HAPPEN TO BE THERE. A field the manifest leaves out is
-                # a field nobody binds, and a comparison over no fields is no comparison.
-                missing = [f for f in CANDIDATE_FIELDS if not cand.get(f)]
-                differ = [f for f in CANDIDATE_FIELDS if cand.get(f) and c.get(f) != cand.get(f)]
-                if missing:
-                    print(f"   candidate INCOMPLETE: the manifest names no {', '.join(missing)} -- a binding "
-                          "that leaves a field out does not bind it")
-                    findings += 1
-                if differ:
-                    print("   candidate DIFFERS from the package head")
-                    findings += 1
-                    for f in differ:
-                        print(f"            {f}: body {str(c.get(f))[:16]}... vs head {str(cand.get(f))[:16]}...")
-                if not missing and not differ:
-                    print("   candidate matches the package head")
-                if expected_head and c.get("commit") != expected_head:
-                    print(f"            candidate.commit {str(c.get('commit'))[:16]}... is NOT the expected head "
-                          f"{expected_head[:16]}... -- DIFFERS")
-                    findings += 1
-            else:
-                # THE OTHER DIRECTION IS THE HARD ONE. An artefact the manifest says does NOT bind a
-                # candidate must not carry half a candidate block either: that would be a binding
-                # nobody checks, which is the exact shape this tool exists to refuse.
-                print("   candidate: the manifest says this artefact binds no candidate")
-                if body.get("candidate"):
-                    print("            BUT it carries a candidate block -- a binding nobody checks does not "
-                          "belong in an artefact.")
-                    findings += 1
-                if not body.get("version"):
-                    print("            AND it carries no version field -- then it binds nothing at all.")
-                    findings += 1
-            for key in ("signature", "signer_pubkey"):
-                if key in body:
-                    print(f"            the body already carries {key} -- nothing may be signed over that.")
-                    findings += 1
-
-        derived, why, broken = None, "a file is missing", None
-        if body is not None and "payload" in roh:
-            try:
-                derived, why = _derived_payload(a, body)
-            except (ValueError, TypeError) as exc:
-                broken = exc
-        if body_unreadable is not None:
-            print("   derivation not made, the body above could not be read")
-        elif broken is not None:
-            print(f"   derivation IMPOSSIBLE: the body does not have the form its kind prescribes ({broken}). "
-                  "Do not sign.")
-            findings += 1
-        elif derived is None:
-            print(f"   derivation NOT MEASURABLE ({why}) -- the digests above were checked, the equality "
-                  "body -> payload was NOT.")
-            not_measurable += 1
-        else:
-            stored = roh["payload"]
-            if derived == stored:
-                print(f"   derivation body -> payload BYTE IDENTICAL ({len(stored)} B) -- what you read is "
-                      "what you sign.")
-            else:
-                print(f"   derivation DIFFERS: {len(derived)} B from the body, {len(stored)} B in the payload. "
-                      "Do not sign.")
-                findings += 1
+        for zeile in urteil["lines"]:
+            print(zeile)
         print()
+    findings += f_paket
+    not_measurable += n_paket
 
     if findings:
         print(f"VERDICT: {findings} finding(s) -- do not sign until they are resolved")
@@ -496,28 +605,19 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
 
 def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
           manifest_name: str = DEFAULT_MANIFEST, anchor_pubkey: str | None = None,
-          reviewed_manifest_sha256: str | None = None) -> int:
+          reviewed_manifest_sha256: str | None = None, expected_head: str | None = None) -> int:
     m, manifest_digest = load_manifest_and_digest(package, manifest_name)
     a = next((x for x in m["artifacts"] if x["name"] == artifact), None)
     if a is None:
         raise SystemExit(f"STOP: {artifact!r} is not in the manifest. Present: "
                          f"{[x['name'] for x in m['artifacts']]}")
     verify, crypto_source = _ed25519_verifier()
-    body_p = _inside(package, a["body"], f"the body of {artifact!r}")
-    pay_p = _inside(package, a["payload"], f"the payload of {artifact!r}")
-    # EACH FILE IS READ ONCE. The first version read the payload for the signature and again for its
-    # digest, and the body for its digest, again for the derivation and a third time for the preview, so
-    # a file swapped between two reads was judged in one form and used in another.
-    payload = pay_p.read_bytes() if pay_p.is_file() else None
-    body_raw = body_p.read_bytes() if body_p.is_file() else None
     sig_b64 = signature_file.read_text(encoding="utf-8").strip()
     pub_b64 = (m.get("anchor") or {}).get("public_key_b64")
 
     print("# Offline verification, AFTER the signature")
     print(f"# artefact : {artifact}")
     print(f"# manifest : sha256 {manifest_digest}")
-    if payload is not None:
-        print(f"# payload  : {a['payload']}  {len(payload)} B  sha256 {hashlib.sha256(payload).hexdigest()}")
     print(f"# verifier : {crypto_source}")
     if anchor_pubkey is None:
         # SELF-ATTESTATION, SAID OUT LOUD. Without a key from outside this package, the check is
@@ -527,6 +627,8 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         print("# anchor   : NOT checked against an independent source. This run only shows that the")
         print("#            signature matches the key THE PACKAGE NAMES. Pass --anchor-pubkey to")
         print("#            check it against a key you know from somewhere else.")
+    if expected_head is None:
+        print("# expected head : NOT checked. Pass --expected-head to compare the candidate with a head you know.")
     if anchor_pubkey is not None and pub_b64 != anchor_pubkey:
         print(f"VERDICT: the manifest's anchor key {str(pub_b64)[:16]}... is NOT the key you passed -- "
               "the signature was not checked against your key.")
@@ -540,43 +642,26 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
               f"{reviewed_manifest_sha256[:16]}... reviewed. Its files may be consistent with it and still "
               "not be the ones that were checked. Nothing assembled.")
         return 1
-    # THE BYTES ARE ASKED AGAIN, NOT REMEMBERED. Between `before` and this run the package lay on a
-    # machine, and a signature over a replaced payload verifies just as well as one over the checked
-    # payload. So the digests the manifest promises and the derivation body -> payload are checked
-    # here a second time, and nothing is assembled from a body that is not the checked one.
-    for role, p, raw, expected in (("payload", pay_p, payload, a.get("payload_sha256")),
-                                   ("body", body_p, body_raw, a.get("body_sha256"))):
-        actual = hashlib.sha256(raw).hexdigest() if raw is not None else None
-        if actual is None or actual != expected:
-            print(f"VERDICT: the {role} {p.name} DIFFERS from the manifest "
-                  f"({'missing' if actual is None else 'sha256 ' + actual[:16] + '...'}) -- it is not the "
-                  f"{role} that was checked before signing. Nothing assembled.")
-            return 1
-    try:
-        body = _strict_json(body_raw, body_p.name)
-    except _NotStrictJson as exc:
-        print(f"VERDICT: the body is not strict JSON ({exc}). Nothing assembled.")
+    # THE BYTES ARE ASKED AGAIN, NOT REMEMBERED, AND THE WHOLE PACKAGE IS JUDGED AGAIN. The digest above
+    # says which manifest was read, not that `before` accepted it, and the package lay on a machine since.
+    # So every check `before` makes, on every artefact and against the head given here, runs again over
+    # bytes read once, and nothing is assembled from a package `before` would refuse.
+    alle, findings, not_measurable = _judge_package(package, m, m.get("candidate") or {}, expected_head)
+    for x, _body_p, _pay_p, _raw, urteil in alle:
+        print(f"## {x['name']}")
+        for zeile in urteil["lines"]:
+            print(zeile)
+    if findings:
+        print(f"VERDICT: {findings} finding(s) in the package, the checks `before` makes fail here too, so it is "
+              "not what should have been signed. Nothing assembled.")
         return 1
-    except ImportError as exc:
-        print(f"VERDICT: NOT MEASURABLE -- the body cannot be read strictly here ({exc}). That is not a pass, "
-              "and nothing is assembled.")
+    _x, _body_p, pay_p, raw, urteil = next(e for e in alle if e[0] is a)
+    if not_measurable or urteil["derived"] is None:
+        print("VERDICT: NOT MEASURABLE -- a check of the package could not be made here (see above). That is "
+              "not a pass, and nothing is assembled.")
         return 2
-    if not isinstance(body, dict):
-        print("VERDICT: the body is not a JSON object. Nothing assembled.")
-        return 1
-    try:
-        derived, why = _derived_payload(a, body)
-    except (ValueError, TypeError) as exc:
-        print(f"VERDICT: the body does not have the form its kind prescribes ({exc}). Nothing assembled.")
-        return 1
-    if derived is None:
-        print(f"VERDICT: NOT MEASURABLE -- the derivation body -> payload cannot be recomputed here ({why}). "
-              "That is not a pass, and nothing is assembled.")
-        return 2
-    if derived != payload:
-        print("VERDICT: the derivation DIFFERS: the payload is not what the body says, so the body "
-              f"{body_p.name} is not what the signature covers. Nothing assembled.")
-        return 1
+    payload, body = raw["payload"], urteil["body"]
+    print(f"# payload  : {a['payload']}  {len(payload)} B  sha256 {hashlib.sha256(payload).hexdigest()}")
     if verify is None:
         print(f"VERDICT: NOT MEASURABLE -- without proofbundle.signature the signature cannot be checked "
               f"here ({crypto_source}). That is not a pass.")
@@ -594,6 +679,24 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         return 2
 
     target = _inside(package, f"{artifact}.signed.json", f"the preview of {artifact!r}")
+    # A PREVIEW NEVER WRITES INTO A FILE THAT IS ALREADY THERE (the readings of rounds two and three, and
+    # Codex on pull request 369, round three). A link there wrote the preview into whatever it named, and a
+    # second hard name of an input, the signed payload or the manifest, had that input overwritten after
+    # exit 0; `load_manifest_and_digest` refuses only a path that resolves to an input. So a link is
+    # refused, so is any path that is the same file as an input or as the signature file, and the preview is
+    # written as a new file that replaces the name, never into an existing one.
+    if target.is_symlink():
+        print(f"VERDICT: the preview path {target.name} is a symbolic link, and a preview is never written "
+              "through one. Nothing assembled.")
+        return 1
+    if target.exists():
+        eingaben = [package / manifest_name, signature_file]
+        eingaben += [package / e[r] for e in m["artifacts"] for r in ("body", "payload")]
+        gleich = [str(e) for e in eingaben if e.exists() and os.path.samefile(target, e)]
+        if gleich:
+            print(f"VERDICT: the preview path {target.name} is the same file as {gleich[0]}, an input of this "
+                  "run. Nothing assembled.")
+            return 1
     # The preview is the body that was checked, parsed once above, not a fresh read of the file.
     body = dict(body)
     if a.get("kind") == "receipt":
@@ -604,9 +707,13 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         body["signer_pubkey"] = pub_b64
     else:
         body["signature"] = {"alg": "ed25519", "public_key_b64": pub_b64, "sig_b64": sig_b64}
-    target.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"         PREVIEW assembled -> {target.name} ({target.stat().st_size} B, sha256 "
-          f"{_sha256(target)[:16]}...). This is a preview, not the artefact for the repository: the")
+    text = (json.dumps(body, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    fd, neu_pfad = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(text)
+    os.replace(neu_pfad, target)
+    print(f"         PREVIEW assembled -> {target.name} ({len(text)} B, sha256 "
+          f"{hashlib.sha256(text).hexdigest()[:16]}...). This is a preview, not the artefact for the repository: the")
     print("         producer assembles that one and verifies the signature itself while doing so.")
     return 0
 
@@ -622,8 +729,9 @@ def main(argv=None) -> int:
         q.add_argument("--manifest", default=DEFAULT_MANIFEST, help=f"manifest name (default: {DEFAULT_MANIFEST})")
         q.add_argument("--anchor-pubkey", default=None,
                        help="the base64 Ed25519 public key you expect, from a source that is not this package")
-    b.add_argument("--expected-head", default=None,
-                   help="the candidate head (40 hex) from an INDEPENDENT source, e.g. git ls-remote")
+    for q in (b, a):
+        q.add_argument("--expected-head", default=None,
+                       help="the candidate head (40 hex) from an INDEPENDENT source, e.g. git ls-remote")
     a.add_argument("--artifact", required=True)
     a.add_argument("--signature", required=True, type=pathlib.Path)
     a.add_argument("--reviewed-manifest-sha256", default=None, type=_manifest_digest,
@@ -633,7 +741,7 @@ def main(argv=None) -> int:
     if ns.mode == "before":
         return before(ns.package, ns.manifest, ns.expected_head, ns.anchor_pubkey)
     return after(ns.package, ns.artifact, ns.signature, ns.manifest, ns.anchor_pubkey,
-                 ns.reviewed_manifest_sha256)
+                 ns.reviewed_manifest_sha256, ns.expected_head)
 
 
 def _manifest_digest(text: str) -> str:
