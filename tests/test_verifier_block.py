@@ -779,8 +779,11 @@ class TestRunnerWritesTheStatement:
         if not runner.is_file():
             pytest.skip("conformance/run_conformance.py is not here")
         ziel = tmp_path / "statement.json"
+        # run_conformance.py imports proofbundle before it puts src on the path, so the subprocess gets this tree's
+        # src by name, as the case below does (tests/test_a_test_subprocess_imports_the_tree.py).
         r = subprocess.run([sys.executable, str(runner), "--test-result-out", str(ziel)],
-                           cwd=str(REPO), capture_output=True, text=True, timeout=900)
+                           cwd=str(REPO), capture_output=True, text=True, timeout=900,
+                           env={**__import__("os").environ, "PYTHONPATH": str(REPO / "src")})
         assert ziel.is_file(), f"no statement written (rc={r.returncode}):\n{r.stdout[-800:]}\n{r.stderr[-800:]}"
         s = json.loads(ziel.read_text(encoding="utf-8"))
         assert VB.validate_test_result_statement(s) == []

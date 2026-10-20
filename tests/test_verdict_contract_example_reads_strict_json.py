@@ -10,6 +10,7 @@ base64 decoder. The test needs no new key and no new signature.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -35,8 +36,11 @@ class TheExampleCheckerReadsStrictJson(unittest.TestCase):
         shutil.copytree(EXAMPLE / "out", self.out, ignore=shutil.ignore_patterns("toyrepo"))
 
     def _check(self) -> subprocess.CompletedProcess:
+        # The example imports proofbundle: its subprocess gets this tree's src by name, not the interpreter's own
+        # proofbundle (tests/test_a_test_subprocess_imports_the_tree.py).
         return subprocess.run([sys.executable, "-B", str(EXAMPLE / "check_example.py"), str(self.out)],
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, text=True, timeout=300,
+                              env={**os.environ, "PYTHONPATH": str(REPO / "src")})
 
     def _edit(self, old: str, new: str) -> None:
         receipt = self.out / "receipt.json"

@@ -10,6 +10,7 @@ nothing. Test keys only, generated per case by `make_example.py`.
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
 import shutil
 import subprocess
@@ -19,6 +20,9 @@ import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "examples" / "verdict_contract"
+#: The example imports proofbundle; its subprocess runs in a temporary folder, so it gets this tree's src by name.
+#: Without it the interpreter's own proofbundle answered (tests/test_a_test_subprocess_imports_the_tree.py).
+ENV = {**os.environ, "PYTHONPATH": str(REPO / "src")}
 
 
 def _load(name: str):
@@ -50,14 +54,14 @@ class TheExampleCheckerPinsItsKey(unittest.TestCase):
         r = subprocess.run([sys.executable, "-B", str(EXAMPLE / "make_example.py"), "--reply",
                             str(EXAMPLE / "reply.txt"), "--key", str(key), "--out", str(out),
                             "--declared-at", "2026-10-11T08:30:00Z"],
-                           capture_output=True, text=True, timeout=300, cwd=str(self.base))
+                           capture_output=True, text=True, timeout=300, cwd=str(self.base), env=ENV)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         public = _load("make_example").load_key(key).public_key().public_bytes_raw().hex()
         return out, public
 
     def _check(self, folder: pathlib.Path, *extra: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, "-B", str(EXAMPLE / "check_example.py"), str(folder), *extra],
-                              capture_output=True, text=True, timeout=300, cwd=str(self.base))
+                              capture_output=True, text=True, timeout=300, cwd=str(self.base), env=ENV)
 
     def test_RED_a_package_of_another_key_does_not_pass_for_the_expected_one(self):
         """T4: with A expected, the package of B, its own publickey.hex included, is refused."""
