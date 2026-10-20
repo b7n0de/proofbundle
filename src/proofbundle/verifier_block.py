@@ -55,6 +55,7 @@ from typing import Any
 
 from ._membership import is_member
 from ._strict_json import loads_reject_duplicate_keys
+from .budget import render_safe
 from .canonical import _ein_stand, _pruefkopie
 from .errors import BundleFormatError, ProofBundleError
 
@@ -300,7 +301,7 @@ def validate_verifier_block(block: Any) -> list[str]:
     if not isinstance(block, dict):
         return [f"verifier block must be an object, got {type(block).__name__}"]
     for k in block:
-        if k not in _BLOCK_ALLOWED:
+        if not is_member(k, _BLOCK_ALLOWED):
             errs.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _BLOCK_REQUIRED:
         if req not in block:
@@ -320,7 +321,7 @@ def validate_verifier_block(block: Any) -> list[str]:
             errs.append("build must be an object")
         else:
             for k in b:
-                if k not in _BUILD_ALLOWED:
+                if not is_member(k, _BUILD_ALLOWED):
                     errs.append(f"build: unknown field {k!r}")
             for req in _BUILD_REQUIRED:
                 if req not in b:
@@ -461,6 +462,15 @@ def _rfc8785_bytes(obj: Any) -> bytes:
         raise VerifierBlockError(
             "test-result statements need the RFC 8785 (JCS) canonicalizer -- proofbundle requires "
             "rfc8785 (core dependency)") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first. Measured on 8ecb6edf:
+        # `join_test_result` and `test_result_ref` raised the bare ValueError for a statement with
+        # `2**53` or NaN in an annotation; on d5747000 `test_result_ref` still raised the budget's
+        # bare BundleFormatError or BudgetExceeded.
+        raise VerifierBlockError(
+            f"the test-result statement is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 @_ein_stand
@@ -509,7 +519,7 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     passed, warned, failed = [], [], []
     for r in results:
         if not isinstance(r, dict) or not isinstance(r.get("caseId"), str) or not r["caseId"]:
-            raise VerifierBlockError(f"case result without a caseId: {r!r}")
+            raise VerifierBlockError(f"case result without a caseId: {render_safe(r)}")
         ok = r.get("ok")
         if type(ok) is not bool:
             raise VerifierBlockError(
@@ -673,7 +683,14 @@ def join_test_result(block: dict, statement: dict) -> dict:
         fehler.extend(errs)
         return r
     r["subject_matches_build"] = statement["subject"][0]["digest"] == block["build"]["digest"]
-    r["digest_matches"] = statement_digest(statement) == block["testResult"]["statementDigest"]["sha256"]
+    # A STATEMENT WITHOUT A CANONICAL FORM HAS NO DIGEST TO COMPARE, and that is an answer about the
+    # statement, not an exception out of the join: the digest does not match, and the reason is named.
+    # Measured on 8ecb6edf: `2**53` or NaN in an annotation raised the canonicalizer's ValueError here.
+    try:
+        r["digest_matches"] = statement_digest(statement) == block["testResult"]["statementDigest"]["sha256"]
+    except ProofBundleError as exc:
+        r["digest_matches"] = False
+        fehler.append(f"the statement has no canonical digest: {exc}")
     r["result_matches"] = statement["predicate"]["result"] == block["testResult"]["result"]
     # THE FOURTH EQUALITY, and it was missing (un-review 2026-09-18, P1): the statement's
     # configuration names the vector set the run was held against, and the block declares one.

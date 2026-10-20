@@ -1,0 +1,27 @@
+{
+ "predicateType": "https://b7n0de.com/proofbundle/vector/v0.1",
+ "_type": "https://in-toto.io/Statement/v1",
+ "predicate": {
+  "zeta": 1,
+  "alpha": {
+   "b": 2,
+   "a": 1
+  },
+  "mid": [
+   3,
+   2,
+   1
+  ]
+ },
+ "subject": [
+  {
+   "name": "vector-subject",
+   "digest": {
+    "sha256": "abababababababababababababababababababababababababababababababab"
+   }
+  }
+ ],
+ "x-unknown-extension": {
+  "note": "must be part of the root"
+ }
+}

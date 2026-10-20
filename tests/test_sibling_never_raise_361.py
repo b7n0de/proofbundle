@@ -335,18 +335,24 @@ class CallerPathTypedErrors(unittest.TestCase):
         # a trailing '\n' false-PASSed strict structural/canonicality validation on the public verify surfaces
         # (relation.py:61 was fixed to \A..\Z; the sibling decision/outcome/run_ledger/etc. diverged). Swept
         # every anchored validator to \A..\Z. A valid value still matches; a trailing '\n' is rejected.
-        from proofbundle import (
-            assurance, decision, outcome, relation, relation_statement, run_ledger, verification_summary,
-        )
+        #
+        # 2026-09-26, gate on 3562dc71: that sweep named its modules by hand, and trust_pack, which was not on
+        # the list, kept `^..$` until this date (a signed trust pack whose `expires` ended in a newline
+        # verified ok=True). The shapes the predicate modules share now have ONE definition in
+        # `_schema_shapes`, and tests/test_every_validator_refuses_what_its_schema_refuses.py derives every
+        # regular expression literal under src/proofbundle instead of naming modules. What stays here is the
+        # original property, on that one definition, plus `assurance`, which the original list named and which
+        # keeps its own copy.
+        from proofbundle import _schema_shapes as shapes
+        from proofbundle import assurance
         good = "a" * 64
-        for mod in (decision, outcome, relation, run_ledger, verification_summary, assurance):
-            self.assertIsNotNone(mod._SHA256_HEX.match(good), mod.__name__)
-            self.assertIsNone(mod._SHA256_HEX.match(good + "\n"), f"{mod.__name__} accepts trailing newline")
-        for mod in (decision, outcome, run_ledger, verification_summary, relation, relation_statement):
-            sem = getattr(mod, "_SEMVER_0_1_X", None)
-            if sem is not None:
-                self.assertIsNotNone(sem.match("0.1.0"))
-                self.assertIsNone(sem.match("0.1.0\n"), f"{mod.__name__} semver accepts trailing newline")
+        for label, pattern in (("_schema_shapes", shapes.SHA256_HEX), ("assurance", assurance._SHA256_HEX)):
+            self.assertIsNotNone(pattern.match(good), label)
+            self.assertIsNone(pattern.match(good + "\n"), f"{label} accepts trailing newline")
+        self.assertIsNotNone(shapes.SEMVER_0_1_X.match("0.1.0"))
+        self.assertIsNone(shapes.SEMVER_0_1_X.match("0.1.0\n"), "semver accepts trailing newline")
+        self.assertIsNotNone(shapes.RFC3339_Z.match("2026-01-01T00:00:00Z"))
+        self.assertIsNone(shapes.RFC3339_Z.match("2026-01-01T00:00:00Z\n"), "RFC3339 accepts trailing newline")
 
     def test_verify_bundle_huge_int_field_is_typed_not_raw_valueerror(self):
         # 6-lens gate L2-BDOS-01: a huge merkle.tree_size / leaf_index (e.g. 10**5000) was str()-rendered in a
