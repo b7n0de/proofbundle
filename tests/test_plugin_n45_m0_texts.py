@@ -6,7 +6,8 @@ three texts: PRODUCT_SPEC.md, IMPLEMENTATION_GAP.md and TEST_PLAN.md. Every prop
 and no text says what the plugin cannot back (the non-claims of PRODUCT_SPEC.md). The phrases checked here are those a
 text can carry by accident; the list in PRODUCT_SPEC.md is the rule, and a person reads every text against it.
 
-RED at a309b185 (before the texts): every case, as the folder m0/ does not exist.
+RED at a309b185 (before the texts): 8 of 9, every case that reads m0/, which does not exist there; the case on the
+manifests and the skills reads no file of m0/ and is green there as at the head.
 """
 from __future__ import annotations
 
