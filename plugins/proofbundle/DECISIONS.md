@@ -5393,7 +5393,11 @@ D25), mkdir, rm, mv and a link included. A release frees the same as the termina
 a forced push the autonomous answer blocks included (owner question in the report). Limits, named: the card id is read
 by its form only, the gate does not know the cards of the Leitstand; the fetcher's file is trusted as the owner's
 answer, as the gate's directory is trusted as a person's (D25); a release of another spelling of the same effect frees
-nothing; the time is the farmer's clock. Tests: tests/test_plugin_n42_release_d111.py.
+nothing; the time is the farmer's clock; once holds only as long as the record of uses in the plugin data directory
+does, which the session's account can write: a Bash write to it is denied where the folder lies under
+~/.claude/plugins (D101), but code an interpreter runs (`python3 -c`), which the gate does not read, can remove it,
+and the gate then frees the same release a second time (measured in Nachtrag 44, case 7; owner choice O44-2).
+Tests: tests/test_plugin_n42_release_d111.py.
 
 ## D112. A variable of the hook's environment like HOME in a path word is put in (Nachtrag 41, point 2, O40-3, 2026-10-19)
 
