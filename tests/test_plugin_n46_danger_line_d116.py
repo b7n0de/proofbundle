@@ -203,3 +203,13 @@ def test_D116_a_line_without_a_step_names_the_command_in_the_case_its_template_t
     verdict = gate.Verdict(decision, "x", "append_outside_work" if decision == "deny" else "code_names_git")
     line = gate.short_line(decision, gate.Outcome(decision, "x", [verdict], None), None, language.split("-")[0])
     assert line.startswith(start), line
+
+
+@pytest.mark.parametrize("language,step,other", [("de", "Tor sperrt git push, weil ", "Gestagte"),
+                                                 ("en", "Gate blocks git push because ", "everything staged")])
+def test_D116_a_card_names_the_danger_of_the_step_it_names(tmp_path, session, language, step, other):
+    """S3 of the retrospective: the card for a commit and a push names the push, the step of D72; its danger is the
+    push's own reason, not the danger of the commit before it, where neither is more than the gate's blind spot."""
+    repo = _repo(tmp_path)
+    out, line = _line(repo, "git commit -m 'fix stuff' && git push origin claude/work", language)
+    assert line.startswith(step) and "(D93)." in line and other not in line, line

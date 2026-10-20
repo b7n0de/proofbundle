@@ -15296,11 +15296,15 @@ _SHORT_DANGER_GENERIC = frozenset({"net_unmodeled_git", "possible_unmodeled_push
                                    "gh_form_not_free"})
 
 
-def _short_card_cause(outcome: "Outcome") -> "Verdict | None":
-    """D116: the verdict whose danger the line of a card of D93 names: the first ask of the answer that is not only the
-    gate's own blind spot (_SHORT_DANGER_GENERIC), else the first ask."""
+def _short_card_cause(outcome: "Outcome", step: str | None = None) -> "Verdict | None":
+    """D116: the verdict whose danger the line of a card of D93 names: the ask of the step the line names (D72,
+    _d72_cause) where it is more than the gate's own blind spot (_SHORT_DANGER_GENERIC), else the first ask that is,
+    else the ask of the step, else the first ask; so the danger belongs to the step wherever the answer allows."""
     asks = [v for v in outcome.verdicts if v.decision == "ask"]
-    return next((v for v in asks if v.reason_id not in _SHORT_DANGER_GENERIC), asks[0] if asks else None)
+    own = _d72_cause(asks, "ask", step) if step else None
+    if own is not None and own.reason_id not in _SHORT_DANGER_GENERIC:
+        return own
+    return next((v for v in asks if v.reason_id not in _SHORT_DANGER_GENERIC), own or (asks[0] if asks else None))
 
 
 def _short_git_form_name(verdict: "Verdict") -> str | None:
@@ -15364,7 +15368,7 @@ def short_line(decision: str, outcome: "Outcome | None", step: str | None, langu
         lead = outcome.cause or next((v for v in outcome.verdicts if v.decision == decision), None) or \
             (outcome.verdicts[0] if outcome.verdicts else None)   # D72: the verdict of the step or rule that decides
     if lead is not None and lead.reason_id == "autonomy_card" and outcome is not None and form is None:
-        form, lead = "karte", (_short_card_cause(outcome) or lead)   # D116: the danger of the call, then the card
+        form, lead = "karte", (_short_card_cause(outcome, step) or lead)   # D116: the danger of the call, then the card
     d, english, german = _short_reason(lead)
     danger = _short_danger(lead) if (form or decision) in _SHORT_DANGER_FORMS else None
     if danger is not None:

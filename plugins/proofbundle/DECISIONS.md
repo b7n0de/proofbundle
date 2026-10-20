@@ -5530,8 +5530,9 @@ takes its reason from _SHORT_DANGER, one pair of English and German clauses per 
 (<D number>)". The not-free answer of D3 names its form (git commit, git add, a read) and the source it found;
 ls-remote, the read forms under Codex and an unknown case have a clause of their own (_SHORT_DANGER_SPECIAL). Eleven
 reason ids already named the danger in their reason and keep it (_SHORT_DANGER_IN_REASON: the house rules H1 to H4, the
-forced, mirrored and deleting push, the literal backslash-n). A card names the danger of the call that needs the owner's
-yes (_short_card_cause), then the card: "Tor sperrt <step>, weil <danger> (<D>); Karte an den Owner (D93)." A line that
+forced, mirrored and deleting push, the literal backslash-n). A card names the danger of the step the line names (D72)
+where that is more than the gate's blind spot, else the first ask of the answer that is, else the step's own
+(_short_card_cause), then the card: "Tor sperrt <step>, weil <danger> (<D>); Karte an den Owner (D93)." A line that
 would be longer than 160 characters first takes the short form of the Codex sentence ("Codex kann nicht fragen."), then
 a shorter step name, at least 12 characters, where that makes it fit; only then is it cut, so the danger and its D
 number stay whole (measured for the 95 reason ids, the forms ask, deny, warn, sperre, umweg, karte and the Codex deny,
