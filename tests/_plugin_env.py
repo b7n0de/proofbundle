@@ -38,15 +38,21 @@ NOT_PLUGIN = frozenset({
     "test_pytest_plugin", "test_relation_gate_distance_invariance", "test_release_integrity_gate",
     "test_release_scope_title_gate", "test_rust_parity_gate",
 })
+#: Files outside that selection that name the plugin since the plugin line came into main's tree (Nachtrag 45): main's
+#: strict decoding guard scans plugins/, and the docs defaults test classifies the plugin's README. They are plugin
+#: tests and run without their caller's names.
+ALSO_PLUGIN = frozenset({"test_strict_decoding_guard", "test_integration_docs_name_only_defaults_the_code_has"})
 
 _withheld = 0
 
 
 def is_plugin_test(path: os.PathLike | str) -> bool:
-    """A test module of the plugin: a name the selection catches and not one of NOT_PLUGIN."""
+    """A test module of the plugin: a name the selection catches and not one of NOT_PLUGIN, or one of ALSO_PLUGIN."""
     p = pathlib.Path(path)
     if p.suffix != ".py" or not p.name.startswith("test_") or p.stem in NOT_PLUGIN:
         return False
+    if p.stem in ALSO_PLUGIN:
+        return True
     rest = p.stem[len("test_"):]
     return "plugin" in rest or "gate" in rest or p.stem.startswith("test_codex")
 

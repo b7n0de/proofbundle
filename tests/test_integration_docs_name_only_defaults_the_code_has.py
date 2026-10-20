@@ -179,6 +179,8 @@ CURRENT = {
     "README.md": "the front page since 6.2.1; shows the pytest and Inspect commands with the threshold",
     "docs/release_scope/6.3.0.md": "the scope of the coming release; its PR302 row says how the pytest plugin treats "
                                    "PROOFBUNDLE_METRIC now",
+    "plugins/proofbundle/README.md": "the plugin's guide, in the tree with the plugin line (Nachtrag 45); its done "
+                                     "check commands set PROOFBUNDLE_THRESHOLD=1 for the pytest receipt",
 }
 #: Documents that record a past state and are not rewritten when the code moves on. Each names why.
 HISTORIC = {

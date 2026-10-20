@@ -31,6 +31,14 @@ EXCEPTIONS = (
     ("test_plugin_run_evidence.py", "saved = dict(os.environ)",
      "keeps the withheld environment of this module to put it back after an in-process run of the gate replaced "
      "os.environ with an environment made by plugin_env(); the copy reaches no process"),
+    ("test_integration_docs_name_only_defaults_the_code_has.py",
+     'ohne = {k: v for k, v in os.environ.items() if not k.startswith("PROOFBUNDLE_")}',
+     "_measured_defaults reads the emission config in-process with every PROOFBUNDLE_ name taken out; the copy goes "
+     "only to mock.patch.dict for one call of emit_config() and reaches no process (Nachtrag 45)"),
+    ("test_integration_docs_name_only_defaults_the_code_has.py",
+     "with mock.patch.dict(os.environ, ohne, clear=True):\n        cfg = emit_config()",
+     "replaces os.environ in-process for one call of emit_config() and puts it back; no process is started "
+     "(Nachtrag 45)"),
     ("_plugin_env.py", "for name in os.environ:\n        if name.startswith(CASE_PREFIXES):\n"
                        "            env[name] = os.environ[name]",
      "plugin_env() copies the GIT_ and PROOFBUNDLE_ values the case set; with the caller's names withheld, no other "
