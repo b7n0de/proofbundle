@@ -213,3 +213,23 @@ def test_D116_a_card_names_the_danger_of_the_step_it_names(tmp_path, session, la
     repo = _repo(tmp_path)
     out, line = _line(repo, "git commit -m 'fix stuff' && git push origin claude/work", language)
     assert line.startswith(step) and "(D93)." in line and other not in line, line
+
+
+@pytest.mark.parametrize("language,start,end", [("de", "Tor sperrt git xxx", "(D5). Codex kann nicht fragen."),
+                                                ("en", "Gate blocks git xxx", "(D5). Codex cannot ask.")])
+def test_D116_a_long_step_is_shortened_before_the_danger_or_the_codex_sentence_is_cut(language, start, end):
+    """A line over SHORT_LINE_MAX takes the short Codex sentence, then a shorter step, and only then a cut."""
+    verdict = gate.Verdict("ask", "x", "absence_not_measured")
+    line = gate.short_line("ask", gate.Outcome("ask", "x", [verdict], None), "git " + "x" * 36, language, form="deny",
+                           suffix=gate._SHORT_CODEX_DENY[language])
+    assert len(line) <= gate.SHORT_LINE_MAX and line.startswith(start) and "x…" in line and line.endswith(end), line
+
+
+def test_D116_a_card_takes_the_danger_of_its_step_over_an_earlier_one_of_another_step():
+    """Two asks that are more than the gate's blind spot, the first of another step: the card names the danger of the
+    step the line names (D72), here the tag of the push, not the limit of open pull requests of the gh call."""
+    pr = gate.Verdict("ask", "x", "house_pr_limit", failed="gh pr create may open a pull request")
+    tag = gate.Verdict("ask", "x", "house_tag_out", failed="git push may send a tag")
+    card = gate.Verdict("deny", "x", "autonomy_card")
+    line = gate.short_line("deny", gate.Outcome("deny", "x", [pr, tag, card], None, cause=card), "git push", "en")
+    assert line.startswith("Gate blocks git push because a tag goes out") and "(D93)." in line, line

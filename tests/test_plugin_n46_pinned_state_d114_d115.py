@@ -232,6 +232,40 @@ def test_D115_a_pinned_key_that_starts_a_program_for_the_read_keeps_its_answer(t
     assert not _free(answered(repo, form)), (key, form)
 
 
+@pytest.mark.parametrize("key,value", [("hook.pre-commit.command", "true"), ("gc.recentObjectsHook", "true"),
+                                       ("maintenance.strategy", "incremental")])
+@pytest.mark.parametrize("form", ["git rev-parse HEAD", "git status --short"])
+def test_D115_a_pinned_key_that_names_a_program_keeps_the_answer_of_a_read(tmp_path, key, value, form):
+    """A key of the pinned .git/config the read profile does not know is left out only where it names no program
+    (_program_source): a configuration hook and automatic maintenance keep the read's answer, pinned or not."""
+    repo = _repo(tmp_path, unknown_key=False)
+    d71._git(repo, "config", key, value)
+    _pin([_entry(repo)])
+    assert not _free(answered(repo, form)), (key, form)
+
+
+def test_D115_a_hook_a_read_starts_is_left_out_only_with_its_pinned_bytes(tmp_path):
+    """git status starts post-index-change (D34, _HOOKS_STARTED_BY_READ): with the pin its pinned bytes do not count,
+    and a changed hook counts again."""
+    repo = _repo(tmp_path, hook=False)
+    _hook(repo / ".git" / "hooks", name="post-index-change")
+    before = answered(repo, "git status --short")
+    _pin([_entry(repo)])
+    assert not _free(before) and _free(answered(repo, "git status --short")), before
+    _hook(repo / ".git" / "hooks", name="post-index-change", body=PRE_COMMIT + b"echo changed\n")
+    assert not _free(answered(repo, "git status --short"))
+
+
+def test_D114_D115_a_clone_that_holds_the_gate_directory_gets_no_free_answer(tmp_path, monkeypatch):
+    """A repository that overlaps the gate directory gets no free answer (_repo_overlap_problem), pinned or not: a
+    commit or an add could take the pin itself."""
+    repo = _repo(tmp_path)
+    monkeypatch.setenv("PROOFBUNDLE_GATE_DIR", str(repo / "gate"))
+    _pin([_entry(repo)])
+    for form in ("git commit -m work", "git add -A", "git rev-parse HEAD"):
+        assert not _free(answered(repo, form)), form
+
+
 @pytest.mark.parametrize("form", ["git diff --ext-diff", "git log --show-signature -1", "git show --textconv HEAD",
                                   "git log --format=%G? -1", "git -c core.pager=less log -1", "git rev-list --all"])
 def test_D115_an_option_that_starts_a_program_or_a_form_outside_the_list_keeps_its_answer(tmp_path, form):
