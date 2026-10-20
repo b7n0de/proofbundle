@@ -22,7 +22,7 @@ import pathlib
 
 import pytest
 
-from tests.test_verify_signing_package import HEAD, PUB_B64, SK, _canon, _package, _sign, vsp
+from tests.test_verify_signing_package import HEAD, PUB_B64, SK, _canon, _package, _reviewed, _sign, vsp
 
 FIELDS = ("commit", "tree_digest", "sdist_sha256", "wheel_sha256")
 
@@ -143,7 +143,7 @@ def test_a_receipt_body_without_its_signed_fields_is_a_finding_not_a_traceback(t
 
 def test_an_untouched_package_still_verifies_after(tmp_path, capsys):
     pkg = _package(tmp_path)
-    assert vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64) == 0
+    assert vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg)) == 0
     assert (pkg / "art.signed.json").is_file()
 
 
@@ -213,4 +213,4 @@ def test_a_file_in_a_subdirectory_of_the_package_is_allowed(tmp_path, capsys):
     sig = pkg / "art.sig.b64"
     sig.write_text(base64.b64encode(SK.sign((sub / "art.payload.bin").read_bytes())).decode("ascii"),
                    encoding="utf-8")
-    assert vsp.after(pkg, "art", sig, anchor_pubkey=PUB_B64) == 0
+    assert vsp.after(pkg, "art", sig, anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg)) == 0

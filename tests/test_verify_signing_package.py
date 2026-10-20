@@ -198,9 +198,14 @@ def _sign(pkg: pathlib.Path) -> pathlib.Path:
     return f
 
 
+def _reviewed(pkg: pathlib.Path) -> str:
+    """The digest `before` prints for this package's manifest, which `after` is bound to."""
+    return hashlib.sha256((pkg / vsp.DEFAULT_MANIFEST).read_bytes()).hexdigest()
+
+
 def test_a_real_signature_verifies_and_assembles_a_preview(tmp_path, capsys):
     pkg = _package(tmp_path)
-    rc = vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64)
+    rc = vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg))
     out = capsys.readouterr().out
     assert rc == 0
     assert "VERIFIES over exactly these bytes" in out
@@ -222,7 +227,7 @@ def test_a_receipt_gets_the_receipt_signature_shape(tmp_path, capsys):
     to a statement. Writing the wrong shape produces a file the gate rejects, and the rejection
     would read as a bad signature rather than a bad assembly."""
     pkg = _package(tmp_path, kind="receipt")
-    vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64)
+    vsp.after(pkg, "art", _sign(pkg), anchor_pubkey=PUB_B64, reviewed_manifest_sha256=_reviewed(pkg))
     preview = json.loads((pkg / "art.signed.json").read_text())
     assert isinstance(preview["signature"], str)
     assert preview["signer_pubkey"] == PUB_B64

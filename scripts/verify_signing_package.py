@@ -7,8 +7,10 @@ the signature runs over). The second file is what gets signed. This tool answers
 that have to be asked around that act:
 
   before  Does what I am about to sign match what I can read? And does it bind the candidate I mean
-          to release -- commit, tree digest, distribution digests?
-  after   Does my signature verify over exactly those bytes, with exactly my key?
+          to release -- commit, tree digest, distribution digests? It prints the digest of the
+          manifest it reviewed.
+  after   Does my signature verify over exactly those bytes, with exactly my key, and are they the
+          bytes of the manifest `before` reviewed?
 
 WHY NOT SIMPLY BELIEVE THE MANIFEST. A manifest that confirms its own digests says nothing: it was
 produced on the same machine as the files it describes. This tool recomputes every digest and, when
@@ -42,6 +44,10 @@ Manifest shape (JSON):
 Usage:
     python3 scripts/verify_signing_package.py before --package <dir> [--expected-head <sha>]
     python3 scripts/verify_signing_package.py after  --package <dir> --artifact <name> --signature <file>
+                                                     --reviewed-manifest-sha256 <digest before printed>
+
+Every JSON file of the package is read once and with the package's strict reader, so a name given twice
+is a finding and not a second reading of the same file.
 """
 from __future__ import annotations
 
@@ -94,6 +100,48 @@ def _receipt_payload():
         return canonical_bytes, "pre_tag_receipt_lib.canonical_bytes"
     except ImportError as exc:
         return None, f"pre_tag_receipt_lib not importable ({exc})"
+
+
+def _strict_reader():
+    """(function, source) or (None, reason): the package's one strict JSON parser.
+
+    A NAME GIVEN TWICE IS A FINDING. `json.loads` keeps the LAST of two members of one name, and another
+    reader may keep the first. A body with two `candidate` members, the second one matching the
+    manifest, passed `before` with exit 0 while a first-wins reader saw other distribution digests
+    (Codex on pull request 369, round two, P1). `loads_strict` refuses a name given twice at any depth,
+    a lone surrogate and an implausible integer, and every JSON file of the package goes through it,
+    the manifest included."""
+    try:
+        from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+        from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    except ImportError as exc:
+        return None, f"proofbundle._strict_json not importable ({exc})"
+
+    def read(text: str):
+        try:
+            return loads_strict(text)
+        except ProofBundleError as exc:
+            raise ValueError(str(exc)) from None
+    return read, "proofbundle._strict_json.loads_strict"
+
+
+class _NotStrictJson(ValueError):
+    """A file of the package that is not strict JSON: a finding about the package."""
+
+
+def _strict_json(raw: bytes, what: str):
+    """The value in `raw`, parsed once and strictly from bytes read once. Raises _NotStrictJson for bytes
+    that are not strict UTF-8 JSON, a name given twice included, and ImportError when the strict reader
+    is missing here, which the callers report as NOT MEASURABLE."""
+    reader, source = _strict_reader()
+    if reader is None:
+        raise ImportError(source)
+    try:
+        return reader(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise _NotStrictJson(f"{what} is not UTF-8 ({exc})") from None
+    except ValueError as exc:
+        raise _NotStrictJson(f"{what}: {exc}") from None
 
 
 def _trusted_anchor(pub_b64) -> "tuple[bytes | None, str | None]":
@@ -203,8 +251,15 @@ def _derived_payload(a: dict, body: dict) -> "tuple[bytes | None, str]":
 
 
 def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
-    """The manifest, or a stated reason to stop. Every failure here is a finding, not a traceback:
-    a broken package is a result, and the reader needs the result, not a stack."""
+    """The manifest, or a stated reason to stop (see `load_manifest_and_digest`)."""
+    return load_manifest_and_digest(package, name)[0]
+
+
+def load_manifest_and_digest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> "tuple[dict, str]":
+    """The manifest and the sha256 of the bytes it was parsed from, or a stated reason to stop. Every
+    failure here is a finding, not a traceback: a broken package is a result, and the reader needs the
+    result, not a stack. The file is read once; the digest `before` prints and `after` is bound to is
+    taken over exactly the bytes that were judged."""
     marker = package / IN_PROGRESS_MARKER
     if marker.exists():
         raise SystemExit(f"STOP: {marker.name} is present ({marker.read_text(encoding='utf-8').strip()}): "
@@ -213,10 +268,15 @@ def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
     if not p.is_file():
         raise SystemExit(f"STOP: {p.name} is missing -- without a manifest it is not known what belongs "
                          "to the package, and 'whatever lies here' is not a set.")
+    raw = p.read_bytes()
     try:
-        m = json.loads(p.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeDecodeError) as exc:
+        m = _strict_json(raw, p.name)
+    except _NotStrictJson as exc:
         raise SystemExit(f"STOP: {p.name} is not readable JSON ({exc}) -- the package is damaged. Do not sign.")
+    except ImportError as exc:
+        print(f"VERDICT: NOT MEASURABLE -- {p.name} cannot be read strictly here ({exc}). That is not a pass: "
+              "install proofbundle and run again.")
+        raise SystemExit(2) from None
     if not isinstance(m, dict) or not isinstance(m.get("artifacts"), list):
         raise SystemExit(f"STOP: {p.name} carries no artifact list. Do not sign.")
     if not m["artifacts"]:
@@ -238,12 +298,19 @@ def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
                              "file name inside the package and may not be a path. Do not sign.")
         for role in ("body", "payload"):
             _inside(package, a.get(role), f"the {role} of {name!r}")
-    return m
+    # A MEMBER OF THE WRONG SHAPE IS A FINDING, NOT A TRACEBACK. `anchor` as a string or `candidate` as a
+    # list reached `.get` on a value that has none (the reading of round two, a neighbour of the class the
+    # strict reader closes). Absent or null stays absent.
+    for key in ("anchor", "candidate"):
+        if m.get(key) is not None and not isinstance(m[key], dict):
+            raise SystemExit(f"STOP: {p.name} carries `{key}` as {type(m[key]).__name__}, not as an object. "
+                             "Do not sign.")
+    return m, hashlib.sha256(raw).hexdigest()
 
 
 def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
            expected_head: str | None = None, anchor_pubkey: str | None = None) -> int:
-    m = load_manifest(package, manifest_name)
+    m, manifest_digest = load_manifest_and_digest(package, manifest_name)
     _, canon_source = _canonicalizer()
     _, receipt_source = _receipt_payload()
     findings = 0
@@ -251,6 +318,8 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
 
     print("# Offline verification of a signing package, BEFORE the signature")
     print(f"# package       : {package}")
+    print(f"# manifest      : sha256 {manifest_digest}")
+    print("#                 the manifest this run reviewed; pass it to `after` as --reviewed-manifest-sha256")
     cand = m.get("candidate") or {}
     print(f"# candidate     : {cand.get('commit', '(no candidate head in the manifest)')}")
     for field in CANDIDATE_FIELDS[1:]:
@@ -290,6 +359,10 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         print("#                 with producer values. Fetch the head yourself, e.g. git ls-remote.")
     print()
 
+    # EACH FILE IS READ ONCE, and the digest, the parse and the derivation all take those bytes. A
+    # second read is a second file as far as the checks are concerned. The bytes are kept by resolved
+    # path, so two entries that name the same file judge the same bytes.
+    gelesen: dict = {}
     for a in m["artifacts"]:
         name = a["name"]
         body_p = package / a["body"]
@@ -297,24 +370,53 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         print(f"## {name}")
         if a.get("target_rel"):
             print(f"   target in repo: {a['target_rel']}")
+        roh: dict = {}
         for role, p, expected in (("body", body_p, a.get("body_sha256")),
                                   ("payload", pay_p, a.get("payload_sha256"))):
             if not p.is_file():
                 print(f"   {role:<8} MISSING: {p.name}")
                 findings += 1
                 continue
-            actual = _sha256(p)
+            ort = str(p.resolve())
+            if ort not in gelesen:
+                gelesen[ort] = p.read_bytes()
+            roh[role] = gelesen[ort]
+            actual = hashlib.sha256(roh[role]).hexdigest()
             ok = actual == expected
-            print(f"   {role:<8} {p.name}  {p.stat().st_size} B  sha256 {actual[:16]}...  "
+            print(f"   {role:<8} {p.name}  {len(roh[role])} B  sha256 {actual[:16]}...  "
                   f"{'matches the manifest' if ok else 'DIFFERS from the manifest'}")
             if not ok:
                 findings += 1
 
-        if body_p.is_file():
-            body = json.loads(body_p.read_text(encoding="utf-8"))
+        body, body_unreadable = None, None
+        if "body" in roh:
+            try:
+                body = _strict_json(roh["body"], body_p.name)
+            except _NotStrictJson as exc:
+                body_unreadable = str(exc)
+                print(f"   body     not strict JSON ({exc}). Do not sign.")
+                findings += 1
+            except ImportError as exc:
+                body_unreadable = str(exc)
+                print(f"   body     NOT MEASURABLE, it cannot be read strictly here ({exc})")
+                not_measurable += 1
+            else:
+                if not isinstance(body, dict):
+                    body_unreadable = "the body is not a JSON object"
+                    print("   body     is not a JSON object. Do not sign.")
+                    findings += 1
+                    body = None
+
+        if body is not None:
             binds = a.get("binds_candidate", True)
             if binds:
-                c = body.get("candidate") or {}
+                c = body.get("candidate")
+                if c is not None and not isinstance(c, dict):
+                    print(f"   candidate is a {type(c).__name__} in the body, not an object -- a binding of that "
+                          "shape binds nothing")
+                    findings += 1
+                    c = None
+                c = c or {}
                 # EVERY FIELD, NOT THE ONES THAT HAPPEN TO BE THERE. A field the manifest leaves out is
                 # a field nobody binds, and a comparison over no fields is no comparison.
                 missing = [f for f in CANDIDATE_FIELDS if not cand.get(f)]
@@ -352,12 +454,14 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
                     findings += 1
 
         derived, why, broken = None, "a file is missing", None
-        if body_p.is_file() and pay_p.is_file():
+        if body is not None and "payload" in roh:
             try:
-                derived, why = _derived_payload(a, json.loads(body_p.read_text(encoding="utf-8")))
+                derived, why = _derived_payload(a, body)
             except (ValueError, TypeError) as exc:
                 broken = exc
-        if broken is not None:
+        if body_unreadable is not None:
+            print("   derivation not made, the body above could not be read")
+        elif broken is not None:
             print(f"   derivation IMPOSSIBLE: the body does not have the form its kind prescribes ({broken}). "
                   "Do not sign.")
             findings += 1
@@ -366,7 +470,7 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
                   "body -> payload was NOT.")
             not_measurable += 1
         else:
-            stored = pay_p.read_bytes()
+            stored = roh["payload"]
             if derived == stored:
                 print(f"   derivation body -> payload BYTE IDENTICAL ({len(stored)} B) -- what you read is "
                       "what you sign.")
@@ -381,17 +485,19 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
         return 1
     if not_measurable:
         print(f"VERDICT: NOT MEASURABLE -- {not_measurable} check(s) could not be made here: the equality")
-        print("         body -> payload (no canonicalizer, or a file is missing) or the anchor rule (no")
-        print("         proofbundle.signature). That is not a pass: install proofbundle with rfc8785 and")
-        print("         cryptography, run 'before' again, and only then sign.")
+        print("         body -> payload (no canonicalizer, or a file is missing), the strict reading of a")
+        print("         body (no proofbundle._strict_json) or the anchor rule (no proofbundle.signature).")
+        print("         That is not a pass: install proofbundle with rfc8785 and cryptography, run")
+        print("         'before' again, and only then sign.")
         return 2
     print("VERDICT: everything checked and consistent")
     return 0
 
 
 def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
-          manifest_name: str = DEFAULT_MANIFEST, anchor_pubkey: str | None = None) -> int:
-    m = load_manifest(package, manifest_name)
+          manifest_name: str = DEFAULT_MANIFEST, anchor_pubkey: str | None = None,
+          reviewed_manifest_sha256: str | None = None) -> int:
+    m, manifest_digest = load_manifest_and_digest(package, manifest_name)
     a = next((x for x in m["artifacts"] if x["name"] == artifact), None)
     if a is None:
         raise SystemExit(f"STOP: {artifact!r} is not in the manifest. Present: "
@@ -399,13 +505,19 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
     verify, crypto_source = _ed25519_verifier()
     body_p = _inside(package, a["body"], f"the body of {artifact!r}")
     pay_p = _inside(package, a["payload"], f"the payload of {artifact!r}")
-    payload = pay_p.read_bytes()
+    # EACH FILE IS READ ONCE. The first version read the payload for the signature and again for its
+    # digest, and the body for its digest, again for the derivation and a third time for the preview, so
+    # a file swapped between two reads was judged in one form and used in another.
+    payload = pay_p.read_bytes() if pay_p.is_file() else None
+    body_raw = body_p.read_bytes() if body_p.is_file() else None
     sig_b64 = signature_file.read_text(encoding="utf-8").strip()
     pub_b64 = (m.get("anchor") or {}).get("public_key_b64")
 
     print("# Offline verification, AFTER the signature")
     print(f"# artefact : {artifact}")
-    print(f"# payload  : {a['payload']}  {len(payload)} B  sha256 {hashlib.sha256(payload).hexdigest()}")
+    print(f"# manifest : sha256 {manifest_digest}")
+    if payload is not None:
+        print(f"# payload  : {a['payload']}  {len(payload)} B  sha256 {hashlib.sha256(payload).hexdigest()}")
     print(f"# verifier : {crypto_source}")
     if anchor_pubkey is None:
         # SELF-ATTESTATION, SAID OUT LOUD. Without a key from outside this package, the check is
@@ -419,20 +531,41 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         print(f"VERDICT: the manifest's anchor key {str(pub_b64)[:16]}... is NOT the key you passed -- "
               "the signature was not checked against your key.")
         return 1
+    # BOUND TO THE MANIFEST `before` REVIEWED. The digests below come from the manifest that lies in the
+    # package now, so a manifest replaced together with its body and payload, digests updated and the new
+    # payload signed, verified against itself (Codex on pull request 369, round two, P1). The digest
+    # `before` printed names the manifest the human looked at; another one is a finding.
+    if reviewed_manifest_sha256 is not None and reviewed_manifest_sha256 != manifest_digest:
+        print(f"VERDICT: this is not the manifest `before` reviewed: sha256 {manifest_digest[:16]}... here, "
+              f"{reviewed_manifest_sha256[:16]}... reviewed. Its files may be consistent with it and still "
+              "not be the ones that were checked. Nothing assembled.")
+        return 1
     # THE BYTES ARE ASKED AGAIN, NOT REMEMBERED. Between `before` and this run the package lay on a
     # machine, and a signature over a replaced payload verifies just as well as one over the checked
     # payload. So the digests the manifest promises and the derivation body -> payload are checked
     # here a second time, and nothing is assembled from a body that is not the checked one.
-    for role, p, expected in (("payload", pay_p, a.get("payload_sha256")),
-                              ("body", body_p, a.get("body_sha256"))):
-        actual = _sha256(p) if p.is_file() else None
+    for role, p, raw, expected in (("payload", pay_p, payload, a.get("payload_sha256")),
+                                   ("body", body_p, body_raw, a.get("body_sha256"))):
+        actual = hashlib.sha256(raw).hexdigest() if raw is not None else None
         if actual is None or actual != expected:
             print(f"VERDICT: the {role} {p.name} DIFFERS from the manifest "
                   f"({'missing' if actual is None else 'sha256 ' + actual[:16] + '...'}) -- it is not the "
                   f"{role} that was checked before signing. Nothing assembled.")
             return 1
     try:
-        derived, why = _derived_payload(a, json.loads(body_p.read_text(encoding="utf-8")))
+        body = _strict_json(body_raw, body_p.name)
+    except _NotStrictJson as exc:
+        print(f"VERDICT: the body is not strict JSON ({exc}). Nothing assembled.")
+        return 1
+    except ImportError as exc:
+        print(f"VERDICT: NOT MEASURABLE -- the body cannot be read strictly here ({exc}). That is not a pass, "
+              "and nothing is assembled.")
+        return 2
+    if not isinstance(body, dict):
+        print("VERDICT: the body is not a JSON object. Nothing assembled.")
+        return 1
+    try:
+        derived, why = _derived_payload(a, body)
     except (ValueError, TypeError) as exc:
         print(f"VERDICT: the body does not have the form its kind prescribes ({exc}). Nothing assembled.")
         return 1
@@ -454,9 +587,15 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
     if not ok:
         print(f"         {why}")
         return 1
+    if reviewed_manifest_sha256 is None:
+        print("VERDICT: NOT MEASURABLE -- this run is not bound to the manifest `before` reviewed, so it cannot "
+              "say that the bytes signed are the bytes that were checked. Pass the digest `before` printed as "
+              "--reviewed-manifest-sha256. That is not a pass, and nothing is assembled.")
+        return 2
 
     target = _inside(package, f"{artifact}.signed.json", f"the preview of {artifact!r}")
-    body = json.loads(body_p.read_text(encoding="utf-8"))
+    # The preview is the body that was checked, parsed once above, not a fresh read of the file.
+    body = dict(body)
     if a.get("kind") == "receipt":
         # A receipt carries the signature as a STRING plus signer_pubkey; a statement carries the
         # structured block. Writing the wrong one produces a file that the gate rejects, and the
@@ -487,10 +626,21 @@ def main(argv=None) -> int:
                    help="the candidate head (40 hex) from an INDEPENDENT source, e.g. git ls-remote")
     a.add_argument("--artifact", required=True)
     a.add_argument("--signature", required=True, type=pathlib.Path)
+    a.add_argument("--reviewed-manifest-sha256", default=None, type=_manifest_digest,
+                   help="the manifest digest `before` printed; without it `after` assembles nothing and "
+                        "answers NOT MEASURABLE")
     ns = p.parse_args(argv)
     if ns.mode == "before":
         return before(ns.package, ns.manifest, ns.expected_head, ns.anchor_pubkey)
-    return after(ns.package, ns.artifact, ns.signature, ns.manifest, ns.anchor_pubkey)
+    return after(ns.package, ns.artifact, ns.signature, ns.manifest, ns.anchor_pubkey,
+                 ns.reviewed_manifest_sha256)
+
+
+def _manifest_digest(text: str) -> str:
+    """The digest exactly as `before` prints it; any other spelling is refused, not normalised."""
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        raise argparse.ArgumentTypeError("the manifest digest `before` printed: 64 lower-case hex digits")
+    return text
 
 
 if __name__ == "__main__":
