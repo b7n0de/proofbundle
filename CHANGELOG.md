@@ -45,6 +45,13 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   - The README of the verdict example names what the vendored parser accepts beyond its prompt rule (P2-3, `tests/test_verdict_contract_example_names_what_the_parser_accepts.py`).
   - The memory test of run 11 holds its table to the larger reading on every interpreter, and its control states what each interpreter does (P2-4, `tests/test_lauf11_l3_memory_control_holds_on_every_interpreter.py`).
 
+- **The five lines BA1, RR1, CV1, NR1 and IA1 of the list for 6.3.1** (`docs/release_scope/6.3.1.md`), one commit each.
+  - `scripts/budget_axis_measurement.py` reads the field `kombinationen` that the measurement writes, so a run that succeeds ends with exit 0 (BA1, `tests/test_budget_axis_measurement.py` and `tests/test_budget_axis_real_run_exit.py`).
+  - `scripts/render_release.py` binds every link form, with a title, in angle brackets, as a reference or in HTML, and checks its target (RR1, `tests/test_render_release_link_forms.py`).
+  - `conformance/common_vocabulary.compare` compares every axis that either side fills, not only the axes the Python side fills (CV1, `tests/test_common_vocabulary_compares_either_side.py`).
+  - A path-like argument of `bundle.load_bundle`, `emit.load_signer` and `agent_review.load_policy` is read once at the call, and `public_transparency.evaluate_public_transparency` asks for `validate` inside its guard, so the caller's exception no longer escapes these surfaces (NR1, `tests/test_never_raise_contract_arguments_nr1.py`).
+  - The upper bound of `inspect_ai` follows the last version measured in a fresh environment, 0.3.281 (IA1, `pyproject.toml`).
+
 - **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
   A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
   the checkout a measurement was taken in; it now says "a second local checkout", and so does the
