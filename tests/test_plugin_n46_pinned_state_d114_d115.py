@@ -17,9 +17,10 @@ and count as before every key that names a program by path (a filter, fsmonitor 
 configuration hook), every key of another file, every GIT_* name, and for a read the pager, fsmonitor, filter and
 promisor keys.
 
-RED at 70e98e91 (before the rule), measured 67 of 130: every free case below, the cases where a changed state takes the
-freedom away (they assert the freedom first), the pinned hook of a read and the subcommand. The 63 counter cases are
-green at both.
+RED at 70e98e91 (before the rule), measured 68 of 136: every free case below, the cases where a changed state takes the
+freedom away (they assert the freedom first), the pinned hook of a read and the subcommand with its refusals. The 68
+counter cases are green at both; the six cases of a program key of a read and of a hook folder outside the clone were
+red at cd52d46e, where the first pin freed them (all but the refusal of pin-state are green at 70e98e91).
 """
 from __future__ import annotations
 
