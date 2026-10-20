@@ -1,0 +1,17 @@
+{
+ "_type": "https://in-toto.io/Statement/v1",
+ "subject": [
+  {
+   "name": "vector-subject",
+   "digest": {
+    "sha256": "abababababababababababababababababababababababababababababababab"
+   }
+  }
+ ],
+ "predicateType": "https://b7n0de.com/proofbundle/vector/v0.1",
+ "predicate": {
+  "🔒key": "astral U+1F512 — surrogate pair D83D DD12",
+  "＀key": "BMP U+FF00",
+  "zz": 1
+ }
+}

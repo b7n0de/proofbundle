@@ -248,6 +248,16 @@ OHNE_TAFELZEILE = {
                       "Verifier (v0.2 und v0.3), wenn der Rumpf wirft — ein Defekt des Verifiers, "
                       "kein Urteil ueber das Receipt. tests/test_verifier_block.py "
                       "(gepflanzter RuntimeError im Rumpf)",
+    # Lens run 7 on 8ecb6edf. Neither is issued by `validate_statement_shape`, and each has its
+    # triggering input in its own test file.
+    "STATEMENT_NOT_CANONICALIZABLE": "issued by _canonical_binding, which both verifier bodies call, "
+                                     "when the signed statement holds a value RFC 8785 cannot "
+                                     "represent; before, such a receipt answered internal_error. "
+                                     "tests/test_a_value_jcs_cannot_represent_is_a_typed_refusal.py",
+    "PREDICATE_NOT_OBJECT": "issued by validate_agent_review_predicate, which the validators of all "
+                            "three versions share, when the predicate is no object; before, the "
+                            "verdict's first reason named the policy. "
+                            "tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py",
 }
 
 
@@ -296,6 +306,8 @@ AUFRUFSTELLEN_JE_CODE = {
     "CAP1_ABSENCE_UNSCOPED": 1, "CAP1_INCOMPLETE_CLAIMED_CLEAN": 1, "CAP1_SUPPORTS_MISSING": 1,
     "CAP1_RULE_UNMAPPED": 1, "CAP1_STATUS_CONTRADICTS_STRATA": 1,
     "TIME_CLAIMS_CONFLICT": 1,
+    # Lens run 7 on 8ecb6edf: two new codes, one site each.
+    "STATEMENT_NOT_CANONICALIZABLE": 1, "PREDICATE_NOT_OBJECT": 1,
 }
 
 

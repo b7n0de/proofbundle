@@ -99,6 +99,10 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     never run, and the summary then carries ``notBooleanInputs``, the field names of those values
     (absent when every read value is a bool or ``None``, so the shape is unchanged for them).
 
+    ``referencesResolved`` is True only when at least one listed reference field carries a verdict and
+    none is unresolved; with no field listed, or every listed field ``None``, no reference check ran and
+    it is ``None``. It never moves ``safeForAutomation``: only an unresolved reference blocks.
+
     Returns ``{"cryptoValid", "structureValid", "policyAuthorized", "referencesResolved",
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
     the caller is responsible for stashing the return value at ``result["automation"]``.
@@ -142,10 +146,16 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     # A reference resolves only as None (not applicable) or the exact True; `is False` alone let "false" and 0
     # through as resolved.
     unresolved: list[str] = []
+    # Whether any listed field carries a verdict at all. With every one None no reference check ran, and
+    # `referencesResolved` is None, not True: finding L1-SEM-02 of 2026-07-31, measured on main 570dd164 with
+    # every reference field None and with a signed decision receipt whose evidenceRefs is empty.
+    geprueft = False
     for name in reference_keys:
         if not isinstance(name, str):
             continue
         ref_val = result.get(name)
+        if ref_val is not None:
+            geprueft = True
         if ref_val is None or ref_val is True:
             continue
         unresolved.append(name)
@@ -195,7 +205,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
         "cryptoValid": crypto_ok,
         "structureValid": structure_ok,
         "policyAuthorized": None if policy_key is None else (policy_val is True),
-        "referencesResolved": (False if refs_fremd else None if not reference_keys else not unresolved),
+        "referencesResolved": (False if refs_fremd else None if not geprueft else not unresolved),
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
         **extra,
