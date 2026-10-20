@@ -182,3 +182,46 @@ def test_CONTROL_a_guard_nothing_changes_still_skips_its_block(tmp_path):
                    "if typing.TYPE_CHECKING:\n    import socket\n"}))
     assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
     assert report["measured"].get("type_checking_changed_by", []) == []
+
+
+_MODULE_GUARD = "import typing\n{}\nif typing.TYPE_CHECKING:\n    import subprocess\n"
+_BARE_GUARD = "from typing import TYPE_CHECKING\n{}\nif TYPE_CHECKING:\n    import subprocess\n"
+#: Writes into a namespace mapping that the form check did not see (Codex on PR 393, P1), with the neighbours of
+#: the same class found by a sweep: an alias of the mapping, a method taken as a value, and globals() for a bare
+#: TYPE_CHECKING. Each one makes the guarded body run.
+NAMESPACE_WRITES = {
+    "a method of __dict__": _MODULE_GUARD.format('typing.__dict__.update({"TYPE_CHECKING": True})'),
+    "a method of vars()": _MODULE_GUARD.format("vars(typing).update(TYPE_CHECKING=True)"),
+    "__setitem__ of vars()": _MODULE_GUARD.format('vars(typing).__setitem__("TYPE_CHECKING", True)'),
+    "an alias of the mapping": _MODULE_GUARD.format("ns = vars(typing)\nns.update(TYPE_CHECKING=True)"),
+    "a method taken as a value": _MODULE_GUARD.format('u = typing.__dict__.update\nu({"TYPE_CHECKING": True})'),
+    "an item of globals()": _BARE_GUARD.format('globals()["TYPE_CHECKING"] = True'),
+    "a method of globals()": _BARE_GUARD.format("globals().update(TYPE_CHECKING=True)"),
+}
+#: Reads of a namespace mapping: none can change the guard, so the block stays a type-checking block.
+NAMESPACE_READS = {
+    "get of vars()": _MODULE_GUARD.format('X = vars(typing).get("TYPE_CHECKING")'),
+    "an in test": _MODULE_GUARD.format('X = "TYPE_CHECKING" in typing.__dict__'),
+    "an item read": _MODULE_GUARD.format('X = typing.__dict__["TYPE_CHECKING"]'),
+    "values in a reading builtin": _MODULE_GUARD.format("X = list(vars(typing).values())"),
+}
+
+
+@pytest.mark.parametrize("code", list(NAMESPACE_WRITES.values()), ids=list(NAMESPACE_WRITES))
+def test_RED_a_write_through_a_namespace_mapping_is_not_a_type_checking_block(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(hasattr(c, 'subprocess'))") == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED")
+    assert ("subprocess", "import subprocess") in found(report)
+
+
+@pytest.mark.parametrize("code", list(NAMESPACE_READS.values()), ids=list(NAMESPACE_READS))
+def test_CONTROL_a_read_of_a_namespace_mapping_still_skips_the_block(tmp_path, code):
+    """Only the guard is asked here: a call of `vars` is a finding of its own in the core, which this case does
+    not judge, so the measure is that the guarded import stays out and nothing counts as changing the guard."""
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(hasattr(c, 'subprocess'))") == "False"
+    _rc, report = gate(args)
+    assert ("subprocess", "import subprocess") not in found(report)
+    assert report["measured"].get("type_checking_changed_by", []) == []

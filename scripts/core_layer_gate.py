@@ -248,6 +248,39 @@ def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]
 
 
 _ATTRIBUTE_WRITERS = ("setattr", "delattr")
+#: The calls that hand out a namespace mapping, whose entries are a module's names (`vars`, `globals`, `locals`).
+_NAMESPACE_CALLS = ("vars", "globals", "locals")
+#: The methods of a namespace mapping that only read it. A positive list on purpose: the writing methods are
+#: many (update, setdefault, `__setitem__`, pop, clear and more), and a list of them would hold only the ones
+#: somebody thought of.
+_NAMESPACE_READS = frozenset({"get", "keys", "items", "values", "copy", "__contains__", "__getitem__", "__len__",
+                              "__iter__"})
+#: Builtins that read a namespace they are handed and keep no reference to it.
+_NAMESPACE_READING_CALLS = ("len", "list", "tuple", "sorted", "set", "frozenset", "dict", "iter")
+
+
+def _is_namespace(node: ast.AST) -> bool:
+    """A read of `<expr>.__dict__`, or a call of `vars`, `globals` or `locals`."""
+    if isinstance(node, ast.Attribute):
+        return node.attr == "__dict__" and isinstance(node.ctx, ast.Load)
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _NAMESPACE_CALLS
+
+
+def _namespace_only_read(node: ast.AST, parent: ast.AST | None) -> bool:
+    """Whether this use of a namespace mapping can only read it: an item read, a method of _NAMESPACE_READS, an
+    `in` test, the iterable of a loop, or an argument of a reading builtin. Every other use, a writing method, a
+    method taken as a value or the mapping bound to a name or handed to a call, may write TYPE_CHECKING."""
+    if isinstance(parent, ast.Subscript) and parent.value is node:
+        return isinstance(parent.ctx, ast.Load)
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        return parent.attr in _NAMESPACE_READS
+    if isinstance(parent, ast.Compare):
+        return any(c is node for c in parent.comparators)
+    if isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)):
+        return parent.iter is node
+    if isinstance(parent, ast.Call) and any(a is node for a in parent.args):
+        return isinstance(parent.func, ast.Name) and parent.func.id in _NAMESPACE_READING_CALLS
+    return False
 
 
 def type_checking_may_change(tree: ast.AST) -> bool:
@@ -256,10 +289,18 @@ def type_checking_may_change(tree: ast.AST) -> bool:
 
     `typing.TYPE_CHECKING = True` before `if typing.TYPE_CHECKING:` made the body run while the gate skipped it
     as a type-checking block. Changes the gate sees: an assignment or deletion of any attribute named
-    TYPE_CHECKING, a `setattr` or `delattr` whose name is TYPE_CHECKING or not a literal, and a write through a
-    module's `__dict__` or `vars()`.
+    TYPE_CHECKING, a `setattr` or `delattr` whose name is TYPE_CHECKING or not a literal, and every use of a
+    namespace mapping (`<expr>.__dict__`, `vars()`, `globals()`, `locals()`) that is not a read
+    (_namespace_only_read). The last part is judged from the read side (Codex on PR 393, P1): a write through a
+    method of the mapping, such as `typing.__dict__.update({...})`, made the guarded body run while the gate
+    still skipped it, and so did the same write through an alias of the mapping or through `globals()` for a
+    bare TYPE_CHECKING. What stays out of reach is a mapping reached without one of these spellings, such as
+    `object.__getattribute__(typing, "__dict__")`, and code the gate does not parse, such as a string run by exec.
     """
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     for node in ast.walk(tree):
+        if _is_namespace(node) and not _namespace_only_read(node, parents.get(node)):
+            return True
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)) \
                 and node.attr in ("TYPE_CHECKING", "__dict__"):
             return True
@@ -267,7 +308,7 @@ def type_checking_may_change(tree: ast.AST) -> bool:
             holder = node.value
             if isinstance(holder, ast.Attribute) and holder.attr == "__dict__":
                 return True
-            if isinstance(holder, ast.Call) and isinstance(holder.func, ast.Name) and holder.func.id == "vars":
+            if isinstance(holder, ast.Call) and isinstance(holder.func, ast.Name) and holder.func.id in _NAMESPACE_CALLS:
                 return True
         if isinstance(node, ast.Call):
             f = node.func
