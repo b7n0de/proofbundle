@@ -17,8 +17,8 @@ and count as before every key that names a program by path (a filter, fsmonitor 
 configuration hook), every key of another file, every GIT_* name, and for a read the pager, fsmonitor, filter and
 promisor keys.
 
-RED at 70e98e91 (before the rule): every free case below and the subcommand. The counter cases and the controls are
-green at both.
+RED at 70e98e91 (before the rule), measured 66 of 119: every free case below, the cases where a changed state takes the
+freedom away (they assert the freedom first) and the subcommand. The 53 counter cases are green at both.
 """
 from __future__ import annotations
 

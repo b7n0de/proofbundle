@@ -16,7 +16,10 @@ the Stop hook keeps its line (Nachtrag 47). The block of D85 and a rewrite name 
 first and then that there is no free way or the rewrite, so a cut at SHORT_LINE_MAX never takes the danger or its D
 number. A card of D93 names the danger of the call the card asks about and then the card.
 
-RED at 70e98e91 (before the rule): every case but the controls of the length and the silent cases.
+RED at 70e98e91 (before the rule), measured 19 of 35: the cases C1, C2, C3, S2, S5 and S9 of the retrospective in both
+languages and S7 in German, the table of dangers, the cut, delta's rev-parse and the object form of a block without a
+step. Green there as at the head: S1, S4 and S7 in English, whose old reason already named the danger, the hints S6 and
+S8, the silent cases S3 and S10, and the controls.
 """
 from __future__ import annotations
 
