@@ -28,14 +28,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any
 
-from .budget import render_keys_safe
+from .budget import render_keys_safe, render_safe
 from .canonical import _ein_stand, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError, _origin_authentic, _origin_token
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
+# RFC3339-Z and 64-hex as the schemas read them (ECMA-262): one definition, not a copy. A `\d` copy here
+# took every Unicode decimal digit, so an Arabic-Indic year passed while the Rust verifier
+# (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SHA256_HEX as _SHA256_HEX
 
 # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): domain tag for the lineage-result
 # verified-snapshot origin token. The relation_signer rule binds the SUCCESSOR issuer key of the receipt under
@@ -118,11 +121,6 @@ LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
-# \A..\Z (not ^..$): $ matches before a trailing newline. [0-9], not \d: in a str pattern \d is every Unicode
-# decimal digit, so an Arabic-Indic year or Devanagari seconds passed here while the Rust verifier
-# (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 #: The words a resolver writes into `subject_digest_state` (`cli._load_related`); any other value is malformed.
 _SUBJECT_DIGEST_STATES = frozenset({"present", "absent", "ambiguous", "malformed"})
 
@@ -157,7 +155,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
         # Never silently default — exactly where an algorithm-confusion attack would hide.
         errors.append(f"{path}.digestAlgorithm is required (never defaulted)")
     elif alg not in CONTENT_ROOT_ALGS:
-        errors.append(f"{path}.digestAlgorithm {alg!r} is not a registered relation/v0.1 "
+        errors.append(f"{path}.digestAlgorithm {render_safe(alg)} is not a registered relation/v0.1 "
                       f"content-root algorithm {list(CONTENT_ROOT_ALGS)}")
     digest = obj.get("digest")
     if not (isinstance(digest, str) and _SHA256_HEX.match(digest)):
@@ -196,14 +194,14 @@ def validate_relationships(value: Any) -> list[str]:
                 errors.append(f"{path}.{req} is required")
         relation = edge.get("relation")
         if "relation" in edge and relation not in RELATIONS:
-            errors.append(f"{path}.relation {relation!r} is not in the closed vocabulary "
+            errors.append(f"{path}.relation {render_safe(relation)} is not in the closed vocabulary "
                           f"{list(RELATIONS)} (extension only via spec change)")
         if "targetReceiptDigest" in edge:
             _validate_edge_digest(edge["targetReceiptDigest"], f"{path}.targetReceiptDigest", errors)
         if "targetSubjectDigest" in edge:
             _validate_edge_digest(edge["targetSubjectDigest"], f"{path}.targetSubjectDigest", errors)
         if "reasonCode" in edge and edge.get("reasonCode") not in REASON_CODES:
-            errors.append(f"{path}.reasonCode {edge.get('reasonCode')!r} not in {list(REASON_CODES)}")
+            errors.append(f"{path}.reasonCode {render_safe(edge.get('reasonCode'))} not in {list(REASON_CODES)}")
         if "reason" in edge and not isinstance(edge.get("reason"), str):
             errors.append(f"{path}.reason must be a string")
         if "declaredAt" in edge and not (isinstance(edge.get("declaredAt"), str)
@@ -618,7 +616,7 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
 
     def _dfs(node_hex: str, depth: int, path: set) -> str | None:
         if depth > max_depth:
-            return f"relation:depth_exceeded: chain deeper than {max_depth}"
+            return f"relation:depth_exceeded: chain deeper than {render_safe(max_depth, quote=False)}"
         if node_hex in path:
             return "relation:cycle: attached chain revisits a receipt on its own ancestry path"
         if node_hex in proven_safe:

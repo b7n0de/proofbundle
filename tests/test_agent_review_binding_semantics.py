@@ -174,6 +174,98 @@ def test_ein_zulaessiger_wert_bleibt_zulaessig():
     assert AR.verify_agent_review(env, pk)["assurance_ok"] is True
 
 
+# ── a time claim's assurance is tested without hashing it (review of fc863e2e) ─────────────────
+
+#: The one error `validate_time_claim` gives for an assurance that is no rung of the ladder.
+_KEIN_RUNG = "timeClaim.assurance must be one of"
+#: The error it gives for a rung above selfDeclared.
+_ZU_HOCH = "claims more than a declaration can carry"
+
+
+def _v02_mit_zeitaussage(assurance_wert, *, fassung: str = "v0.2"):
+    """A signed v0.2 (or v0.3) receipt whose one time claim carries `assurance_wert`, built by hand:
+    the emitter validates first, and an attacker does not use the emitter."""
+    from proofbundle import canonical, dsse                       # noqa: PLC0415
+    sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    praedikat = _pred()
+    praedikat["subjectContext"]["disclosureCoreDigest"] = "e" * 64
+    praedikat["declaration"]["timeClaims"] = [
+        {"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z", "assertedBy": "o",
+         "assurance": assurance_wert}]
+    praedikat["limitationCodes"] = AR.derive_limitation_codes(praedikat)
+    typ = AR.AGENT_REVIEW_PREDICATE_TYPE_V03 if fassung == "v0.3" else AR.AGENT_REVIEW_PREDICATE_TYPE_V02
+    stmt = {"_type": AR.STATEMENT_TYPE,
+            "subject": [{"name": AR._subject_name(praedikat),
+                         "digest": {"sha256": AR._subject_digest(praedikat)}}],
+            "predicateType": typ, "predicate": praedikat}
+    env = dsse.sign_envelope(canonical.canonicalize_statement(stmt), sk,
+                             payload_type=AR.INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return env, sk.public_key().public_bytes_raw(), praedikat
+
+
+@pytest.mark.parametrize("wert", [[], {}, ["runnerObserved"]], ids=["list", "dict", "list-of-rung"])
+def test_an_unhashable_time_claim_assurance_is_an_error_not_a_raise(wert):
+    """THE LIVE DEFECT the review of fc863e2e measured. `validate_time_claim` tested the rung with
+    `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`: a set difference
+    is a set, `in` hashes the left side, and `[]`, `{}` and `["runnerObserved"]` raised `TypeError`
+    out of the validator, after the check above it had already recorded the typed error. Now the
+    value gets that one error, `timeClaim.assurance must be one of ...`, and nothing raises, in the
+    time-claim validator and in the v0.2 and v0.3 predicate validators that call it."""
+    tc = {"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z", "assertedBy": "o",
+          "assurance": wert}
+    fehler = AR.validate_time_claim(tc)
+    assert len(fehler) == 1 and fehler[0].startswith(_KEIN_RUNG), fehler
+    _env, _pk, praedikat = _v02_mit_zeitaussage(wert)
+    for pruefer in (AR.validate_agent_review_v02_predicate, AR.validate_agent_review_v03_predicate):
+        fehler = pruefer(praedikat, strict=True)
+        assert [e for e in fehler if "timeClaims" in e] == [f"timeClaims[0]: {AR.validate_time_claim(tc)[0]}"], (
+            pruefer.__name__, fehler)
+    with pytest.raises(TypeError):
+        wert in {"selfDeclared"}                                        # noqa: B015 — the shape it had
+
+
+@pytest.mark.parametrize("wert,erwartet", [
+    ("runnerObserved", _ZU_HOCH), ("independentlyWitnessed", _ZU_HOCH),
+    ("selfDeclared", None), ("bogus", _KEIN_RUNG), (None, _KEIN_RUNG), (42, _KEIN_RUNG)])
+def test_a_hashable_time_claim_assurance_is_judged_as_before(wert, erwartet):
+    """The other direction: for a hashable value the answer is the one the set test gave. A rung above
+    selfDeclared is refused as too high, selfDeclared passes, and anything else is no rung."""
+    tc = {"kind": "reviewCompleted", "value": "2026-08-31T15:45:00Z", "assertedBy": "o",
+          "assurance": wert}
+    fehler = AR.validate_time_claim(tc)
+    if erwartet is None:
+        assert fehler == []
+    else:
+        assert len(fehler) == 1 and erwartet in fehler[0], fehler
+
+
+@pytest.mark.parametrize("fassung", ["v0.2", "v0.3"])
+@pytest.mark.parametrize("wert", [[], {}, ["runnerObserved"]], ids=["list", "dict", "list-of-rung"])
+def test_a_signed_receipt_with_an_unhashable_time_claim_assurance_is_a_typed_fail(wert, fassung):
+    """What the defect cost at the surface: `verify_agent_review_v02` answered `ok=False` with
+    `reason_code=internal_error`, "a defect in the verifier, not a verdict about the receipt", on a
+    correctly signed envelope. Now the signature verifies, the structure fails with the time claim's
+    own error, and nothing says internal_error."""
+    env, pk, praedikat = _v02_mit_zeitaussage(wert, fassung=fassung)
+    verify = AR.verify_agent_review_v03 if fassung == "v0.3" else AR.verify_agent_review_v02
+    r = verify(env, pk, strict=True, expected_subject_digest=AR._subject_digest(praedikat))
+    assert r["ok"] is False
+    assert r["crypto_ok"] is True and r["predicate_type_ok"] is True, r["errors"]
+    assert r["structure_ok"] is False
+    assert r["reason_code"] != "internal_error" and "internal_error" not in r["reason_codes"], r
+    assert not any("internal_error" in e for e in r["errors"]), r["errors"]
+    assert any(e.startswith(f"timeClaims[0]: {_KEIN_RUNG}") for e in r["errors"]), r["errors"]
+
+
+def test_the_same_signed_receipt_with_selfdeclared_verifies():
+    """Anti-parity for the envelope above: built the same way with the one honest rung it is ok, so
+    the failure above is the assurance value and not the construction."""
+    env, pk, praedikat = _v02_mit_zeitaussage("selfDeclared")
+    r = AR.verify_agent_review_v02(env, pk, strict=True,
+                                   expected_subject_digest=AR._subject_digest(praedikat))
+    assert r["ok"] is True, r["errors"]
+
+
 # ── der Erwartungsvergleich wird EXAKT gefuehrt ────────────────────────────────────────────────
 
 class ErwartungsvergleichIstExakt(unittest.TestCase):

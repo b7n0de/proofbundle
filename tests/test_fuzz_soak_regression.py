@@ -21,7 +21,7 @@ for sub in ("src", "scripts"):
         sys.path.insert(0, p)
 
 from proofbundle.errors import ProofBundleError  # noqa: E402
-from _lastdeckel import gedeckelt  # noqa: E402 — LAUF11-L3, nach der sys.path-Zeile
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402 — LAUF11-L3, after the sys.path line
 
 
 def _load(name: str, rel: str):
@@ -104,7 +104,7 @@ class TestRobustnessClassRegressions(unittest.TestCase):
         from proofbundle.budget import DEFAULT_BUDGET
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         pub = Ed25519PrivateKey.generate().public_key().public_bytes_raw()
-        cap = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=256)
+        cap = gedeckelt(DEFAULT_BUDGET.signatures, bytes_je_element=KOSTEN_JE_ELEMENT["signatures"])
         env = {"payloadType": "application/vnd.in-toto+json", "payload": "e30",
                "signatures": [{"sig": "AA"} for _ in range(cap + 5)]}
         with self.assertRaises(ProofBundleError):

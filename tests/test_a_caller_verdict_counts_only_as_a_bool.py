@@ -511,7 +511,8 @@ class TestAutomationSummaryCountsOnlyBools(unittest.TestCase):
                              "referencesResolved": False, "safeForAutomation": False,
                              "automationBlockers": ["CRYPTO_NOT_OK", "STRUCTURE_NOT_OK", "POLICY_NOT_EVALUATED",
                                                     "REFERENCES_NOT_RESOLVED", "RECEIPT_NOT_OK"]})
-        self.assertIs(_auto(evidence_bound=None)["referencesResolved"], True)
+        # No reference check ran: None, not a vacuous True (L1-SEM-02, carried 2026-10-18).
+        self.assertIsNone(_auto(evidence_bound=None)["referencesResolved"])
 
 
 # ── policy: a boolean field of a policy dict on the library path ──────────────────────────────────

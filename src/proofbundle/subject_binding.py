@@ -25,6 +25,8 @@ from typing import Any
 
 from .canonical import _ein_stand, _pruefkopie
 from .errors import ProofBundleError
+# The schemas' own readings (ECMA-262, key-closed `sha256Digest`), one definition in _schema_shapes.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z_TYPE, is_sha256_digest
 
 # AMBIGUOUS (deep gate 2026-09-05, finding L4-02): a Statement with MORE THAN ONE subject never binds silently
 # to subject[0]. Which object the statement speaks about is open, on the statement-under-verification side
@@ -44,6 +46,17 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise SubjectBindingError(
             "subject binding needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses leaves as this module's typed error: the canonicalizer's
+        # own refusal (IntegerDomainError, FloatDomainError: a value the strict parser admits and RFC
+        # 8785 cannot represent) and the structural budget's, which runs first. Measured on 8ecb6edf:
+        # `classify_subject`, `require_derived_subject` and `derive_subject_digest` raised the bare
+        # ValueError for a predicate holding `2**53` or NaN; on d5747000 they still raised a bare
+        # BundleFormatError for a lone surrogate or a nesting past the budget's depth and a bare
+        # BudgetExceeded for `2**8194`. The decision, outcome and relation verifiers catch every
+        # exception here and report "could not classify the subject binding", as before.
+        raise SubjectBindingError(
+            f"the predicate is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 @_ein_stand
@@ -93,7 +106,12 @@ def classify_subject(statement: Any) -> dict:
     fail-closed: we never call an unresolvable subject a genuine commitment.
 
     The statement is read once, into the plain copy of what it stores (round 12); one holding a value
-    that is no JSON value is a malformed statement, EXTERNAL_ATTESTED."""
+    that is no JSON value is a malformed statement, EXTERNAL_ATTESTED.
+
+    A predicate that RFC 8785 cannot represent (an integer outside +-(2**53 - 1), NaN, Infinity) or that the
+    structural budget in front of the canonicalizer refuses (a lone surrogate, a nesting past its depth, an
+    integer past its bit budget) has no derived digest at all and raises :class:`SubjectBindingError`: reporting
+    it as EXTERNAL_ATTESTED would call a subject that may well be derived "a subject-rehang"."""
     try:
         statement = _pruefkopie(statement)
     except ValueError:
@@ -148,10 +166,12 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     # closes the direct-primitive path. Bounded at the same json_depth / json_nodes budget so a hostile deep or
     # node-heavy structure is a FAIL-CLOSED violation (a returned error string), never a crash. DFS pre-order is
     # preserved (children pushed reversed) so the reported violation order is unchanged for legitimate inputs.
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import DEFAULT_BUDGET, render_safe, render_text  # noqa: PLC0415 - avoids an import cycle
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
-    stack: list[tuple[Any, str, int]] = [(obj, path, 0)]
+    # THE START PATH IS TEXT TOO, and it comes from the caller: `path=10**5000` raised ValueError
+    # from the f-strings below (lens run 10 generator). A str path is itself, as a key is.
+    stack: list[tuple[Any, str, int]] = [(obj, render_text(path), 0)]
     nodes = 0
     while stack:
         cur, cur_path, depth = stack.pop()
@@ -168,12 +188,83 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
             if allowed is not None:
                 for k in cur:
                     if k not in allowed:
-                        out.append(f"{cur_path or '<root>'}.{k}: undeclared nested key (nested closure violated)")
+                        out.append(f"{cur_path or '<root>'}.{render_safe(k, quote=False)}: undeclared nested "
+                                   "key (nested closure violated)")
             for k, v in reversed(list(cur.items())):
-                child = f"{cur_path}.{k}" if cur_path else k
+                # A PATH IS TEXT, built from a key rendered bounded: a key of `10**5000` (a direct-dict
+                # caller) raised ValueError here and in the message above (the public-surface generator on
+                # main 570dd164 and five carried commits: 36 of 189 calls). A str key is itself.
+                name = k if isinstance(k, str) else render_safe(k, quote=False)
+                child = f"{cur_path}.{name}" if cur_path else name
                 stack.append((v, child, depth + 1))
         elif isinstance(cur, list):
             item_path = f"{cur_path}[]"
             for v in reversed(cur):
                 stack.append((v, item_path, depth + 1))
+    return out
+
+
+
+def _has_type(value: Any, kind: str) -> bool:
+    """One JSON Schema type, as the schemas in schemas/ use it. `sha256` is the `sha256Digest` object and
+    `rfc3339z` the `rfc3339z` string of their `$defs`; `boolean` is never an int, `string` never None."""
+    if kind == "string":
+        return isinstance(value, str)
+    if kind == "object":
+        return isinstance(value, dict)
+    if kind == "array":
+        return isinstance(value, list)
+    if kind == "boolean":
+        return isinstance(value, bool)
+    if kind == "null":
+        return value is None
+    if kind == "rfc3339z":
+        return isinstance(value, str) and bool(_RFC3339_Z_TYPE.match(value))
+    if kind == "sha256":
+        return is_sha256_digest(value)
+    from .budget import render_safe  # noqa: PLC0415 - local import avoids an import cycle
+    raise ValueError(f"unknown type kind {render_safe(kind)} in a type map")
+
+
+@_ein_stand
+def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"]) -> list[str]:
+    """Walk ``obj`` and report every value at a declared dotted path whose JSON type is not the declared one.
+
+    The sibling of :func:`nested_closure_violations`, with the same path convention (``"decision"``,
+    ``"notChecked[]"`` for each item, ``"notChecked[].field"``). A path that is absent is not a violation
+    (required-ness is the caller's job); a path that is PRESENT carries its type, and JSON null is a type
+    like any other, so a present null is refused wherever the map does not name ``"null"``. Deep gate
+    Z195, L3-Z195-03 and L3-Z195-05: the decision validator checked presence for required fields and
+    skipped every None, and 311 type-confused predicates its own published schema refuses passed it.
+
+    Iterative and bounded by the same budget as the closure walk, so a hostile structure is a returned
+    violation, never a RecursionError."""
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import render_safe  # noqa: PLC0415
+    max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
+    out: list[str] = []
+    stack: list[tuple[Any, str, int]] = [(obj, "", 0)]
+    nodes = 0
+    while stack:
+        cur, cur_path, depth = stack.pop()
+        nodes += 1
+        if nodes > max_nodes:
+            out.append("<root>: structure exceeds the validation node budget (type check fail-closed)")
+            break
+        if depth > max_depth:
+            out.append(f"{cur_path or '<root>'}: nesting exceeds the validation depth budget (type check fail-closed)")
+            continue
+        want = type_map.get(cur_path)
+        if want is not None:
+            kinds = (want,) if isinstance(want, str) else want
+            if not any(_has_type(cur, k) for k in kinds):
+                out.append(f"{cur_path}: must be {' or '.join(kinds)}, got {render_safe(cur)}")
+                continue   # a wrong container is not descended into; its own type is the finding
+        if isinstance(cur, dict):
+            for k, v in reversed(list(cur.items())):
+                if isinstance(k, str):
+                    stack.append((v, f"{cur_path}.{k}" if cur_path else k, depth + 1))
+        elif isinstance(cur, list):
+            for v in reversed(cur):
+                stack.append((v, f"{cur_path}[]", depth + 1))
     return out
