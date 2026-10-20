@@ -32,7 +32,7 @@ from typing import Optional
 
 from .anchors_ots import (OtsProofTooLarge, _calendar_uris_of, _classify, _deserialize_detached,
                           calendar_operators, verify_opentimestamps)
-from .canonical import _plain_for_jcs
+from .canonical import _abbild_stand, _ein_stand, _plain_for_jcs
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -52,6 +52,7 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
+@_ein_stand
 def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     """True iff ``proof`` is an UPGRADED OTS proof (a Bitcoin block-header attestation) — self-contained,
     so verifying existence-in-Bitcoin no longer needs a calendar. A pending-only or malformed proof is
@@ -64,6 +65,7 @@ def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     return has_bitcoin
 
 
+@_ein_stand
 def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
                         declared_calendars: Optional[list[str]] = None,
                         bundled_headers: Optional[dict[str, str]] = None) -> dict:
@@ -146,6 +148,7 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
     return pack
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
                          now: Optional[int] = None) -> dict:
     """Verify an evidence pack OFFLINE (no network I/O). Delegates to the OTS verifier with the pack's
@@ -195,6 +198,7 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     return verify_opentimestamps(proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
 
 
+@_ein_stand
 def describe_proof(proof: bytes) -> dict:
     """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
     upgrade report. Returns ``{state, selfContained, bitcoinHeights, provenCalendars,

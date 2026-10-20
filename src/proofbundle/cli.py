@@ -154,6 +154,58 @@ _VERIFY_NULLABLE_FIELDS = (
     "root_authenticity")
 
 
+def _relations_regel(abschnitt: dict, eigene_aussage: bool) -> bool:
+    """Whether a loaded ``relations`` section sets a rule the verify command applies (`_policy_ohne_abschnitt`).
+
+    A rule is set by a ``require_relation_resolution`` that names a relation, a ``reject_superseded`` that is true, a
+    ``relation_signer`` or ``require_relation_target`` that names a relation, and a ``reject_retracted`` that is true
+    where the command judges a statement's own assertion (``relation-statement verify``, ``eigene_aussage``): the decision
+    and outcome verify commands never apply it (`relation.evaluate_relations_policy`, "standalone-only"). Deep gate run 6
+    at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01: a section holding only ``reject_retracted: true``, or only
+    ``reject_superseded: false``, ``relation_signer: {}`` or ``require_relation_target: {}``, counted as held, and
+    `outcome verify` printed POLICY: OK over an attached, verified retraction of its receipt."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    for name in ("require_relation_resolution", "relation_signer", "require_relation_target"):
+        wert = _feld_von(abschnitt, name, _FEHLT)
+        if wert is not _FEHLT and not ((type(wert) is list or type(wert) is dict) and not wert):
+            return True
+    if _feld_von(abschnitt, "reject_superseded", _FEHLT) is True:
+        return True
+    return eigene_aussage and _feld_von(abschnitt, "reject_retracted", _FEHLT) is True
+
+
+def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple, eigene_aussage: bool = False) -> bool:
+    """True when a loaded ``--policy`` holds none of the sections this command evaluates, or holds them with nothing
+    in them that applies.
+
+    A FILE WHOSE CONTENT READS AS ABSENT, ONE LEVEL DOWN (verify lane V3 on 6d674973, the class of
+    L3-620v5-T14-ANCHORS-NULL-FILE-01). A valid policy with no section for this command, the packaged eval
+    template for instance, was loaded and then not evaluated, and `decision verify`, `outcome verify` and
+    `relation-statement verify` ended with exit 0 and output byte-identical to a call without `--policy`
+    (measured at d388ed3d and at both tags). A relying party who names a policy asked for it to be applied,
+    so such a file is refused like the empty value. A section the policy holds as null counts as held: the
+    gate refuses it with its own code.
+
+    WHAT COUNTS AS HELD, section by section (verify lanes V4, V5 and V6 on 8f2fa980). ``decision_receipt`` counts
+    when present: its default rules apply to an empty section too (``allow_raw_inputs``). ``relations`` counts when
+    it holds a key: each of its rules is one the policy sets, so ``{}`` sets none, and `decision verify` under it
+    ended byte-identical to a verify without the policy. ``anchors`` counts when it gives trust material for the
+    anchors of ``--anchors`` (`policy.policy_anchor_trust`), the only part of it these commands read; a policy with
+    only that section confirmed an anchor at d388ed3d, and the first form of this refusal refused it."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    from .policy import policy_anchor_trust  # noqa: PLC0415
+    for name in abschnitte:
+        wert = _feld_von(policy, name, _FEHLT)
+        if wert is _FEHLT:
+            continue
+        if name == "relations" and type(wert) is dict and not _relations_regel(wert, eigene_aussage):
+            continue
+        if name == "anchors" and not policy_anchor_trust(policy):
+            continue
+        return False
+    return True
+
+
 def _error_verify_fields(error: str) -> dict:
     """The stable single-field contract on the malformed-input (exit 2) path (verify-lens L2,
     2026-07-09): crypto could not even be evaluated, so crypto_ok is False and every check field is
@@ -214,10 +266,18 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
         # key-binding is invalid (sd-jwt-key-binding=False) — none of those may read as sd_jwt_ok=True
         # (No-Fake). `is False` only, so a not-applicable (None) sub-check never downgrades.
         if any(by_name.get(n) is False for n in
-               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding")):
+               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding",
+                "sd-jwt-issuer-trust")):
             sd_jwt_ok = False
 
+    # N38 (Z309 / PR 311 P1): a KB-JWT verdict (holder binding, and the audience/nonce equality folded into it)
+    # reads positive only under a trusted issuer. When sd-jwt-issuer-trust FAILED, the holder-binding verdict is
+    # not trustworthy — the KB-JWT verified under an attacker-chosen issuer key supplied outside the bundle
+    # signature — so key_binding_ok, and audience_ok / nonce_ok derived from it, report False, never the raw
+    # crypto key-binding result.
     key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
+    if by_name.get("sd-jwt-issuer-trust") is False:
+        key_binding_ok = False
 
     # audience_ok / nonce_ok: the aud/nonce EQUALITY is enforced INSIDE the key-binding check
     # (kbjwt.verify_key_binding), and bundle.verify_bundle fails closed (F4) when aud/nonce were
@@ -310,6 +370,13 @@ def _detect_features() -> list:
     return features
 
 
+#: How to update, said where a user looks (Z43). There is deliberately no self-update and no check
+#: at start-up: the tool promises to work offline, and a verifier that fetches and runs its own new
+#: version would verify with code nobody looked at. The installer is named because a plain `pip`
+#: into an externally managed Python is refused since PEP 668.
+UPDATE_HINT = "update with 'pipx upgrade proofbundle' or 'pip install -U proofbundle'"
+
+
 def _version_string() -> str:
     feature_line = ", ".join(_detect_features()) or "(none detected)"
     return (
@@ -317,12 +384,81 @@ def _version_string() -> str:
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
         f"features: {feature_line}\n"
-        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1\n"
+        f"{UPDATE_HINT}"
     )
 
 
+#: The top-level command list, grouped by what a reader wants to do (Z43, draft of 2026-09-10).
+#: Every short line is written out rather than cut from the long help: cutting once turned "pb1."
+#: into "pb1". `tests/test_cli_top_help_grouped.py` holds this table and the registered commands
+#: equal, so a command cannot be added without a line here, and a line cannot outlive its command.
+_COMMAND_GROUPS = (
+    ("Verify", (
+        ("verify", "verify an evidence bundle JSON file"),
+        ("verify-proof", "verify a C2SP .tlog-proof file offline"),
+        ("verify-opening", "verify one sample opening against a samples root"),
+        ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+    )),
+    ("Emit and commit", (
+        ("emit", "sign and anchor a payload into a bundle"),
+        ("emit-eval", "emit a signed eval receipt from a claim JSON"),
+        ("show-eval", "verify an eval receipt and print the claim"),
+        ("prereg", "hash an eval protocol to commit to it before the run"),
+        ("evalcard", "hash an external Eval Card to reference it from a claim"),
+        ("hf-token", "pack a receipt into a pb1. token, or verify one"),
+        ("audit-challenge", "derive k audit indices from a samples root"),
+    )),
+    ("Statements over a receipt", (
+        ("decision", "decision-receipt/v0.1: an agent decision"),
+        ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
+        ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
+    )),
+    ("Time anchors", (
+        ("anchor", "package, verify and inspect external time anchors  (experimental)"),
+    )),
+    ("Export to other formats", (
+        ("intoto", "DSSE-signed in-toto eval-result attestation  (proposed)"),
+        ("svr", "in-toto Summary Verification Result, svr/v0.1  (proposed)"),
+    )),
+    ("Try it", (
+        ("demo", "run the whole trust story in memory, offline"),
+    )),
+)
+
+
+def _grouped_epilog() -> str:
+    breite = max(len(name) for _titel, zeilen in _COMMAND_GROUPS for name, _text in zeilen)
+    out = ["commands"]
+    for titel, zeilen in _COMMAND_GROUPS:
+        out.append(f"  {titel}")
+        out.extend(f"    {name:<{breite}}   {text}" for name, text in zeilen)
+        out.append("")
+    out += ["run 'proofbundle <command> --help' for the options and exit codes of one command",
+            "run 'proofbundle --version' for version, spec revision and optional features",
+            UPDATE_HINT]
+    return "\n".join(out)
+
+
+class _TopHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Leaves out argparse's flat command list; the grouped list in the epilog replaces it (Z43).
+
+    WHY NOT ``help=argparse.SUPPRESS`` ON EACH SUBPARSER. Hiding a subparser that way is not honoured
+    the same way across the supported Pythons (3.10 to 3.14); some render the literal marker. This
+    formatter drops the one section and nothing else, and the epilog is raw so its layout survives.
+    """
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            return ""
+        return super()._format_action(action)
+
+
 class _VersionAction(argparse.Action):
-    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    """Like argparse's built-in ``action='version'``, but prints the raw multi-line block verbatim
+    (the version/build facts plus the upgrade hint; the number of lines is not a contract, and the
+    docstring said "4-line" while the block had grown — an adversarial lens measured six).
     The built-in action runs the string through HelpFormatter, which collapses embedded newlines
     into a single space-joined line — wrong for this multi-line output. Same external contract:
     ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
@@ -345,17 +481,29 @@ def _check_matrix(result) -> list:
 
 
 def _resolve_signer(args):
-    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error)."""
-    if getattr(args, "new_key", None) and getattr(args, "key", None):
+    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error).
+
+    Both options are read by `is not None` (verify lane V3 on 6d674973, the class of L3-620v3-CLI-EMPTY-OPTION-01):
+    they were read by their truth, so `--key K --new-key ''` signed with K and exited 0, and `--key '' --new-key N`
+    wrote N, each exactly as if the empty option had not been given. Both given is refused whatever they hold, and
+    a key file that cannot be read or written, the empty path included, is refused with exit 2, not a raw
+    traceback."""
+    new_key = getattr(args, "new_key", None)
+    key = getattr(args, "key", None)
+    if new_key is not None and key is not None:
         print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
         return None
-    if getattr(args, "new_key", None):
-        signer = generate_signer()
-        save_signer(signer, args.new_key)
-        print(f"wrote new signing key to {args.new_key} (keep this secret)", file=sys.stderr)
-        return signer
-    if getattr(args, "key", None):
-        return load_signer(args.key)
+    try:
+        if new_key is not None:
+            signer = generate_signer()
+            save_signer(signer, new_key)
+            print(f"wrote new signing key to {new_key} (keep this secret)", file=sys.stderr)
+            return signer
+        if key is not None:
+            return load_signer(key)
+    except (OSError, ValueError, ProofBundleError) as exc:
+        _err(exc)
+        return None
     print("ERROR: provide --key <file> or --new-key <file>", file=sys.stderr)
     return None
 
@@ -419,11 +567,11 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         # (see enclave_assurance_proven). Parsed here so a bad --eat/--verifier-key gets the SAME clean
         # ERROR+exit-2 handling as the receipt itself, never a raw traceback.
         eat_jws = None
-        if getattr(args, "eat", None):
+        if getattr(args, "eat", None) is not None:
             with _open_input(args.eat) as handle:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
-        if getattr(args, "verifier_key", None):
+        if getattr(args, "verifier_key", None) is not None:
             verifier_pubkey = decode_b64(args.verifier_key)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         _err(exc)
@@ -593,8 +741,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
     anchor_type = getattr(args, "anchor_type", None)
     anchor_target = getattr(args, "anchor_target", None)   # WP-A1: implies --require-anchor
-    require_anchor = anchor_type if anchor_type else (
-        "any" if (getattr(args, "require_anchor", False) or anchor_target) else None)
+    # AN OPTION THE CALLER GAVE IS READ BY `is not None` (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01):
+    # `--anchor-type ''` read by its truth dropped the requirement it implies and exited 0.
+    require_anchor = anchor_type if anchor_type is not None else (
+        "any" if (getattr(args, "require_anchor", False) or anchor_target is not None) else None)
     allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
@@ -610,7 +760,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         verification_time = None
         if getattr(args, "verification_time", None) is not None:
             from .policy import _parse_iso_utc  # noqa: PLC0415
-            if not getattr(args, "policy", None):
+            if getattr(args, "policy", None) is None:
                 raise ValueError("--verification-time only applies together with --policy (it sets "
                                  "the instant the policy lifecycle is evaluated at)")
             verification_time = _parse_iso_utc(args.verification_time)
@@ -707,8 +857,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (fail-closed) before verifying, and reconcile the aud VALUE: if BOTH --aud and the policy's
         # expected_aud are set and DIFFER, that is ambiguous → exit 2 (never a silent override).
         effective_aud = flag_aud
-        if getattr(args, "policy", None):
+        if getattr(args, "policy", None) is not None:   # `--policy ''` is a policy that cannot be read
             policy = load_policy(resolve_policy_source(args.policy))
+            # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): a decision or
+            # relations section is refused here, exit 2, never dropped.
+            from .policy import PolicyError, _regelfehler  # noqa: PLC0415
+            _regel = _regelfehler(policy, "verify")
+            if _regel is not None:
+                raise PolicyError(_regel)
             pol_aud = policy_expected_aud(policy)
             if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
                 from .policy import PolicyError  # noqa: PLC0415
@@ -733,7 +889,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                         f"anchors.require_anchor_target is {p_tgt!r} — ambiguous; align them")
                 require_anchor = require_anchor if require_anchor is not None else p_req
                 anchor_target = anchor_target if anchor_target is not None else p_tgt
-                if anchor_target and require_anchor is None:
+                if anchor_target is not None and require_anchor is None:
                     require_anchor = "any"
                 if pol_anc.get("allow_pending"):
                     allow_pending = True
@@ -743,12 +899,49 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
                 rp_trust_material = merged
+        # AN ANCHOR PERMISSION OR ANCHOR TRUST WITHOUT AN ANCHOR REQUIREMENT IS APPLIED BY NOTHING (deep gate run 7 at
+        # 1a3cd672, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2, with its command-line neighbour from the sweep):
+        # no anchor is checked without a requirement, so `anchors.allow_pending` or trust material from the policy, or
+        # `--trusted-tsa-root` / `--bitcoin-header` alone, ended with POLICY: OK and nothing applied. Refused like the
+        # lone `--allow-pending` above, exit 2.
+        if require_anchor is None and (allow_pending or rp_trust_material):
+            lose = (["allow_pending"] if allow_pending else []) + sorted(rp_trust_material or {})
+            raise ValueError(
+                f"anchor trust or permission given without an anchor requirement ({', '.join(lose)}): no anchor is "
+                "checked without --require-anchor, --anchor-type, --anchor-target or the policy's "
+                "anchors.require_anchor / require_anchor_target, so it would be applied by nothing")
+        # N38 (Z309 / PR 311 P1): a KB-JWT verdict (holder binding, audience, nonce) is reported positive only
+        # under a trusted issuer. The anchor without a policy is the SD-JWT's payload binding (an eval receipt);
+        # with a policy it is additionally sd_jwt.issuer_key_pin, threaded into the crypto layer so the verdict,
+        # the single-field contract and the exit code all honour one rule (Owner card OA-44d4a016e9 Wahl B).
+        sd_jwt_pin = None
+        if policy is not None and isinstance(policy.get("sd_jwt"), dict):
+            sd_jwt_pin = policy["sd_jwt"].get("issuer_key_pin")
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
                                expected_root_b64=expected_root,
-                               expected_tree_size=expected_tree_size)
+                               expected_tree_size=expected_tree_size,
+                               sd_jwt_issuer_key_pin=sd_jwt_pin)
         if cp_supplied:
+            # Nachtrag 46f: a re-stamp must authenticate nothing that was not authenticated before. The 46d
+            # re-stamp below re-binds the origin token to the full check list, but verify_bundle stamps the
+            # origin ONLY on a passing bundle signature (sig_ok True); a bundle whose signature failed comes
+            # back UNSTAMPED (verified_origin None, origin_authentic() False). Read that state BEFORE adding
+            # the checkpoint check — the add itself would make origin_authentic() False either way — and
+            # re-stamp only when the result already carried an authentic origin, so a failed-signature result
+            # never gains origin from the checkpoint re-stamp (OA-a9986c2e64 A.1). Narrowing only.
+            _origin_authentic_before = result.origin_authentic()
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
+            # Nachtrag 46d: the checkpoint-authenticity check is part of the crypto verdict, so the origin
+            # token must cover it — re-stamp AFTER the add. N46c stamped the origin inside verify_bundle
+            # (over result.checks as they stood there), but this CLI adds one more check afterwards, so the
+            # stamp no longer matched and evaluate_policy's origin_authentic() rejected a genuine bundle
+            # (policy:result_origin, exit 3). Re-stamping re-binds the token to the full, final check list;
+            # a check mutated AFTER this re-stamp is still rejected (origin_authentic recomputes → mismatch),
+            # and result.ok is unaffected by the stamp. Only in the cp_supplied branch (only here was a check
+            # added after the verify_bundle stamp), and only (N46f) when the pre-add origin was authentic.
+            if _origin_authentic_before:
+                result.stamp_origin()
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, OverflowError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
@@ -768,7 +961,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # (NOT_EVALUATED) and exit 1 dominates.
     policy_ok = None
     policy_result = None       # HISTORICAL evaluation (now=verification_time): drives the exit code + POLICY line
-    policy_result_now = None   # CURRENT evaluation (now=None): drives safeForAutomation + the tree-context inputs
+    policy_result_now = None   # CURRENT evaluation (now=_jetzt): drives safeForAutomation + the tree-context inputs
+    # 6.2.1 ZT-01 (Z309): the present instant of this verify, read once; the current evaluation and the
+    # present-tense lifecycle flags below are judged at it.
+    from datetime import datetime, timezone  # noqa: PLC0415
+    _jetzt = datetime.now(timezone.utc)
     if policy is not None and crypto_ok:
         # A-P0-2 §6.3: in historical mode `now` is the explicit --verification-time — the POLICY verdict +
         # exit code answer "was it valid THEN". But safeForAutomation is a PRESENT-tense "safe to act on now"
@@ -776,10 +973,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (Lens-2/3/4/6 review: a not-yet-valid policy or an expired-today checkpoint must never read
         # automation-safe just because a past instant was supplied). We therefore evaluate TWICE in historical
         # mode; in current mode the two coincide (one evaluation, no behaviour change).
-        policy_result = evaluate_policy(bundle, result, policy, now=verification_time)
+        # The anchors section was applied above (the requirement and the trust material), so the evaluator gets the
+        # policy without it; it refuses any rule it does not apply itself (T16).
+        _ohne_anker = {k: v for k, v in policy.items() if k != "anchors"}
+        policy_result = evaluate_policy(bundle, result, _ohne_anker,
+                                        now=_jetzt if verification_time is None else verification_time)
         policy_ok = policy_result["policy_ok"]
         policy_result_now = (policy_result if verification_time is None
-                             else evaluate_policy(bundle, result, policy, now=None))
+                             else evaluate_policy(bundle, result, _ohne_anker, now=_jetzt))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -831,8 +1032,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
     from .policy import policy_expired as _policy_expired  # noqa: PLC0415
     from .policy import policy_not_yet_valid as _policy_not_yet_valid  # noqa: PLC0415
-    pol_expired = bool(policy is not None and _policy_expired(policy))          # at the REAL current time
-    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy))  # A-P0-2 not-before mirror
+    pol_expired = bool(policy is not None and _policy_expired(policy, now=_jetzt))  # at the REAL current time
+    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy, now=_jetzt))  # not-before mirror
     # A-P0-1 §5.3/§5.4: the atomic tree context. True via (a) a verified --trusted-checkpoint whose
     # (root, size) both match, (b) a policy trusted_checkpoints match at CURRENT time (policy_result_now,
     # so an expired-today checkpoint never authenticates even in historical mode), or (c) an RP-supplied
@@ -888,7 +1089,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             current_status = "EXPIRED"
         elif pol_not_yet_valid:
             current_status = "NOT_YET_VALID"
-        elif policy is not None and _policy_expired(policy) is None and _policy_not_yet_valid(policy) is None:
+        elif (policy is not None and _policy_expired(policy, now=_jetzt) is None
+              and _policy_not_yet_valid(policy, now=_jetzt) is None):
             current_status = "NO_LIFECYCLE_WINDOW"
         else:
             current_status = "VALID"
@@ -1059,11 +1261,15 @@ def _cmd_emit(args: argparse.Namespace) -> int:
     if signer is None:
         return 2
 
-    with open(args.payload_file, "rb") as handle:
-        # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-        # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-        # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
-        payload = handle.read()
+    try:
+        with open(args.payload_file, "rb") as handle:
+            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
+            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
+            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            payload = handle.read()
+    except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
+        _err(f"cannot read --payload-file: {exc}")
+        return 2
 
     bundle = emit_bundle(payload, signer)
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -1235,6 +1441,23 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
         print("ERROR: beacon mode needs --beacon-randomness, --beacon and --round together "
               "(partial flags would silently downgrade to the grindable self-challenge mode)", file=sys.stderr)
         return 2
+    # THE NONCE IS JUDGED BY THE BYTES THE CHALLENGE USES, not by its spelling. An empty nonce is a nonce that
+    # was asked for and not given (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01), and the first fix
+    # refused only the spelling "". `bytes.fromhex` skips ASCII whitespace, so " ", "\t" or "\n" decoded to
+    # b"", the command derived exactly the grindable self-challenge indices and called them "auditor-nonce"
+    # with exit 0 (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01). Decoded here, once, before any mode is
+    # chosen; a nonce that decodes to no bytes is refused, whatever its spelling.
+    nonce = b""
+    if args.nonce is not None:
+        try:
+            nonce = bytes.fromhex(args.nonce)
+        except ValueError as exc:
+            _err(exc)
+            return 2
+        if not nonce:
+            print("ERROR: --nonce decodes to no bytes (empty, or only whitespace); give the auditor's fresh "
+                  "nonce, or leave the flag out for the self-challenge sanity check", file=sys.stderr)
+            return 2
     if args.beacon_randomness is not None and args.nonce is not None:
         print("ERROR: --nonce and --beacon-randomness are mutually exclusive — pick one challenge mode",
               file=sys.stderr)
@@ -1248,9 +1471,9 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
                 beacon=args.beacon, round_=args.round)
             indices, mode = req.indices, "beacon"
         else:
-            nonce = bytes.fromhex(args.nonce) if args.nonce else b""
             indices = audit_challenge(args.root, args.n, args.k, nonce)
-            mode = "auditor-nonce" if args.nonce else "self-challenge"
+            # The label follows the decoded nonce: "auditor-nonce" only when the challenge used a nonce.
+            mode = "auditor-nonce" if len(nonce) > 0 else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
         _err(exc)
         return 2
@@ -1373,9 +1596,9 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     import hashlib  # noqa: PLC0415
     tf = getattr(args, "target_file", None)
     rh = getattr(args, "canonical_root_hex", None)
-    if tf and rh:
+    if tf is not None and rh is not None:
         raise ValueError("give either --target-file or --canonical-root-hex, not both")
-    if tf:
+    if tf is not None:
         # --target-file is the user's OWN artifact to anchor and MAY legitimately exceed the input_bytes
         # verify budget, so it is not capped — but hash it in 1 MiB chunks so a large file bounds memory
         # instead of read()-ing the whole file in at once (bug-hunt adversarial re-audit, 3.6.2).
@@ -1384,12 +1607,41 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
             for _chunk in iter(lambda: handle.read(1 << 20), b""):
                 h.update(_chunk)
         return h.digest()
-    if rh:
+    if rh is not None:
         root = bytes.fromhex(rh.strip().lower())
         if len(root) != 32:
             raise ValueError("--canonical-root-hex must be a 32-byte (64 hex char) SHA-256")
         return root
     raise ValueError("need --target-file or --canonical-root-hex (the exact bytes the proof stamps)")
+
+
+def _expected_pack_root(args: argparse.Namespace) -> bytes:
+    """The 32-byte root the relying party expects the evidence pack's timestamp to commit to (Nachtrag 32, the
+    High): the SHA-256 of ``--target-file`` OR the 32 bytes of ``--expected-root`` (standard base64). Exactly
+    one is required; neither or both is malformed input (ValueError → exit 2). Computed INDEPENDENTLY of the
+    pack, so it is compared to, never taken from, the pack's own canonicalRoot."""
+    import hashlib  # noqa: PLC0415
+    tf = getattr(args, "target_file", None)
+    er = getattr(args, "expected_root", None)
+    if (tf is None) == (er is None):
+        raise ValueError("anchor verify-pack needs exactly one of --target-file or --expected-root: the proof "
+                         "timestamps a root, and without the target you mean, a valid timestamp over an "
+                         "attacker-chosen root proves nothing about your evidence")
+    if tf is not None:
+        h = hashlib.sha256()
+        with open(tf, "rb") as handle:
+            for _chunk in iter(lambda: handle.read(1 << 20), b""):
+                h.update(_chunk)
+        return h.digest()
+    if er is None:   # never reached after the check above; it narrows the type for mypy
+        raise ValueError("anchor verify-pack needs exactly one of --target-file or --expected-root")
+    try:
+        root = decode_b64(er)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("--expected-root is not valid base64") from exc
+    if len(root) != 32:
+        raise ValueError("--expected-root must decode to 32 bytes (a SHA-256 canonical root)")
+    return root
 
 
 def _parse_bundled_headers(specs) -> dict:
@@ -1516,6 +1768,31 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             pack = loads_strict(_read_capped(handle))
         if not isinstance(pack, dict):
             raise ValueError("evidence pack must be a JSON object")
+        # Nachtrag 32 (the High): bind the timestamp to the target the relying party means, BEFORE the OTS proof
+        # is evaluated. verify_evidence_pack takes canonicalRoot from the pack itself, so a self-consistent
+        # (proof, canonicalRoot) pair timestamps whatever root the pack carries — not necessarily the evidence
+        # the verifier cares about. Compute the expected root independently and reject a mismatch here.
+        expected_root = _expected_pack_root(args)   # exactly one of --target-file/--expected-root (else exit 2)
+        try:
+            pack_root = decode_b64(pack["canonicalRoot"])
+        except (KeyError, ValueError, TypeError) as exc:
+            detail = f"evidence pack is missing or has a non-base64 canonicalRoot: {exc}"
+            if getattr(args, "json", False):
+                print(json.dumps({"schema": "proofbundle.anchor_verify_pack.v1", "ok": False,
+                                  "status": "malformed_pack", "detail": detail}, indent=2, ensure_ascii=False))
+            else:
+                print(f"[anchor verify-pack] MALFORMED_PACK — {_safe_line(detail)}")
+            return 1
+        if expected_root != pack_root:
+            detail = ("the pack's canonicalRoot is not the expected target root (from --target-file/"
+                      "--expected-root): the timestamp does not commit to the evidence you named, so it is "
+                      "refused before the OpenTimestamps proof is even read (fail-closed)")
+            if getattr(args, "json", False):
+                print(json.dumps({"schema": "proofbundle.anchor_verify_pack.v1", "ok": False,
+                                  "status": "target_mismatch", "detail": detail}, indent=2, ensure_ascii=False))
+            else:
+                print(f"[anchor verify-pack] TARGET_MISMATCH — {detail}")
+            return 1
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
         res = verify_evidence_pack(pack, rp_trust=rp)
         # No-Fake (adversarial deep audit follow-up, 2026-07-17): NEVER echo the pack's own calendar/self-contained
@@ -1643,6 +1920,48 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
         return 2
 
 
+def _historical_now_posix(value):
+    """Addendum 49b (CX-02/CX-05) / 49c: an explicit historical evaluation instant as POSIX seconds for a verify
+    that takes a `now`. None stays None (the wall clock / not judged, unchanged). The value MUST be an ISO-8601
+    UTC timestamp ending in a literal `Z` naming a WHOLE second; a zone offset (`+00:00` included) or a naive
+    timestamp is a format error, NOT silently re-read as UTC, and a sub-second fraction is a format error, NOT
+    silently truncated to the whole second (Addendum R6a-7). Any non-`Z` form, any fractional second, any
+    otherwise-unparseable value, and any value not in the past is a fail-closed ValueError (never a silent back-
+    or forward-date). The integer is the ONE evaluation time the receipt/attestation is judged at.
+
+    Addendum 49c narrows ONLY this shared helper of the two 49b surfaces (`decision verify --verification-time`
+    and `verify-enclave --verification-time`), whose help names the `Z` format. `policy._parse_iso_utc` — used by
+    the older `verify --policy --verification-time` path and others — stays broad and unchanged."""
+    if value is None:
+        return None
+    from datetime import datetime, timezone  # noqa: PLC0415
+    from .policy import _parse_iso_utc  # noqa: PLC0415
+    # 49c: require a literal-`Z` (UTC) instant. _parse_iso_utc would read an offset or a naive time as UTC, so
+    # the `Z` promise is enforced HERE, before parsing — a non-`Z` string never reaches the lenient parser.
+    dt = _parse_iso_utc(value) if isinstance(value, str) and value.endswith("Z") else None
+    if dt is None:
+        raise ValueError(f"--verification-time {value!r} is not an ISO-8601 UTC 'Z' timestamp "
+                         "(e.g. 2026-01-01T00:00:00Z) — a zone offset or a naive time is not accepted")
+    if dt >= datetime.now(timezone.utc):
+        raise ValueError("--verification-time must be in the past — it evaluates AS OF a historical instant; "
+                         "a future instant is not a historical query")
+    # Addendum R6a-7 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the evaluation time is POSIX-SECONDS. A
+    # sub-second fraction cannot be represented and must NOT be silently truncated to the whole second (which
+    # read `…00.750000Z` as `…00` and so BEFORE an expiry at `…00.500000Z`, passing an expired receipt). Reject
+    # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
+    # 6.2.1 R6b-5 (Z309): the fraction is judged on the TEXT, before the parse can lose it. The parser keeps six
+    # digits, so `…00.0000001Z` reached here as microsecond 0 and passed as the whole second. Every digit of a
+    # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
+    # parser of Python 3.11 and later accepts it, so the text check reads both separators.
+    import re as _re  # noqa: PLC0415
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
+    if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
+        raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
+                         "is not a representable POSIX-seconds evaluation time and is never silently truncated "
+                         "(fail-closed)")
+    return int(dt.timestamp())
+
+
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .experimental.enclave import (enclave_binding_for,  # noqa: PLC0415
@@ -1652,15 +1971,22 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         with _open_input(args.eat) as handle:
             eat = _read_capped(handle).strip()
         verifier_pub = decode_b64(args.verifier_key)
+        # Nachtrag 49b CX-05: a relying party may pin the enclave evaluation time (historical, fixed integer) so
+        # an expired EAT exits negative; without it the freshness is not judged (fresh None), the N49 behaviour.
         res = verify_enclave_attestation(
             eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),
-            expected_profile=args.profile)
+            expected_profile=args.profile,
+            now=_historical_now_posix(getattr(args, "verification_time", None)))
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # 6.2.1 R6b-7 (Z309): an explicit instant judges the EAT freshness AS OF that instant, so the output says so.
+    _historical = getattr(args, "verification_time", None)
     if args.json:
-        print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
-                                              "fresh", "detail")}))
+        _rep = {k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok", "fresh", "detail")}
+        if _historical is not None:
+            _rep["verification_time"] = {"mode": "HISTORICAL", "time": _historical}
+        print(json.dumps(_rep))
     else:
         # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
         # Token-Bytes tragen. Gleiche Behandlung wie oben.
@@ -1669,6 +1995,8 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         if res["ok"]:
             print(f"    tier    {_safe_line(str(res['tier']))}")
             print(f"    profile {_safe_line(str(res['profile']))}")
+        if _historical is not None:
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(_historical))})")
         print("=> OK" if res["ok"] else "=> FAILED")
     return 0 if res["ok"] else 1
 
@@ -1677,7 +2005,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
     from .intoto import (  # noqa: PLC0415
-        EVAL_RESULT_PREDICATE_TYPE, export_eval_result_dsse, verify_eval_result_dsse,
+        EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_PREDICATE_TYPES, export_eval_result_dsse,
+        export_eval_result_v02_dsse, receipt_evidence, verify_eval_result_dsse,
     )
     if args.verify:
         if args.pub is None:
@@ -1693,37 +2022,86 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = decode_b64(args.pub)
-            res = verify_eval_result_dsse(envelope, pub)
+            # BOTH eval-result versions, each under its own contract: the library judges the type the
+            # statement declares (v0.1 as released, v0.2 with its shape), and the type check happens here,
+            # against the two types, so a signed v0.2 envelope is not refused for being v0.2.
+            res = verify_eval_result_dsse(envelope, pub, expected_predicate_type=None)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
             return 2
         pt = res.get("predicate_type")
-        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {pt!r})"
-        print(f"[{'PASS' if res['ok'] else 'FAIL'}] eval-result attestation{note}")
-        print("=> OK" if res["ok"] else "=> FAILED")
-        return 0 if res["ok"] else 1
+        ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
+        note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
+        print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
+        if res.get("predicate_shape_ok") is False:
+            print(f"    {_safe_line(res['predicate_shape_detail'])}")
+        print("=> OK" if ok else "=> FAILED")
+        return 0 if ok else 1
 
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    # The version decides which flags mean something; a flag the chosen version does not read is refused,
+    # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
+    version, evaluator = args.predicate_version, args.evaluator
+    if version == "v0.1":
+        if evaluator is not None or args.receipt_uri is not None:
+            print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
+                  file=sys.stderr)
+            return 2
+    elif version == "v0.2":
+        if not isinstance(evaluator, str) or not evaluator:
+            print("ERROR: --predicate-version v0.2 requires --evaluator <URI> (the party that ran the "
+                  "evaluation; there is no default)", file=sys.stderr)
+            return 2
+    else:
+        print(f"ERROR: unknown --predicate-version {_safe_line(repr(version))}", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
     try:
-        bundle = load_bundle(args.receipt)
+        if version == "v0.2":
+            # ONE READ: the evidence digest names exactly the bytes the claim is decoded from, the whole
+            # receipt file with its signature, never its internal Merkle root.
+            with _open_input(args.receipt, binary=True) as handle:
+                raw = _read_capped_bytes(handle)
+            bundle = loads_strict(raw.decode("utf-8"))
+            if not isinstance(bundle, dict):
+                raise BundleFormatError(f"bundle must be a JSON object, got {type(bundle).__name__}")
+        else:
+            bundle = load_bundle(args.receipt)
         claim = decode_eval_claim(bundle)
         if claim is None:
             print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
             return 1
         roots = recompute_merkle_root_b64(bundle)
-        envelope = export_eval_result_dsse(
-            claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
-            subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
+        if version == "v0.2":
+            model = None
+            if args.subject_profile == "public-model":
+                # The public model is disclosed as the subject; the predicate identifies it once, by the
+                # same name and digest, instead of by a salted commitment.
+                model = {"name": args.subject_name,
+                         "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
+            envelope = export_eval_result_v02_dsse(
+                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                subject_name=args.subject_name, subject_sha256=args.subject_sha256,
+                root_b64=roots.get("stated_b64"), model=model,
+                evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
+        else:
+            envelope = export_eval_result_dsse(
+                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return 2
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
-    print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+    if version == "v0.2":
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+    else:
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
     return 0
 
 
@@ -1753,6 +2131,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -1925,7 +2305,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -2005,13 +2387,28 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     return related, errs
 
 
+def _without_origin_token(obj):
+    """Nachtrag 46g (Z309): return a deep copy of ``obj`` with every ``verified_origin`` key removed, at
+    any nesting. The per-process origin token (``errors._origin_token`` / ``_compute_origin_token``) lives
+    in a verify result and in the ``lineage`` sub-dict so that a downstream check IN THE SAME PROCESS can
+    recompute and compare it; it is meaningless outside this process (the HMAC key is per-process and never
+    serialised). It must not travel in the CLI's ``--json`` output, where it would otherwise survive a JSON
+    round-trip and let a re-read copy confer a positive origin verdict in this process. Stripping it from the
+    OUTPUT copy only — the live result dict is untouched — so no verdict changes (narrowing)."""
+    if isinstance(obj, dict):
+        return {k: _without_origin_token(v) for k, v in obj.items() if k != "verified_origin"}
+    if isinstance(obj, list):
+        return [_without_origin_token(v) for v in obj]
+    return obj
+
+
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
     from .decision import verify_decision_receipt  # noqa: PLC0415
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if args.policy:
+    if args.policy is not None:   # `--policy ''` names a policy that cannot be read, never no policy
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
@@ -2022,13 +2419,39 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err(exc)
             return 2
     anchors = None
-    if getattr(args, "anchors", None):
+    if getattr(args, "anchors", None) is not None:   # `--anchors ''` is a file that cannot be read
         try:
             with _open_input(args.anchors) as handle:
                 anchors = loads_strict(_read_capped(handle))   # WP-C1
         except (ProofBundleError, OSError, ValueError) as exc:
             _err(f"cannot read --anchors: {exc}")
             return 2
+        # A FILE WHOSE CONTENT IS THE LIBRARY'S "NO ANCHORS" IS REFUSED LIKE THE EMPTY VALUE (deep gate run 5
+        # at d388ed3d, L3-620v5-T14-ANCHORS-NULL-FILE-01, two of three jurors P1). `null` became `anchors=None`, the value of a call
+        # without the option, and an empty list is what the anchor layer reads None as
+        # (`anchors._anker_lesen`), so both ended with exit 0 exactly like no `--anchors`, while `--anchors ''`
+        # ends with exit 2. A relying party who names an anchors file asked for its anchors to be checked.
+        if anchors is None or (type(anchors) is list and not anchors):
+            _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
+                 "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
+            return 2
+    # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): the decision section, the
+    # relations rules but `reject_retracted`, the shared fields, and beside `--anchors` the anchor trust material.
+    if policy is not None:
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "decision verify --anchors" if anchors is not None else "decision verify")
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+    # A policy the command reads as nothing is refused like the empty value (`_policy_ohne_abschnitt`). Its
+    # `anchors` section gives the relying party's trust for the anchors of `--anchors` (`policy_anchor_trust`), so it
+    # applies when anchors are checked, and only then (verify lane V4 on 8f2fa980: a policy with only that section
+    # beside `--anchors` confirmed an anchor at d388ed3d and was refused here).
+    if policy is not None and _policy_ohne_abschnitt(
+            policy, ("decision_receipt", "relations") + (("anchors",) if anchors is not None else ())):
+        _err("cannot use --policy: the policy holds no decision_receipt section, no relations rule and no anchor trust "
+             "beside --anchors, so nothing in it applies to this verify; a verify without a policy omits the option")
+        return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2036,6 +2459,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
         # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
         rp_trust = _build_rp_trust(args)
+        # TRUST FOR NO ANCHOR (the sweep of deep gate run 7, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01): the trust
+        # flags give the relying party's trust for the anchors of `--anchors`, and without it no anchor is checked, so
+        # they were applied by nothing and the verify ended as without them. The policy's anchors section is refused in
+        # that case by `_regelfehler`; the flags are refused here, exit 2.
+        if anchors is None and rp_trust:
+            raise ValueError(f"anchor trust given without --anchors ({', '.join(sorted(rp_trust))}): the trust applies "
+                             "to the anchors named by --anchors, and without them no anchor is checked")
         if policy is not None:
             from .policy import policy_anchor_trust  # noqa: PLC0415
             pol_trust = policy_anchor_trust(policy)
@@ -2049,14 +2479,47 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             for e in rel_errs:
                 _err(e)
             return 2
+        # The anchors section was applied above as the relying party's trust, so the verifier gets the policy
+        # without it; it refuses any rule it does not apply itself (T16).
+        _politik = None if policy is None else {k: v for k, v in policy.items() if k != "anchors"}
+        # Nachtrag 49b CX-02: an explicit historical evaluation time (fixed integer) pins the receipt freshness
+        # (validity.expiresAt) and, with a policy, the policy lifecycle at one instant; without it the wall clock.
+        _eval_now = _historical_now_posix(getattr(args, "verification_time", None))
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
-                                         expected_nonce=args.nonce, policy=policy, anchors=anchors,
+                                         expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None)
+                                         related=related or None, now=_eval_now)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # Addendum R6a-4 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, SPEC 403-410): label a HISTORICAL
+    # verification, mirroring the eval verify path. The library already makes safeForAutomation present-tense
+    # (a policy expired/not-yet-valid TODAY stays unsafe even when the historical POLICY verdict passes); this
+    # surfaces the two lifecycle verdicts so a consumer sees why. CURRENT_POLICY_STATUS is the present-tense
+    # lifecycle (read at the real current time); HISTORICAL_POLICY_STATUS is the verdict AS OF the instant.
+    # 6.2.1 R6b-7 (Z309): the explicit instant also pins the receipt freshness without a policy, so every accepted
+    # historical call is labelled; without a policy both policy statuses read NOT_EVALUATED.
+    _vtr = None
+    if getattr(args, "verification_time", None) is not None:
+        if isinstance(policy, dict):
+            from datetime import datetime, timezone  # noqa: PLC0415
+            from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+            _jetzt = datetime.now(timezone.utc)   # 6.2.1 ZT-01 (Z309): one present reading for both statuses
+            _cur_exp, _cur_nyv = _pexp(policy, now=_jetzt), _pnyv(policy, now=_jetzt)
+            if _cur_exp is True:
+                _cur = "EXPIRED"
+            elif _cur_nyv is True:
+                _cur = "NOT_YET_VALID"
+            elif _cur_exp is None and _cur_nyv is None:
+                _cur = "NO_LIFECYCLE_WINDOW"
+            else:
+                _cur = "VALID"
+        else:
+            _cur = "NOT_EVALUATED"
+        _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
+                "historical_policy_status": ("PASS" if result["policy_ok"] else
+                                             "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
     if args.json:
         # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
         # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
@@ -2071,7 +2534,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
             "automation", "evidence_levels", "lineage", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        if _vtr is not None:
+            report["verification_time"] = _vtr   # R6a-4: the labelled historical report (absent in current mode)
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         if result["policy_ok"] is None:
@@ -2091,6 +2557,12 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
+        if _vtr is not None:
+            # R6a-4: historical verification is labelled (SPEC 403-410) — CURRENT is the present-tense
+            # lifecycle (why safeForAutomation can be NO), HISTORICAL the verdict AS OF the instant.
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(args.verification_time))})")
+            print(f"CURRENT_POLICY_STATUS: {_vtr['current_policy_status']}")
+            print(f"HISTORICAL_POLICY_STATUS: {_vtr['historical_policy_status']}")
         for e in result["errors"]:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
@@ -2126,6 +2598,15 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         return 2
     if result["policy_ok"] is False:
         return 3
+    # Nachtrag 49b CX-02: a declared validity.expiresAt that is expired or unreadable is a validity failure —
+    # fail-closed, never a silent exit 0 (the Codex finding: an expired but otherwise-valid receipt exited 0).
+    # It sits LAST, after the policy check, so it changes ONLY the would-be-exit-0 case: a receipt that is both
+    # expired and policy-unmet keeps exit 3 (policy), matching the Rust verify-relation exit code on the same
+    # bytes — placing it before the policy check would diverge from Rust (a finding). freshness_ok None = the
+    # receipt declared no expiresAt (not applicable); result["ok"] already folds freshness. (outcome/relation
+    # verify carry no freshness_ok axis — no sibling.)
+    if result["freshness_ok"] is False:
+        return 2
     return 0
 
 
@@ -2233,7 +2714,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         # WP-B (3.4.0): the outcome path enforces the trust-policy `relations` section identically to
         # the decision path (require_relation_resolution / reject_superseded / relation_signer /
         # require_relation_target). trust_pack role auth is separate and unchanged.
@@ -2243,6 +2724,15 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             _err(exc)
+            return 2
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "outcome")   # T16: every rule the policy sets is one this command applies
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",)):
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
+                 "receipt is judged by; a verify without a policy omits the option")
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2275,7 +2765,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
             "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
@@ -2400,13 +2891,22 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             _err(exc)
+            return 2
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "relation_statement")   # T16, as at outcome verify
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",), eigene_aussage=True):
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy a relation "
+                 "statement is judged by; a verify without a policy omits the option")
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2431,7 +2931,8 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
             "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
@@ -2604,7 +3105,7 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
                 raise PolicyError(f"issuer key file {kf!r} carries no public key")
             keys.append(key)
         expected_root = None
-        if args.expected_root_file:
+        if args.expected_root_file is not None:   # an empty path is refused, never a policy without the root
             with open(args.expected_root_file, encoding="utf-8") as fh:
                 expected_root = fh.read().strip()
         inst = instantiate_template(args.template, issuer_keys=keys, policy_id=args.policy_id,
@@ -2638,9 +3139,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
+        formatter_class=_TopHelpFormatter,
+        epilog=_grouped_epilog(),
     )
     parser.add_argument("--version", action=_VersionAction)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     verify = sub.add_parser(
         "verify", help="verify an evidence bundle JSON file",
@@ -2663,9 +3166,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="print the recomputed Merkle root next to the stated root")
     verify.add_argument("--aud", default=None,
                         help="expected KB-JWT audience (RFC 9901 §7.3 replay/audience binding); required to "
-                             "bind a Key Binding JWT presentation to this verifier")
+                             "bind a Key Binding JWT presentation to this verifier. A positive audience/nonce/"
+                             "holder-binding verdict is reported only under a TRUSTED issuer (an eval receipt "
+                             "bound to the signed payload, or --policy with sd_jwt.issuer_key_pin); without an "
+                             "anchor the KB-JWT presentation fails closed (Nachtrag 38, Z309)")
     verify.add_argument("--nonce", default=None,
-                        help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
+                        help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding); reported positive only under "
+                             "a trusted issuer, see --aud")
     verify.add_argument("--expected-root", dest="expected_root", default=None, metavar="B64",
                         help="authenticate the merkle root against a base64 value the relying party "
                              "obtained OUT OF BAND (a pinned root, a signed checkpoint). The stated root "
@@ -2835,6 +3342,9 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="the RATS Verifier's Ed25519 public key (base64)")
     verify_enclave.add_argument("--profile", help="pin an expected eat_profile URI (optional)")
     verify_enclave.add_argument("--json", action="store_true", help="machine readable output")
+    verify_enclave.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                                help="Nachtrag 49b: judge the EAT freshness AS OF this past instant "
+                                     "(ISO-8601 'Z'); without it the attestation freshness is not judged")
     verify_enclave.set_defaults(func=_cmd_verify_enclave)
 
     demo = sub.add_parser(
@@ -2858,8 +3368,17 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+                        help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
+                             "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
+    intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
+                                            "required, no default")
+    intoto.add_argument("--receipt-uri", help="v0.2: where the receipt can be fetched, written as the uri of "
+                                              "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
-                        help="verify an exported attestation instead of emitting one (needs --pub)")
+                        help="verify an exported attestation instead of emitting one (needs --pub); accepts "
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
@@ -3007,6 +3526,10 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                          help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
+                               "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
+                               "one time; without it the wall clock. An expired/unreadable expiresAt exits 2")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
@@ -3168,6 +3691,15 @@ def build_parser() -> argparse.ArgumentParser:
                      "and is never trusted (WP-A1); supply your own header from a pruned Bitcoin node "
                      "or a trusted checkpoint."))
     a_vp.add_argument("pack", help="path to the evidence pack JSON")
+    # Nachtrag 32 (the High): bind the timestamp to the target the relying party means. Exactly one of these is
+    # REQUIRED; the expected root is computed/decoded INDEPENDENTLY and compared to the pack's canonicalRoot
+    # before the OTS proof is evaluated (a timestamp over a root nobody pinned proves nothing about your evidence).
+    a_vp.add_argument("--target-file", dest="target_file", default=None, metavar="FILE",
+                      help="the artifact the proof must commit to; its SHA-256 must equal the pack's "
+                           "canonicalRoot (required unless --expected-root is given)")
+    a_vp.add_argument("--expected-root", dest="expected_root", default=None, metavar="B64",
+                      help="the expected canonical root as standard base64 of 32 bytes; must equal the pack's "
+                           "canonicalRoot (required unless --target-file is given)")
     a_vp.add_argument("--bitcoin-header", dest="bitcoin_header", action="append", default=None,
                       metavar="HEIGHT:MERKLEROOT_HEX",
                       help="relying-party-supplied Bitcoin block header (internal byte order, from your "

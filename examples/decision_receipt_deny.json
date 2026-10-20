@@ -118,6 +118,6 @@
       "https://example.org/auditor/customer-a"
     ],
     "nonce": "8f3a1c9b2e7d4056",
-    "expiresAt": "2026-07-09T10:05:00Z"
+    "expiresAt": "2099-01-01T00:00:00Z"
   }
 }

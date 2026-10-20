@@ -14,6 +14,7 @@ safe, but one following the documented automation guidance was not).
         stayed True. The decision path wires this correctly; outcome must mirror it.
 """
 import base64
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -21,8 +22,14 @@ from pathlib import Path
 from proofbundle.emit import generate_signer
 from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
 from proofbundle.policy import load_policy
+from proofbundle.trust_pack import _rfc8785_bytes
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound genesis-digest anchor at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _keys():
@@ -85,7 +92,14 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
         pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "rel",
                            "relations": policy_relations})
         env = emit_outcome_receipt(pred, s, strict=False)
-        return verify_outcome_receipt(env, pub, policy=pol, trust_pack=trust_pack)
+        # N43 (security-fix 6.2.0): executor_role_trusted now requires a relying-party anchor. This test isolates
+        # the RELATIONS policy failure (executor stays trusted), so the pack is anchored to keep
+        # executor_role_trusted True; the relations/policy behaviour under test is unchanged.
+        # N45 (nachbesserung): OLD anchor trust_pack_expected_root_keys -> NEW anchor
+        # trust_pack_expected_genesis_digest = sha256(JCS(trust_pack)). Reason: the root-key anchor alone no
+        # longer binds the predicate's content at outcome.
+        return verify_outcome_receipt(env, pub, policy=pol, trust_pack=trust_pack,
+                                      trust_pack_expected_genesis_digest=_n45_digest(trust_pack))
 
     def test_unresolved_required_relation_blocks_outcome_automation(self):
         # relations-ONLY policy (executor_role_trusted stays True) isolates the relations failure
@@ -123,7 +137,13 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
                        "kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")}}, "nonClaims": ["x"]}
         env = emit_outcome_receipt(pred, s, strict=False)
         for bad in (42, ["x"], "str"):
-            r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp)
+            # N43: anchor the pack so executor_role_trusted stays True and this test still isolates
+            # the malformed-policy failure (not the anchor). The malformed-policy behaviour under test is unchanged.
+            # N45 (nachbesserung): OLD anchor trust_pack_expected_root_keys -> NEW anchor
+            # trust_pack_expected_genesis_digest = sha256(JCS(tp)). Reason: the root-key anchor alone no longer
+            # binds the predicate's content at outcome.
+            r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp,
+                                       trust_pack_expected_genesis_digest=_n45_digest(tp))
             self.assertIs(r["policy_ok"], False)
             self.assertTrue(r["executor_role_trusted"])   # the executor IS trusted; only the policy failed
             self.assertFalse(r["automation"]["safeForAutomation"])

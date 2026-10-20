@@ -150,8 +150,12 @@ class TestCanonicalEs256Signature(unittest.TestCase):
         for s in (0, _P256_N, _P256_N + 1, 2 ** 256 - 1):       # none of these verifies
             sig = r + s.to_bytes(32, "big")
             self.assertEqual(canonical_es256_signature(sig), sig)
-        for odd in (b"", b"\x01" * 63, b"\x01" * 65, None, "x" * 64, 64, [1] * 64):
+        for odd in (b"", b"\x01" * 63, b"\x01" * 65, None, "x" * 64, 64):
             self.assertIs(canonical_es256_signature(odd), odd)
+        # A value of a mutable type comes back as the one reading of it at the call (`canonical._ein_stand`): equal to
+        # it, and not the caller's object, which the function no longer reads a second time.
+        for odd in ([1] * 64, bytearray(b"\x01" * 63)):
+            self.assertEqual(canonical_es256_signature(odd), odd)
         high = bytearray(r + (_P256_N - 1).to_bytes(32, "big"))
         self.assertEqual(canonical_es256_signature(high), r + (1).to_bytes(32, "big"))
 

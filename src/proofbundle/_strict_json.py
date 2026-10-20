@@ -36,7 +36,7 @@ from typing import Any, Union
 
 from .errors import BundleFormatError
 
-__all__ = ["loads_strict", "enforce_structural_budget"]
+__all__ = ["loads_strict", "loads_reject_duplicate_keys", "enforce_structural_budget"]
 
 #: Ein einsames Surrogat (U+D800..U+DFFF ohne Partner). RFC 7493 (I-JSON) §2.1: ein Dokument DARF es
 #: nicht enthalten; RFC 8785 kann es nicht kanonisieren; serde_json weist es beim Parsen ab. Python
@@ -277,3 +277,29 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         raise
     _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
     return obj
+
+
+def loads_reject_duplicate_keys(text: Union[str, bytes]) -> Any:
+    """``json.loads`` that rejects duplicate object keys at any nesting depth, WITHOUT the verify-path
+    DoS structural/byte budget.
+
+    Nachtrag 51 (``KRAXO-CLOUD-N51-STRIKTER-JSON-LESER-IN-ADAPTERN-01``, class K6): the PRODUCER-side
+    readers of a local results file the caller chose to attest — the eval-tool adapters
+    (``adapters/eee``, ``adapters/promptfoo``, ``adapters/lm_eval``, ``adapters/samples``) and the
+    conformance-corpus manifest (``verifier_block.measure_vector_set``) — parsed with lax ``json.loads``,
+    which keeps the LAST value of a duplicated key (last-wins). A duplicated ``score`` / ``successes`` /
+    ``acc,none`` / ``cases`` therefore fed a signable ``passed`` / verifier-block assurance that another
+    JSON reader (first-wins or reject) would compute differently; the signature afterwards no longer
+    discovers that parser differential. The ONLY cross-reader hazard on these producer paths is exactly
+    that duplicate-key ambiguity, so this routes them through the same ``object_pairs_hook`` reject
+    (:class:`BundleFormatError`, fail-closed, clear message) that :func:`loads_strict` uses.
+
+    It deliberately does NOT impose the ``loads_strict`` input-byte / node-count / depth / string-length
+    budget: that budget is a pre-auth DoS backstop for the VERIFY chokepoint (attacker-controlled envelope
+    bytes), not for a file the caller produced from their own eval run and is about to sign. Adding it here
+    would be a new narrowing beyond the K6 finding and could false-close a legitimately large eval-result
+    file. A dup-free document of ANY size therefore parses here exactly as ``json.loads`` did before — no
+    behaviour change for a well-formed file. Ordinary JSON syntax errors keep raising ``ValueError``
+    (``json.JSONDecodeError``) so existing ``except (ValueError, ...)`` handling at the call sites stays
+    correct."""
+    return json.loads(text, object_pairs_hook=_reject_duplicate_keys)

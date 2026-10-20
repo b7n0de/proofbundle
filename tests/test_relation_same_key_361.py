@@ -57,7 +57,11 @@ class SameKeyVerifiedUnder(unittest.TestCase):
 
     def test_same_key_verified_under_matching_passes(self):
         # the only accept path: VERIFIED and verified_under byte-matches the successor key.
-        codes = _codes(_SAME_KEY, _lineage(LINEAGE_VERIFIED, verified_under=self.succ_key), self.succ_key)
+        # Nachtrag 48/48b (F2): relation_signer is satisfied only for a lineage bound to the verified successor
+        # receipt; stamp it for this successor key, as a passing verify does.
+        from _lineage_binding import bound_lineage  # type: ignore  # noqa: PLC0415
+        lineage = bound_lineage(_lineage(LINEAGE_VERIFIED, verified_under=self.succ_key), self.succ_key)
+        codes = _codes(_SAME_KEY, lineage, self.succ_key)
         self.assertNotIn(CODE_RELATION_SIGNER_UNAUTHORIZED, codes)
 
     def test_declared_only_edge_is_not_unauthorized(self):

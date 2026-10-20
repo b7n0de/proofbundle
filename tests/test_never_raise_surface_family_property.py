@@ -106,6 +106,12 @@ _NAME_PATTERN = re.compile(
     # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
     # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
     r"|split_key_binding|holder_key_from_cnf"
+    # 2026-10 (Nachtrag 43, security-fix 6.2.0): `trust_pack_is_pinned` is a PREDICATE over a caller-supplied
+    # trust-pack predicate (untrusted) that decides whether the relying party has anchored it. It falls in no
+    # prefix family and must JUDGE — True / False / None — for every input instead of crashing (the content-root
+    # digest computation is wrapped fail-closed; every other read is `_as_dict`/`_as_list`/`_zeichen_von`/
+    # `_richtlinie_von`, none of which raise). In the denominator, like `is_conformant` above.
+    r"|trust_pack_is_pinned"
     # 2026-09-05, Tiefen-Gate-Fund L4-02: `subject_cardinality` liest die Subjektzahl aus einem vom
     # AUFRUFER gelieferten Statement und entscheidet damit, ob ueberhaupt gebunden werden darf. Sie
     # faellt in keine Praefix-Familie und ist trotzdem ein Verbraucher unvertrauter Eingabe — also in
@@ -224,9 +230,13 @@ _OUT_OF_SCOPE = frozenset({
     #       `attach` are ERZEUGER in the sense of the family rule above: they take our own values
     #       and refuse loudly (`require_valid_verifier_block`) rather than emit a malformed block.
     #   `statement_digest`, `test_result_ref` are digest helpers; `join_test_result` also feeds
-    #       `statement_digest` a caller-supplied statement, and a hostile one ends in a typed
+    #       `statement_digest` a caller-supplied statement, and a hostile one ended in a typed
     #       `BundleFormatError` from the canonicalizer (lens C, 2026-09-18, measured with a
     #       deeply nested `annotations` dict) -- an accepted termination, never a raw crash.
+    #       Since lens run 7 on 8ecb6edf the join answers such a statement instead: a digest
+    #       that does not match, with the reason (measured: the nested dict, and `2**53` or NaN,
+    #       which raised the canonicalizer's bare ValueError there); `statement_digest` and
+    #       `test_result_ref` raise `VerifierBlockError` for the value, their own typed error.
     #   `join_test_result` and `report` read a block that has ALREADY passed
     #       `validate_verifier_block` on the consumer side (`_verify_v02_inner` calls `report` only
     #       after the shape errors are empty); `report` returns a verdict dict for every input and
@@ -236,6 +246,11 @@ _OUT_OF_SCOPE = frozenset({
     "measure_build", "measure_vector_set", "measure_verifier_block", "build_verifier_block",
     "build_test_result_statement", "sign_test_result_statement", "attach", "statement_digest",
     "test_result_ref", "join_test_result", "report",
+    # Nachtrag 32 (Z309 Critical): issuer_key_fingerprint consumes no untrusted serialized input. `alg` is the
+    # algorithm the SD-JWT issuer signature already verified under, and `pub` is the already-decoded issuer key
+    # bytes; it only formats the "<alg>:<base64>" fingerprint, guards its two argument types, and returns None
+    # instead of raising. It parses nothing, so it cannot violate the never-raise property — it lies outside.
+    "issuer_key_fingerprint",
     # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
     # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
     #
@@ -338,7 +353,10 @@ _OUT_OF_SCOPE = frozenset({
     "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
     "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
-    "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
+    "merkle_tree_hash",  "nested_closure_violations",
+    # Deep gate Z195 (L3-Z195-05): the type sibling of nested_closure_violations, same classification;
+    # it never raises on its object and raises ValueError only for a kind no type map may name.
+    "nested_type_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
     # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
@@ -354,6 +372,12 @@ _OUT_OF_SCOPE = frozenset({
     # code. The OTS cap's own test pins both sides. Listed here, not in the name pattern, for the
     # reason `binding_present` gives above.
     "ots_binding_held",
+    # 2026-09-27, Z239 F3, `proofbundle.dsse.openssh_sha256_keyid`: a producer's helper. It takes the
+    #       signer's OWN public key, inside `sign_envelope`, and names it by the keyid foreign tools look
+    #       up. It refuses a key that is not 32 bytes with a ValueError instead of writing a keyid for
+    #       a key that is none. No verifier calls it: the keyid is unsigned, the single-key verifiers
+    #       select no key by it, and the trust pack reads the keyid it finds in the envelope, not this helper.
+    "openssh_sha256_keyid",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
@@ -381,6 +405,13 @@ _OUT_OF_SCOPE = frozenset({
     #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
     #       unmet).
     "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
+    # 2026-09-28, eval-result v0.2 (the revised #575 draft). Four PRODUCERS beside their v0.1 siblings
+    # above, for the same reason: they take the caller's own claim, key and descriptors and refuse a
+    # bad one with BundleFormatError, which is the producer contract. The one function of the family
+    # that reads signed, untrusted content, `classify_eval_result_v02_predicate`, is in the NENNER
+    # through its prefix, not here. Measured beforehand: no other scanned module exports these names.
+    "export_eval_result_v02_dsse",  "receipt_evidence",  "to_eval_result_v02_predicate",
+    "to_eval_result_v02_statement",
 })
 
 
@@ -727,6 +758,19 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                     lambda kk=_k, x=_hv: relation.evaluate_relations_policy(_full_sec, {"edges": [
                         {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "d",
                          "verified_under": "vu", kk: x}]}, successor_key_b64="s"))
+        # The same unhashable relation where the rule is empty or absent (2026-09-29). The signer and
+        # target loops now refuse a relation that is no str before a rule is looked up, but only when the
+        # rule holds an entry, so an empty or absent `relation_signer` and `require_relation_target` are
+        # the only way to the two R7-2b guards at the lookup. No case above took it: with the mutation
+        # anchors of the two guards drawn onto today's source, both mutants survived this file, and both
+        # raise TypeError here (measured on 938fa4cc).
+        for _sec in ({}, {"relation_signer": {}}, {"require_relation_target": {}},
+                     {"relation_signer": {}, "require_relation_target": {}}):
+            for _hv in ([1], {1: 2}, {1, 2}, bytearray(b"x")):
+                run(f"R7-2b rule empty or absent {sorted(_sec)} relation={type(_hv).__name__}",
+                    lambda s=_sec, x=_hv: relation.evaluate_relations_policy(s, {"edges": [
+                        {"relation": x, "resolution": "VERIFIED", "targetDigest": "d"}]},
+                        successor_key_b64="s"))
         # R7-3 — evaluate_policy merkle.trusted_checkpoints ELEMENT non-dict: entry.get('hashAlg') ran
         #        BEFORE _authenticate_trusted_checkpoint's own try/except and escaped raw.
         for _bad_cp in (5, "x", None, [1], True):

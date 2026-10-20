@@ -161,18 +161,60 @@ def test_der_sammler_traegt_dasselbe_praedikat_wie_der_erzeuger():
         "rot, wenn die Schicht absichtlich ausbleibt, oder still, wenn sie rot ist")
 
 
-def test_ein_label_praedikat_verlangt_das_label_ereignis():
-    """Ohne `types` sendet GitHub nur opened, synchronize, reopened. Ein Praedikat auf `landung`
-    ohne `labeled` ist eine Bedingung, die niemand stellt."""
-    for n, d in _workflows().items():
-        s = str((d or {}).get("jobs") or {})
-        if "labels.*.name, 'landung'" not in s:
+#: The jobs of ci.yml that may still read the label `landung`: the fork pull request's full matrix and
+#: its collector. Since the owner word of 2026-09-28 (EIN-LABEL-STARTET-KEINE-CI-MEHR-01) ci.yml runs
+#: on no label event, so there the label takes effect at the fork's next push; everything that has to
+#: start when the label is SET lives in landung.yml, which subscribes the label events.
+CI_LABEL_NUR_FUER_FORKS = {"test", "all-checks-passed"}
+
+
+def _label_verstoesse(wfs: dict) -> list[str]:
+    """Where a workflow decides on `landung` without the events that make the decision happen.
+
+    Pure, so a built counter-example can make it fail. ci.yml is the one file that must NOT subscribe
+    the label events, and there the label may be read only in CI_LABEL_NUR_FUER_FORKS."""
+    schlecht = []
+    for n, d in sorted(wfs.items()):
+        jobs = (d or {}).get("jobs") or {}
+        mit_label = sorted(j for j, v in jobs.items() if "'landung'" in str(v))
+        if not mit_label:
             continue
-        on = (d.get(True) or d.get("on") or {})
+        on = ((d or {}).get(True) or (d or {}).get("on") or {})
         typen = (on.get("pull_request") or {}).get("types") if isinstance(on, dict) else None
-        assert typen and "labeled" in typen, (
-            f"{n} entscheidet am Label `landung`, abonniert aber kein `labeled` — das Anbringen des "
-            f"Labels loest dort keinen Lauf aus (types={typen})")
+        if n == "ci.yml":
+            if typen is None or {"labeled", "unlabeled"} & set(typen):
+                schlecht.append(f"{n} subscribes a label event (types={typen}); a label must start no run of it")
+            fremd = [j for j in mit_label if j not in CI_LABEL_NUR_FUER_FORKS]
+            if fremd:
+                schlecht.append(f"{n} reads `landung` in {fremd}, outside the fork matrix; that work starts "
+                                "at the label and belongs in landung.yml")
+            continue
+        if not typen or not {"labeled", "unlabeled"} <= set(typen):
+            schlecht.append(f"{n} decides on `landung` but subscribes types={typen}; setting or removing "
+                            "the label would start nothing there")
+    return schlecht
+
+
+def test_ein_label_praedikat_verlangt_das_label_ereignis():
+    """Without `types` GitHub sends only opened, synchronize and reopened, so a predicate on `landung`
+    without `labeled` is a condition nobody sets. Since 2026-09-28 with one owned exception, ci.yml,
+    which subscribes no label event at all (see `_label_verstoesse`)."""
+    assert _label_verstoesse(_workflows()) == []
+
+
+def test_fangnachweis_ein_label_praedikat_ohne_ereignis_wird_gefunden():
+    auf_label = {"pull_request": {"types": ["labeled", "unlabeled"]}}
+    bedingung = {"if": "github.event.action == 'labeled' && github.event.label.name == 'landung'"}
+    assert _label_verstoesse({"l.yml": {"on": auf_label, "jobs": {"m": bedingung}}}) == []
+    assert _label_verstoesse({"l.yml": {"on": {"pull_request": {"types": ["labeled"]}},
+                                        "jobs": {"m": bedingung}}})[0].startswith("l.yml decides on")
+    ci_label = {"pull_request": {"types": ["opened", "synchronize", "reopened", "labeled"]}}
+    assert _label_verstoesse({"ci.yml": {"on": ci_label, "jobs": {"test": bedingung}}})[0].startswith(
+        "ci.yml subscribes a label event")
+    ci_heil = {"pull_request": {"types": ["opened", "synchronize", "reopened"]}}
+    assert _label_verstoesse({"ci.yml": {"on": ci_heil, "jobs": {"test": bedingung}}}) == []
+    assert _label_verstoesse({"ci.yml": {"on": ci_heil, "jobs": {"mutation": bedingung}}})[0].startswith(
+        "ci.yml reads `landung` in ['mutation']")
 
 
 def test_fangnachweis_eine_eigene_gruppe_im_gerufenen_workflow_wird_gefunden():
@@ -286,10 +328,14 @@ def test_mutation_startet_erst_nach_test_und_coverage():
 
 
 def test_die_schwere_schicht_haengt_am_landekandidaten():
-    m = _workflows()["ci.yml"]["jobs"]["mutation"]
-    bed = str(m.get("if") or "")
-    for merkmal in ("workflow_dispatch", "release/", "landung"):
+    """Three ways in, since 2026-09-28 in two files: by hand and on a release/ branch in ci.yml, on the
+    label `landung` in landung.yml, where the label event arrives (EIN-LABEL-STARTET-KEINE-CI-MEHR-01)."""
+    wfs = _workflows()
+    bed = str(wfs["ci.yml"]["jobs"]["mutation"].get("if") or "")
+    for merkmal in ("workflow_dispatch", "release/"):
         assert merkmal in bed, f"Landekandidaten-Bedingung nennt '{merkmal}' nicht: {bed[:120]}"
+    label = str(wfs["landung.yml"]["jobs"]["mutation"].get("if") or "")
+    assert "github.event.label.name == 'landung'" in label, f"landung.yml nennt das Label nicht: {label}"
 
 
 def test_die_versionsmatrix_traegt_ihre_klammer():
@@ -436,7 +482,18 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: at its 50-minute limit twice and coverage at 60:22: a guard that compares against a measurement
 #: from two weeks ago judges a machine that no longer exists. With today's maxima, 50 and 60 fail it
 #: (59 and 75 needed); the owner decision of 2026-09-28 (card OA-cb15f2bf74) sets 70 and 80.
-GEMESSENE_MAXIMA_MIN = {"test": 47, "coverage": 60}
+#:
+#: MEASURED AGAIN 2026-10-01, after the reading at each call (8f2fa980 and after). Over the CI runs at d388ed3d
+#: and 6b02d9f7, the longest finished test leg took 55 min (3.10 at d388ed3d); at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min, and
+#: (3.10), (3.13), (3.14) and coverage ran into 70 and 80 without a failing test, so their length there is
+#: not measured. The owner decision of 2026-10-01 (card OA-52e183ce21) sets 120 and 150,
+#: and crypto-floor and hermetic-cleanroom 45.
+#:
+#: MEASURED AGAIN 2026-10-02 over the heads of the 6.2.0 chain. The longest finished test leg took 105 min
+#: (3.10 at 53bbb94c), the longest finished coverage run 144 min (a1d5a815); coverage ran into 150 at
+#: 52c7e634 and 53bbb94c with src/, the packages and the runner image the same as at 198af5c5, where it took
+#: 115. The owner decision of 2026-10-02 (card OA-32ba6e0c7a) sets 180 and 300.
+GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.
@@ -530,11 +587,12 @@ def test_ein_lauf_auf_einem_tag_wird_nie_abgebrochen():
 
 
 def test_ein_label_praedikat_verlangt_auch_das_entfernen():
-    """Ein Praedikat auf `landung` braucht beide Richtungen. Ohne `unlabeled` laeuft die schwere
-    Schicht weiter, nachdem das Label abgenommen wurde — die Ereignis-Momentaufnahme des laufenden
-    Laufs kennt die Abnahme nicht, und kein neuer Lauf betritt die Gruppe, der sie abloesen koennte."""
+    """A predicate on `landung` needs both directions. Without `unlabeled` the heavy layer keeps
+    running after the label is taken off: the event snapshot of the running run does not know about
+    the removal, and no new run enters the group to replace it. `_label_verstoesse` asks for both
+    events outside ci.yml; this case names the direction."""
     for n, d in _workflows().items():
-        if "labels.*.name, 'landung'" not in str((d or {}).get("jobs") or {}):
+        if n == "ci.yml" or "'landung'" not in str((d or {}).get("jobs") or {}):
             continue
         on = (d.get(True) or d.get("on") or {})
         typen = (on.get("pull_request") or {}).get("types") if isinstance(on, dict) else None

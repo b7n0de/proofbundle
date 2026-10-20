@@ -45,7 +45,27 @@ from typing import Any, Container, Optional, TypeGuard
 
 from .errors import SwitchTypeError
 
-__all__ = ["is_member", "as_dict", "is_bool", "require_switch", "type_name", "stored_str_items"]
+__all__ = ["is_member", "as_dict", "as_list", "is_bool", "require_switch", "type_name", "stored_str_items"]
+
+
+class Fremdkoerper:
+    """The base of what the reading at the call (`canonical._stand`) puts into its copy where the caller's value holds
+    an object of a type the reading does not read: an object of the caller's own class, a Mapping that is no dict, a
+    callable, a datetime whose tzinfo is the caller's, a frozenset holding such an object. Each such type gets one
+    subclass that carries its name (`canonical._fremdkoerper`), and an instance holds nothing of the caller: it compares
+    and hashes by its identity, and no method of the caller's object can run through it. Every check of the package
+    meets it as a value that is no JSON value and refuses it or grants nothing, as it met the caller's object, so the
+    verdicts and the refusals stay the ones the caller's object got, without its methods (deep gate run 6 at fda55f98
+    and the review before run 7: the reading handed on what it did not know, and the body read it at body time).
+    `type_name` names the caller's type for it, so a refusal reads as before."""
+    __slots__ = ()
+
+
+#: id of each stand-in class -> (a weak reference to the class, the name the caller's type holds, whether that type was
+#: the built-in type of that name). Filled by `canonical._fremdkoerper`; looked up by identity, so a class the caller
+#: derives from `Fremdkoerper` is no entry. The reference is weak and its death takes the entry out
+#: (`canonical._schwach`), so a stand-in class lives no longer than its stand-ins and the caller's type.
+FREMDKOERPER_KLASSEN: dict = {}
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -90,7 +110,7 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     signed SVR path was never exposed: ``export_svr_dsse`` decodes first, and A-15 typed ``passed`` at
     that boundary on 2026-09-19, so a string verdict is refused there and on every CLI path. The draft
     that described a signed SVR carrying PROOFBUNDLE_THRESHOLD_MET for ``"false"`` had measured
-    ``/home/konrad/proofbundle``, a checkout 47 commits behind main and 9 ahead of it, where A-15 is
+    a second local checkout, 47 commits behind main and 9 ahead of it, where A-15 is
     absent. The exposure is the DIRECT library caller, exactly as the register scoped it.
 
     WHY A SHARED PREDICATE AND NOT SIX ``isinstance`` LINES. The register entry that scheduled the work
@@ -162,20 +182,26 @@ def type_name(value: Any) -> str:
     ``bool (not the built-in bool)``, because a refusal that read "must be a bool, not bool" would
     explain nothing."""
     typ = type(value)
-    try:
-        if not issubclass(type(typ), type):
-            return _UNNAMED_TYPE
-        name = _TYPE_NAME_GETTER.__get__(typ)
-        if type(name) is not str:
-            if not issubclass(type(name), str):
+    eintrag = FREMDKOERPER_KLASSEN.get(id(typ))
+    if eintrag is not None and eintrag[0]() is typ:
+        # A stand-in of the reading: the name of the caller's type it stands for, read when the class was made, and
+        # whether that type was the built-in one of that name.
+        name, eingebaut = eintrag[1], eintrag[2]
+    else:
+        try:
+            if not issubclass(type(typ), type):
                 return _UNNAMED_TYPE
-            name = str.__str__(name)
-    except Exception:  # noqa: BLE001 - a name for a message; the refusal itself must still happen
-        return _UNNAMED_TYPE
+            name = _TYPE_NAME_GETTER.__get__(typ)
+            if type(name) is not str:
+                if not issubclass(type(name), str):
+                    return _UNNAMED_TYPE
+                name = str.__str__(name)
+        except Exception:  # noqa: BLE001 - a name for a message; the refusal itself must still happen
+            return _UNNAMED_TYPE
+        eingebaut = _BUILTIN_TYPES.get(name) is typ
     if len(name) > 80:
         name = name[:77] + "..."
-    builtin = _BUILTIN_TYPES.get(name)
-    if builtin is not None and builtin is not typ:
+    if not eingebaut and _BUILTIN_TYPES.get(name) is not None:
         return f"{name} (not the built-in {name})"
     return name
 
@@ -233,3 +259,20 @@ def as_dict(value: Any) -> dict:
     it as an assumption, not one line, and the scanner (tests/test_membership_hashable_guard.py) fails on a
     new unguarded ``(x or {}).get`` site."""
     return value if isinstance(value, dict) else {}
+
+
+def as_list(value: Any) -> list:
+    """``value`` if it is a list, else ``[]`` — the safe form of the ``(x or [])`` idiom.
+
+    THE SAME DEFECT CLASS AS ``as_dict``, one type over. ``(x or [])`` replaces only a FALSY ``x``, so
+    a truthy value of another type from parsed JSON reaches the ``+``, the ``for`` or the ``len``
+    behind it. Measured on c3bd89a4: a signed agent-review receipt whose ``declaration.authoring`` is
+    ``{"a": []}`` reached ``(dec.get("authoring") or []) + (dec.get("reviewRuns") or [])`` as a dict,
+    ``dict + list`` raised ``TypeError``, and all three verifiers answered ``internal_error``, "a defect
+    in the verifier", while the validator beside them had already said ``authoring must be an array``.
+
+    A LIST AND NOTHING ELSE, not ``(list, tuple)`` as some local ``_as_list`` helpers read it: the
+    validators call an array ``isinstance(v, list)``, ``list + tuple`` raises the same ``TypeError``,
+    and parsed JSON never yields a tuple. A value the validator refuses is read here as empty, never as
+    a second opinion about what the array holds."""
+    return value if isinstance(value, list) else []

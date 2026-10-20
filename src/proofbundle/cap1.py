@@ -31,6 +31,7 @@ from collections import Counter
 from typing import Any, TypeGuard
 
 from ._membership import is_member
+from .canonical import _ein_stand
 
 __all__ = [
     "CAP1_PROFILE", "DISPOSITIONS", "BASIS_KINDS", "HARD_DISPOSITIONS", "RULE_IDS", "RULES",
@@ -159,7 +160,12 @@ def _r2_closed_disposition(doc: dict, f) -> None:
     """R2: jeder unexamined-Eintrag nennt eine Einheit und traegt eine Disposition aus §6; Freitext
     an dieser Stelle wird nicht angenommen, weil Freitext nicht aggregiert."""
     for s in _strata(doc):
-        for i, u in enumerate(s.get("unexamined") or []):
+        # A LIST, NOT `or []` (measured on c3bd89a4): `unexamined: 5` or `true` survived the `or`,
+        # `enumerate` raised `TypeError`, and `check_cap1_document` reported R2 as a rule it could not
+        # evaluate, the verdict degradation R8's comment below names; `"x"` was read as entries of one
+        # character each. A non-list is R1's finding, and R1 names it.
+        un = s.get("unexamined")
+        for i, u in enumerate(un if isinstance(un, list) else []):
             if not isinstance(u, dict):
                 f("R2-closed-disposition", f"{_sid(s)}[{i}]: Eintrag ist kein Objekt")
                 continue
@@ -313,6 +319,7 @@ RULES: dict[str, Any] = {
 RULE_IDS: tuple[str, ...] = tuple(RULES)
 
 
+@_ein_stand
 def check_cap1_document(doc: object) -> list[dict]:
     """Alle Regeln gegen das Dokument; Rueckgabe eine Liste von {rule, reason}. NIE eine Ausnahme.
 
@@ -334,10 +341,12 @@ def check_cap1_document(doc: object) -> list[dict]:
     return out
 
 
+@_ein_stand
 def is_conformant(doc: object) -> bool:
     return not check_cap1_document(doc)
 
 
+@_ein_stand
 def load_cap1_document(raw: object) -> Any:
     """Strikt lesen: UTF-8, JSON, keine doppelten Namen — mit dem EINEN strikten Leser des Pakets.
 

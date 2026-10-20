@@ -285,6 +285,11 @@ def main(argv=None) -> int:
     # also aus einer echten Kostenregression ODER aus Messrauschen der Kurvenform kommen, und
     # ein Zaehler allein laesst den Leser das nicht unterscheiden. Das Urteil bleibt unveraendert
     # — geaendert wird nur, was man sieht.
+    # Z309, 2026-10-07: `kurve_ist_nicht_ueberlinear` now judges counted work and no time ratio, so the
+    # noise half of the paragraph above no longer applies to it. The lines stay, because they still name
+    # which assertion fell. For a dimension named in NICHT_ZAEHLBAR (string_len) the assertion passes
+    # because the gap is named, not because a curve was judged; the count also misses quadratic work
+    # inside one C call or operator (see the head of tests/_arbeitszaehler.py).
     for art, eintraege in (("achse", d["achsen"]), ("kombi", d["kombis"])):
         for e in eintraege:
             if e.get("urteil") != "BESTANDEN":

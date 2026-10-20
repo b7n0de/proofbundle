@@ -14,6 +14,10 @@ from proofbundle.decision import build_decision_statement, emit_decision_receipt
 from proofbundle.emit import generate_signer
 from proofbundle.policy import PolicyError, evaluate_decision_policy, load_policy
 
+# Nachtrag 48/48b: evaluate_decision_policy now binds the result to the statement + signer it judges; a test
+# exercising the policy rules in isolation passes a result stand-in bound to exactly this statement + signer.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 
@@ -65,14 +69,16 @@ class TestEvaluateDecisionPolicy(unittest.TestCase):
     def test_trusted_signer_policy_ok(self):
         _, pub = _keys()
         stmt = build_decision_statement(_pred("deny"))
-        r = evaluate_decision_policy(stmt, {}, load_policy(_policy_trusting(pub)), signer_public_key_b64=pub)
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), load_policy(_policy_trusting(pub)),
+                                     signer_public_key_b64=pub)
         self.assertTrue(r["signer_trusted"] and r["policy_ok"] and r["errors"] == [])
 
     def test_untrusted_signer_fails(self):
         _, pub = _keys()
         _, other = _keys()
         stmt = build_decision_statement(_pred("deny"))
-        r = evaluate_decision_policy(stmt, {}, load_policy(_policy_trusting(other)), signer_public_key_b64=pub)
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), load_policy(_policy_trusting(other)),
+                                     signer_public_key_b64=pub)
         self.assertIs(r["signer_trusted"], False)
         self.assertIs(r["policy_ok"], False)
 
@@ -80,14 +86,16 @@ class TestEvaluateDecisionPolicy(unittest.TestCase):
         _, pub = _keys()
         stmt = build_decision_statement(_pred("deny"))
         stmt["predicateType"] = "https://b7n0de.com/proofbundle/predicates/eval-result/v0.1"
-        r = evaluate_decision_policy(stmt, {}, load_policy(_policy_trusting(pub)), signer_public_key_b64=pub)
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), load_policy(_policy_trusting(pub)),
+                                     signer_public_key_b64=pub)
         self.assertIs(r["policy_ok"], False)
         self.assertTrue(any("accepted_predicate_types" in e for e in r["errors"]))
 
     def test_verdict_not_allowed_fails(self):
         _, pub = _keys()
         p = _policy_trusting(pub, allowed_verdicts=["ALLOW"])
-        r = evaluate_decision_policy(build_decision_statement(_pred("deny")), {}, load_policy(p), signer_public_key_b64=pub)
+        stmt = build_decision_statement(_pred("deny"))
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), load_policy(p), signer_public_key_b64=pub)
         self.assertIs(r["policy_ok"], False)
         self.assertTrue(any("verdict" in e for e in r["errors"]))
 
@@ -95,12 +103,15 @@ class TestEvaluateDecisionPolicy(unittest.TestCase):
         _, pub = _keys()
         pred = _pred("deny")
         pred["evidenceRefs"] = []
-        r = evaluate_decision_policy(build_decision_statement(pred), {}, load_policy(_policy_trusting(pub)), signer_public_key_b64=pub)
+        stmt = build_decision_statement(pred)
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), load_policy(_policy_trusting(pub)),
+                                     signer_public_key_b64=pub)
         self.assertIs(r["policy_ok"], False)
         self.assertTrue(any("evidence relations" in e for e in r["errors"]))
 
     def test_no_decision_section_is_not_evaluated(self):
-        r = evaluate_decision_policy(build_decision_statement(_pred("deny")), {},
+        stmt = build_decision_statement(_pred("deny"))
+        r = evaluate_decision_policy(stmt, bound_decision_result(stmt, "AAAA"),
                                      {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "x"},
                                      signer_public_key_b64="AAAA")
         self.assertIsNone(r["policy_ok"])
@@ -132,7 +143,8 @@ class TestDecisionPolicyKnobs(unittest.TestCase):
         _, pub = _keys()
         pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "t",
                            "decision_receipt": section})
-        return evaluate_decision_policy(build_decision_statement(pred), {}, pol, signer_public_key_b64=pub)
+        stmt = build_decision_statement(pred)
+        return evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), pol, signer_public_key_b64=pub)
 
     def test_require_audience(self):
         p = _pred("deny")
@@ -220,7 +232,8 @@ class TestDecisionPathTemplateAndExpiryGate(unittest.TestCase):
         raw = load_policy(profile_path("decision-receipt-template-v1"))
         self.assertIs(raw.get("requiresIdentityOverlay"), True)
         s, pub = _keys()
-        res = evaluate_decision_policy(build_decision_statement(_pred("deny")), {}, raw,
+        stmt = build_decision_statement(_pred("deny"))
+        res = evaluate_decision_policy(stmt, bound_decision_result(stmt, pub), raw,
                                        signer_public_key_b64=pub)
         self.assertIs(res["policy_ok"], False)
         self.assertTrue(any("raw template" in e for e in res["errors"]))

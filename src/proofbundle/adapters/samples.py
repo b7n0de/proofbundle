@@ -18,8 +18,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import List
+from .._strict_json import loads_reject_duplicate_keys
+from ..errors import BundleFormatError
+from ..canonical import _ein_stand
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def samples_from_lm_eval_jsonl(path) -> List[dict]:
     """Read an lm-evaluation-harness ``--log_samples`` JSONL (samples_<task>_*.jsonl) into leaf
     records: (doc_id, filter, doc/prompt/target hashes, filtered responses, metric values).
@@ -31,9 +35,13 @@ def samples_from_lm_eval_jsonl(path) -> List[dict]:
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
+            # Nachtrag 51 (K6 sibling): a duplicate JSON key in a sample row is rejected fail-closed before
+            # it becomes a signable leaf (last-wins would commit a value a differing reader disagrees with).
+            row = loads_reject_duplicate_keys(line)
         except json.JSONDecodeError as exc:
             raise ValueError(f"line {line_no}: not valid JSON") from exc
+        except BundleFormatError as exc:
+            raise ValueError(f"line {line_no}: {exc}") from exc
         if not isinstance(row, dict) or "doc_id" not in row:
             raise ValueError(f"line {line_no}: not an lm-eval sample row")
         doc_id = row.get("doc_id")
@@ -53,10 +61,12 @@ def samples_from_lm_eval_jsonl(path) -> List[dict]:
     return records
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def samples_from_promptfoo_results(path) -> List[dict]:
     """Read a promptfoo results.json (summary v3) into leaf records:
     (testIdx, promptIdx, provider, success, score). Sorted by (testIdx, promptIdx, provider)."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Nachtrag 51 (K6 sibling): reject a duplicate JSON key fail-closed before a row becomes a signable leaf.
+    data = loads_reject_duplicate_keys(Path(path).read_text(encoding="utf-8"))
     summary = data.get("results")
     if not isinstance(summary, dict) or summary.get("version") != 3:
         raise ValueError("not a promptfoo v3 output file (see adapters.promptfoo)")

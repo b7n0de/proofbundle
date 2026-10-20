@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 #: genau dann, wenn jemand vorher in dieses Verzeichnis gewechselt ist.
 HIER = pathlib.Path(__file__).resolve().parent
 import cbor_min as C                                                      # noqa: E402
+from json_strict import load_json                                          # noqa: E402
 from cryptography.exceptions import InvalidSignature                      # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (           # noqa: E402
     Ed25519PrivateKey,
@@ -121,8 +122,9 @@ def detached_probe(raw: bytes, public_hex: str) -> dict:
 
 
 def zerlege(roh: bytes) -> dict:
-    wert, ende = C.lade(roh)
-    assert ende == len(roh), f"Reste nach dem Wert: {len(roh)-ende} Byte"
+    # Strict since 2026-10-14: `load_exactly_one` refuses bytes after the value, and `lade` beneath it every duplicate
+    # map key. An assert stood here, and `python -O` removes it.
+    wert = C.load_exactly_one(roh)
     tag = None
     if isinstance(wert, tuple) and wert[0] == "__tag__":
         tag = wert[1]
@@ -253,8 +255,8 @@ def pruefe(name: str, hex_bytes: str, erwartet_size: int, erwartet_sha: str, see
 
 
 def main() -> int:
-    v1 = json.load(open(HIER / "data-hash-vector.json", encoding="utf-8"))
-    v2 = json.load(open(HIER / "data-hash-tag-vector.json", encoding="utf-8"))
+    v1 = load_json(HIER / "data-hash-vector.json")
+    v2 = load_json(HIER / "data-hash-tag-vector.json")
     seed = v1["test_key"]["seed_hex"]
     assert v2["test_key"]["seed_hex"] == seed, "die Vektoren nennen verschiedene Seeds"
     public = v1["test_key"]["public_key_hex"]
@@ -282,7 +284,7 @@ def main() -> int:
                       v2["C_untagged"]["size_bytes"], v2["C_untagged"]["sha256"], seed, public))
     # D, the outer array in indefinite length, from the recorded vektor_d.json in this directory
     # (minted by mint_indefinite.py). Its expected size and digest are that record, not the list.
-    vd = json.load(open(HIER / "vektor_d.json", encoding="utf-8"))["D_indefinite_array"]
+    vd = load_json(HIER / "vektor_d.json")["D_indefinite_array"]
     d_bytes = bytes.fromhex(vd["hex"])
     aus.append(pruefe("D  indefinite array (vektor_d.json)", d_bytes.hex(),
                       vd["size_bytes"], vd["sha256"], seed, public, evidence="taken_over"))

@@ -29,10 +29,10 @@ from typing import Optional
 
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
-from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ganzzahl_von, _pruefkopie, _type_name,
-                        _zeichen_von)
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ein_stand, _ganzzahl_von, _pruefkopie,
+                        _type_name, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
-from .signature import verify_ed25519_pinned
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64url
 
@@ -64,6 +64,7 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+@_ein_stand
 def status_claim(uri: str, idx: int) -> dict:
     """The `status` claim a Referenced Token (receipt SD-JWT) carries to point into a list.
 
@@ -90,6 +91,7 @@ def _status_at(bit_array: bytes, bits: int, idx: int) -> int:
     return (bit_array[byte_i] >> (slot * bits)) & ((1 << bits) - 1)
 
 
+@_ein_stand
 def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: int,
                            issuer_pubkey: bytes, now: Optional[int] = None,
                            receipt_issuer_pubkey: Optional[bytes] = None) -> dict:
@@ -119,6 +121,14 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     result: dict[str, str | bool | int | None] = {
         "ok": False, "status": None, "status_label": None, "fresh": None,
         "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
+    # THE ISSUER KEY IS READ ONCE, here, before anything else (deep gate run 5 at d388ed3d, the sweep of
+    # L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). `self_issued` compared one reading of a
+    # `bytearray` key and the signature check read it again after the token was parsed, so a key the caller
+    # changed in between reported the list as self-issued while its signature was checked under another key.
+    # A key that is no bytes-like value is handed on unchanged, and the signature check refuses it as before.
+    _schluessel = _bytes_von(issuer_pubkey)
+    if _schluessel is not None:
+        issuer_pubkey = _schluessel
     if receipt_issuer_pubkey is not None:
         # hmac.compare_digest for a constant-time compare of the two public keys (defensive; the
         # values are public, but consistent with the codebase's compare discipline).
@@ -185,6 +195,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if not isinstance(header, dict) or not isinstance(payload, dict):
         result["detail"] = "malformed status list token"
         return result
+    # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
+    # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so a Status List
+    # Token whose protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
+        return result
     if header.get("typ") != TYP:
         result["detail"] = f"status list token typ must be '{TYP}'"
         return result
@@ -225,8 +242,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if not isinstance(sl, dict):
         result["detail"] = "status_list claim missing"
         return result
-    bits = sl.get("bits")
-    if bits not in _ALLOWED_BITS:
+    # L2-01 (never-raise): a float bits (e.g. 2.0) satisfies `2.0 in (1,2,4,8)` and slipped through, then
+    # `_status_at` did `8 // bits` and byte indexing on a float, a raw TypeError instead of a fail-closed
+    # verdict. The width is read the way the issue side below reads it, as an exact int (not a bool, not
+    # a float, not a subclass), and only then checked against the allowed set.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    bits = plain_int(sl.get("bits"))
+    if bits is None or bits not in _ALLOWED_BITS:
         result["detail"] = f"status_list bits must be one of {_ALLOWED_BITS}"
         return result
     if not isinstance(sl.get("lst"), str):
@@ -260,13 +282,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = str(exc)
         return result
 
-    result["ok"] = True
-    result["status"] = status
-    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
+    # Nachtrag 49 K4-03 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): judge freshness BEFORE the positive
+    # verdict. A snapshot expired or stale at the evaluation time is never a positive, VALID reading (the status
+    # byte and `status_label` were set and `ok` was True before the freshness check, which left `fresh=False`
+    # only as a report). v1.6: a token with NEITHER exp NOR ttl is unbounded — freshness CANNOT be judged, so
+    # `fresh` stays None and the relying party imposes its own max age; `now` absent leaves `fresh` None too.
     if now is not None:
-        # v1.6 (external review): a token with NEITHER exp NOR ttl is unbounded — "fresh
-        # forever" was misleading (stale-snapshot replay). Without a bound, freshness CANNOT
-        # be judged: fresh stays None and the relying party must impose its own max age.
         if exp is None and ttl is None:
             result["fresh"] = None
         else:
@@ -276,10 +297,17 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
             if ttl is not None:
                 fresh = fresh and now <= iat + ttl
             result["fresh"] = fresh
+            if fresh is False:
+                result["detail"] = "status list snapshot is not fresh (expired or stale) at the evaluation time"
+                return result
+    result["ok"] = True
+    result["status"] = status
+    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
     result["detail"] = f"status {result['status_label']} at index {index}"
     return result
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits: int = 1,
                             exp: Optional[int] = None, ttl: Optional[int] = None) -> str:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list
@@ -323,7 +351,7 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):
         if plain_int(s) is None or not 0 <= s < (1 << bits):
-            raise BundleFormatError(f"status value {s!r} does not fit in {bits} bit(s)")
+            raise BundleFormatError(f"status value {render_safe(s)} does not fit in {bits} bit(s)")
         byte_i, slot = divmod(i, per_byte)
         arr[byte_i] |= s << (slot * bits)
     payload = {"sub": uri, "iat": iat,
@@ -333,5 +361,12 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     if ttl is not None:
         payload["ttl"] = ttl
     header = {"alg": "EdDSA", "typ": TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+    # `uri`, `iat`, `exp` and `ttl` come from the caller and are serialized: one without a JSON form
+    # (`iat=10**5000` passes the int check above, a set, bytes, a nesting deeper than the interpreter
+    # allows) raised raw from `json.dumps` (lens run 10 generator on d6d89763).
+    try:
+        payload_json = json.dumps(payload)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"status list token claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(payload_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

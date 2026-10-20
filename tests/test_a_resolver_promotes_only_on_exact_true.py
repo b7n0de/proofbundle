@@ -74,12 +74,18 @@ from proofbundle.outcome import (
     verify_outcome_receipt,
 )
 from proofbundle.renewal import build_initial_sequence, verify_sequence
+from proofbundle.trust_pack import _rfc8785_bytes
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 _DIGEST = {"sha256": "a" * 64}
 _DATA = [hashlib.sha256(b"a").hexdigest(), hashlib.sha256(b"b").hexdigest()]
 #: The words every refusal detail carries.
 _WHY = "only the exact True"
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 class _Truthy:
@@ -166,24 +172,35 @@ class TestTheReceiverLadderAttestsOnlyOnTrue(unittest.TestCase):
                 self.assertIn(_WHY, r["detail"])
 
     def test_control_true_and_key_material_attest_false_and_raise_do_not(self):
-        top = EvidenceLevel.INDEPENDENTLY_ATTESTED
-        self.assertEqual(classify_receiver_corroboration(
+        # N47: a caller resolver answer can no longer reach INDEPENDENTLY_ATTESTED (the library does not verify the
+        # referenced receiver statement), so the two answers that WOULD have attested — the exact True and 32
+        # bytes of key material — are capped at CONTENT_RESOLVED and carry the N47 cap marker in the detail. The
+        # exact False and a raising resolver stay at the base CONTENT_RESOLVED without the marker.
+        capped = EvidenceLevel.CONTENT_RESOLVED
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: True,
-            **self._base)["level"], top)
-        self.assertEqual(classify_receiver_corroboration(
+            **self._base)
+        self.assertEqual(r["level"], capped)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: b"k" * 32,
-            **self._base)["level"], top)
+            **self._base)
+        self.assertEqual(r["level"], capped)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
         r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: False,
             **self._base)
         self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertNotIn(_WHY, r["detail"])
+        self.assertNotIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
 
         def _boom(_d):
             raise RuntimeError("resolver failed")
-        self.assertEqual(classify_receiver_corroboration(
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=_boom,
-            **self._base)["level"], EvidenceLevel.CONTENT_RESOLVED)
+            **self._base)
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertNotIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
 
 
 class TestTheRenewalAnchorHoldsOnlyOnTrue(unittest.TestCase):
@@ -246,7 +263,9 @@ class TestThePublicVerifiersPassTheRuleOn(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["effect"]["level"], EvidenceLevel.CONTENT_RESOLVED)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        # N47: the exact True still promotes through the public verifier, but the receiver ladder is capped at
+        # CONTENT_RESOLVED — INDEPENDENTLY_ATTESTED is no longer reachable from a resolver answer.
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
 
 class _LyingDict(dict):
@@ -614,24 +633,39 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         calls: list = []
+        _dig = _n45_digest(pack)
         for label, answer in _not_key_material(calls):
             for trust_pack in (None, pack):
                 with self.subTest(answer=label, trust_pack=trust_pack is not None):
                     calls.clear()
+                    # N43: pin the pack (forwarded verdict) so the receiver-role path runs; the property under
+                    # test (a non-key answer binds nothing and nothing escapes) is unchanged. Harmless when
+                    # trust_pack is None (the forward applies only to a supplied pack).
+                    # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+                    # trust_pack_pinned_digest = sha256(JCS(pack)). Reason: a bare pinned=True no longer binds the
+                    # predicate's content at outcome. The digest is ignored when trust_pack is None.
                     r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                                receiver_attestation_resolver=lambda d, a=answer: a,
-                                               trust_pack=trust_pack)
+                                               trust_pack=trust_pack, trust_pack_pinned=True,
+                                               trust_pack_pinned_digest=_dig)
                     self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
                     self.assertIsNot(r["receiver_key_bound"], True)
                     self.assertIs(r["ok"], True, r["errors"])
                     self.assertEqual(calls, [], "the answer's own methods ran")
 
     def test_control_plain_key_material_attests_and_binds_as_before(self):
+        # N47: 32 bytes of plain key material still reaches the attestation path (and still binds against a
+        # matching expectation), but the promotion is capped at CONTENT_RESOLVED and carries the N47 cap marker —
+        # INDEPENDENTLY_ATTESTED is no longer reachable from a resolver answer. The binding counter-probes below
+        # (a non-matching expectation, a 31-byte key) are unchanged.
         for label, answer in (("bytes", _RECV_KEY), ("bytearray", bytearray(_RECV_KEY))):
             with self.subTest(answer=label):
-                self.assertEqual(self._classify(answer)["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-                self.assertEqual(self._classify(answer, expected_receiver_public_key=_RECV_KEY)["level"],
-                                 EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                r = self._classify(answer)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+                r = self._classify(answer, expected_receiver_public_key=_RECV_KEY)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
                 r = self._classify(answer, expected_receiver_public_key=b"x" * 32)
                 self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
                 self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", r["detail"])
@@ -644,13 +678,24 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
         pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        # N43: the receiver role verdict is positive only under a relying-party anchor; pin the pack (forwarded
+        # verdict) so the binding behaviour under test is exercised exactly as before.
+        # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+        # trust_pack_pinned_digest = sha256(JCS(pack)). Reason: a bare pinned=True no longer binds the
+        # predicate's content at outcome.
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
-                                   receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-        self.assertIs(r["receiver_key_bound"], True)
-        self.assertIs(r["receiver_role_trusted"], True)
+                                   receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack,
+                                   trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
+        # N47: a resolved signer key that byte-matches the pack key no longer confers trust through the public
+        # verifier either — receiver_role_trusted/receiver_key_bound are None (not True) with a
+        # RECEIVER_STATEMENT_NOT_VERIFIED error, and the ladder is capped at CONTENT_RESOLVED.
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
-                                   receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack)
+                                   receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack,
+                                   trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
         self.assertIs(r["receiver_key_bound"], False)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
@@ -713,9 +758,20 @@ class TestTheKeyIdsCountOnlyAsPlainStr(unittest.TestCase):
                 self.assertEqual(calls, [])
 
     def test_control_plain_key_ids_behave_as_before(self):
-        self.assertEqual(self._classify("kid-exec", "kid-recv")["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-        self.assertEqual(self._classify("kid-exec", "kid-exec")["level"], EvidenceLevel.CONTENT_RESOLVED)
-        self.assertEqual(self._classify("kid-exec", ["kid-exec"])["level"], EvidenceLevel.CONTENT_RESOLVED)
+        # N47: distinct plain str key ids still clear the structural-independence check and reach the attestation
+        # path, but the promotion is capped at CONTENT_RESOLVED with the N47 cap marker — INDEPENDENTLY_ATTESTED
+        # is no longer reachable from a resolver answer. Equal or non-str key ids still fail the independence
+        # check BEFORE the resolver runs (their detail says "independence not provable", not the N47 marker), so
+        # the str-key-id counter-probes are unchanged.
+        r = self._classify("kid-exec", "kid-recv")
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+        r = self._classify("kid-exec", "kid-exec")
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("independence not provable", r["detail"])
+        r = self._classify("kid-exec", ["kid-exec"])
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("independence not provable", r["detail"])
         pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
                 "keys": {"kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         self.assertIs(receiver_trusted_by_role("kid-recv", pack), True)
@@ -1079,7 +1135,10 @@ class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
     ``verify_anchors`` and ``verify_decision_receipt(anchors=...)``, whose guard around the anchors took only
     typed errors. The fail-closed try ended at the verifier CALL and did not cover the reading of its answer. The
     result is now read by iterating what the dict stores, a key counting only as an exact str, each value only by
-    its exact type, and the whole reading sits inside the fail-closed boundary."""
+    its exact type, and the whole reading sits inside the fail-closed boundary. Since the fix of deep gate run 6 at
+    fda55f98 the result is first read where it returns by the reading at the call, which refuses a dict holding a key
+    whose hash is the caller's code (`canonical._StandUnkopierbar`), so such a result is a failed anchor, also beside
+    ``ok`` True."""
 
     _TYPE = "test-reading-runs-no-caller-code/v1"
 
@@ -1138,17 +1197,20 @@ class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
             ("warn whose dunders raise", lambda: {"ok": False, "warn": _RaisingValue(calls)}),
             ("OrderedDict with a key 'ok' whose __eq__ raises",
              lambda: collections.OrderedDict([(_RaisingKey(calls, "ok"), True)])),
+            # Since the fix of deep gate run 6 the result is read where it returns by the reading at the call, which
+            # refuses a dict holding a key whose hash is the caller's code (`canonical._StandUnkopierbar`): the
+            # anchor fails closed, also beside ok True. Until then such a key was left unread and the anchor verified.
+            ("trustedTime with a key 'source' whose __eq__ raises",
+             lambda: {"ok": True, "trustedTime": {_RaisingKey(calls, "source"): "x"}}),
+            ("a second key 'warn' whose __eq__ raises", lambda: {"ok": True, _RaisingKey(calls, "warn"): True}),
         ]
         verified = [
             ("status whose dunders raise", lambda: {"ok": True, "status": _RaisingValue(calls)}),
             ("status a str subclass", lambda: {"ok": True, "status": s_cls("pass")}),
             ("detail whose dunders raise", lambda: {"ok": True, "detail": _RaisingValue(calls)}),
             ("trustedTime whose dunders raise", lambda: {"ok": True, "trustedTime": _RaisingValue(calls)}),
-            ("trustedTime with a key 'source' whose __eq__ raises",
-             lambda: {"ok": True, "trustedTime": {_RaisingKey(calls, "source"): "x"}}),
             ("trustedTime whose source raises", lambda: {"ok": True, "trustedTime": {"source": _RaisingValue(calls)}}),
             ("rp_trusted whose dunders raise", lambda: {"ok": True, "rp_trusted": _RaisingValue(calls)}),
-            ("a second key 'warn' whose __eq__ raises", lambda: {"ok": True, _RaisingKey(calls, "warn"): True}),
         ]
         for expected, cases in ((False, not_verified), (True, verified)):
             for label, make in cases:
@@ -1286,7 +1348,13 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
     with a raising ``__eq__`` made ``classify_digest_evidence``, ``classify_receiver_corroboration``,
     ``evidence_ladder_summary`` and ``evidence_ladder_best``, all documented never to raise, raise RuntimeError.
     A key now counts only as an exact str and the stored value only by its type, so none of the caller's code
-    runs and nothing it does can raise or stand in for a key it is not."""
+    runs and nothing it does can raise or stand in for a key it is not.
+
+    Since the fix of deep gate run 6 at fda55f98 a digest object or a field that is a dict holding a key whose hash is
+    the caller's code does not reach these bodies: the reading at the call refuses it with
+    `canonical._StandUnkopierbar`, a ``ProofBundleError``, before anything is classified (owner choice 8 on
+    OA-73db31053a: the old expectation became the refusal). The property held here is unchanged in what matters: no
+    exception of the caller escapes, nothing is promoted, and none of the caller's code runs."""
 
     _STRONG = {"level": EvidenceLevel.CONTENT_RESOLVED, "level_name": "CONTENT_RESOLVED"}
 
@@ -1296,28 +1364,31 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
                     d, evidence_resolver=lambda x: True, independent_attestation_resolver=lambda x: True,
                     executor_key_id="kid-exec", receiver_key_id="kid-recv")))
 
-    def test_the_reviews_inputs_classify_fail_closed_and_run_nothing(self):
+    def test_the_reviews_inputs_are_refused_at_the_call_and_run_nothing(self):
+        from proofbundle.canonical import _StandUnkopierbar
         calls: list = []
         for name, classify in self._digest_surfaces():
             with self.subTest(surface=name):
                 calls.clear()
-                self.assertEqual(classify({_RaisingKey(calls, "sha256"): "a" * 64})["level"], EvidenceLevel.CLAIMED)
+                with self.assertRaises(_StandUnkopierbar):
+                    classify({_RaisingKey(calls, "sha256"): "a" * 64})
                 self.assertEqual(calls, [])
-        for name, rollup, want in (("summary", evidence_ladder_summary, "CONTENT_RESOLVED"),
-                                   ("best", evidence_ladder_best, "CONTENT_RESOLVED")):
+        for name, rollup in (("summary", evidence_ladder_summary), ("best", evidence_ladder_best)):
             with self.subTest(surface=name):
                 calls.clear()
-                self.assertEqual(rollup({_RaisingKey(calls, "level"): 0}, self._STRONG)["level_name"], want)
+                with self.assertRaises(_StandUnkopierbar):
+                    rollup({_RaisingKey(calls, "level"): 0}, self._STRONG)
                 self.assertEqual(calls, [])
 
     def test_a_stored_key_or_value_of_any_shape_never_escapes_and_never_promotes(self):
+        from proofbundle.canonical import _StandUnkopierbar
         calls: list = []
         s_cls, i_cls, d_cls = _raising_subclass_values(calls)
         hex64 = "a" * 64
+        abgewiesen = "refused at the call"
         digests = [
-            ("non-str key 'sha256', __eq__ raises", {_RaisingKey(calls, "sha256"): hex64}, EvidenceLevel.CLAIMED),
-            ("non-str key 'sha256', __eq__ says equal", {_ImpersonatingKey(calls, "sha256"): hex64},
-             EvidenceLevel.CLAIMED),
+            ("non-str key 'sha256', __eq__ raises", {_RaisingKey(calls, "sha256"): hex64}, abgewiesen),
+            ("non-str key 'sha256', __eq__ says equal", {_ImpersonatingKey(calls, "sha256"): hex64}, abgewiesen),
             ("str-subclass key 'sha256', __eq__ raises", {_raising_str_key(calls, "sha256"): hex64},
              EvidenceLevel.CLAIMED),
             ("value whose dunders raise", {"sha256": _RaisingValue(calls)}, EvidenceLevel.CLAIMED),
@@ -1330,30 +1401,39 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
             for label, digest, level in digests:
                 with self.subTest(surface=name, digest=label):
                     calls.clear()
+                    if level == abgewiesen:
+                        with self.assertRaises(_StandUnkopierbar):
+                            classify(digest)
+                        self.assertEqual(calls, [], "the digest object's own code ran")
+                        continue
                     got = classify(digest)["level"]
-                    if name == "classify_receiver_corroboration" and level == EvidenceLevel.CONTENT_RESOLVED:
-                        level = EvidenceLevel.INDEPENDENTLY_ATTESTED
+                    # N47: classify_receiver_corroboration is capped at CONTENT_RESOLVED too — it is no longer
+                    # bumped to INDEPENDENTLY_ATTESTED, so both digest surfaces share the same expected level.
                     self.assertEqual(got, level)
                     self.assertEqual(calls, [], "the digest object's own code ran")
         fields = [
-            ("non-str key 'level', __eq__ raises", {_RaisingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
-            ("non-str key 'level', __eq__ says equal", {_ImpersonatingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
+            ("non-str key 'level', __eq__ raises", {_RaisingKey(calls, "level"): 0}, abgewiesen),
+            ("non-str key 'level', __eq__ says equal", {_ImpersonatingKey(calls, "level"): 0}, abgewiesen),
             ("str-subclass key 'level', __eq__ raises", {_raising_str_key(calls, "level"): 0}, "CONTENT_RESOLVED"),
             ("level whose dunders raise", {"level": _RaisingValue(calls)}, "CONTENT_RESOLVED"),
             ("level an int subclass storing 0", {"level": i_cls(0), "level_name": "CLAIMED"}, "CLAIMED"),
             ("a dict subclass whose methods raise, storing level 0", d_cls(level=0, level_name="CLAIMED"),
              "CLAIMED"),
             ("level_name behind a key whose __eq__ raises", {"level": 0, _RaisingKey(calls, "level_name"): "x"},
-             None),
+             abgewiesen),
             ("the field's dunders raise", _RaisingValue(calls), "CONTENT_RESOLVED"),
         ]
         for label, field, weakest in fields:
             with self.subTest(field=label):
                 calls.clear()
+                if weakest == abgewiesen:
+                    for rollup in (evidence_ladder_summary, evidence_ladder_best):
+                        with self.assertRaises(_StandUnkopierbar):
+                            rollup(field, self._STRONG)
+                    self.assertEqual(calls, [], "the field's own code ran")
+                    continue
                 summary = evidence_ladder_summary(field, self._STRONG)
                 self.assertEqual(summary["level_name"], weakest)
-                if weakest is None:
-                    self.assertEqual(summary["level"], 0)
                 self.assertEqual(evidence_ladder_best(field, self._STRONG)["level_name"], "CONTENT_RESOLVED")
                 self.assertEqual(calls, [], "the field's own code ran")
 
@@ -1381,7 +1461,8 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: _RaisingValue(calls),
-                                   receiver_attestation_resolver=lambda d: _RaisingValue(calls), trust_pack=pack)
+                                   receiver_attestation_resolver=lambda d: _RaisingValue(calls), trust_pack=pack,
+                                   trust_pack_pinned=True)   # N43: pin so the receiver path is exercised
         self.assertEqual(r["evidence_levels"]["effect"]["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
         self.assertIsNot(r["receiver_key_bound"], True)
         dec_p = copy.deepcopy(json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8")))

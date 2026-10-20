@@ -14,22 +14,21 @@ Field names are lowerCamelCase (ITE-9).
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
-from ._statement_payload import load_statement_strict
-from .canonical import _eine_kopie, _pruefkopie
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
+from .budget import render_safe
+from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X, SHA256_HEX as _SHA256_HEX
+from ._schema_shapes import is_sha256_digest
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _RUN_STATUS = {"completed", "aborted", "failed"}
 _REQUIRED_ALWAYS = ("schemaVersion", "studyId", "runBudget", "runs", "nonClaims")
@@ -44,13 +43,14 @@ class RunLedgerError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 def _digest_hex(obj: Any) -> str | None:
     return obj["sha256"] if _is_digest(obj) else None
 
 
+@_ein_stand
 def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``run-ledger/v0.1`` predicate (empty = valid).
 
@@ -66,7 +66,7 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -112,7 +112,7 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
     for i, run in enumerate(runs):
         seq = run.get("seq")
         if seq != i + 1:
-            errors.append(f"runs[{i}].seq must be {i + 1} (strictly monotone from 1, no gaps), got {seq!r}")
+            errors.append(f"runs[{i}].seq must be {i + 1} (strictly monotone from 1, no gaps), got {render_safe(seq)}")
         prev = run.get("prevDigest")
         if i == 0:
             if prev is not None:
@@ -141,7 +141,7 @@ def _validate_run_shape(run: Any) -> list[str]:
     if not isinstance(run, dict):
         return ["must be an object"]
     for k in run:
-        if k not in _RUN_ALLOWED:
+        if not is_member(k, _RUN_ALLOWED):
             errs.append(f"unknown field {k!r}")
     for req in _RUN_REQUIRED:
         if req not in run:
@@ -162,12 +162,14 @@ def _validate_run_shape(run: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def require_valid_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def link_runs(result_digests: list[str], statuses: list[str] | None = None) -> list[dict]:
     """Helper: build a well-formed, chained ``runs`` list from an ordered list of result-digest hexes.
 
@@ -209,6 +211,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise RunLedgerError(
             "run ledgers need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise RunLedgerError(
+            f"a run ledger value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -232,6 +240,7 @@ def _predicate_once(predicate):
                       error=lambda m: RunLedgerError(f"invalid run-ledger predicate: {m}"))
 
 
+@_ein_stand
 def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
@@ -241,14 +250,15 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
     name = subject_name or f"run-ledger:{predicate.get('studyId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": RUN_LEDGER_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, RunLedgerError)
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
@@ -293,6 +303,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
     """Verify a DSSE-signed Run Ledger. Crypto first, then structure over the EXACT signed bytes.
 

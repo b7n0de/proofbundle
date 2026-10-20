@@ -36,12 +36,16 @@ from __future__ import annotations
 
 import base64
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 
 REPO = Path(__file__).resolve().parents[1]
 CASE = REPO / "conformance" / "relation" / "relation-signer-cross-issuer-unauthorized"
@@ -51,14 +55,9 @@ IDENTITY_B64 = base64.b64encode(b"\x01" + b"\x00" * 31).decode("ascii")
 
 
 def _rust_binary():
-    """Same lookup as tests/test_lauf11_l1_l4_rust_strukturbudget_und_kreuzvergleich.py."""
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
+    """The binary through tests/_pb_verify_rs.py: pinned, or built once per process under a lock, or
+    a skip that names why (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 def _mutate(change):
@@ -133,7 +132,8 @@ _FULL_SECTIONS = {
     "anchors": {"require_anchor": None, "require_anchor_target": None, "allow_pending": False,
                 "trusted_tsa_roots": [], "bitcoin_block_headers": {}, "trusted_tsa_policy_oids": []},
     "decision_receipt": {"trusted_decision_makers": [], "allowed_decision_types": [], "allowed_verdicts": [],
-                         "required_evidence_relations": [], "accepted_predicate_types": [],
+                         # not empty: since owner point 6 of 2026-10-01 load_policy refuses an empty allow-list there
+                         "required_evidence_relations": [], "accepted_predicate_types": ["https://example.test/p"],
                          "require_policy_digest": False, "require_external_anchor": False,
                          "allow_pending": False, "require_audience": False, "require_nonce": False,
                          "require_not_checked": False, "require_decision_change_conditions": False,
@@ -240,9 +240,6 @@ class RustPolicyReaderJudgesTheRelationsSection(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _rust_binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs is missing or cargo is absent — "
-                                    "the parity cases did NOT run (env_blocked, never green)")
         cls.pub = (CASE / "pub.b64").read_text(encoding="utf-8").strip()
         cls.case = json.loads((CASE / "case.json").read_text(encoding="utf-8"))
 

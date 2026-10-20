@@ -35,6 +35,7 @@ from proofbundle.outcome import (
     validate_outcome_predicate,
     verify_outcome_receipt,
 )
+from proofbundle.trust_pack import _rfc8785_bytes
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTCOME_SCHEMA = json.loads((ROOT / "schemas" / "action-outcome-v0.1.schema.json").read_text(encoding="utf-8"))
@@ -42,6 +43,11 @@ OUTCOME_SCHEMA = json.loads((ROOT / "schemas" / "action-outcome-v0.1.schema.json
 _DEC_ROOT = "a" * 64
 _DIG = "c" * 64
 _RECV_DIG = "d" * 64
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound genesis-digest anchor at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _pred(**over) -> dict:
@@ -72,16 +78,20 @@ def _jsonschema_valid(instance: dict) -> bool:
         return False
 
 
-def _trust_pack(*, receiver_key_id="kid-recv", revoked=None, executor_pub=None):
+def _trust_pack(*, receiver_key_id="kid-recv", revoked=None, executor_pub=None, receiver_pub=None):
     # Also trusts _pred()'s default executor keyId ("kid-exec") as an outcomeExecutors member, so passing
     # this pack to verify_outcome_receipt does not ALSO trip the (pre-existing, Finding 01) executor_role_
     # trusted hard-gate — these tests isolate the receiver-role concern, not the executor-role one.
     # Deep gate 2026-09-05 (L1-600-02): the executor's key MATERIAL must be in `keys` for the role to bind
     # to the signer, so callers pass the verifying key as executor_pub.
+    # N45B: pass receiver_pub to put key MATERIAL for the receiver_key_id into `keys`, so a resolved signer
+    # key can BIND to it (receiver_key_bound True). Without it the pack holds no receiver key (label only).
     import base64
     keys = {"root-0": {"publicKey": "A" * 43 + "="}}
     if executor_pub is not None:
         keys["kid-exec"] = {"publicKey": base64.b64encode(executor_pub).decode("ascii")}
+    if receiver_pub is not None:
+        keys[receiver_key_id] = {"publicKey": base64.b64encode(receiver_pub).decode("ascii")}
     return {
         "schemaVersion": "0.1.0", "trustPackId": "tp-1", "version": 1,
         "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
@@ -279,9 +289,13 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
-    def test_receiver_ref_with_attestation_resolver_reaches_independently_attested(self):
-        # A receiver DISTINCT from the executor (receiverKeyId "kid-recv" != executor "kid-exec") that a
-        # resolver confirms is validly signed reaches INDEPENDENTLY_ATTESTED.
+    def test_receiver_ref_with_attestation_resolver_stays_content_resolved_not_independently_attested(self):
+        # A receiver DISTINCT from the executor (receiverKeyId "kid-recv" != executor "kid-exec") that a resolver
+        # confirms is validly signed used to reach INDEPENDENTLY_ATTESTED. N47: a caller resolver answer can no
+        # longer confer independent attestation (the library does not itself verify the referenced receiver
+        # statement), so it is capped at CONTENT_RESOLVED. ok stays unaffected. (The per-entry detail that names
+        # the cap is asserted on the direct classify_receiver_corroboration surface, not here: verify_outcome_
+        # receipt rolls the entries up via evidence_ladder_best, which keeps level/level_name, not detail.)
         s, pub = _keys()
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
@@ -289,7 +303,7 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"],
-                         EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                         EvidenceLevel.CONTENT_RESOLVED)
         self.assertTrue(r["ok"], r)
 
     def test_receiver_ref_that_is_the_executor_is_not_independent(self):
@@ -366,13 +380,27 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
                                    receiver_attestation_resolver=_boom)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
-    def test_receiver_role_trusted_true_when_member(self):
+    def test_receiver_role_not_positive_from_resolver_answer_when_member(self):
         s, pub = _keys()
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
-        self.assertTrue(r["receiver_role_trusted"])
+        # N43: receiver-role trust requires a relying-party anchor. N45: the anchor must bind the predicate's
+        # content (trust_pack_expected_genesis_digest). N45B: a role member was trusted only with a RESOLVED and
+        # BOUND signer key, not by label alone. N47: even a resolved signer key that byte-matches the pack key no
+        # longer confers trust, because the library does not itself verify the referenced receiver statement — so
+        # a member whose resolved key binds is now receiver_role_trusted None, receiver_key_bound None, with a
+        # RECEIVER_STATEMENT_NOT_VERIFIED error. OLD: True/True. NEW: None/None. ok stays unaffected (receiverRefs
+        # never gate ok). Reason: a caller resolver answer cannot confer receiver trust (N47).
+        recv_pub = generate_signer().public_key().public_bytes_raw()
+        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub, receiver_pub=recv_pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack,
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack),
+                                   evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: recv_pub)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
         self.assertTrue(r["ok"], r)
 
     def test_receiver_role_trusted_false_but_ok_unaffected(self):
@@ -382,7 +410,15 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-unknown"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
+        # N43: anchored so the NON-member (not the missing anchor) is the reason trust is False; ok still
+        # unaffected. OLD: False under an unpinned pack. NEW: False under an anchored pack, non-member reason.
+        # N45 (nachbesserung): OLD anchor trust_pack_expected_root_keys -> NEW anchor
+        # trust_pack_expected_genesis_digest = sha256(JCS(pack)). Reason: the root-key anchor alone no longer
+        # binds the predicate's content at outcome. (receiver_role_trusted is still False: the receiverRef names
+        # kid-unknown, not the member kid-recv — the behaviour under test is unchanged.)
+        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack,
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack))
         self.assertFalse(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)   # deliberately NOT gated — see docstring
 

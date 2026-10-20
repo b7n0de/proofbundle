@@ -20,7 +20,7 @@ import hashlib
 import hmac
 from typing import Any, List
 
-from .canonical import _bytes_von, _ganzzahl_von, _puffer_von
+from .canonical import _bytes_von, _ein_stand, _ganzzahl_von, _puffer_von
 
 __all__ = [
     "leaf_hash",
@@ -33,6 +33,7 @@ __all__ = [
 ]
 
 
+@_ein_stand
 def leaf_hash(data: bytes) -> bytes:
     """RFC 6962 leaf hash: SHA-256(0x00 || data).
 
@@ -41,6 +42,12 @@ def leaf_hash(data: bytes) -> bytes:
     hashed. A ``memoryview`` is read as the bytes it views, as the concatenation read it
     (`canonical._puffer_von`); any other type is refused with the TypeError the concatenation gave
     before."""
+    return _leaf_hash(data)
+
+
+def _leaf_hash(data: bytes) -> bytes:
+    """`leaf_hash` for the tree this module builds from its one reading: a call per leaf through the public name
+    asks the frame that calls it each time (`canonical._ein_stand`)."""
     roh = _puffer_von(data)
     if roh is None:
         raise TypeError(f"leaf data must be bytes, got {type(data).__name__}")
@@ -67,6 +74,7 @@ def _largest_power_of_two_less_than(n: int) -> int:
     return k
 
 
+@_ein_stand
 def merkle_tree_hash(leaves: List[bytes]) -> bytes:
     """Merkle Tree Hash (MTH) over a list of leaf *data* values (RFC 6962 2.1).
 
@@ -89,15 +97,21 @@ def merkle_tree_hash(leaves: List[bytes]) -> bytes:
     accepts the first root and refuses the second. Both roots are pinned as vectors in
     ``tests/test_merkle_zwei_lesarten_vektoren.py``.
     """
+    return _merkle_tree_hash(leaves)
+
+
+def _merkle_tree_hash(leaves: List[bytes]) -> bytes:
+    """`merkle_tree_hash` over its one reading: the recursion runs on the copy, not through the public name."""
     n = len(leaves)
     if n == 0:
         return hashlib.sha256(b"").digest()
     if n == 1:
-        return leaf_hash(leaves[0])
+        return _leaf_hash(leaves[0])
     k = _largest_power_of_two_less_than(n)
-    return _node_hash(merkle_tree_hash(leaves[:k]), merkle_tree_hash(leaves[k:]))
+    return _node_hash(_merkle_tree_hash(leaves[:k]), _merkle_tree_hash(leaves[k:]))
 
 
+@_ein_stand
 def inclusion_proof(leaves: List[bytes], index: int) -> List[bytes]:
     """Audit path for ``leaves[index]`` (siblings ordered leaf to root)."""
     n = len(leaves)
@@ -112,10 +126,11 @@ def _inclusion(leaves: List[bytes], m: int) -> List[bytes]:
         return []
     k = _largest_power_of_two_less_than(n)
     if m < k:
-        return _inclusion(leaves[:k], m) + [merkle_tree_hash(leaves[k:])]
-    return _inclusion(leaves[k:], m - k) + [merkle_tree_hash(leaves[:k])]
+        return _inclusion(leaves[:k], m) + [_merkle_tree_hash(leaves[k:])]
+    return _inclusion(leaves[k:], m - k) + [_merkle_tree_hash(leaves[:k])]
 
 
+@_ein_stand
 def consistency_proof(leaves: List[bytes], first: int) -> List[bytes]:
     """Consistency proof between tree sizes ``first`` and ``len(leaves)`` (RFC 6962 2.1.2)."""
     second = len(leaves)
@@ -127,13 +142,14 @@ def consistency_proof(leaves: List[bytes], first: int) -> List[bytes]:
 def _subproof(m: int, leaves: List[bytes], b: bool) -> List[bytes]:
     n = len(leaves)
     if m == n:
-        return [] if b else [merkle_tree_hash(leaves)]
+        return [] if b else [_merkle_tree_hash(leaves)]
     k = _largest_power_of_two_less_than(n)
     if m <= k:
-        return _subproof(m, leaves[:k], b) + [merkle_tree_hash(leaves[k:])]
-    return _subproof(m - k, leaves[k:], False) + [merkle_tree_hash(leaves[:k])]
+        return _subproof(m, leaves[:k], b) + [_merkle_tree_hash(leaves[k:])]
+    return _subproof(m - k, leaves[k:], False) + [_merkle_tree_hash(leaves[:k])]
 
 
+@_ein_stand
 def root_from_inclusion(
     leaf_index: int, tree_size: int, computed_leaf_hash: bytes, proof: List[bytes]
 ) -> bytes:
@@ -183,6 +199,7 @@ def _hashes_of(proof: Any, *, lesen: Any = _bytes_von, nur_bytes: bool = True) -
     return hashes
 
 
+@_ein_stand
 def verify_inclusion(
     leaf_data: bytes,
     leaf_index: int,
@@ -249,6 +266,7 @@ def verify_inclusion(
     return hmac.compare_digest(computed, expected_root)
 
 
+@_ein_stand
 def verify_consistency(
     first_size: int,
     second_size: int,
@@ -328,3 +346,38 @@ def verify_consistency(
         and hmac.compare_digest(fr, first_root)
         and hmac.compare_digest(sr, second_root)
     )
+
+
+def _inclusion_context_digest(hash_alg: Any, leaf_index: Any, tree_size: Any, proof: Any, root: Any) -> bytes | None:
+    """One digest over the whole inclusion context a passing inclusion check verified: the hash algorithm,
+    the leaf index, the tree size, every step of the audit path in order and the root (6.2.1 R6b-1/R6b-2).
+
+    A root alone does not name an inclusion: the same root holds under another leaf index or another audit
+    path, and a checkpoint for that root says nothing about either. A judge that takes a verification result
+    and a bundle separately compares this digest of the bundle's stated context with the one the result
+    recorded, so an old positive inclusion verdict is never adopted for a context that was not verified.
+
+    Every part is type-checked and length-prefixed, and the step count is bound, so two contexts that differ
+    in any part give different digests. Anything that is not a str, an int (not a bool), a list of bytes and
+    bytes gives None: there is then no context to compare, and the judge refuses. Never raises."""
+    if not isinstance(hash_alg, str) or not isinstance(root, (bytes, bytearray)):
+        return None
+    if type(leaf_index) is not int or type(tree_size) is not int:
+        return None
+    if not isinstance(proof, (list, tuple)) or not all(isinstance(p, (bytes, bytearray)) for p in proof):
+        return None
+    h = hashlib.sha256(b"proofbundle/inclusion-context/v1\x00")
+    alg = hash_alg.encode("utf-8", "surrogatepass")
+    h.update(len(alg).to_bytes(8, "big"))
+    h.update(alg)
+    for n in (leaf_index, tree_size):   # signed, minimal length: no digit limit, no overflow
+        b = n.to_bytes(n.bit_length() // 8 + 1, "big", signed=True)
+        h.update(len(b).to_bytes(8, "big"))
+        h.update(b)
+    h.update(len(proof).to_bytes(8, "big"))
+    for step in proof:
+        h.update(len(step).to_bytes(8, "big"))
+        h.update(bytes(step))
+    h.update(len(root).to_bytes(8, "big"))
+    h.update(bytes(root))
+    return h.digest()

@@ -65,24 +65,51 @@ def _erklaerter_kopf() -> str:
     return _quelle()["release_commit"]
 
 
+def _version() -> str:
+    """The version the source in this tree declares.
+
+    THE CASES READ IT RATHER THAN TYPING 6.1.0. Every source is bound to one version on purpose, so
+    the next release replaces this file and its reviewed body under `release_notes/`. Cases that
+    typed the version would then have to change in the same commit, and the commit that carries the
+    notes may change nothing outside `release_notes/` (`render_release.liefert_dasselbe_paket`).
+    What the cases assert stays the same: the declared version renders, another one is refused."""
+    return _quelle()["version"]
+
+
+def _marke() -> str:
+    """The heading only a body of the source's own form carries, so a case reads the form instead of
+    assuming it. The grouped form of 6.1.0 and 6.2.0 lists its pull requests under `## All changes`;
+    the two-level form of 6.2.1 opens with `## Highlights` and has no such list."""
+    return "## Highlights" if _quelle().get("form") == "zwei_ebenen" else "## All changes"
+
+
+def _gruppiert() -> dict:
+    """A source of the grouped form that shares nothing with a released one.
+
+    THE GROUP CASES MEASURED THE REAL SOURCE, and from 6.2.1 the real source has no groups. The rules
+    for groups stay in the renderer for every grouped source, so their cases measure one here, the
+    same synthetic source the cases without the golden body already use."""
+    return DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+
+
 class DieVersionsbindungIstKeineHoeflichkeit(unittest.TestCase):
     """A source carries statements measured for ONE tree. Reusing them is a false claim."""
 
     def test_fang_falsche_version_wird_abgewiesen(self):
-        r = _fahre("--version", "6.2.0")
+        r = _fahre("--version", _version() + ".9")
         self.assertEqual(r.returncode, 2)
         self.assertIn("refusing", r.stderr)
-        self.assertNotIn("## All changes", r.stdout, "nothing may be rendered on a refusal")
+        self.assertNotIn(_marke(), r.stdout, "nothing may be rendered on a refusal")
 
     def test_fang_fehlende_quelle_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0", "--quelle", "/nonexistent/source.json")
+        r = _fahre("--version", _version(), "--quelle", "/nonexistent/source.json")
         self.assertEqual(r.returncode, 2)
 
     def test_gegenrichtung_die_erklaerte_version_rendert(self):
         """WITHOUT THIS CASE a renderer that refuses everything would pass both catches above."""
-        r = _fahre("--version", "6.1.0")
+        r = _fahre("--version", _version())
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("## All changes", r.stdout)
+        self.assertIn(_marke(), r.stdout)
 
 
 class DieQuelleNANNTEDenBaumUndNichtsVerglichIhn(unittest.TestCase):
@@ -100,17 +127,17 @@ class DieQuelleNANNTEDenBaumUndNichtsVerglichIhn(unittest.TestCase):
     """
 
     def test_fang_ein_fremder_baum_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0", "--kopf", "0" * 40)
+        r = _fahre("--version", _version(), "--kopf", "0" * 40)
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("different tree than the artefacts", r.stderr)
         self.assertIn(_erklaerter_kopf()[:12], r.stderr, "the refusal must name the declared tree")
-        self.assertNotIn("## All changes", r.stdout, "nothing may be rendered on a refusal")
+        self.assertNotIn(_marke(), r.stdout, "nothing may be rendered on a refusal")
 
     def test_gegenrichtung_der_erklaerte_baum_rendert(self):
         """WITHOUT THIS a check that refuses every tree would pass the catch above."""
-        r = _fahre("--version", "6.1.0", "--kopf", _erklaerter_kopf())
+        r = _fahre("--version", _version(), "--kopf", _erklaerter_kopf())
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("## All changes", r.stdout)
+        self.assertIn(_marke(), r.stdout)
 
     def test_fang_eine_quelle_ohne_release_commit_kann_den_baum_nicht_nennen(self):
         d = _quelle()
@@ -136,7 +163,7 @@ class JederPullRequestGenauEinmal(unittest.TestCase):
     takes for the size of the release."""
 
     def test_fang_ein_pr_in_zwei_gruppen(self):
-        d = _quelle()
+        d = _gruppiert()
         doppelt = dict(d["gruppen"][0]["eintraege"][0])
         d["gruppen"][1]["eintraege"].append(doppelt)
         befunde = pruefe(d)
@@ -144,30 +171,53 @@ class JederPullRequestGenauEinmal(unittest.TestCase):
 
     def test_fang_ein_eintrag_ohne_originaltitel(self):
         """The short form must not be the only thing that survives."""
-        d = _quelle()
+        d = _gruppiert()
         d["gruppen"][0]["eintraege"][0]["originaltitel"] = ""
         self.assertTrue(any("originaltitel" in b for b in pruefe(d)))
 
     def test_fang_eine_fehlende_gruppe(self):
-        d = _quelle()
+        d = _gruppiert()
         weg = d["gruppen"].pop()
         self.assertTrue(any(weg["name"] in b for b in pruefe(d)))
 
     def test_fang_eine_unbekannte_gruppe(self):
         """An unknown group would be rendered and silently widen the release's shape."""
-        d = _quelle()
+        d = _gruppiert()
         d["gruppen"].append({"name": "Other", "eintraege": []})
         self.assertTrue(any("does not know" in b for b in pruefe(d)))
 
     def test_gegenrichtung_die_echte_quelle_hat_keine_befunde(self):
-        """WITHOUT THIS CASE a check that reports findings for everything would pass above."""
+        """WITHOUT THIS CASE a check that reports findings for everything would pass above. The
+        grouped source is the one the catches above plant their defects in; the real one is measured
+        as well, whatever its form."""
+        self.assertEqual(pruefe(_gruppiert()), [])
         self.assertEqual(pruefe(_quelle()), [])
 
-    def test_alle_achtundvierzig_genau_einmal(self):
+    def test_jeder_pull_request_genau_einmal_und_so_viele_wie_die_gepruefte_vorlage_nennt(self):
+        """The count comes from the reviewed body, not from a number typed here. The case said 48, the
+        count of 6.1.0; a typed count would have to change with the next source, in a commit that may
+        change nothing outside `release_notes/`. The reviewed body states its own count ("N pull
+        requests, grouped by area"), written by a human independently of this renderer."""
+        import re
         d = _quelle()
+        vorlage = REPO / "release_notes" / f"RELEASE_NOTES_v{_version()}.md"
+        if d.get("form") == "zwei_ebenen":
+            # THE SAME RULE IN THE OTHER FORM: the reviewed body states how many fixes it lists, and
+            # the source must carry exactly that many.
+            if not vorlage.is_file():
+                self.skipTest("NOT MEASURED: the reviewed body is not in the tree")
+            m = re.search(r"<summary>All (\d+) (?:fix(?:es)?|entr(?:y|ies)), one line each",
+                          vorlage.read_text(encoding="utf-8"))
+            self.assertIsNotNone(m, "the reviewed body names no count of fixes or entries")
+            self.assertEqual(len(_rr._zeilen_der_quelle(d)), int(m.group(1)))
+            return
         nummern = [e["nr"] for g in d["gruppen"] for e in g["eintraege"]]
-        self.assertEqual(len(nummern), 48)
-        self.assertEqual(len(set(nummern)), 48, "a pull request appears twice")
+        self.assertEqual(len(nummern), len(set(nummern)), "a pull request appears twice")
+        if not vorlage.is_file():
+            self.skipTest("NOT MEASURED: the reviewed body is not in the tree")
+        m = re.search(r"^(\d+) pull requests, grouped by area", vorlage.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(m, "the reviewed body names no count of pull requests")
+        self.assertEqual(len(nummern), int(m.group(1)))
 
 
 class DasTitelpraefixGruppiertNicht(unittest.TestCase):
@@ -184,6 +234,9 @@ class DasTitelpraefixGruppiertNicht(unittest.TestCase):
         import re
         from collections import defaultdict
         d = _quelle()
+        if d.get("form") == "zwei_ebenen":
+            self.skipTest("NOT APPLICABLE: the source in this tree is of the two-level form, which "
+                          "lists fixes and groups nothing; the spread was measured on 6.1.0 and 6.2.0")
         nach_praefix = defaultdict(set)
         for g in d["gruppen"]:
             for e in g["eintraege"]:
@@ -200,14 +253,16 @@ class DasTitelpraefixGruppiertNicht(unittest.TestCase):
     def test_gegenrichtung_die_gruppen_sind_nicht_alle_gleich(self):
         """WITHOUT THIS CASE the assertion above would also hold for a source with ONE group."""
         d = _quelle()
+        if d.get("form") == "zwei_ebenen":
+            self.skipTest("NOT APPLICABLE: the source in this tree is of the two-level form")
         self.assertGreater(len({g["name"] for g in d["gruppen"]}), 1)
 
 
 class DerLaufIstDeterministisch(unittest.TestCase):
 
     def test_zwei_laeufe_sind_bitgleich(self):
-        a = rendere(lade(QUELLE, "6.1.0"))
-        b = rendere(lade(QUELLE, "6.1.0"))
+        a = rendere(lade(QUELLE, _version()))
+        b = rendere(lade(QUELLE, _version()))
         self.assertEqual(a, b)
 
 
@@ -221,10 +276,10 @@ class DasGerenderteIstDerVomOwnerGEPRUEFTEBody(unittest.TestCase):
     """
 
     def test_bytegleich_mit_der_gepruefte_vorlage(self):
-        vorlage = REPO / "release_notes" / "RELEASE_NOTES_v6.1.0.md"
+        vorlage = REPO / "release_notes" / f"RELEASE_NOTES_v{_version()}.md"
         if not vorlage.is_file():
             self.skipTest("the reviewed body is not in the tree")
-        self.assertEqual(rendere(lade(QUELLE, "6.1.0")),
+        self.assertEqual(rendere(lade(QUELLE, _version())),
                          vorlage.read_text(encoding="utf-8"),
                          "the render no longer reproduces the reviewed body")
 
@@ -298,13 +353,13 @@ class DieVerweigerungIstDASVerhaltenUndKeinUnfall(unittest.TestCase):
     written for it must not be published under the statements of another tree."""
 
     def test_ein_rc_tag_ohne_eigene_quelle_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0-rc1")
+        r = _fahre("--version", _version() + "-rc1")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("6.1.0-rc1", r.stderr)
+        self.assertIn(_version() + "-rc1", r.stderr)
 
     def test_ein_versehentlich_mitgeschlepptes_v_wird_abgewiesen(self):
         """`${GITHUB_REF_NAME#v}` strips ONE leading v; a source that kept it would not match."""
-        r = _fahre("--version", "v6.1.0")
+        r = _fahre("--version", "v" + _version())
         self.assertEqual(r.returncode, 2)
 
 
@@ -316,7 +371,7 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
     """
 
     def test_fang_eine_quelle_mit_nur_einer_gruppe_faellt(self):
-        d = _quelle()
+        d = _gruppiert()
         d["gruppen"] = d["gruppen"][:1]
         befunde = pruefe(d)
         self.assertTrue(befunde, "a source reduced to one group must not pass")
@@ -324,7 +379,7 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
 
     def test_die_reihenfolge_kommt_aus_der_quelle_nicht_aus_der_konstanten(self):
         """Membership is decided by the constant, ORDER by the source."""
-        d = _quelle()
+        d = _gruppiert()
         d["gruppen"] = list(reversed(d["gruppen"]))
         self.assertEqual(pruefe(d), [], "reordering is not a structural finding")
         text = rendere(d)
@@ -343,7 +398,7 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
         note claims to cover. The shape was already correct one level down, where pull-request numbers
         are COUNTED rather than tested for membership; this is that rule at the group level.
         """
-        d = _quelle()
+        d = _gruppiert()
         zweite = dict(d["gruppen"][0])
         zweite["eintraege"] = []
         d["gruppen"] = list(d["gruppen"]) + [zweite]
@@ -356,5 +411,627 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
         """THE COUNTER-DIRECTION for the line above. A duplicate check that fires on the real
         source would refuse every release, and a case that only ever sees the planted defect cannot
         tell a working check from one that reports everything."""
+        self.assertEqual(pruefe(_gruppiert()), [],
+                         "an unchanged grouped source must still pass, or the duplicate rule is too wide")
         self.assertEqual(pruefe(_quelle()), [],
                          "the real source must still pass, or the duplicate rule is too wide")
+
+
+def _baum_mit_quelle(wurzel: Path, schreib_fremdes: bool = False, eltern_zurueck: int = 1) -> Path:
+    """A throwaway repository: the renderer as it is, a base commit X, then the commit S that carries a
+    source naming X (or an older commit, `eltern_zurueck` steps back). With `schreib_fremdes` S also
+    changes a file outside `release_notes/`. Returns the root; HEAD is S."""
+    import os
+    import shutil
+    (wurzel / "scripts").mkdir(parents=True)
+    (wurzel / "release_notes").mkdir()
+    shutil.copy2(SKRIPT, wurzel / "scripts" / "render_release.py")
+    (wurzel / "code.txt").write_text("the tree the notes describe\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(wurzel), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *a], check=True, capture_output=True,
+                              text=True, env=env, timeout=60).stdout.strip()
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    for i in range(eltern_zurueck - 1):
+        (wurzel / "code.txt").write_text(f"a later change {i}\n", encoding="utf-8")
+        git("commit", "-qam", f"later {i}")
+    beschrieben = git("rev-parse", f"HEAD~{eltern_zurueck - 1}")
+    quelle = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+    quelle["release_commit"] = beschrieben
+    (wurzel / "release_notes" / "release-source.json").write_text(json.dumps(quelle, indent=2),
+                                                                  encoding="utf-8")
+    if schreib_fremdes:
+        (wurzel / "code.txt").write_text("changed in the carrier commit\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "the source for 9.9.9")
+    return wurzel
+
+
+def _render_im(wurzel: Path) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(wurzel / "scripts" / "render_release.py"),
+                           "--version", "9.9.9", "--aus", str(wurzel / "notes.md")],
+                          capture_output=True, text=True, timeout=60, cwd=str(wurzel))
+
+
+class DerGetaggteCommitKannSichNichtSelbstNennen(unittest.TestCase):
+    """THE SOURCE CANNOT NAME THE COMMIT THAT CARRIES IT, and the release workflow asked it to.
+
+    `release.yml` renders the body in the checkout of the tag, and the render refused unless the
+    source's `release_commit` was that checkout's HEAD. The source is a file of the tagged commit, and
+    a commit cannot hold its own id: measured on 2026-09-28 in a throwaway repository, three times
+    writing HEAD into the source and committing gave three new heads and three refusals, exit 2. So
+    no release after 6.1.0 could pass that step. The binding stays, and it now reads what it can
+    mean: the tagged commit is the one that carries the notes, directly on top of the tree they
+    describe, and changes nothing else. The house draws the same line for the tree digest, where
+    `MUTABLE_EVIDENCE_RELS` keeps the evidence out of the tree it binds.
+    """
+
+    def test_RED_der_traeger_direkt_ueber_dem_beschriebenen_baum_rendert(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_fang_ein_traeger_der_auch_code_aendert_wird_abgewiesen(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d), schreib_fremdes=True))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("outside release_notes/", r.stderr)
+
+    def test_fang_eine_quelle_die_einen_aelteren_baum_nennt_wird_abgewiesen(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d), eltern_zurueck=2))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("different tree than the artefacts", r.stderr)
+
+
+class EinUngemessenerKopfIstKeinPassenderKopf(unittest.TestCase):
+    """THE DOCSTRING SAID IT AND THE CLI DID NOT DO IT. `kopf_des_baums` returns None when the tree
+    cannot be measured, "and the caller treats it as a finding". The CLI passed that None to `pruefe`,
+    which checks the binding only when a head is given, so a render outside a git checkout skipped
+    the binding and exited 0: measured on 2026-09-28 with the source of 6.1.0, 48 pull requests
+    rendered. A head that cannot be read is not a head that matches."""
+
+    def test_RED_ohne_git_verweigert_der_render(self):
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = Path(d)
+            (w / "scripts").mkdir()
+            (w / "release_notes").mkdir()
+            shutil.copy2(SKRIPT, w / "scripts" / "render_release.py")
+            shutil.copy2(QUELLE, w / "release_notes" / "release-source.json")
+            r = subprocess.run([sys.executable, str(w / "scripts" / "render_release.py"),
+                                "--version", _version(), "--aus", str(w / "n.md")],
+                               capture_output=True, text=True, timeout=60, cwd=str(w))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("cannot be measured", r.stderr)
+
+
+class DieNotizFolgtDerVersionUndNichtDer610(unittest.TestCase):
+    """THE KNOWN-LIMITATIONS LINK WAS 6.1.0's. `rendere` wrote `RESTRISIKO_610.md` into every body, so
+    a 6.2.0 source would have published a link to the residual-risk record of the release before it.
+    The record is named after its version, `RESTRISIKO_<digits of the version>.md`, and the link is
+    now derived from the source's version. The golden 6.1.0 body stays byte for byte (the case above)."""
+
+    def test_RED_eine_andere_version_verlinkt_ihr_eigenes_restrisiko(self):
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        text = rendere(d)
+        self.assertIn("/RESTRISIKO_999.md)", text)
+        self.assertNotIn("RESTRISIKO_610", text)
+
+
+class DerSicherheitsabschnittIstOptionalUndVollstaendig(unittest.TestCase):
+    """OWNER DECISION OF 2026-09-28 (Z296, option A): the 6.2.0 notes name, for each finding in the
+    released versions, the affected versions, the effect and what fixes it. The source carries that as
+    `sicherheit`; a source without it renders as before, so 6.1.0 does not move. A section with an
+    incomplete row is refused, because a finding without its affected versions tells a user nothing
+    they can act on."""
+
+    def _mit_sicherheit(self) -> dict:
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        d["sicherheit"] = {
+            "titel": "Security fixes for 9.9.8",
+            "einleitung": "Measured on the released tree. **Upgrade to 9.9.9.**",
+            "zeilen": [{"befund": "A thing that verified", "betroffen": "9.9.8",
+                        "wirkung": "It answered ok.", "behoben": "[#1](https://example.test/pull/1)"}],
+            "schluss": "The measurements are in the record."}
+        return d
+
+    def test_RED_der_abschnitt_steht_vor_what_changed(self):
+        text = rendere(self._mit_sicherheit())
+        self.assertIn("## Security fixes for 9.9.8", text)
+        self.assertIn("| Finding | Affected | Effect | Fixed by |", text)
+        self.assertIn("| **A thing that verified** | 9.9.8 | It answered ok. | "
+                      "[#1](https://example.test/pull/1) |", text)
+        self.assertLess(text.index("## Security fixes"), text.index("## What changed"))
+        self.assertEqual(pruefe(self._mit_sicherheit()), [])
+
+    def test_fang_eine_zeile_ohne_betroffene_versionen_wird_abgewiesen(self):
+        d = self._mit_sicherheit()
+        d["sicherheit"]["zeilen"][0]["betroffen"] = ""
+        self.assertTrue(any("betroffen" in b for b in pruefe(d)), pruefe(d))
+
+    def test_ohne_abschnitt_rendert_nichts_davon(self):
+        text = rendere(DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None))
+        self.assertNotIn("## Security fixes", text)
+
+
+class DieKetteDes610ReleaseMussRendern(unittest.TestCase):
+    """THE ONE-CARRIER RULE WAS TOO NARROW, measured against the release it would have to serve.
+
+    `v6.1.0` points at `dcac5aee`, a MERGE commit (pull request 244, the receipt ceremony) whose first
+    parent is the frozen head `618f4b4b`; between them lie only files under `audit_artifacts/`. A
+    rule that accepts one single-parent carrier changing only `release_notes/` refuses that shape.
+    What the binding means is that the tagged tree ships the package the notes describe: the
+    described commit is an ancestor of HEAD, and everything between them lies under paths the package
+    does not ship (`release_notes/`, which MANIFEST.in never lists, and `audit_artifacts/`, which it
+    prunes)."""
+
+    def test_RED_ein_merge_mit_belegen_ueber_dem_beschriebenen_baum_rendert(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_mit_quelle(Path(d))
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+            def git(*a: str) -> str:
+                return subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c",
+                                       "user.email=t@t", "-c", "commit.gpgsign=false", *a],
+                                      check=True, capture_output=True, text=True, env=env,
+                                      timeout=60).stdout.strip()
+
+            git("checkout", "-q", "-b", "beleg", "HEAD")
+            (w / "audit_artifacts").mkdir()
+            (w / "audit_artifacts" / "pre_tag_receipt.json").write_text("{}\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-qm", "receipt")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "merge the receipt", "beleg")
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_RED_zwei_traeger_nacheinander_rendern(self):
+        """The notes, then the evidence: two single-parent commits over the described tree."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_mit_quelle(Path(d))
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            (w / "audit_artifacts").mkdir()
+            (w / "audit_artifacts" / "soak.json").write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "commit", "-qam", "x", "--allow-empty"],
+                           check=True, capture_output=True, env=env, timeout=60)
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "add", "-A"], check=True, env=env)
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "evidence"],
+                           check=True, capture_output=True, env=env, timeout=60)
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+def _zwei_ebenen() -> dict:
+    """A two-level source that shares nothing with a released one."""
+    return {
+        "schema": "b7n0de.release_source.v1", "form": "zwei_ebenen", "version": "9.9.9",
+        "vorheriger_tag": "v9.9.8", "tag": "v9.9.9", "release_commit": "0" * 40,
+        "kopfsatz": "**A synthetic update for everyone on 9.9.8.** Two checks refuse more.",
+        "highlights": [{"kern": "One.", "text": "The first thing is safer."},
+                       {"kern": "Two.", "text": "The second thing is safer."},
+                       {"kern": "Three.", "text": "The third thing is safer."}],
+        "selbst_pruefen": ("How to check it is in "
+                           "[Verifying](RELEASE.md#verifying-a-published-release-anyone)."),
+        "nicht_bewiesen": "A valid signature does not make a reported result true.",
+        "fixes": ["**A first input is refused.** `first` refuses it.",
+                  "**A second input is refused.** `second` refuses it."],
+        "restrisiko": "RESTRISIKO_998.md",
+        "weitere_links": [{"text": "example.test", "url": "https://example.test"}],
+        "schlusssatz": "Created for a test.",
+    }
+
+
+class DieZweiEbenenForm(unittest.TestCase):
+    """OWNER DECISION OF 2026-10-09: from 6.2.1 the release page reads in two levels. On top one
+    sentence on what the release brings, the install line, three or four highlights, how to verify it
+    and what a receipt does not prove; further down every fix as its CHANGELOG line; the links and
+    a closing sentence at the end. The page names no internal process."""
+
+    def test_RED_die_seite_steht_in_dieser_reihenfolge(self):
+        d = _zwei_ebenen()
+        self.assertEqual(pruefe(d), [])
+        text = rendere(d)
+        self.assertTrue(text.startswith("**A synthetic update for everyone on 9.9.8.**"), text[:80])
+        orte = [text.index(s) for s in (
+            "python -m pip install --upgrade proofbundle==9.9.9", "## Highlights",
+            "- **One.** The first thing is safer.", "## Verify this release yourself",
+            "## What a receipt still does not prove", "## Details",
+            "<summary>All 2 fixes, one line each, as in the CHANGELOG</summary>",
+            "- **A first input is refused.** `first` refuses it.", "[Full changelog]",
+            "[example.test](https://example.test)", "Created for a test.")]
+        self.assertEqual(orte, sorted(orte), "the sections are out of order")
+        self.assertTrue(text.endswith("\n\nCreated for a test.\n"), text[-60:])
+        self.assertNotIn("## All changes", text, "the two-level page has no list of pull requests")
+        self.assertEqual(text.count("<details>"), 1)
+        self.assertEqual(text.count("</details>"), 1)
+
+    def test_RED_die_installzeile_folgt_der_version_der_quelle(self):
+        """The line is built from the version, so the source carries no pin of its own: a pin in the
+        source would be one more file the version gate's sweep has to hold in step."""
+        d = _zwei_ebenen()
+        d["version"] = "9.9.10"
+        self.assertIn("proofbundle==9.9.10\n", rendere(d))
+
+    def test_RED_ein_relativer_link_wird_an_den_beschriebenen_commit_gebunden(self):
+        """A relative link on a release page resolves against the page, not the repository."""
+        text = rendere(_zwei_ebenen())
+        basis = "](https://github.com/b7n0de/proofbundle/blob/" + "0" * 40
+        self.assertIn(basis + "/RELEASE.md#verifying-a-published-release-anyone)", text)
+        self.assertIn(basis + "/RESTRISIKO_998.md)", text)
+        self.assertNotIn("](RELEASE.md", text)
+
+    def test_einzahl_und_mehrzahl_folgen_der_zahl_der_fixes(self):
+        d = _zwei_ebenen()
+        d["fixes"] = d["fixes"][:1]
+        self.assertIn("<summary>All 1 fix, one line each", rendere(d))
+
+    def test_fang_zwei_oder_fuenf_highlights(self):
+        for n in (2, 5):
+            with self.subTest(highlights=n):
+                d = _zwei_ebenen()
+                d["highlights"] = [{"kern": f"K{i}.", "text": "T."} for i in range(n)]
+                self.assertTrue(any("three or four highlights" in b for b in pruefe(d)), pruefe(d))
+
+    def test_gegenrichtung_vier_highlights_bestehen(self):
+        d = _zwei_ebenen()
+        d["highlights"].append({"kern": "Four.", "text": "The fourth thing is safer."})
+        self.assertEqual(pruefe(d), [])
+
+    def test_fang_ein_fix_ohne_fetten_satz(self):
+        d = _zwei_ebenen()
+        d["fixes"][0] = "`first` refuses it."
+        self.assertIn("fix 1 is not one CHANGELOG line that opens with its bold sentence", pruefe(d))
+
+    def test_fang_ohne_schlusssatz_oder_restrisiko(self):
+        for feld in ("schlusssatz", "restrisiko"):
+            with self.subTest(feld=feld):
+                d = _zwei_ebenen()
+                d.pop(feld)
+                self.assertIn(f"the two-level source needs a non-empty {feld}", pruefe(d))
+
+    def test_fang_ein_feld_der_gruppierten_form_fiele_still_weg(self):
+        """A reviewed text the form does not render would be dropped with nothing refusing it."""
+        d = _zwei_ebenen()
+        d["vor_dem_upgrade"] = [{"titel": "Thing.", "text": "Some consequence."}]
+        befunde = pruefe(d)
+        self.assertTrue(any("vor_dem_upgrade" in b for b in befunde), befunde)
+
+    def test_fang_eine_unbekannte_form(self):
+        d = _zwei_ebenen()
+        d["form"] = "drei_ebenen"
+        befunde = pruefe(d)
+        self.assertEqual(len(befunde), 1, befunde)
+        self.assertIn("drei_ebenen", befunde[0])
+
+    def test_fang_ein_interner_ablauf_auf_der_seite(self):
+        for marke in ("order Z309", "card OA-0123456789", "a Codex finding", "finding R6b-1",
+                      "the fifth review round", "a class search"):
+            with self.subTest(marke=marke):
+                d = _zwei_ebenen()
+                d["highlights"][1]["text"] = f"Found by {marke}."
+                self.assertTrue(any("the page names" in b for b in pruefe(d)), (marke, pruefe(d)))
+
+    def test_gegenrichtung_fachwoerter_sind_kein_interner_ablauf(self):
+        """WITHOUT THIS CASE a rule that refused every page would pass the catch above."""
+        d = _zwei_ebenen()
+        d["highlights"][1]["text"] = ("Ed25519 and ML-DSA keys, RFC 7515 section 4.1.11, SHA256SUMS, "
+                                      "a review of the receipt, and SLSA level 3 stay as they are.")
+        self.assertEqual(pruefe(d), [])
+
+
+_CHANGELOG_999 = ("# Changelog\n\n## [9.9.9] - 2026-10-09\n\n### Fixed\n\n"
+                  "- **A first input is refused.** `first` refuses it.\n"
+                  "- **A second input is refused.** `second` refuses it.\n\n## [9.9.8] - 2026-10-01\n")
+_RELEASE_MD = "# Release\n\n## Verifying a published release (anyone)\n\nSteps.\n"
+
+
+def _baum_zwei_ebenen(wurzel: Path, ohne: str | None = None, ersetze: dict | None = None,
+                      quelle: dict | None = None) -> Path:
+    """A throwaway repository whose described commit carries the files a two-level page links,
+    except `ohne`, with the content `ersetze` gives for a path; HEAD carries the source on top."""
+    import os
+    import shutil
+    (wurzel / "scripts").mkdir(parents=True)
+    (wurzel / "release_notes").mkdir()
+    (wurzel / "docs" / "release_scope").mkdir(parents=True)
+    shutil.copy2(SKRIPT, wurzel / "scripts" / "render_release.py")
+    dateien = {"CHANGELOG.md": _CHANGELOG_999, "RESTRISIKO_998.md": "known limitations\n",
+               "docs/release_scope/9.9.9.md": "scope\n", "RELEASE.md": _RELEASE_MD, **(ersetze or {})}
+    for rel, inhalt in dateien.items():
+        if rel != ohne:
+            (wurzel / rel).write_text(inhalt, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(wurzel), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *a], check=True, capture_output=True,
+                              text=True, env=env, timeout=60).stdout.strip()
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    quelle = dict(quelle or _zwei_ebenen())
+    quelle["release_commit"] = git("rev-parse", "HEAD")
+    (wurzel / "release_notes" / "release-source.json").write_text(json.dumps(quelle, indent=2),
+                                                                  encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "the source for 9.9.9")
+    return wurzel
+
+
+class JedeVerlinkteDateiStehtImBeschriebenenBaum(unittest.TestCase):
+    """A LINK TO A FILE THE TREE LACKS IS A PROMISE NOBODY CHECKED. The grouped form linked
+    `RESTRISIKO_610.md` from every later body until a reader noticed; the two-level page checks every
+    path and anchor it links in the commit it describes, and that its fixes are the CHANGELOG lines."""
+
+    def test_RED_eine_fehlende_verlinkte_datei_verweigert_den_render(self):
+        import tempfile
+        for ohne in ("RESTRISIKO_998.md", "docs/release_scope/9.9.9.md", "RELEASE.md"):
+            with self.subTest(ohne=ohne), tempfile.TemporaryDirectory() as d:
+                r = _render_im(_baum_zwei_ebenen(Path(d), ohne=ohne))
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn(f"the page links {ohne}", r.stderr)
+
+    def test_RED_ein_anker_ohne_ueberschrift_verweigert_den_render(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d), ersetze={
+                "RELEASE.md": "# Release\n\n## Verifying a published release\n\nSteps.\n"})
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("no heading with that anchor", r.stderr)
+
+    def test_RED_fixes_die_nicht_die_changelog_zeilen_sind_verweigern_den_render(self):
+        import tempfile
+        for name, inhalt in (
+                ("andere Reihenfolge", _CHANGELOG_999.replace(
+                    "- **A first input is refused.** `first` refuses it.\n"
+                    "- **A second input is refused.** `second` refuses it.\n",
+                    "- **A second input is refused.** `second` refuses it.\n"
+                    "- **A first input is refused.** `first` refuses it.\n")),
+                ("ein Wort anders", _CHANGELOG_999.replace("`first` refuses it", "`first` rejects it")),
+                ("kein Abschnitt", "# Changelog\n\n## [9.9.8] - 2026-10-01\n")):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                r = _render_im(_baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": inhalt}))
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("CHANGELOG.md at", r.stderr)
+
+    def test_gegenrichtung_mit_allen_dateien_rendert(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d))
+            r = _render_im(w)
+            text = (w / "notes.md").read_text(encoding="utf-8") if r.returncode == 0 else ""
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("2 fixes", r.stdout)
+        self.assertIn("## Highlights", text)
+
+
+def _zwei_ebenen_abschnitte() -> dict:
+    """A two-level source of a release that adds, changes and fixes; its lines carry no bold lead."""
+    d = _zwei_ebenen()
+    d.pop("fixes")
+    d["abschnitte"] = [
+        {"titel": "Added", "zeilen": ["Add a first thing.", "Add a second thing with `code`."]},
+        {"titel": "Changed", "zeilen": ["A default now names its key."]},
+        {"titel": "Fixed", "zeilen": ["A plugin skips what it did not compute."]},
+    ]
+    return d
+
+
+_CHANGELOG_999_ABSCHNITTE = ("# Changelog\n\n## [9.9.9] - 2026-10-14\n\nOne opening paragraph.\n\n"
+                             "### Added\n\n- Add a first thing.\n- Add a second thing with `code`.\n\n"
+                             "### Changed\n\n- A default now names its key.\n\n"
+                             "### Fixed\n\n- A plugin skips what it did not compute.\n\n"
+                             "## [9.9.8] - 2026-10-01\n")
+
+
+class DieZweiEbenenFormMitAbschnitten(unittest.TestCase):
+    """OWNER DECISION OF 2026-10-12 for 6.3.0: a release that adds and changes as well as fixes lists
+    every entry as its CHANGELOG line under the CHANGELOG's own sections. The fixes form of 6.2.1 showed
+    only `### Fixed` and asked each line for a bold lead; the reviewed entries of 6.3.0 have none, and
+    nine of its ten entries are not fixes."""
+
+    def test_RED_die_abschnitte_stehen_in_ihrer_reihenfolge_unter_den_details(self):
+        d = _zwei_ebenen_abschnitte()
+        self.assertEqual(pruefe(d), [])
+        text = rendere(d)
+        orte = [text.index(s) for s in (
+            "## Highlights", "## Details", "<summary>All 4 entries, one line each, as in the CHANGELOG</summary>",
+            "### Added", "- Add a first thing.", "- Add a second thing with `code`.", "### Changed",
+            "- A default now names its key.", "### Fixed", "- A plugin skips what it did not compute.",
+            "</details>", "[Full changelog]")]
+        self.assertEqual(orte, sorted(orte), "the sections are out of order")
+        self.assertEqual(text.count("<details>"), 1)
+        self.assertNotIn("fixes, one line each", text)
+
+    def test_einzahl_und_mehrzahl_folgen_der_zahl_der_eintraege(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"] = d["abschnitte"][2:]
+        self.assertIn("<summary>All 1 entry, one line each", rendere(d))
+
+    def test_fang_fixes_und_abschnitte_zugleich(self):
+        d = _zwei_ebenen_abschnitte()
+        d["fixes"] = ["**A fix.** It is fixed."]
+        self.assertIn("the two-level source lists fixes and abschnitte; it lists exactly one of them", pruefe(d))
+
+    def test_fang_ein_unbekannter_abschnitt(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"][1]["titel"] = "CI"
+        self.assertTrue(any("abschnitt 2 is titled 'CI'" in b for b in pruefe(d)), pruefe(d))
+
+    def test_fang_ein_abschnitt_zweimal(self):
+        d = _zwei_ebenen_abschnitte()
+        d["abschnitte"].append({"titel": "Added", "zeilen": ["Add a third thing."]})
+        self.assertIn("abschnitt(e) declared more than once: Added", pruefe(d))
+
+    def test_fang_ein_leerer_abschnitt_und_eine_zeile_ueber_zwei_zeilen(self):
+        for zeilen in ([], ["one line\nand another"]):
+            with self.subTest(zeilen=zeilen):
+                d = _zwei_ebenen_abschnitte()
+                d["abschnitte"][0]["zeilen"] = zeilen
+                self.assertIn("abschnitt Added is not a list of one or more CHANGELOG lines", pruefe(d))
+
+    def test_gegenrichtung_die_fixes_form_bleibt_wie_sie_war(self):
+        """WITHOUT THIS a change that broke the form of 6.2.1 would pass the cases above."""
+        d = _zwei_ebenen()
+        self.assertEqual(pruefe(d), [])
+        self.assertIn("<summary>All 2 fixes, one line each, as in the CHANGELOG</summary>", rendere(d))
+        self.assertNotIn("### ", rendere(d))
+
+
+class JederAbschnittIstDerDesChangelog(unittest.TestCase):
+    """The page must not say one thing and the CHANGELOG another, now per section: every heading of the
+    version's CHANGELOG section, in its order, with its lines byte for byte."""
+
+    def test_RED_die_abschnitte_des_changelog_rendern(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": _CHANGELOG_999_ABSCHNITTE},
+                                  quelle=_zwei_ebenen_abschnitte())
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("4 entries", r.stdout)
+
+    def test_fang_ein_weggelassener_abschnitt_ein_anderes_wort_eine_andere_reihenfolge(self):
+        import tempfile
+        weg = _zwei_ebenen_abschnitte()
+        weg["abschnitte"] = [a for a in weg["abschnitte"] if a["titel"] != "Changed"]
+        wort = _zwei_ebenen_abschnitte()
+        wort["abschnitte"][0]["zeilen"][0] = "Add a first item."
+        folge = _zwei_ebenen_abschnitte()
+        folge["abschnitte"] = list(reversed(folge["abschnitte"]))
+        for name, quelle in (("Abschnitt weg", weg), ("ein Wort anders", wort), ("Reihenfolge", folge)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": _CHANGELOG_999_ABSCHNITTE},
+                                      quelle=quelle)
+                r = _render_im(w)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("are not the sections of 9.9.9 in CHANGELOG.md at", r.stderr)
+
+    def test_fang_ohne_versionsabschnitt_im_changelog(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_zwei_ebenen(Path(d), ersetze={"CHANGELOG.md": "# Changelog\n\n## [9.9.8] - 2026-10-01\n"},
+                                  quelle=_zwei_ebenen_abschnitte())
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("has no section `## [9.9.9]`", r.stderr)
+
+
+class ZweiRisikoberichteUndDieReferenzmessung(unittest.TestCase):
+    """OWNER DECISION OF 2026-10-13 on the text review of 6.3.0. The page links the residual-risk record of
+    this release and, as a link of its own, the earlier one, so the findings of this release are not left
+    out behind the older record. And it states the two values of the budget measurement on the reference
+    machine that RELEASE.md asks the release notes to carry, with the record they come from."""
+
+    def _quelle(self) -> dict:
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = "RESTRISIKO_997.md"
+        d["referenzmessung"] = ("Measured on the reference machine. The [record](budget_record.json) "
+                                "holds every axis.")
+        return d
+
+    def test_RED_beide_berichte_stehen_mit_ihrem_umfang_in_der_linkzeile(self):
+        basis = "https://github.com/b7n0de/proofbundle/blob/" + "0" * 40
+        self.assertEqual(pruefe(self._quelle()), [])
+        self.assertIn(f"[Known limitations for 9.9.9]({basis}/RESTRISIKO_998.md) · "
+                      f"[Earlier risk record]({basis}/RESTRISIKO_997.md) · [Release scope]",
+                      rendere(self._quelle()))
+
+    def test_RED_die_referenzmessung_steht_vor_den_details_und_ihr_link_ist_gebunden(self):
+        text = rendere(self._quelle())
+        orte = [text.index(s) for s in (
+            "## What a receipt still does not prove", "## Measured on the reference machine",
+            "[record](https://github.com/b7n0de/proofbundle/blob/" + "0" * 40 + "/budget_record.json)",
+            "## Details")]
+        self.assertEqual(orte, sorted(orte), "the sections are out of order")
+        self.assertNotIn("](budget_record.json)", text)
+
+    def test_gegenrichtung_ohne_die_felder_bleibt_die_seite_wie_sie_war(self):
+        """WITHOUT THIS a change that altered every page would pass the cases above."""
+        text = rendere(_zwei_ebenen())
+        self.assertIn("[Known limitations](https://github.com/b7n0de/proofbundle/blob/", text)
+        self.assertNotIn("Earlier risk record", text)
+        self.assertNotIn("## Measured on the reference machine", text)
+
+    def test_fang_ein_leeres_optionales_feld(self):
+        for feld in ("frueherer_risikobericht", "referenzmessung"):
+            with self.subTest(feld=feld):
+                d = self._quelle()
+                d[feld] = " "
+                self.assertIn(f"the two-level source carries {feld}, and it is empty", pruefe(d))
+
+    def test_RED_ein_fehlender_frueherer_bericht_oder_messbeleg_verweigert_den_render(self):
+        import tempfile
+        dateien = {"RESTRISIKO_997.md": "earlier\n", "budget_record.json": "{}\n"}
+        for ohne in dateien:
+            with self.subTest(ohne=ohne), tempfile.TemporaryDirectory() as d:
+                r = _render_im(_baum_zwei_ebenen(Path(d), ohne=ohne, ersetze=dateien, quelle=self._quelle()))
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn(f"the page links {ohne}", r.stderr)
+
+    def test_gegenrichtung_mit_beiden_dateien_rendert(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_zwei_ebenen(Path(d), quelle=self._quelle(), ersetze={
+                "RESTRISIKO_997.md": "earlier\n", "budget_record.json": "{}\n"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class DieNeuenFelderFallenNirgendsStillWeg(unittest.TestCase):
+    """Adversarial reading of 2026-10-13 on the two optional fields: a grouped source dropped them without a
+    finding, the earlier record took any value as a link target, and a value that was no string ended in a
+    traceback instead of a refusal."""
+
+    def test_fang_eine_gruppierte_quelle_mit_einem_feld_der_zweiten_form(self):
+        for feld in ("referenzmessung", "frueherer_risikobericht"):
+            with self.subTest(feld=feld):
+                d = _gruppiert()
+                d[feld] = "RESTRISIKO_997.md"
+                self.assertTrue(any("only the two-level form renders" in b and feld in b for b in pruefe(d)),
+                                pruefe(d))
+
+    def test_fang_ein_frueherer_bericht_der_kein_anderer_risikobericht_ist(self):
+        for wert in ("docs", "CHANGELOG.md", "RESTRISIKO_998.md", "../RESTRISIKO_997.md", 5, True, ["x"]):
+            with self.subTest(wert=wert):
+                d = _zwei_ebenen()
+                d["frueherer_risikobericht"] = wert
+                self.assertTrue(any("frueherer_risikobericht" in b for b in pruefe(d)), pruefe(d))
+
+    def test_RED_ein_nicht_text_wird_verweigert_und_endet_nicht_im_traceback(self):
+        import tempfile
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = 5
+        with tempfile.TemporaryDirectory() as w:
+            r = _render_im(_baum_zwei_ebenen(Path(w), quelle=d))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("frueherer_risikobericht", r.stderr)
+
+    def test_gegenrichtung_ein_anderer_risikobericht_besteht(self):
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = "RESTRISIKO_997.md"
+        self.assertEqual(pruefe(d), [])

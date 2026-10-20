@@ -8,7 +8,1555 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Added
+
+- Ten conformance vectors of the new kind `content_root_vector` under `conformance/action_chain_content_roots/`, run by `conformance/run_conformance.py` like every other case and described in `conformance/vector_schema.json`. They pin the content root of ADR 0002 as data: canonical bytes and roots for key order, unicode, number forms, nested arrays, an unknown top-level field and the UTF-16 code-unit order of RFC 8785 section 3.2.3; a decision statement that binds its evidence statement by root; the declared-algorithm gate, which refuses a sort-keys body declared as `jcs-sha256-v1` and accepts it as the named legacy algorithm; and two signature blocks over one payload that give one root. The Rust verifier `pb_verify_rs` recomputes the eight pinned roots through its `content-root` subcommand in `tools/pb_verify_rs/crosscheck.py`; the two binding vectors pin a verdict of the Python binding and are named there as not run. `CONTENT_ROOT_CONTRACT.md` states the contract, cites ADR 0002 and lists, per predicate path and per digest of another kind, where each stands on main.
+- Add `tools/scitt_ccf_external/pr31_strict_reader`, a strict reader of a CCF inclusion receipt written to the text of pull request 31 to the CCF receipt profile, with 24 probes, 42 vectors and the measured readings of the Go reader of the profile and of the earlier reference reader next to it.
+
+### Changed
+
+- `automation.referencesResolved` is `None`, no longer `True`, when every reference field it reads is `None` or absent: no reference check ran, as with no reference field at all. A signed decision receipt whose `evidenceRefs` is empty read `True`. `safeForAutomation` and `automationBlockers` do not change in any case; only an unresolved reference blocks, as before. This is a fix, not a break, in the sense of COMPATIBILITY.md: the field already read `None` when no reference field was listed, so its values stay `True`, `False` and `None`, and a consumer that tests it with `is True` or by its truth now sees `None` for such a receipt and stops where it went on before, on a `True` that stood for no check.
+- `anchors.receipt_canonical_root` takes its RFC 8785 bytes from `canonical.canonicalize_statement`, the one canonicalizer home, instead of its own call to `rfc8785`. The structural budget still runs first and every failure is still a `BundleFormatError`. Measured over the 689 JSON objects tracked in the repository: each has the same root as before. One input that no parsed JSON holds answers differently: a value of a subclass of `int` or `float`, an `IntEnum` among them, is refused now with `BundleFormatError` by the plain copy the one canonicalizer reads, where it got a root before.
+- The limit of one run of the mutation gate follows the measured baseline of its selection (`scripts/mutation_check.py`, `tests/test_the_mutant_limit_follows_its_baseline.py`). Z230 gave every run one fixed limit of 3600 s, when the whole suite took 2168 s in CI. On 877bc38f the baseline over a selection of 500 test files took 3435 s, and the operator `hashalg: B2 deprecated-algorithm reject disabled` stopped at 3600.0 s in two attempts and was not measurable, though on main 2379659e the same mutant was killed after 3267 s. A mutant run may now take 1.5 times as long as the baseline over the same selection and never less than 3600 s, and the baseline runs under 5400 s. A run past its limit stays not measurable and counts as a gap, so a mutant that hangs the child is still caught. A call that names no limit keeps 3600 s.
+
 ### Fixed
+
+- **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
+  A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
+  the checkout a measurement was taken in; it now says "a second local checkout", and so does the
+  test beside it. The guard reads every text file under `src/proofbundle` and refuses a path under
+  `/home/<name>` or `/Users/<name>` (`Users` in any case), with or without a slash after the name,
+  with a slash written as JSON writes it (`\/`), and inside a `file:` URL whose host is empty or
+  `localhost`; it is red on the tree before this change, at that one line.
+  Files outside the package (audit
+  records, the risk register) are not in its reach.
+
+- **A lookup or write on a constant container with a key from outside is classified**
+  (`tests/test_membership_hashable_guard.py`). A dict lookup hashes its key, so `CONST.get(x)` and
+  `CONST[x]` raise `TypeError` for an unhashable `x` exactly as `x in CONST` does; the trust pack
+  fix above was one such site, and the membership scanner sees only `in` and `not in`. The guard
+  now lists every lookup by name on a module-level dict whose key is not a literal, keyed by file,
+  enclosing definition, dict and key, each with the reason it cannot raise. Both detectors, this
+  one and the membership scanner, now also see a container another module of the package imports
+  by name (`from .x import NAME`, inside a function too); before, a dict or set was a container
+  only in the file that defined it. A write hashes its key as a read does, so the guard counts
+  `CONST[x] = v`, `del CONST[x]`, `setdefault` and `pop` on a dict and `add`, `discard` and
+  `remove` on a set as well, and so do the other spellings of the same access with a key it can
+  name: `__getitem__`, `__setitem__`, `__delitem__` and `__contains__`, `operator.getitem` and its
+  siblings, `x in CONST.keys()`, and `update` or `|=` when every argument is a literal that names
+  its keys (`set.update` hashes every argument, not the first one only). Past those, the guard reads
+  every use of the container's name and reports what no known form covers: the container handed to
+  a function or put in a tuple, a method reached without a call (`getter = CONST.get`),
+  `getattr(CONST, ...)`, `CONST.keys().__contains__(x)`, `x in CONST.items()`, `update` or `|=`
+  with an argument that is a name, a `*x` or a `**x` (`_S.update(["type"], k)`), a set operation or comparison with a
+  set or dict literal that holds a name (`_S | {k}`, `_S == {k}`, `_M | {k: 1}`), and `set`,
+  `frozenset` or `dict` over `.values()` or `.items()`, or a set or dict comprehension over them,
+  which hash values, not keys. Each such read is listed with the reason it hashes nothing from
+  outside: 58 reads under 52 entries on this tree, and 56 under 50 on main 570dd164, where the two
+  reads of `_NESTED_TYPES` by the decision and outcome validators do not exist yet (38 under 35 on
+  the tree of 2026-09-27; this
+  entry once said "35 of them", which counted entries, not reads), so a spelling nobody listed turns the guard red (a planted `getter = _VERIFIERS.get`
+  in `anchors.py` did). Both lists carry the number of sites per entry, so one more site under a
+  listed entry turns the guard red as a new entry does; before, a second `_VERIFIERS.get(atype)`
+  ahead of the check in `anchors.verify_anchor` stayed green. A container is also seen when it is
+  bound inside a module-level `if`, `try`, `with`, `for`, `while` or `match`, and when a module
+  reaches it through a chain of imports (`from .renewal import HASH_REGISTRY`, which renewal
+  imported from hashalg) or through `from .x import *`. A membership test is not classified but
+  routed through `is_member`. Measured on main 570dd164 when the guard was carried there on 2026-10-18:
+  57 lookup sites under 46 entries, 17 guarded by a membership or type check before them (the
+  trust pack one, whose check runs against a tuple, among them) and 40 reading a value the package
+  produced itself, 15 of them keyed by `id()`. None is open. One reason did not hold at first:
+  `sdjwt.issuer_key_fingerprint` looked up an algorithm that passed `isinstance(alg, str)`, and a
+  str subclass whose `__hash__` is None or raises made it raise `TypeError`; it looks up the
+  characters of the algorithm now. On the tree of 2026-09-27 there were 19
+  sites under 19 entries; since then 29 entries with 39 lookup sites and 26 entries with 31 reads
+  reached main or moved there, the kept entries gained one site, and 2 lookup entries and 9 read
+  entries are gone. Each site was read before it was classified. The one membership test the wider
+  view found,
+  `relation_statement` against the imported `SUCCESSOR_RELATIONS`, reads through `is_member` now,
+  as its sibling one line above already did: for a hashable value the answer is the same, and an
+  unhashable one answers False instead of raising. A new site turns the guard red until it is classified, and a classified site that is
+  gone has to leave the list or lower its count. The reasons are read by a person, not proven by
+  the guard. A container derived from constant containers is a container too, and that rule came with a live
+  defect. `agent_review.validate_time_claim` tested a time claim's rung with
+  `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
+  (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` on d5747000,
+  `:2189` before this change, `:2214` now). A set
+  difference is a set and `in` hashed the value, so an `assurance` of `[]`, `{}` or
+  `["runnerObserved"]` raised `TypeError`
+  out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
+  `validate_agent_review_v03_predicate`, and `verify_agent_review_v02` and `verify_agent_review_v03`
+  answered a correctly signed receipt with `ok=False, reason_code=internal_error`, "a defect in the
+  verifier". The test reads through `is_member` now, as the check above it already did: a hashable
+  value gets the answer it got before, an unhashable one gets the error a wrong assurance always got
+  (`timeClaim.assurance must be one of ...`), and both verifiers fail such a receipt on its structure
+  with the signature verified. The guard had cleared the site twice: the membership scanner saw only
+  a name on the right of `in`, and the other-uses reader cleared a set operation between two
+  constants without looking at what used its result. Now a set operation (`|`, `&`, `-`, `^`)
+  between two constants, a `set()`, `frozenset()`, `dict()` or `dict.fromkeys()` copy of one, a set
+  or dict comprehension over one, and a local name bound to such an expression (also by unpacking,
+  by `:=`, as a branch of a conditional, or in an enclosing function) are containers for all three
+  readers: `x in <derived>` is a membership test, `<derived>.get(x)` and `<derived>[x]` are lookups,
+  and the derived expression is itself a read whose use is checked, so returned, handed to a function
+  or put in a tuple it is reported. At module level a name is a container when it is bound by
+  unpacking a tuple (`_S, _M = {"a"}, {"a": 1}`, which the review found unseen), to a second name for
+  a container, or to a set operation over containers (`_ALLOWED_TOP = set(_REQUIRED_ALWAYS) |
+  set(_OPTIONAL)`, stated here before as not seen). The copies that hash the values of a dict are
+  other uses as `set(_M.values())` is: `set([x for x in _M.values()])`, `set(list(_M.values()))` and
+  `dict.fromkeys(...)` over either, three spellings the review wrote past the guard. Measured on the
+  tree after the fix: eleven membership tests stood in a derived container or a module-level set
+  operation, and every one reads through `is_member` now: the live one, and ten whose value is a key
+  of a value checked to be a dict, so none of them could raise (on this tree `agent_review.py:434`
+  and `:529`, `outcome.py:116`, `run_ledger.py:69` and `:144`, `trust_pack.py:153`,
+  `verification_summary.py:65` and `:117`, `verifier_block.py:304` and `:324`; the branch of
+  2026-09-27 had them at other lines). Two new reads are classified:
+  `set(predicate) - _ALLOWED_TOP` in `decision.validate_decision_predicate` (the keys of a value
+  checked to be a dict) and `dict(PROFILE_ALIASES)` returned by `policy_profiles.profile_aliases`
+  (string literals of the package). `agent_review.py:555` on this tree, `k not in
+  _DECLARATION_FIELDS | zusatz`, is no derived container, because `zusatz` is a parameter; it stays
+  an other use, and its reason now
+  says that the union is tested only with a key of a value checked to be a dict. The lookups stayed
+  19 sites under 19 entries at that point.
+
+  **A truthy value of the wrong type passed `(x or [])`, and a signed receipt came back as a
+  verifier defect.** `(x or [])` replaces a falsy value only. A correctly signed agent-review
+  receipt whose `declaration.authoring` is `{"a": []}` reached
+  `(dec.get("authoring") or []) + (dec.get("reviewRuns") or [])` as a dict, and
+  `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+  `verify_agent_review_any` answered `reason_code=internal_error`, "a defect in the verifier", while
+  the validator beside them had already said `declaration: authoring must be an array` (a lens on
+  c3bd89a4; it reproduces on main 10f3466b). A generator that replaces every node of four seed
+  predicates (v0.1 with a supersession and with findings, v0.2 with a `reviewCompleted` time claim,
+  v0.3) by a value of each JSON type and calls every public agent-review surface measured 44
+  findings in 51,654 calls on c3bd89a4, at nine source lines: the `+` in `derive_limitation_codes`
+  and in the v0.1 and the v0.2/v0.3 verifier; `findings: 5` in the v0.2 validator, a validator that
+  raised, and with it both verifiers and both renderers; the same value in `findings_root` beside a
+  `findingsRoot` (v0.1 `internal_error`); two reads in `resolve_receipt_chain`, where a
+  `supersession`, a relation list or a `priorDigest` of the wrong type raised once the envelope was
+  named as verified; and two hashing neighbours, the rung set of `derive_limitation_codes` (a list
+  as `assurance` raised, and through `evaluate_limitation_policy` the policy answer became "policy
+  could not be evaluated: unhashable type") and the value set of `reviewCompleted` time claims in
+  `_zeitachsen` (`internal_error` for `value: []`). The same run finds 0 now: every site reads
+  through `_membership.as_list`, the list sibling of `as_dict` (a list and nothing else, as the
+  validators call an array), through `as_dict`, or counts distinct values by equality instead of
+  hashing them. The rung set of `derive_limitation_codes` reads strings only, so an entry without
+  `assurance` no longer drops `IDENTITY_UNBOUND` (`{None} <= {"selfDeclared"}` was false). The sweep
+  over `src/proofbundle` read each of the 114 sites of the idiom (by AST, `x or` an empty literal)
+  at its source and found two more outside this module: `evalclaim.sd_jwt_hidden_count` raised
+  `AttributeError` for a truthy `sd_jwt_vc` that is neither a string nor an object, and CAP-1 rule R2
+  raised for `unexamined: 5`, which `check_cap1_document` reported as a rule it could not evaluate
+  and agent-review v0.2 as `CAP1_DISPOSITION_NOT_CLOSED`; both read the wrong
+  type as absent now (R1 names the non-list). The count reads `x or` with an empty list, tuple, set
+  or dict display, `""` or `0` as the last operand: 114 sites on c3bd89a4, 95 on 8ecb6edf and 93 at
+  the end of that branch; on this tree 96, where main 570dd164 has 117.
+  One, in `sd_jwt_hidden_count`, stays and reads through `as_dict` now. Of the other 94 on
+  8ecb6edf, 20 sit in the four JSON adapters named below and can raise, and 74 sit behind a type
+  check or a typed `except`, read a value the package built, or read caller arguments on a producer
+  path. Two of those 74 were not safe in that way, and a lens on 8ecb6edf found both: the policy
+  call of the v0.2 and v0.3 verifiers, `_praed or {}`, sat behind a broad `except` and held a
+  predicate `[]` or `0` against the policy as `{}`, and the renderer's `limitations` read held only
+  while the validator stood in front of it. Both are gone, here as on that branch, where they were
+  the step from 95 to 93 (see the paragraph on that lens below); the rest of that group was not read
+  again. Two carried entries of `conformance/unguarded_hashing_constructions_baseline.json` are
+  closed and leave it, and the two renderer rung sets below close two more (six to two on this tree;
+  seven to three on that branch). Contract
+  `tests/test_a_truthy_value_of_the_wrong_type_is_read_as_absent.py`: 42 tests on c3bd89a4, all 42
+  red there; on this tree 80, and 79 of them are red on main 570dd164 (the one green there is the
+  byte identity of the valid predicates). The two renderers read entries as the verifiers do: an
+  entry that is no object, or an
+  `assurance` or `disposition` that is no string, names nothing. The validator in front refuses
+  such a predicate, so no public call raised; with it taken away, `{"assurance": []}` raised
+  `TypeError` and an entry `5` raised `AttributeError` (the three newest tests, red at f6d7cd7f).
+
+  **The guard follows every chain that hashes the values of a constant dict, and a binding only
+  when a reader reads its name.** The same lens executed seventeen forms past the guard, each
+  raising at run time with all three detectors silent. Seven hashed the values of a dict through a
+  comprehension, a generator, `reversed`, `filter` or a starred set display over a copy
+  (`{x for x in list(_M.values())}`, `set(reversed(list(...)))`, `{*list(...)}`): the copy chain was
+  followed only to a direct hashing call, and `list(_M.values())` counted as a constant source,
+  although the values of a dict can be set from outside. Every chain of copies, comprehensions,
+  generators, starred displays and passing calls (`reversed`, `iter`, `enumerate`, `filter`, `map`,
+  `zip`) that reaches a hashing construction is an other use now, and a copy of `.values()` or
+  `.items()` is no source of a derived container. Ten were bindings nothing followed: a
+  module-level walrus, a `for` target over a display, a starred unpacking, `dict.fromkeys(...)` over
+  a set or a tuple and `types.MappingProxyType(...)` at module level, a walrus in a nested
+  function's default, `set(_T)` over a module-level tuple, and a `global` or a `nonlocal` name
+  assigned in a function. `other_uses` judged a binding as followed by the shape of its statement;
+  it counts a read as bound now only when it is the value of a binding the container readers read
+  (`_scope_bindings`, one list for both sides), the first eight forms are read, and a `global`,
+  `nonlocal`, attribute or class-body binding is reported where the container is read. A runtime
+  oracle imports every module and requires each module-level set or mapping to be in the guard's
+  view or named with its reason; it names one, `policy._LOW_ORDER_ED25519_Y`, bound to what
+  `_low_order_ed25519_y()` returns, whose one use tests an int computed from the decoded key bytes.
+  Measured on the branch after the fix: no membership site, 20 lookup sites under 20 entries (the new
+  one `daten[f]` in `adapters/agt_receipt.canonical_payload`, keyed by a literal of the module) and
+  45 reads under 42 entries (five new, each a set or dict built over a module-level tuple and read at
+  its source, in `adapters/agt_receipt`, `cli._error_verify_fields`, `public_transparency` and twice
+  in `relation`); no binding the first form cleared is one no reader follows. On main 570dd164 with
+  the commits carried here the guard counts no membership site, 58 lookup sites under 47 entries and
+  76 reads under 72 entries, each classified.
+
+  **A lens on 8ecb6edf: a value RFC 8785 cannot represent, and five smaller findings.** The strict
+  parser reads an integer outside ±(2**53 − 1), NaN and Infinity. The canonicalizer refuses each
+  with its own `ValueError`. The in-toto verifiers and `anchors.receipt_canonical_root` already
+  turned that refusal into their typed answer; the agent-review module did not. A correctly signed
+  v0.1, v0.2 or v0.3 receipt with such a value in a finding or in `subjectContext` made
+  `verify_agent_review`, `verify_agent_review_v02`, `verify_agent_review_v03` and
+  `verify_agent_review_any` answer `internal_error`, "a defect in the verifier" (96 of 96 cases of
+  the new contract `tests/test_a_value_jcs_cannot_represent_is_a_typed_refusal.py`). Such a receipt
+  now fails with the reason code `STATEMENT_NOT_CANONICALIZABLE`. `emit_agent_review` raised the
+  bare `IntegerDomainError` for `subjectContext.humanRef = 2**53` after the validator had passed the
+  predicate; it raises `AgentReviewError` now. The sweep of the class signed a statement with such a
+  value at every node of a seed predicate of each signed type and called every public surface: 29
+  distinct findings in 22,590 calls on 8ecb6edf, 4 after. The other 25 were the agent-review ones
+  above and `subject_binding.classify_subject`, `require_derived_subject` and
+  `derive_subject_digest`, `verifier_block.join_test_result` and `test_result_ref`, and the
+  decision, outcome and run ledger emitters, each raising the bare error. Every wrapper of the
+  canonicalizer now maps it to its own module's typed error (and, since the lens on d5747000 below,
+  the refusal of the structural budget in front of it), `join_test_result` answers with a
+  digest that does not match; the in-toto export paths already did on main 570dd164, each with a
+  BundleFormatError that names the exporter, and stay as they are. The four left are the two
+  primitives of `canonical`, which pass the refusal on by their documented contract; the in-toto
+  serializer passes it on as well, to the exporters that map it. A test lists
+  the 17 functions that call the canonicalizer themselves, each with its answer to such a value.
+  `subjectContext.humanRef` stays untyped (`5`, `[1]` and `{}` still validate): no schema or
+  specification names the field, and refusing a type the validator accepts today is a new predicate
+  version under the predicate's own rule.
+
+  The policy call of the v0.2 and v0.3 verifiers read `_praed or {}`. A signed receipt whose
+  predicate is `[1]`, `"x"` or `5` answered with `POLICY_NOT_EVALUABLE` as its only code, a sentence
+  about the policy; one whose predicate is `[]`, `0`, null or absent was held against the policy as
+  `{}`. The validator gives "predicate must be a JSON object" the code `PREDICATE_NOT_OBJECT` now,
+  which is the first reason in all three versions, and the policy refusal names the shape instead of
+  evaluating an empty object. With the validator in front taken away, the two renderers raised on
+  `limitations` of `5`, `true`, `[5]` or `[[1]]` (the one read there still written `x or []`) and on
+  a predicate, `declaration` or `coverage` that is no object: 365 of 6,232 calls at six source lines.
+  They read these as the verifiers do now, a wrong type as absent and of a list the strings: 0 of
+  6,232. The 64 valid predicates the lens rendered give the same bytes, and a test pins 19 of them.
+  The membership guard counted the value of every followed walrus as bound and looked no further, so
+  a walrus used as an operand went unseen: `k in (s := _A)`, `(m := _M).get(k)`, `(m := _M)[k]`,
+  `(m := _M).setdefault(k, 1)`, `k in (s := _A - _B)`, `k in (s := set(_A))` and a walrus in a
+  comprehension condition each raised `TypeError` with all three detectors silent. A walrus is read
+  as the value it passes on now, and that value is judged where the walrus stands as well as where
+  it is bound. Nine planted forms, all nine unseen by the detectors of 8ecb6edf; the counts over the
+  tree do not move (no membership site; on this tree 58 lookup sites under 47 entries and 76 reads
+  under 72 entries). The path guard missed `file:///home/<name>/x`, `/home/<name>` with nothing after the
+  name, and `/Users/<name>` at the end of a text; six planted texts, all six missed by the pattern
+  of 8ecb6edf, are found now, and the package still names no such path. The line of the time claim
+  test above was `:1978` on 8ecb6edf, not the `:1969` this entry said. The two ratchets over reason
+  codes follow: two new codes, and one error without a code fewer in
+  `validate_agent_review_predicate` (19 to 18).
+
+  **A lens on d5747000: the refusal of the budget in front of the canonicalizer, a number too long
+  to write in decimal, and a walrus over a conditional.** Measured again on 5c49dc1c (main 570dd164
+  and the five commits carried before this one). `canonical.canonicalize_statement` runs the
+  structural budget first, and eight module wrappers (`decision`, `outcome`, `run_ledger`,
+  `relation_statement`, `trust_pack`, `verification_summary`, `subject_binding`, `verifier_block`)
+  caught only the canonicalizer's `ValueError`: a lone surrogate or a nesting past 64 levels left as a
+  bare `BundleFormatError`, an integer past 8192 bits as a bare `BudgetExceeded`.
+  `subject_binding.require_derived_subject`,
+  `classify_subject` and `derive_subject_digest` promise `SubjectBindingError` and raised those, and so
+  did the emit and build paths of the decision, outcome, run ledger, verification summary and relation
+  statement receipts, and `verifier_block.test_result_ref`. The refusals of the shared path are one
+  tuple now, `canonical.NOT_CANONICALIZABLE` (`ProofBundleError`, `ValueError`, `RecursionError`, the
+  list `agent_review` alone carried), and every wrapper names it; a missing canonicalizer keeps its own
+  answer. In the same class: `_statement_payload.load_statement_strict` raised `BudgetExceeded` where
+  its docstring names `BundleFormatError`, and an `observed_body` holding a lone surrogate made all four
+  agent-review verify surfaces answer `internal_error`, where the verdict is now `NOT_MEASURABLE`,
+  which blocks. The in-toto exports and the trust-pack producer already answered these values by type
+  on 5c49dc1c, and the contract holds them with a control that signs; the claim the file handed the
+  exports lacked five fields main requires, so those cases had passed on the claim's refusal. The
+  contract's section has 91 cases, 45 of them red on 5c49dc1c. The two renderers raised `ValueError`
+  for `findingsTotal = 10**5000`, which the v0.2 validator accepts, and with the validator taken away
+  for `assertedBy` and `coverage.status` of that value: the count renders bounded now (`<int, 16610
+  bits>`, through `budget.render_safe`), a non-string `assertedBy` or `coverage.status` reads as
+  absent, and a boolean total is no count. The class reached the validators: a generator that puts
+  `10**5000` and `-10**5000` at every value and `10**5000` as an extra key of every object of
+  thirteen seed predicates measured 220 raw raises in 5,415 calls at 24 source lines of five modules
+  (agent_review, outcome, relation, run_ledger, trust_pack), each a message that interpolated the
+  value, and 7 more at caller arguments and policy fields, two of them `trust_pack._zahl_text`, whose
+  `int.__repr__` raised for `prev_version` and `prev_root_threshold`. Each of those sites renders
+  through `render_safe` now, which is `repr()` for an ordinary value, and the generator finds 0
+  (`tests/test_every_validator_renders_a_number_bounded.py`, 64 cases, 46 red on 5c49dc1c). A sweep
+  that added every field name of the modules' field tables to every object of every seed, with the
+  trust pack's `alg` and `scheme` as the control, found one line more, `keys[...].alg`, and no other;
+  the seed holds both fields now. The unknown-key messages of the other modules raise nothing on
+  main, which refuses a key that is no string in the plain copy first, and are not changed. The
+  membership guard split a conditional only where it stood directly as a binding's value, so under
+  a walrus its branches counted as bound while the readers found no container:
+  `k in (s := _A if c else _B)`, `.get(k)` and `[k]` on such a walrus, a module-level and a local name
+  bound to one, and a chained walrus each raised `TypeError` with all three detectors silent. A walrus
+  and a conditional are read as the values they pass on now (`_passed_values`): a conditional is a
+  container when any branch is one and a constant operand or a source when every branch is, a bound
+  branch is judged where its conditional goes, and a set operation is known only when both of its
+  operands are constant. Closing it found four siblings, unseen too: such a walrus handed to a
+  function, `set()` over one, a conditional between a copy of a dict's values and `set()`, and a set
+  operation over such a walrus with a branch from outside. Ten planted forms, all ten unseen by the
+  detectors of 5c49dc1c; the counts over the tree do not move. The path guard missed
+  `file://localhost/home/<name>/x`, the JSON-escaped `\/home\/<name>\/x` and a lowercase
+  `/users/<name>` (six planted spellings, all six missed by the pattern of 5c49dc1c), and finds them
+  now; a request target after an HTTP method (`GET /home/index.html`) is no machine path and is not
+  refused any more, while `/home/NAME/` still is, because a form cannot tell a placeholder from a user
+  of that name; the package names no such path. Not changed: `evalclaim.py`. On this tree
+  `evalclaim.canonicalize` and `emit_eval_receipt` answer `EvalClaimError` for a lone surrogate, for
+  `2**8194`, for a nesting of seventy and of 3000 levels and for a surrogate key in `provenance`; the
+  private `_jcs_bytes` writes the seventy levels, and the emit path in front of it refuses them.
+  `adapters._provenance.config_hash` answers `None` for a config holding a lone surrogate, so
+  `add_provenance` leaves the field out; the adapters stay outside this change, as the next paragraph
+  says.
+
+  Not reached, and not claimed: the four JSON adapters (`adapters/eee.py`, `lm_eval.py`,
+  `promptfoo.py`, `samples.py`) answer a wrong-typed field with a raw `AttributeError` or
+  `TypeError` instead of their `ValueError`: 28 escapes measured over the real fixtures in 5,808
+  calls, 15 of them through the idiom. They read an operator's own harness file on the producer path
+  and stand outside the never-raise denominator, and reading a wrong type as empty there would sign
+  a default instead of refusing, so they need a typed refusal per section, which is a change of its
+  own. The `.get(k, {})` spelling of the same assumption was not swept. Not seen by the guard: a
+  container built at run time from a value that is not constant (`x in set(allowed)`: one
+  membership test in the tree, `relation.py:1167`, behind `type(x) is str`; the second the branch
+  named, in `adapters/agt_receipt.py`, is gone from main), a literal on its own (`x in {"a"}`, `{"a": 1}[k]`: no membership test and
+  six lookups in the tree, each behind `is_member` or `isinstance` or keyed by a literal the package
+  chose), a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
+  bound in a class body, a container a function call returns (held by the oracle, not the view), a
+  tuple constant imported from another module, a value after it leaves the container
+  (`for v in CONST.values()`, or a copy of the values bound to a name), and a wrapper outside the
+  listed passing calls.
+
+  **A lens on d6d89763: a value from outside reaching a message, a subject name or a serializer, in
+  the public functions.** Measured again on main 570dd164 with the six commits carried before this
+  change. The class, as the violated assumption: a value that reaches a message, a subject name or a
+  serializer can be rendered. `10**5000` has no decimal form under the int->str cap, a list nested
+  past the interpreter's recursion guard has no `repr`, `json.dumps` refuses a set or bytes, and an
+  object's own `__repr__` can raise anything. The family is derived, not listed:
+  `tests/test_public_functions_render_a_value_from_outside_bounded.py` takes every public function
+  of every module but `cli` and `pytest_plugin` (350 on this tree, 341 of them with a parameter),
+  seeds each with one or two calls the suite makes to it
+  (`tests/fixtures/public_surface_seeds.json`; recorded from the suite of d6d89763, and for 25
+  functions again from the suite of this tree: 21 that main added and four whose recorded call no
+  longer returned on main; twelve more are written in the test, where only a call from inside the
+  package reaches them or a returning call signs with a key the recording cannot write), and plants
+  `10**5000`, `-10**5000`, a list too deep to render, a tuple holding `10**5000`, a set, bytes and
+  an object whose `__repr__`, `__str__` and `__format__` raise into every parameter, into every node
+  of a dict or list argument and as a new key of every dict. Each call must return an answer that is
+  no `internal_error`, or raise an exception class the package defines (or the builtin one its
+  module documents), with a message that renders. Measured with CPython 3.10, before this change 37
+  of 336 functions let such a value out raw, in 997 of 58,054 calls; now 0 of 340 functions in
+  58,247 calls. `pqsig.verify_slhdsa` is not measurable there, since its optional dependency is not
+  installed, and its 28 calls are named, not counted; the test passes under 3.11, 3.12, 3.13 and
+  3.14 as well. A forcing test turns red for a public function without a
+  seed or a named reason, two plant-and-catch tests swap a bounded renderer of `explain_policy` and
+  the serializer of the AGT receipt back for raw ones and require the sweep to report it, and a
+  sweep with nothing to plant fails instead of passing. Every site renders through
+  `budget.render_safe` now, or through `budget.render_text` (new: a str unchanged, anything else
+  bounded) where the text is data, and `budget.render_key_list` (new) names the keys of a mapping;
+  every serializer maps its refusal to the module's typed error. Carried where the class was open on
+  main, measured per function: `explain_policy` and the freshness bound of `evaluate_policy` (a
+  `max_age` past the integer budget fails the freshness check closed instead of raising out of
+  `check_freshness`); `relation._dfs`; the four arguments of the disclosure renderers, which must be
+  strings and raise `AgentReviewError` otherwise; `subject_binding.nested_closure_violations` (a key
+  and the start path, the walk d6d89763 also bounded) and `_has_type`; `statuslist`, `renewal`,
+  `persample`, `hf_evals`, `pqsig`, `anchors_chia_add`, `experimental.enclave`,
+  `experimental.attested_inference` and the adapters `eee`, `_provenance`, `inspect_ai` and
+  `lm_eval` (messages, `str()` and `json.dumps` of a field from outside, each mapped to the module's
+  error); `anchors_rootcommit.build_preimage` (every field a str, and the two verifiers map the
+  refusal to `malformed_checkpoint` as before); `anchors_rfc3161.create_rfc3161_anchor` (`tsa_url`
+  must be a str); `checkpoint.checkpoint_note` (a tree size past `2**64 - 1`, which the note parser
+  refuses); `tlogproof.format_tlog_proof` (an index past the parser's 20 digits); and
+  `load_statement_strict`, which raises its BundleFormatError for a body that is no bytes. Closing
+  it on main found three functions main added, outside the change as written:
+  `_plain_value.plain_json` renders its label bounded, and the strict CBOR reader its limits. Not
+  carried, because they let nothing out on main (measured per function, with a direct probe where
+  the seeds do not reach): the policy form and the decision-policy and eval-policy messages,
+  `public_transparency`, `sdjwt_vc`, `policy_profiles`, the subject name of the trust pack, the
+  agent-review subject digest, digest keys and time policy, `verify_anchors`, `dsse`,
+  `build_verifier_block`, the AGT receipt adapter and the relations policy. The two
+  `verify_trust_pack` messages keep the text `trust_pack._zahl_text` gives them on main.
+
+  Open, and pinned as an upper bound: the five files the change as written left to another branch,
+  `intoto.py`, `_verdict.py`, `sdjwt_issue.py`, `canonical.py` and `evalclaim.py`. That branch landed
+  on main (the rounds of 2026-09-27 to 2026-10-02), and on this tree eight functions still let a
+  planted value out from these files (13 site and exception pairs, among them
+  `_verdict.require_bool_verdict`, `evalclaim.build_eval_claim` and `check_freshness`, and
+  `sdjwt_issue.present_with_key_binding`); they go to the next change of this class. A raw raise
+  outside the class is pinned per function instead, 153 pairs in 101 functions: a value of the
+  wrong type used in a computation or a third-party exception that crossed unmapped. The pin is an
+  upper bound, so a new raw raise is red, and exact wherever every seed of the function returned at
+  baseline, so a closed gap has to leave the list; the pins are written from a measured run, not by
+  hand. How deep is too deep depends on the interpreter, so the test measures it at import: 1.5 times
+  the depth at which `json.dumps` refuses, never below 3000. A seed reaches the code its one or two
+  calls reach, and a parameter taken by `*args` or `**kwargs` is not planted into.
+
+  The membership guard missed `k in set((s := _A if c else x))` with `x` from outside, and the same
+  under `frozenset()` and `dict.fromkeys(...).get(k)`: each raised `TypeError`, and all three
+  detectors were silent, because the walrus made `_A` bound and the copy then read as iteration. A
+  hashing copy over a walrus or a conditional whose passed values are not all sources is an other
+  use now. Three planted forms, all three unseen by the guard before this change, with three
+  anti-parity forms; the counts over the tree do not move. The path guard refused `TRACE /home/x`
+  and `CONNECT /home/x`, both HTTP methods (RFC 9110), and missed a home directory whose name starts
+  with a letter outside ASCII; it names all nine methods of RFC 9110 and RFC 5789 now and reads any
+  letter first, five planted texts, all five wrong on the pattern before this change. A name that
+  starts with a digit stays a stated limit. The renderer contract names the nine modules it
+  measures in its headline, and the claim for every public function is the new test's.
+
+  The second reading of 4be8f120 found two more, older than this change.
+  `decision.verify_decision_receipt` and `outcome.verify_outcome_receipt` raised `UnboundLocalError`
+  for a signed statement whose predicate is no object under a policy with a `relations` section, 14
+  of 42 cases, since the one reading of `supersededByAttached` was bound only in the block that
+  reads an object predicate; it is bound before that block now
+  (`tests/test_a_relations_policy_answers_a_predicate_that_is_no_object.py`).
+  `experimental.attested_inference.binding_present` raised for signed material without a JSON form
+  and answers `False` now, and `evidence_digest` refuses a tuple key by its typed error as it
+  already refused a value, so two pinned gaps leave the list. The freshness bound of
+  `evaluate_policy` and `anchors_chia_add._json_bytes`, which this change carries and which no test
+  held, have a case each (`tests/test_two_carried_bounds_have_their_case.py`).
+
+- **The decision validator refuses what the published decision schema refuses, null included**
+  (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the
+  required fields schemaVersion and decidedAt, and in strict mode privacy, notChecked and
+  decisionChangeConditions: the required-field loop checks presence, and every value check skipped
+  None, so `decision verify --strict` under a signer-pinning policy reported
+  `safeForAutomation=true` for such a receipt (deep gate finding L3-Z195-03). Beyond null, 311
+  type-confused predicates that `schemas/decision-receipt-v0.1.schema.json` refuses passed the
+  validator in strict mode (L3-Z195-05; the gate's generator, over the allow example); both measured
+  on main 10f3466b. The value checks now read presence, and a type table beside the existing key
+  closure gives every nested schema path its type; the same generator now measures 0. A test derives
+  the typed paths from the schema and fails
+  when one has no check, and a generator replaces every leaf of a fully populated predicate with
+  eleven type-confused values. Where the validator already asked for more than the schema (empty
+  identifiers, an `actionOutcome` without `status`, the strict-mode requirements), nothing changed:
+  the same 39 cases over the three golden examples, before and after. The validator did not read the
+  type of a `notChecked` entry before this change: it accepted a bare string where the schema asked
+  for an object `{field, reason, impact}`, and the vendored third-party receipt in
+  `conformance/decision/crossimpl/` writes strings. The string stays allowed as a deprecated legacy
+  form, and the schema now says so (`anyOf`, `deprecated: true`); the object form is preferred.
+- **Five predicate validators read the shapes of their schemas as the schemas do**
+  (`_schema_shapes`, `decision`, `outcome`, `run_ledger`, `verification_summary`, `trust_pack`,
+  `relation`, `relation_statement`, `subject_binding`). A `pattern` in `schemas/` is an ECMA-262
+  regular expression, and `sha256Digest` is a closed object. Measured on main 570dd164 with a
+  generator that also bends strings and adds keys, over fully populated predicates, against an
+  oracle that reads `pattern` as ECMA-262 (python-jsonschema reads it with Python's `re`): a digest
+  object with a second key passed all five validators; `\d` in decision, outcome, run_ledger,
+  verification_summary and relation_statement matched every Unicode digit, so an Arabic-Indic
+  `performedAt`, `startedAt`, `producedAt` or `schemaVersion` passed; trust_pack never read `scheme`
+  (`const: "ed25519"`); outcome never typed `traceContext.traceparent`, `validity.audience` and
+  `validity.nonce`; and a list as a key's `alg` made `verify_trust_pack` raise `TypeError` before
+  any signature was counted. Leaking paths were decision 63 (10 after the entry above), outcome 13,
+  run_ledger 7, verification_summary 4 and trust_pack 4, counted with a generator that bends each
+  ASCII digit of a string in turn; its first form bent only the first digit and counted outcome 12,
+  run_ledger 6 and verification_summary 3. Every count is 0 now, and the raise is a verdict. The
+  three shapes and the closed digest object have one definition, which every one of these modules
+  reads in place of a private copy; `trust_pack` and `relation` had been corrected on main already
+  and read the same definition now. A test reads the pattern of every call of `re` under
+  `src/proofbundle`, under any name a module binds to `re` or to one of its functions and as a `+`
+  of literals too, and finds a Unicode class without `re.ASCII` or a trailing `$`. `agent_review`
+  follows in the next entry, and the buffer-format and chain-prefix patterns of
+  `adapters.agt_receipt` and the fraction check of `cli`, the other patterns with `\d`, read ASCII
+  now. Not read: a pattern held in a variable or built at run time, and a shape checked without
+  `re`.
+- **agent-review reads its times and its schema version in ASCII digits, in v0.1, v0.2 and v0.3**
+  (`agent_review._RFC3339_Z`, `agent_review._SEMVER_0_1_X`). Both patterns used Python's `\d`, which
+  matches every Unicode decimal digit, so a `times.declaredAt` in fullwidth digits and a
+  `schemaVersion` of `0.1.٣` were valid; `revisedAt` and the other times read the same pattern.
+  **An exception to the predicate's version rule, by owner decision**: a change to what a verifier
+  must reject is otherwise a new predicate version, and this one is a bug fix in all three
+  versions instead. The reasons: RFC 3339 writes dates in ASCII digits only, and no receipt or
+  vector is affected, measured on main 570dd164 over the 674 tracked JSON files of this repository
+  (base64 payloads decoded, 1879 values that matched the old patterns; 0 of them change their
+  verdict). A test refuses both values on a published v0.1 receipt under each of the three
+  validators.
+- The eval-result v0.2 checks (`intoto`) read the digits of an RFC 3339 `evaluatedAt` as ASCII, as
+  RFC 3339 writes them. Measured on main 570dd164, a signed v0.2 statement whose `evaluatedAt` had
+  an Arabic-Indic year, fullwidth seconds or a Devanagari offset verified.
+- `verify_eval_result_dsse`, `verify_intoto_dsse` and `verify_svr_dsse`, and with them `proofbundle intoto --verify` and `proofbundle svr --verify`, no longer verify a signed statement without the in-toto Statement v1 layer. They returned ok=True for a statement without `_type` or with another `_type`, and for one without a subject, with an empty subject or with a subject entry that carries no digest; `verify_svr_dsse` also for `subject` null. Each now requires `_type` to be `https://in-toto.io/Statement/v1` and every subject entry to carry a digest: a non-empty object of non-empty strings, and for a hash function the package knows, that function's length in lowercase hex. The result reports this as `statement_ok` with its reason in `statement_detail`, and the DSSE check alone as `signature_ok`. Statements written by this package's export functions always have the layer, and their verdict does not change; the public builders `to_eval_result_statement` and `to_test_result_statement` still build the subject they are handed. The predicate contract of eval-result v0.1 is unchanged. `scripts/pre_tag_attestation.py` reports the layer as its own `statement_ok` beside `signature_ok`.
+- The six verifiers that read an in-toto Statement through the one Statement oracle (`verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `verify_verification_summary`, `verify_run_ledger` and `verify_trust_pack`, and the CLI commands built on them), and the Rust verifier's `verify-relation`, `verify-relation-statement` and `verify-trust-pack-threshold`, no longer accept a signed Statement whose subject names no artifact by digest. They reported ok=True and structure_ok=True, and the Rust verifier exited 0, for their own emitter's statement re-signed without a subject, with an empty subject, with subject null or with a subject entry without a digest. The oracle (`_statement_payload.load_statement_strict`) now applies the subject rule of the entry above, and the Rust verifier the same rule in Python's words, up to the limits it names: a character above U+00FF that Python counts as unprintable, and the literal `-0`. One verdict changes for statements written before: the emitters of these six wrote a caller's `subject_sha256` override verbatim, so a statement written with an override that is not 64 lowercase hex characters, one in capitals for example, no longer verifies; the emitters now raise their own error for such an override instead of signing it. The agent-review emitter (`emit_agent_review`) had the same gap: it signed a `subject_name` or `subject_sha256` override that `verify_agent_review`, which derives both from the signed `subjectContext`, then refused; it now raises `AgentReviewError` for any override other than the derived value. The Rust verifier's refusal of a `_type` that is not a string now reads as Python's (`None`, not `null`), and a `_type` or an algorithm name that Python escapes is escaped there too. An attached target (`--with-related`) without a usable subject is therefore malformed on both sides, and the conformance case `relation/target-subject-missing` expects `RELATION_TARGET_MALFORMED` in place of `RELATION_TARGET_SUBJECT_MISSING`; its exit code 2 and lineage FAIL are unchanged. Of the DSSE envelopes with an in-toto payload in the repository, the rule refuses only that conformance target.
+- `verify_decision_receipt` classified the evidence level of `actionOutcome.outcomeRef` over the `{uri, digest}` reference instead of the digest inside it, so every executed outcome read `CLAIMED` with the detail "no well-formed sha256 digest object present", the example `examples/decision_receipt_allow.json` included, and an `evidence_resolver` could never promote it. The level now reads the digest, as each `evidenceRefs` entry does: a well-formed digest is `REFERENCE_WELL_FORMED`, and `CONTENT_RESOLVED` when the resolver confirms it. The resolver is now asked about that digest object, as documented, so it is called once more per receipt, before the `evidenceRefs` entries. `action_outcome_proven` and the aggregate `ok` do not change.
+- The inspect_ai adapter (`from_inspect_ai_log`) tells a run stopped early from a complete one with the same counts. The provenance it signs now carries `total_samples`, `completed_samples` and, from inspect_ai 0.3.266, `logged_samples`, each only when the log sets it, so a log without the counts is not signed with the zeros the reader fills in as defaults. It also carries `early_stopping_manager` and `early_stopped_samples`, the manager's name and the number of samples it stopped, read from the `EarlyStoppingSummary` the library writes. Before, two such runs produced identical provenance (Codex on pull request 195). `n` is unchanged: it is still `scored_samples`, falling back to `total_samples`.
+- The data-hash vector tool (its CBOR reader `cbor_min` and its JSON vector files) and the pilot GitHub write profile no longer keep the last value of a duplicated map key or JSON member name. They refuse it, together with CBOR that is not valid under RFC 8949 Section 5.3.1 and bytes after the value. The checker of the statement identification package, which already refused a duplicate key, now also refuses a simple value below 32 in the two-byte form and any map that cbor2 reads with fewer entries than it has pairs, such as one with the keys 1 and 1.0. A new internal helper, `proofbundle._strict_cbor`, is the CBOR counterpart of `_strict_json`; it also refuses a code point spread between the chunks of an indefinite text string, keys that are one Python dict key (1 and 1.0), a NaN as map key, and more chunks than its item budget. The package's public API does not change. `tests/test_strict_decoding_guard.py` states the rule, holds its scope and names the readers outside it.
+
+## [6.3.0] - 2026-10-14
+
+Three entries change existing behaviour for package users. By default, DSSE signing adds a key ID when the signer exposes its Ed25519 public key (Changed). The pytest plugin skips receipt generation for metric names other than `pass_rate` and bases threshold decisions on exact test counts rather than a pass rate rounded to six decimal places (Fixed). The remaining entries add material or concern the project's CI.
+
+### Added
+
+- Add opt-in eval-result v0.2 export and verification under `https://b7n0de.com/attestation/eval-result/v0.2` for the revised in-toto draft. Export with `proofbundle intoto --predicate-version v0.2 --evaluator <URI>`. v0.2 requires an `evaluator`, identifies each model and dataset by exactly one of a salted commitment or a digest-bearing ResourceDescriptor, and records artifact digests in `evidence[]`. Receipt evidence uses the SHA-256 of the receipt file's exact bytes. Exports still default to v0.1; `--verify` accepts both versions. See `docs/IN_TOTO_PROFILE.md` for mappings and migration details.
+- **An independent reading of draft-abak-agent-control-delivery-evidence-01.** Adds `interop/acde_01`, a verifier-side implementation derived from our reading of the text of -01 alone, with 130 requirement sentences, 146 vectors and a run record with agreement 108, contradiction 0, ambiguity 14 and not implemented 8. Nothing outside `interop/acde_01` changes.
+- Add SCITT statement identification requirements and a package verifiable against them.
+- Add a pilot profile and vectors for the shipped decision and outcome predicates.
+- Document which capabilities ship in 6.1.0 and which are available only on the main branch at the documented comparison point.
+- Add an incremental Merkle accumulator alongside the bundle emitter, with a restart rule and before-and-after run records.
+- Add the first pilot contract for comparing approved agent actions with GitHub evidence.
+
+### Changed
+
+- DSSE envelopes created by `dsse.sign_envelope`, including in-toto exports, now include the signer's OpenSSH SHA256 fingerprint as `keyid` by default. Use `keyid=""` to omit it; signers without an exposed Ed25519 public key omit it unless supplied explicitly. The key ID is unsigned. The pinned-key DSSE and in-toto verifiers, including `pb_verify_rs verify-dsse`, do not use it to select a key; the trust pack retains its key-selection rules. Archived receipts and regression fixtures may still omit it and be rejected by consumers that require it. See `docs/IN_TOTO_PROFILE.md` for interoperability notes.
+- Pull-request label changes no longer restart the main CI workflow. The `landung` label starts mutation checks in a separate workflow; new commits rerun them while the label is present, and removing the label cancels them.
+
+### Fixed
+
+- The pytest plugin now skips receipt generation and reports why when `PROOFBUNDLE_METRIC` is set to a value other than `pass_rate`, preventing pass-rate values from being labelled as another metric. Unset or `pass_rate` continues to select the pass-rate metric.
+- The pytest plugin now decides `passed` from the exact counts of passed and run tests instead of from the pass rate rounded to six decimal places. With the `>=` comparator, two passes out of three no longer pass a threshold of `0.666667`.
+
+## [6.2.1] - 2026-10-10
+
+Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
+to results; two judge a policy's validity at one instant and with its fraction of a second, so at the edge of a
+validity window a verdict can differ from 6.2.0 in either direction.
+
+`VerificationResult` gains a `verified_inclusion_context` field after its existing fields; positional arguments accepted by 6.2.0 still set the same fields.
+
+### Fixed
+
+- **Repeated field names are rejected in review policies.** `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
+- **Replies from Chia with repeated field names are rejected.** The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
+- **Credential checks reject unsupported requirements.** `sdjwt_vc.check_vc_profile` refuses an issuer JWT header with an unsupported or malformed `crit` field (RFC 7515 §4.1.11), including when the issuer signature is not required.
+- **A policy is checked at the same time as the receipt, including fractions of a second.** `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.
+- **These verification commands require whole seconds.** `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.
+- **These commands label results at a supplied time as HISTORICAL.** With `--verification-time`, `decision verify` labels verification results HISTORICAL even without `--policy`, and `verify-enclave` labels its JSON and text results HISTORICAL.
+- **One clock reading judges both ends of a policy's validity.** A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.
+- **Policy time checks do not silently replace a supplied time with the current time.** For their time comparisons, `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` no longer replace a malformed non-`None` `now` with the wall clock; `None` retains the default clock behaviour, and naive datetimes are treated as UTC.
+- **An enclave check rejects an invalid supplied time.** `verify_enclave_attestation` refuses an evaluation time `now` other than `None` unless its type is exactly `int`.
+- **Fractions of a second count when checking a claim's age.** `check_freshness` compares parsed timestamps without truncating their age to whole seconds; with `max_age_seconds` set, a negative age or an age above the bound is not fresh.
+- **The time is checked before it reaches the proof verifier.** Before dispatching an anchor verifier, `verify_anchor` and `verify_anchors` reject a supplied `now` other than `None` unless its type is exactly `int`.
+- **A log entry must match the proof that was checked.** `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.
+- **An old key cannot approve its replacement using an unsupported signing method.** `verify_trust_pack` no longer treats an explicit unsupported or invalid `alg` on an old-root pin as Ed25519; an absent `alg` and the legacy bare-key form still mean Ed25519.
+- **When two signature methods are required, one alone is not enough.** `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
+- **An empty list of permitted log keys or sources grants no permission.** `evaluate_public_transparency` treats a present `trustedLogKeys` list as an allowlist when `requireSignedCheckpoint` is enabled, and a present `trustedLogOrigins` list as an allowlist; an empty list accepts no key or origin in the respective check.
+
+## [6.2.0] - 2026-09-28
+
+The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
+option A: 6.2.0 is what is on `main` plus the frozen fixes of this release, the commitment patterns at
+the verify boundary (pull request 300), small-order keys refused at every carrier (pull request 293,
+which carries the resolver fix of pull request 291) and the pre-tag cleanliness gate (pull request 249,
+which carries the Rust dependency audit of pull request 296). Every other scope line moved to 6.3.0
+with a ledger row, and `docs/release_scope/6.3.0.md` carries them. Owner decision of 2026-09-29,
+option A: the class fix of pull request 312, for the eight P1 findings the deep gate of this release
+preparation confirmed at 2348f0a7, lands before 6.2.0; `docs/release_scope/6.2.0.md` records the cut
+of 2026-09-27 and does not list it. Owner decision of 2026-09-29 on the next gate round, option A:
+pull request 313, for the six P1 findings that round confirmed at 7409b123, lands before 6.2.0 as well.
+
+This section was `## [Unreleased]` until the cut. **Stricter input checks at verification
+boundaries**: some inputs accepted by 6.1.0 are now refused. Values that 6.1.0 read by their truth or
+through a caller's own methods are refused or read by what they store; Ed25519 trust-anchor paths
+refuse a low-order or non-canonical key, while the core verifier keeps the SPEC §4a profile; a
+resolver, a registered anchor verifier or a permissive flag promotes a verdict only on the exact
+`True`, and a resolver asked for a key still attests with 32 bytes of key material; and an edge's
+`declaredAt` takes ASCII digits only, as the Rust verifier does. Five of these close findings in the released 6.0.0 and 6.1.0,
+the class fix of pull request 312 closes eight more of one class there, and pull request 313 closes
+six release-preparation findings, one of them a regression of pull request 291 that neither released
+version carries; the release notes name the affected versions, the effect and the upgrade. The deep
+gate at d97de8e5 found two more in the released 6.0.0 and 6.1.0, closed by pull request 311. An
+attached target's subject state outside the four words of its resolver bound a pin to the first
+subject of an ambiguous target, and a restricting CLI option given an empty value was read as absent.
+The deep gate at 99f76ceb found the first fix of that option incomplete at `audit-challenge --nonce`,
+which it had judged by its spelling: a nonce of only whitespace decoded to no bytes and ran as the
+self-challenge under the label of an auditor nonce, in both released versions as well; it is refused now.
+The deep gate at d388ed3d found two more, both in the released 6.0.0 and 6.1.0: the decision and outcome
+verifiers read the caller's `related` map twice and recorded the second reading, and `decision verify --anchors`
+read a file holding `null` or an empty list like no option. The verify lanes on the first fix found the first class
+wherever a function read a caller's value at more than one time, so every public function now reads all of its
+arguments in one reading at its call; and they found the second one level down, in a policy file with nothing in it
+the command evaluates. The verify lanes on the second fix found what its reading left out and what its pause of the
+collector cost, so the reading copies those values too and reads twice instead of pausing.
+The deep gate at fda55f98 (run 6) found what that reading still handed on and a rule a policy set that its command
+did not apply, the second in the released 6.0.0 and 6.1.0 as well; with the review before run 7 and the owner's choices of 2026-10-01, nothing of the caller reaches a
+body now but what an argument's contract names, and every rule a policy sets is applied or the policy is refused.
+The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as applied and never read,
+`sd_jwt.expected_aud`, the same at v6.0.0 and v6.1.0, and a receipt verifier that a module the tree hides from git could take
+over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
+A security scan of the release head found two more, both in the released 6.0.0 and 6.1.0, and their fixes
+break calls on purpose: the SD-JWT rules of a trust policy and `verify` itself report a value of a stand-alone
+SD-JWT or its Key Binding JWT only under the new `sd_jwt.issuer_key_pin` or a binding to the signed eval claim,
+and `anchor verify-pack` needs `--target-file` or `--expected-root`.
+The first five entries under Fixed describe changes to trust-pack role trust, the binding between a verification
+result and the data judged with it, evaluation time, unsupported critical JWS extensions and duplicate JSON keys
+in evaluation inputs. Known limitations are documented in `RESTRISIKO_620.md`.
+
+### Fixed
+
+- **A trust pack confers role trust only under a relying-party anchor bound to its content and its full key identity**
+  ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
+  - A genesis trust pack authenticates itself through its own root keys, so `verify_trust_pack` reported `ok` and
+    `safeForAutomation` true with no input of the relying party, and `verify_outcome_receipt` read an unpinned pack's
+    executor and receiver roles as trusted. `ok` stays the self-authentication verdict (form, threshold, expiry,
+    chain). The new result field `pinned` names the relying-party anchor and gates the automation verdict:
+    `expected_genesis_digest` (sha256 of the RFC 8785 predicate), `expected_root_keys`, or a rotation authorized by a
+    pinned predecessor. `trust_pack_is_pinned` is the one-reading, fail-closed predicate.
+  - At the outcome only an anchor bound to the content of exactly the passed predicate counts: the content digest
+    (`trust_pack_expected_genesis_digest`), a verified pack envelope (`trust_pack_envelope`) whose threshold signature
+    verifies under the pinned root keys and whose content is this predicate, or a forwarded verdict
+    `trust_pack_pinned=True` with `trust_pack_pinned_digest` equal to the predicate digest. A bare root-key set or a
+    bare `trust_pack_pinned=True` is not accepted (`TRUST_PACK_NOT_ANCHORED`).
+  - A relying-party root-key pin is matched on the full normalized key identity, algorithm and both legs of a hybrid
+    key: a pin that declares `hybrid-ed25519-mldsa65` is not satisfied by an Ed25519-only root, a classical pin does
+    not anchor a hybrid-declared root, and a pin with an unknown algorithm or a hybrid pin without its post-quantum
+    leg matches nothing. Anchor B at the outcome inherits this through `verify_trust_pack`.
+  - The receiver role is never positive from a caller's resolver answer: `receiver_role_trusted` and
+    `receiver_key_bound` are at most None (a member by label only, or a resolved key that matches the pack key while
+    the receiver statement is not verified, `RECEIVER_STATEMENT_NOT_VERIFIED`) or False (a resolved key that does
+    not bind). `classify_receiver_corroboration` is capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` stays in
+    the enum and is not reachable, like `EFFECT_OBSERVED`. The verified receiver path comes after this release.
+  - What a caller sees differently: `safeForAutomation` of a trust pack, and executor or receiver role trust at the
+    outcome, need an anchor of the relying party; the bare anchor forms of earlier releases no longer count; a
+    hybrid pin needs a pack that declares the same hybrid key. `docs/TRUST_ANCHORS.md`,
+    `docs/predicates/trust-pack.md` and `docs/predicates/action-outcome.md` say so.
+  - Tests: `tests/test_trust_pack_pin_620_n43.py`, `tests/test_security_fix_620_trustpack_n45_anchor.py`,
+    `tests/test_security_fix_620_trustpack_n45b_receiver.py`, `tests/test_security_fix_620_trustpack_n47_receiver.py`,
+    `tests/test_security_fix_620_trustpack_n47b_wrapper.py`, `tests/test_security_fix_620_trustpack_r6a.py` and the
+    combination test `tests/test_z309_f4_group4_trustpack_receiver.py`; each new case fails before its fix.
+
+- **A judge no longer adopts a hand-built verification result, or one whose recorded signer, payload, SD-JWT
+  presentation or Merkle root differs from the data it is judged with** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
+  - The SD-JWT binding path trusts a Key Binding JWT only when the key that verified the SD-JWT is the bundle signer,
+    and only when the bundle signature verified under exactly that key; a flipped signature byte leaves the binding
+    path closed and `sd-jwt-issuer-trust` false.
+  - `verify_bundle` records what it verified (signer, payload digest, the Merkle root its root check and its
+    inclusion check passed under, the exact `sd_jwt_vc.compact`) and stamps a per-process origin token over that
+    state and every check, only on a passing signature. `evaluate_policy` judges a bundle only with a result whose
+    recorded signer, payload digest and SD-JWT presentation equal this bundle's and whose origin token is intact
+    (`policy:result_bundle_binding`, `policy:result_origin`, `policy:result_sd_jwt_binding`), and it adopts a
+    positive root check only for the Merkle root that result verified. The `verify` command re-stamps the token
+    after its checkpoint check, only when the result was already authentic.
+  - `evaluate_decision_policy`, `evaluate_relations_policy` (`relation_signer`) and `svr_properties` likewise adopt
+    only a result whose origin token, stamped by the matching verifier of this process, covers the statement,
+    successor receipt or claim they are given, with `crypto_ok` exactly true for the decision path.
+  - The origin token type-marks every part, so values of different types never share a token, and it never travels in
+    CLI output: `decision verify`, `outcome verify` and `relation-statement verify` strip `verified_origin` from
+    `--json` at every level.
+  - What a caller sees differently: a result built by hand, a result of another bundle, statement or claim, or a result
+    whose checks changed after verification fails the policy or earns no property, where it was trusted before; pass
+    the result the verifier returned for exactly that input. The new result fields are additive and excluded from
+    equality, `repr` and `as_dict`.
+  - Tests: `tests/test_security_fix_620_bind_n44*.py`, `tests/test_security_fix_620_bind_n46.py`,
+    `tests/test_security_fix_620_bind_n46b.py` to `tests/test_security_fix_620_bind_n46g.py`,
+    `tests/test_security_fix_620_bind_n48.py`, `tests/test_security_fix_620_bind_r6a.py` and the combination tests
+    `tests/test_z309_f4_group1_signature_checkpoint.py` and `tests/test_z309_f4_group2_kb_presentation.py`.
+
+- **Expired receipts and unreadable expiry values are rejected** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
+  - `verify_decision_receipt` judges a declared `validity.expiresAt` at one evaluation time: the new `now` (POSIX
+    seconds, an exact int in range) or the wall clock read once. A declared expiry with an unreadable value, a JSON
+    null included, fails closed; only an absent key is not applicable. A decision receipt with a past
+    `validity.expiresAt` now fails also without `now`, because the clock is read once at the call.
+  - **Breaking (CLI):** `decision verify`: a declared `validity.expiresAt` whose value is unreadable (a JSON null
+    included) now fails closed (`freshness_ok` False, `ok` False); only an absent key is not-applicable. The CLI exit
+    now folds this axis (an expired receipt exits 2, no longer 0). A `--verification-time` (ISO-8601 'Z', past) pins
+    the evaluation instant.
+  - `--verification-time` at `decision verify` and `verify-enclave` takes a literal-`Z` instant; a zone offset, a
+    naive time or a fraction with a nonzero microsecond part is a format error, exit 2. An explicit `now` that is
+    malformed fails the verdict closed with no fallback to the wall clock; with `now` omitted, the receipt freshness
+    and the policy lifecycle are both judged from the one clock reading of the call.
+    `evaluate_decision_policy` takes `now` and judges the policy lifecycle at that instant.
+  - In historical mode `safeForAutomation` stays a present-tense verdict: a policy expired or not yet valid today
+    keeps it false (`POLICY_EXPIRED`, `POLICY_NOT_YET_VALID`), and the CLI labels the report (`VERIFICATION_TIME:
+    HISTORICAL`, `CURRENT_POLICY_STATUS`, `HISTORICAL_POLICY_STATUS`, and `verification_time` in `--json`). The
+    receipt's own `validity.expiresAt` is judged at the same present instant: an expired or unreadable expiry keeps
+    `safeForAutomation` false (`RECEIPT_EXPIRED`), an absent one never blocks, and the historical `freshness_ok`,
+    `ok` and exit code are unchanged.
+  - The Key Binding JWT `iat` is judged when the relying party supplies `now` (`verify_bundle`, `verify_sdjwt_vc`,
+    `verify_key_binding`; `max_age_seconds`, 300 s by default, 60 s future skew); without `now` it is not judged. A
+    stale status-list snapshot and an expired enclave attestation are no longer `ok`. Without a bound or a `now` the
+    behaviour is unchanged.
+  - `conformance/run_conformance.py` evaluates a decision case as of its own `recordedAt`. The two decision examples
+    carry an `expiresAt` far in the future.
+  - What a caller sees differently: an expired or unreadable `validity.expiresAt` exits 2 at `decision verify`; a
+    `--verification-time` with an offset, without a zone or with a fraction exits 2; a malformed `now` at
+    `verify_decision_receipt` fails the receipt.
+  - Tests: `tests/test_security_fix_620_zeit_n49*.py`, `tests/test_security_fix_620_zeit_n49c.py` and
+    `tests/test_security_fix_620_zeit_r6a.py`, `tests/test_security_fix_620_zeit_r6b6.py` and the combination test
+    `tests/test_z309_f4_group3_decision_time.py`.
+
+- **The four JWS verifiers refuse a protected header that names a critical extension** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
+  RFC 7515 section 4.1.11 makes a JWS invalid when its protected header names, in `crit`, an extension the verifier
+  does not understand. proofbundle understands no JWS extension.
+  - `verify_key_binding`, `verify_sd_jwt`, `verify_status_snapshot` and the experimental
+    `verify_enclave_attestation` now fail closed on any `crit` in the protected header: a `crit` that is not a
+    non-empty array, holds a non-string or a duplicate name, names a base-spec header parameter or a parameter absent
+    from the header, and a well-formed `crit`, all give `ok` false (`structure_ok` and `sig_ok` false for the SD-JWT
+    issuer), with a detail that names `crit`. A bundle whose Key Binding JWT carries `crit` fails its
+    `sd-jwt-key-binding` check.
+  - The Rust verifier `verify-bundle` rejects an issuer SD-JWT header with `crit` in the same forms, and the
+    crosscheck requires both sides to agree on a control and a `crit` variant.
+  - What a caller sees differently: a token with `crit` in its protected header no longer verifies, where it was
+    accepted before; a header without `crit` is unchanged.
+  - Tests: `tests/test_security_fix_620_crit_n50.py` and `tests/test_security_fix_620_crit_n50c.py`.
+- **The eval adapters and the conformance manifest reader reject a duplicate JSON key**
+  ([#311](https://github.com/b7n0de/proofbundle/pull/311)). `from_eee_dataset`, `from_promptfoo_results`,
+  `from_lm_eval_results`, `samples_from_lm_eval_jsonl`, `samples_from_promptfoo_results` and `measure_vector_set` read a
+  results file or a manifest with a reader that kept the last value of a duplicated key, so a duplicated score, success
+  count, metric value or case list could feed a signed `passed` or verifier-block assurance that another JSON reader
+  would compute differently.
+  - They now reject a duplicate object key at any depth, fail closed with an error that names the duplicate, through
+    the same check as the verify path. No size or structure limit is added: a file without duplicate keys parses
+    exactly as before.
+  - What a caller sees differently: a results file or manifest with a duplicate key is no longer read. It raises
+    `EEEAdapterError` from `from_eee_dataset`, `VerifierBlockError` from `measure_vector_set`, `ValueError` from
+    `samples_from_lm_eval_jsonl`, and `BundleFormatError` from `from_promptfoo_results`, `from_lm_eval_results` and
+    `samples_from_promptfoo_results`.
+  - Tests: `tests/test_security_fix_620_json_n51.py`.
+
+- **Security-driven breaking changes: an SD-JWT value needs a pinned or bound issuer, and an evidence pack needs a
+  target**
+  (a security scan of the release head, one critical and one high finding, both present at v6.0.0 and v6.1.0; owner
+  order on the security scan, line Z309, owner decision A on cards OA-9847e624e4 and OA-4a8b54fc40).
+  - `sd_jwt.expected_vct` took a vct as trusted once the SD-JWT issuer signature verified, but the key it verified
+    under comes from `sd_jwt_vc.issuer_public_key_b64`, outside the bundle's signed payload. The check now passes only
+    when that key matches the new trust-policy field `sd_jwt.issuer_key_pin` (`ed25519:` or `es256:` followed by the
+    standard base64 of the raw key, compared byte for byte) or when the SD-JWT is bound to the signed eval claim
+    (`sd-jwt-bundle-binding`); otherwise `policy:expected_vct` fails. **Breaking:** a policy with `expected_vct` for a
+    stand-alone SD-JWT needs the pin, or `verify --policy` exits 3. `load_policy` validates the pin, `policy explain`
+    lists it, and the Rust policy reader knows the key.
+  - The same boundary held for the key binding rules (Codex thread 4178190750 at 94f6dd3e, owner decision A on
+    card OA-0da6ff5b9a): `expected_aud`, `require_nonce` and `require_key_binding_when_cnf_present` trusted a Key
+    Binding JWT whose SD-JWT verified only under the self-supplied issuer key. All four SD-JWT rules now share one
+    check (`_sd_jwt_issuer_trusted`), and every `sd_jwt` policy key is classified as needing issuer trust or not,
+    which `tests/test_security_fix_620_kb_n36.py` holds. **Breaking:** a policy that sets one of these rules for a
+    stand-alone SD-JWT needs `sd_jwt.issuer_key_pin`, or `verify --policy` exits 3.
+  - One level down (Codex thread 4179140693 at e5b00d7d, owner decision B on card OA-44d4a016e9): `verify_bundle`
+    with `expected_aud`/`expected_nonce` and `verify --aud`/`--nonce` without a policy reported the audience, nonce
+    and holder binding of a Key Binding JWT under the self-supplied issuer key. `verify_bundle` now fails the new
+    check `sd-jwt-issuer-trust` when a Key Binding JWT verified but its SD-JWT is neither bound to the signed payload
+    nor matched by the new argument `sd_jwt_issuer_key_pin` (the CLI passes the policy's `sd_jwt.issuer_key_pin`),
+    and `key_binding_ok`, `audience_ok` and `nonce_ok` read false then; `verify_receipt_token`,
+    `to_eval_results_entry` and `verify_eval_results_entry` take the pin too. **Breaking:** `verify` of a bundle whose
+    stand-alone SD-JWT carries a Key Binding JWT exits 1 without a policy that pins the issuer, with or without
+    `--aud`/`--nonce`; `tests/test_security_fix_620_aud_n38.py` holds each surface.
+  - `anchor verify-pack` checked the proof against the pack's own `canonicalRoot` and read no target. It now requires
+    exactly one of `--target-file` (its SHA-256 is the expected root) or `--expected-root` (standard base64 of 32
+    bytes), compares it with the pack's root before the OpenTimestamps proof is read, and refuses a difference as
+    `target_mismatch`, exit 1. **Breaking:** without a target the command exits 2. The library function
+    `verify_evidence_pack` takes no target (R620-SEC-3).
+  - Tests: `tests/test_security_fix_620_n32.py` holds the fail-closed behaviour of both, without a pin, with a foreign
+    key and with the matching key, and without a target, with a wrong one and with the right one; its seven cases fail
+    at f65e9ec1 and pass after. The docstring of `_judged_location` in `scripts/verify_pre_tag_receipt.py` now says
+    that the spelling test runs first (Codex thread 4176949434), and `tests/test_pre_tag_missing_entry_contract.py`
+    holds that behaviour in both directions.
+- **Every rule a check path lists as applied turns its verdict, and the receipt verifier judges only the commit's
+  code** (deep gate of the 6.2.0 release preparation at 1a3cd672, run 7: two P1 findings,
+  L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01 and L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, each confirmed
+  by three of three blind jurors; owner decision of 2026-10-02 on card OA-bdad1b7352, option A).
+  - `evaluate_policy` lists `sd_jwt.expected_aud` among the rules it applies (`policy.ANGEWANDTE_REGELN`), so the
+    policy was not refused, and it never read the rule: a library caller who verified with `verify_bundle(bundle)`
+    and handed the policy to `evaluate_policy` got `policy_ok` True for a KB-JWT bound to another audience, measured
+    at 1a3cd672 and at v6.0.0 and v6.1.0. `verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and was
+    not affected. `evaluate_policy` applies the rule now as `verify_bundle(expected_aud=...)` does: the audience
+    counts only from a key binding that verified, and it must equal the policy's value; without one the policy fails
+    (`policy:expected_aud`). `tests/test_every_applied_rule_has_an_observable_effect.py` walks every pair of
+    `ANGEWANDTE_REGELN`, 166 measurements over four commands and five library functions, and checks that the rule
+    alone turns the verdict of its path; against the code of 1a3cd672 it fails at exactly this pair. Three pairs that
+    cannot turn their verdict alone are named there with a measured reason.
+  - Three neighbours of the class (P2 each): a permission or anchor trust without the requirement it serves was
+    applied by nothing and is refused now, exit 2. That is `anchors.allow_pending` and the anchor trust material at
+    `verify` without an anchor requirement, `decision_receipt.allow_pending` without `require_external_anchor` (in
+    the library too), and `--trusted-tsa-root` or `--bitcoin-header` without a requirement at `verify` and without
+    `--anchors` at `decision verify`. `validate_public_transparency_policy` refuses a non-empty `trustedLogKeys`
+    without `requireSignedCheckpoint: true`, the only check that reads it.
+  - `scripts/verify_pre_tag_receipt.py` checked cleanliness with `git status` without `--ignored`: a directory under
+    `src/` or `scripts/` with its own `.gitignore` holding `*` hid itself, and a package planted there as
+    `src/proofbundle/signature/` made a receipt changed after signing exit 0 VERIFIED; `scripts/contextlib/`
+    shadowed the standard library under the project's venv. The verifier now compares every committed file under
+    `scripts/` and `src/` with its blob (the bytes, or a symlink's target), refuses every untracked module or symlink
+    there whatever a `.gitignore` says, also behind skip-worktree or assume-unchanged, and takes every directory
+    of the checkout off its import path before it imports the standard library, its top level included. Taking
+    only `scripts/` and `src/` off, as the first fix did, left the top level: Codex measured on pull request 311
+    that with `PYTHONPATH=.` an untracked top-level `contextlib.py` ran before any check, and `python -m` puts
+    the working directory on the path the same way. An interpreter installed in the clone (a `.venv/` there) is
+    refused with exit 2: Codex measured that a `.pth` file of such an environment runs before the first line,
+    also under `-I`, and turned a receipt for another tree into exit 0 VERIFIED; the second fix had exempted
+    that environment. A script started from another checkout than the one `--repo` names is refused too: only
+    `--repo` is compared, and a second clone with an edited receipt library gave exit 0 VERIFIED against a
+    clean one (measured). A run in which a module of the checkout was already loaded at start, such as a
+    `sitecustomize.py` reached through `PYTHONPATH`, is refused with exit 2 where the module stays visible; the
+    documented command is now `python -I scripts/verify_pre_tag_receipt.py` with a Python installed outside the
+    clone, which reads no `PYTHONPATH`, so such a module does not run at all. Its tests plant a hidden package
+    at every position a real run imports and a module at every position of three entries into the checkout,
+    read from real runs.
+  - More of the same class, found by Codex on the fixes above and closed at the root rather than one directory at a
+    time. The interpreter and the checkout must not share a directory in EITHER direction, measured against the
+    interpreter's whole installation: an interpreter installed in the clone turned a mismatched receipt into exit 0
+    VERIFIED, and a clone at the venv's `purelib` and a clone rooted at the interpreter's `lib-dynload` (where a
+    `sitecustomize.py` runs under `-I` on 3.14) each ran checkout code before the verifier's first line; for the
+    `lib-dynload` case that early run is what Codex showed, and a false VERIFIED was not measured. Enumerating the
+    particular startup directories lost that race, so the verifier now refuses whenever the checkout lies in, equals,
+    or contains any of the four prefixes (`sys.prefix`/`exec_prefix`/`base_prefix`/`base_exec_prefix`) or any site
+    directory. An external review of 65d8f8cd then showed that disjoint prefixes and `-I` are not enough on their own:
+    a `.pth` path line in an outside virtual environment puts the clone on the search path at start, and a
+    `sitecustomize.py` of the clone ran under `-I`. That no startup file of the interpreter names a directory of the
+    clone or a directory that contains it is therefore a precondition the reader establishes before the start
+    (RELEASE.md says so); under `-I` the verifier refuses with exit 2 a run whose search path at start already named a
+    directory of the clone or one that contains it, a tripwire that cannot undo code that already ran. The containing
+    directory came from Codex at 6d081424: a `.pth` line naming the parent of a clone called `sitecustomize` made
+    Python import the clone itself as that package, and the path cleaning now drops such an entry as well. The cleanliness check is the byte-for-byte comparison of every committed
+    file under `scripts/` and `src/` with its blob, which calls no git worktree operation, so the `git status` that ran
+    a `filter.*.clean` (measured at 653b5d67) is gone; it now compares the type of every committed path first, because
+    the review measured that a committed directory replaced by a symbolic link to a byte-identical outside copy, with
+    an extra module behind the link, passed the byte comparison. Removing `git status` alone did not keep the
+    remaining git calls from starting a configured program: in a partial clone an object read fetches a missing
+    object through the promisor remote's transport, whose program the clone's configuration names (the review
+    measured `remote.origin.uploadpack` started from the object reads at d0e47397). Both git funnels of the receipt
+    chain, the library's and the verifier's, now refuse a partial clone before any object is read. As the owner's
+    class decision (OA-4496f29e70), a clone whose own configuration names a program from the listed families (a
+    `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, credential or interactive-filter
+    command, a URL-scoped credential helper, an ssh signing command) is refused as well; a boolean value is exempted
+    only for `pager.<cmd>`, the one family git reads as a switch, after the review measured `filter.<n>.clean=true`,
+    `core.sshCommand=false` and `core.hooksPath=off` passing as booleans. The global and system configuration are read
+    from the null device and no program-selecting environment name is inherited. The verifier now queries Git for
+    the effective `filter`, `diff` and `merge` attributes of every committed file, including `.git/info/attributes`;
+    completeness of the listed program families remains unproven. `scripts/pre_tag_audit_gate.py`
+    reads git only through the same funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares bytes
+    with `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep and the
+    review.
+  - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
+    `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
+    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/` or a path there of
+    another type than the commit names, on a run in which a module of the checkout was loaded before its first line or,
+    under `-I`, whose search path at start named a directory of the checkout, when the Python running it shares any
+    directory with the clone in either direction, when it is started from another checkout than `--repo`, on a clone
+    whose own git configuration selects a program from the listed families, and on a partial clone; it also exits 2 on
+    a clone whose effective attributes name a `filter`, `diff` or `merge` driver git does not ship, and when a
+    directory under `scripts/` or `src/` cannot be listed; the release gate and the receipt producer refuse a partial
+    clone too. A
+    second external review (of d97f6e7b) showed the listed families incomplete; the transport, proxy, difftool and
+    shell-alias keys it named are listed now, and that the list is complete is not claimed.
+
+- **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
+  applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:
+  two P1 findings, L4-620v6-T15-LIVE-RELATED-01 and L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01, each confirmed by
+  three of three blind jurors; then the review before run 7 and the owner's choices of 2026-10-01 on card
+  OA-73db31053a). The second is present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-10-01 by
+  running measurement 1 against the source of both tags: under a policy whose only rule is `reject_retracted`, and
+  beside a rule the command applies, `outcome verify` printed `POLICY: OK` over an attached, verified retraction, and
+  `decision verify` ended like no policy. The first came in this form with the reading at the call of this release
+  (the entry below); both tags carry its earlier form, the map read twice, which that entry closes.
+  - The reading at the call copied what it could read and handed on everything else as the caller's object. A
+    `related` map whose keys meet as one in the copy (a `str` subclass beside the `str` it spells) was such a value:
+    the body read it at body time, and a gc callback of the caller gave `verify_decision_receipt` `ok` True and
+    `safeForAutomation` True at 11 of 1065 collection starts of a call where both states give False. RESTRISIKO_620.md
+    carried three more of that class as open P1 with a workaround (owner exception OA-ff64386f8d): a memoryview no view
+    of private bytes can take, read at two times by `merkle.verify_inclusion` (V8-F2); an iterator or a generator,
+    read by the body after the other arguments were copied (`evaluate_public_transparency` PASS where each state fails,
+    `emit_bundle` signing the payload of one state over the leaves of another, V10-F1); and a `str` subclass value
+    whose `__ne__` decided `decision.action_outcome_proven` (V8, E10). The review named the common cause, a reading
+    that falls back to handing on what it does not know, and the owner lifted the exception: each of them is closed in
+    this release and shown closed at the final head.
+  - So the reading decides what reaches a body by the kind of the value, never by its methods, and each argument may
+    name by contract the objects of the caller it takes as they are (`canonical._ein_stand`, `aussen`: a callback, a
+    signer, a dict of signers by name, a path, a clock, the class of a classmethod, a path or a loaded log). A container it reads is copied as
+    before. A value that cannot
+    change and whose methods are the interpreter's, the standard library's or this package's is handed on (an exact
+    complex, range, Decimal, date, timedelta, a datetime or time without a tzinfo or with the standard library's
+    `timezone`, a path of `pathlib`, a frozenset of exact scalars, an object or a class of this package). A `str`,
+    `bytes`, `int` or `float` subclass becomes what it stores, in a class of this package whose methods are the base
+    type's own (`canonical._fremdwert`), so the one rule for a number still refuses an `int` or `float` subclass where
+    it did. An iterator or a generator outside an argument whose contract takes one refuses the call. A container the
+    reading recognises and cannot copy refuses the call (`canonical._StandUnkopierbar`, a `ProofBundleError`), also at
+    a function that otherwise answers every input with a verdict, such as `classify_digest_evidence`: a dict
+    or set with a key or item whose hash would be the caller's code, or whose keys or items meet as one in the copy,
+    an OrderedDict whose own order cannot be read without hashing, a view of an OrderedDict or of a mapping that is no
+    dict, a memoryview no view of private bytes can take, and an object of this package with an attribute name that is
+    no exact `str`. Every other value (an object of the caller's class, a Mapping that is no dict where no named
+    reader reads one, a frozenset holding any other value, a datetime with a tzinfo of the caller's, a buffer that is
+    no memoryview, a class of the caller's where no contract takes it) reaches the body as a stand-in that holds nothing of the caller and carries the name of its type
+    (`canonical._fremdkoerper`), so a refusal names the type it named before. The check and the copy use this one
+    reading.
+  - Every rule a policy sets is applied by the command or the function it is given to, or the policy is refused
+    (`policy._regelfehler`; the property of the review, owner point 4: "for every verify command each policy rule it is
+    given is handled by the contract of that command"). At fda55f98 a command applied the rules it knew and dropped
+    the others: `outcome verify` printed `POLICY: OK` over an attached, verified retraction under a policy whose only
+    rule was `reject_retracted`, which only `relation-statement verify` applies, and beside a rule it applies the same
+    policy passed `outcome verify` and ended `decision verify` like no policy. Each verify path names the rules it
+    applies (`policy.ANGEWANDTE_REGELN`): a rule set anywhere else refuses the policy with exit 2 at `verify`,
+    `decision verify`, `outcome verify` and `relation-statement verify`, and with `policy_ok` False and the reason at
+    `evaluate_policy`, `evaluate_decision_policy`, `verify_decision_receipt`, `verify_outcome_receipt` and
+    `verify_relation_statement`. Absence, an allowed deactivation (`false`, an empty list or object, `policyPurpose:
+    null`) and the metadata (`schema`, `policy_id`, `deploymentReady`, `generatedFromTemplate`) set no rule; an
+    applied rule that is broken fails the policy, and `POLICY: OK` requires that no rule given is left unattended.
+  - The shared fields are part of every receipt command's contract (owner point 6): `outcome verify` and
+    `relation-statement verify` passed an expired policy, one not yet valid, one for another verify path and a raw
+    template (`requiresIdentityOverlay: true`), where `verify` and `decision verify` fail each; both fail them now,
+    and `decision verify` fails them without a `decision_receipt` section too. A relation statement has no purpose of
+    its own among the registered ones, so a policy that declares any purpose is for another path there. An invalid
+    restriction is refused where the policy is read: `decision_receipt.accepted_predicate_types: []` admitted no
+    predicate type and failed every receipt (exit 3), while its three sibling lists read an empty list as no rule.
+  - `evaluate_decision_policy` hashed a signed `relation` of an evidence reference that is a list or an object into a
+    set and let a raw TypeError escape under any policy with `required_evidence_relations`, the shipped strict example
+    included, at v6.1.0 as well (RT-04, judged P2); only a relation that is text is one a reference names now. A key
+    built of shared frozensets was read once per path before any budget (L2-620v6-KEY-GRAPH-EXPONENTIAL-01, P2:
+    `verify_bundle` 11.37 s at six levels, 266 s at seven); each part is read once per level now, and the plain copy a
+    serializer writes, which writes a shared part once per place, stops at the structural budget's `json_nodes`. Both
+    bounds are counted by the tests, not timed.
+  - The double collect stays, and it is no full closure (owner point 5). A change made and undone between the two reads
+    of one container is not seen, and that reaches a public verdict: measured on 2026-10-01, a gc callback of the
+    caller that changed two entries of an anchor list at the reads of the two collects gave `verify_anchors` PASS
+    over a list that never held two good entries. The closed type boundary keeps unsupported values from being handed
+    on as objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate proof,
+    in particular for ABA between two reads. RESTRISIKO_620.md names it as R620-ABA-1, and the closed type boundary
+    for every argument comes with 7.0 (R620-TYPE-BOUNDARY-70).
+  What a caller sees differently, each a break of the Python API that the owner's choice 2 names: an iterator or a
+  generator in an argument refuses the call where the body read it (pass a list or a tuple); a container the copy
+  cannot hold refuses the call where it stayed the caller's object; an object of the caller's class, a Mapping that is
+  no dict and the other values above reach the body as a stand-in, which a function judges as a value of a type it
+  does not accept, where it judged the caller's object through its own methods; a `str`, `bytes`, `int` or `float`
+  subclass reaches the body as what it stores. A policy that sets a rule its command does not apply is refused (exit
+  2, or `policy_ok` False), `outcome verify` and `relation-statement verify` fail a policy whose shared fields fail,
+  `relation-statement verify` fails a policy that declares a purpose, an empty `accepted_predicate_types` is refused
+  when the policy is read, and a value whose plain copy would write more than `json_nodes` entries (each item of a
+  list and each value of a dict, as the parse budget counts a document; a part held in several places counted in each)
+  is refused by the copy. The AGT verifiers read a `trusted_authorizer_keys` that the
+  reading does not copy itself (a numpy or ctypes array of keys, another iterable of the caller's) at the call through a
+  named reader that runs their list rule before the first collect and after the second and compares the answers
+  (`adapters.agt_receipt._liste_stand`), so such a list is judged as before, and a list or tuple is copied as every
+  other container; an iterator or a generator there is refused unread with the refusal of a list that cannot be read
+  (exit 2, no exception), and a receipt dict holding a key whose hash would be the caller's code refuses the call. The shipped template `decision-receipt-template-v1` and
+  `examples/trust_policy_decision_strict.json` no longer carry `allowed_schema_versions` and `signature`, rules of the
+  eval bundle path that `decision verify` never applied: a decision policy instantiated from the 6.1.0 template carries
+  them and is refused by `decision verify` with exit 2, naming them, until they are removed. `from_inspect_ai_log`
+  takes a path or a loaded log as before. A check or a result of the caller's own class reaches `evaluate_policy`,
+  `root_authenticity_summary` and `svr_properties` as a stand-in, which fails the crypto verdict (the policy is not
+  evaluated, `policy_ok` None) or earns no property, where they read the caller's object; pass the
+  `VerificationResult` of `verify_bundle`. The two refusals of the reading at the call are raised as the class a
+  producer documents where it names one (`EvalClaimError`, a `ValueError`, at the eval claim producers,
+  `BundleFormatError` at the in-toto exporters and verifiers, `BundleFormatError` or `ValueError` at `issue_sd_jwt`);
+  elsewhere they are `ProofBundleError`s, which a caller that catches only a function's own error class does not catch
+  (RESTRISIKO_620.md, R620-R6-10). The classes the reading makes for the types of a caller (a stand-in class, the
+  class of a value of a `str` or number subclass, the methods it read) are released with those types: each entry of
+  its caches goes when its type dies (`canonical._schwach`). Codex on pull request 311 at 4ecfb1ed measured 20000
+  fresh types keeping 20000 stand-in classes and 37.1 MB after the collector ran (P2).
+  Tests: the gate before run 7, in five files: `tests/test_no_object_of_the_caller_reaches_a_body.py` (every hostile
+  form at every parameter of every public function, with a planted control),
+  `tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py` (each verdict surface and argument from a valid
+  base case to its expected verdict, the check shown reached, and a promised form of each argument as the positive
+  control), `tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py` (callback answers changed after they returned,
+  copies handed out again, two arguments changed together, ABA up to the public verdict, and threads),
+  `tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py` (the three open P1, the findings of run 6 and
+  the counted bounds) and `tests/test_every_rule_of_a_policy_is_handled_by_the_command.py` (each rule alone and beside
+  an applied one, at the CLI and in the library, measurement 1 of 2026-10-01, the shared fields and the invalid
+  restriction). Measured at fda55f98 before the fix: 22 failed and 29 passed, as pytest counts them; here all pass.
+
+- **A public function reads a caller's values once, at its call, in one reading, and a file whose content reads
+  as absent is refused like the empty value** (deep gate of the 6.2.0 release preparation at d388ed3d: two P1 findings,
+  L4-620v5-T5-SECOND-READING-01 and L3-620v5-T14-ANCHORS-NULL-FILE-01, each confirmed by two of three blind jurors;
+  then three verify lanes on the first fix, 6d674973, and three on the second, 8f2fa980, before either was pushed).
+  Both findings are present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-09-30 by executing them
+  against the source of both tags:
+  - `verify_decision_receipt` and `verify_outcome_receipt` judged the edges of the caller's `related` map in
+    `verify_relationship_edges`, read the map again in `successor_warning` and recorded that second reading's
+    `supersededByAttached` over the one the engine had set. A gc callback of the caller that emptied its map between
+    the two readings hid an attached verified retraction from `reject_superseded` while the edge to the parent
+    stayed VERIFIED: under a policy with `reject_superseded` and `require_relation_resolution: ["derivedFrom"]`,
+    which refuses the full map and the empty map alike, `ok` came out True (the gate's lens measured
+    `safeForAutomation` True as well under a policy that pins the decision maker). At both tags each verification
+    called the two readers three times, and a sweep over every collection start of a call gave `ok` True at four to
+    seven of them. The verifiers now read the map once (`relation._related_lesen`) and judge whether there are
+    targets, the edges and `supersededByAttached` over that one reading (`relation._kanten_urteil`), as the anchors
+    are read once and judged; `verify_relationship_edges` is the same pair.
+  - Reading each value once where the body reads it did not close the class. The first fix did that at nine more
+    surfaces and paused the collector during each reading; the verify lanes on it measured, each with a sweep over
+    every collection start and at d388ed3d as well, a verdict neither state of the caller's value gives at
+    `verify_eval_results_entry` (the token read, verified, and the value read after it: 22 of 112 starts), at the
+    target roots of `verify_anchors`, at `renewal.verify_sequence` (each chain copied at its own time, 6 of 73) and
+    its two authority keys, at `adapters.agt_receipt.verify_agt_receipt_chain` (8 of 78), at `cap1.check_cap1_document`
+    (nine rules each reading the document, 12 of 58), at `agent_review.resolve_receipt_chain`, at the policy and
+    `related` of the three receipt verifiers and at the block and the statement of `join_test_result` (each read
+    once, at two times: 246 of 603 starts at decision), at a structural budget that read one state and a copy that
+    read another (`verify_offline_merkle`, `verify_relationship_edges`, `verify_bundle`), at a Mapping read through
+    its own methods at several places (`automation_verdict.automation_summary`, the `rp_trust` of `verify_rfc3161`)
+    and at a result object read at five places (`evaluate_public_transparency`). The counts are the lanes' own: how
+    many collections a call starts depends on the state of the process, and a later lane counted the same kind of
+    result over other totals. And the pause did not hold: each reading had its own flag, so a reading in a second
+    thread found the collector off, paused nothing, and the first reading's end started it again in the middle of
+    the second (the lane measured 24 of 300 calls of `verify_decision_receipt` with a verdict neither state gives
+    while another thread looped `join_test_result`, at 6d674973); code of the caller inside a reading
+    could start it again too.
+  - The second fix read every argument at the call and paused the collector once for the whole process (8f2fa980,
+    not pushed). Its three verify lanes measured what that left out and what the pause cost. `RenewalPolicy.from_dict`,
+    a public classmethod, read the caller's dict three times, and a policy neither state holds passed
+    `evaluate_renewal_policy`. A `VerificationResult` with its `Check` objects, and an `ArchiveTimeStamp`, were handed
+    on as the caller's objects: `root_authenticity_summary`, `evaluate_policy`, `adapters.agt_receipt.exit_code` and
+    `verify_sequence` gave verdicts neither state gives, and `verify_sequence` handed four times the OpenTimestamps
+    size cap to the library. A `related` map keyed by a `str` subclass that overrides nothing stayed the caller's
+    object, and `verify_decision_receipt` gave `ok` True in 291 of 618 runs where both states give False. A
+    `functools.partial` of a public function handed in as a resolver was called from the package's own frame and not
+    read. Under eight threads the collector ran in none of the samples and the memory grew from 27 to 70 MiB, a thread
+    that collected every 100 ms made most calls refuse, and an exception at the wrong line, another thread changing
+    its own gc callbacks, or a fork during a reading left the collector off for the process. A tuple of tuples was
+    copied in quadratic time (16000 tuples in 55 s at `verify_bundle`). A Mapping of digests, which `verify_dual_hash`
+    refuses at both tags, was turned into a dict and accepted. And a policy holding only an `anchors` section, which
+    gives the relying party's trust for `decision verify --anchors`, was refused.
+  - So the reading sits at the call and reads twice. Every public function of every public module, and every public
+    classmethod and staticmethod of a public class there (`canonical._ein_stand`; the command line, the demo and the
+    two framework hooks are named outside, and `verifier_block.attach`, which fills the caller's predicate in place by
+    contract), reads all of its arguments in one reading before its body reads any of them (`canonical._stand`): a
+    private copy of every dict, list, tuple, set, bytearray, deque and array, a subclass as its base type holding what
+    it stores and an OrderedDict in its own order, of a memoryview and of a view of a dict (`keys()`, `values()`,
+    `items()`, a `MappingProxyType`), and of every object of a dataclass of this package field by field, read through the base
+    types' own methods, so no method of the caller runs and no object of the caller's classes is made. An iterator
+    or a generator cannot be read twice, so it was handed on and the body read it when it read it, as it read a value
+    of the caller's own class and a memoryview in a format no view of private bytes can take (all three named in
+    RESTRISIKO_620.md as open P1 with a workaround, and closed by the fix of deep gate run 6, the entry above: the
+    first and the third refuse the call, the second reaches the body as a stand-in or as what it stores). A key of a
+    `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
+    base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
+    promoted by the copy. The reading collects every container twice and keeps the first collect only when the
+    second finds each of the same type and holding the same objects (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
+    Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read, unless a
+    container was changed and changed back between its two reads, the limit RESTRISIKO_620.md names (R620-ABA-1).
+    That limit reaches a public verdict, measured on 2026-10-01: a gc callback of the caller that changed two entries
+    of an anchor list at the reads of the two collects gave `verify_anchors` PASS over a list that never held two good
+    entries. The closed type boundary keeps unsupported values from being handed on as objects of the caller. It does
+    not yet prove a joint state of mutable inputs. That needs a separate proof, in particular for ABA between two
+    reads. A
+    container that changed between the two collects, or changed its size while it was read, makes both be made again,
+    and after three readings in each of which the value changed the call is refused with `canonical._StandGestoert`,
+    a `ProofBundleError`. Nothing of the process is touched, and no module of the package switches the collector. A
+    Mapping that is no dict (`rp_trust`, `frozen`, the result and checks of `automation_summary`) and the consistency
+    result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
+    before the first collect and after the second, and the reading counts only when its two answers are the same
+    value (two answers are one value when the copies made from them would hold the same: equal contents, in any
+    order for a set, a frozenset, a dict that is no OrderedDict and the fields of an object of this package, up to
+    keys that only their stored order can pair, which RESTRISIKO_620.md names, and an exact str, bytes, int, bool, a
+    float or complex of the same bits, a range of the same start, stop and step, a Decimal of the same sign, digits
+    and exponent, a date, a timedelta or a naive time or datetime of equal value and fold;
+    any other value built anew, an object of the caller's class among them, is a change, named in RESTRISIKO_620.md),
+    so what it reads is part of the one reading. A RecursionError
+    raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
+    registered anchor verifier) is read where it returns by the same reading, the callable runs as the caller's code
+    (`canonical._draussen`), so a public function it calls reads its arguments whatever frame calls it, and a
+    registered verifier gets its own copy of `frozen` and `rp_trust`. A public function that the package's own code
+    calls from inside the body of another reads nothing again: what it is passed is that reading or was made from it
+    (measured without this, on a loaded machine, `verify_decision_receipt` took 1.94 ms against 0.86 ms at
+    6d674973). A call from the caller's code, a resolver or a gc callback among them, is read as every call is. The
+    recursion of `merkle.merkle_tree_hash` and its leaf hash run on its one reading, not through the public names.
+    What the reading costs, measured on 2026-09-30 as the least of three alternating rounds over the 55 cases of a verify lane on a loaded machine: the median call takes 1.5 times its time at d388ed3d and 1.06 times its time at the second fix. A small call pays a fixed part (`merkle.leaf_hash` 0.5 against 1.2 microseconds, `cap1.check_cap1_document` over a small document 0.010 against 0.071 ms), `verify_decision_receipt` without a large argument 0.79 against 0.86 ms, and a call over a large argument up to 3.4 times (`validate_decision_predicate` over 90 000 nodes 53 against 181 ms; `canonicalize_statement` over 190 000 nodes 296 against 687 ms and 21 against 62 MB at its peak; `verify_sequence` over 2000 renewals 14 against 38 ms and 0.4 against 3.3 MB, since each ArchiveTimeStamp is copied). Every case stays linear in the size of its arguments. Those figures were taken at the third fix (085869313). Measured again at bdcbe909 on 2026-09-30 in the same way, with nothing else of this release's work on the machine, the median call takes 1.01 times its time at 085869313 and at most 1.06 times, 1.47 times its time at d388ed3d and 1.10 times its time at the second fix, and each case named above lies within 4 per cent of the figure given for it, the call over 90 000 nodes at 3.47 times. A Mapping read through a named reader also pays the comparison of its two answers, linear in their size: over 100 000 pairs or items with str or date keys it takes 0.10 to 0.17 s at bdcbe909 and peaks at 35 to 56 MiB.
+  - The third fix (085869313, not pushed) read by the double collect. Its two verify lanes, V7 and V8, measured what
+    it left open. The reader of a Mapping ran once, before the collects, so a callback that changed a Mapping and
+    another argument together paired two states: `automation_summary` safe in 171 of 1080 runs, `verify_anchor` ok in
+    107 of 1519, `evaluate_public_transparency` PASS in 79 of 1028, where each state is refused, and with real threads
+    `safeForAutomation` True in 172 of 445 975 calls; 0 at 8f2fa980 for these shapes, so this was a step back. A deque,
+    an array and a view of a dict were not copied and the body read them after the other arguments were copied:
+    `emit_bundle` signed the payload of one state over the prior leaves of another in 99 of 521 runs, and
+    `evaluate_public_transparency` passed witness keys in a deque in 194 of 814, both also at 8f2fa980. A Mapping that
+    builds equal values anew and is never changed was refused as changed at `verify_anchors`, `verify_rfc3161` and
+    `automation_summary`, where every earlier tree gave a verdict, and so was a valid input a few frames below the
+    recursion limit. `verify_sequence` called its `anchor_verifier` under another name, outside `_draussen`, and the
+    scan of calls, which looked for the parameter's own name, did not see it. The reader is part of both collects
+    now, a deque, an array and a view are copied, a RecursionError passes as it is, the anchor verifier runs as the
+    caller's code, and the scans follow a name bound to a parameter. A memoryview whose format no view of private
+    bytes can take stayed the caller's view (named in RESTRISIKO_620.md, the same at every earlier tree; refused since
+    the fix of deep gate run 6, the entry above).
+  - The fourth form (d58be0b8, not pushed) had the verify lanes V10 and V11. V10 measured the class closed at every
+    shape the lanes V7 and V8 found (0 mixed verdicts at d58be0b8 against 173 of 1080 at 085869313 for two Mappings),
+    and three things left: a Mapping that builds a new set, frozenset, bytearray or deque on each read was refused as
+    changed, where 8f2fa980 gave a verdict (V11 added an OrderedDict, a defaultdict, an array, a date and the same
+    pairs in another order, as a configuration that parses JSON on each read builds them); a RecursionError inside a
+    named reader became an unreadable Mapping; and six planted defects of the comparison and of the collection of the
+    package's dataclasses were caught by no test. The comparison now judges two answers by the reading the copy is
+    built from, so two answers whose copies would hold the same are one value (a frozenset, which the reading does
+    not copy, was still refused: the lane V12 below); the readers let a RecursionError through; and each rule got a
+    test, which the lane V12 found incomplete. V10
+    also measured that an iterator or a generator handed in as an argument is read by the body after the other
+    arguments were copied, at every tree since d388ed3d (`evaluate_public_transparency` passed witness keys in 297 of
+    968 runs where each state fails); it cannot be read twice, and RESTRISIKO_620.md named it as open. With a list
+    the same sweeps give 0. Since the fix of deep gate run 6 (the entry above) such an argument refuses the call.
+  - The fifth form (d1c39ae3, not pushed) had the verify lane V12, and it found the comparison of a reader's two
+    answers wrong both ways. It called answers the same whose copies differ: `{1}` and `{True}`, two NaNs of another
+    sign or payload, two naive datetimes of another `fold`. And it called equal values a
+    change: a never-changed Mapping that builds a frozenset, a set of floats or tuples, a complex, a range, a Decimal,
+    a Counter or a dict with float or tuple keys in another order on each read was refused at `automation_summary`,
+    where 8f2fa980 gives a verdict. `dict.keys(od)` of an OrderedDict was copied as a view of the copy, which lists the
+    OrderedDict's own order where the caller's view lists its storage order. The texts said more than the comparison
+    did, and with one of 24 of its rules planted away no test fell. The comparison now matches the items of a set, a
+    frozenset and a dict that is no OrderedDict key by key, a key whose hash is the interpreter's own by its value and
+    any other key by its identity, so no method of it runs, and compares each pair again, type-exactly. A float is
+    compared by its eight bytes, a Decimal by its sign, digits and exponent, and a complex, a range and the `fold` of
+    a naive time or datetime are compared too. A keys, values or items view of an OrderedDict is handed on. A value
+    still refused when a Mapping builds it anew (a Fraction, a UUID, a path, a datetime with a tzinfo, an object of
+    the caller's class and others) is named in RESTRISIKO_620.md. Measured on 2026-09-30 by planting 67 single
+    defects (rules of the comparison and of its key matching, and the parts of `_lies` the step touched) into copies of this tree, 66 fell at the class tests (at an assertion, at the `_StandGestoert` of the Mapping
+    that parses its values anew, or at a raised TypeError), and one, the guard against a circle, hangs the ring case
+    and fell only to a time limit of 120 s. The lane V13 below found 18 more rules with no case that falls
+    without them.
+  - The sixth form (95c9f82a, not pushed) had the verify lane V13. Its key matching looked a key up by its value only
+    when the key was an exact scalar or a tuple of such, and else by identity: a never-changed Mapping keyed by a date,
+    a timedelta, a naive datetime or time, a NaN or a tuple holding one was refused as changed, where d1c39ae3,
+    8f2fa980 and d388ed3d give a verdict, a step back of that form. A `range` was compared by `==`, and `range(0, 3, 5)`
+    and `range(0, 1)` are equal but store another start, stop and step. Looking `"a"` up among keys holding `b"a"`
+    compared the two (their hash is the same), and under `python -bb` a BytesWarning escaped where the two answers are
+    simply different. Two sentences were wrong: d1c39ae3 called `{0.0}` and `{-0.0}` different, not the same, and every
+    memoryview has strides, only one that is not C-contiguous is not read (a slice with a step, a Fortran-ordered view:
+    the lane V14 measured the second). And with one of 18 more rules planted away no
+    test fell. The pairing of keys now looks each key up by its type and what it stores, read through the attributes of
+    the exact built-in type (a float by its bits, a Decimal by its digits and exponent, a date by its fields, and so on
+    for every type the comparison reads as a leaf, and a tuple or frozenset of such), else as the same object, else in
+    the stored order of both answers; any one-to-one pairing is sound, because each pair is then compared type-exactly.
+    A range is compared by its start, stop and step, and the fields of an object of this package's dataclasses in any
+    order, as a plain dict. Each of the 18 rules has a case that falls without it: measured on 2026-09-30 by planting
+    92 single defects (rules of the comparison, of the typed key and of the pairing, and the parts of `_lies` the
+    chain touched) into copies of this tree, 91 fell at the class tests, and one, the guard against a circle, hangs
+    the ring case and fell only to a time limit of 120 s. The second class file compared two runs of `show-eval`
+    including the age it prints, which the clock writes: two runs a second apart differed, so its control failed
+    under load, and the generator could see a difference where a content read like no option. That line is kept
+    as its label now, and a test runs the command twice across a second.
+  - The seventh form (6723bf24, not pushed) had the verify lane V14. It found no two answers called the same whose
+    copies differ, in about 1.3 million comparisons against an independent oracle, and no method of the caller run. It
+    found two sentences wrong, now put right: the "in any order" above held for keys the pairing can type by what they
+    store and that differ in it, but not for keys of one type and the same bits (two NaN keys) or keys it cannot type
+    (a tuple subclass, a key nested deeper than 16, a tuple holding a value it cannot type), which only the stored
+    order pairs, so the same keys in another order are refused; and a Decimal is one value by its sign, digits and
+    exponent, not by its digits and exponent alone. It also found 33 single defects of the leaf, typed-key and pairing
+    rules that no case of the class tests catches, so "each rule has a case" holds for the rules the lanes named, not
+    for these. By owner decision of 2026-09-30 a finding that gives no wrong verdict no longer blocks this release:
+    the refusals and the missing cases are named in RESTRISIKO_620.md, each with an identifier, a severity and a
+    workaround, and follow after the tag.
+  - A Codex review of pull request 311 at 110cdad9 (thread 4151141239, P1) found that the second collect compared what
+    each container holds but not its type, while an object of a dataclass of this package is copied as the type the
+    first collect read. A gc callback that ran during the first collect, after it had read an object's type, made a
+    `VerificationResult` a `Check` and put a passing check into its list; the first collect recorded the old type beside
+    contents read after the change, the second collect found the same contents, and the copy was a `VerificationResult`
+    holding the passing check, a state the value never held. The sweep of the new case gives `root_authenticity_summary`
+    a `safeForAutomation` that neither state gives at 46 of its 961 collection starts at 6b02d9f7, and at none here.
+    The double collect came with 085869313, so no released version carries this. The second collect compares the type
+    of each container it reads again: a subclass of dict, OrderedDict, list, set, bytearray, deque or array, a dataclass
+    of this package, whose class the caller can assign, and a memoryview, whose class cannot change. Only the dataclass
+    is copied as that type. A tuple and a view are not read again: a view cannot change its class or the mapping it
+    shows, and a tuple subclass without an instance dict, a namedtuple among them, can be given another such class,
+    but every tuple is copied as a plain tuple, so its class reaches no copy.
+  - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
+    read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
+    beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
+    `verify_markovian`; `check_on_receipt` copies the evidence by the base types and refuses a key that is no text and
+    no exact JSON scalar with the error json gives for it (a key's own `__str__` rewrote the evidence while it was
+    copied, measured at 6d674973); `verify_offline_merkle` reads the fields of a DataLayer proof from one plain copy,
+    not through the caller's `get`; `join_test_result` and `report` compare and digest copies, not the caller's
+    objects through their own `__contains__` and `__getitem__`.
+  - `decision verify --anchors FILE` whose content is JSON null became `anchors=None`, the value of a call without
+    the option, and exited 0 with the output of no `--anchors`, while `--anchors ''` exits 2; an empty list is what
+    the anchor layer reads None as, and ended the same way. Such a file is refused with exit 2 now, and one holding
+    `{}`, `""`, `0` or `false` with exit 1, as no list of anchors. At v6.0.0 and v6.1.0 `--anchors ''` and a file
+    holding `null`, `[]`, `{}`, `""`, `0` or `false` all ended like no option; the empty value is refused since pull
+    request 311 in this release. The generator of this class runs every file option whose absence is a state of its
+    own, fifteen, with JSON null alone and in whitespace, the empty collections, an empty string, zero, false and every
+    whitespace spelling of the empty value as the whole file: only `--anchors` read one of them like no option.
+    `prereg --check` and `evalcard --check`, which read their file through `decode_eval_claim`, were not seen by the
+    guard until the verify lane named them; every such content was refused there already. The fourteen other file
+    options have no absent state such a content could reach: seven `--key` options and `--target-file` are refused
+    without the option, and `--target-file`'s bytes are the target itself, so every content names one; six are
+    required by argparse.
+  - One level down, a file whose content the command reads as nothing (verify lane V3 on 6d674973, present at
+    d388ed3d and at both tags): a valid policy that holds no section a command evaluates (the packaged eval template,
+    or a policy with only its schema and id) was loaded and not evaluated, and `decision verify`, `outcome verify`
+    and `relation-statement verify` ended with exit 0 and output byte-identical to no `--policy`. Such a policy is
+    refused with exit 2 now: at `decision verify` one with no `decision_receipt` section, no rule in its `relations`
+    section and, beside `--anchors`, no anchor trust in its `anchors` section; at the other two one with no rule in a
+    `relations` section. An empty `relations` section sets no rule: `decision verify` under it ended like no
+    `--policy`, and `outcome verify` and `relation-statement verify` printed `POLICY: OK` over a policy that holds no
+    rule they evaluate. An empty `decision_receipt` section applies its default rules and is evaluated. A rule here
+    had to be one the command applies, and this fix did not hold that: a section holding only `reject_retracted:
+    true`, which only `relation-statement verify` applies, counted as a rule at the other two, and `outcome verify`
+    printed `POLICY: OK` over an attached, verified retraction (deep gate run 6 at fda55f98,
+    L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01; closed by the entry above, under which every rule a policy sets must
+    be one the command applies). And
+    `emit --key K --new-key ''` signed with K and exited 0, `--key '' --new-key N` wrote N: the two signer options were
+    read by their truth. Both are read by `is not None` now, both given is refused, and a key or payload file that
+    cannot be read or written is exit 2, not a raw traceback (`emit --payload-file ''` ended in one).
+  What a caller sees differently: `supersededByAttached` of the decision and outcome verifiers is the one
+  `verify_relationship_edges` sets; a public function's body works on a private copy of its arguments, so a subclass
+  of a built-in container reaches it as its base type holding what it stores and none of its methods runs (the AGT
+  adapter, which wrote a list or dict subclass through its own `__iter__` or `items()`, writes what it stores), an
+  object of a dataclass of this package reaches it as a new object of that class holding copies, a key of a `str` or
+  `bytes` subclass as what it stores in a class of this package, a deque, an array and a view of a dict as private
+  copies of the same type (a `MappingProxyType` over an OrderedDict as one over a plain dict in the OrderedDict's
+  own order; a keys, values or items view of an OrderedDict as the caller's view),
+  and a dict with a key that is none of these (no exact str, int, float, bool, bytes or None, no exact complex,
+  range, Decimal, date or timedelta, no datetime or time without a tzinfo, no subclass of str or bytes and no tuple or
+  frozenset of such values; this list named only the first six types until deep gate run 7 at 1a3cd672,
+  L4-620v7-CHANGELOG-KEY-REFUSAL-TEXT-01, while the copy has kept the standard library's value types as keys since
+  79627e67), or whose keys meet as one in the copy, stayed
+  the caller's object, as did a memoryview whose format no view of private bytes can take, and an iterator or a
+  generator was read by the body as before (each refuses the call since the fix of deep gate run 6, the entry
+  above, which names what a caller sees differently there); a function never changes
+  the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable type that is
+  no signature as an equal copy, not as the object itself, `renewal.last_ats` returns an equal copy of the newest
+  ArchiveTimeStamp, and the sequences `renew_timestamp` and `renew_hashtree` return hold equal copies of the
+  caller's ArchiveTimeStamps; an argument that changed during each of three readings,
+  or a Mapping whose two readings are no one value each time (a value RESTRISIKO_620.md names, built anew, among
+  them), is `_StandGestoert`, also at a function that otherwise answers
+  every input with a verdict; a Mapping argument read through a named reader is read twice per reading; `verify_offline_merkle` refuses a proof that holds a value that is no JSON value, also
+  in a field it does not judge, and a tuple of layers as before; `check_on_receipt` reads evidence that changes its
+  size while it is read as malformed; `decision verify` exits 2 for an anchors file holding null or an empty list,
+  and the three receipt verify commands for a policy with nothing in it they evaluate; `emit` and the other signing
+  commands exit 2 for an empty `--key` or `--new-key` beside the other.
+  Tests: `tests/test_a_verifier_reads_a_callers_value_once.py` (the sweep over every collection start of a call, with
+  a planted double reading it catches, at the surfaces the gate and the verify lanes measured, several also over nine
+  phases of the allocator; a count of the readings of `related`; the subclass cases; a guard that every public
+  function, classmethod and staticmethod carries the reading at its call once, that every call of a caller's callable
+  is named, and that each whose answer enters a verdict runs as the caller's code; the one reading itself over a
+  generator of values, with recording subclasses of every method a base type has, the package's dataclasses, keys of
+  a `str` subclass, a tuple of tuples in linear time and a sweep that falls when the second collect is taken away;
+  and the second collect: a change between the two collects read again, three readings before a refusal, a dict that
+  changes its size while it is read, a Mapping read before the first collect and after the second, a thread that
+  collects all the time, and a guard that the package uses the module `gc` only as `gc.get_referents`; and what the
+  lanes V7 and V8 found: two Mappings changed together, a deque, an array and a view copied and read as one state, a
+  RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length and at a
+  change of its class (every kind `_lies` reads and every pair of the package's dataclasses whose layouts let one
+  become the other, and the sweep of the Codex finding at `root_authenticity_summary`), the depth
+  after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier; and
+  what the lane V10 found: the rules of the comparison of a reader's two answers its plants showed untested, a
+  RecursionError inside a reader
+  and in the collection of the package's dataclasses; and what the lanes V12 and V13 found: a case for each rule of
+  that comparison and of the pairing of keys they named, which falls without the rule and runs no method of the
+  caller (33 further single defects of these rules the lane V14 planted fall at none, RESTRISIKO_620.md
+  R620-V14-3), a
+  Mapping that parses its values anew in both orders, a view of an OrderedDict handed on, a memoryview of two
+  dimensions and one that is not C-contiguous, and a str key beside a bytes key under `python -bb`) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  (the file-content generator, with a planted option the command does not read and the line the clock writes kept
+  out of its comparison, the policy with nothing the command
+  evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
+  the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them (each failed case of a test with cases counts once): at d388ed3d 98 failed in the first file and 23 in the second; at 6d674973, 86 and 17; at 8f2fa980, 53 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 68 and 0; at d58be0b8, 50 and 0; at d1c39ae3, 46 and 0; at 95c9f82a, 26 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
+
+- **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
+  value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each
+  confirmed by two of three blind jurors). Both are present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured
+  on 2026-09-29 against the source of both tags: the subject state with the first test file below, the CLI with the
+  lens's sweep against the same command without the option and again by a verify lens of this commit:
+  - `relation._target_subject_pin_error` failed only the lowercase words "ambiguous", "absent" and "malformed" of an
+    attached target's `subject_digest_state` and read every other explicit state as "present". A target labelled
+    "AMBIGUOUS", "multiple" or `["ambiguous"]`, whose `subject_digest` holds its first subject, bound a declared
+    `targetSubjectDigest` to that subject: lineage VERIFIED and `ok` True at the decision, outcome and relation
+    statement verifiers, at the receipt's own edge and at every hop (the gate's lens measured `safeForAutomation`
+    True as well at the decision verifier under a policy that pins the signer). Every explicit state but the four
+    words is malformed now, a `str` subclass is read by what it stores, and a missing state is still inferred from
+    the digest. The Python API only: `cli._load_related` writes only the four words, and the Rust verifier derives the
+    state from the payload itself and reads none from a caller. The sweep of this class measured the neighbouring
+    reads of a closed vocabulary (outcome and decision status, the assurance level of the policy and of `show-eval`,
+    the CAP-1 disposition, the agent-review disposition and coverage status, the status of a verification summary):
+    each is closed by a validator before its verdict.
+  - A restricting CLI option given the empty string was read by its truth and dropped: `verify --policy ''` and
+    `--anchor-type ''`, `decision verify --policy ''` and `--anchors ''`, and `outcome verify --policy ''` and
+    `relation-statement verify --policy ''` exited 0, where a policy the receipt does not satisfy gives 3 and a path
+    that does not exist gives 2. So did `show-eval --eat ''`, `policy instantiate --expected-root-file ''` and
+    `audit-challenge --nonce ''`, which fell back to the grindable self-challenge mode. These options are read with
+    `is not None` now, the rule the neighbour `--expected-origin` already followed: an empty path is refused with
+    exit 2, an empty anchor type is a requirement no anchor meets (exit 3), and an empty nonce is refused with exit 2.
+    The deep gate at 99f76ceb (one P1, seen by two lenses and confirmed by three of three jurors for each) found the
+    nonce judged by its spelling, `== ""`: `bytes.fromhex` skips ASCII whitespace, so `--nonce ' '`, a tab or a
+    newline decoded to no bytes and gave the self-challenge indices under the mode `auditor-nonce` with exit 0, at
+    v6.0.0, v6.1.0 and 5c65e536 alike. The nonce is decoded once, before a mode is chosen; a nonce that decodes to
+    no bytes is refused with exit 2, and the mode follows the decoded bytes. Two sweeps with the empty value and
+    whitespace, over 24 option and `--pub` sites at 99f76ceb and over the 16 inputs the CLI itself normalises
+    (`bytes.fromhex`, `strip`, base64, a file's content) at this commit, found no other site that reads
+    whitespace like an absent option.
+    Nine truth reads of an option stay in `cli.py`, each refusing an empty value itself (`--pub`) or on an emit or
+    output path (`--out`, `--output`, `--policy-uri`, `--policy-sha256`); `--key` and `--new-key` are read with
+    `is not None` since the second fix of the gate at d388ed3d (this sentence said eleven and named both until deep
+    gate run 6 at fda55f98, L3-620v6-T11-ELEVEN-TRUTH-READS-TEXT-01).
+    `outcome verify --decision-maker-id ''` is unchanged: the library reads it with `is not None`, and an empty maker
+    id cannot equal an executor id, so role separation is checked and holds.
+  Tests: `tests/test_a_subject_state_is_read_closed_world.py` (the state corpus at the engine's edge and hop and at the
+  three receipt verifiers) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py` (each site against the
+  same command without the option, and a class guard: it reads `cli.py` for a one-value option tested by its truth,
+  directly or through a local name, in `if`, `while`, conditional expressions, `and` and `or`, `not`, `assert`,
+  comprehension filters and `bool()`, and each such read must stand in a named list with its reason). Measured at
+  d97de8e5 before the fixes: 96 failed in the first file and 10 in the second, as pytest counts them, each failing
+  subtest once. Since 99f76ceb the second file also runs every site with whitespace spellings of the empty value,
+  checks the audit challenge as a property of the nonce bytes it uses, and refuses a comparison of a one-value
+  option's spelling with the literal `""` by `==` or `!=`, directly or through a local name (it reads no other form,
+  such as `in`, `is`, a pattern or `b""`, and none stands in `cli.py`; the wording said "any comparison" until the
+  deep gate at d388ed3d, L3-620v5-T14-GUARD-CLAIM-01); measured at 99f76ceb before this fix, 25 failed there.
+
+- **The build epoch no longer moves with a commit confined to release notes or audit artefacts** (release tooling,
+  owner decision of 2026-09-29). `scripts/build_reproducible.head_commit_epoch` took the commit time of HEAD, and
+  `release.yml` exported a `SOURCE_DATE_EPOCH` of its own that the script never read, so the sdist and the wheel
+  changed with every commit of the tag chain although their content did not, and the tagged commit, made after the
+  signing, never built the bytes that the signed soak and differential bind. Measured on 2026-09-29 in a local copy of
+  the chain: the receipt commit, the evidence commit and the merge, which change only `audit_artifacts/`, built three
+  different sdists; with one epoch the three were byte-identical. The signed evidence of 6.1.0 binds sdist `62a00fb7…`
+  and wheel `20bf3210…`, and PyPI carries `d6355491…` and `f4316416…`. The epoch is the time of the last commit that
+  touches a path outside `release_notes/` and `audit_artifacts/`, the two prefixes `render_release` already allows
+  between the tree the notes describe and the tagged tree and the only two the tag chain writes; a contract test holds
+  the two copies equal, because `render_release.py` is not in the sdist and cannot be imported from it. A commit that
+  touches another unshipped path (`tools/`, `.github/`) still moves the epoch, which costs no binding. `release.yml`
+  no longer exports an epoch. The limit: a shallow clone answers with the time of its boundary commit; the release
+  workflow checks out the full history. Tests: `tests/test_the_build_epoch_ignores_notes_and_evidence_commits.py`
+  (two cases red under the HEAD rule, a merge over the evidence commit among them).
+
+- **Two mutation operators named guards that no input reaches any more** (operators 90 and 99 of
+  `scripts/mutation_check.py`). Pull request 313 refuses a non-dict `trusted_checkpoints` entry in the loader rule
+  before `evaluate_policy` reads it, and pull request 312 put the `data_digests` budget before the copy, so the later
+  check never decides. Each mutant survived the test files that reach its module. Operator 90 now disables the live
+  guard, `_require_dict` in `_validate_checkpoint_entry`; operator 99 disables both budget sites, since either one
+  alone is caught by the other. Both are killed by their test files; the labels stay, since the shard weights are keyed
+  by them.
+
+- **No caller code changes what a later check reads, a restricting flag restricts, and a container of the
+  wrong type is refused** (deep gate of the 6.2.0 release preparation at 7409b123: five P1 findings beside
+  the one below, each confirmed by a majority of three blind jurors). Measured at 7409b123, each through the
+  Python API with a callback or a container the caller supplies; the CLI passes no callbacks and builds plain
+  values, and of these findings reaches only a falsy `anchors` from `--anchors <file>` (below):
+  - `verify_decision_receipt` read `anchors` (the list and each entry) and `rp_trust` after the evidence
+    resolver had run, and `verify_anchors` copied each entry only when its turn came. A resolver that
+    cleared the anchor list hid a failing anchor, one that wrote a Bitcoin header into `rp_trust` confirmed
+    a pending anchor under `require_external_anchor`, and a registered verifier for one anchor rewrote the
+    next one; each gave `ok` and `safeForAutomation` True. `verify_anchors` now reads every entry,
+    `rp_trust`, the relying party's roots and the verifier registry before the first verifier runs, and
+    hands each verifier a copy of `rp_trust` of its own; `verify_decision_receipt` reads the anchors and
+    `rp_trust` at its entry, before any caller code (`anchors._anker_lesen`). A verify lens on this change
+    found that the verifier registry was still copied after the evidence resolver: a resolver that called
+    `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one. The registry
+    is copied in `_anker_lesen` now, at the decision verifier's entry.
+  - `verify_sequence` handed its own copy of the newest ArchiveTimeStamp to the caller's `anchor_verifier`
+    and read `external_token_type`, `sig_alg` and `hash_alg` from that copy afterwards. A callback that
+    answered True and cleared `external_token_type` skipped a failing external token, and one that
+    relabelled a sha1 ArchiveTimeStamp as sha256 passed `require_current_hash`. The external token is judged
+    and both labels are read before the callback runs, and the callback gets a copy of its own. The same
+    verify lens found `HASH_REGISTRY` read after the callback: one that replaced the sha1 entry with a
+    `current` status passed `require_current_hash`. The registry's verdict on the newest hash is read before
+    the callback as well.
+  - `verify_outcome_receipt` kept the attestation resolver's answer object and read it again after the
+    resolver's next call: a `bytearray` that call rewrote bound a receiver label to a key the ladder had
+    refused (`receiver_key_bound` True). A `bytearray` answer is kept as the bytes it held when it was
+    given, and the ladder judges the same bytes. The sweep of this class found one neighbour:
+    `assurance.classify_receiver_corroboration` read `expected_receiver_public_key` after it had called the
+    attestation resolver, so a resolver that rewrote a `bytearray` expectation to the key it returned reached
+    INDEPENDENTLY_ATTESTED; the expectation is read before either resolver runs.
+  - A registered anchor verifier's `warn` counted only as the exact `True` (pull request 291), so
+    `{"ok": True, "warn": "pending"}` was a full anchor and met `--require-anchor`. `warn` is read in the
+    direction that grants nothing: beside `ok` True any value but `False` makes the anchor pending, and
+    beside any other `ok` only the exact `True` does, as before.
+  - A `related` that is a Mapping but no dict (`UserDict`, `MappingProxyType`, `ChainMap`), a list of pairs
+    or any other value was read as no attached entries by the decision and outcome verifiers, and replaced by
+    None in `verify_relation_statement`, so `reject_superseded` did not see a verified retraction (present at
+    v6.1.0 as well). All three refuse it now, as `relation.verify_relationship_edges` and `successor_warning`
+    do: `lineage` FAIL with `relation:related_malformed`, and `ok` False. The neighbour RESTRISIKO_620
+    named: an `anchors` that is not None and no list, a falsy one included (`0`, `""`, `{}`, `()`), was read
+    as no anchors, also from the CLI, which passes the content of `--anchors <file>` on (a file holding `{}`,
+    `0`, `false` or `""` gave `ok` True at 52231c95). `verify_anchors` refuses it with `BundleFormatError`,
+    `verify_decision_receipt` reports `anchors_ok` False, and `require` and `require_target` of
+    `verify_anchors` are None or a string. The sweep
+    of this class found one neighbour: a policy whose `relations` section is present and no dict (a list, a
+    text, a number) was read as no relations rule by the outcome and relation statement verifiers, which ran
+    the gate only for a dict, and by `relation.evaluate_relations_policy`; over an attached retraction both
+    verifiers gave `ok` True, where `load_policy` refuses the policy, and so does the decision verifier since
+    the loader rule below. Every present
+    section goes to the gate now, which refuses one that is no dict with `LINEAGE_REQUIREMENT_FAILED`.
+  What a caller sees differently: no verdict depends on what a callback does to the arguments. A `related`
+  that is no dict and an `anchors` that is no list fail the verdict instead of reading as absent, and
+  `verify_anchors` refuses an `rp_trust` that is no JSON object once there is an anchor to judge (the RFC 3161
+  and OpenTimestamps verifiers failed each anchor on it before, and the chia verifier, which takes no
+  `rp_trust`, ignored it).
+  Tests: `tests/test_no_caller_code_changes_what_a_later_check_reads.py`, with one property per surface:
+  callbacks that empty every argument they can reach change no verdict. Measured at 31cf5f7e: 87 failed
+  (subtests counted) and 8 passed over its first seventeen cases; the case of the assurance neighbour was red
+  at dd3f0666, the case of the relations section at 1a8a813c (24 failed) and the two registry cases at
+  4d572a47. Here: 21 passed, 117 subtests.
+  Four existing controls held the old reading of the container class as their expectation and now hold the
+  refusal (three in `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`, the never-raise guard
+  in `tests/test_relation_profile.py`, which still asserts that nothing raises).
+
+- **An evaluator refuses every policy field the loader refuses, with the loader's message** (deep gate of
+  the 6.2.0 release preparation at 7409b123: a P1 confirmed by three of three blind jurors, found while
+  re-measuring a foreign-family lens). A decision policy whose `decision_receipt.trusted_decision_makers`
+  is not a list (`5`, `"abc"`, `{}`, `null`, `true`, one entry object without a list) made
+  `verify_decision_receipt` report `ok` and `policy_ok` True for a receipt signed by a key the policy does
+  not trust: `evaluate_decision_policy` read the value with `_as_list`, a value of another type became
+  `[]`, and an empty list pins nobody. `load_policy` refuses that policy, so the CLI exits 2 on it and was
+  not affected; the Python API was, at v6.1.0 (dcac5aee) and on main 2074d814 alike.
+  It is the third instance of one class. The three evaluators (`evaluate_policy`,
+  `evaluate_decision_policy`, `relation.evaluate_relations_policy`) take a policy dict that may never have
+  passed `load_policy`, and each applied only part of the loader's rule: the hull (round 14, lens L4, F1)
+  and the boolean fields (pull request 291). Every other present field of another type was read as empty,
+  and empty is no constraint. Measured at 7409b123: an `allowed_issuers` that is an object or a string, an
+  `allowed_algs`, `trusted_roots` or `allowed_status_authorities` that is a string, a
+  `trusted_checkpoints` that is an object, and a `signature` or `merkle` section that is a list or a string
+  each gave `policy_ok` True with no check at all; so did a `require_relation_resolution` that is not a
+  list and a `relation_signer` or `require_relation_target` that is not an object.
+  The loader's field rule is now one function (`policy._felder_pruefen`, with
+  `policy._relations_felder_pruefen` for the relations section), and `load_policy` and the three
+  evaluators call it; `load_policy` checks in the same order as before. The evaluators keep accepting a
+  partial policy without `schema` or `policy_id`, and the v0.2-only sections are gated on the schema only in
+  `load_policy`, as before. `lint_policy` applies the same entry rule first and reads no pin from a policy
+  it refuses (a list of integers in `allowed_issuers` raised `AttributeError` there, a boolean in
+  `trusted_roots` `TypeError`), and `policy_warnings` counts only a list as a signer pin, so a string no
+  longer silences the attributes-to-nobody warning. The loader's messages that name a caller's value render
+  it with `budget.render_safe`: now that the evaluators apply the loader's rule, a `policyPurpose` of
+  `10**5000` would otherwise raise a raw `ValueError` there (the same value already did at
+  `evaluate_decision_policy`, measured by the same gate's re-measurement; the CLI refuses the literal).
+  What a caller sees differently: a policy dict that `load_policy` would refuse is refused by every
+  evaluator, as a fail-closed verdict with `policy rejected before evaluation (fail-closed, the same rule
+  load_policy applies)` and the loader's own message.
+  Tests: `tests/test_the_evaluators_judge_a_policy_by_the_loaders_rule.py` asks `load_policy` which values
+  it refuses, for every key of every section it knows and for every section as a whole, with ten JSON
+  probes, and holds each evaluator, `lint_policy` and the warning to it. Measured at 52231c95: 1009 failed
+  subtests, 512 passed (pytest counts a failed subtest as a failure and its parent case as passed). Here:
+  9 passed, 1521 subtests.
+  An independent cross-check of the class on main 52231c95 (a second session, read only, its own
+  reproducers) named 44 sites, 26 of them P1 candidates. Each was measured again by its verdict at the
+  surface a relying party calls, with a control that bites: at 52231c95 each candidate let a check pass
+  whose correctly typed control fails. Two were still open after the rule above and are closed here. A
+  relations section the policy holds as JSON null (`{"relations": null}`) was read as no section by the
+  outcome and relation statement verifiers, which judged an attached retraction with no rule and gave `ok`
+  True; the loader refuses it ("relations must be a JSON object"), and so do all three receipt verifiers
+  now (`relation._abschnitt_urteil`, with `canonical._FEHLT` telling an absent key from a null one).
+  `RenewalPolicy.from_dict` read a `deprecated_algs` of another type, a Python set included, as no
+  deprecated algorithm, so a sha256 ATS under `{"deprecated_algs": {"sha256"}, "strictness": "fail"}`
+  reported `renewal:policy` True; from_dict is the only loader of that policy and no CLI path takes it.
+  It now refuses a present `deprecated_algs` that is not a list, tuple, set or frozenset, JSON null
+  included, with `RenewalError`, and reads the four containers through their base type's iteration.
+  The verify lens on that change found two more of the class. An entry of `deprecated_algs` that is no text
+  (`[b"sha256"]`, a nested `[["sha256"]]`, `[5]`) was dropped, so it deprecated nothing; `from_dict` refuses
+  it now with `RenewalError`, and `evaluate_renewal_policy` reports `renewal:policy_malformed` for a policy
+  built directly with such an entry. The outcome and relation statement verifiers judged only the relations
+  section of a whole policy, so a typo in the top-level key (`"relationz"`), or any other field the loader
+  refuses beside a readable section, passed where the loader and the decision verifier refuse the policy;
+  both apply the loader's rule to the whole policy now (`policy._abgelehnt_vom_loader`, the one entry rule
+  of `evaluate_policy` and `evaluate_decision_policy` as well). Not changed in code:
+  `agent_review` reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well,
+  so loader and evaluator agree there. The owner decided on 2026-09-29 that this reading stays for 6.2.0;
+  `docs/AGENT_REVIEW_PREDICATE.md` said the three list fields "must be lists of known names" and now says
+  what the loader accepts and says, a list of known names or null, where null means no rule. Whether null
+  is refused there later is decided after the tag.
+  The same verify lenses found the class beyond the policy dict, each with a reproduction, and each is closed
+  here. `anchors_rfc3161.verify_rfc3161` read an `rp_trust.trusted_tsa_policy_oids` of another type, and a
+  list whose first entry is falsy, as no TSA policy pin, so a token under another policy verified; it answers
+  `rp_trust_malformed` now, and an empty list stays no pin; a pin held by a `str` subclass is read by its characters. `outcome.executor_trusted_by_role` and
+  `receiver_trusted_by_role` read a trust pack `revoked` of another type as revoking nobody, so a revoked
+  executor was trusted with `ok` and `safeForAutomation` True; such a `revoked` revokes every key now. The
+  outcome verifier read a pack key entry for a receiver that is no usable 32-byte key as the pack naming no
+  key, so a bare True from the attestation resolver reached INDEPENDENTLY_ATTESTED; it binds nothing now. The same
+  holds for a well-formed `mldsa65` key: the pack names a key for the label, and no 32-byte signer key a
+  resolver can return equals it, so a bare True no longer promotes such a receiver either, the rule
+  `pack_key_binds_signer` applies to the executor (an mldsa65 key never binds an Ed25519 DSSE signer).
+  `automation_summary` read a `references` requirement of another shape, and entries that are no text, as
+  no references; they are unresolved now, and a name held by a `str` subclass is read by its characters. `verify_outcome_receipt` compared a `decision_maker_id` of an int,
+  bool, float or bytes with the string `executor.id`, which is always unequal, and reported role separation;
+  an id that is no text shows none now. `experimental.attested_inference.check_on_receipt` accepted an
+  answer when no planned route or one of another type was given, where its docstring says not measurable;
+  it says not measurable now; a planned route held by a `str` subclass or a `str` Enum is read by its
+  characters. `verify_anchors` keeps reading an empty `require` as the loader accepts it (no type named;
+  beside a target, any type): a regression lens measured that refusing it turned the CLI exit code of such
+  a policy from 0 to 3. `policy.policy_expected_aud` and `policy_anchor_trust` project a policy the
+  loader's rule accepts and raise `PolicyError` for one it refuses (an `sd_jwt` that is no object dropped the
+  audience binding for a policy that never passed `load_policy`), and `explain_policy` renders a huge
+  freshness bound bounded instead of raising from `lint_policy`.
+  Tests: `tests/test_every_site_of_the_cross_check_refuses_a_wrong_type.py` measures each candidate at
+  `verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `evaluate_policy` and
+  `evaluate_renewal_policy`. Measured at 52231c95: 186 failed subtests, at 2a2d59b2 24, at bc3d275f 10
+  (the two neighbours the verify lens found), and its cases for the sites beyond the policy dict fail at
+  4d572a47 with 55 failures. Here: 13 passed, 333 subtests. One existing control in
+  `tests/test_renewal_field_magnitude_never_raise.py` held the dropping of an entry that is no text and now
+  holds the typed refusal.
+
+- **One reading reaches every argument a public verify surface judges, and the sweep measures its own
+  reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,
+  each confirmed by three of three blind jurors, one of them found twice; the class of the round-12 entry
+  "Every public verify and emit surface reads the caller's objects once, by what they store", in
+  arguments its sweep did not pass and in exported surfaces it did not list). Measured at main 2074d814,
+  each through the Python API; the CLI parses files into plain values and is not affected:
+  - `verify_decision_receipt` and `verify_outcome_receipt` checked the signature under one copy of
+    `public_key` and read the caller's buffer again for the trust pin, the `relation_signer` pin and the
+    pack binding, after caller code (an evidence resolver, a registered anchor verifier) could rewrite a
+    `bytearray`: a receipt signed by an untrusted key reported `signer_trusted`, `policy_ok` and `ok`
+    True. The key is read once at entry (`_bytes_von`), and every later check uses that copy; so does
+    `verify_relation_statement`.
+  - `verify_prereg` and `verify_evaluation_card` read the stored hash through the claim's own `get` and
+    compared it through the caller's `__eq__`: a claim that stores another document's hash gave ok True.
+    The field is read from what the claim stores (`_feld_von`) and compared by its characters; a stored
+    value that is no text is a failed check that says so.
+  - `verify_sequence` checked the authority signature over an int subclass's own rendering of an ATS
+    `time` while `evaluate_renewal_policy` judged the stored integer, so a stale anchor was judged fresh;
+    `evaluate_renewal_policy` subtracted an int-subclass `now` through its own `__sub__` and `__gt__`,
+    which turned an overdue FAIL into ok True; and `known_newest_token_digest` was compared through the
+    caller's `__eq__`, so a truncated sequence passed `renewal:no_rollback`. A signed field is an exact
+    `str` or `int` now, `now`, `max_ats_age` and every stored time are exact ints, the sequence and the
+    signature pairs are read once (`_ketten_einmal`, `_signaturpaare`), the authority keys by the bytes
+    they store, and the digest and the strictness by their characters.
+  - `verify_decision_receipt` evaluated `anchors or []` through the list's own `__bool__`: a list that
+    says it is empty hid a failing anchor, and ok went from False to True. Only an absent list is empty.
+  - The relations gate of the decision, outcome and relation-statement verifiers read the policy through
+    its own `get` and `__getitem__`, while `evaluate_decision_policy` read what it stores in the same
+    call: a verified retraction or a `relation_signer` violation became ok True and `safeForAutomation`
+    True. The policy is copied once at entry (the new `canonical._richtlinie_von`), and every consumer
+    in the call judges that copy. A policy holding a value that is no JSON value fails `policy_ok` at the
+    outcome and relation-statement verifiers, and the decision verifier hands it to
+    `evaluate_decision_policy`, which refuses it with the loader's message. In all three the relations
+    section of such a policy is still judged as the policy stores it (the new `canonical._abschnitt_von`),
+    so the gate's own code `LINEAGE_REQUIREMENT_FAILED` stands beside that refusal, as it did at 2074d814.
+
+  The earlier entry of this section that named `known_newest_token_digest` and `prev_version_digest` as
+  not closed ("a neighbouring class in which the caller decides against itself") stands as the record of
+  its day; both are compared by their characters now.
+
+  The sweep missed these because it measured the arguments it passes and the surfaces it lists. It now
+  measures its own reach (`EveryArgumentOfAVerifySurfaceIsInTheSweep` in
+  `tests/test_one_reading_at_every_surface.py`): every `verify_*` and `evaluate_*` name that `proofbundle`
+  exports is a surface of the sweep, and every argument of every verify or evaluate surface of the sweep
+  is passed by it, read from the calls it makes, or named with a reason. Planted gaps make it red: with
+  `anchors=` taken out of the decision call it names `decision.verify_decision_receipt(anchors)`, and
+  with the `verify_prereg` entry taken out it names `verify_prereg`. Without the `[anchors]` extra the two
+  surfaces whose input needs OpenTimestamps are not in the sweep, and the case names them as not measured
+  instead of reading their absence as covered; every other gap stays red there too (measured with the
+  import blocked, as the hermetic cleanroom job installs no extras). The number axis is a property of its
+  own (`EveryNumberIsReadByTheOneRule`): no surface runs a method of a caller's number. The extended
+  sweep found neighbours of the same class and they are fixed here: `verify_mldsa` compared `level`
+  through a `str` subclass's own `__eq__` and read its three inputs through their own methods;
+  `verify_trust_pack` compared `prev_version` and `prev_root_threshold` through their own reflected
+  comparisons, `prev_version_digest` through the caller's `__eq__`, and read `prev_root_keys` through its
+  own methods; the v0.2 agent review read `policy.get("time")` through the caller's `get`;
+  `verify_rootcommit_v1` and `verify_rootcommit_v2sig` asked `frozen or {}` through the map's own
+  `__len__`; and `verify_sequence` asked `authority_keys or {}` the same way.
+
+  A verify lane of three lenses over the first pushed head of this change (c2ba90db) confirmed the claims
+  above with executed probes and found eight more neighbours, each a verdict promoted at c2ba90db and fixed
+  here: in `verify_sequence`, a `covered_digest` that is a `str` subclass with its own `__ne__` passed the
+  covering check, a `hash_alg` whose own `__eq__` and `__hash__` claimed `sha256` passed
+  `require_current_hash`, and a `token` placed in the instance dict of an exact `ArchiveTimeStamp` hid a
+  backdated entry (every entry is now a fresh `ArchiveTimeStamp` built from the values it stores, and a field
+  that holds a subclass of a built-in type is refused with the sequence); `evaluate_renewal_policy` read a
+  `RenewalPolicy` subclass's property more than once (only the exact type is a policy, each field is read
+  once); `verify_trust_pack` compared its expiry through a `datetime` subclass's own reflected comparison, and
+  `evaluate_policy` took the same clock (both read the clock once now, `canonical._zeitpunkt_von`);
+  `agent_review.apply_time_evidence` lifted both time axes for a dict subclass whose own `get` answered
+  verified evidence it does not store; `anchors_ots` and `anchors_rfc3161` read `rp_trust` and `frozen`
+  through their own `get`, so a relying-party header map that stored nothing confirmed an OpenTimestamps
+  proof through `verify_rootcommit_v1` (both are read once as plain copies now, `canonical._abbild_von`);
+  `verify_decision_receipt` handed an unreadable policy to `evaluate_decision_policy` after the evidence
+  resolver had run, so a resolver that rewrote it made ok True (the refusal is taken at entry now); and it
+  read `related` after the resolver, so a resolver that cleared it hid an attached retraction (the lineage
+  is computed before any caller code runs now). The same lane found the linearity case of
+  `tests/test_renewal_praefix_deckung_orakel.py` able to pass on a count of zero; it requires a count now.
+
+  What a caller sees differently: `verify_sequence` and `evaluate_renewal_policy` refuse an
+  `ArchiveTimeStamp` subclass as `renewal:shape`, because its own `token()` would decide the material the
+  covering check recomputes, and a signed field or time that is a `str` or `int` subclass is refused the
+  same way; `evaluate_renewal_policy` refuses a policy that is no `RenewalPolicy` of exactly that type;
+  `verify_trust_pack` and `evaluate_policy` refuse a clock that is no `datetime` of exactly that type (an
+  aware one is read as its UTC instant); `anchors_ots` and `anchors_rfc3161` refuse an `rp_trust` or
+  `frozen` that holds a value that is no JSON value. Two existing cases changed with it. `tests/test_renewal_praefix_deckung_orakel.py` counted the
+  `token()` calls of the covering walk through such a subclass; with the refusal the count fell to 0, and
+  its linearity case passed as 0 == 8 * 0. The count is taken on the class itself now, and a new case holds
+  the refusal. `tests/test_policy_nicht_auswertbar_hat_einen_code.py` triggered POLICY_NOT_EVALUABLE through
+  a policy whose own `get` raises, which the verifier no longer calls; the trigger is a policy holding a
+  value that is no JSON value now, which gives the code at 2074d814 and here, and a new case holds that the
+  raising `get` never runs and the verdict is that of the plain dict the policy stores.
+
+  Tests: `tests/test_one_reading_reaches_every_argument.py` (new) carries a case for each finding, and
+  the sweep file gains the new surfaces, the arguments the sweep did not pass and the two generator
+  classes. Measured at 2074d814 with both files of this change: 56 failed, 41 passed (pytest counts a failed
+  subtest as a failure and its parent case as passed). Here: 58 passed, 332 subtests, on Python 3.10.12. Two cases are green at both, and their docstrings say why: the anchor
+  obligation of `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision`, because
+  `evaluate_decision_policy` judges that obligation by what the policy stores; and
+  `test_a_value_that_is_no_json_value_hides_no_relations_code`, which holds the relations code at all three
+  verifiers for a policy that cannot be copied as a whole. The first form of this change lost that code
+  (red there in all six subtests; the full suite found it in
+  `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`). Named, not changed, each measured by
+  the verify lane and none a promoted verdict: `verify_decision_receipt` reads an `anchors` argument that
+  is a falsy value of another type (`{}`, `""`, `0`, `False`) as no anchors, as before; a policy holding two
+  `relations` keys with the same characters is refused with `policy_ok` False but without a relations code;
+  a policy holding a float NaN is copied as a value; `agent_review.validate_time_claim` and
+  `derive_limitation_codes` still read a caller's dict through its own `get` (read, not measured).
+  Switches, and callbacks other than those of the receipt verifiers, are not measured by the sweep, as
+  `_NICHT_IM_SWEEP` states.
 
 - **An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does** (`relation._RFC3339_Z`).
   The pattern read the timestamp with `\d`, which in a Python str pattern is every Unicode decimal digit.
@@ -4479,7 +6027,9 @@ verify surface, never a correctness change.
 - `_verify_signature_for_alg` returns a fail-closed `False` when ML-DSA verification is unavailable
   (no FIPS-204 build) instead of leaking `PQUnavailable`.
 - The CLI bounds every file read at the `input_bytes` budget, so a huge/streaming input (`/dev/zero`)
-  maps to a clean exit-2 instead of memory exhaustion.
+  maps to a clean exit-2 instead of memory exhaustion. _Correction of 2026-10-01: not every file read;
+  `policy instantiate --issuer-key` and `--expected-root-file` read their file without the cap since 3.1.1
+  (deep gate run 6 of 6.2.0 at fda55f98, L3-620v6-INSTANTIATE-UNBOUNDED-READ-01, RESTRISIKO_620.md R620-R6-5)._
 - **Never-raise closed as a CLASS, not point fixes (four iterated adversarial re-audits).** Successive
   adversarial re-gates (6 falsification lenses, each finding refuted by 3 independent skeptics, plus a
   completeness critic) proved the sibling-escape was systemic across the whole public verify surface, not a

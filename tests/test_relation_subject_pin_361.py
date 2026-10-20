@@ -13,6 +13,7 @@ must fail with a stable error code whenever the resolved target subject digest i
 malformed, or unequal. Python and Rust must pass the same negative vectors.*
 """
 import base64
+import hashlib
 import json
 import pathlib
 import tempfile
@@ -24,6 +25,7 @@ from proofbundle.emit import generate_signer
 from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
 from proofbundle.policy import load_policy
 from proofbundle.relation import (
+    CODE_RELATION_TARGET_MALFORMED,
     CODE_RELATION_TARGET_SUBJECT_AMBIGUOUS,
     CODE_RELATION_TARGET_SUBJECT_MALFORMED,
     CODE_RELATION_TARGET_SUBJECT_MISMATCH,
@@ -33,6 +35,7 @@ from proofbundle.relation import (
     validate_relationships,
     verify_relationship_edges,
 )
+from proofbundle.trust_pack import _rfc8785_bytes
 
 V02 = "proofbundle/trust-policy/v0.2"
 _INTOTO = "application/vnd.in-toto+json"
@@ -174,13 +177,18 @@ class CliLoaderSubjectless(unittest.TestCase):
         env, root_hex = _emit_subjectless_target(signer)
         related, errs = _load_related_target(env, signer, _pub_b64(signer))
         self.assertEqual(errs, [])
-        # the loader classifies the subjectless target as absent, not a silently-picked subject.
+        # The loader never picks a subject for a subjectless target. Since 2026-10-17 the Statement oracle
+        # requires a subject whose every entry carries a digest, so the same bytes fail standalone and the
+        # loader refuses the target at its payload gate: malformed and unverified, where it read "absent"
+        # before. The pin still fails, now as a malformed attached target.
         self.assertIsNone(related[root_hex]["subject_digest"])
-        self.assertEqual(related[root_hex]["subject_digest_state"], "absent")
+        self.assertEqual(related[root_hex]["subject_digest_state"], "malformed")
+        self.assertIs(related[root_hex]["verified"], False)
+        self.assertIn("subject must name at least one artifact", related[root_hex]["payload_malformed"])
         r = verify_relationship_edges([_edge(root_hex, declared_subject=_HEX_B)], related,
                                       subject_hex="f" * 64)
         self.assertEqual(r["lineage"], LINEAGE_FAIL)
-        self.assertIn(CODE_RELATION_TARGET_SUBJECT_MISSING, " ".join(r["errors"]))
+        self.assertIn(CODE_RELATION_TARGET_MALFORMED, " ".join(r["errors"]))
 
 
 def _automation_policy(successor, target_root):
@@ -246,8 +254,13 @@ class AutomationGateProjection(unittest.TestCase):
             "performedAt": "2026-07-17T00:00:00Z", "policyPurpose": "outcome", "relationships": [self.edge],
         }
         env = emit_outcome_receipt(pred, self.successor, strict=False)
+        # N43/N45: anchor the pack so safeForAutomation=False here is caused by the SUBJECT-PIN / lineage
+        # failure under test, not merely by the (otherwise-missing) relying-party anchor. N45 narrows the
+        # anchor to one bound to this predicate's content, so a content digest is used (a root-key identity
+        # match alone no longer anchors).
         r = verify_outcome_receipt(env, _pub_bytes(self.successor), policy=self.policy,
-                                   related=self.related, trust_pack=trust_pack)
+                                   related=self.related, trust_pack=trust_pack,
+                                   trust_pack_expected_genesis_digest=hashlib.sha256(_rfc8785_bytes(trust_pack)).hexdigest())
         self.assertNotEqual((r.get("lineage") or {}).get("lineage"), LINEAGE_VERIFIED)
         self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
 

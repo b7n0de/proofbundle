@@ -106,14 +106,35 @@ def git_environment(root: Path) -> dict:
     umgebung = {k: os.environ[k] for k in _GIT_INHERITED if k in os.environ}
     umgebung.update({
         "LC_ALL": "C", "LANG": "C",
-        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
         "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_OPTIONAL_LOCKS": "0",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_WORK_TREE": str(root),
         "GIT_CEILING_DIRECTORIES": str(root.parent),
     })
+    # No environment name that chooses a program for git to run is inherited (owner OA-4496f29e70; the allowlist
+    # already keeps them out, these empties make the funnel neutral even if the allowlist grows).
+    umgebung.update({k: "" for k in ("GIT_EXTERNAL_DIFF", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PAGER", "GIT_EDITOR",
+                                     "GIT_SEQUENCE_EDITOR", "GIT_PROXY_COMMAND", "GIT_ASKPASS")})
     return umgebung
+
+
+#: The configuration keys that make a repository a PARTIAL CLONE, as a pattern `git config --get-regexp` matches.
+#:
+#: External review of 65d8f8cd, F3 (2026-10-02, measured by the reviewer at d0e47397): a repository with a promisor
+#: remote fetches an object it does not hold the moment a command asks for it, and the fetch starts that remote's
+#: transport, whose program the repository's own configuration names (`remote.<name>.uploadpack`, an ssh command, a
+#: remote helper). A missing object in such a clone ran the configured `remote.origin.uploadpack` from `git_objects`,
+#: and from the verifier's `_objekte`, `_baum` and `_measure`, before any refusal; the configuration refusal listed
+#: nothing for that key, and a verdict given afterwards does not undo a program that already ran. git makes a remote a
+#: promisor through these keys (`remote.<name>.promisor`, `remote.<name>.partialclonefilter`) and through the
+#: repository format's `extensions.partialClone`. A repository that carries any of them, whatever the value, is asked
+#: nothing further by either funnel, so no object is read from it and nothing is fetched. A full clone from the forge
+#: carries none. The verifier carries the same pattern; the funnel contract holds the two equal.
+#: The subsection may be EMPTY (`remote..promisor`, which git accepts; external review of d97f6e7b, R2-2), so the middle
+#: of the pattern is `.*`, not `.+`.
+_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$"
 
 
 def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:
@@ -145,8 +166,9 @@ def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float =
     `rev-parse --show-toplevel --show-prefix` must name `repo` and an empty prefix. A `--repo` that
     names a subdirectory made `ls-tree -r HEAD` list only that subdirectory while `git show
     HEAD:<path>` stayed relative to the root, and the gate then took the digest from one tree and
-    the trust anchor from another (measured: `ok=true` for a tampered root). A nonzero exit of the
-    call itself is returned, not raised; what it means is the caller's to decide.
+    the trust anchor from another (measured: `ok=true` for a tampered root). It raises as well when
+    `repo` is a partial clone (`_TEILKLON_SCHLUESSEL`), before the call, so no object read can fetch.
+    A nonzero exit of the call itself is returned, not raised; what it means is the caller's to decide.
     """
     import subprocess  # noqa: PLC0415
     root = Path(os.fspath(repo)).resolve()
@@ -173,6 +195,21 @@ def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float =
             f"{os.fsdecode(zeilen[1]) if len(zeilen) > 1 else ''!r}; the chain asks only about the "
             "top level of the repository it is given, because a listing relative to a subdirectory "
             "and a path relative to the root describe two different trees")
+    # NO QUESTION TO A PARTIAL CLONE (see `_TEILKLON_SCHLUESSEL`). Asked here, in the funnel, so it comes before every
+    # object access of every caller, not only of the callers that remember to ask. `git config --get-regexp` reads the
+    # configuration and no object; exit 1 with no output is "no such key", anything else refuses.
+    teilklon = starte(("config", "-z", "--get-regexp", _TEILKLON_SCHLUESSEL), None)
+    if teilklon.returncode == 0 and teilklon.stdout:
+        namen = sorted({e.split(b"\n", 1)[0].decode("utf-8", "replace")
+                        for e in teilklon.stdout.split(b"\0") if e})
+        raise BaumNichtLesbar(
+            f"{root} is a partial clone ({', '.join(namen)[:160]}): git fetches an object it does not hold "
+            "from the promisor remote and starts the program that remote's configuration names, so no "
+            "object is read from it -- clone the repository in full")
+    if teilklon.returncode != 1 or teilklon.stdout:
+        grund = teilklon.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise BaumNichtLesbar(f"git could not say whether {root} is a partial clone"
+                              + (f": {grund[0]}" if grund else ""))
     return starte(args, stdin_bytes)
 
 

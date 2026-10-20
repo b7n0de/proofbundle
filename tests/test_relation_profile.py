@@ -691,14 +691,16 @@ class TestNeverRaiseRelatedGuard(unittest.TestCase):
     non-dict `related` container (library-API-misuse) — fail-closed, not TypeError."""
 
     def test_non_dict_related_never_raises(self):
+        """Never raises, and since the deep gate at 7409b123 (L4-620b-01) a `related` that is no dict is refused:
+        lineage FAIL and a named `successor_warning`, never read as no attached targets."""
         from proofbundle.relation import successor_warning, verify_relationship_edges
         e = [edge(H_B, relation="supersedes")]
         for bad in ([1, 2], "string", 5, 3.14, {1, 2}, (1,), True):
             res = verify_relationship_edges(e, bad, subject_hex=H_A)
             self.assertIsInstance(res, dict, repr(bad))
-            self.assertIn(res["lineage"], (LINEAGE_DECLARED_UNRESOLVED, LINEAGE_FAIL,
-                                           LINEAGE_VERIFIED, LINEAGE_NOT_EVALUATED))
-            self.assertIsNone(successor_warning(None, bad, subject_hex=H_A), repr(bad))
+            self.assertEqual(res["lineage"], LINEAGE_FAIL, repr(bad))
+            self.assertIn("relation:related_malformed", successor_warning(None, bad, subject_hex=H_A) or "",
+                          repr(bad))
 
 
 class TestRelationsPolicyNegativePaths(unittest.TestCase):

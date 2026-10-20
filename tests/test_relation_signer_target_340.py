@@ -351,6 +351,10 @@ class TestSignerSetProperty(unittest.TestCase):
         lineage = {"edges": [{"relation": "supersedes", "resolution": "VERIFIED",
                               "targetDigest": "a" * 64, "verified_under": _pub(successor)}],
                    "supersededByAttached": None}
+        # Nachtrag 48/48b (F2): relation_signer is satisfied only for a lineage bound to the verified successor
+        # receipt; stamp it for this successor key, as a passing verify does, so membership alone decides here.
+        from _lineage_binding import bound_lineage  # type: ignore  # noqa: PLC0415
+        bound_lineage(lineage, _pub(successor))
         section = {"relation_signer": {"supersedes": {"mode": "pinned", "keys": pinned}}}
         viol = evaluate_relations_policy(section, lineage, successor_key_b64=_pub(successor))
         is_member = any(_keys_equal(_pub(successor), p) for p in pinned)

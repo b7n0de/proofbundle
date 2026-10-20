@@ -5,12 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    # `labeled` ist NICHT der Standard: GitHub sendet ohne `types` nur opened, synchronize und
-    # reopened. Die schwere Schicht haengt aber am Label `landung` — das Anbringen des Labels an
-    # einem ruhenden PR loeste damit GAR KEINEN Lauf aus, und die vier zusaetzlichen
-    # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
-    # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # A LABEL STARTS NO RUN OF THIS WORKFLOW (owner word 2026-09-28, EIN-LABEL-STARTET-KEINE-CI-MEHR-01).
+    # Until then the types carried `labeled` and `unlabeled` for the label `landung`, and the
+    # concurrency group below cancels a running pull_request run: measured 2026-09-28 09:28Z and
+    # 09:40Z, every label set on a pull request of the 6.2.0 chain cancelled its running CI and
+    # started a full one, about 55 minutes each. What hangs on `landung` and has to start the
+    # moment the label is set -- the mutation layer -- lives in landung.yml. The label is still
+    # read here for a fork pull request's full matrix, at that pull request's next push.
+    types: [opened, synchronize, reopened]
   merge_group:              # Merge Queue: der Kandidatenzweig, den die Queue selbst baut.
     # Ohne diesen Ausloeser laeuft auf einem Queue-Eintrag GAR KEIN Job, also meldet auch keiner
     # der sieben Pflichtkontexte, und der Eintrag wartet bis zum Timeout auf eine Pruefung, die
@@ -272,7 +274,24 @@ jobs:
     # (373bf64b, and 2399e4e0 after 50:24); the longest finished leg over the 40 most recent runs
     # took 46.3 min (3.14 at 3c5755c0). The limit stays finite and still stops a hung run; no test
     # becomes weaker.
-    timeout-minutes: 70
+    # 120, NOT 70 (owner decision of 2026-10-01 on card OA-52e183ce21, option A). Since 8f2fa980 every
+    # public function reads its arguments at its call, and the CHANGELOG names that cost (the median call
+    # 1.47 times its time at d388ed3d). Measured through the GitHub API: at d388ed3d the five legs took
+    # 25 to 55 min; at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min and (3.10), (3.13) and (3.14)
+    # were cut at 70 without a failing test. On the release machine the full suite took 40 to
+    # 44 min at trees before 6d674973 and 63 to 69 min at the heads of this chain.
+    # 180, NOT 120 (owner decision of 2026-10-02 on card OA-32ba6e0c7a, option A). Measured through the
+    # GitHub API over the heads of the 6.2.0 chain: test (3.10) took 66 min at 198af5c5, 81 at fda55f98,
+    # 97 at a1d5a815, 94 at 52c7e634 and 105 at 53bbb94c, with src/ unchanged between 198af5c5 and
+    # 53bbb94c; the spread is the speed of the runner, and 105 with the reserve of
+    # tests/test_der_ci_schnitt_haelt.py needs 132.
+    timeout-minutes: 180
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
     strategy:
       fail-fast: false
       matrix:
@@ -323,7 +342,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]" pytest-xdist==3.8.0
       - name: Lint
         run: ruff check .
       - name: Type check
@@ -344,8 +363,13 @@ jobs:
       # `scripts/test_manifest_gate.py` nennt pytest seit jeher "the normative runner"; hier folgt
       # der Pflicht-Job dem Namen, den die Sache schon trug. pytest liegt im `[dev]`-Extra, das der
       # Install-Schritt oben schon zieht — kein neuer Abhaengigkeitsschritt.
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
+      # PARALLEL (owner decision 2026-09-28, Z281): the whole suite, one pytest call, on every worker
+      # the runner has. Written with `=` so the normative-runner guard reads the values as option
+      # values, not as path selections; it still collects exactly what `pytest tests` collects.
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q --numprocesses=auto --dist=worksteal
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
         run: python conformance/run_conformance.py
       - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)
@@ -441,6 +465,35 @@ jobs:
       - name: Gate qualification (all classes detected, all positive controls green)
         run: PYTHONPATH=src python scripts/gate_qualification_harness.py
 
+  core-layer-gate:
+    # ADVISORY FIRST (owner order Z376, step S1 of the verification core split, point 7): it becomes
+    # required only by an owner decision after the report on its first runs. The gate measures the
+    # boundary of the future verification core: the static import closure of verify_bundle and of
+    # the decision verification must equal the fixed list in scripts/core_layer_modules.json, and
+    # every forbidden operation inside it (file, network, clock, environment, subprocess,
+    # randomness, eval and exec, dynamic import and access) must be an entry of the approved
+    # baseline in scripts/core_layer_exceptions.json. Red means a new finding, a new core edge, or
+    # a baseline entry that no longer occurs; the baseline only shrinks by a reviewed edit.
+    #
+    # Standard library only and no install: the gate reads source files, it imports nothing of the
+    # package. It is a static check of agreed boundaries, not a sandbox (see its docstring).
+    name: Core layer gate (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Core layer gate (verdict and every difference to the baseline)
+        run: python scripts/core_layer_gate.py
+      # The JSON carries the number of exceptions per rule, the figure S2 measures its progress
+      # against. `always()`: a red verdict above must not hide the counts that explain it.
+      - name: Exceptions per rule as JSON
+        if: always()
+        run: python scripts/core_layer_gate.py --json
+
   coverage:
     # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):
     # a floor that prevents a silent coverage regression. Conservative (below the current ~84%) to avoid
@@ -450,17 +503,45 @@ jobs:
     # 80, NOT 60 (the same decision). Measured through the GitHub API: 57:03 at main a1e9774e, 59.5 min
     # for the longest finished run over the 40 most recent runs (0d262332), and cut at 60:22 at
     # 2399e4e0. The limit stays finite and still stops a hung run; the coverage floor is unchanged.
-    timeout-minutes: 80
+    # 150, NOT 80 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 53 min at d388ed3d, cut
+    # at 80 at 110cdad9 and at 6b02d9f7. The reading at each call is plain Python, and the tracer of
+    # coverage weighs on it more than on the rest of the suite.
+    # 300, NOT 150 (owner decision of 2026-10-02 on card OA-32ba6e0c7a, option A): 75 min at fda55f98,
+    # 115 at 198af5c5 and 144 at a1d5a815, then cut at 150 at 52c7e634 (72 % done) and at 53bbb94c
+    # (65 % done). Between 198af5c5 and 53bbb94c src/, scripts/, the installed packages (106, the same
+    # versions) and the runner image (ubuntu-24.04 20260927.320.1) are the same; one stretch of identical
+    # test files took 68 min against 28, the rest about 1.35 times as long. The spread is the speed of
+    # the runner, and the mutation layer, which needs coverage, was skipped at 52c7e634 because of it.
+    timeout-minutes: 300
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
+      # sysmon, the sys.monitoring core of coverage.py (7.4.0 and newer, Python 3.12 and newer), measures
+      # lines faster than the default tracer. Measured on the batch pull request 337 at 0c1727fc: this job
+      # took 89.4 min, the longest of the run, and set its end. It measures lines only (no --cov-branch),
+      # on Python 3.12, with no plugin and no dynamic context, so nothing in its settings rules sysmon out.
+      # Since 7.11.1 an explicitly requested sysmon stops with an error where the settings do not allow it,
+      # so a later setting that excludes it fails loudly instead of measuring with another core
+      # (coverage.readthedocs.io, changes up to 7.12.0, read 2026-10-12). Owner choice of 2026-10-12,
+      # option A: this one lever only; the matrix stays full on every pull request.
+      COVERAGE_CORE: sysmon
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
       - name: Install with all test extras
-        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest
+        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
+      # PARALLEL (Z281): pytest-cov measures every worker and combines the data before the report;
+      # the floor is unchanged.
       - name: Coverage with a --fail-under ratchet floor
         run: |
-          python -m coverage run --source=src/proofbundle -m pytest -q
+          python -m pytest -q --numprocesses=auto --dist=worksteal --cov=src/proofbundle --cov-report=
           python -m coverage report -m --fail-under=83
 
   crypto-floor:
@@ -468,7 +549,15 @@ jobs:
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
     # so a future floor bump can't silently break the trusted core.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
+    # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
+    timeout-minutes: 45
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -478,6 +567,8 @@ jobs:
         run: |
           python -m pip install -e ".[dev,eval]"
           python -m pip install "cryptography==42.*"
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
       - name: Core test suite on the floor
         run: python -m unittest discover -s tests
       - name: Dependency-free verify must hold on the floor (trusted-core verify path)
@@ -496,13 +587,17 @@ jobs:
     # B3, der Landekandidat: die volle Mutationsschicht gehoert an den Kandidaten, nicht an jeden
     # WIP-Push. Drei Wege fuehren hinein und sie sind absichtlich verschieden — ein Label am PR,
     # ein release/-Zweig, oder der Griff von Hand. Auf allem anderen laeuft die schnelle Schicht.
+    #
+    # THE LABEL WAY MOVED TO landung.yml (owner word 2026-09-28, EIN-LABEL-STARTET-KEINE-CI-MEHR-01):
+    # this workflow no longer runs on a label event, so the label is read there, at the moment it
+    # is set. The other ways stay here, and so does `needs`. A contract holds the steps of the two
+    # copies equal (tests/test_ein_label_startet_keine_ci.py).
     needs: [test, coverage]
     if: >-
       github.event_name == 'workflow_dispatch'
       || ( github.event.pull_request.head.repo.full_name == github.repository
            && startsWith(github.head_ref, 'release/') )
       || startsWith(github.ref_name, 'release/')
-      || contains(github.event.pull_request.labels.*.name, 'landung')
       || github.event_name == 'merge_group'
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
@@ -678,7 +773,6 @@ jobs:
            || ( github.event.pull_request.head.repo.full_name == github.repository
                 && startsWith(github.head_ref, 'release/') )
            || startsWith(github.ref_name, 'release/')
-           || contains(github.event.pull_request.labels.*.name, 'landung')
            || github.event_name == 'merge_group' )
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -787,11 +881,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          jobs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || {
+          jobs_datei=$(mktemp)
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" >"$jobs_datei" 2>/dev/null || {
             echo "Wanduhr NICHT MESSBAR: jobs-API nicht erreichbar"; exit 0; }
-          python3 - <<'PYEOF' <<<"$jobs"
-          import datetime as dt, json, sys
-          j = json.load(sys.stdin).get("jobs", [])
+          # The program comes from the here-document and the JSON from a file: with a second stdin redirection (<<<)
+          # the JSON replaced the program, which never ran (Codex thread 4220761948 on pull request 310), and an
+          # environment entry has a size ceiling the response can pass (thread 4221177615).
+          JOBS_DATEI="$jobs_datei" python3 - <<'PYEOF'
+          import datetime as dt, json, os
+          with open(os.environ["JOBS_DATEI"], encoding="utf-8") as f:
+              j = json.load(f).get("jobs", [])
           m = [x for x in j if x["name"].startswith("mutation (")]
           P = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
           fertig = [x for x in m if x.get("started_at") and x.get("completed_at")]
@@ -805,7 +904,10 @@ jobs:
           print(f"MATRIX_WANDUHR_S={w:.0f}")
           print(f"MATRIX_CPU_MIN={sum(d)/60:.1f}")
           print(f"MATRIX_SHARD_MIN_S={min(d):.0f} MATRIX_SHARD_MAX_S={max(d):.0f}")
-          print(f"Schwelle 1200 s: {'UNTER' if w <= 1200 else 'UEBER'}")
+          # Both marks have one second of resolution, so the true span lies in (w - 1, w + 1): UNTER only when w + 1
+          # stays within 1200, UEBER only when w - 1 exceeds it, and the second in between is not decidable.
+          print("Schwelle 1200 s: " + ("UNTER" if w <= 1199 else "UEBER" if w >= 1201
+                                       else "NICHT ENTSCHEIDBAR (Sekundenaufloesung)"))
           PYEOF
   mutant-signature-guard:
     # Fail-closed guard against mutation-mutant signatures reaching main (incident 2026-07-23:
@@ -952,7 +1054,8 @@ jobs:
           elif not full:
               print("::error title=all-checks-passed::the full test matrix did not run on this event "
                     "(fork pull request without the landung label); one version passing is not "
-                    "five versions passing -- add the label `landung` or push from this repository")
+                    "five versions passing -- add the label `landung` and push again (a label "
+                    "alone starts no run of this workflow), or push from this repository")
               sys.exit(1)
           print("all-checks-passed: every needed job succeeded" + ("" if not full else " on the full matrix"))
           PY

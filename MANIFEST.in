@@ -139,6 +139,20 @@ include Makefile
 # outside a checkout the file is absent and not in SOURCES.txt, so `tests/conftest.py` reports the
 # module as a skip that names the file instead of aborting collection.
 #
+# OUT, and deliberately decided (2026-09-28): scripts/landung_waits_for_ci.py. It asks the GitHub API
+# for the ci.yml runs and jobs of one pull request head, and `.github/workflows/landung.yml` runs it
+# before the mutation layer. An installed package has no pull request and no workflow run to ask, the
+# same reason `codex_threads_check.py` stands outside, above. Its contract
+# `tests/test_ein_label_startet_keine_ci.py` also reads `.github/workflows/`, which this list prunes,
+# so `tests/conftest.py` skips that module outside a checkout.
+#
+# OUT, and deliberately decided (2026-09-28): scripts/b7_pr_form_gate.py. It judges the milestone
+# and the description of one pull request of this repository from the event payload the runner
+# writes, and `.github/workflows/pr-form.yml` runs it on every pull request. An installed package
+# has no pull request and no event payload, the same reason `b7_release_scope_title_gate.py` stands
+# outside. Its contract `tests/test_pr_form_gate.py` loads it through `spec_from_file_location` on
+# module level, so `tests/conftest.py` reports the module as a skip outside a checkout.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
@@ -168,6 +182,8 @@ include Makefile
 # from the sdist with FileNotFoundError. It reads a lock file and cargo-audit's JSON and holds no key.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
+include scripts/core_layer_exceptions.json
+include scripts/core_layer_modules.json
 include scripts/mutation_baseline_allowlist.json
 include scripts/mutation_shard_weights.json
 include scripts/rust_parity_registry.json
@@ -181,6 +197,7 @@ include scripts/build_reproducible.py
 include scripts/cargo_audit_gate.py
 include scripts/check_version_and_changelog.py
 include scripts/claims_hygiene_check.py
+include scripts/core_layer_gate.py
 include scripts/doc_link_check.py
 include scripts/finding_base_drift.py
 include scripts/findings_register.py
@@ -216,6 +233,12 @@ prune .github
 prune target
 # The Claude Code plugin installs the package from PyPI; the package never carries the plugin.
 prune plugins
+# OUT, and deliberately decided (2026-10-11): examples/verdict_contract/. It is a worked example for an
+# issue in a third-party repository, linked there commit-pinned from this repository, and its files stay
+# byte for byte as they were reviewed. Its producer make_example.py loads an Ed25519 private key from a
+# file, which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist, and the directory vendors a
+# third-party file under its own MIT licence. The package does not need either, so the directory stays out.
+prune examples/verdict_contract
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude *.so

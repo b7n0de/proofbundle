@@ -284,7 +284,7 @@ class TheVerifierMeasuresTheCheckoutItNames(_Case):
         self.assertNotEqual(res["verdict"], "VERIFIED",
                             f"GIT_WORK_TREE made the verifier judge a checkout it did not name: {res}")
         self.assertEqual(rc, 2, res)
-        self.assertIn("local modification", res["reason"] or "", res)
+        self.assertIn("is not the commit", res["reason"] or "", res)
 
 
     def test_GUARD_a_library_that_lies_about_status_cannot_hide_itself(self):
@@ -322,7 +322,7 @@ class TheVerifierMeasuresTheCheckoutItNames(_Case):
         self.assertNotEqual(res["verdict"], "VERIFIED",
                             f"the edited library answered the check that exists to catch it: {res}")
         self.assertEqual(rc, 2, res)
-        self.assertIn("local modification", res["reason"] or "", res)
+        self.assertIn("is not the commit", res["reason"] or "", res)
 
 
 # ── a configured excludes file ─────────────────────────────────────────────────────────────────

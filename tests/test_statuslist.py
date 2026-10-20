@@ -38,6 +38,26 @@ class TestStatusList(unittest.TestCase):
                                              issuer_pubkey=self.pub)["ok"],
             URI, self)
 
+    def test_float_bits_is_fail_closed_not_raise(self):
+        """L2-01 (never-raise): a SIGNED token declaring float bits (2.0) must verify to a fail-closed
+        verdict, not a raw TypeError. 2.0 satisfies `2.0 in (1,2,4,8)` and slipped past the bits guard,
+        then `_status_at` indexed a byte array with a float and crashed."""
+        import json
+        import zlib
+        from proofbundle.statuslist import TYP, _b64url
+        arr = bytes([0b00000000])  # every status valid, so only the width can refuse
+        # 2.0 crashed before the fix; `true` passed the set check as 1, because True == 1. Both are not
+        # an integer width, and both are now refused the way the issue side refuses them.
+        for bad in (2.0, True):
+            payload = {"sub": URI, "iat": IAT,
+                       "status_list": {"bits": bad, "lst": _b64url(zlib.compress(arr, 9))}}
+            header = {"alg": "EdDSA", "typ": TYP}
+            si = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+            token = si + "." + _b64url(self.signer.sign(si.encode("ascii")))
+            res = verify_status_snapshot(token, expected_uri=URI, index=1, issuer_pubkey=self.pub)
+            self.assertFalse(res["ok"], bad)
+            self.assertIn("bits", res["detail"], bad)
+
     def test_green_valid_and_invalid(self):
         ok = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=self.pub)
         self.assertTrue(ok["ok"])
@@ -61,8 +81,11 @@ class TestStatusList(unittest.TestCase):
         self.assertTrue(fresh["fresh"])
         stale = verify_status_snapshot(token, expected_uri=URI, index=0, issuer_pubkey=self.pub,
                                        now=IAT + 7200)
-        self.assertTrue(stale["ok"])                             # crypto still fine
-        self.assertFalse(stale["fresh"])                         # but not fresh — caller decides
+        # Nachtrag 49 K4-03 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`): a stale snapshot at the evaluation
+        # time is no longer a positive, VALID reading — it fails closed (was: ok stayed True, fresh only reported).
+        self.assertIs(stale["ok"], False)
+        self.assertIs(stale["fresh"], False)
+        self.assertIsNot(stale["status_label"], "VALID")
 
     def test_expiry(self):
         token = issue_status_list_token([0], uri=URI, signer=self.signer, iat=IAT, exp=IAT + 100)

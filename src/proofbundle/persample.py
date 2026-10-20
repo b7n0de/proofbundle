@@ -48,7 +48,8 @@ from typing import List, Optional, Sequence
 
 from . import merkle
 from ._strict_json import loads_strict
-from .canonical import _ganzzahl_von, _plain_for_jcs
+from .budget import render_safe
+from .canonical import _ein_stand, _ganzzahl_von, _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -77,6 +78,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
     """Per-leaf salt = HMAC-SHA-256(tree_secret, domain ‖ id ‖ 0x00 ‖ epoch)[:16].
 
@@ -93,10 +95,19 @@ def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
         raise BundleFormatError("tree_secret must be at least 16 random bytes (32 recommended)")
     if plain_int(epoch) is None or epoch < 0:
         raise BundleFormatError("epoch must be a non-negative integer")
-    msg = _SALT_DOMAIN + str(sample_id).encode("utf-8") + b"\x00" + str(epoch).encode("ascii")
+    # The id and the epoch are written as text into the PRF input: a value without a UTF-8 text form
+    # (`10**5000` for either, a nesting deeper than the interpreter allows, a lone surrogate, an object
+    # whose `__str__` raises) raised raw from here (lens run 10 generator on d6d89763). A shortened text
+    # would derive another salt, so the value is refused by this module's typed error.
+    try:
+        msg = _SALT_DOMAIN + str(sample_id).encode("utf-8") + b"\x00" + str(epoch).encode("ascii")
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no text"
+        raise BundleFormatError(f"sample id {render_safe(sample_id)} or epoch {render_safe(epoch)} has no "
+                                f"text form ({type(exc).__name__})") from exc
     return hmac.new(tree_secret, msg, hashlib.sha256).digest()[:_SALT_BYTES]
 
 
+@_ein_stand
 def make_disclosure(record: dict, salt: bytes) -> str:
     """Encode one sample record as a disclosure: base64url(JSON [salt_b64, record]).
 
@@ -119,8 +130,15 @@ def make_disclosure(record: dict, salt: bytes) -> str:
     if salt_bytes is None or len(salt_bytes) < _SALT_BYTES:
         raise BundleFormatError("per-leaf salt must be at least 16 bytes")
     salt = salt_bytes
-    disclosure_json = json.dumps([_b64url(salt), record], sort_keys=True,
-                                 separators=(",", ":"))
+    # The record is the caller's and is serialized: a value without a JSON form (`10**5000`, a set,
+    # bytes, a tuple key, a nesting deeper than the interpreter allows) raised raw from `json.dumps`
+    # (the public-surface generator on main 570dd164 and five carried commits). A record the disclosure
+    # cannot carry is malformed.
+    try:
+        disclosure_json = json.dumps([_b64url(salt), record], sort_keys=True,
+                                     separators=(",", ":"))
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"sample record has no JSON form ({type(exc).__name__})") from exc
     return _b64url(disclosure_json.encode("utf-8"))
 
 
@@ -129,6 +147,7 @@ def _leaf_hash_of(disclosure_b64: str) -> bytes:
     return merkle.leaf_hash(disclosure_b64.encode("ascii"))
 
 
+@_ein_stand
 def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
     """Commit a full eval run's samples. Returns ``{root, root_b64, n, leaf_alg, disclosures}``.
 
@@ -156,7 +175,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
         rec = dict(plain_json(rec, what=f"record {i}", error=BundleFormatError))
         if "idx" in rec and rec["idx"] != i:
             raise BundleFormatError(
-                f"record {i} carries idx={rec['idx']!r} — indices are assigned by the tree "
+                f"record {i} carries idx={render_safe(rec['idx'])} — indices are assigned by the tree "
                 "builder from canonical order, never by the caller")
         rec["idx"] = i
         # Enforce the documented canonical (id, epoch) order (release-review #7/#10): the producer has NO ordering
@@ -167,7 +186,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
         # real int (a float/bool is rejected, not silently truncated — matches derive_leaf_salt's guard).
         epoch = rec.get("epoch", 1)
         if isinstance(epoch, bool) or not isinstance(epoch, int):
-            raise BundleFormatError(f"record {i} has a non-integer epoch {epoch!r}")
+            raise BundleFormatError(f"record {i} has a non-integer epoch {render_safe(epoch)}")
         idv = rec.get("id", i)
         key = (0 if (isinstance(idv, int) and not isinstance(idv, bool)) else 1, idv, epoch)
         if prev_key is not None and key < prev_key:
@@ -183,6 +202,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
             "n": len(leaves), "leaf_alg": LEAF_ALG, "disclosures": disclosures}
 
 
+@_ein_stand
 def sample_opening(disclosures: Sequence[str], index: int) -> dict:
     """Produce the opening for one committed sample: disclosure + RFC 6962 inclusion proof.
 
@@ -209,6 +229,7 @@ def sample_opening(disclosures: Sequence[str], index: int) -> dict:
             "proof_b64": [base64.b64encode(p).decode("ascii") for p in proof]}
 
 
+@_ein_stand
 def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     """Verify one opening against the receipt's committed samples root — offline, fail-closed.
 
@@ -336,6 +357,7 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     return result
 
 
+@_ein_stand
 def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     """Derive k distinct audit indices in [0, n) from the committed root — deterministic,
     re-verifiable by anyone with the same inputs.
@@ -407,6 +429,7 @@ def _map_draw(v: int, n: int) -> Optional[int]:
     return v % n
 
 
+@_ein_stand
 def catch_probability(m_fraction: float, k: int) -> float:
     """PoR bound: probability that k challenges catch an m-fraction of bad samples,
     1 − (1 − m)^k — independent of n. (k=300 → ~0.95 at m=0.01; k=459 → ~0.99.)"""

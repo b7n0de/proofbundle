@@ -1,0 +1,50 @@
+{
+  "schema": "proofbundle.core_layer_modules.v1",
+  "note": "The core list is the static import closure of the roots, with the package initialisation of every member and without the lazy package map. It is rewritten only by `scripts/core_layer_gate.py --write-baseline` in a reviewed change; the gate is red when the measured closure differs from it in either direction.",
+  "package": "proofbundle",
+  "roots": {
+    "proofbundle.bundle": "verify_bundle",
+    "proofbundle.decision": "verify_decision_receipt"
+  },
+  "trust_boundaries": {
+    "cryptography": "required dependency (pyproject `dependencies`): the Ed25519, ECDSA and X.509 primitives the core verifies with",
+    "rfc8785": "required dependency (pyproject `dependencies`): the RFC 8785 JCS canonicaliser the core hashes and compares with",
+    "opentimestamps": "optional extra `[anchors]`: the OpenTimestamps proof library behind the OTS anchor verifier, imported only when an anchor is verified",
+    "rfc3161_client": "optional extra `[anchors]`: the RFC 3161 token verifier behind the TSA anchor verifier, imported only when an anchor is verified"
+  },
+  "modules": [
+    "proofbundle",
+    "proofbundle._membership",
+    "proofbundle._plain_value",
+    "proofbundle._schema_shapes",
+    "proofbundle._statement_payload",
+    "proofbundle._strict_json",
+    "proofbundle._verdict",
+    "proofbundle._wire_b64",
+    "proofbundle.anchors",
+    "proofbundle.anchors_chia",
+    "proofbundle.anchors_ots",
+    "proofbundle.anchors_rfc3161",
+    "proofbundle.assurance",
+    "proofbundle.automation_verdict",
+    "proofbundle.budget",
+    "proofbundle.bundle",
+    "proofbundle.canonical",
+    "proofbundle.checkpoint",
+    "proofbundle.decision",
+    "proofbundle.dsse",
+    "proofbundle.emit",
+    "proofbundle.errors",
+    "proofbundle.evalclaim",
+    "proofbundle.experimental",
+    "proofbundle.experimental.enclave",
+    "proofbundle.kbjwt",
+    "proofbundle.merkle",
+    "proofbundle.policy",
+    "proofbundle.relation",
+    "proofbundle.sdjwt",
+    "proofbundle.sdjwt_issue",
+    "proofbundle.signature",
+    "proofbundle.subject_binding"
+  ]
+}

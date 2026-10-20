@@ -40,10 +40,10 @@ import json
 from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
-from .canonical import _plain_for_jcs, _zeichen_von
+from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import ProofBundleError
 from .sdjwt import _es256_signature_spellings
-from .signature import verify_ed25519_pinned
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -68,6 +68,7 @@ def _b64url_nopad(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
+@_ein_stand
 def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     """Split a compact SD-JWT into (sd_part, kb_jwt_or_None).
 
@@ -101,6 +102,7 @@ def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     return head + "~", tail
 
 
+@_ein_stand
 def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     """Extract the raw 32-byte Ed25519 holder key from a ``cnf.jwk`` claim (RFC 7800).
 
@@ -146,12 +148,25 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     return raw if len(raw) == 32 else None
 
 
+# Nachtrag 49 K4-02 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a KB-JWT is a PRESENTATION-freshness
+# proof. When the relying party supplies an evaluation time (`now`, POSIX seconds), the holder's `iat` is judged
+# against it: a conservative default presentation age (5 minutes) bounds replay, and a small skew window absorbs
+# clock drift. Without `now` the freshness CANNOT be judged (offline/historical verification), so `fresh` stays
+# None and the verdict is unchanged — exactly as the sibling status-list and enclave verifiers treat a missing
+# `now`. A relying party verifying an older presentation on purpose passes its own `now`/`max_age_seconds`.
+_KB_DEFAULT_MAX_AGE_SECONDS = 300
+_KB_FUTURE_SKEW_SECONDS = 60
+
+
+@_ein_stand
 def verify_key_binding(
     compact: str,
     holder_pubkey: Optional[bytes] = None,
     *,
     expected_aud: Optional[str] = None,
     expected_nonce: Optional[str] = None,
+    now: Optional[int] = None,
+    max_age_seconds: Optional[int] = None,
 ) -> dict:
     """Verify the Key Binding JWT of a compact SD-JWT presentation.
 
@@ -164,7 +179,8 @@ def verify_key_binding(
     available (the issuer's binding is authoritative), else from
     ``holder_pubkey``. If neither exists the check fails — never skips.
     """
-    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None}
+    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None,
+              "fresh": None}
     # One reading of the presentation, by its characters (round 12): the sd_hash, the issuer payload
     # and the KB-JWT below all come from the same text, and no method of a `str` subclass runs.
     compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
@@ -203,6 +219,14 @@ def verify_key_binding(
     if not isinstance(kb_header, dict) or not isinstance(kb_payload, dict) \
             or not isinstance(issuer_payload, dict):
         result["detail"] = "malformed KB-JWT or issuer JWT"
+        return result
+
+    # Nachtrag 50 (Z309, K5-01): RFC 7515 §4.1.11 — a critical header the verifier does not understand
+    # makes the JWS invalid. Checked right after reading the KB-JWT header and BEFORE typ/alg, so a KB-JWT
+    # with a `crit` member fails closed (ok stays False, detail names crit) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(kb_header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
 
     # Header: typ MUST be kb+jwt; alg MUST NOT be none; we support EdDSA only.
@@ -295,6 +319,33 @@ def verify_key_binding(
     if not sig_ok:
         result["detail"] = f"KB-JWT signature invalid ({key_source})"
         return result
+
+    # Nachtrag 49 K4-02 (Z309): presentation freshness, judged only when the relying party gives one evaluation
+    # time. `iat` is a number here (checked above). A `now` that is not a real number is a malformed relying-party
+    # argument when freshness was requested — fail-closed, never a silent pass. Default presentation age applies
+    # when `now` is given but `max_age_seconds` is not; an explicit non-negative `max_age_seconds` overrides it.
+    if now is not None:
+        from ._plain_value import plain_int  # noqa: PLC0415
+        # The clock and the age bound as exact ints, read once (the one rule for a caller's number,
+        # _plain_value.plain_int): an int subclass runs no method here. A `now` that is not an exact int is a
+        # malformed relying-party argument when freshness was requested -> fail-closed. A `max_age_seconds` that
+        # is not a non-negative exact int falls back to the conservative default.
+        _now = plain_int(now)
+        if _now is None:
+            result["detail"] = "KB-JWT now (evaluation time) must be a POSIX-seconds integer (fail-closed)"
+            return result
+        _max_age = plain_int(max_age_seconds)
+        if _max_age is None or _max_age < 0:
+            _max_age = _KB_DEFAULT_MAX_AGE_SECONDS
+        if iat > _now + _KB_FUTURE_SKEW_SECONDS:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is in the future beyond the allowed clock skew (fail-closed)"
+            return result
+        if iat < _now - _max_age:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is older than the allowed presentation age (fail-closed)"
+            return result
+        result["fresh"] = True
 
     result["ok"] = True
     result["detail"] = f"key binding valid ({key_source})"

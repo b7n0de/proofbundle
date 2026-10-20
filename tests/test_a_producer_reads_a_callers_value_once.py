@@ -411,6 +411,7 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
     from proofbundle import run_ledger, statuslist as sl, tlogproof, trust_pack as tp
     from proofbundle import verification_summary as vs, verifier_block as vb
     from proofbundle.adapters import eee
+    from proofbundle.budget import render_text
     from proofbundle.policy_profiles import instantiate_template
     from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
     f = fx()
@@ -527,6 +528,15 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
          {"claim": f.claim, "subject": [{"name": "s", "digest": {"sha256": "a" * 64}}]}, ("claim",), _json),
         ("intoto.export_eval_result_dsse", intoto.export_eval_result_dsse,
          {"claim": f.claim, "signer": f.sk, "subject_profile": "receipt"}, ("claim", "subject_profile"), _json),
+        ("intoto.to_eval_result_v02_predicate", intoto.to_eval_result_v02_predicate,
+         {"claim": f.claim, "evaluator_id": "https://example.org/evaluator"}, ("claim", "evaluator_id"), _json),
+        ("intoto.to_eval_result_v02_statement", intoto.to_eval_result_v02_statement,
+         {"claim": f.claim, "subject": [{"name": "s", "digest": {"sha256": "a" * 64}}],
+          "evaluator_id": "https://example.org/evaluator"}, ("claim", "subject", "evaluator_id"), _json),
+        ("intoto.export_eval_result_v02_dsse", intoto.export_eval_result_v02_dsse,
+         {"claim": f.claim, "signer": f.sk, "evaluator_id": "https://example.org/evaluator",
+          "subject_profile": "receipt", "root_b64": _b64(f.root)}, ("claim", "evaluator_id", "subject_profile"),
+         _json),
         ("intoto.resolve_subject", intoto.resolve_subject,
          {"profile": "receipt", "claim": f.claim, "root_b64": _b64(f.root)}, ("profile", "claim"), _json),
         ("intoto.export_svr_dsse", intoto.export_svr_dsse,
@@ -599,6 +609,9 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
         ("run_ledger.link_runs, default statuses", run_ledger.link_runs,
          {"result_digests": ("a" * 64,)}, ("result_digests",), _json),
         ("evalclaim.canonicalize", ec.canonicalize, {"claim": f.claim_in}, ("claim",), ident),
+        # The text of a subject name, a looked-up key or a digest-bound line. `_ein_stand` hands the
+        # function a copy that holds the stored text and no method of the caller's class.
+        ("budget.render_text", render_text, {"value": "subject-name"}, ("value",), ident),
     ]
     if eee_path.is_file():
         c.append(("adapters.eee.from_eee_dataset", eee.from_eee_dataset,
@@ -1046,6 +1059,9 @@ _SWEEP = {
     ("src/proofbundle/anchors_rootcommit.py", "build_preimage"): "not affected: formats its arguments, checks none",
     ("src/proofbundle/budget.py", "render_safe"): "not a producer: renders a diagnostic",
     ("src/proofbundle/budget.py", "render_keys_safe"): "not a producer: renders a diagnostic",
+    ("src/proofbundle/budget.py", "render_key_list"): "not a producer: renders the keys of a mapping for a "
+        "message",
+    ("src/proofbundle/budget.py", "render_text"): _c("budget.render_text"),
     ("src/proofbundle/checkpoint.py", "checkpoint_note"): _c("checkpoint.checkpoint_note"),
     ("src/proofbundle/checkpoint.py", "key_id"): _c("checkpoint.key_id"),
     ("src/proofbundle/checkpoint.py", "vkey"): _c("checkpoint.vkey"),
@@ -1082,6 +1098,9 @@ _SWEEP = {
     ("src/proofbundle/intoto.py", "to_eval_result_predicate"): _c("intoto.to_eval_result_predicate"),
     ("src/proofbundle/intoto.py", "to_eval_result_statement"): _c("intoto.to_eval_result_statement"),
     ("src/proofbundle/intoto.py", "export_eval_result_dsse"): _c("intoto.export_eval_result_dsse"),
+    ("src/proofbundle/intoto.py", "to_eval_result_v02_predicate"): _c("intoto.to_eval_result_v02_predicate"),
+    ("src/proofbundle/intoto.py", "to_eval_result_v02_statement"): _c("intoto.to_eval_result_v02_statement"),
+    ("src/proofbundle/intoto.py", "export_eval_result_v02_dsse"): _c("intoto.export_eval_result_v02_dsse"),
     ("src/proofbundle/intoto.py", "export_svr_dsse"): _c("intoto.export_svr_dsse"),
     ("src/proofbundle/outcome.py", "resolve_receiver_ref"): "not a producer: judges evidence (verify side)",
     ("src/proofbundle/outcome.py", "build_outcome_statement"): _c("outcome.build_outcome_statement"),
@@ -1126,8 +1145,9 @@ _SWEEP = {
         "finding once and hashes it",
     ("src/proofbundle/agent_review.py", "receipt_digest"): "not a producer: digests a received envelope "
         "(verify side)",
-    ("src/proofbundle/agent_review.py", "apply_time_evidence"): "not affected: writes constants, never a "
-        "value it checked",
+    ("src/proofbundle/agent_review.py", "apply_time_evidence"): "not a producer: it checks `verified` and "
+        "`kind` and writes constants; it reads the evidence once, as the plain copy of what it stores "
+        "(pull request 312, where its own `get` had lifted both axes)",
     ("src/proofbundle/anchors.py", "receipt_canonical_root"): "not affected: checks only the structural "
         "budget, a bound on its own work, and writes only a hash",
     ("src/proofbundle/anchors.py", "prereg_canonical_root"): _c("anchors.prereg_canonical_root"),
@@ -1186,6 +1206,8 @@ _SWEEP = {
     ("scripts/codex_threads_check.py", "measure"): "not affected: reports a verdict over review data; writes "
         "no value it checked",
     ("scripts/codex_threads_check.py", "measure_at_origin"): "not affected: queries a remote and reports",
+    ("scripts/core_layer_gate.py", "measure"): "not affected: reads source files and reports findings; "
+        "writes no value it checked",
     ("scripts/gen_findings_register.py", "canonical_bytes"): "not affected: the canonical form; `assemble` "
         "hands it the copy read once, the verify side a parsed file",
     ("scripts/pre_tag_receipt_lib.py", "canonical_bytes"): "not affected: the canonical form; "

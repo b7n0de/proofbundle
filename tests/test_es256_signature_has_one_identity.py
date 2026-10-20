@@ -275,6 +275,31 @@ def _cli(argv) -> "tuple[int, str]":
     return rc, out.getvalue()
 
 
+def _es256_pin(pub_b64: str) -> str:
+    """The relying-party issuer pin for an ES256 SD-JWT issuer (Nachtrag 38, Z309 / PR 311 P1): the
+    algorithm-bound fingerprint the trust gate compares against, written from the spec here (``"es256:"``
+    plus the standard-base64 public key the bundle carries), not from the module, so the test stays its
+    own oracle."""
+    return "es256:" + pub_b64
+
+
+def _fail_closed_without_pin(case, bundle, *, aud: str = "rp", nonce: str = "n1") -> None:
+    """Nachtrag 38 counter-probe (owner condition 2): the SAME self-signed KB presentation, with no
+    issuer pin and no policy, MUST be fail-closed at ``verify --json`` — ``ok`` is false,
+    ``audience_ok`` / ``nonce_ok`` / ``key_binding_ok`` are not true, and the exit code is not 0. A
+    self-signed SD-JWT supplies its own verifying key, so a positive holder-binding/audience/nonce
+    verdict under it is attacker-chosen (Z309)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "counter.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(bundle, handle)
+        rc, out = _cli(["verify", "--json", path, "--aud", aud, "--nonce", nonce])
+    fields = json.loads(out)
+    case.assertNotEqual(rc, 0, "exit 0 for a self-signed presentation without a pin")
+    for feld in ("ok", "audience_ok", "nonce_ok", "key_binding_ok"):
+        case.assertIsNot(fields.get(feld), True, f"{feld} is true without a pin")
+
+
 class TheVerdictAcceptsBothSpellings(unittest.TestCase):
     """Owner decision, point 1. GREEN on 126ed1dc and on f536af50: it pins that neither fix turned
     acceptance into refusal."""
@@ -316,7 +341,10 @@ class AForeignIssuersBytesAreNeverRewritten(unittest.TestCase):
             self.assertEqual(sd["compact"], compact, f"{label}: the caller's dict is not modified")
             if carries_kb:
                 self.assertTrue(_rfc9901_sd_hash_holds(emitted["sd_jwt_vc"]["compact"]), label)
-                self.assertTrue(verify_bundle(emitted, expected_aud="rp", expected_nonce="n1").ok, label)
+                # Nachtrag 38: the genuine presentation still verifies, now under the issuer pin.
+                self.assertTrue(verify_bundle(emitted, expected_aud="rp", expected_nonce="n1",
+                                              sd_jwt_issuer_key_pin=_es256_pin(self.pub_b64)).ok, label)
+                _fail_closed_without_pin(self, emitted)
 
     def test_emit_eval_receipt_emits_the_presented_compact(self):
         from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
@@ -339,17 +367,22 @@ class AForeignIssuersBytesAreNeverRewritten(unittest.TestCase):
                 self.assertTrue(_rfc9901_sd_hash_holds(_compact_in_token(token)), label)
 
     def test_verify_receipt_token_returns_the_presented_compact(self):
+        pin = _es256_pin(self.pub_b64)
         for label, compact, carries_kb in self._presentations():
             bundle = _bundle_with(compact, self.pub_b64)
             for token in (receipt_token(bundle), _token_as_other_producers_pack_it(bundle)):
-                result, unpacked = verify_receipt_token(token)
+                result, unpacked = verify_receipt_token(token, sd_jwt_issuer_key_pin=pin)
                 # the verdict on the token is the verdict on the bundle as it came; without a KB-JWT a
-                # cnf-bound issuer JWT fails by design (bearer downgrade), with one it verifies
-                self.assertEqual(result.ok, verify_bundle(bundle).ok, label)
+                # cnf-bound issuer JWT fails by design (bearer downgrade), with one it verifies — now under
+                # the issuer pin (Nachtrag 38)
+                self.assertEqual(result.ok, verify_bundle(bundle, sd_jwt_issuer_key_pin=pin).ok, label)
                 self.assertEqual(unpacked, bundle, label)
                 if carries_kb:
                     self.assertTrue(result.ok, f"{label}: {result.as_dict()}")
                     self.assertTrue(_rfc9901_sd_hash_holds(unpacked["sd_jwt_vc"]["compact"]), label)
+                    # Nachtrag 38 counter-probe: the same token without a pin is fail-closed
+                    self.assertFalse(verify_receipt_token(token)[0].ok, f"{label}: fail-closed without a pin")
+                    _fail_closed_without_pin(self, unpacked)
 
     def test_present_with_key_binding_presents_the_handed_bytes(self):
         for high in (True, False):
@@ -418,12 +451,18 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
     def test_a_token_and_its_twin_are_two_strings_with_one_identity(self):
         from proofbundle.hf_evals import receipt_token_identity  # noqa: PLC0415 - red on f536af50
+        pin = _es256_pin(self.pub_b64)
         for label, bundle, twin, verifies in self._pairs():
             token, twin_token = receipt_token(bundle), receipt_token(twin)
             self.assertNotEqual(token, twin_token, f"{label}: the cost, stated in the CHANGELOG")
             self.assertEqual(receipt_token_identity(token), receipt_token_identity(twin_token), label)
-            self.assertEqual(verify_receipt_token(token)[0].ok, verifies, label)
-            self.assertEqual(verify_receipt_token(twin_token)[0].ok, verifies, label)
+            # Nachtrag 38: a verifying KB presentation verifies under the issuer pin; identity holds regardless
+            self.assertEqual(verify_receipt_token(token, sd_jwt_issuer_key_pin=pin)[0].ok, verifies, label)
+            self.assertEqual(verify_receipt_token(twin_token, sd_jwt_issuer_key_pin=pin)[0].ok, verifies, label)
+            if verifies and "KB-JWT" in label:
+                # counter-probe: the EdDSA-KB presentation no longer verifies without the pin
+                self.assertFalse(verify_receipt_token(token)[0].ok, f"{label}: fail-closed without a pin")
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_identity_of_a_token_is_the_receipt_root_the_docs_define(self):
         """F4: docs/ANCHORS.md read literally. RED on f536af50, where ``receipt_token_identity`` did
@@ -552,33 +591,51 @@ class TwinsHaveOneIdentity(unittest.TestCase):
         """GREEN on f536af50: no field of ``verify --json`` carries signature bytes, and this is a guard
         that none starts to. RED on 126ed1dc, where the twin of a presentation with an EdDSA KB-JWT
         failed the sd_hash check and so got another verdict."""
+        policy = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "d1-es256",
+                  "sd_jwt": {"issuer_key_pin": _es256_pin(self.pub_b64)}}
         for label, bundle, twin, verifies in self._pairs():
             with tempfile.TemporaryDirectory() as tmp:
+                pol_path = os.path.join(tmp, "policy.json")
+                with open(pol_path, "w", encoding="utf-8") as handle:
+                    json.dump(policy, handle)
                 outputs = []
                 for name, spelling in (("b.json", bundle), ("t.json", twin)):
                     path = os.path.join(tmp, name)
                     with open(path, "w", encoding="utf-8") as handle:
                         json.dump(spelling, handle)
-                    rc, out = _cli(["verify", "--json", path])
+                    # Nachtrag 38: a verifying presentation is trusted under the policy's issuer pin
+                    argv = ["verify", "--json", path] + (["--policy", pol_path] if verifies else [])
+                    rc, out = _cli(argv)
                     self.assertEqual(rc, 0 if verifies else 1, label)
                     outputs.append(json.loads(out))
             self.assertEqual(outputs[0], outputs[1], label)
+            if verifies and "KB-JWT" in label:
+                _fail_closed_without_pin(self, bundle)
 
     def test_an_eval_results_entry_and_its_verdict_have_one_identity(self):
         from proofbundle.hf_evals import (  # noqa: PLC0415
             eval_results_yaml, receipt_token_identity, to_eval_results_entry, verify_eval_results_entry)
+        pin = _es256_pin(self.pub_b64)
         for label, bundle, twin, verifies in self._pairs():
+            # Nachtrag 38: the verifying KB case builds and re-verifies under the issuer pin
             entries = [to_eval_results_entry(spelling, dataset_id="d", task_id="t", value=1,
-                                             require_verified=verifies) for spelling in (bundle, twin)]
+                                             require_verified=verifies, sd_jwt_issuer_key_pin=pin)
+                       for spelling in (bundle, twin)]
             tokens = [entry.pop("verifyToken") for entry in entries]
             self.assertEqual(entries[0], entries[1], f"{label}: the entries differ in verifyToken only")
             self.assertEqual(receipt_token_identity(tokens[0]), receipt_token_identity(tokens[1]), label)
             for entry, token in zip(entries, tokens):
                 entry["verifyToken"] = token
             self.assertNotEqual(eval_results_yaml(entries[:1]), eval_results_yaml(entries[1:]), label)
-            self.assertEqual(verify_eval_results_entry(entries[0]), verify_eval_results_entry(entries[1]),
-                             label)
-            self.assertEqual(verify_eval_results_entry(entries[0])["crypto_ok"], verifies, label)
+            self.assertEqual(verify_eval_results_entry(entries[0], sd_jwt_issuer_key_pin=pin),
+                             verify_eval_results_entry(entries[1], sd_jwt_issuer_key_pin=pin), label)
+            self.assertEqual(verify_eval_results_entry(entries[0], sd_jwt_issuer_key_pin=pin)["crypto_ok"],
+                             verifies, label)
+            if verifies and "KB-JWT" in label:
+                # counter-probe: the eval-results path is fail-closed without the pin
+                self.assertFalse(verify_eval_results_entry(entries[0])["crypto_ok"],
+                                 f"{label}: eval-results crypto_ok without a pin")
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_identity_form_folds_both_slots_and_nothing_else(self):
         """RED on f536af50 in the KB-JWT slot; the issuer slot was folded there already."""
@@ -783,6 +840,7 @@ class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
         self.payload = {"vct": VCT, "cnf": cnf}
 
     def test_a_holder_that_hashed_either_spelling_verifies_in_both(self):
+        pin = _es256_pin(self.pub_b64)
         for high in (False, True):
             presentation = _eddsa_key_binding(_issuer_jwt(self.payload, self.key, high=high) + "~",
                                               self.holder)
@@ -790,7 +848,10 @@ class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
                 res = verify_key_binding(spelling, expected_aud="rp", expected_nonce="n1")
                 self.assertTrue(res["ok"], res["detail"])
                 bundle = _bundle_with(spelling, self.pub_b64)
-                self.assertTrue(verify_bundle(bundle, expected_aud="rp", expected_nonce="n1").ok)
+                # Nachtrag 38: still verifies, now under the issuer pin; fail-closed without it
+                self.assertTrue(verify_bundle(bundle, expected_aud="rp", expected_nonce="n1",
+                                              sd_jwt_issuer_key_pin=pin).ok)
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_other_spelling_widens_nothing_else(self):
         """GREEN on 126ed1dc as well: a dropped disclosure, a foreign KB-JWT or a wrong nonce still

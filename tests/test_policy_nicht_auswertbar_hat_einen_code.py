@@ -42,22 +42,44 @@ def _umschlag():
 
 
 class _Sprengsatz(dict):
-    """Eine Policy, die beim LESEN wirft. Kein Nachbau der Auswertung, kein Monkeypatch am Modul —
-    die Ausnahme entsteht dort, wo eine kaputte Policy sie im Betrieb auch erzeugen wuerde."""
+    """A policy whose own ``get`` raises. Until the class fix of the 6.2.0 deep gate (2348f0a7) this was
+    the trigger of the case below, because the verifier read the policy through that ``get``. The
+    verifier reads what the policy stores now and runs none of its methods, so this object is the
+    empty policy it stores, and it serves as the case that says so."""
 
     def get(self, *a, **k):
         raise RuntimeError("policy ist kaputt")
 
 
+class _KeinJsonWert:
+    """A value no JSON document can hold."""
+
+
 def test_eine_kaputte_policy_wird_benannt_statt_zu_reissen():
+    """The trigger is a policy that cannot be read by what it stores: it holds a value that is no JSON
+    value. It gives the code at the base of the class fix (2074d814) and after it."""
     env, digest = _umschlag()
     r = AR.verify_agent_review_v02(env, PK, expected_subject_digest=digest,
-                                   policy=_Sprengsatz())
+                                   policy={**AR.load_policy(), "x": _KeinJsonWert()})
     codes = [getattr(e, "code", None) for e in (r.get("errors") or [])]
     assert "POLICY_NOT_EVALUABLE" in codes, (
         f"die kaputte Policy muss BENANNT werden, gemessen: {codes}")
     assert r["policy_decision"] == "insufficient_evidence", (
         "eine gescheiterte Auswertung ist keine Zustimmung")
+
+
+def test_eine_policy_wird_gelesen_als_das_was_sie_speichert():
+    """The class fix (deep gate 6.2.0 at 2348f0a7, found by the extended sweep): the verifier read
+    ``policy.get("time")`` through the caller's own ``get``. A dict subclass whose ``get`` raises is
+    judged as the plain dict it stores, and its ``get`` never runs. Red at 2074d814, where it gave
+    ``insufficient_evidence`` with POLICY_NOT_EVALUABLE while the plain empty dict gave another verdict."""
+    env, digest = _umschlag()
+    gespeichert = AR.verify_agent_review_v02(env, PK, expected_subject_digest=digest, policy={})
+    r = AR.verify_agent_review_v02(env, PK, expected_subject_digest=digest, policy=_Sprengsatz())
+    assert r["policy_decision"] == gespeichert["policy_decision"], (r["policy_decision"],
+                                                                   gespeichert["policy_decision"])
+    assert [getattr(e, "code", None) for e in (r.get("errors") or [])] == [
+        getattr(e, "code", None) for e in (gespeichert.get("errors") or [])]
 
 
 def test_die_gegenrichtung_eine_heile_policy_vergibt_den_code_nicht():

@@ -30,10 +30,10 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .bundle import SCHEMA as BUNDLE_SCHEMA, _verify_bundle, load_bundle
 from .emit import emit_bundle
 from .budget import render_keys_safe, render_safe
-from .canonical import _plain_for_jcs, _type_name, _zeichen_von
+from .canonical import _ein_stand, _plain_for_jcs, _type_name, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
-from ._membership import is_bool, is_member
+from ._membership import as_dict, is_bool, is_member
 from ._strict_json import enforce_structural_budget
 
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
@@ -89,6 +89,7 @@ class EvalClaimError(ValueError):
     """Raised for a malformed eval claim (float in payload, non-NFC string, unsafe int, …)."""
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def issuer_fingerprint(signer: Ed25519PrivateKey) -> str:
     """The `issuer` field value: ed25519:<base64 of the 32-byte raw public key>."""
     raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -120,6 +121,7 @@ def _issuer_key_weakness(issuer) -> Optional[str]:
     return ed25519_trust_anchor_weakness(raw)
 
 
+@_ein_stand
 def salted_commit(identifier: str, salt: bytes) -> str:
     """Salted commitment to an identifier: sha256:<hex> over salt || utf8(identifier).
 
@@ -244,6 +246,7 @@ def _reject_non_jcs_walk(value) -> None:
     raise EvalClaimError(f"unsupported value type {_type_name(typ)}")
 
 
+@_ein_stand(fehler=EvalClaimError)
 def canonicalize(claim: dict) -> bytes:
     """RFC 8785 JCS canonical bytes of a claim — EMIT PATH ONLY.
 
@@ -304,6 +307,7 @@ def _jcs_bytes(claim) -> bytes:
         raise EvalClaimError(f"canonicalization failed: a string cannot be encoded ({e.reason})") from e
 
 
+@_ein_stand
 def load_claim_text(text: str) -> dict:
     """Parse claim JSON text, rejecting duplicate keys (JCS forbids them).
 
@@ -345,6 +349,7 @@ def load_claim_text(text: str) -> dict:
     return claim
 
 
+@_ein_stand
 def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator: str,
                      threshold: str, score: str, n: int, model_id: str, dataset_id: str,
                      issuer: str, timestamp: str, context_binding: Optional[str] = None,
@@ -703,6 +708,7 @@ def _claim_read_back(claim, *, profile: bool) -> tuple:
     return read_back, payload
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=EvalClaimError)
 def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: Sequence[bytes] = (),
                       sd_jwt: Optional[dict] = None) -> dict:
     """Emit a proofbundle/v0.1 bundle whose payload is the canonical eval claim.
@@ -828,6 +834,7 @@ def _claim_of_verified(bundle: dict, claim: Any, expected_context: Any) -> Optio
     return claim
 
 
+@_ein_stand
 def decode_eval_claim(bundle, *, expected_context: Optional[str] = None) -> Optional[dict]:
     """Verify the bundle, then check the signing key matches the claim's `issuer` field.
 
@@ -905,6 +912,7 @@ def _names_a_foreign_bundle_format(bundle) -> bool:
     return isinstance(schema, str) and bool(schema) and schema != BUNDLE_SCHEMA
 
 
+@_ein_stand
 def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tuple:
     """Three-outcome classification of a bundle: (outcome, claim-or-None).
 
@@ -981,6 +989,7 @@ def classify_eval_claim(bundle, *, expected_context: Optional[str] = None) -> tu
     return (CLAIM_VALID, decoded)
 
 
+@_ein_stand
 def claim_warnings(claim: dict) -> list:
     """Honest trust warnings for an already-verified claim (v1.1). A verified signature proves authorship +
     integrity, NOT that the number is true or the study was pre-registered. The weakest combination —
@@ -1009,6 +1018,7 @@ SCORE_EVIDENCE_CLASSES = (EXACT_SCORE_VERIFIED, THRESHOLD_VERDICT_VERIFIED,
                           SCORE_COMMITMENT_PRESENT, SCORE_WITHHELD)
 
 
+@_ein_stand
 def eval_evidence_class(claim: dict) -> dict:
     """Classify what SCORE evidence a VERIFIED eval claim carries (never call on an unverified claim).
 
@@ -1056,6 +1066,7 @@ def eval_evidence_class(claim: dict) -> dict:
             "detail": "proves `passed` against the signed threshold, not an exact score"}
 
 
+@_ein_stand
 def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     """Check that a PRESENTED identifier (+ its salt) matches a salted commitment in a claim
     (``model_id_commit`` / ``dataset_id_commit``). Makes a model-swap visible: a claim that silently swapped
@@ -1102,12 +1113,14 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     return hmac.compare_digest(expected.encode("ascii"), zusage.encode("ascii"))
 
 
+@_ein_stand(aussen={"now": "uhr"})
 def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None) -> dict:
     """Replay check (v1.1): parse the claim's timestamp and report its age. A receipt carries a timestamp but
     verify never judged it — an old receipt could be replayed as new. Returns
     {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
-    from datetime import datetime, timezone  # noqa: PLC0415
+    import math  # noqa: PLC0415
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
     from .canonical import _zahl_von  # noqa: PLC0415
     # One reading of each caller value, by what it holds (round 12): the claim as the plain copy of what
     # it stores, the clock by its own type, the bound as an exact number (a subclass of int or float is
@@ -1153,18 +1166,23 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     # OverflowError in the SUBTRACTION — reachable from show-eval (age line) and from a policy
     # max_iat_age_seconds. Out of range is "not parsed", never a crash on a never-raise surface.
     try:
-        age = int((ref - dt).total_seconds())
+        delta = ref - dt
     except OverflowError:
         return {"parsed": False, "age_seconds": None, "fresh": None,
                 "reason": f"timestamp {ts!r} is out of the representable range"}
+    # 6.2.1 Codex P2 (Z309): the bound is judged on the exact age, and the reported whole seconds round down.
+    # `int()` truncated toward zero, so a claim 0.4 s in the future read as age 0 (fresh) and one 60.5 s old
+    # read as 60 within a bound of 60.
+    age = math.floor(delta.total_seconds())
     if max_age_seconds is None:
         return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
-    fresh = 0 <= age <= max_age_seconds
+    fresh = delta >= timedelta(0) and delta.total_seconds() <= max_age_seconds
     return {"parsed": True, "age_seconds": age, "fresh": fresh,
             "reason": (f"age {age}s within {max_age_seconds}s" if fresh
                        else f"age {age}s outside [0, {max_age_seconds}]s — possible replay or clock skew")}
 
 
+@_ein_stand
 def sd_jwt_hidden_count(bundle) -> Optional[int]:
     """Number of selectively-disclosable (currently withheld) SD-JWT fields in a bundle, so that OMISSION is
     visible: a receipt can hide claims behind the SD-JWT ``_sd`` digests. Returns the count, or None if the
@@ -1177,7 +1195,10 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
         return None
     # the canonical bundle form (the only one verify_bundle accepts) stores the compact SD-JWT under "compact";
     # sd_jwt/token are accepted as fallbacks for a bare token dict/string.
-    token = sd if isinstance(sd, str) else (sd.get("compact") or sd.get("sd_jwt") or sd.get("token") or "")
+    # `as_dict` (measured on c3bd89a4): a truthy `sd_jwt_vc` that is neither a string nor an object (`[1]`,
+    # `5`, `true`) passed `if not sd` and raised AttributeError at `.get` out of this never-raise surface.
+    felder = as_dict(sd)
+    token = sd if isinstance(sd, str) else (felder.get("compact") or felder.get("sd_jwt") or felder.get("token") or "")
     if not isinstance(token, str) or "." not in token:
         return None
     from ._strict_json import loads_strict  # noqa: PLC0415
@@ -1200,6 +1221,7 @@ def sd_jwt_hidden_count(bundle) -> Optional[int]:
     return len(sd_arr) if isinstance(sd_arr, list) else None
 
 
+@_ein_stand
 def enclave_assurance_proven(claim: dict, bundle, *, eat_jws: Optional[str] = None,
                              verifier_pubkey: Optional[bytes] = None,
                              expected_profile: Optional[str] = None,

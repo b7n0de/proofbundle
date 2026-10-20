@@ -29,26 +29,25 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._membership import require_switch, type_name
-from ._statement_payload import load_statement_strict
-from .budget import DEFAULT_BUDGET
-from .canonical import _eine_kopie, _pruefkopie
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
+from .budget import DEFAULT_BUDGET, render_safe
+from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _richtlinie_von,
+                        _zeichen_von, _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
+from ._membership import is_member
 from ._wire_b64 import decode_b64
+# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for `pattern`),
+# from the one definition in _schema_shapes. The private copy that stood here was corrected to `\A..\Z`
+# with [0-9] in round 11 (lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion`
+# with a trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 TRUST_PACK_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/trust-pack/v0.1"
 TRUST_PACK_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for
-# `pattern`): `$` is the end of the input and `\d` is [0-9]. Under Python `re`, `$` also matches before a
-# final newline and `\d` matches every Unicode decimal digit, so these are written `\A..\Z` with [0-9]
-# (round 11, lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion` with a
-# trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 _ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
               "timeAuthorities", "witnesses")
@@ -67,10 +66,16 @@ _KEY_ALG_LABEL = {"mldsa65": "ML-DSA-65", "hybrid-ed25519-mldsa65": "Ed25519 (hy
 
 # Finding 01 (2026-07 verify-layer hardening): automation_verdict.automation_summary's required_checks for
 # this predicate — root_threshold_met is the crypto-equivalent verdict (a Trust Pack has no single
-# `crypto_ok`, only the threshold check); "policy" is None (a Trust Pack IS the root of trust, it carries
-# no separate external policy/authorization layer to evaluate).
+# `crypto_ok`, only the threshold check).
+# N43 (security-fix 6.2.0): the "policy" dimension is `pinned`. A Trust Pack is the ROOT of trust, so it has
+# no EXTERNAL policy layer above it — but a root is trusted only because a RELYING PARTY pinned it out of
+# band (a genesis/content-root digest, a root-key set, or a rotation whose pinned predecessor vouched). That
+# binding IS the authorization dimension for automation: `safeForAutomation` is positive only under an RP
+# anchor. `pinned` is None (no anchor supplied → POLICY_NOT_EVALUATED) / False (anchor supplied, no match →
+# POLICY_FAILED) / True (bound). It does NOT feed `ok`, which stays the self-authentication verdict (form,
+# threshold, expiry, chain) — see `trust_pack_is_pinned` and `verify_trust_pack`'s `ok`/`pinned` split.
 _AUTOMATION_REQUIRED_CHECKS = {
-    "crypto": "root_threshold_met", "structure": "structure_ok", "policy": None,
+    "crypto": "root_threshold_met", "structure": "structure_ok", "policy": "pinned",
     "references": ["not_expired", "version_monotone", "rotation_authorized"],
 }
 
@@ -89,7 +94,18 @@ class TrustPackError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> TypeGuard[dict]:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
+
+
+def _zahl_text(v: Any) -> str:
+    """A relying party's number for a message: an exact int as its digits, any other value by its type only,
+    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis).
+
+    The digits are bounded: `int.__repr__` raised ValueError for an int past the int->str cap
+    (CVE-2020-10735), so `verify_trust_pack` with `prev_version` or `prev_root_threshold` = `10**5000`
+    raised out of the message that explains the refusal. `render_safe` describes such an int by its bit
+    length, and for an exact int it runs no method of the caller's."""
+    return render_safe(v) if type(v) is int else f"a value of type {type_name(v)}"
 
 
 def _is_int(v: Any) -> TypeGuard[int]:
@@ -113,6 +129,7 @@ def _parse_rfc3339_z(s: str) -> datetime:
     return dt
 
 
+@_ein_stand
 def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``trust-pack/v0.1`` predicate (empty = valid).
 
@@ -133,7 +150,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -181,17 +198,24 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                     continue
                 alg = kv.get("alg", "ed25519")
                 if alg not in _KEY_ALGS:
-                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {alg!r}")
+                    errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
                 allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
+                # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
+                if "scheme" in kv and kv.get("scheme") != "ed25519":
+                    errors.append(f"keys[{kid!r}].scheme, when present, must be 'ed25519'")
                 # the primary `publicKey` field is the ML-DSA-65 key itself for alg=mldsa65, or the Ed25519
                 # classical leg for alg=ed25519 / hybrid-ed25519-mldsa65 (an unrecognised alg is checked as
                 # 32-byte Ed25519 too — the "alg must be one of" error above already fail-closes it).
                 want_len = _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"]
-                label = _KEY_ALG_LABEL.get(alg, "Ed25519")
+                # A dict lookup hashes its key, and `alg` comes from the pack: a list here raised TypeError out of
+                # this validator and out of verify_trust_pack, before any signature was counted (same gate).
+                # An `alg` that is not one of _KEY_ALGS is already an error above; it is labelled as Ed25519.
+                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"
                 try:
                     raw = decode_b64(kv["publicKey"])
                     if len(raw) != want_len:
@@ -295,15 +319,16 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     if not (_is_int(th) and th >= 1):
         errs.append("threshold must be an integer >= 1")
     elif isinstance(kids, list) and isinstance(th, int) and th > len(kids):
-        errs.append(f"threshold ({th}) exceeds the number of keyIds ({len(kids)})")
+        errs.append(f"threshold ({render_safe(th)}) exceeds the number of keyIds ({len(kids)})")
     # dead-on-arrival: after removing revoked keys the role can never meet threshold.
     if isinstance(kids, list) and _is_int(th) and th >= 1:
         live = [k for k in kids if k not in revoked]
         if len(live) < th:
-            errs.append(f"threshold ({th}) can never be met — only {len(live)} non-revoked keyIds")
+            errs.append(f"threshold ({render_safe(th)}) can never be met — only {len(live)} non-revoked keyIds")
     return errs
 
 
+@_ein_stand
 def require_valid_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
@@ -318,6 +343,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise TrustPackError(
             "trust packs need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise TrustPackError(
+            f"a trust pack value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -370,6 +401,7 @@ def _read_once(predicate: Any) -> Any:
                              "within the structure budget") from exc
 
 
+@_ein_stand
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
     predicate = _read_once(predicate)
@@ -379,14 +411,15 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
     name = subject_name or f"trust-pack:{predicate.get('trustPackId', '')}:v{predicate.get('version', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": TRUST_PACK_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, TrustPackError)
 
 
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
@@ -435,12 +468,182 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
 
 
+# ── N43 (security-fix 6.2.0): a relying party's ANCHOR is what binds a pack to trust ──────────────────
+# `ok` is the pack's SELF-authentication: its form validates, a threshold of its OWN declared root keys
+# signed it, it is unexpired, and (when it claims a predecessor) the chain is intact. A GENESIS pack carries
+# its own root keys, so it self-authenticates with NO relying-party input — `ok` is True for a pack the
+# relying party has never seen and never chose to trust. Self-authentication is not trust: a Trust Pack is
+# the ROOT of trust, and a root is trusted only because a relying party PINNED it out of band. The functions
+# below report whether THIS pack is bound to such an anchor (a pinned genesis/content-root digest, a pinned
+# root-key set, or a rotation whose pinned predecessor's old root vouched). That verdict (`pinned`) gates the
+# automation-safety "policy" dimension and every derived trust statement (outcome.py roles); it never feeds
+# `ok`, which stays the documented self-authentication verdict.
+
+
+def _root_key_identity(value: Any) -> bytes | None:
+    """Addendum R6a-3 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the canonical IDENTITY token of ONE root
+    key, covering the ALGORITHM and BOTH legs, not the classical ``publicKey`` alone. So a hybrid key and an
+    Ed25519 key that happen to share the classical public bytes are DIFFERENT identities — a relying party's
+    pin that declares ``hybrid-ed25519-mldsa65`` is NOT satisfied by a pack whose root key is Ed25519-only (no
+    downgrade, docs/predicates/trust-pack.md §roles/keys). Accepts the same shapes as ``prev_root_keys``: a
+    bare base64 string (legacy Ed25519-only) or a key object ``{"publicKey", "alg"?, "publicKeyPq"?}``.
+
+    Fail-closed (``None``, counted nowhere, so it can neither be a declared root key nor a pin):
+      - an unknown ``alg`` (never silently reduced to its classical leg);
+      - an unreadable / missing ``publicKey``;
+      - a hybrid key whose ``publicKeyPq`` leg is absent or not decodable (an INCOMPLETE hybrid key).
+    ``alg`` absent defaults to ``ed25519`` (backward compatible with every pre-agility pack and bare-string
+    pin). The token is length-prefixed, so no two distinct ``(alg, publicKey, publicKeyPq)`` triples collide."""
+    alg: str
+    pub_b64: Any
+    pq_b64: Any
+    if isinstance(value, str):
+        alg, pub_b64, pq_b64 = "ed25519", value, None
+    elif isinstance(value, dict):
+        alg = value.get("alg", "ed25519")
+        if alg not in _KEY_ALGS:
+            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
+        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
+    else:
+        return None
+    if not isinstance(pub_b64, str):
+        return None
+    try:
+        pub = decode_b64(pub_b64)
+    except Exception:  # noqa: BLE001 — an unreadable public key is no identity
+        return None
+    pq: bytes | None = None
+    if alg == "hybrid-ed25519-mldsa65":
+        if not isinstance(pq_b64, str):
+            return None   # R6a-3: a hybrid key WITHOUT its PQ leg is incomplete — rejected closed, no downgrade
+        try:
+            pq = decode_b64(pq_b64)
+        except Exception:  # noqa: BLE001 — an undecodable PQ leg is an incomplete hybrid key
+            return None
+    pq_part = b"" if pq is None else str(len(pq)).encode("ascii") + b":" + pq
+    return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|" + pq_part
+
+
+def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
+    """The pack's own DECLARED, non-revoked root role: ``(set of root key IDENTITY tokens, declared threshold)``.
+
+    Mirrors ``verify_trust_pack``'s own root extraction (count distinct KEY MATERIAL, not keyId labels): for
+    each non-revoked root keyId, the full normalized identity of ``keys[kid]`` (R6a-3: algorithm + both legs,
+    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed — an unreadable key, an unknown or
+    incomplete algorithm, a malformed role or a non-int threshold contributes nothing (empty set / ``None``
+    threshold), never a raise. The threshold is returned only as an exact int (``_is_int``), so an int subclass
+    cannot later decide a comparison; a non-int threshold comes back ``None`` and no pin via the root-key anchor
+    can pass."""
+    if not isinstance(predicate, dict):
+        return set(), None
+    keys = _as_dict(predicate.get("keys"))
+    revoked = set(_as_list(predicate.get("revoked")))
+    root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
+    material: set[bytes] = set()
+    for kid in _as_list(root.get("keyIds")):
+        if not isinstance(kid, str) or kid in revoked:
+            continue
+        kv = keys.get(kid)
+        if not isinstance(kv, dict):
+            continue
+        token = _root_key_identity(kv)   # R6a-3: full normalized identity, never the classical leg alone
+        if token is not None:
+            material.add(token)
+    threshold = root.get("threshold")
+    return material, (threshold if _is_int(threshold) else None)
+
+
+def _pinned_root_material(expected_root_keys: Any) -> set[bytes]:
+    """The set of root key IDENTITY tokens a relying party PINNED. Accepts the same shape as ``prev_root_keys``:
+    a ``{keyId: publicKey_b64}`` map, or ``{keyId: {"publicKey": ..., "alg"?: ..., "publicKeyPq"?: ...}}``. Read
+    ONCE through ``canonical._richtlinie_von`` so a caller's mapping subclass cannot decide membership through
+    its own ``get`` / ``__iter__`` / ``values``. R6a-3: each entry is normalized to its full identity
+    (``_root_key_identity``: algorithm + both legs), so a pin that declares a hybrid key is matched ONLY by a
+    declared hybrid key with the same classical AND post-quantum leg — never by an Ed25519-only key that shares
+    the classical bytes. Fail-closed — an entry whose public key is unreadable, whose algorithm is unknown, or
+    which is an incomplete hybrid key (no decodable ``publicKeyPq``), contributes nothing."""
+    m = _richtlinie_von(expected_root_keys) or {}
+    material: set[bytes] = set()
+    for v in m.values():
+        token = _root_key_identity(v)   # R6a-3: same full normalized identity on both sides of the match
+        if token is not None:
+            material.add(token)
+    return material
+
+
+@_ein_stand
+def trust_pack_is_pinned(predicate: Any, *, expected_genesis_digest: str | None = None,
+                         expected_root_keys: dict | None = None,
+                         rotation_authorized: bool | None = None) -> bool | None:
+    """Is THIS pack bound to a relying-party anchor? THREE states, never two:
+
+      ``True``  — bound to at least one supplied anchor.
+      ``False`` — an anchor WAS supplied but none matched (trust REFUTED: a pack the RP did not pin).
+      ``None``  — NO anchor was supplied at all (trust UNESTABLISHED: the caller never pinned anything).
+
+    Any ONE anchor suffices:
+      1. a rotation whose pinned predecessor's OLD root vouched for this pack. ``rotation_authorized`` is a
+         caller-reported VERDICT, counted only as the exact bool: ``None`` means no rotation anchor was
+         supplied (don't count it), ``True`` means the pinned predecessor's old root vouched (bound), ``False``
+         means a rotation anchor WAS supplied but the old root did not vouch (a supplied anchor that did not
+         match). ``verify_trust_pack`` passes ``True``/``False`` only when the caller gave ``prev_root_keys`` /
+         ``prev_root_threshold``, and ``None`` otherwise;
+      2. a pinned genesis / content-root digest — ``sha256(JCS(predicate))`` equals
+         ``expected_genesis_digest``. That is the same content-root a successor carries as its
+         ``prevVersionDigest`` (docs/predicates/trust-pack.md §prevVersionDigest; docs/SUBJECT_BINDING.md),
+         and the exact value ``build_trust_pack_statement`` writes as the subject digest;
+      3. a pinned root-key set — every DECLARED non-revoked root key is in ``expected_root_keys`` AND the
+         declared root threshold is a positive int reachable within it, so the pack's root IDENTITY is exactly
+         what the RP pinned (the threshold that authenticated it is then pinned too).
+
+    One-reading and fail-closed throughout: the digest is read by its characters (``_zeichen_von``), the
+    pinned keys through ``_richtlinie_von``; a computation that cannot run (no RFC-8785 canonicaliser) is a
+    non-match, never a raise and never a silent pass. ``ok`` is UNAFFECTED — a pack can be ``ok`` (self-
+    authenticated) yet ``pinned is None`` (never anchored by this relying party)."""
+    anchor_supplied = False
+
+    # Anchor 1 — a pinned predecessor's old root vouched (rotation authorization proven upstream, by the caller
+    # supplying prev_root_keys/prev_root_threshold — the relying party pinning the predecessor's root). Counted
+    # only as the exact bool: True binds; False is a supplied-but-unmatched anchor; None is no rotation anchor.
+    if rotation_authorized is True:
+        return True
+    if rotation_authorized is False:
+        anchor_supplied = True
+
+    # Anchor 2 — pinned genesis / content-root digest.
+    want = _zeichen_von(expected_genesis_digest)
+    if want is not None:
+        anchor_supplied = True
+        try:
+            got: Any = hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
+        except Exception:  # noqa: BLE001 — cannot canonicalize ⇒ cannot confirm the pin (fail-closed)
+            got = None
+        if got is not None and got == want:
+            return True
+
+    # Anchor 3 — pinned root-key set covers the pack's declared root identity.
+    if expected_root_keys is not None:
+        anchor_supplied = True
+        pinned_keys = _pinned_root_material(expected_root_keys)
+        declared, threshold = _declared_root_material(predicate)
+        if (pinned_keys and declared and declared <= pinned_keys
+                and type(threshold) is int and threshold >= 1 and len(declared) >= threshold):
+            return True
+
+    return False if anchor_supplied else None
+
+
 def _empty_result() -> dict:
     return {"ok": None, "structure_ok": None, "predicate_type_ok": None, "root_threshold_met": None,
             "not_expired": None, "version_monotone": None, "rotation_authorized": None,
+            # N43 (security-fix 6.2.0, additive): whether THIS pack is bound to a relying-party anchor —
+            # True (bound) / False (an anchor was supplied but none matched) / None (no anchor supplied).
+            # Gates `automation.safeForAutomation` (the "policy" dimension) and derived trust statements;
+            # NEVER feeds `ok`. See `trust_pack_is_pinned`.
+            "pinned": None,
             "root_signers": [], "old_root_signers": [],
             # Finding 01 (2026-07 verify-layer hardening, additive): a uniform automation-safety verdict,
-            # computed at the end of verify — never gates anything above, `ok` is unchanged.
+            # computed at the end of verify — never gates `ok`.
             "automation": None,
             "warnings": [], "errors": []}
 
@@ -499,8 +702,13 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
         except PQUnavailable:
             return False
-    # default / "ed25519" (an unrecognised alg on prev_root_keys — caller-supplied trust material, outside
-    # the predicate's own schema gate — safely falls back to the classical check rather than raising).
+    # 6.2.1 R6b-3 (Z309): only the exact "ed25519" reaches the classical check. Any other value — an unknown
+    # algorithm such as "rsa4096" or "hybrid-ed25519-mldsa87", None, "", a number — vouches for nothing: an
+    # unrecognised alg was read as Ed25519 here, so a valid Ed25519 signature over the classical bytes counted
+    # for a key declared under an algorithm this verifier does not implement (an absent alg is the documented
+    # legacy Ed25519 case and is mapped to "ed25519" by the callers, not here).
+    if type(alg) is not str or alg != "ed25519":
+        return False
     if not isinstance(sig_b64, str):
         return False
     try:
@@ -513,10 +721,13 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     return verify_ed25519_pinned(pub, sig, msg)
 
 
+@_ein_stand(aussen={"now": "uhr"})
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
                       prev_version: int | None = None, prev_version_digest: str | None = None,
                       prev_root_keys: dict | None = None, prev_root_threshold: int | None = None,
-                      allow_unverified_rotation: bool = False) -> dict:
+                      allow_unverified_rotation: bool = False,
+                      expected_genesis_digest: str | None = None,
+                      expected_root_keys: dict | None = None) -> dict:
     """Verify a threshold-signed Trust Pack. Unlike a plain DSSE verify (any-single-sig) this counts DISTINCT
     non-revoked ROOT KEY MATERIAL with a valid signature and requires >= the root threshold.
 
@@ -531,7 +742,20 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
     alone. ``allow_unverified_rotation`` opts out of that check only as the exact ``True``; a value that is not
-    a bool keeps the check, and the error says so and names the value's type."""
+    a bool keeps the check, and the error says so and names the value's type.
+
+    RELYING-PARTY ANCHOR (N43, security-fix 6.2.0). ``ok`` above is the pack's SELF-authentication (form,
+    threshold of its OWN root, expiry, chain) — a GENESIS pack self-authenticates with NO caller input, so
+    ``ok`` can be True for a pack the relying party never pinned. Self-authentication is not trust: a Trust
+    Pack is the ROOT of trust, trusted only once a relying party has PINNED it out of band. ``expected_genesis_digest``
+    (the content-root ``sha256(JCS(predicate))``, the value a successor carries as ``prevVersionDigest``) and
+    ``expected_root_keys`` (a ``{keyId: publicKey_b64}`` / key-object map covering the pack's declared root
+    identity) are those anchors; supplying ``prev_root_keys`` + ``prev_root_threshold`` for a rotation is a
+    third (the RP pins the predecessor's root). The result field ``pinned`` names the outcome: ``True`` (bound
+    to a supplied anchor), ``False`` (an anchor was supplied but none matched), ``None`` (no anchor supplied).
+    ``pinned`` does NOT change ``ok``; it is the "policy" dimension of ``automation`` — ``safeForAutomation``
+    is positive only under an anchor (unanchored → ``POLICY_NOT_EVALUATED``; mismatch → ``POLICY_FAILED``).
+    Every DERIVED trust statement (outcome.py role trust) is positive only under a pinned pack too."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     try:
@@ -651,29 +875,41 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             f"root signature threshold not met: {len(valid_root)} valid non-revoked root signature(s), "
             f"need {threshold}")
 
-    # Expiry.
-    _now = now or datetime.now(timezone.utc)
-    try:
-        exp = _parse_rfc3339_z(predicate["expires"])
-        r["not_expired"] = exp > _now
-    except (ValueError, KeyError, TypeError):
+    # Expiry. The clock is read once (`canonical._zeitpunkt_von`, verify lane on pull request 312): a datetime
+    # subclass whose own reflected comparison answered made an expired pack unexpired.
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
         r["not_expired"] = False
-    if r["not_expired"] is False:
-        r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
+        r["errors"].append(f"now must be a datetime, got {type(now).__name__} — expiry not evaluated (fail-closed)")
+    else:
+        _now = _uhr if _uhr is not None else datetime.now(timezone.utc)
+        try:
+            exp = _parse_rfc3339_z(predicate["expires"])
+            r["not_expired"] = exp > _now
+        except (ValueError, KeyError, TypeError):
+            r["not_expired"] = False
+        if r["not_expired"] is False:
+            r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:
         # adversarial re-audit r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
-        r["version_monotone"] = (_is_int(predicate.get("version")) and _is_int(prev_version)
+        # The relying party's previous version is a plain int (deep gate 6.2.0 at 2348f0a7, found by the
+        # extended sweep): an int subclass passed `_is_int` and answered `version > prev_version` through its own
+        # reflected comparison, so a rolled-back pack read as monotone.
+        r["version_monotone"] = (_is_int(predicate.get("version")) and type(prev_version) is int
                                  and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
                 f"version {predicate.get('version')!r} is not greater than the previous version "
-                f"{prev_version} (rollback/freeze, fail-closed)")
+                f"{_zahl_text(prev_version)} (rollback/freeze, fail-closed)")
     if prev_version_digest is not None:
         pvd = predicate.get("prevVersionDigest")
         pvd_hex = pvd.get("sha256") if _is_digest(pvd) else None
-        if pvd_hex != prev_version_digest:
+        # By its characters: `!=` asked a `str` subclass's reflected `__ne__` first (found by the extended
+        # sweep). An expectation that is no text never chains.
+        _erwartet = _zeichen_von(prev_version_digest)
+        if _erwartet is None or pvd_hex != _erwartet:
             r["version_monotone"] = False
             r["errors"].append("prevVersionDigest does not chain to the supplied previous pack (fail-closed)")
 
@@ -682,7 +918,12 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
     # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
     if prev_root_keys is not None or prev_root_threshold is not None:
-        old_keys = _as_dict(prev_root_keys)  # adversarial re-audit r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
+        # adversarial re-audit r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash. ONE READING (deep gate
+        # 6.2.0 at 2348f0a7, found by the extended sweep): the previous root keys are the plain copy of what the
+        # caller's map stores (`canonical._richtlinie_von`), so its own `__class__`, `__contains__`,
+        # `__getitem__` and `get` never decide which old key vouched. A map that holds a value that is no JSON
+        # value vouches for nothing (fail-closed), as a non-dict did.
+        old_keys = _richtlinie_von(prev_root_keys) or {}
         old_valid: dict[bytes, str] = {}
         for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
@@ -692,14 +933,14 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 continue
             _ok = old_keys[kid]
             # backward compatible: a bare base64 string (legacy callers, ed25519-only) or a full key object
-            # ({"publicKey":, "alg":, "publicKeyPq":}) for crypto-agile rotation vouching. An unrecognised
-            # alg on this caller-supplied trust material defaults to ed25519 rather than raising.
+            # ({"publicKey":, "alg":, "publicKeyPq":}) for crypto-agile rotation vouching. Only an ABSENT alg
+            # is the legacy Ed25519 case; 6.2.1 R6b-3 (Z309): an explicit alg this verifier does not implement
+            # (or None, "", a number) is no longer read as ed25519 — it reaches _verify_signature_for_alg as
+            # given and vouches for nothing.
             if isinstance(_ok, str):
                 old_alg, pub_b64, pq_pub_b64 = "ed25519", _ok, None
             elif isinstance(_ok, dict):
                 old_alg = _ok.get("alg", "ed25519")
-                if old_alg not in _KEY_ALGS:
-                    old_alg = "ed25519"
                 pub_b64, pq_pub_b64 = _ok.get("publicKey"), _ok.get("publicKeyPq")
             else:
                 continue
@@ -717,12 +958,14 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
         # old-root vouches (self-review fix, fail-closed defense-in-depth — a correct caller passes the old
         # pack's root threshold, which the validator already guarantees >= 1).
-        r["rotation_authorized"] = (_is_int(prev_root_threshold) and prev_root_threshold >= 1
+        # A plain int (the one rule for a number, `_plain_value.plain_int`): `_is_int` asks `isinstance`, and an
+        # int subclass decided `len(old_valid) >= prev_root_threshold` through its own reflected comparison.
+        r["rotation_authorized"] = (type(prev_root_threshold) is int and prev_root_threshold >= 1
                                     and len(old_valid) >= prev_root_threshold)
         if not r["rotation_authorized"]:
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
-                f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+                f"need {_zahl_text(prev_root_threshold)} (old root must vouch for the new pack, fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
         # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
         # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:
@@ -746,13 +989,30 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                    f"; allow_unverified_rotation is not a bool (a value of type "
                    f"{type_name(allow_unverified_rotation)}), and only the exact True opts out"))
 
+    # N43 (security-fix 6.2.0): bind THIS pack to a relying-party anchor, if the caller supplied one. This is
+    # computed BEFORE `ok` for ordering only — it never feeds `ok` (a genesis pack self-authenticates with no
+    # caller input). It IS the "policy" dimension of the automation verdict and gates every derived trust
+    # statement. `rotation_authorized is True` is also an anchor (the caller pinned the predecessor's root).
+    # The rotation verdict counts as an anchor only when the caller SUPPLIED a rotation anchor (prev_root_keys /
+    # prev_root_threshold). Otherwise it is None here, even though r["rotation_authorized"] may be False for a
+    # pack that merely DECLARES a prevVersionDigest without the caller supplying the predecessor's root (that is
+    # not a supplied anchor — it is the pack's own claim, already fail-closed into `ok`).
+    _rotation_anchor = (r["rotation_authorized"]
+                        if (prev_root_keys is not None or prev_root_threshold is not None) else None)
+    r["pinned"] = trust_pack_is_pinned(
+        predicate,
+        expected_genesis_digest=expected_genesis_digest,
+        expected_root_keys=expected_root_keys,
+        rotation_authorized=_rotation_anchor)
+
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]
         and r["not_expired"] and r["version_monotone"] is not False
         and r["rotation_authorized"] is not False)
 
-    # Finding 01 (additive): a uniform automation-safety verdict — never changes `ok` above. A trust pack
-    # has no separate policy/authorization layer (it IS the root of trust), so "policy" is not applicable.
+    # Finding 01 (additive): a uniform automation-safety verdict — never changes `ok` above. N43: the "policy"
+    # dimension is `pinned` (the relying-party anchor), so `safeForAutomation` is positive only under an anchor
+    # even when `ok` is True.
     from .automation_verdict import automation_summary  # noqa: PLC0415
     r["automation"] = automation_summary(r, required_checks=_AUTOMATION_REQUIRED_CHECKS)
     return r

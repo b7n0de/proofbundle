@@ -10,11 +10,13 @@ optional `provenance` field so a verifier can trace exactly which run produced i
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
+from .._strict_json import loads_reject_duplicate_keys
+from ..budget import render_safe, render_text
 from ..evalclaim import build_eval_claim
+from ..canonical import _ein_stand
 
 
 def _find_metric(res: dict, metric: str):
@@ -23,17 +25,22 @@ def _find_metric(res: dict, metric: str):
     Prefers an exact `metric` key, then `metric,none`, then any `metric,<filter>`. The stderr sibling is
     `metric_stderr,<same filter>`."""
     if metric in res:                       # bare key (older/simple exports)
-        stderr = res.get(f"{metric}_stderr")
+        stderr = res.get(f"{render_text(metric)}_stderr")
         return res[metric], stderr, metric
-    if f"{metric},none" in res:
-        return res[f"{metric},none"], res.get(f"{metric}_stderr,none"), f"{metric},none"
+    # THE METRIC NAME IS PART OF A KEY, and a key is text: `render_text` keeps a str whole (a clipped
+    # name would look up another key) and renders anything else bounded; `metric=10**5000` raised
+    # ValueError from these f-strings (lens run 10 generator on d6d89763), and now finds nothing.
+    name = render_text(metric)
+    if f"{name},none" in res:
+        return res[f"{name},none"], res.get(f"{name}_stderr,none"), f"{name},none"
     for key in res:                         # any filter, e.g. metric,custom-filter
-        if key == metric or (key.startswith(f"{metric},") and not key.startswith(f"{metric}_stderr")):
+        if key == metric or (key.startswith(f"{name},") and not key.startswith(f"{name}_stderr")):
             flt = key.split(",", 1)[1] if "," in key else "none"
-            return res[key], res.get(f"{metric}_stderr,{flt}"), key
+            return res[key], res.get(f"{name}_stderr,{flt}"), key
     return None, None, None
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, threshold: str,
                          timestamp: str, model_salt: Optional[bytes] = None,
                          dataset_salt: Optional[bytes] = None):
@@ -42,13 +49,15 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     `metric` is the bare name (e.g. "acc"); the real key may be "acc,none". The score is read as a STRING
     to avoid float canonicalization issues. Returns (claim, salts).
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Nachtrag 51 (K6-04): reject a duplicate JSON key fail-closed before the metric value feeds `passed`
+    # (last-wins would sign the LAST value a differing reader disagrees with). No new size cap.
+    data = loads_reject_duplicate_keys(Path(path).read_text(encoding="utf-8"))
     res = data.get("results", {}).get(task)
     if res is None:
-        raise ValueError(f"task not found in results: {task!r}")
+        raise ValueError(f"task not found in results: {render_safe(task)}")
     value, stderr, matched = _find_metric(res, metric)
     if value is None:
-        raise ValueError(f"metric {metric!r} not found in results[{task!r}] "
+        raise ValueError(f"metric {render_safe(metric)} not found in results[{render_safe(task)}] "
                          f"(available: {sorted(k for k in res if ',' in k)})")
     # Fixed-point format (never scientific notation, e.g. '1e-05') — build_eval_claim rejects scientific
     # notation, so repr() silently dropped legitimate small scores (release-review fix, mirrors v0.8.1).

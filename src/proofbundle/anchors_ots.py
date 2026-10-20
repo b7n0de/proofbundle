@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ._membership import is_member   # an unhashable status is not bound, and does not raise
+from .canonical import _abbild_stand, _ein_stand
 
 #: The largest serialized OTS proof this package deserializes, in bytes (deep gate Z195, finding
 #: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). Why a second bound: the package's structural
@@ -53,6 +54,7 @@ _BINDING_HELD = frozenset({"pending", "empty", "needs_rp_trust", "confirmed", "n
 _BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
 
 
+@_ein_stand
 def ots_binding_held(result) -> bool:
     """True iff `result`, a verdict of `verify_opentimestamps`, says the proof was read and commits the
     canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound.
@@ -63,8 +65,12 @@ def ots_binding_held(result) -> bool:
 
     The status is read with `dict.get`, not with the object's own `get`: a dict subclass that overrides
     `get` can neither raise out of here nor name a status its contents do not hold (gate run 3, 229-3-02).
-    STATED LIMIT, the line `_membership.is_member` draws: a key or a status whose own `__eq__` or
-    `__hash__` raises anything but TypeError still raises here. Only a caller can build such an object;
+    STATED LIMIT, since the fix of deep gate run 6 at fda55f98 the one of the reading at the call
+    (`canonical._ein_stand`): a status of the caller's own class reaches here as a stand-in that holds nothing of
+    the caller, which is no member of the statuses that say the binding held, so it is not bound and none of its
+    code runs; a dict holding a key whose hash would be the caller's code is refused at the call with
+    `canonical._StandUnkopierbar`, a `ProofBundleError`. Until then such a key or status raised what its own
+    `__eq__` or `__hash__` raised, the line `_membership.is_member` draws. Only a caller can build such an object;
     parsed JSON cannot, and `verify_opentimestamps` returns literal dicts with string keys."""
     return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)
 
@@ -133,6 +139,7 @@ def _bitcoin_confirmations(timestamp):
             stack.append((child, seen_hash or isinstance(op, CryptOp)))
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed OTS verify. Returns {ok, detail, warn, status}. A pending proof is warn (status
@@ -197,6 +204,20 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         return {"ok": False, "warn": False, "status": "malformed",
                 "detail": f"rp_trust must be a usable mapping, got {type(rp_trust).__name__} (fail-closed)"}
+    # ONE READING of both mappings (`canonical._abbild_von`, verify lane on pull request 312): a header map
+    # whose own `get` answered a header it does not store confirmed the proof. Every read below is of the
+    # plain copy; a mapping that holds a value that is no JSON value is malformed.
+    from .canonical import _abbild_von  # noqa: PLC0415
+    _frozen_name, _rp_name = type(frozen).__name__, type(rp_trust).__name__
+    frozen = _abbild_von(frozen)
+    if frozen is None:
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"frozen ({_frozen_name}) holds a value that is no JSON value (fail-closed)"}
+    if rp_trust is not None:
+        rp_trust = _abbild_von(rp_trust)
+        if rp_trust is None:
+            return {"ok": False, "warn": False, "status": "malformed",
+                    "detail": f"rp_trust ({_rp_name}) holds a value that is no JSON value (fail-closed)"}
     rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
     if not _nutzbares_mapping(rp_headers):
         return {"ok": False, "warn": False, "status": "malformed",
@@ -312,6 +333,7 @@ _KNOWN_CALENDAR_OPERATORS = (
 )
 
 
+@_ein_stand
 def calendar_operator(uri: str) -> str:
     """Best-effort operator label for a calendar URI. Operator redundancy (distinct OPERATORS), not URL
     count, is what tolerates an outage or a defunding — two URLs on one operator are one point of
@@ -340,6 +362,7 @@ def calendar_operator(uri: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+@_ein_stand
 def calendar_uris(proof: bytes) -> list[str]:
     """The distinct calendar URIs whose PendingAttestations carry ``proof`` (WP-B1 transparency).
     Fail-closed: without the ``[anchors]`` extra, or on a malformed proof, returns ``[]`` (never raises).
@@ -375,6 +398,7 @@ def _calendar_uris_of(timestamp) -> list[str]:
     return sorted(uris)
 
 
+@_ein_stand
 def calendar_operators(uris) -> list[str]:
     """The distinct, sorted operator labels behind a list of calendar URIs (WP-B1). ``len(...)`` is the
     OPERATOR redundancy — the number that survives an outage, unlike a raw URL count."""

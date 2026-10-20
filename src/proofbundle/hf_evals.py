@@ -30,8 +30,8 @@ from typing import Optional, Tuple
 from ._membership import require_switch, type_name
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
-from .budget import render_keys_safe
-from .canonical import _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
+from .budget import render_key_list, render_keys_safe, render_safe
+from .canonical import _ein_stand, _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
@@ -52,6 +52,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def receipt_token(bundle: dict) -> str:
     """Pack a receipt bundle into a compact, self-contained token: ``pb1.`` +
     base64url(zlib(canonical bundle JSON)). The token IS the receipt — verifying it is verifying
@@ -81,10 +82,17 @@ def receipt_token(bundle: dict) -> str:
     bundle = _plain_for_jcs(bundle, lambda text: BundleFormatError(f"receipt_token: {text}"))
     if "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
-    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # The caller's bundle is serialized: a value without a JSON form (`10**5000`, a set, bytes, a
+    # nesting deeper than the interpreter allows) raised raw from `json.dumps` (lens run 10 generator on
+    # d6d89763). Such a bundle is malformed, which is what BundleFormatError says here.
+    try:
+        canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"receipt bundle has no JSON form ({type(exc).__name__})") from exc
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
+@_ein_stand
 def receipt_token_identity(token: str) -> bytes:
     """The identity of a ``pb1.`` token: the receipt root of the bundle it carries, i.e.
     :func:`proofbundle.anchors.receipt_canonical_root` over that bundle without its ``anchors``, the
@@ -102,9 +110,16 @@ def receipt_token_identity(token: str) -> bytes:
     return receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
 
 
-def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
+@_ein_stand
+def verify_receipt_token(token: str, *, sd_jwt_issuer_key_pin: Optional[str] = None
+                         ) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
     Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
+
+    ``sd_jwt_issuer_key_pin`` (Nachtrag 38, Z309 / PR 311 P1): forwarded verbatim to
+    :func:`~proofbundle.bundle.verify_bundle`. A KB-JWT verdict carried by the token (holder binding,
+    audience, nonce) is reported positive only under a trusted SD-JWT issuer — the SD-JWT bound to the
+    signed payload, or its issuer key matching this pin — otherwise ``sd-jwt-issuer-trust`` fails closed.
 
     The returned bundle is the one the token carries, byte for byte in every field: a foreign
     issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
@@ -119,7 +134,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
     # token never escapes as a different exception type (release-review fix).
     try:
-        return verify_bundle(bundle), bundle
+        return verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin), bundle
     except ProofBundleError as exc:
         # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
         # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
@@ -167,7 +182,8 @@ def _unpack_receipt_token(token) -> dict:
     return bundle
 
 
-def verify_eval_results_entry(entry: dict) -> dict:
+@_ein_stand
+def verify_eval_results_entry(entry: dict, *, sd_jwt_issuer_key_pin: Optional[str] = None) -> dict:
     """VERIFIER-side check of one ``.eval_results`` entry (WP-I2): the builder's value↔verdict
     consistency was emit-side only, so an entry whose ``value`` was edited AFTER the token was
     minted verified fine (``verify_receipt_token`` checks only the bundle inside the token, and a
@@ -203,7 +219,14 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # `canonical._feld_von`): never the entry's own `get`, and each value by its own type (`_zeichen_von`,
     # `_zahl_von`). The rest of the entry is not read, so an entry parsed from YAML with a date object
     # in `date` keeps verifying as before.
+    # BOTH FIELDS ARE READ FROM ONE READING, the one of the call (`canonical._stand`), before the token is verified
+    # (a verify lens of the fix of the gate at d388ed3d, the class of L4-620v5-T5-SECOND-READING-01). The value was
+    # read after the receipt inside the token had been verified, a second reading of the caller's entry: a gc
+    # callback of the caller that changed both fields in between paired the token of one state with the value of
+    # the other, and the entry verified although neither state of it is consistent (measured: `ok` True at 22 of
+    # 112 collection starts).
     token = _feld_von(entry, "verifyToken")
+    _val = _feld_von(entry, "value")
     token = _zeichen_von(token) if _zeichen_von(token) is not None else token
     if type(token) is not str or not token:   # `type()`: a `__class__` claim is no str (round 12)
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
@@ -213,7 +236,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
     # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.
     try:
-        result, bundle = verify_receipt_token(token)
+        result, bundle = verify_receipt_token(token, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
     except ProofBundleError as exc:
         out["detail"] = f"malformed verifyToken — not verifiable, fail-closed ({exc})"
         return out
@@ -221,7 +244,6 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"
         return out
-    _val = _feld_von(entry, "value")
     _typ = type(_val)
     if _typ is not bool and _typ is not int and _typ is not float and (issubclass(_typ, int)
                                                                       or issubclass(_typ, float)):
@@ -243,7 +265,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     try:
         numeric = float(_val)
     except (TypeError, ValueError, OverflowError):
-        out["detail"] = f"entry value {_val!r} is not a number"
+        out["detail"] = f"entry value {render_safe(_val)} is not a number"
         return out
     if not _math.isfinite(numeric):
         out["detail"] = "entry value is not finite"
@@ -267,11 +289,12 @@ def verify_eval_results_entry(entry: dict) -> dict:
     return out
 
 
+@_ein_stand
 def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                           date: Optional[str] = None, source_url: Optional[str] = None,
                           source_name: Optional[str] = None, source_user: Optional[str] = None,
                           notes: Optional[str] = None, include_token: bool = True,
-                          require_verified: bool = True,
+                          require_verified: bool = True, sd_jwt_issuer_key_pin: Optional[str] = None,
                           allow_value_mismatch: bool = False) -> dict:
     """Build one HF `.eval_results/*.yaml` entry for a receipt.
 
@@ -338,7 +361,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     from .evalclaim import _eine_lesung  # noqa: PLC0415
     bundle = _eine_lesung(bundle)
     if require_verified:
-        result = verify_bundle(bundle)
+        result = verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
         if not result.ok:
             raise BundleFormatError(
                 "refusing to build an eval_results entry from a bundle that does not verify: "
@@ -356,7 +379,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     try:
         numeric = float(value)
     except (ValueError, TypeError, OverflowError) as exc:   # OverflowError: an int beyond float range
-        raise BundleFormatError(f"value {value!r} is not a representable finite number") from exc
+        raise BundleFormatError(f"value {render_safe(value)} is not a representable finite number") from exc
     if not math.isfinite(numeric):
         raise BundleFormatError(
             "value must be a finite number — inf/-inf/nan cannot be represented in eval_results.yaml")
@@ -428,11 +451,19 @@ def _yaml_scalar(value) -> str:
     escaping is valid YAML), so dates stay strings and tokens survive any special characters."""
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return json.dumps(value)
-    return json.dumps(str(value))
+    # A value without a JSON or text form (`10**5000`, a nesting deeper than the interpreter allows, an
+    # object whose `__str__` raises) raised raw from here out of `eval_results_yaml` (lens run 10
+    # generator on d6d89763); it cannot be written into the document, which is BundleFormatError.
+    try:
+        if isinstance(value, (int, float)):
+            return json.dumps(value)
+        return json.dumps(str(value))
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no form"
+        raise BundleFormatError(f"eval_results value {render_safe(value)} cannot be written "
+                                f"({type(exc).__name__})") from exc
 
 
+@_ein_stand
 def eval_results_yaml(entries) -> str:
     """Render entries as a `.eval_results/*.yaml` document (block style, deterministic key
     order per the HF spec example). Only the known, shallow schema is emitted — this is a
@@ -465,7 +496,7 @@ def eval_results_yaml(entries) -> str:
                 # would silently omit data from the published entry (release-review fix).
                 sub_unknown = set(val) - set(sub_order)
                 if sub_unknown:
-                    raise BundleFormatError(f"unknown {key} field(s): {sorted(sub_unknown)}")
+                    raise BundleFormatError(f"unknown {key} field(s): {render_key_list(sub_unknown)}")
                 lines.append(f"{prefix}{key}:")
                 for sub in sub_order:
                     if sub in val:

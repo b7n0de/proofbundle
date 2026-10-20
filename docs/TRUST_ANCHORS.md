@@ -17,6 +17,7 @@ proves nothing to you.
 | **Samples root** (`claim.samples.root_b64`) | IN-BAND, **signed** | Nothing extra — it is covered by the bundle signature; the verifier re-checks `samples.n == n`. Audit challenges use a **fresh nonce you choose** (or a public beacon). | A self-challenge (no nonce) is grindable by re-salting — use a fresh nonce for real audits. |
 | **TEE Verifier key** (`verify_enclave_attestation(verifier_pubkey=…)`, v2.0 preview) | OUT-OF-BAND | Supply the RATS Verifier's key; you also implicitly trust that its appraisal of the raw TEE evidence is sound. | An enclave attestation is only as good as the Verifier you trust; proofbundle checks its signature + receipt binding, not the raw hardware quote. |
 | **Pre-registration protocol** (`prereg_sha256`) | Hash IN-BAND signed; the protocol FILE is out of band | You must obtain the protocol file to check it hashes to the committed value. | You have a commitment to a plan you can't see — ask for the file. |
+| **Trust Pack root of trust** (`trust-pack`/v0.1) | A genesis pack self-authenticates IN-BAND from its own declared root keys | OUT-OF-BAND: pin the genesis **content-root digest** (`verify_trust_pack(expected_genesis_digest=…)` — the `sha256(JCS(predicate))` a successor carries as `prevVersionDigest`), or the **root-key set** (`expected_root_keys=…`), or verify a **rotation** against a pinned predecessor (`prev_root_keys` + `prev_root_threshold`). The result field `pinned` names which, if any, held. | An unpinned pack is `ok=True` (form, threshold, expiry, chain — self-authentication only) but `pinned=None` and `automation.safeForAutomation=False`; every derived role trust (`outcome` executor/receiver) stays not-established. A genesis pack proves nothing *to you* until you pin it — you'd be trusting a root of trust you never chose (security-fix 6.2.0). |
 
 Rule of thumb: **in-band, self-asserting anchors (the bundle/SD-JWT issuer key, the samples root)
 prove internal consistency; out-of-band anchors (log, witness, status keys, the protocol file) are
@@ -59,7 +60,8 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `merkle.required_hash_alg` | the Merkle hashing algorithm (anti-alg-confusion) | Samples/Merkle |
 | `merkle.require_authenticated_root` | the stated root MUST be authenticated (matches `--expected-root` or a `trusted_roots` entry); closes the coherent one-leaf rewrap (ADR 0004) | Samples/Merkle |
 | `merkle.trusted_roots` | base64 Merkle roots the relying party trusts out of band; a stated root among them counts as authenticated | Samples/Merkle |
-| `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` | RFC 9901 audience / replay / holder binding on the KB-JWT | Holder key |
+| `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` / `expected_vct` | RFC 9901 audience / replay / holder binding on the KB-JWT, and the issuer-signed `vct` | Holder key **and a TRUSTED SD-JWT issuer** (`sd_jwt.issuer_key_pin`, or the SD-JWT bound to the signed payload) |
+| `sd_jwt.issuer_key_pin` | the SD-JWT issuer verifying key, pinned by the relying party independently of the bundle (algorithm-prefixed, e.g. `ed25519:<b64>`) | SD-JWT issuer key |
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
 
@@ -78,12 +80,33 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
   a policy that ENABLES a status requirement fails closed with a clear reason rather than silently
   passing. Evaluate revocation separately with `verify_status_snapshot` until a later phase wires a
   snapshot input.
-- `sd_jwt.require_nonce` enforces that a nonce is present in a **verified** Key Binding JWT (an
-  unauthenticated nonce is refused, fail-closed). It does NOT by itself bind the nonce *value* to your
-  transaction — that is a challenge you supply with `--nonce`, exactly as `sd_jwt.expected_aud` /
-  `--aud` bind the audience. Use `--nonce` for real challenge-response.
+- Every `sd_jwt` rule that trusts a value from the SD-JWT or its KB-JWT — `expected_aud`, `require_nonce`,
+  `require_key_binding_when_cnf_present` and `expected_vct` — is evaluated only when the SD-JWT **issuer** is
+  trusted: either `sd_jwt.issuer_key_pin` matches the verifying key, or the SD-JWT is bound to the signed
+  payload (an eval receipt committed to this bundle's root). The verifying key (`sd_jwt_vc.issuer_public_key_b64`)
+  lives outside the bundle's signed payload, so a KB-JWT under an untrusted self-signed SD-JWT carries an
+  attacker-chosen audience, nonce and holder binding; without a pin or binding these rules fail closed (the
+  Nachtrag 32 Critical fix for `expected_vct`, generalised to the whole class). Set `sd_jwt.issuer_key_pin`
+  whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle.
+- The SAME issuer-trust gate now also governs the DIRECT paths (Nachtrag 38, Z309 / PR 311 P1): the
+  `key_binding_ok` / `audience_ok` / `nonce_ok` fields and the exit code of `verify` (and `verify_bundle` with
+  `expected_aud` / `expected_nonce` or `sd_jwt_issuer_key_pin`), not just the policy rules. A KB-JWT verdict —
+  holder binding, audience, nonce — is reported positive only when the SD-JWT is bound to the signed payload or
+  its issuer key matches a pin supplied out of band (`sd_jwt.issuer_key_pin` in a `--policy`, or the
+  `verify_bundle` `sd_jwt_issuer_key_pin` argument). Without an anchor the KB-JWT presentation fails closed
+  (`sd-jwt-issuer-trust`, exit non-zero) — a self-signed SD-JWT can no longer read `--aud`/`--nonce` as bound.
+  **Breaking:** `verify --aud`/`--nonce` on a self-signed presentation now exits non-zero; supply the pin
+  (a `--policy` with `sd_jwt.issuer_key_pin`) or present an eval receipt bound to the bundle.
+- `sd_jwt.require_nonce` enforces that a nonce is present in a **verified** Key Binding JWT under a trusted
+  issuer (an unauthenticated or untrusted-issuer nonce is refused, fail-closed). It does NOT by itself bind the
+  nonce *value* to your transaction — that is a challenge you supply with `--nonce`, exactly as
+  `sd_jwt.expected_aud` / `--aud` bind the audience. Use `--nonce` for real challenge-response.
 - If `--aud` and the policy's `sd_jwt.expected_aud` are both set and differ, that is an ambiguity, not
   a silent override: `verify` exits 2.
-- There is **no key-rotation or root-of-trust delegation** (no TUF-like signed root/targets roles with
-  `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list; rotating a signer means
-  re-distributing the policy file. A trust policy pins keys; it does not manage their lifecycle.
+- There is **no key-rotation or root-of-trust delegation in the trust *policy*** (no TUF-like signed
+  root/targets roles with `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list;
+  rotating a signer means re-distributing the policy file. A trust policy pins keys; it does not manage
+  their lifecycle. (The separate `trust-pack`/v0.1 predicate IS the TUF-inspired root of trust — a role
+  set authenticated by a threshold of its own declared root KEYS, with `expires` and a two-stage rotation
+  chain — but it is trusted only once the relying party pins it to an anchor, see the **Trust Pack root of
+  trust** row above; a genesis pack confers no trust on its own.)

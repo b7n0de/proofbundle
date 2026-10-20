@@ -138,28 +138,33 @@ def test_die_pruefung_bleibt_linear_in_der_zahl_der_einheiten():
     public verification interface, which is not something to slip in alongside a test. The promise
     named a mechanism whose shape I had not measured.
 
-    So the assurance is built here instead, with the guard's own METHOD: a doubling series, own-process
-    CPU time, the minimum of several runs, and the exponent over the series. Measured 2026-09-24 at
-    2500, 5000, 10000 and 20000 units — exponent 1.053 without a duplicate and 1.024 with one, both
-    under the 1.2 that file uses as its ceiling, and 20,000 units cost about 25 ms.
+    So the assurance is built here instead, with the guard's own METHOD: a doubling series and the
+    exponent over the series. Measured 2026-09-24 as own-process CPU time at 2500, 5000, 10000 and
+    20000 units — exponent 1.053 without a duplicate and 1.024 with one, and 20,000 units cost about
+    25 ms.
+
+    COUNTED, NOT TIMED (Z309, 2026-10-07). A ratio of two run times measures the machine with the code,
+    and on a shared runner the load between the points decides it. The cost is now the counted work of
+    `tests/_arbeitszaehler.py`: lines of Python run plus the length of every receiver a built-in method
+    walks. The second part is what sees THIS defect, since `benannt.count(x)` was one line per entry and
+    a full walk of the list inside it. Counted at c59209d9, the head before the fix, with the fit of this
+    test: exponent 1.995 with the duplicate, 0.999 without. At b1f8d355: 0.999 and 0.999. The bound 1.35 is
+    unchanged. What the count does not see is named in the head of tests/_arbeitszaehler.py: the same scan written
+    as ``x in a_list`` would count as linear.
 
     THE DUPLICATE ARM IS THE POINT. Without it this case would pass over the exact input the finding
     was about, because the quadratic path only ran when a duplicate existed.
     """
     import math
-    import resource
 
-    def cpu() -> float:
-        r = resource.getrusage(resource.RUSAGE_SELF)
-        return r.ru_utime + r.ru_stime
+    from _arbeitszaehler import work
 
-    def kosten(doc) -> float:
-        beste = math.inf
-        for _ in range(3):
-            a = cpu()
-            cap1.check_cap1_document(doc)
-            beste = min(beste, cpu() - a)
-        return beste
+    def kosten(doc) -> int:
+        return work(lambda: cap1.check_cap1_document(doc))
+
+    # One call before the series, so that a first-call cost (a cache filled once) cannot raise the
+    # first point and lower the exponent.
+    cap1.check_cap1_document(_viele_einheiten(2, True))
 
     def exponent(paare):
         xs = [math.log(n) for n, _ in paare]

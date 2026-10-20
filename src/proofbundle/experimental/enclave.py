@@ -50,8 +50,9 @@ from typing import Optional
 
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
-from ..signature import verify_ed25519_pinned
+from ..signature import _reject_jws_crit, verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
+from ..canonical import _ein_stand
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
            "issue_enclave_attestation"]
@@ -69,6 +70,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def enclave_binding_for(bundle: dict) -> str:
     """The value an Attestation Result's ``eat_nonce`` MUST carry to be bound to ``bundle``.
 
@@ -95,6 +97,7 @@ def _match_nonce(eat_nonce, expected: str) -> bool:
     return False
 
 
+@_ein_stand
 def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected_binding: str,
                                expected_profile: Optional[str] = None,
                                now: Optional[int] = None) -> dict:
@@ -104,7 +107,8 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     signature under ``verifier_pubkey`` (the RATS Verifier key — a supplied trust anchor),
     ``eat_nonce`` == ``expected_binding`` (from :func:`enclave_binding_for`), and — if given —
     ``eat_profile`` == ``expected_profile``. Freshness (``iat``/``exp``) is reported and only
-    judged when ``now`` is supplied.
+    judged when ``now`` is supplied; ``now`` is the relying party's clock as an exact POSIX-seconds ``int``, and any
+    other value (a bool, a float, a string) fails the verify closed.
 
     Returns ``{ok, tier, profile, ueid, nonce_ok, fresh, iat, exp, detail}``. ``ok`` covers
     signature + typ/alg + binding (+ profile if requested); ``tier`` is the Verifier's declared
@@ -113,10 +117,24 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     """
     result = {"ok": False, "tier": None, "profile": None, "ueid": None, "nonce_ok": False,
               "fresh": None, "iat": None, "exp": None, "detail": ""}
-    if not isinstance(eat_jws, str) or eat_jws.count(".") != 2:
+    # 6.2.1 ZT-03 (Z309): the clock as an exact int, read once at entry (the one rule for a caller's number,
+    # _plain_value.plain_int, as kbjwt and decision read it). `False` compared as POSIX 0 and 150.5 or "150" were
+    # judged as given; each is a malformed relying-party clock and fails closed, never an unjudged freshness.
+    if now is not None:
+        from .._plain_value import plain_int  # noqa: PLC0415
+        if plain_int(now) is None:
+            result["detail"] = "enclave now (relying-party clock) must be a POSIX-seconds integer (fail-closed)"
+            return result
+        now = plain_int(now)
+    # The token as the text it holds, read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the shape
+    # check and the split were two readings, a `str` subclass through its own `count` and `split`, and a count
+    # that answered 2 beside a split into four parts escaped this surface as a raw ValueError.
+    from ..canonical import _zeichen_von  # noqa: PLC0415
+    text = _zeichen_von(eat_jws)
+    if text is None or text.count(".") != 2:
         result["detail"] = "not a compact JWS"
         return result
-    header_b64, payload_b64, sig_b64 = eat_jws.split(".")
+    header_b64, payload_b64, sig_b64 = text.split(".")
     try:
         header = loads_strict(_b64url_decode(header_b64))   # WP-C1: dup keys fail-closed
         claims = loads_strict(_b64url_decode(payload_b64))
@@ -132,6 +150,13 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
         return result
     if not isinstance(header, dict) or not isinstance(claims, dict):
         result["detail"] = "malformed EAT token"
+        return result
+    # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
+    # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so an EAT whose
+    # protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
     if header.get("typ") != EAT_TYP:
         result["detail"] = f"EAT typ must be '{EAT_TYP}'"
@@ -173,12 +198,19 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
             result["fresh"] = None            # unbounded — cannot judge (relying-party policy)
         else:
             result["fresh"] = (iat is None or iat <= now) and now < exp
+            if result["fresh"] is False:
+                # Nachtrag 49 K4-04 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): an attestation expired
+                # or not yet valid at the evaluation time is never a positive authenticated verdict. A missing
+                # `now` or a missing `exp` leaves `fresh` None (unbounded — relying-party policy), unchanged.
+                result["detail"] = "enclave attestation is not fresh (expired or not yet valid) at the evaluation time"
+                return result
 
     result["ok"] = True
     result["detail"] = f"enclave attestation verified (tier={result['tier']!r})"
     return result
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
                               ueid: Optional[str] = None, iat: Optional[int] = None,
                               exp: Optional[int] = None) -> str:
@@ -200,5 +232,12 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     if exp is not None:
         claims["exp"] = exp
     header = {"alg": "EdDSA", "typ": EAT_TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(claims).encode())
+    # The claims come from the caller and are serialized: one without a JSON form (`iat=10**5000`, a
+    # set, bytes, a nesting deeper than the interpreter allows) raised raw from `json.dumps` (lens run 10
+    # generator on d6d89763). Refused by the module's typed error, as a malformed binding is elsewhere.
+    try:
+        claims_json = json.dumps(claims)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"attestation claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

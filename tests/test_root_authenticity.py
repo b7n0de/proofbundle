@@ -457,15 +457,21 @@ class TestAP1PreLandReviewRegressions(unittest.TestCase):
                 json.dump(policy, f)
             out = io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-                main(["verify", "--json", bpath, "--policy", ppath])
+                rc = main(["verify", "--json", bpath, "--policy", ppath])
             data = json.loads(out.getvalue())
         finally:
             os.unlink(bpath)
             os.unlink(ppath)
-        ra = data["root_authenticity"]
-        self.assertFalse(ra["safeForAutomation"],
+        # Since T16 (owner point 4 of 2026-10-01) `verify` refuses a policy that sets a rule it does not apply:
+        # `decision_receipt.trusted_decision_makers` belongs to `decision verify`, so the policy is refused with
+        # exit 2 before any verdict, and nothing can read as a trusted signer. Until then the policy was evaluated
+        # and the signer had to be found unpinned (SIGNER_NOT_PINNED).
+        self.assertEqual(rc, 2, data)
+        self.assertIs(data["ok"], False)
+        self.assertIn("decision_receipt.trusted_decision_makers", data["error"])
+        ra = data.get("root_authenticity")
+        self.assertFalse(bool(ra) and ra.get("safeForAutomation"),
                          "a decision-maker-only policy must not fake a trusted signer on the verify path")
-        self.assertIn("SIGNER_NOT_PINNED", ra["automationBlockers"])
 
     def test_allowed_issuers_matching_signer_still_sets_safe_true(self):
         # regression-guard the other direction: a real eval policy that pins the matching signer + an

@@ -39,7 +39,10 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from .._membership import type_name
+from ..budget import render_text
 from ..errors import BundleFormatError
+from ..canonical import _ein_stand
 
 __all__ = ["ASSURANCE_PROVIDER_DECLARED", "binding_present", "normalise_provider_evidence",
            "evidence_digest"]
@@ -70,21 +73,50 @@ _MAX_DEPTH = 64
 _TOO_DEEP = "<truncated: nesting deeper than %d levels>" % _MAX_DEPTH
 
 
+#: Key types json writes by value; their `str()` is the built-in one and runs no code of the caller.
+_SKALAR_SCHLUESSEL = (int, float, bool, type(None))
+
+
 def _without_credentials(obj: Any, _depth: int = 0) -> Any:
     """Drop credential-looking members, recursively. Structure preserved, values not inspected.
 
     Bounded by :data:`_MAX_DEPTH` — see there for why the bound exists.
+
+    Read by what the value stores, so that no method of the caller runs while the evidence is copied (deep gate
+    run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): a mapping through the base type's own
+    `dict.items`, a list through `list.__iter__`, a key by its characters. `obj.items()` ran a dict subclass's own
+    `items`, and `str(k).lower()` a key's own `__str__`, in the middle of the one reading `check_on_receipt` takes
+    of the evidence: a key whose `__str__` rewrote two members of the evidence left a copy that held one member from
+    before and one from after, and without an expected digest the answer was ACCEPTED although neither state of the
+    evidence is. A key that is no text and no exact JSON scalar is refused with the `TypeError` json gives for it,
+    before it is hashed into the copy, where its own `__hash__` and `__eq__` would run; a `str` subclass key is written
+    as the plain text it holds.
     """
     if _depth >= _MAX_DEPTH:
         return _TOO_DEEP
-    if isinstance(obj, dict):
-        return {k: _without_credentials(v, _depth + 1) for k, v in obj.items()
-                if not any(h in str(k).lower() for h in _CREDENTIAL_HINTS)}
-    if isinstance(obj, list):
-        return [_without_credentials(x, _depth + 1) for x in obj]
+    if issubclass(type(obj), dict):
+        kopie = {}
+        for k, v in list(dict.items(obj)):
+            if issubclass(type(k), str):
+                k = str.__str__(k)
+                name = k
+            elif type(k) in _SKALAR_SCHLUESSEL:
+                # A key is judged by its text, and `str(k)` raised ValueError for a key of `10**5000` (the
+                # public-surface generator on main 570dd164 and five carried commits, 68 calls).
+                # `render_text` writes such an int bounded and any other scalar as `str()` did.
+                name = render_text(k)
+            else:
+                raise TypeError(f"keys must be str, int, float, bool or None, not {type_name(k)}")
+            if any(h in name.lower() for h in _CREDENTIAL_HINTS):
+                continue
+            kopie[k] = _without_credentials(v, _depth + 1)
+        return kopie
+    if issubclass(type(obj), list):
+        return [_without_credentials(x, _depth + 1) for x in list(list.__iter__(obj))]
     return obj
 
 
+@_ein_stand
 def evidence_digest(evidence: dict) -> str:
     """A stable digest over the provider's evidence, after credential removal.
 
@@ -93,12 +125,20 @@ def evidence_digest(evidence: dict) -> str:
     """
     if not isinstance(evidence, dict):
         raise BundleFormatError("evidence_digest needs a dict")
-    clean = _without_credentials(evidence)
-    return hashlib.sha256(
-        json.dumps(clean, sort_keys=True, separators=(",", ":"),
-                   ensure_ascii=False).encode("utf-8")).hexdigest()
+    # A MAPPING WITHOUT A JSON FORM is refused by this module's typed error, as a non-mapping already
+    # is: `10**5000` (ValueError), a set, bytes or a tuple key (TypeError), or a lone surrogate
+    # (UnicodeEncodeError) escaped raw from `json.dumps` (lens run 10 generator on d6d89763). The copy
+    # without credentials is made inside the same `try`: it refuses a tuple key itself, and that TypeError
+    # escaped raw before (second reading of 4be8f120, Z4).
+    try:
+        clean = _without_credentials(evidence)
+        text = json.dumps(clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"evidence has no canonical JSON form ({type(exc).__name__})") from exc
 
 
+@_ein_stand
 def binding_present(evidence: dict, expected_binding: str) -> bool:
     """Does the provider's SIGNED material carry ``expected_binding``?
 
@@ -114,9 +154,17 @@ def binding_present(evidence: dict, expected_binding: str) -> bool:
         return False
     if not isinstance(evidence, dict):
         return False
-    return expected_binding in json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    # Signed material without a JSON form carries no text the binding could occur in, so it is not present:
+    # `10**5000`, bytes, a set or a tuple key raised raw out of here and out of normalise_provider_evidence
+    # (second reading of 4be8f120, F1), which now refuses such evidence by evidence_digest's typed error.
+    try:
+        text = json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    except (ValueError, TypeError, RecursionError):
+        return False
+    return expected_binding in text
 
 
+@_ein_stand
 def normalise_provider_evidence(evidence: dict, *, provider: str,
                                 expected_binding: Optional[str] = None,
                                 request_id: Optional[str] = None,
@@ -182,6 +230,7 @@ def _sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
+@_ein_stand
 def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
                      request_bytes: bytes, response_bytes: bytes,
                      planned_route: Optional[str] = None,
@@ -238,9 +287,20 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # `{1: "a", "b": 2}` passed it and then raised a raw TypeError out of `json.dumps` — the same
     # class as the depth guard, one hop further in. Same verdict as a non-mapping: attestation
     # failure, REASON_MALFORMED, named instead of propagated.
+    #
+    # THE EVIDENCE IS READ ONCE, here, and every check below reads that copy (deep gate run 5 at
+    # d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). The tamper
+    # check, the binding check, the hash checks, the route and the record each read the caller's
+    # mapping again, the route through its own `get`: evidence changed between the tamper check and
+    # the binding check was judged untampered in one state and bound in another, and the answer was
+    # ACCEPTED although neither state of it is. The copy is the one every check already judged,
+    # `_without_credentials` (credential-shaped members dropped, the depth bound kept), so its digest,
+    # its binding and its record are those of the evidence as it was handed in. Evidence that changes
+    # its size while it is read is refused like evidence that cannot be canonicalised.
     try:
+        evidence = _without_credentials(evidence)   # from the one reading of the call (`canonical._stand`)
         digest = evidence_digest(evidence)
-    except (TypeError, ValueError, BundleFormatError) as exc:
+    except (TypeError, ValueError, RuntimeError, BundleFormatError) as exc:
         return {"outcome": OUTCOME_ATTESTATION_FAILURE, "reasons": [REASON_MALFORMED],
                 "not_measurable": [], "evidence_digest": None,
                 "normalised": {"assurance": ASSURANCE_PROVIDER_DECLARED, "provider": provider,
@@ -254,7 +314,12 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 2. Does the provider's signed material carry OUR nonce? A quote that predates this request
     #    cannot contain it. This is the same measurement as `binding_present`, named for the
-    #    failure it catches.
+    #    failure it catches. The nonce is read once as well, as the text it holds, and the record
+    #    below is built with that reading.
+    from ..canonical import _zeichen_von as _text_von  # noqa: PLC0415
+    _nonce_text = _text_von(nonce)
+    if _nonce_text is not None:
+        nonce = _nonce_text
     if not binding_present(evidence, nonce):
         reasons.append(REASON_STALE_NONCE)
 
@@ -299,10 +364,20 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 4. Did the route silently move? A change of backend is an attestation failure, not a detail:
     #    the evidence describes a machine that did not serve this answer.
+    #    A planned route counts only as a non-empty text, read by its characters (a `str` subclass or a
+    #    `str` Enum as the text it holds). The docstring's rule (a caller that supplies no planned route has
+    #    shown that the question cannot be answered here, never an acceptance) was not what the code did:
+    #    `if planned_route and ...` read None, "", 0, False, [], {} and () as no question and ACCEPTED the
+    #    answer (verify lens on the cross-check fix at bc3d275f, 2026-09-29). Now each is not measurable, as a
+    #    route the provider does not report is, and so is a planned route that is no text.
+    from ..canonical import _zeichen_von  # noqa: PLC0415
     reported_route = evidence.get("route") or evidence.get("upstream") or evidence.get("backend")
-    if planned_route and reported_route and str(reported_route) != str(planned_route):
+    _geplant = _zeichen_von(planned_route) or None
+    if _geplant is None:
+        unmeasurable.append(REASON_ROUTE_DRIFT)
+    elif reported_route and str(reported_route) != _geplant:
         reasons.append(REASON_ROUTE_DRIFT)
-    elif planned_route and not reported_route:
+    elif not reported_route:
         unmeasurable.append(REASON_ROUTE_DRIFT)
 
     normalised = normalise_provider_evidence(
@@ -320,6 +395,7 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
             "evidence_digest": digest, "normalised": normalised}
 
 
+@_ein_stand
 def counts_as_own_domain(receipt_check: dict) -> bool:
     """May this provider answer count as its own execution domain in a diversity panel?
 
