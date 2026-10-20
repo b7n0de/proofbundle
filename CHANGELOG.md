@@ -21,6 +21,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- A test-result statement over no named case no longer validates, signs or joins. `verifier_block.validate_test_result_statement` required a named case only when one of `passedTests`, `warnedTests` and `failedTests` was present, so a PASSED statement with all three removed was signed and joined as a passing run; it now reads an absent list as an empty one, and refuses an entry that names nothing (an empty name, or one of only spaces, control or format characters), which the producer's `caseId` check now refuses as well. These rules are this package's and stricter than the in-toto predicate, which makes each list optional; `docs/VERIFIER_BLOCK.md` states them. `verify_intoto_dsse` refused three empty case lists on an export of ours but verified the same export with the lists, or the lists and `result`, removed and signed again; it now asks for `result`, and for the list that names the suite whenever the verdict has one, as the export writes them.
 - **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
   A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
   the checkout a measurement was taken in; it now says "a second local checkout", and so does the
