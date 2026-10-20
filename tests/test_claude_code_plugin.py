@@ -265,9 +265,10 @@ def test_verify_reports_safe_for_automation_verbatim_for_a_bundle_whose_policy_p
 def test_verify_passes_a_true_on_verbatim_too(server, tmp_path):
     key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
     policy = tmp_path / "decision-policy.json"
+    # No signature section: proofbundle 6.3.0 refuses a policy that sets rules the decision check does not apply
+    # (Nachtrag 45, the pin); 6.1.0 ignored them. The signer stays pinned by trusted_decision_makers.
     policy.write_text(json.dumps({
         "schema": "proofbundle/trust-policy/v0.2", "policy_id": "plugin-test",
-        "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
         "decision_receipt": {
             "accepted_predicate_types": ["https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"],
             "trusted_decision_makers": [{"id": "https://example.org/decision-platform/gate/v1", "public_key_b64": key}],
