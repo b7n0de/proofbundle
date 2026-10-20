@@ -278,11 +278,13 @@ def test_D114_an_entry_that_does_not_match_the_clone_pins_nothing(tmp_path, fiel
     "python3 -c 'open(\".git/hooks/pre-commit\", \"a\").write(\"x\")' && git commit -m work",
     "true && git commit -m work", "git commit -m work | cat", "git status --short > out.txt",
     "cd {R} && git commit -m work", "GIT_DIR=.git git commit -m work", "git -c core.hooksPath=/elsewhere commit -m work",
-    "git log --oneline -3 | head -1", "git commit -m work &", "git add -A || git commit -m work"])
+    "git log --oneline -3 | head -1", "git commit -m work &", "git add -A || git commit -m work",
+    "'git' commit -m work", "\\git commit -m work", "g''it commit -m work"])
 def test_D114_D115_a_command_with_another_step_than_a_plain_pinned_git_call_keeps_the_answer(tmp_path, form):
     """Another step of the line can change a hook or the configuration after the gate read them and before git runs
-    them (a write in another language is not gated, D8): the pin frees only plain git calls joined by && or ;. The
-    decision stays; a block may now name a rewrite into the plain pinned call (D85) where it named none before."""
+    them (a write in another language is not gated, D8): the pin frees only plain git calls joined by && or ;, each
+    spelled `git` as written, without quotes or a backslash. The decision stays; a block may now name a rewrite into the
+    plain pinned call (D85) where it named none before."""
     repo = _repo(tmp_path)
     form = form.replace("{R}", str(repo))
     before = answered(repo, form)

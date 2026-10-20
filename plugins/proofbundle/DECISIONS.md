@@ -5480,9 +5480,9 @@ file, more than 64 KiB, a repeated key, another schema, another key, a relative 
 shape). In autonomous operation (Claude Code with the flag, D85), an ask whose every verdict that is no pass is the
 not-free answer of D3 for add or commit is free (free_pinned_state, klasse lokal, no line to the user) where all of this
 holds when the gate answers:
-- the command is plain git calls of the pinned forms joined by `&&` or `;` (_pinned_command): no other program, no
-  redirection, no pipe, no expansion, no word the shell may rewrite, so no other step of the line writes a hook or the
-  configuration between the check and git;
+- the command is plain git calls of the pinned forms joined by `&&` or `;` (_pinned_command), each spelled `git` as
+  written (no quotes, no backslash, no path): no other program, no redirection, no pipe, no expansion, no word the
+  shell may rewrite, so no other step of the line writes a hook or the configuration between the check and git;
 - exactly one entry names the work tree, HEAD is a branch under refs/heads/claude/, the hook directory git uses is the
   pinned one and holds exactly the pinned hooks with their bytes (a link, a new, a changed or a missing hook pins
   nothing), .git/config is a regular file with the pinned bytes, and there is no config.worktree;
