@@ -48,11 +48,17 @@ def _package(tmp_path: pathlib.Path, *, binds: bool = True, kind: str = "stateme
     pkg = tmp_path / "pkg"
     pkg.mkdir(parents=True, exist_ok=True)
     body = {"schema": "example/v1", "version": "1.2.3", "produced_at": "2026-09-22T00:00:00Z"}
+    if kind == "receipt":
+        # A RECEIPT IS BUILT AS ONE. Until `after` re-derived the payload, this fixture marked a statement
+        # body as a receipt and nothing read the difference; the receipt form signs nine named fields.
+        body.update({"schema": "b7n0de.pre_tag_audit_receipt.v1", "subject_tree_digest": "e" * 64,
+                     "gate_source_digest": "f" * 64, "audit_command": "python3 -m pytest",
+                     "audit_exit_code": 0, "audit_output_digest": "0" * 64, "runner_identity": "example"})
     if binds:
         body["candidate"] = {"commit": HEAD, "tree_digest": "b" * 64,
                              "sdist_sha256": "c" * 64, "wheel_sha256": "d" * 64}
     body.update(body_extra or {})
-    payload = _canon(body)
+    payload = vsp._receipt_payload()[0](body) if kind == "receipt" else _canon(body)
     (pkg / "art.body.json").write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     (pkg / "art.payload.bin").write_bytes(payload)
     manifest = {

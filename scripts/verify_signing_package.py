@@ -49,12 +49,22 @@ import argparse
 import hashlib
 import json
 import pathlib
+import re
 import sys
 
 DEFAULT_MANIFEST = "MANIFEST.json"
 #: A file the producer leaves behind while a step is still running. Its presence means the package
 #: is incomplete, and an incomplete package must never be signed.
 IN_PROGRESS_MARKER = ".step_running"
+
+#: The four fields a candidate binding names. A binding that leaves one out does not bind it. The first
+#: version compared only the fields the manifest happened to carry, so an empty `candidate` compared
+#: nothing and still printed a match (Codex on pull request 369, round one, P1).
+CANDIDATE_FIELDS = ("commit", "tree_digest", "sdist_sha256", "wheel_sha256")
+
+#: An artefact name is a plain name: it becomes part of a file name inside the package and is never a
+#: path. It starts with a letter or digit, so `.` and `..` are no names.
+_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
 def _canonicalizer():
@@ -146,6 +156,52 @@ def _sha256(p: pathlib.Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def _inside(package: pathlib.Path, rel, what: str) -> pathlib.Path:
+    """A file name the manifest gives, kept inside the package, or a stated reason to stop.
+
+    THE MANIFEST IS PART OF WHAT IS CHECKED, NOT A TRUSTED PARTY. The first version joined every name
+    it found there to the package directory. An absolute name or one with `..` replaced or left the
+    directory, so `after` read a JSON file from anywhere on the signing machine into the preview, and
+    a crafted artefact name wrote the preview outside the package (Codex on pull request 369, round
+    one, P1). The name is refused on its form, and then the resolved path, symlinks followed, has to
+    lie under the resolved package: a name can stay inside the directory and point out of it.
+    """
+    if not isinstance(rel, str) or not rel:
+        raise SystemExit(f"STOP: {what} is not a file name ({rel!r}). Do not sign.")
+    form = pathlib.PurePath(rel)
+    if form.is_absolute() or ".." in form.parts:
+        raise SystemExit(f"STOP: {what} {rel!r} lies outside the package, and the manifest may only name "
+                         "files inside it. Do not sign.")
+    full = (package / rel).resolve()
+    try:
+        full.relative_to(package.resolve())
+    except ValueError:
+        raise SystemExit(f"STOP: {what} {rel!r} resolves to {full}, which lies outside the package. "
+                         "Do not sign.") from None
+    return package / rel
+
+
+def _derived_payload(a: dict, body: dict) -> "tuple[bytes | None, str]":
+    """The payload re-derived from the body in the form the artefact's kind prescribes: (bytes, source),
+    or (None, why) when the tool for that form is not importable here.
+
+    ONE DERIVATION FOR BOTH PHASES. `before` derived the payload from the body and `after` did not
+    derive it at all, so the equality `before` established was never asked again once the signature
+    existed (Codex on pull request 369, round one, P1). Both phases call this now.
+
+    A body that cannot take the form raises ValueError or TypeError (a receipt without one of its signed
+    fields, a value the canonical form refuses). The callers report that as a finding, not as NOT
+    MEASURABLE: the tool was there, the package was wrong.
+    """
+    if a.get("kind") == "receipt":
+        fn, source = _receipt_payload()
+        return (fn(body), source) if fn is not None else (None, source)
+    fn, source = _canonicalizer()
+    if fn is None:
+        return None, source
+    return fn({k: v for k, v in body.items() if k != "signature"}), source
+
+
 def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
     """The manifest, or a stated reason to stop. Every failure here is a finding, not a traceback:
     a broken package is a result, and the reader needs the result, not a stack."""
@@ -171,14 +227,25 @@ def load_manifest(package: pathlib.Path, name: str = DEFAULT_MANIFEST) -> dict:
         # "fine" about nothing is the failure mode this whole tool exists to refuse.
         raise SystemExit(f"STOP: {p.name} lists no artefacts at all -- there is nothing to check, "
                          "and 'nothing to check' is not 'everything is fine'.")
+    # EVERY NAME IS CHECKED HERE, ONCE, before any phase reads a file. Checking at each reader would
+    # leave the next reader to remember it.
+    for a in m["artifacts"]:
+        if not isinstance(a, dict):
+            raise SystemExit(f"STOP: {p.name} lists an artefact that is not an object ({a!r}). Do not sign.")
+        name = a.get("name")
+        if not isinstance(name, str) or not _ARTIFACT_NAME.match(name):
+            raise SystemExit(f"STOP: the artefact name {name!r} is not a plain name -- it becomes part of a "
+                             "file name inside the package and may not be a path. Do not sign.")
+        for role in ("body", "payload"):
+            _inside(package, a.get(role), f"the {role} of {name!r}")
     return m
 
 
 def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
            expected_head: str | None = None, anchor_pubkey: str | None = None) -> int:
     m = load_manifest(package, manifest_name)
-    canon, canon_source = _canonicalizer()
-    receipt_payload, receipt_source = _receipt_payload()
+    _, canon_source = _canonicalizer()
+    _, receipt_source = _receipt_payload()
     findings = 0
     not_measurable = 0
 
@@ -186,7 +253,7 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
     print(f"# package       : {package}")
     cand = m.get("candidate") or {}
     print(f"# candidate     : {cand.get('commit', '(no candidate head in the manifest)')}")
-    for field in ("tree_digest", "sdist_sha256", "wheel_sha256"):
+    for field in CANDIDATE_FIELDS[1:]:
         if cand.get(field):
             print(f"#   {field:<12}: {cand[field]}")
     print(f"# canonicalizer : {canon_source}")
@@ -248,14 +315,21 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
             binds = a.get("binds_candidate", True)
             if binds:
                 c = body.get("candidate") or {}
-                same = all(c.get(f) == cand.get(f) for f in
-                           ("commit", "tree_digest", "sdist_sha256", "wheel_sha256") if cand.get(f))
-                print(f"   candidate {'matches the package head' if same else 'DIFFERS from the package head'}")
-                if not same:
+                # EVERY FIELD, NOT THE ONES THAT HAPPEN TO BE THERE. A field the manifest leaves out is
+                # a field nobody binds, and a comparison over no fields is no comparison.
+                missing = [f for f in CANDIDATE_FIELDS if not cand.get(f)]
+                differ = [f for f in CANDIDATE_FIELDS if cand.get(f) and c.get(f) != cand.get(f)]
+                if missing:
+                    print(f"   candidate INCOMPLETE: the manifest names no {', '.join(missing)} -- a binding "
+                          "that leaves a field out does not bind it")
                     findings += 1
-                    for f in ("commit", "tree_digest", "sdist_sha256", "wheel_sha256"):
-                        if cand.get(f) and c.get(f) != cand.get(f):
-                            print(f"            {f}: body {str(c.get(f))[:16]}... vs head {str(cand.get(f))[:16]}...")
+                if differ:
+                    print("   candidate DIFFERS from the package head")
+                    findings += 1
+                    for f in differ:
+                        print(f"            {f}: body {str(c.get(f))[:16]}... vs head {str(cand.get(f))[:16]}...")
+                if not missing and not differ:
+                    print("   candidate matches the package head")
                 if expected_head and c.get("commit") != expected_head:
                     print(f"            candidate.commit {str(c.get('commit'))[:16]}... is NOT the expected head "
                           f"{expected_head[:16]}... -- DIFFERS")
@@ -277,18 +351,21 @@ def before(package: pathlib.Path, manifest_name: str = DEFAULT_MANIFEST,
                     print(f"            the body already carries {key} -- nothing may be signed over that.")
                     findings += 1
 
-        is_receipt = a.get("kind") == "receipt"
-        tool = receipt_payload if is_receipt else canon
-        if not body_p.is_file() or not pay_p.is_file() or tool is None:
-            why = (receipt_source if is_receipt and receipt_payload is None
-                   else canon_source if tool is None else "a file is missing")
+        derived, why, broken = None, "a file is missing", None
+        if body_p.is_file() and pay_p.is_file():
+            try:
+                derived, why = _derived_payload(a, json.loads(body_p.read_text(encoding="utf-8")))
+            except (ValueError, TypeError) as exc:
+                broken = exc
+        if broken is not None:
+            print(f"   derivation IMPOSSIBLE: the body does not have the form its kind prescribes ({broken}). "
+                  "Do not sign.")
+            findings += 1
+        elif derived is None:
             print(f"   derivation NOT MEASURABLE ({why}) -- the digests above were checked, the equality "
                   "body -> payload was NOT.")
             not_measurable += 1
         else:
-            body = json.loads(body_p.read_text(encoding="utf-8"))
-            without = {k: v for k, v in body.items() if k != "signature"}
-            derived = tool(body) if is_receipt else tool(without)
             stored = pay_p.read_bytes()
             if derived == stored:
                 print(f"   derivation body -> payload BYTE IDENTICAL ({len(stored)} B) -- what you read is "
@@ -320,7 +397,9 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         raise SystemExit(f"STOP: {artifact!r} is not in the manifest. Present: "
                          f"{[x['name'] for x in m['artifacts']]}")
     verify, crypto_source = _ed25519_verifier()
-    payload = (package / a["payload"]).read_bytes()
+    body_p = _inside(package, a["body"], f"the body of {artifact!r}")
+    pay_p = _inside(package, a["payload"], f"the payload of {artifact!r}")
+    payload = pay_p.read_bytes()
     sig_b64 = signature_file.read_text(encoding="utf-8").strip()
     pub_b64 = (m.get("anchor") or {}).get("public_key_b64")
 
@@ -340,6 +419,31 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         print(f"VERDICT: the manifest's anchor key {str(pub_b64)[:16]}... is NOT the key you passed -- "
               "the signature was not checked against your key.")
         return 1
+    # THE BYTES ARE ASKED AGAIN, NOT REMEMBERED. Between `before` and this run the package lay on a
+    # machine, and a signature over a replaced payload verifies just as well as one over the checked
+    # payload. So the digests the manifest promises and the derivation body -> payload are checked
+    # here a second time, and nothing is assembled from a body that is not the checked one.
+    for role, p, expected in (("payload", pay_p, a.get("payload_sha256")),
+                              ("body", body_p, a.get("body_sha256"))):
+        actual = _sha256(p) if p.is_file() else None
+        if actual is None or actual != expected:
+            print(f"VERDICT: the {role} {p.name} DIFFERS from the manifest "
+                  f"({'missing' if actual is None else 'sha256 ' + actual[:16] + '...'}) -- it is not the "
+                  f"{role} that was checked before signing. Nothing assembled.")
+            return 1
+    try:
+        derived, why = _derived_payload(a, json.loads(body_p.read_text(encoding="utf-8")))
+    except (ValueError, TypeError) as exc:
+        print(f"VERDICT: the body does not have the form its kind prescribes ({exc}). Nothing assembled.")
+        return 1
+    if derived is None:
+        print(f"VERDICT: NOT MEASURABLE -- the derivation body -> payload cannot be recomputed here ({why}). "
+              "That is not a pass, and nothing is assembled.")
+        return 2
+    if derived != payload:
+        print("VERDICT: the derivation DIFFERS: the payload is not what the body says, so the body "
+              f"{body_p.name} is not what the signature covers. Nothing assembled.")
+        return 1
     if verify is None:
         print(f"VERDICT: NOT MEASURABLE -- without proofbundle.signature the signature cannot be checked "
               f"here ({crypto_source}). That is not a pass.")
@@ -351,8 +455,8 @@ def after(package: pathlib.Path, artifact: str, signature_file: pathlib.Path,
         print(f"         {why}")
         return 1
 
-    target = package / f"{artifact}.signed.json"
-    body = json.loads((package / a["body"]).read_text(encoding="utf-8"))
+    target = _inside(package, f"{artifact}.signed.json", f"the preview of {artifact!r}")
+    body = json.loads(body_p.read_text(encoding="utf-8"))
     if a.get("kind") == "receipt":
         # A receipt carries the signature as a STRING plus signer_pubkey; a statement carries the
         # structured block. Writing the wrong one produces a file that the gate rejects, and the
