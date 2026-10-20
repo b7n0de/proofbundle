@@ -179,10 +179,22 @@ def main(argv: "list[str] | None" = None) -> int:
     p.add_argument("--expected-commit", required=True, help="full 40-hex commit id")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
+    # STRICT AT THE FILE BOUNDARY (CODEX-KLASSENSUCHE-631-01, D1, measured at f6ea5cc3): `json.loads` kept the
+    # last of two `payload` members, so a valid envelope with an empty `payload` put in front of it passed with
+    # ok=True and exit 0, while the repository's strict parser refuses the same bytes. A member lost here is
+    # lost for every check after it; the bytes are read once, within the input budget, and parsed strictly.
+    from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    kappe = int(DEFAULT_BUDGET.input_bytes)
     try:
-        env = json.loads(a.envelope.read_text(encoding="utf-8"))
+        with a.envelope.open("rb") as fh:
+            roh = fh.read(kappe + 1)
+        if len(roh) > kappe:
+            raise ValueError(f"{a.envelope} holds more than the input_bytes budget of {kappe} bytes")
+        env = loads_strict(roh)
         pub = bytes.fromhex(a.pubkey_hex)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError, ProofBundleError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     res = verify(env, pub, expected_version=a.expected_version,

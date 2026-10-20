@@ -21,6 +21,30 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **The 22 lines K3 to P2-4 of the list for 6.3.1** (`docs/release_scope/6.3.1.md`), one commit each and two for D3.
+  - The pilot reads one copy of each input for verification and for judgement (K3, `tests/test_one_reading_of_the_checked_objects.py`).
+  - The verdict-contract checker pins the key it trusts (K4, `tests/test_verdict_contract_example_pins_its_key.py`).
+  - The verdict-contract checker reads its JSON strictly at the file boundary (K5, `tests/test_verdict_contract_example_reads_strict_json.py`).
+  - The core-layer gate judges a use against every binding it may meet, and trusts only an unchanged `TYPE_CHECKING` (K6, `tests/test_core_layer_gate_judges_every_binding.py`). Three limits stay named for this release, measured at `b7f6a3b0`. A pure read of a namespace mapping in a module outside the core, such as `print(vars(x))` or `x.__dict__ is None`, counts as a possible change and turns the gate red. A write through `getattr(module, "__dict__")`, through `module.__setattr__`, `object.__setattr__` or a renamed `setattr` is not seen, and neither is a binding that arrives by a star import. The class fix for these forms is a separate item before the tag v6.3.1.
+  - A present binary whose coverage report is not evidence fails the registry check of the Rust parity gate (K7, `tests/test_rust_parity_gate_refuses_invalid_coverage_evidence.py`).
+  - The pull-request form judges the attribution on one rendered sequence, not per parser segment (K8, `tests/test_pr_form_gate_reads_one_rendered_sequence.py`).
+  - An ACDE-01 claim over members the population does not hold is not supported (K9, `tests/test_acde01_claim_scope_members_are_resolved.py`).
+  - The ACDE-01 report check recomputes conservation instead of trusting it (K10, `tests/test_acde01_report_check_recomputes_conservation.py`).
+  - A tree that names a path twice gets no digest in the pre-tag tooling (R13-3, `tests/test_tree_digest_refuses_a_path_named_twice.py`).
+  - A claim name stands once in its SD-JWT object, so disclosures resolve to one reading (A1, `tests/test_sdjwt_claim_names_have_one_reading.py`).
+  - A test-result statement of the verifier block names at least one case (E1, `tests/test_verifier_block_a_statement_names_its_cases.py`).
+  - The pre-tag attestation command reads its envelope strictly at the file boundary (D1, `tests/test_pre_tag_attestation_reads_strict_json.py`).
+  - The signed findings register is read strictly before its signature and count (D2, `tests/test_findings_register_reads_strict_json.py`).
+  - The readiness self-receipt is read strictly and counts only when it verifies and covers the recorded manifest (D3, `tests/test_readiness_pack_manifest_reads_strict_json.py` and `tests/test_readiness_self_receipt_counts_only_when_it_verifies.py`).
+  - The test-manifest gate reads its lock strictly, and a floor named twice is no floor (D4, `tests/test_test_manifest_gate_reads_its_lock_strictly.py`).
+  - The test-manifest lock and both typed floors are required, never defaulted to zero (E2, `tests/test_test_manifest_gate_requires_both_floors.py`).
+  - The artifact check of the audit matrix reads the artifact and its anchor once, so the window binds the signed time (B1, `tests/test_audit_matrix_artifact_check_reads_one_copy.py`).
+  - The differential cell of the audit matrix computes the agreement from the row labels and holds the flags to it (F1, `tests/test_audit_matrix_differential_cell_recomputes_agreement.py`).
+  - A command-line mode refuses the options it does not read instead of dropping them (P2-1, `tests/test_a_mode_refuses_the_options_it_does_not_read.py`).
+  - The form check reads `evaluatedAt` in ASCII digits, and a signed frontier must be a list (P2-2, `tests/test_a_form_rule_reads_one_spelling.py`).
+  - The README of the verdict example names what the vendored parser accepts beyond its prompt rule (P2-3, `tests/test_verdict_contract_example_names_what_the_parser_accepts.py`).
+  - The memory test of run 11 holds its table to the larger reading on every interpreter, and its control states what each interpreter does (P2-4, `tests/test_lauf11_l3_memory_control_holds_on_every_interpreter.py`).
+
 - **No machine-local path ships in the package** (`tests/test_no_local_path_ships_in_the_package.py`).
   A docstring in `src/proofbundle/_membership.py`, added after v6.1.0, named the home directory of
   the checkout a measurement was taken in; it now says "a second local checkout", and so does the
