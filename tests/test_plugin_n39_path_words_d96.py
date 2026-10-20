@@ -87,7 +87,8 @@ def test_D96_a_program_that_writes_into_the_gate_directory_is_denied(repo, form,
 def test_D96_the_write_gives_the_chain_its_reason_and_the_line_its_weight(repo, form):
     out = _out(repo, form)
     assert out.decision == "ask" and "write_to_repo_state" in _ids(out), _ids(out)
-    assert " git status because the write touches git configuration or hooks (D8)." in d72._line(out), d72._line(out)
+    assert " git status because the write can change hooks or git settings that start programs later (D8)." in \
+        d72._line(out), d72._line(out)   # D116: what can go wrong, before the D number
 
 
 @pytest.mark.parametrize("form", ["cp f.txt g.txt", "mv f.txt g.txt", "rm -f g.txt", "mkdir -p build && echo ok",

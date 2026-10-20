@@ -118,7 +118,8 @@ def test_D97_the_write_gives_the_chain_its_reason_and_the_line_its_weight(repo):
     out = _out(repo, "echo x > ~/.bashrc && git status")
     assert out.decision == "ask" and "write_to_shell_start" in _ids(out), _ids(out)
     line = d72._line(out)
-    assert " git status because the write touches a file the shell runs before a later call (D97)." in line, line
+    assert " git status because the write can plant code the shell runs before a later call (D97)." in line, \
+        line   # D116: what can go wrong, before the D number
 
 
 def test_D97_the_reason_weighs_and_catches():

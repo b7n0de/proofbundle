@@ -33,7 +33,8 @@ def test_O30_7_the_write_into_configuration_or_hooks_is_named(tmp_path, form, ho
     out = _outcome(_repo(tmp_path), form, host)
     assert out is not None and out.decision in ("ask", "deny")
     assert "write_to_repo_state" in [v.reason_id for v in out.verdicts], (form, [v.reason_id for v in out.verdicts])
-    assert "the write touches git configuration or hooks" in _line(out, host), _line(out, host)
+    assert "the write can change hooks or git settings that start programs later" in _line(out, host), \
+        _line(out, host)   # D116: what can go wrong, before the D number
 
 
 def test_O30_7_the_hook_logs_the_write_and_the_autonomous_answer_blocks_it(tmp_path):
@@ -49,7 +50,7 @@ def test_O30_7_the_hook_logs_the_write_and_the_autonomous_answer_blocks_it(tmp_p
     answer = json.loads(proc.stdout)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", answer
     assert "write_to_repo_state" in entry["reason_ids"], entry
-    assert "git configuration or hooks" in answer["systemMessage"], answer
+    assert "hooks or git settings" in answer["systemMessage"], answer   # D116
 
 
 @pytest.mark.parametrize("form", ["git add -A && git commit -m x > notes.txt", "git commit -m x > /dev/null"])

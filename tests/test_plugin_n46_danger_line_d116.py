@@ -66,7 +66,7 @@ RUECKBLICK = [
     {"fall": "S3", "panne": "Commit-Nachricht ohne Form gepusht", "heute": "still",
      "befehl": "git commit -m 'fix stuff' && git push origin claude/work", "kopf": "git_form_not_free",
      "de": None, "en": None,
-     "warum": "das Tor prüft die Form einer Commit-Nachricht nicht; die Zeile nennt die Gefahr des Commits (D3)"},
+     "warum": "das Tor prüft die Form einer Commit-Nachricht nicht; die Karte nennt den Grund des Pushs (D33)"},
     {"fall": "S4", "panne": "Codex-Antwort mit wörtlichem \\n", "heute": "D27 net_unmodeled_git",
      "befehl": "gh pr comment 12 --body 'Zeile eins\\nZeile zwei'", "kopf": "text_literal_newline",
      "de": ["wörtliches Backslash-n", "Zeilenumbruch", "(D108)"], "en": ["literal backslash-n", "line break", "(D108)"]},

@@ -145,7 +145,8 @@ def test_D95_the_write_gives_the_chain_its_reason_and_the_line_its_weight(repo, 
     """D72: the line names the git step and gives the reason of the write (D8), as for a redirection."""
     out = _out(repo, form)
     assert out.decision == "ask" and "write_to_repo_state" in _ids(out), _ids(out)
-    assert " git status because the write touches git configuration or hooks (D8)." in d72._line(out), d72._line(out)
+    assert " git status because the write can change hooks or git settings that start programs later (D8)." in \
+        d72._line(out), d72._line(out)   # D116: what can go wrong, before the D number
 
 
 @pytest.mark.parametrize("form", [
