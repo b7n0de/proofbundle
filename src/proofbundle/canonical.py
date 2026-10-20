@@ -1099,8 +1099,8 @@ class _draussen:
 #: kind of the argument: the forms of `_art_des_blatts` it hands on. A callback is called as the caller's code
 #: (`_draussen`) and its answer read where it returns; a signer's own ``sign`` is the caller's code by contract; a path
 #: is opened by the operating system, and a path-like object of the caller reaches the body as the ``str`` or ``bytes``
-#: its ``__fspath__`` answered once at the call, or as the stand-in when that answer is no path (`_pfad_gelesen`); a
-#: clock is read once (`_zeitpunkt_von`); a class is
+#: its ``__fspath__`` answered once at the call, or, when that answer is no path, as any value that is no path
+#: (`_pfad_gelesen`); a clock is read once (`_zeitpunkt_von`); a class is
 #: the ``cls`` of a classmethod, which the classmethod calls to build its answer; a path or a loaded log is the source
 #: an adapter reads.
 _AUSSEN_ERLAUBT = {
@@ -1129,7 +1129,7 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, fehler: Any = None, 
     every other argument, and every other place of such an argument, holds the copy of the reading and no object of
     the caller (`_gelesen`). A path-like object under a path is the one exception: the body gets the ``str`` or
     ``bytes`` its ``__fspath__`` answered at the call, and for a ``__fspath__`` that raises or answers no ``str``
-    or ``bytes`` it gets the stand-in, as for any other value that is no path (`_pfad_gelesen`).
+    or ``bytes`` it gets what any other value that is no path gets there (`_pfad_gelesen`).
 
     THE READING CAN REFUSE THE CALL BEFORE THE BODY, at every function it stands on: with `_StandUnkopierbar` for a
     container it recognises and cannot copy and for an iterator or a generator no contract takes, and with
@@ -1258,10 +1258,14 @@ def _pfad_gelesen(wert: Any) -> Any:
     which answer a path they cannot read with their own typed error (the sweep of the never-raise surfaces at
     22aa954e).
 
-    A ``__fspath__`` that raises, or answers no ``str`` or ``bytes``, gives None: the value is then no path, and
-    `_vertrag_angewandt` hands the body the stand-in the reading made for it, as it hands on any other value that is
-    no path. Each function answers it as it answers such a value: its own typed error at a loader, a fail-closed
-    verdict at `prereg.verify_prereg` and `evalcard.verify_evaluation_card`. Until the lens on pull request 394 the
+    A ``__fspath__`` that raises an exception of the ``Exception`` family, or answers no ``str`` or ``bytes``, gives
+    None: the value is then no path, and `_vertrag_angewandt` hands the body what the contract hands on for any other
+    value that is no path, the stand-in under a path (``"pfad"``) and the caller's object under a path or an object
+    (``"pfad_oder_objekt"``). Each function answers it as it answers such a value: its own typed error at a loader, a
+    fail-closed verdict at `prereg.verify_prereg` and `evalcard.verify_evaluation_card`, the object arm of
+    `adapters.inspect_ai.from_inspect_ai_log` for a loaded log. A RecursionError is raised as it is, and an exception
+    outside that family (``KeyboardInterrupt``, ``SystemExit``) passes, as it does anywhere. ``__fspath__`` is read once
+    per argument; one object passed under two path arguments is read once for each. Until the lens on pull request 394 the
     call was refused here (`_StandUnkopierbar`): that refusal came before the body, so those two surfaces raised
     where they had answered with a verdict, and it was no class any of the functions with a path contract documents
     (`load_bundle` documents `BundleFormatError`, `load_policy` `AgentReviewError`)."""
@@ -1298,7 +1302,12 @@ def _vertrag_angewandt(namen: tuple, vertrag: dict, gelesen: tuple, ersetzt: dic
             zurueck.add(id(wert))
             if paar[1] == "pfadartig" and (art == "pfad" or art == "pfad_oder_objekt"):
                 pfad = _pfad_gelesen(paar[0])
-                return wert if pfad is None else pfad   # no path: the stand-in, as for any value that is none
+                if pfad is not None:
+                    return pfad
+                # No path: what this contract hands on for any value that is no path. Under a path that is
+                # the stand-in; under a path or an object (`"fremd"` is in its forms) it is the caller's
+                # object, so a loaded log that also defines `__fspath__` keeps its object arm.
+                return paar[0] if art == "pfad_oder_objekt" else wert
             return paar[0]
         return wert
     for stelle, name in enumerate(namen[0][:len(pos)]):

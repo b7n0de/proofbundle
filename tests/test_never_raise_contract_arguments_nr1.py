@@ -21,11 +21,17 @@ answers a regular file first and a FIFO second made ``load_bundle`` hang at 22aa
 8 s), and one that answers another file second made it return that file's content.
 
 A ``__fspath__`` that raises or answers no ``str`` or ``bytes`` makes the value one that is no path, and the body gets
-the stand-in, as for any such value. At dfaa3079 the reading refused the call there instead (the lens on pull request
-394, F2): the refusal came before the body, so `prereg.verify_prereg` and `evalcard.verify_evaluation_card`, which give a
-verdict for a path they cannot read, raised, and it was no class any of the functions with a path contract documents.
-The class test below did not see it, because its stub gave ``{}`` for the ``claim`` of those two, and they returned
-before the path (F7); the claim carries both digests now.
+what the contract hands on for any such value: the stand-in under a path, the caller's object under a path or an
+object. At dfaa3079 the reading refused the call there instead (the lens on pull request 394, F2): the refusal came
+before the body, so `prereg.verify_prereg` and `evalcard.verify_evaluation_card`, which give a verdict for a path they
+cannot read, raised, and it was no class any of the functions with a path contract documents. At eca80693 the body got
+the stand-in under a path or an object too, and a loaded log that also defines ``__fspath__`` lost its object arm (the
+second lens on pull request 394, U3).
+
+The class test below never reached the path of those two surfaces, because its stub gave ``{}`` for their ``claim``
+and they returned before it (F7). The claim carries both digests now, and with it the class test is red on main
+862f263d, where both let the caller's exception out. It accepts any ``ProofBundleError``, so it passes the refusal of
+dfaa3079; the class `APathLikeThatIsNoPathIsAnsweredAsAValueThatIsNoPath` holds each answer itself.
 """
 from __future__ import annotations
 
@@ -255,10 +261,14 @@ class TheReadingOfAPath(unittest.TestCase):
             def __fspath__(self):
                 return "z.eval"
 
+        no_path = PathLike()
         body(GivesStr())
-        body(PathLike())
+        body(no_path)
+        body(object())
         self.assertIs(type(received[0]), str)
-        self.assertIsInstance(received[1], Fremdkoerper)
+        # Under a path or an object, a value that is no path is the caller's object, as object() is.
+        self.assertIs(received[1], no_path)
+        self.assertIsNot(type(received[2]), Fremdkoerper)
 
     def test_an_fspath_that_answers_no_path_hands_the_body_a_stand_in(self):
         received = []
@@ -329,8 +339,15 @@ _PATH_SURFACES = {
     "prereg.verify_prereg": lambda p: prereg.verify_prereg(p, dict(_CLAIM)),
     "agent_review.load_policy": lambda p: agent_review.load_policy(p),
 }
+#: The second path argument of a function in the table: answered the same way.
+_FURTHER_PATH_ARGUMENTS = {
+    "verifier_block.measure_verifier_block(package_dir)": lambda p: verifier_block.measure_verifier_block(package_dir=p),
+}
 #: The one function with a path contract this test does not call, and why.
-_NOT_CALLED = {"anchors_chia_add.anchor_add": "it talks to a Chia node; its lock_path follows the node arguments"}
+_NOT_CALLED = {"anchors_chia_add.anchor_add": (
+    "its path is the lock file around a Chia wallet call, and the module reads the path of the chia binary from "
+    "CHIA_CLI when it is imported, so a call here would need that set before the package is imported. The second lens "
+    "on pull request 394 measured it at eca80693 with CHIA_CLI pointing nowhere: each form answers as object() does.")}
 
 
 def _path_contracts_in_the_source():
@@ -396,7 +413,7 @@ class APathLikeThatIsNoPathIsAnsweredAsAValueThatIsNoPath(unittest.TestCase):
                 Counted.calls += 1
                 return None
 
-        for name, fn in _PATH_SURFACES.items():
+        for name, fn in {**_PATH_SURFACES, **_FURTHER_PATH_ARGUMENTS}.items():
             no_path = _answer(fn, object())
             for make in (Raises, GivesInt, GivesNone):
                 with self.subTest(surface=name, value=make.__name__):
@@ -413,6 +430,43 @@ class APathLikeThatIsNoPathIsAnsweredAsAValueThatIsNoPath(unittest.TestCase):
             for value in (PathLike(), GivesInt()):
                 with self.subTest(surface=name, value=type(value).__name__):
                     self.assertEqual(_answer(_PATH_SURFACES[name], value), ("verdict", False))
+
+    def test_a_loaded_log_that_is_also_path_like_keeps_its_object_arm(self):
+        """``from_inspect_ai_log`` takes a path or a loaded log (``"pfad_oder_objekt"``). A loaded log whose
+        ``__fspath__`` gives no path is no path, so it reaches the body as the object it is and is read as a log, as
+        on main 862f263d. At eca80693 it reached the body as the stand-in and was refused (the second lens on pull
+        request 394, U3). A loaded log whose ``__fspath__`` gives a path is read from that path since NR1; that is
+        not this case."""
+        from types import SimpleNamespace as NS
+        metric = NS(value=0.9)
+        score = NS(metrics={"accuracy": metric}, name="s", scorer="s", params={})
+
+        class LoadedLog:
+            eval = NS(task="t", model="m", dataset=NS(name="d"), revision=None, created=_ZEIT)
+            results = NS(scores=[score], total_samples=1, completed_samples=1)
+            calls = 0
+
+        class Raises(LoadedLog):
+            def __fspath__(self):
+                LoadedLog.calls += 1
+                raise CallerError("the log file handle is closed")
+
+        class GivesInt(LoadedLog):
+            def __fspath__(self):
+                LoadedLog.calls += 1
+                return 3
+
+        def suite(log):
+            claim, _ = inspect_ai.from_inspect_ai_log(log, "accuracy", comparator=">=", threshold="0.5",
+                                                      timestamp=_ZEIT)
+            return claim["suite"]
+
+        self.assertEqual(suite(LoadedLog()), "t")
+        for make in (Raises, GivesInt):
+            with self.subTest(value=make.__name__):
+                LoadedLog.calls = 0
+                self.assertEqual(suite(make()), "t")
+                self.assertEqual(LoadedLog.calls, 1, "the path is read once, at the call")
 
 
 class TheReaderOfAConsistencyResult(unittest.TestCase):
