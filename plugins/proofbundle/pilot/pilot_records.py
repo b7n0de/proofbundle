@@ -84,8 +84,20 @@ def seconds_between(earlier: str, later: str) -> float | None:
     return (b[0] - a[0]) + float("0." + (b[1] or "0")) - float("0." + (a[1] or "0"))
 
 
+def _reject_duplicate_keys(pairs: list) -> dict:
+    """object_pairs_hook: a member name that stands twice in one object is refused (ValueError), at any depth, as the
+    strict JSON reader of the package refuses it. A reader that kept the last of two members read another envelope,
+    response or rule than a strict verifier of the same bytes (tests/test_strict_decoding_guard.py)."""
+    found: dict = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError("a member name stands twice in one object")
+        found[key] = value
+    return found
+
+
 def read_json(path: pathlib.Path) -> object:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
 
 
 def write_json(path: pathlib.Path, value: object) -> None:
@@ -185,7 +197,7 @@ class Records:
 
     def closing_rules(self) -> tuple[dict, str]:
         data = self.kept("closing_rules")
-        return json.loads(data), sha256_hex(data)
+        return json.loads(data, object_pairs_hook=_reject_duplicate_keys), sha256_hex(data)
 
     def decisions(self) -> list[dict]:
         """Every decision envelope the gate wrote, with its file name and content root, in file order."""
@@ -221,7 +233,7 @@ class Records:
         for raw in data.split(b"\n"):
             if raw:
                 try:
-                    value = json.loads(raw)
+                    value = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
                 except ValueError:
                     value = None
                 lines.append(value if isinstance(value, dict) else None)
@@ -327,7 +339,8 @@ def effects_of_run(run: dict, agent_of: dict) -> list[dict]:
     for request in run["requests"]:
         if request.get("kind") != "events" or request.get("status") != 200:
             continue
-        body = json.loads((pathlib.Path(run["folder"]) / request["file"]).read_bytes())
+        body = json.loads((pathlib.Path(run["folder"]) / request["file"]).read_bytes(),
+                          object_pairs_hook=_reject_duplicate_keys)
         for event in body if isinstance(body, list) else []:
             effect = _event_effect(event) if isinstance(event, dict) else None
             if effect is None or effect["actor"] not in agent_of:
