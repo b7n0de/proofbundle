@@ -480,6 +480,32 @@ def _check_matrix(result) -> list:
             for c in result.checks]
 
 
+def _write_output(path, text: str, option: str = "--out", *, json_error: bool = False) -> bool:
+    """The ONE writer of a command's output file (`--out`, and `--output` of `policy instantiate`). Returns True when
+    the file is written, else False with a named error, and the caller exits 2, the exit `_resolve_signer` gives a
+    key file that cannot be written.
+
+    Measured at 862f263d (item 772): eleven of the twelve output options ended with a raw traceback and exit 1 when
+    the path named a missing directory or a directory, and `anchor upgrade` left a cut-off pack behind when a
+    declared calendar held a character UTF-8 cannot encode (an undecodable byte of argv arrives as a lone
+    surrogate). The text is encoded before the file is opened, so content that cannot be written never creates or
+    truncates the file, and a failed open or write is an OSError, refused the same way. The file is written in
+    place, as before, not through a temporary file and a rename: `--out /dev/stdout` and `--output /dev/null` are
+    paths callers use, and a rename onto them would replace the device node."""
+    try:
+        text.encode("utf-8")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except (OSError, UnicodeEncodeError) as exc:
+        msg = f"cannot write {option}: {exc}"
+        if json_error:
+            print(json.dumps({"ok": False, "error": msg}))
+        else:
+            _err(msg)
+        return False
+    return True
+
+
 def _resolve_signer(args):
     """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error).
 
@@ -520,9 +546,8 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     except (EvalClaimError, OSError, ValueError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(bundle, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(bundle, indent=2) + "\n"):
+        return 2
     print(f"wrote eval receipt {args.out}")
     return 0
 
@@ -1272,9 +1297,8 @@ def _cmd_emit(args: argparse.Namespace) -> int:
         return 2
 
     bundle = emit_bundle(payload, signer)
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(bundle, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(bundle, indent=2) + "\n"):
+        return 2
     print(f"wrote {args.out}")
     return 0
 
@@ -1717,9 +1741,8 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         bundled = _parse_bundled_headers(getattr(args, "bundled_header", None))
         pack = build_evidence_pack(canonical_root, proof, declared_calendars=declared or None,
                                    bundled_headers=bundled or None)
-        with open(args.out, "w", encoding="utf-8") as handle:
-            json.dump(pack, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+        if not _write_output(args.out, json.dumps(pack, indent=2, ensure_ascii=False) + "\n"):
+            return 2
         report = {"schema": "proofbundle.anchor_upgrade.v1", "ok": True, "wrote": args.out,
                   "state": "upgraded", "selfContained": True,
                   "bitcoinHeights": info["bitcoinHeights"],
@@ -2129,9 +2152,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(envelope, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(envelope, indent=2) + "\n"):
+        return 2
     if version == "v0.2":
         print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {profile})")
     else:
@@ -2202,9 +2224,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(envelope, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(envelope, indent=2) + "\n"):
+        return 2
     print(f"wrote in-toto SVR attestation {args.out}")
     return 0
 
@@ -2221,9 +2242,8 @@ def _cmd_decision_emit(args: argparse.Namespace) -> int:
     except (DecisionReceiptError, ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(env, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(env, indent=2) + "\n"):
+        return 2
     print(f"wrote decision receipt {args.out}")
     return 0
 
@@ -2699,8 +2719,8 @@ def _cmd_decision_init(args: argparse.Namespace) -> int:
     }
     out = json.dumps(template, indent=2, ensure_ascii=False)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as handle:
-            handle.write(out + "\n")
+        if not _write_output(args.out, out + "\n"):
+            return 2
         print(f"wrote decision predicate template {args.out}")
     else:
         print(out)
@@ -2726,8 +2746,8 @@ def _cmd_outcome_init(args: argparse.Namespace) -> int:
     }
     out = json.dumps(template, indent=2, ensure_ascii=False)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as handle:
-            handle.write(out + "\n")
+        if not _write_output(args.out, out + "\n"):
+            return 2
         print(f"wrote outcome predicate template {args.out}")
     else:
         print(out)
@@ -2746,9 +2766,8 @@ def _cmd_outcome_emit(args: argparse.Namespace) -> int:
     except (OutcomeReceiptError, ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(env, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(env, indent=2) + "\n"):
+        return 2
     print(f"wrote outcome receipt {args.out}")
     return 0
 
@@ -2903,8 +2922,8 @@ def _cmd_relation_statement_init(args: argparse.Namespace) -> int:
     }
     out = json.dumps(template, indent=2, ensure_ascii=False)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as handle:
-            handle.write(out + "\n")
+        if not _write_output(args.out, out + "\n"):
+            return 2
         print(f"wrote relation-statement predicate template {args.out}")
     else:
         print(out)
@@ -2923,9 +2942,8 @@ def _cmd_relation_statement_emit(args: argparse.Namespace) -> int:
     except (RelationStatementError, ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
-    with open(args.out, "w", encoding="utf-8") as handle:
-        json.dump(env, handle, indent=2)
-        handle.write("\n")
+    if not _write_output(args.out, json.dumps(env, indent=2) + "\n"):
+        return 2
     print(f"wrote relation statement {args.out}")
     return 0
 
@@ -3170,8 +3188,8 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
               "missing (this template needs --expected-root-file); complete it before deploying.",
               file=sys.stderr)
     if args.output and args.output != "-":
-        with open(args.output, "w", encoding="utf-8") as fh:
-            fh.write(out + "\n")
+        if not _write_output(args.output, out + "\n", "--output", json_error=getattr(args, "json", False)):
+            return 2
         print(f"[policy-instantiate] {args.template} -> {args.output}  "
               f"deploymentReady={inst.get('deploymentReady')}  policy_id={inst.get('policy_id')}",
               file=sys.stderr)
