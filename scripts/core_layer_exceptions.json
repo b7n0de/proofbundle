@@ -53,6 +53,12 @@
     {
       "rule": "dynamic_access",
       "module": "proofbundle.canonical",
+      "operation": ".f_globals",
+      "count": 1
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
       "operation": "builtins.vars",
       "count": 1
     },

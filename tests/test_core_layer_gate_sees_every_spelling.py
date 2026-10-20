@@ -30,16 +30,18 @@ PKG = "probepkg"
 pytestmark = pytest.mark.skipif(not GATE.is_file(), reason="scripts/core_layer_gate.py is not in this tree")
 
 
-def build(tmp_path: Path, files: dict[str, str], listed=("probepkg", "probepkg.core")) -> list[str]:
+def build(tmp_path: Path, files: dict[str, str], listed=("probepkg", "probepkg.core"), reviewed=None) -> list[str]:
     src = tmp_path / "src" / PKG
     src.mkdir(parents=True)
     (src / "__init__.py").write_text("", encoding="utf-8")
     for rel, body in files.items():
         (src / rel).write_text(textwrap.dedent(body), encoding="utf-8")
     modules = tmp_path / "modules.json"
-    modules.write_text(json.dumps({"schema": "proofbundle.core_layer_modules.v1", "package": PKG,
-                                   "roots": {"probepkg.core": "probe"}, "trust_boundaries": {},
-                                   "modules": list(listed)}), encoding="utf-8")
+    spec = {"schema": "proofbundle.core_layer_modules.v1", "package": PKG, "roots": {"probepkg.core": "probe"},
+            "trust_boundaries": {}, "modules": list(listed)}
+    if reviewed is not None:
+        spec["type_checking_reviewed"] = reviewed
+    modules.write_text(json.dumps(spec), encoding="utf-8")
     exc = tmp_path / "exceptions.json"
     exc.write_text(json.dumps({"entries": []}), encoding="utf-8")
     return ["--root", str(tmp_path), "--modules-file", str(modules), "--exceptions-file", str(exc)]
@@ -114,6 +116,11 @@ WRITE_SPELLINGS = {
         _NAME + 'import sys\nm = sys.modules["typing"]\nvars(m)[name] = True'),
     "computed, sys.modules through a walrus": _MODULE_GUARD.format(
         _NAME + 'import sys\nwhich = "typ" + "ing"\nif (m := sys.modules[which]):\n    vars(m)[name] = True'),
+    "computed, the module handed to a library function": _MODULE_GUARD.format(
+        _NAME + "import functools\ndef _f():\n    pass\nsetattr(_f, name, True)\nfunctools.update_wrapper(typing, _f)"),
+    "computed, a module's namespace returned": _MODULE_GUARD.format(
+        _NAME + "def ns():\n    return typing.__dict__\nns()[name] = True"),
+    "computed, an alias of the namespace": _MODULE_GUARD.format(_NAME + "ns = vars(typing)\nns[name] = True"),
     "computed, a reading builtin shadowed by a writer": _MODULE_GUARD.format(
         _NAME + "def sorted(m):\n    m[name] = True\nsorted(typing.__dict__)"),
     "computed, globals handed to partial": _BARE_GUARD.format(
@@ -208,11 +215,14 @@ WRITES_INTO_AN_OBJECT = {
     "self.__dict__.update": "class C:\n    def __init__(self, **kw):\n        self.__dict__.update(kw)\n",
     "an item of self.__dict__": "class C:\n    def set(self, k, v):\n        self.__dict__[k] = v\n",
     "vars(self) by item": "class C:\n    def set(self, k, v):\n        vars(self)[k] = v\n",
-    "setattr on a parameter": "def put(obj, k, v):\n    setattr(obj, k, v)\n",
     "object.__setattr__ on self": "class C:\n    def set(self, k, v):\n        object.__setattr__(self, k, v)\n",
     "a literal object.__setattr__": 'class C:\n    def __init__(self, v):\n        object.__setattr__(self, "v", v)\n',
-    "the namespace of a copy": ("def fill(target, items):\n    own = object.__getattribute__(target, \"__dict__\")\n"
-                                "    for k, v in items:\n        own[k] = v\n"),
+    "an object a local class builds": "class C:\n    pass\ndef fill(k, v):\n    c = C()\n    setattr(c, k, v)\n",
+    "an object a builtin type builds": "def fill(k, v):\n    d = dict()\n    object.__setattr__(d, k, v)\n",
+    "a walrus-bound object a builtin type builds": (
+        "def fill(k, v):\n    if (d := dict()) is not None:\n        object.__setattr__(d, k, v)\n"),
+    "a name rebound from the same object": (
+        "def fill(k, v):\n    d = dict()\n    e = d\n    if k:\n        e = d\n    object.__setattr__(e, k, v)\n"),
 }
 
 
@@ -244,6 +254,13 @@ BINDINGS_FROM_ELSEWHERE = {
     "a match capture": (
         'import os as _real\nimport math as os\nmatch _real:\n    case os:\n        pass\nVALUE = os.getenv("X")\n',
         {}),
+    # Codex on PR 395, P1: a capture inside a sequence pattern, in the module the name is imported from.
+    "a nested match capture in another module": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": "import os as real\nmatch [real]:\n    case [os]:\n        pass\n"}),
+    "an or-pattern in another module": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": "import os as real\nmatch [real]:\n    case [os] | [_, os]:\n        pass\n"}),
 }
 
 
@@ -327,3 +344,191 @@ def test_CONTROL_a_literal_setter_on_the_object_itself_is_no_finding(tmp_path):
                                                   '        object.__setattr__(self, "v", v)\n'
                                                   '        hasattr(self, "__dict__")\n'}))
     assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+# ── the lens on the first fix (one iteration, targets set in advance) ──────────────────────────────────────────────
+
+#: Writes the first fix did not see. The check whether an object may be a module was a list of module spellings, so
+#: a module reached any other way counted as no module; at 4490fbda a `setattr` with a computed name counted on any
+#: object, so those forms are a regression of the first fix. Each one runs the guarded block.
+FOUND_BY_THE_LENS = {
+    "a dotted name for a patch helper": _MODULE_GUARD.format(
+        'import unittest.mock\nunittest.mock.patch("typing.TYPE_CHECKING", True).start()'),
+    "a function's __globals__": _MODULE_GUARD.format(_NAME + "typing.cast.__globals__[name] = True"),
+    "the module's own function's __globals__": _BARE_GUARD.format(
+        _NAME + "def _f():\n    pass\n_f.__globals__[name] = True"),
+    "a frame's f_globals": _BARE_GUARD.format(_NAME + "import sys\nsys._getframe().f_globals[name] = True"),
+    "__getattribute__ taken as a value": _MODULE_GUARD.format(
+        _NAME + 'g = typing.__getattribute__\ng("__dict__")[name] = True'),
+    "__dict__ imported from the module": _MODULE_GUARD.format(
+        _NAME + "from typing import __dict__ as ns\nns[name] = True"),
+    "__setattr__ imported from the module": _MODULE_GUARD.format(
+        _NAME + "from typing import __setattr__ as put\nput(name, True)"),
+    "__setattr__ through __call__": _MODULE_GUARD.format(_NAME + "typing.__setattr__.__call__(name, True)"),
+    "a module through os.sys.modules": _MODULE_GUARD.format(
+        _NAME + 'import os\nsetattr(os.sys.modules["typing"], name, True)'),
+    "a module through getattr(sys, 'modules')": _MODULE_GUARD.format(
+        _NAME + 'import sys\nsetattr(getattr(sys, "modules")["typing"], name, True)'),
+    "a module through inspect.getmodule": _MODULE_GUARD.format(
+        _NAME + "import inspect\nsetattr(inspect.getmodule(typing.Any), name, True)"),
+    "a module held by a class attribute": _MODULE_GUARD.format(
+        _NAME + "class _Holder:\n    m = typing\nsetattr(_Holder.m, name, True)"),
+    "a module through pkgutil.resolve_name": _MODULE_GUARD.format(
+        _NAME + 'import pkgutil\nsetattr(pkgutil.resolve_name("typing"), name, True)'),
+    "the typing entry of sys.modules replaced": (
+        "import sys\nclass _Flag:\n    TYPE_CHECKING = True\nsys.modules['typing'] = _Flag\nimport typing\n"
+        "if typing.TYPE_CHECKING:\n    import subprocess\n"),
+}
+
+
+@pytest.mark.parametrize("code", list(FOUND_BY_THE_LENS.values()), ids=list(FOUND_BY_THE_LENS))
+def test_RED_a_write_the_lens_found_is_seen(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_THE_BLOCK) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("subprocess", "import subprocess") in found(report)
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.core"]
+
+
+#: False alarms of the first fix the lens measured: reads of the typing module and strings that only test.
+READS_THE_LENS_FOUND = {
+    "dir() of the module": "import typing\ndef _p():\n    return dir(typing)\n",
+    "a truth test of the module": "import typing\ndef _p():\n    if typing:\n        return 1\n",
+    "a truth test of sys.modules.get": "import sys\ndef _p():\n    if sys.modules.get('typing'):\n        return 1\n",
+    "inspect.getmembers of the module": "import inspect, typing\ndef _p():\n    return inspect.getmembers(typing)\n",
+    "a string method on the name": "def _p(s):\n    return s.startswith('TYPE_CHECKING')\n",
+    "a dict union with a module's namespace": "import json\ndef _p(extra):\n    return vars(json) | extra\n",
+    "a module's namespace formatted": "import json\ndef _p():\n    return '%s' % vars(json)\n",
+    "the names of a module joined": "import json\ndef _p():\n    return ','.join(vars(json))\n",
+    "the names of a module yielded": "import json\ndef _p():\n    yield from vars(json)\n",
+    "a read-only view of a module's namespace": (
+        "import json, types\ndef _p():\n    return types.MappingProxyType(vars(json))\n"),
+    # Codex on PR 395, P2: the flag's name as data writes nothing.
+    "the name as a key of a dict that stays": "CONFIG = {'TYPE_CHECKING': False}\n",
+    "the name as a keyword of an unknown call": "def _p(configure):\n    return configure(TYPE_CHECKING=False)\n",
+    "the name in a list": "RESERVED = ['TYPE_CHECKING', 'Any']\n",
+    "the name handed to a logger": "def _p(log):\n    log('TYPE_CHECKING')\n",
+}
+
+#: Forms that count ON PURPOSE: the gate cannot show the object is no module, or does not see where a setter goes.
+#: Each one turns the guards off, as a write with a computed name on any object did at 4490fbda.
+COUNTS_ON_PURPOSE = {
+    "setattr with a computed name on a parameter": "def put(obj, k, v):\n    setattr(obj, k, v)\n",
+    "the namespace of a parameter filled by name": (
+        "def fill(target, items):\n    own = object.__getattribute__(target, \"__dict__\")\n"
+        "    for k, v in items:\n        own[k] = v\n"),
+    "setattr handed to a callback": "def t(self, mod):\n    self.addCleanup(setattr, mod, 'yaml', 1)\n",
+    "the flag written into a parameter by name": "def put(m):\n    m['TYPE_CHECKING'] = True\n",
+    "the flag as a keyword of an update": "def put(m):\n    m.update(TYPE_CHECKING=True)\n",
+    "the flag as a key of an update": "def put(m):\n    m.update({'TYPE_CHECKING': True})\n",
+    "setattr on an imported object": "from .settings import config\ndef put(k, v):\n    setattr(config, k, v)\n",
+}
+
+
+@pytest.mark.parametrize("code", list(READS_THE_LENS_FOUND.values()), ids=list(READS_THE_LENS_FOUND))
+def test_CONTROL_a_read_the_lens_found_keeps_the_guards(tmp_path, code):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": code}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+@pytest.mark.parametrize("code", list(COUNTS_ON_PURPOSE.values()), ids=list(COUNTS_ON_PURPOSE))
+def test_RED_a_form_the_gate_cannot_place_counts_as_a_change(tmp_path, code):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": code, "settings.py": "config = 1\n"}))
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+    assert (rc, report["verdict"]) == (1, "RED")
+
+
+# ── a change of the guard reviewed by name ─────────────────────────────────────────────────────────────────────────
+
+_REVIEWED_FORM = "a namespace that may be a module's, used other than by reading"
+_FILL = COUNTS_ON_PURPOSE["the namespace of a parameter filled by name"]
+
+
+def _review(count=1, reason="fills the namespace of objects this module builds; no module is ever a target",
+            form=_REVIEWED_FORM):
+    entry = {"module": "probepkg.demo", "form": form, "count": count}
+    if reason is not None:
+        entry["reason"] = reason
+    return [entry]
+
+
+def test_CONTROL_a_reviewed_change_keeps_the_guards(tmp_path):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": _FILL}, reviewed=_review()))
+    assert report["measured"]["type_checking_changed_by"] == []
+    assert [r["module"] for r in report["measured"]["type_checking_reviewed"]] == ["probepkg.demo"]
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+@pytest.mark.parametrize("kind", ["one occurrence more than reviewed", "a reviewed form that is gone"])
+def test_RED_a_review_that_does_not_match_is_red(tmp_path, kind):
+    code = _FILL + _FILL.replace("def fill", "def fill_again") if kind.startswith("one") else _HONEST_CORE
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": code}, reviewed=_review()))
+    assert (rc, report["verdict"]) == (1, "RED")
+    assert report["stale_reviewed_changes"], report
+    if kind.startswith("one"):
+        assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+
+
+@pytest.mark.parametrize("entry", [_review(reason=None), _review(reason="  "), _review(count=0)],
+                         ids=["no reason", "a blank reason", "count 0"])
+def test_a_review_without_a_reason_or_a_count_is_not_measurable(tmp_path, entry):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": _FILL}, reviewed=entry))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE")
+
+
+def test_the_one_reviewed_change_of_the_package_is_canonical_with_its_reason():
+    spec = json.loads((ROOT / "scripts" / "core_layer_modules.json").read_text(encoding="utf-8"))
+    reviewed = spec.get("type_checking_reviewed", [])
+    assert [(e["module"], e["count"]) for e in reviewed] == [("proofbundle.canonical", 1)]
+    assert "object.__new__" in reviewed[0]["reason"] and "no module" in reviewed[0]["reason"].lower()
+
+
+# ── the reading itself: star imports, depth, time, `__call__` ──────────────────────────────────────────────────────
+
+#: A star import credited every public name to its module, so a receiver it does not bind counted as resolved and
+#: the file finding of an unresolved receiver was lost (the lens, G-2).
+STAR_IMPORTS_THAT_BIND_NOTHING = {
+    "a module of the package": ({"core.py": "from .other import *\nhandle = make()\nhandle.read()\n",
+                                 "other.py": "def make():\n    return None\n"}, ("file", ".read")),
+    "the standard library": ({"core.py": "from math import *\nhandle = cos(0)\nhandle.read_bytes()\n"},
+                             ("file", ".read_bytes")),
+}
+
+
+@pytest.mark.parametrize("case", list(STAR_IMPORTS_THAT_BIND_NOTHING.values()), ids=list(STAR_IMPORTS_THAT_BIND_NOTHING))
+def test_RED_a_star_import_does_not_resolve_a_receiver_it_does_not_bind(tmp_path, case):
+    files, finding = case
+    listed = ("probepkg", "probepkg.core", *(f"probepkg.{n[:-3]}" for n in files if n != "core.py"))
+    rc, report = gate(build(tmp_path, files, listed=listed))
+    assert finding in found(report), report["measured"]["findings"]
+
+
+def test_CONTROL_a_long_expression_outside_the_core_is_read(tmp_path):
+    """1200 terms imported and ran; the reading of names recursed once per term and crashed (the lens, G-3)."""
+    long = "X = " + " + ".join(["1"] * 1200) + "\n"
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": long}))
+    assert (rc, report["verdict"]) == (0, "GREEN"), report
+
+
+def test_CONTROL_chains_of_reassigned_names_are_judged_in_time(tmp_path):
+    """Each name judged once. The lens measured eight names, each assigned eight times from the next, at 28.8 s on the
+    first fix, which followed every assignment again on every path (G-4)."""
+    import time
+    lines = ["def f(k, v, make):"] + [f"    n{i} = {f'n{i + 1}' if i < 7 else 'make()'}" for i in range(8)
+                                      for _ in range(8)] + ["    setattr(n0, k, v)"]
+    start = time.monotonic()
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": "\n".join(lines) + "\n"}))
+    assert time.monotonic() - start < 20
+    assert report["verdict"] in ("GREEN", "RED")
+
+
+def test_RED_an_attribute_function_called_through___call___is_judged(tmp_path):
+    rc, report = gate(build(tmp_path, {"core.py": 'import os\ndef f():\n    return getattr.__call__(os, "environ")\n'}))
+    assert ("environment", "os.environ") in found(report), report["measured"]["findings"]
+
+
+def test_RED_a_frame_namespace_in_the_core_is_dynamic_access(tmp_path):
+    rc, report = gate(build(tmp_path, {"core.py": "def f(frame):\n    return frame.f_globals.get('__name__')\n"}))
+    assert ("dynamic_access", ".f_globals") in found(report)
