@@ -41,8 +41,16 @@ def _run(cmd, cwd, env=None):
     return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, env=env)
 
 
+#: NO AUTOMATIC MAINTENANCE for the fixture's git (step 771, the class of
+#: tests/test_pre_tag_receipt_refuses_a_dirty_tree.py and tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py).
+#: From git 2.47 on, `commit` starts `git maintenance run --auto --detach`, which works in the background after
+#: `commit` returns. F3 needs a blob of the commit as a loose object it can take out; in CI run 39342672318, attempt
+#: 1 (git 2.55.0, Python 3.13), that blob was in the store but not loose, and attempt 2 of the same head passed.
+_GIT_STILL = ("-c", "maintenance.auto=false", "-c", "gc.auto=0")
+
+
 def _git(args, cwd):
-    r = _run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd)
+    r = _run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *_GIT_STILL, *args], cwd)
     assert r.returncode == 0, f"git {args} failed: {r.stderr}"
     return r.stdout.strip()
 
@@ -127,6 +135,37 @@ def _resign(receipt: dict, priv) -> dict:
     r["signature"] = base64.b64encode(priv.sign(canonical_bytes(r))).decode()
     r["signer_pubkey"] = base64.b64encode(priv.public_key().public_bytes_raw()).decode()
     return r
+
+
+def _children_of(trace: Path) -> list:
+    """The command lines of every process git started, from a GIT_TRACE2_EVENT file."""
+    if not trace.exists():
+        return []
+    return [" ".join(e.get("argv", [])) for e in map(json.loads, trace.read_text().splitlines())
+            if e.get("event") == "child_start"]
+
+
+def test_the_fixture_commits_start_no_background_maintenance(tmp_path, monkeypatch):
+    """Step 771: the fixture's commits start no `git maintenance`, so nothing packs a case's objects behind
+    its back. The counter-direction shows the probe is live: a plain commit in the same repository does
+    start it on this git. Where this git starts none either, the case says so and skips."""
+    repo = tmp_path / "m"
+    repo.mkdir()
+    _git(["init", "-q"], repo)
+    (repo / "a.txt").write_text("a\n")
+    _git(["add", "-A"], repo)
+    trace = tmp_path / "trace_fixture.json"
+    monkeypatch.setenv("GIT_TRACE2_EVENT", str(trace))
+    _git(["commit", "-q", "-m", "fixture"], repo)
+    fixture = _children_of(trace)
+    plain = tmp_path / "trace_plain.json"
+    monkeypatch.setenv("GIT_TRACE2_EVENT", str(plain))
+    _run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "plain"], repo)
+    monkeypatch.delenv("GIT_TRACE2_EVENT")
+    if not any("maintenance" in c for c in _children_of(plain)):
+        pytest.skip("NOT MEASURABLE: a plain commit starts no `git maintenance` on this git, so the case "
+                    f"cannot show the fixture's guard works ({_children_of(plain)!r})")
+    assert not any("maintenance" in c for c in fixture), fixture
 
 
 class TestPositiveControl:
