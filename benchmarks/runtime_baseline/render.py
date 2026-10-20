@@ -99,7 +99,12 @@ def render(text: str, laeufe: list) -> str:
 
 
 def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv not in ([], ["--check"]):
+        # An argument this renderer does not read is refused, never dropped: `--chek` rewrote a stale README and
+        # exited 0, and `--check --unknown-option` answered like `--check` (631 part 2, P2 group 1).
+        print(f"usage: python benchmarks/runtime_baseline/render.py [--check]; refused: {' '.join(argv)}", file=sys.stderr)
+        return 2
     alt = README.read_text(encoding="utf-8")
     neu = render(alt, runs())
     if "--check" in argv:
