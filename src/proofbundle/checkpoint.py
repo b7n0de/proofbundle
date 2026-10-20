@@ -207,6 +207,14 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     tree_size = _int_once(tree_size, "checkpoint tree_size must be a non-negative integer")
     if tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
+    # THE SIZE LINE IS WRITTEN IN DECIMAL, and the note's own parser reads a uint64 (`_note_body_and_sigs`
+    # refuses `2**64` and up, `verify_checkpoint` more than 20 digits). A larger size built a note no
+    # verifier of this library accepts, and `10**5000` raised ValueError from the f-string below (the
+    # public-surface generator on main 570dd164 and five carried commits). Refused here, by the same rule
+    # the parser applies.
+    if tree_size >= 2 ** 64:
+        raise BundleFormatError("checkpoint tree_size must fit in a uint64 (below 2**64) — the note "
+                                "parser of this library refuses a larger one")
     if not issubclass(type(root), bytes):  # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
         raise BundleFormatError("checkpoint root must be raw bytes")
     root = bytes.__getitem__(root, slice(None))    # the stored bytes, read once

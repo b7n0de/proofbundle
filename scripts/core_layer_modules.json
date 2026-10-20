@@ -16,6 +16,7 @@
     "proofbundle",
     "proofbundle._membership",
     "proofbundle._plain_value",
+    "proofbundle._schema_shapes",
     "proofbundle._statement_payload",
     "proofbundle._strict_json",
     "proofbundle._verdict",
