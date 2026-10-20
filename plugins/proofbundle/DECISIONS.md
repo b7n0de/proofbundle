@@ -5450,3 +5450,5 @@ measured case but the release of D111, which the hook has used up before the ser
 own it agrees on the release and differs on the count of open pull requests of D110 (reasons_differ). A write in the
 form of D67 gets no receipt either (O28-4, so left in the first pilot); M5 counts it where it arrives. Tests:
 tests/test_plugin_n43_window_note_o28b1.py, tests/test_plugin_n43_d67_form_o28_4.py.
+
+Numbering (owner choice O43-2, 2026-10-20): D113 belongs to this chain; the main line counts on from D114.
