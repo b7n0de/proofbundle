@@ -15,22 +15,32 @@ caller's exception escape.
   "validate")`` outside its guard, so a ``__getattr__`` that raises escaped.
 
 The fix reads a path-like object under a path contract once at the call (`canonical._pfad_gelesen`) and hands the body
-the ``str`` or ``bytes`` it answered; a ``__fspath__`` that raises refuses the call with a typed error. The reader asks
-for ``validate`` inside its guard. The second half of the path fix is a sibling the class search found: because the
-check and the open read ``__fspath__`` separately, a path-like that answers a regular file first and a FIFO second made
-``load_bundle`` hang at 22aa954e (measured: still running after 8 s), and one that answers another file second made it
-return that file's content.
+the ``str`` or ``bytes`` it answered. The reader asks for ``validate`` inside its guard. The second half of the path fix
+is a sibling the class search found: because the check and the open read ``__fspath__`` separately, a path-like that
+answers a regular file first and a FIFO second made ``load_bundle`` hang at 22aa954e (measured: still running after
+8 s), and one that answers another file second made it return that file's content.
+
+A ``__fspath__`` that raises or answers no ``str`` or ``bytes`` makes the value one that is no path, and the body gets
+the stand-in, as for any such value. At dfaa3079 the reading refused the call there instead (the lens on pull request
+394, F2): the refusal came before the body, so `prereg.verify_prereg` and `evalcard.verify_evaluation_card`, which give a
+verdict for a path they cannot read, raised, and it was no class any of the functions with a path contract documents.
+The class test below did not see it, because its stub gave ``{}`` for the ``claim`` of those two, and they returned
+before the path (F7); the claim carries both digests now.
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import tempfile
 import unittest
 from pathlib import Path
 
-from proofbundle import agent_review, bundle, emit, public_transparency
+import proofbundle
+from proofbundle import agent_review, bundle, emit, evalcard, prereg, public_transparency, verifier_block
+from proofbundle._membership import Fremdkoerper
+from proofbundle.adapters import eee, inspect_ai, lm_eval, promptfoo, samples
 from proofbundle.canonical import _ein_stand
-from proofbundle.errors import ProofBundleError
+from proofbundle.errors import BundleFormatError, ProofBundleError
 
 import test_never_raise_surface_family_property as family
 
@@ -100,6 +110,11 @@ def _contract(fn):
     return None, None
 
 
+#: The ``claim`` of `prereg.verify_prereg` and `evalcard.verify_evaluation_card`, carrying the digest each reads, so
+#: both reach the path. The family stub of a dict is ``{}``, and with it both returned before the path (F7).
+_CLAIM = {"prereg_sha256": "00" * 32, "evaluation_card_sha256": "00" * 32}
+
+
 def _call(fn, params, i, value):
     args, kwargs = [], {}
     for j, p in enumerate(params):
@@ -110,7 +125,7 @@ def _call(fn, params, i, value):
         elif p.default is not inspect.Parameter.empty:
             continue
         else:
-            val = family._stub_for(p)
+            val = dict(_CLAIM) if p.name == "claim" else family._stub_for(p)
         if p.kind == p.KEYWORD_ONLY or j > i:
             kwargs[p.name] = val
         else:
@@ -155,11 +170,12 @@ class APathIsReadOnceAtTheCall(unittest.TestCase):
     def tearDown(self):
         self._dir.cleanup()
 
-    def test_the_three_loaders_refuse_a_raising_fspath_with_a_typed_error(self):
-        for label, fn in (("load_bundle", bundle.load_bundle), ("load_signer", emit.load_signer),
-                          ("load_policy", agent_review.load_policy)):
+    def test_the_three_loaders_refuse_a_raising_fspath_with_their_documented_error(self):
+        for label, fn, documented in (("load_bundle", bundle.load_bundle, BundleFormatError),
+                                      ("load_signer", emit.load_signer, BundleFormatError),
+                                      ("load_policy", agent_review.load_policy, agent_review.AgentReviewError)):
             with self.subTest(surface=label):
-                with self.assertRaises(ProofBundleError):
+                with self.assertRaises(documented):
                     fn(PathLike())
 
     def test_the_check_and_the_open_read_one_path(self):
@@ -240,23 +256,34 @@ class TheReadingOfAPath(unittest.TestCase):
                 return "z.eval"
 
         body(GivesStr())
+        body(PathLike())
         self.assertIs(type(received[0]), str)
-        with self.assertRaises(ProofBundleError):
-            body(PathLike())
+        self.assertIsInstance(received[1], Fremdkoerper)
 
-    def test_an_fspath_that_answers_no_path_refuses_the_call(self):
+    def test_an_fspath_that_answers_no_path_hands_the_body_a_stand_in(self):
+        received = []
+
         @_ein_stand(aussen={"p": "pfad"})
         def body(p):
-            raise AssertionError("the body must not run")
+            received.append(p)
 
         class GivesInt:
+            calls = 0
+
             def __fspath__(self):
+                GivesInt.calls += 1
                 return 3
 
-        for value in (PathLike(), GivesInt()):
+        values = (PathLike(), GivesInt())
+        for value in values:
+            body(value)
+        self.assertEqual(len(received), 2)
+        for value, got in zip(values, received):
             with self.subTest(value=type(value).__name__):
-                with self.assertRaises(ProofBundleError):
-                    body(value)
+                self.assertIsNot(got, value, "the body gets no object of the caller")
+                self.assertIsInstance(got, Fremdkoerper)
+                self.assertFalse(hasattr(type(got), "__fspath__"), "the stand-in is no path")
+        self.assertEqual(GivesInt.calls, 1, "the path is read once, at the call")
 
     def test_a_recursion_error_is_raised_as_it_is(self):
         """The stack ran out in the caller's code: raised as it is, as the reading at the call raises it."""
@@ -276,6 +303,116 @@ class TheReadingOfAPath(unittest.TestCase):
             bundle.load_bundle(Secretive())
         self.assertNotIn("tok3n", str(caught.exception))
         self.assertIsNone(caught.exception.__cause__)
+
+
+_ZEIT = "2026-01-01T00:00:00Z"
+#: Every function with a path contract, called with one value in its path argument and plausible other arguments.
+_PATH_SURFACES = {
+    "bundle.load_bundle": lambda p: bundle.load_bundle(p),
+    "emit.save_signer": lambda p: emit.save_signer(emit.generate_signer(), p),
+    "emit.load_signer": lambda p: emit.load_signer(p),
+    "verifier_block.measure_build": lambda p: verifier_block.measure_build(p),
+    "verifier_block.measure_vector_set": lambda p: verifier_block.measure_vector_set(p),
+    "verifier_block.measure_verifier_block": lambda p: verifier_block.measure_verifier_block(conformance_dir=p),
+    "adapters.inspect_ai.from_inspect_ai_log": lambda p: inspect_ai.from_inspect_ai_log(
+        p, "acc", comparator=">=", threshold="0.5", timestamp=_ZEIT),
+    "adapters.eee.from_eee_dataset": lambda p: eee.from_eee_dataset(p, comparator=">=", threshold="0.5"),
+    "adapters.lm_eval.from_lm_eval_results": lambda p: lm_eval.from_lm_eval_results(
+        p, "t", "acc", comparator=">=", threshold="0.5", timestamp=_ZEIT),
+    "adapters.promptfoo.from_promptfoo_results": lambda p: promptfoo.from_promptfoo_results(
+        p, comparator=">=", threshold="0.5", timestamp=_ZEIT),
+    "adapters.samples.samples_from_lm_eval_jsonl": lambda p: samples.samples_from_lm_eval_jsonl(p),
+    "adapters.samples.samples_from_promptfoo_results": lambda p: samples.samples_from_promptfoo_results(p),
+    "evalcard.evaluation_card_hash": lambda p: evalcard.evaluation_card_hash(p),
+    "evalcard.verify_evaluation_card": lambda p: evalcard.verify_evaluation_card(p, dict(_CLAIM)),
+    "prereg.prereg_hash": lambda p: prereg.prereg_hash(p),
+    "prereg.verify_prereg": lambda p: prereg.verify_prereg(p, dict(_CLAIM)),
+    "agent_review.load_policy": lambda p: agent_review.load_policy(p),
+}
+#: The one function with a path contract this test does not call, and why.
+_NOT_CALLED = {"anchors_chia_add.anchor_add": "it talks to a Chia node; its lock_path follows the node arguments"}
+
+
+def _path_contracts_in_the_source():
+    """``module.function`` for every function of the package whose `_ein_stand` names a path contract, read from the
+    source with `ast`, so a new one cannot sit outside the table above unnoticed."""
+    wurzel = Path(proofbundle.__file__).parent
+    gefunden = set()
+    for datei in sorted(wurzel.rglob("*.py")):
+        baum = ast.parse(datei.read_text(encoding="utf-8"))
+        modul = ".".join(datei.relative_to(wurzel).with_suffix("").parts)
+        for knoten in ast.walk(baum):
+            if not isinstance(knoten, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deko in knoten.decorator_list:
+                if not (isinstance(deko, ast.Call) and getattr(deko.func, "id", None) == "_ein_stand"):
+                    continue
+                for kw in deko.keywords:
+                    if kw.arg == "aussen" and isinstance(kw.value, ast.Dict) and any(
+                            isinstance(v, ast.Constant) and v.value in ("pfad", "pfad_oder_objekt")
+                            for v in kw.value.values):
+                        gefunden.add(f"{modul}.{knoten.name}")
+    return gefunden
+
+
+def _answer(fn, value):
+    """What a function answers: a verdict with its ``ok``, an exception by its exact class, or a returned type."""
+    try:
+        r = fn(value)
+    except CallerError as escaped:
+        return ("the caller's exception", str(escaped))
+    except Exception as exc:  # noqa: BLE001 - the answer is the class
+        return ("raise", type(exc))
+    if type(r) is dict and "ok" in r:
+        return ("verdict", r["ok"])
+    return ("return", type(r))
+
+
+class APathLikeThatIsNoPathIsAnsweredAsAValueThatIsNoPath(unittest.TestCase):
+    """The lens on pull request 394 (F2, F1, F7) at dfaa3079: a path-like whose ``__fspath__`` raises or answers no
+    ``str`` or ``bytes`` was refused before the body, so `prereg.verify_prereg` and `evalcard.verify_evaluation_card`
+    raised where they gave a verdict, and every function with a path contract raised the reading's own class instead
+    of the one it documents. Each answers such a value now as it answers ``object()``, a value that is no path."""
+
+    def test_the_table_holds_every_path_contract_of_the_source(self):
+        self.assertEqual(_path_contracts_in_the_source(), set(_PATH_SURFACES) | set(_NOT_CALLED))
+
+    def test_each_answers_a_path_like_that_is_no_path_as_it_answers_a_value_that_is_no_path(self):
+        class Counted:
+            calls = 0
+
+        class Raises(Counted):
+            def __fspath__(self):
+                Counted.calls += 1
+                raise CallerError("__fspath__ of the caller")
+
+        class GivesInt(Counted):
+            def __fspath__(self):
+                Counted.calls += 1
+                return 3
+
+        class GivesNone(Counted):
+            def __fspath__(self):
+                Counted.calls += 1
+                return None
+
+        for name, fn in _PATH_SURFACES.items():
+            no_path = _answer(fn, object())
+            for make in (Raises, GivesInt, GivesNone):
+                with self.subTest(surface=name, value=make.__name__):
+                    Counted.calls = 0
+                    self.assertEqual(_answer(fn, make()), no_path)
+                    self.assertLessEqual(Counted.calls, 1, "the path is read once, at the call")
+
+    def test_the_two_verdict_surfaces_give_their_verdict(self):
+        class GivesInt:
+            def __fspath__(self):
+                return 3
+
+        for name in ("prereg.verify_prereg", "evalcard.verify_evaluation_card"):
+            for value in (PathLike(), GivesInt()):
+                with self.subTest(surface=name, value=type(value).__name__):
+                    self.assertEqual(_answer(_PATH_SURFACES[name], value), ("verdict", False))
 
 
 class TheReaderOfAConsistencyResult(unittest.TestCase):

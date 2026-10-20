@@ -1099,7 +1099,8 @@ class _draussen:
 #: kind of the argument: the forms of `_art_des_blatts` it hands on. A callback is called as the caller's code
 #: (`_draussen`) and its answer read where it returns; a signer's own ``sign`` is the caller's code by contract; a path
 #: is opened by the operating system, and a path-like object of the caller reaches the body as the ``str`` or ``bytes``
-#: its ``__fspath__`` answered once at the call (`_pfad_gelesen`); a clock is read once (`_zeitpunkt_von`); a class is
+#: its ``__fspath__`` answered once at the call, or as the stand-in when that answer is no path (`_pfad_gelesen`); a
+#: clock is read once (`_zeitpunkt_von`); a class is
 #: the ``cls`` of a classmethod, which the classmethod calls to build its answer; a path or a loaded log is the source
 #: an adapter reads.
 _AUSSEN_ERLAUBT = {
@@ -1127,8 +1128,8 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, fehler: Any = None, 
     Such an object is handed on where the argument stands (a signer of a dict of signers as a value of that dict);
     every other argument, and every other place of such an argument, holds the copy of the reading and no object of
     the caller (`_gelesen`). A path-like object under a path is the one exception: the body gets the ``str`` or
-    ``bytes`` its ``__fspath__`` answered at the call, and a ``__fspath__`` that raises refuses the call
-    (`_pfad_gelesen`).
+    ``bytes`` its ``__fspath__`` answered at the call, and for a ``__fspath__`` that raises or answers no ``str``
+    or ``bytes`` it gets the stand-in, as for any other value that is no path (`_pfad_gelesen`).
 
     THE READING CAN REFUSE THE CALL BEFORE THE BODY, at every function it stands on: with `_StandUnkopierbar` for a
     container it recognises and cannot copy and for an iterator or a generator no contract takes, and with
@@ -1255,16 +1256,21 @@ def _pfad_gelesen(wert: Any) -> Any:
     code of the caller runs in the body. Until NR1 of 6.3.1 the object itself was handed on, and a ``__fspath__`` that
     raised let the caller's exception escape `bundle.load_bundle`, `emit.load_signer` and `agent_review.load_policy`,
     which answer a path they cannot read with their own typed error (the sweep of the never-raise surfaces at
-    22aa954e). A ``__fspath__`` that raises, or answers no ``str`` or ``bytes``, now refuses the call
-    (`_StandUnkopierbar`), in the classes the function documents (`_ein_stand`, ``fehler``)."""
+    22aa954e).
+
+    A ``__fspath__`` that raises, or answers no ``str`` or ``bytes``, gives None: the value is then no path, and
+    `_vertrag_angewandt` hands the body the stand-in the reading made for it, as it hands on any other value that is
+    no path. Each function answers it as it answers such a value: its own typed error at a loader, a fail-closed
+    verdict at `prereg.verify_prereg` and `evalcard.verify_evaluation_card`. Until the lens on pull request 394 the
+    call was refused here (`_StandUnkopierbar`): that refusal came before the body, so those two surfaces raised
+    where they had answered with a verdict, and it was no class any of the functions with a path contract documents
+    (`load_bundle` documents `BundleFormatError`, `load_policy` `AgentReviewError`)."""
     try:
         gelesen = os.fspath(wert)
     except RecursionError:
         raise   # the stack ran out here: raised as it is, as `_stand` raises it
-    except Exception:  # noqa: BLE001 - the caller's own code raised; the refusal names no value of it
-        raise _StandUnkopierbar(
-            "a path-like value of the caller could not be read as a path: its __fspath__ raised or answered no str "
-            "or bytes") from None
+    except Exception:  # noqa: BLE001 - the caller's own code raised; nothing of it is kept
+        return None
     if issubclass(type(gelesen), str):
         return str.__str__(gelesen)
     return bytes.__getitem__(gelesen, slice(None))
@@ -1291,7 +1297,8 @@ def _vertrag_angewandt(namen: tuple, vertrag: dict, gelesen: tuple, ersetzt: dic
         if paar is not None and paar[1] in erlaubt:
             zurueck.add(id(wert))
             if paar[1] == "pfadartig" and (art == "pfad" or art == "pfad_oder_objekt"):
-                return _pfad_gelesen(paar[0])
+                pfad = _pfad_gelesen(paar[0])
+                return wert if pfad is None else pfad   # no path: the stand-in, as for any value that is none
             return paar[0]
         return wert
     for stelle, name in enumerate(namen[0][:len(pos)]):
