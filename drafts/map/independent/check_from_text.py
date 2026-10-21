@@ -3,6 +3,10 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 35 (revision -03 of the receipts draft, no change to the text of Draft 2): Draft 1 is read in its -03. Its
+vectors, A.1, its section titles and the paragraph and list of Section 6 are those of the -02, and its vectors still end
+at the appendix of changes; the -03 adds to Section 7 and to the references only. No check and no vector changes.
+
 Round 34 (owner choice A of 2026-10-12, review of the receipts draft -01, block B): Draft 1 is read in its -02, whose
 paragraph before "In particular:" in Section 6 is review block B; Section 8 of Draft 2 repeats the -01, which it cites.
 T1 compares the two lists after "In particular:" word for word and finds each paragraph before them as its revision
@@ -261,8 +265,8 @@ DEPTH_LIMIT = 64
 #: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1.
 JSON_DEPTH_LIMIT = 64
 D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-03.txt")
-# The receipts draft is read in its -02, whose vectors are those of the -01 that Draft 2 cites, byte for byte.
-D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-02.txt")
+# The receipts draft is read in its -03, whose vectors are those of the -01 that Draft 2 cites, byte for byte.
+D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-03.txt")
 
 RESULTS = []  # (category, id, ok, title)
 

@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Independent verifier for draft-gruszka-signed-evaluation-receipts-02.
+"""Independent verifier for draft-gruszka-signed-evaluation-receipts-03.
 
 Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
+
+Round 29 (revision -03, as published on 2026-10-19, no change to any rule): the text is now
+draft-gruszka-signed-evaluation-receipts-03; its vectors are those of the -02, byte for byte. Section 7 adds six
+individual drafts, read on 2026-10-19, each named in Section 7 and among the informative references; 3.5 says
+"hash-only mode" where the -02 said "hash mode"; the appendix of changes opens with the points since -02. One check
+of round 29 holds Section 7 and 3.5, and the check of rounds 25 and 27 now reads the name -03 and the points since
+-02, -01 and -00, in that order.
 
 Round 28 (owner choice of 2026-10-12, confirmation review of the -02, blocks 1 and 2): Section 11 gives the refusal of
 a key before any receipt is read to the show-eval command with --expect-issuer, with exit status 2, and says that the
@@ -203,7 +210,7 @@ from decimal import Decimal
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DRAFT = os.path.join(HERE, "..", "draft", "draft-gruszka-signed-evaluation-receipts-02.txt")
+DRAFT = os.path.join(HERE, "..", "draft", "draft-gruszka-signed-evaluation-receipts-03.txt")
 VECTORS = os.path.join(HERE, "..", "examples", "vectors.json")
 
 # ---------------------------------------------------------------------------
@@ -1368,7 +1375,7 @@ def main():
         libver = cryptography.__version__
     except Exception:
         libver = "unavailable"
-    print("Independent verifier for draft-gruszka-signed-evaluation-receipts-02 (from the text alone)")
+    print("Independent verifier for draft-gruszka-signed-evaluation-receipts-03 (from the text alone)")
     print("python      : %s" % sys.version.split()[0])
     print("cryptography: %s (informational column only)" % libver)
     with open(DRAFT, "rb") as f:
@@ -1945,8 +1952,12 @@ def main():
     i_aa25 = next((i for i, ln in enumerate(lines25) if ln == "Author's Address"), None)
     ch25 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines25[i_ch25:i_aa25])))
             if None not in (i_ch25, i_aa25) else "")
-    # Round 27: every point of both subsections, in order; the points are counted
-    s25c = {"01": ["Section 1 ends with the scope of this document and its interoperability target.",
+    # Round 27: every point of both subsections, in order; the points are counted. Round 29: and of the points
+    # since -02, which come first.
+    s25c = {"02": ["Section 7 adds six individual drafts, read on 2026-10-19, and the informative references to "
+                   "them.",
+                   "Section 3.5 calls the mode of [I-D.ozturk-scitt-prml-profile] hash-only, as that draft does."],
+            "01": ["Section 1 ends with the scope of this document and its interoperability target.",
                    "Section 6 opens with what PASS does not mean and says that establishing who controls the key is "
                    "outside the procedure.",
                    "The security considerations of Section 10.1 also refer to [RFC8259] Section 12.",
@@ -1966,18 +1977,50 @@ def main():
                    "Section 10.1 writes out the security considerations of the registration template and names "
                    "contact, author and change controller.",
                    "Section 11 adds a local measurement on 2026-10-10 of a receipt made from the result of a test run."]}
+    h02 = ch25.find("Since draft-gruszka-signed-evaluation-receipts-02")
     h01 = ch25.find("Since draft-gruszka-signed-evaluation-receipts-01")
     h00 = ch25.find("Since draft-gruszka-signed-evaluation-receipts-00")
-    got25 = {"01": [b.strip() for b in ch25[h01:h00 if h00 > h01 else None].split(" * ")[1:]] if h01 > -1 else [],
+    got25 = {"02": [b.strip() for b in ch25[h02:h01].split(" * ")[1:]] if -1 < h02 < h01 else [],
+             "01": [b.strip() for b in ch25[h01:h00 if h00 > h01 else None].split(" * ")[1:]] if h01 > -1 else [],
              "00": [b.strip() for b in ch25[h00:].split(" * ")[1:]] if -1 < h01 < h00 else []}
-    chk("Revision -02 (rounds 25 and 27): the name is draft-gruszka-signed-evaluation-receipts-02, no Open Items stand, "
-        "and the unnumbered appendix of changes follows Appendix A with the points since -01 (%d) and since -00 (%d), "
-        "each as written, in that order" % (len(got25["01"]), len(got25["00"])),
-        any(ln.strip() == "draft-gruszka-signed-evaluation-receipts-02" for ln in lines25)
+    chk("Revision -03 (rounds 25, 27 and 29): the name is draft-gruszka-signed-evaluation-receipts-03, no Open Items "
+        "stand, and the unnumbered appendix of changes follows Appendix A with the points since -02 (%d), since -01 "
+        "(%d) and since -00 (%d), each as written, in that order"
+        % (len(got25["02"]), len(got25["01"]), len(got25["00"])),
+        any(ln.strip() == "draft-gruszka-signed-evaluation-receipts-03" for ln in lines25)
         and not any(ln.strip().startswith("Open Items") for ln in lines25)
         and None not in (i_ch25, i_last25, i_aa25) and i_last25 < i_ch25 < i_aa25 and got25 == s25c,
         "differing points: " + (", ".join("%s %d" % (k, i + 1) for k in s25c for i in range(max(len(s25c[k]),
                                 len(got25[k]))) if s25c[k][i:i + 1] != got25[k][i:i + 1]) or "none"))
+    # Round 29: Section 7 names the six individual drafts read on 2026-10-19, in this order, after the two sentences
+    # that introduce them; each stands among the informative references. 3.5 says "hash-only mode".
+    i7 = next((i for i, ln in enumerate(lines15) if ln == "7.  Related Work"), None)
+    i8 = next((i for i, ln in enumerate(lines15) if ln == "8.  Security Considerations"), None)
+    s7 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines15[i7 + 1:i8])))
+          if i7 is not None and i8 is not None and i7 < i8 else "")
+    i122 = next((i for i, ln in enumerate(lines15) if re.match(r"^\d+\.2\.  Informative References$", ln)), None)
+    iA29 = next((i for i, ln in enumerate(lines15) if ln == "Appendix A.  Test Vectors"), None)
+    refs29 = ([ln.strip() for ln in lines15[i122 + 1:iA29]]
+              if i122 is not None and iA29 is not None and i122 < iA29 else [])
+    intro29 = ("The following individual drafts were read on 2026-10-19. The summaries describe their scope and "
+               "construction in the cited revisions and identify differences from this document. The first three "
+               "concern receipts for decisions or actions:")
+    mid29 = ("Among these three revisions, Vaara explicitly defines optional thresholdAllow and thresholdBlock members "
+             "for decision scores. This document requires score, comparator, threshold and passed for an evaluation "
+             "result and checks their consistency using exact decimal comparison. That check does not establish that "
+             "the reported score is correct. Three further individual drafts concern evaluation or measurement "
+             "records:")
+    six29 = ["[I-D.sirkkavaara-vaara-receipt]", "[I-D.sahu-agent-action-receipts]", "[I-D.wang-jep-receipt-profile]",
+             "[I-D.watts-agent-evidence-boundary]", "[I-D.watts-scientific-admissibility-evidence]",
+             "[I-D.templeman-scitt-measurement-capsule]"]
+    at29 = [s7.find(x) for x in [intro29] + six29[:3] + [mid29] + six29[3:]]
+    hash29 = "[I-D.ozturk-scitt-prml-profile] carries in its hash-only mode the 32 octets of SHA-256"
+    chk("Section 7 and 3.5 (round 29): the six individual drafts read on 2026-10-19 stand in Section 7 in their order "
+        "after the sentences that introduce them, each is an informative reference, and 3.5 says 'hash-only mode'",
+        -1 not in at29 and at29 == sorted(at29) and all(x in refs29 for x in six29)
+        and hash29 in flat15 and "in its hash mode" not in flat15,
+        "positions in Section 7: %s; not among the references: %s; hash-only in 3.5: %s"
+        % (at29, [x for x in six29 if x not in refs29] or "none", hash29 in flat15))
     # Round 17: SHA-256 at its first use, and RFC 6234 among the normative references.
     sha17 = "SHA-256 is the hash function specified in [RFC6234]."
     i33 = next((i for i, ln in enumerate(lines15) if ln == "3.3.  Salted Commitments"), None)
