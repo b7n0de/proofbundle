@@ -171,8 +171,8 @@ def _fold(anchor, path):
 # Section 4.1: what the receipt must carry
 # ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("kw, status", [
-    (dict(vdp={}), "consistency_proof_missing"),
-    (dict(vdp={-2: []}), "consistency_proof_missing"),
+    (dict(vdp={}), "malformed"),              # a vdp with neither -1 nor -2 is outside the CDDL
+    (dict(vdp={-2: []}), "malformed"),        # so is an empty -2; the CDDL pass refuses both first
     (dict(vdp={-1: []}), "malformed"),        # an empty -1 is outside the CDDL, and malformed comes first
     (dict(payload=TREE.root(24)), "consistency_payload_attached"),
     (dict(payload=b"\x00" * 32), "consistency_payload_attached"),
@@ -294,13 +294,14 @@ def test_profile_of_the_protected_header(prot, status):
 
 def test_an_empty_array_of_the_other_proof_family_is_malformed():
     """Codex, PR 278 round four, the mirror of the inclusion case: the -05 CDDL makes -1 and -2 arrays
-    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL; an empty -2,
-    the family this verifier checks, keeps its own status, because 4.2 asserts len(proofs) > 0."""
+    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL, and since
+    the CDDL pass (Nachtrag 4) so is an empty -2: a missing proof is only an absent one."""
     good = enc_proof(*TREE.proof(13, 24))
     assert check(receipt(vdp={-2: [good]})).status == "confirmed"
     c = check(receipt(vdp={-2: [good], -1: []}))
     assert (c.status, c.readable) == ("malformed", False)
-    assert check(receipt(vdp={-2: []})).status == "consistency_proof_missing"
+    assert check(receipt(vdp={-2: []})).status == "malformed"
+    assert check(receipt(vdp={-1: [b"junk"]})).status == "malformed"      # -1 alone, junk: the CDDL first
 
 
 def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
