@@ -19,7 +19,7 @@ These totals count register entries only. [The 6.3.1 residual-risk record](../..
 | Record | Status in this preparation snapshot |
 |---|---|
 | Final pre-tag audit and signed receipt | Pending |
-| Reference measurement of the budget cost axis | Pending |
+| Reference measurement of the budget cost axis | Measured on the reference machine on 2026-10-21; all 12 axes and all 7 combinations passed, and none was skipped. See [the measurement record](../360/budget_axis_latest.json). |
 | Paths named twice at the final release head | The final-tree check must be recorded before the pre-tag receipt is produced; its completion is not established by this page. |
 
 ## Verification and limits

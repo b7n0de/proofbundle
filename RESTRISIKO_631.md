@@ -4,7 +4,7 @@ This file records findings for the 6.3.1 release and their stated status. It doe
 
 ## Targets of 6.3.0 included in this release
 
-[The residual-risk record of 6.3.0](RESTRISIKO_630.md) listed these items as targeted for 6.3.1. Each line of the 6.3.1 changelog named here names the test that holds it.
+[The residual-risk record of 6.3.0](RESTRISIKO_630.md) listed these items as targeted for 6.3.1.
 
 - K3 to K10, the eight finding classes rated P1 by the candidate review of 6.3.0, in repository tools, examples, checks and interoperability code. K6, the core-layer gate reading an import alias at the wrong point, is changed for that case: a use is judged against every alias the same module gives the name. The limits of the gate that remain are listed below.
 - The four additional P2 groups, as P2-1 to P2-4.
