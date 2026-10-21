@@ -5,7 +5,7 @@
  "version": "6.3.1",
  "vorheriger_tag": "v6.3.0",
  "tag": "v6.3.1",
- "release_commit": "23b58a95ac73652ab5d75e4ab768f50e85be4c20",
+ "release_commit": "9f19f9d31d598c7ebd6d80b3d3e296e1c7e9d61e",
  "kopfsatz": "**A patch release following 6.3.0, with stricter verification and changed result reporting.** Statement validation is reported separately from DSSE signature checks, and reference-check results and executed-outcome evidence levels change as described below. The release also improves handling of specific invalid inputs, extends the inspect_ai adapter and updates repository tools. Review the changed fields and remaining exception paths when upgrading.",
  "highlights": [
   {
