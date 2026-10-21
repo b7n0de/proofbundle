@@ -16,7 +16,7 @@ import hashlib
 import importlib.util
 import inspect
 import json
-import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -995,7 +995,12 @@ def test_crossed_statement_of_another_target_is_unbound():
 # ------------------------------------------------------------------------------------------------
 # The typed refusals of the three parsing surfaces
 # ------------------------------------------------------------------------------------------------
-@pytest.mark.parametrize("bad", [None, 1, "text", [b"x"], {"a": 1}, b"", b"\xd2\x84", os.urandom(64)])
+# A fixed value, not os.urandom(64): a value drawn while collecting gives each xdist worker
+# another test id, and the run stops before the first test.
+_ARBITRARY_64 = random.Random(64).randbytes(64)
+
+
+@pytest.mark.parametrize("bad", [None, 1, "text", [b"x"], {"a": 1}, b"", b"\xd2\x84", _ARBITRARY_64])
 def test_parsing_surfaces_refuse_typed(bad):
     for fn in (S.decode_cose_sign1, S.recompute_data_hash, S.load_cose_keyset):
         with pytest.raises(S.ScittFormatError):

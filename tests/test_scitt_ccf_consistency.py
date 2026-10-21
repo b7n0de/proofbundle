@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import os
+import random
 from pathlib import Path
 
 import pytest
@@ -361,7 +361,12 @@ def test_vdp_not_a_map_is_malformed():
     assert check(raw).status == "malformed"
 
 
-@pytest.mark.parametrize("bad", [None, 1, "text", [b"x"], {"a": 1}, b"", b"\xd2\x84", os.urandom(64)])
+# A fixed value, not os.urandom(64): a value drawn while collecting gives each xdist worker
+# another test id, and the run stops before the first test.
+_ARBITRARY_64 = random.Random(64).randbytes(64)
+
+
+@pytest.mark.parametrize("bad", [None, 1, "text", [b"x"], {"a": 1}, b"", b"\xd2\x84", _ARBITRARY_64])
 def test_never_raises_and_every_status_is_in_the_closed_set(bad):
     c = S.verify_consistency_receipt(bad, older_root=bad, older_issuer=bad, rp_trust=bad)
     assert c.status in S.CONSISTENCY_STATUS_ORDER
