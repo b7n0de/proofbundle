@@ -698,7 +698,9 @@ _ECDSA_WATCHED = _CURVE_FLOOR | _installed_curves() | {
     "generate_private_key", "derive_private_key", "EllipticCurvePrivateKey",
     "EllipticCurvePrivateNumbers", "get_curve_for_oid", "_CURVE_TYPES"}
 _ECDSA_ALLOWED = frozenset({("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
-                            ("anchors_rootcommit.py", "SECP256k1")})
+                            ("anchors_rootcommit.py", "SECP256k1"),
+                            ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
+                            ("scitt_ccf.py", "SECP384R1")})
 
 
 def _ecdsa_inventory(root: pathlib.Path) -> "set[tuple[str, str]]":
@@ -782,7 +784,12 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
         ES256 verifier and the secp256k1 recovery in rootcommit. A new path that SIGNS with ECDSA must
         emit the low s and join the property above; this case fails until someone looks. Up to
         31816e08 it knew two curves, so a P-384 signing path in signature.py, where ECDSA is allowed
-        for the verifier, passed it; the case below plants one."""
+        for the verifier, passed it; the case below plants one.
+
+        Looked at when main met the scitt-ccf/v1 branch: scitt_ccf.py names ECDSA only in
+        `key.verify(der, tbs, ec.ECDSA(h))`, and SECP256R1 and SECP384R1 only in its curve tables, which
+        build public keys from a SubjectPublicKeyInfo or a COSE_KeySet. It verifies statements and
+        receipts under keys of others and signs nothing, so it joins the verifiers in _ECDSA_ALLOWED."""
         found = _ecdsa_inventory(SRC)
         self.assertEqual(found - _ECDSA_ALLOWED, set(), "an ECDSA path outside the verifiers")
         self.assertTrue(_ECDSA_ALLOWED & found, "the inventory walked nothing")

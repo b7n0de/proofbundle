@@ -1,0 +1,717 @@
+{
+ "tool": "tools/scitt_ccf_external/vendored_encoder_probe.py",
+ "oracle": "foreign tool, built by us: CCF's vendored tee-attestation-verification-ffi 1.0.8 C ABI and EverCBOR, compiled from their pinned sources, driven by our transcription of set_unprotected_header (vendored_encoder_probe/src/main.rs)",
+ "measured_on": "2026-09-26",
+ "build": {
+  "ccf": {
+   "repository": "https://github.com/microsoft/CCF",
+   "tag": "ccf-7.0.17",
+   "commit": "cdcb74c7365dbe4b3fad739868bfa9802d77ed75"
+  },
+  "vendored_files_sha256": {
+   "3rdparty/internal/tee-attestation-verification/Cargo.lock": "a246169d3936b0685208847ac013945b09431c47f1cd3210f6562cefa2c8fd39",
+   "3rdparty/internal/tee-attestation-verification/cbor/Cargo.toml": "550163732104480ead71afb0f797d16668b6f6a2114c063d4c7e2108aefc1ebf",
+   "3rdparty/internal/tee-attestation-verification/cbor/src/lib.rs": "260961dd67e2a35053cdbd5a9e69d812966746b1237f2c88c2a8ab560d5ec031",
+   "3rdparty/internal/tee-attestation-verification/ffi/Cargo.toml": "6b889cfea47b8eaad47d6c99fd0667a3fcac139b863477988d08f9c249615ff7",
+   "3rdparty/internal/tee-attestation-verification/ffi/src/c_ffi/cbor.rs": "bd460169c1d2b5e70acd795c7fffe0b36e853664a9841248640a4171c6998377",
+   "3rdparty/internal/tee-attestation-verification/ffi/include/tav/cbor.hpp": "c05dced6aeea30ad3af1022d7ae08df4ce5fbbde89ea9a3867591b862d347b16",
+   "src/crypto/cose.cpp": "97982db318771ac293d0162fd2003520ee0964752355bcf041502c5b6c18358e"
+  },
+  "everparse": {
+   "repository": "https://github.com/project-everest/everparse",
+   "commit": "950bc93838ac2faae51126d8acd0637cf8c8a569",
+   "tag": "v2026.07.02",
+   "resolved_source": "git+https://github.com/project-everest/everparse.git?rev=950bc93838ac2faae51126d8acd0637cf8c8a569#950bc93838ac2faae51126d8acd0637cf8c8a569",
+   "pinned_by": "3rdparty/internal/tee-attestation-verification/cbor/Cargo.toml and 3rdparty/internal/tee-attestation-verification/Cargo.lock in CCF ccf-7.0.17"
+  },
+  "probe_source_sha256": "eabd606ba2dd08447e5b4652f3c2fafcabfd1145d69a2e84ce43de937e985f55",
+  "cargo_lock_sha256": "d7b470c76ba930a8c1fb038bae9e27cf1fbc9c2fa226e2d698212a1e8367b375",
+  "registry_packages": 41,
+  "registry_packages_not_in_ccf_vendored_lock": [],
+  "features": "tee-attestation-verification-ffi with default-features = false and crypto_openssl, the backend its crypto build script requires on native targets; the CBOR functions use none",
+  "rustc": "rustc 1.94.1 (e408947bf 2026-03-25)",
+  "cargo": "cargo 1.94.1 (29ea6fb6a 2026-03-24)",
+  "platform": "Linux-6.18.44-fc-v42-x86_64-with-glibc2.39"
+ },
+ "compared_with": {
+  "receipt_data_hash": "the data-hash of the vector's receipt, read by preimage_candidates.data_hash_own",
+  "served_minus_394": "the served statement with label 394 removed, every other byte as served (preimage_candidates candidate 3-tagged), i.e. the service's own serialization",
+  "request": "the submitted bytes"
+ },
+ "corpora": {
+  "differential_corpus": {
+   "vectors": [
+    {
+     "id": "control",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "control-resubmitted",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "a01-label-99-text",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a02-label-99-other-text",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a03-label-99-bstr",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a04-label-99-int",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a05-text-label",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a06-negative-label",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a07-kid",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a08-receipts-label",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a09-x5chain-both-buckets",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a10-cwt-claims-unprotected",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a11-two-labels",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a12-int-and-text-labels",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "a13-negative-after-positive",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "e01-two-labels-reversed",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "e02-text-label-first",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "e03-negative-first",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "b01-width4",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "b02-width8",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "b03-indefinite1",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}"
+    },
+    {
+     "id": "b04-indefinite2",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_NO_STRING_ALLOCATOR\"}"
+    },
+    {
+     "id": "c01-width2",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "c02-width4",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "c03-width8",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "c04-indefinite1",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+    },
+    {
+     "id": "c05-indefinite2",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+    },
+    {
+     "id": "d01-width2",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "d02-width4",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "d03-width8",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "receipt_data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "d04-indefinite1",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}"
+    },
+    {
+     "id": "d05-indefinite2",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode COSE_Sign1\"}"
+    },
+    {
+     "id": "f01-second-signature",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "ba435c275a82e22f211095b483ff503156d690237ddbc32493178ce8bc4b967a",
+     "receipt_data_hash": "ba435c275a82e22f211095b483ff503156d690237ddbc32493178ce8bc4b967a",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "f02-third-signature",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "f145c3e6e7bb459f14363ace70141e3fb3860db7bf3b2476d65448c3fc47dbac",
+     "receipt_data_hash": "f145c3e6e7bb459f14363ace70141e3fb3860db7bf3b2476d65448c3fc47dbac",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "f03-high-s-twin",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1140,
+     "output_sha256": "aa4d75c7864e1d4aad1fd1b7dc0c507edb98b1351ad3abf49fb28c0fc77afa07",
+     "receipt_data_hash": "aa4d75c7864e1d4aad1fd1b7dc0c507edb98b1351ad3abf49fb28c0fc77afa07",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    }
+   ],
+   "counts": {
+    "accepted": 29,
+    "accepted_probe_ok": 29,
+    "accepted_output_equals_served_minus_394": 29,
+    "accepted_output_sha256_equals_data_hash": 29,
+    "accepted_output_equals_request": 5,
+    "refused_by_service": 6,
+    "refused_probe_error": 6
+   }
+  },
+  "differential_corpus_round2": {
+   "vectors": [
+    {
+     "id": "control",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g01-keys-descending",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "a15d0c38ea7ee2994a7e64dc304dda4a097d934f1b9b32319d39914bac506713",
+     "receipt_data_hash": "a15d0c38ea7ee2994a7e64dc304dda4a097d934f1b9b32319d39914bac506713",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g02-cwt-claims-keys-reversed",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "47d0688ccea3b130cac164eeea968aa82ed96609f6d066f97c80caa578554e3f",
+     "receipt_data_hash": "47d0688ccea3b130cac164eeea968aa82ed96609f6d066f97c80caa578554e3f",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g03-alg-1-byte-argument",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1151,
+     "output_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+     "receipt_data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g04-alg-2-byte-argument",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1152,
+     "output_sha256": "9394b64f3a434d4889a8bc2b5aec6f92aa6ecddf4b107d8e475fc96b944f7501",
+     "receipt_data_hash": "9394b64f3a434d4889a8bc2b5aec6f92aa6ecddf4b107d8e475fc96b944f7501",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g05-label-1-byte-argument",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1151,
+     "output_sha256": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+     "receipt_data_hash": "ce56fe3be7e8a92bf9dd4a465d8861fe1f716b89e6cf8af4f0261aedcdc0d706",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g06-map-count-1-byte-argument",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1151,
+     "output_sha256": "738814dd42e6f686778229fcb5eb2736d92ee012fd62058c0c58551eb81d88b6",
+     "receipt_data_hash": "738814dd42e6f686778229fcb5eb2736d92ee012fd62058c0c58551eb81d88b6",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g07-text-2-byte-length",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1152,
+     "output_sha256": "0c1a2adb9dc0cf1df2c5f763dcd5b61f3f5518f0ed4e2b24886ead2ccafeecab",
+     "receipt_data_hash": "0c1a2adb9dc0cf1df2c5f763dcd5b61f3f5518f0ed4e2b24886ead2ccafeecab",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g08-x5chain-array-1-byte-count",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1151,
+     "output_sha256": "fb60e2edd5294b1cf3683418d380c96bf7c1b8664063bf6e22ef13bb1217f62b",
+     "receipt_data_hash": "fb60e2edd5294b1cf3683418d380c96bf7c1b8664063bf6e22ef13bb1217f62b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "g09-map-indefinite",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1151,
+     "output_sha256": "c31d76fae28457dd6bb28f5055474d01cc728941d49363a28c39d138af5aef44",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+    },
+    {
+     "id": "h01-protected-duplicate-alg-equal",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1152,
+     "output_sha256": "68cabbd65d173492f2a587f0ece5882bafb8e5e83f1e57b0cff103717141552a",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}"
+    },
+    {
+     "id": "h02-protected-duplicate-alg-conflicting",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1153,
+     "output_sha256": "0c465e67741a0d80555f4e6c3c479f8a86d42e1f35bd15d5a89f4260aac9fa18",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}"
+    },
+    {
+     "id": "h03-unprotected-duplicate-equal",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+    },
+    {
+     "id": "h04-unprotected-duplicate-conflicting",
+     "accepted_by_service": false,
+     "probe": "ERR",
+     "probe_error": "nondet_parse 1 Failed to parse CBOR bytes",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+    },
+    {
+     "id": "h05-alg-both-buckets-equal",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "h06-alg-both-buckets-conflicting",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "h07-payload-hash-alg-both-buckets-conflicting",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "h08-cwt-claims-both-buckets-equal",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "h09-x5chain-both-buckets-conflicting",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": false
+    },
+    {
+     "id": "i01-crit-x5chain",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1154,
+     "output_sha256": "3965d248fba2a5bb24dbb37d03e914c6eea0d428819c8eeb5246136058df8c25",
+     "receipt_data_hash": "3965d248fba2a5bb24dbb37d03e914c6eea0d428819c8eeb5246136058df8c25",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "i02-crit-cwt-claims",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1153,
+     "output_sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+     "receipt_data_hash": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "i03-crit-cwt-claims-and-x5chain",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1155,
+     "output_sha256": "f23c08749fac7b380fac0459d7d7782ad8c8186a4c4c00910bcf2ab37b0f84c2",
+     "receipt_data_hash": "f23c08749fac7b380fac0459d7d7782ad8c8186a4c4c00910bcf2ab37b0f84c2",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "i04-crit-unknown-int-present",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1158,
+     "output_sha256": "8308784a5837613c73a41d0680e7ad595d5f20fa9720db8f04d1bc4ec65381fb",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}"
+    },
+    {
+     "id": "i05-crit-unknown-int-absent",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1154,
+     "output_sha256": "8e2f1d7aa7d866e198b7099dbd215a4902e3beaddccfe57f52370ee947fb98cc",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}"
+    },
+    {
+     "id": "i06-crit-unknown-text-present",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1157,
+     "output_sha256": "be4d15e04752f924705a7206eab2a42948998f3f608e2c61eecdc9f61398fc07",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit values must be integers\"}"
+    },
+    {
+     "id": "i07-crit-registered-not-listed",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1155,
+     "output_sha256": "1db441b65715bedc20b4dd81651451a48b5be39f92ba0b6400eeb1d87f669880",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}"
+    },
+    {
+     "id": "i08-crit-empty",
+     "accepted_by_service": false,
+     "probe": "OK",
+     "output_length": 1152,
+     "output_sha256": "4b3a1c2fe41e93e02e938b3ee9b73920296f3be8ad8f4feaaeae37ccc49e804c",
+     "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Cannot have crit array of length 0 in COSE protected header.\"}"
+    },
+    {
+     "id": "j01-after-configuration-change",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    },
+    {
+     "id": "j02-after-restart",
+     "accepted_by_service": true,
+     "probe": "OK",
+     "output_length": 1150,
+     "output_sha256": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "receipt_data_hash": "0509df0bfdacecb0b2b81e440ab00b3eb8f0155d08e20a65df31607f3a0d993b",
+     "output_sha256_equals_data_hash": true,
+     "output_equals_served_minus_394": true,
+     "output_equals_request": true
+    }
+   ],
+   "counts": {
+    "accepted": 19,
+    "accepted_probe_ok": 19,
+    "accepted_output_equals_served_minus_394": 19,
+    "accepted_output_sha256_equals_data_hash": 19,
+    "accepted_output_equals_request": 14,
+    "refused_by_service": 10,
+    "refused_probe_error": 2
+   }
+  }
+ }
+}
