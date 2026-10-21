@@ -111,6 +111,9 @@ def verify(envelope: dict, public_key: bytes, *, expected_version: str,
     `--expected-origin` und für `threshold` nachgetragen hat: die Ausgabe berichtet die FRAGE, nicht
     nur die Antwort.
 
+    Since 2026-10-17 `ok` also requires `statement_ok`, the in-toto Statement v1 layer (`_type` and a
+    subject whose every entry carries a digest), reported apart from `signature_ok`.
+
     Die Vergleiche sind EXAKT. Ein Präfix, eine andere Groß-/Kleinschreibung, ein angehängtes
     Zeichen sind ein Fehlschlag — geprüft vom geteilten Beinahe-Treffer-Korpus, nicht bloß gegen
     einen völlig fremden Wert (ein Vergleich, der nur gegen Fremdes getestet ist, kann nicht zeigen,
@@ -118,7 +121,7 @@ def verify(envelope: dict, public_key: bytes, *, expected_version: str,
     """
     from proofbundle.intoto import verify_eval_result_dsse   # noqa: PLC0415
 
-    aus: dict = {"ok": False, "signature_ok": False, "predicate_type_ok": False,
+    aus: dict = {"ok": False, "signature_ok": False, "statement_ok": False, "predicate_type_ok": False,
                  "result_ok": False, "version_ok": False, "commit_ok": False,
                  "expected_version": expected_version, "expected_commit": expected_commit,
                  "observed_version": None, "observed_commit": None, "observed_result": None,
@@ -137,7 +140,12 @@ def verify(envelope: dict, public_key: bytes, *, expected_version: str,
         # Nie ein roher Traceback aus einer fremden Datei — fail-closed mit benanntem Grund.
         aus["reason"] = f"envelope could not be verified: {type(exc).__name__}: {exc}"
         return aus
-    aus["signature_ok"] = bool(roh.get("ok"))
+    # THREE QUESTIONS SINCE 2026-10-17. The verifier's `ok` now folds in the in-toto Statement layer
+    # (`_type`, a subject with a digest). Taken as `signature_ok`, a validly signed statement with another
+    # `_type` read as a broken signature (second reading of L5-03, F1). The signature here is the DSSE
+    # check with the content root, and the layer stands beside it as `statement_ok`.
+    aus["signature_ok"] = roh.get("signature_ok") is True and roh.get("content_root_ok") is True
+    aus["statement_ok"] = roh.get("statement_ok") is True
     aus["observed_predicate_type"] = roh.get("predicate_type")
     aus["predicate_type_ok"] = roh.get("predicate_type") == PREDICATE_TYPE
     stmt = roh.get("statement") or {}
@@ -154,10 +162,10 @@ def verify(envelope: dict, public_key: bytes, *, expected_version: str,
     aus["result_ok"] = aus["observed_result"] == "PASSED"
     aus["version_ok"] = aus["observed_version"] == expected_version
     aus["commit_ok"] = aus["observed_commit"] == expected_commit
-    aus["ok"] = all((aus["signature_ok"], aus["predicate_type_ok"], aus["result_ok"],
-                     aus["version_ok"], aus["commit_ok"]))
+    aus["ok"] = all((aus["signature_ok"], aus["statement_ok"], aus["predicate_type_ok"],
+                     aus["result_ok"], aus["version_ok"], aus["commit_ok"]))
     if not aus["ok"] and aus["reason"] is None:
-        fehlt = [k for k in ("signature_ok", "predicate_type_ok", "result_ok",
+        fehlt = [k for k in ("signature_ok", "statement_ok", "predicate_type_ok", "result_ok",
                              "version_ok", "commit_ok") if not aus[k]]
         aus["reason"] = "failed: " + ", ".join(fehlt)
     return aus
@@ -171,10 +179,22 @@ def main(argv: "list[str] | None" = None) -> int:
     p.add_argument("--expected-commit", required=True, help="full 40-hex commit id")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
+    # STRICT AT THE FILE BOUNDARY (CODEX-KLASSENSUCHE-631-01, D1, measured at f6ea5cc3): `json.loads` kept the
+    # last of two `payload` members, so a valid envelope with an empty `payload` put in front of it passed with
+    # ok=True and exit 0, while the repository's strict parser refuses the same bytes. A member lost here is
+    # lost for every check after it; the bytes are read once, within the input budget, and parsed strictly.
+    from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    kappe = int(DEFAULT_BUDGET.input_bytes)
     try:
-        env = json.loads(a.envelope.read_text(encoding="utf-8"))
+        with a.envelope.open("rb") as fh:
+            roh = fh.read(kappe + 1)
+        if len(roh) > kappe:
+            raise ValueError(f"{a.envelope} holds more than the input_bytes budget of {kappe} bytes")
+        env = loads_strict(roh)
         pub = bytes.fromhex(a.pubkey_hex)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError, ProofBundleError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     res = verify(env, pub, expected_version=a.expected_version,

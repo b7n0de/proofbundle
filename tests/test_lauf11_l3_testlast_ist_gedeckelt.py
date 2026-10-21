@@ -626,10 +626,13 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             "x = ArchiveTimeStamp('sha256', 'a' * 64, 0)\n"
             "geteilt = t.gemessene_bytes_je_element('renewal_ats_chain')\n"
             "object.__delattr__(x, 'time')\n"
+            "assert not hasattr(x, 'time'), 'the instance still holds time, the key sharing is not broken'\n"
             "print(geteilt, t.gemessene_bytes_je_element('renewal_ats_chain'))\n")
         lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
         self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
         geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
+        # The child broke the sharing (its assert above) and measured something (631 part 2, P2 group 4).
+        self.assertGreater(geteilt, 0.0, "control: the measurement measured something")
         # One pointer per element: far above the measured spread (0.2 B), far below the effect on 3.10 (216.4 B).
         rauschen = 8.0
         if sys.version_info < (3, 11):

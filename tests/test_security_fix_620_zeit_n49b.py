@@ -53,6 +53,20 @@ def _b64(b: bytes) -> str:
 _NOW_AFTER_2099 = 4_200_000_000   # ~2103-01-xx UTC
 
 
+def _signed_past_the_emitter(pred: dict, sk) -> dict:
+    """A receipt signed directly, as a hostile signer would sign it. The validator reads nested types now
+    (deep gate L3-Z195-05), so the emitter refuses an unreadable validity.expiresAt; the verify side has to
+    hold on its own, which is what these cases measure."""
+    import rfc8785
+    from proofbundle import dsse
+    from proofbundle.decision import DECISION_RECEIPT_PREDICATE_TYPE, INTOTO_STATEMENT_PAYLOAD_TYPE, STATEMENT_TYPE
+    from proofbundle.subject_binding import derive_subject_digest
+    stmt = {"_type": STATEMENT_TYPE,
+            "subject": [{"name": "decision", "digest": {"sha256": derive_subject_digest(pred)}}],
+            "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": pred}
+    return dsse.sign_envelope(rfc8785.dumps(stmt), sk, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+
+
 class Cx01DecisionExpiresAtNullIsPresentNotMissing(unittest.TestCase):
     """A present validity.expiresAt whose value is JSON null fails closed (freshness_ok False, ok False); only
     an ABSENT key is not-applicable (freshness_ok None, ok True)."""
@@ -60,7 +74,7 @@ class Cx01DecisionExpiresAtNullIsPresentNotMissing(unittest.TestCase):
     def _base(self) -> dict:
         return json.loads((_EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))
 
-    def _verify(self, *, expires=..., now=None):
+    def _verify(self, *, expires=..., now=None, past_the_emitter=False):
         from proofbundle.decision import emit_decision_receipt, verify_decision_receipt
         pred = self._base()
         if expires is ...:
@@ -69,13 +83,14 @@ class Cx01DecisionExpiresAtNullIsPresentNotMissing(unittest.TestCase):
             pred["validity"]["expiresAt"] = expires   # may be None → serialised as JSON null (key present)
         aud, nonce = pred["validity"]["audience"][0], pred["validity"]["nonce"]
         sk = generate_signer()
-        env = emit_decision_receipt(pred, sk, strict=True)
+        env = (_signed_past_the_emitter(pred, sk) if past_the_emitter
+               else emit_decision_receipt(pred, sk, strict=True))
         return verify_decision_receipt(env, _raw(sk), strict=True, expected_audience=aud,
                                        expected_nonce=nonce, now=now)
 
     def test_a_null_expiresat_is_not_positive(self):
         # The key is present, the value is unreadable (null) → fail-closed, just like any other unreadable value.
-        r = self._verify(expires=None, now=1_700_000_000)
+        r = self._verify(expires=None, now=1_700_000_000, past_the_emitter=True)
         self.assertIs(r["ok"], False)
         self.assertIs(r["freshness_ok"], False)
 

@@ -67,7 +67,8 @@ class SignierterVorTagEintrag(unittest.TestCase):
     def test_ein_wahrhaftiger_eintrag_wird_angenommen(self) -> None:
         r = self._pruefe(self._huelle())
         self.assertTrue(r["ok"], r["reason"])
-        for feld in ("signature_ok", "predicate_type_ok", "result_ok", "version_ok", "commit_ok"):
+        for feld in ("signature_ok", "statement_ok", "predicate_type_ok", "result_ok", "version_ok",
+                     "commit_ok"):
             self.assertTrue(r[feld], f"{feld} ist falsch bei einem gueltigen Eintrag")
         self.assertIsNone(r["reason"])
 
@@ -162,6 +163,25 @@ class SignierterVorTagEintrag(unittest.TestCase):
         # Gegenprobe im selben Test: die Signatur ist gueltig — es scheitert NUR am Typ.
         self.assertTrue(r["signature_ok"], "Vorbedingung: die Huelle ist echt signiert, sonst misst "
                                            "dieser Test die Typpruefung gar nicht")
+
+    def test_eine_aussage_ohne_statement_schicht_faellt_bei_gueltiger_signatur(self) -> None:
+        """Since 2026-10-17 the verifier reads the in-toto Statement layer (`_type`, a subject with a
+        digest). A validly signed statement without it is no attestation, and the reason is named
+        `statement_ok`, not `signature_ok`: the second reading of L5-03 (F1) measured that another
+        `_type` was reported as a broken signature, the very mixing this script means to rule out."""
+        for name, aendere in (("fremder _type", lambda st: st.update(_type="https://in-toto.io/Statement/v0.1")),
+                              ("ohne subject", lambda st: st.pop("subject")),
+                              ("subject ohne digest", lambda st: st.update(subject=[{"name": "x"}]))):
+            with self.subTest(fall=name):
+                st = self.pta.build_statement(commit=_COMMIT, version=_VERSION, verifier_id="x",
+                                              time_verified="t", policy_uri="p")
+                aendere(st)
+                r = self._pruefe(self.pta.sign_statement(st, self.key))
+                self.assertIs(r["ok"], False)
+                self.assertIs(r["statement_ok"], False)
+                self.assertTrue(r["signature_ok"], "the envelope is validly signed; the layer is what fails")
+                self.assertIn("statement_ok", r["reason"])
+                self.assertNotIn("signature_ok", r["reason"])
 
     def test_der_praedikat_typ_ist_unser_eigener_nicht_der_von_SLSA(self) -> None:
         """ADR 0008: VSAs Typ ist ueber SLSA-STUFEN definiert. Ihn fuer ein anderes Urteil zu

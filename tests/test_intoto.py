@@ -58,6 +58,18 @@ class TestInToto(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=bad, schema=schema)
 
+    @unittest.skipIf(jsonschema is None, "jsonschema not installed")
+    def test_schema_rejects_a_subject_entry_without_a_digest(self):
+        # in-toto Statement v1: "Each element MUST have digest set." Until 2026-10-17 the schema accepted
+        # an entry with a name or a uri alone, which the spec and the verifiers refuse.
+        schema = json.loads((ROOT / "schemas" / "in_toto_statement_v1.schema.json").read_text(encoding="utf-8"))
+        base = {"_type": "https://in-toto.io/Statement/v1", "predicateType": "x"}
+        for entry in ({"name": "a"}, {"uri": "https://example.invalid/a"}, {"name": "a", "digest": {}},
+                      {"name": "a", "digest": {"sha256": ""}}, {"name": "a", "digest": {"": "ab"}}):
+            with self.subTest(entry=entry), self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(instance={**base, "subject": [entry]}, schema=schema)
+        jsonschema.validate(instance={**base, "subject": [{"name": "a", "digest": {"x": "y"}}]}, schema=schema)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -163,6 +163,28 @@ _REPO_CONTEXT_TESTS = frozenset({
     # einzigen Ort, an dem das Tor laeuft — liefert sie fuenf. Der Eintrag haette echte Abdeckung
     # stillgelegt, um eine Messung an der falschen Flaeche gruen zu bekommen.
     "test_mutationstor_sammler_sieht_die_freigabeflaeche::test_der_sammler_des_tors_sieht_JEDE_testdatei",
+    # ── 2026-10-19, measured from the extracted sdist, owner card OA-32bfb1f213 answer A ──────────
+    #
+    # Seven test functions of four modules the 6.3.1 list (K3 to P2-4) added. hermetic-cleanroom on
+    # head c0e38230 showed 13 failed and 7 errors, all of them here and none elsewhere; the same 20
+    # fail from a locally built and extracted sdist of that head. Each reaches a file the sdist prunes
+    # through a form the derivation above cannot see, which is the case this list stays for:
+    #   test_a_mode_refuses_the_options_it_does_not_read: the renderer paths are strings in RENDERERS
+    #     and are joined to REPO only inside the test (tools/, benchmarks/).
+    #   test_a_form_rule_reads_one_spelling: reads tools/merkle_accumulator/accumulator.py through the
+    #     neighbour module test_merkle_accumulator.
+    #   test_audit_matrix_differential_cell_recomputes_agreement: the path is the constant REL
+    #     (audit_artifacts/).
+    #   test_rust_parity_gate_refuses_invalid_coverage_evidence: loads scripts/rust_parity_gate.py,
+    #     whose default paths read the Rust tree under tools/ (as test_rust_parity_gate above).
+    # The other tests of these modules pass from the sdist and stay off this list.
+    "test_a_mode_refuses_the_options_it_does_not_read::test_a_renderer_refuses_an_argument_it_does_not_read",
+    "test_a_mode_refuses_the_options_it_does_not_read::test_control_a_renderer_checks_and_writes_as_documented",
+    "test_a_form_rule_reads_one_spelling::test_a_frontier_that_is_no_list_is_refused",
+    "test_a_form_rule_reads_one_spelling::test_control_the_written_empty_frontier_restores",
+    "test_audit_matrix_differential_cell_recomputes_agreement::test_control_the_committed_report_holds_complete_agreeing_rows",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_a_missing_binary_stays_data_blocked",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_the_full_subcommand_list_passes",
 })
 
 
