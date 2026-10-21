@@ -186,6 +186,13 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                     stack.append(parsed[1])
                 else:
                     stack.append(item)
+    # COMMITTED IS NOT PLACED (pull request 373, cut again onto main; measured on 56eb5a6f): the commitment walk
+    # above reads every ``...`` and every ``_sd``, this walk only a marker of one member and an ``_sd`` that is an
+    # array. A marker with a second member, or one inside an ``_sd`` that is an object, committed its disclosure
+    # and gave it no place, and the presentation verified. A disclosure with no place is no claim of the payload.
+    if placed != set(by_digest):
+        return ("a disclosure is committed only from where no disclosure can stand, so it has no place "
+                "(RFC 9901 section 7.1, rejected)")
     return None
 
 

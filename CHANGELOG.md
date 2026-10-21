@@ -21,6 +21,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- The Rust second verifier reads the `sd_jwt_vc` block of a bundle as `bundle.py` does and judges its disclosures by the rules of `sdjwt.verify_sd_jwt` (RFC 9901 section 7.1); before, it did not read them at all. `tools/pb_verify_rs/crosscheck.py` holds both sides to the same exit code on 46 vectors, and four more pin a named gap: a disclosure whose JSON only Python's parser reads (NaN, an integer beyond 2^53 - 1, `1E400`, a byte order mark) fails in Rust and verifies in Python. `sdjwt.verify_sd_jwt` now also refuses a disclosure the signed payload commits to but gives no place: a marker `{"...": digest}` with a second member, or one inside an `_sd` that is an object, committed its disclosure and placed it nowhere, and the presentation verified (`tests/test_sdjwt_block_and_disclosures_agree_in_rust.py`).
 - **The 22 lines K3 to P2-4 of the list for 6.3.1** (`docs/release_scope/6.3.1.md`), one commit each and two for D3.
   - The pilot reads one copy of each input for verification and for judgement (K3, `tests/test_one_reading_of_the_checked_objects.py`).
   - The verdict-contract checker pins the key it trusts (K4, `tests/test_verdict_contract_example_pins_its_key.py`).
