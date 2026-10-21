@@ -22,6 +22,11 @@ def _emit_enabled() -> bool:
     return os.environ.get("PROOFBUNDLE_EMIT") == "1"
 
 
+def _scitt_enabled() -> bool:
+    # EXPERIMENTAL (6.4.0): also sign a SCITT Signed Statement over the receipt; offline, see _integration
+    return os.environ.get("PROOFBUNDLE_SCITT") == "1"
+
+
 def _first_metric(log) -> str:
     """The first score's first metric name from an EvalLog, as a sensible default binding target."""
     results = getattr(log, "results", None)
@@ -71,6 +76,6 @@ class ProofbundleHooks(Hooks):
                                            timestamp=datetime.now(timezone.utc).isoformat(),
                                            capture=capture)
             eval_id = getattr(data, "eval_id", None) or "eval"
-            emit_claim_receipt(claim, f"proofbundle_receipt_{eval_id}.json")
+            emit_claim_receipt(claim, f"proofbundle_receipt_{eval_id}.json", scitt=_scitt_enabled())
         except Exception as e:  # noqa: BLE001 — an integration must never fail the host eval
             print(f"[proofbundle] inspect_ai receipt emission skipped ({type(e).__name__}: {e})")
