@@ -9,13 +9,21 @@ measured results of three readers on them.
 `reader.py` reads a CCF inclusion receipt and prints one line, `PASS <root hex>` or `FAIL <reason>`. Every CBOR item
 it reads, the receipt, its protected header, the `vdp` map and each proof, goes through
 `src/proofbundle/_strict_cbor.py`. It follows these requirements of pull request 31, quoted from its head commit
-`820c5e4ebbd7d88d815ae7f2f538f40e2ac1767e` (2026-10-14):
+`d1163a26f5aa39fe891001c5d8b9b53768cad3c6` (2026-10-21, draft -06):
 
 > After decoding each `ccf-inclusion-proof` byte string, the Verifier MUST validate that the decoded value is well
 > constructed with regard to the schema defined in {{ccf-inclusion-proof-cddl}}, including {{ccf-leaf-cddl}} for the
 > leaf, and MUST reject the proof before `compute_root` is called if any check fails. In particular:
 >
 > * the byte string is valid CBOR ({{Section 5.3.1 of RFC8949}}), in particular the map has no duplicate keys;
+> * the map has the keys `leaf` (1) and `path` (2);
+> * `internal-transaction-hash` is a byte string of exactly HASH_SIZE (32) bytes;
+> * `internal-evidence` is a text string of 1 to 1024 bytes of valid UTF-8;
+> * `data-hash` is a byte string of exactly HASH_SIZE (32) bytes;
+> * `path` is an array, each element of which is an array of exactly two items: a boolean and a byte string of exactly
+>   HASH_SIZE (32) bytes.
+
+> The `path` is empty for a tree of size 1, whose root is the leaf hash.
 
 > A Verifier MUST reject a receipt whose `vdp` map is not valid CBOR ({{Section 5.3.1 of RFC8949}}) or does not match
 > `verifiable-proofs` in {{unprotected-header-map-cddl}}, before applying either verification algorithm.
@@ -24,9 +32,14 @@ it reads, the receipt, its protected header, the `vdp` map and each proof, goes 
 > 18 retained ({{Section 6.1 of -scitt-architecture}}) and an empty unprotected header map ({{Section 6.3 of
 > -scitt-architecture}}), other elements as submitted.
 
-The first two passages came in with commits `eb01db3fa913b748186af97d8b7cd41ed444c3f4` and
+The first passage and the `vdp` passage came in with commits `eb01db3fa913b748186af97d8b7cd41ed444c3f4` and
 `f6d4eb0417d970b8f1c9b407eda8304eb48f7697`. Commit `820c5e4e` reworded the first from "check the decoded value
 against the CDDL of" to the wording quoted above, which states the check in terms of the schema of the figures.
+Commit `ebb9621346a380dd437e0b1517e863d45d3e6a93` (draft -06) allows an empty path for a tree of size 1: the path of
+an inclusion proof became `[* ccf-proof-element]`, the list item on `path` lost "non-empty", and the sentence that
+the path is never empty became the one quoted above. Commit `d1163a26` dropped the security subsection "Inclusion
+Proof Validation". The other quoted passages are the same at `820c5e4e` and at `d1163a26`, and so is Section 4, the
+consistency proofs, whose path stays `[+ ccf-proof-element]`.
 
 The profile and RFC 9943 Section 6.3 require the empty unprotected header map in the data-hash preimage and name no
 encoding for it. This reader writes it as the one byte `a0`. The seven receipts from microsoft/scitt-ccf-ledger at
@@ -57,7 +70,8 @@ front of r and s, is refused.
   not say that the statement is true or that the ledger is honest.
 - It is an inclusion reader. Consistency proofs under the `vdp` label -2 are checked for their form only, against their
   schema in Section 4 of the profile: a closed map of exactly an `anchor` of 32 bytes and a non-empty `path` of
-  elements that are each a boolean and a hash of 32 bytes. They are not computed, because that needs an older root the
+  elements that are each a boolean and a hash of 32 bytes. Since draft -06 an inclusion proof may have an empty path;
+  a consistency proof may not. They are not computed, because that needs an older root the
   verifier already trusts, and a `PASS` says nothing about them.
 
 ## The probes, `probes/`
@@ -73,7 +87,7 @@ The generator itself is not in this tree. All probes share one data hash, `b111c
 
 ## The vectors, `vectors/`
 
-42 receipts written by `make_vectors.py`, with the same test key except two that use the P-256 and P-521 test keys in
+46 receipts written by `make_vectors.py`, with the same test key except two that use the P-256 and P-521 test keys in
 `vectors/keys_p256_p521.cbor`. The probes repeat a duplicate key with the same
 value, so a reader that keeps the first value and one that keeps the last agree there. These vectors make them
 disagree, add the cases of `f6d4eb04` and of the empty map, and add one receipt for each requirement that no probe
@@ -96,6 +110,8 @@ exercises:
 | `roots_differ_signed_for_the_second` | two inclusion proofs with different roots, signed for the second, so a reader that keeps the last root it computed would verify the signature |
 | `signature_padded` | the receipt of `vdp_twin` with a zero byte in front of r and of s |
 | `curve_p256_es256`, `curve_p521_es512` | valid receipts under ES256 with P-256 and ES512 with P-521 |
+| `one_leaf_empty_path` | a valid receipt of a tree of one leaf: an empty path, and the leaf hash as the signed root (draft -06). It is the probe `path_empty` written again, the same bytes except the signature |
+| `root_as_leaf_empty_data_hash`, `root_as_leaf_data_hash_32`, `root_as_leaf_evidence_not_utf8` | the root of a tree of two leaves written as a leaf with an empty path: the left child as `internal-transaction-hash`, the right child's 96-byte preimage as `internal-evidence`, and an empty `data-hash`, so the leaf hash is the signed root. The first two use a right leaf whose preimage is valid UTF-8 on purpose (two hash values of 32 ASCII bytes and an evidence whose SHA-256 is valid UTF-8); the second has a `data-hash` of 32 bytes, which gives another root. The third uses a right leaf with hash values, whose preimage is not valid UTF-8 |
 
 `vectors.json` names, per vector, the data hash, the statement where there is one, the verdict expected from a
 strict reader and the whole line it must print (`strict_line`). For the `dup_*` vectors it also names the verdicts of
@@ -204,6 +220,41 @@ Counted from the table:
   an array as a tuple and a map as a frozendict, where cbor2 5.9.0 returns a list and a dict. The reference tests for
   a list. `form_tag_17` fails on its tag first, and only `without_tag18`, which has no tag, passes.
 
+The table is the reading of 2026-10-15, under the text of `820c5e4e`. Under draft -06 the expected strict verdict of
+`path_empty` is PASS; the next section has the reading after that change.
+
+## What was measured, 2026-10-21 (draft -06)
+
+This reader after the change for `ebb96213` (the path may be empty), CPython 3.10.12, `cryptography` 49.0.0, no cbor2,
+on the 66 receipts above and the four new vectors:
+
+- 65 of the 66 verdicts are the same as before the change, measured on both sides in the same environment. The one
+  that changed is `path_empty`: from `FAIL path` to
+  `PASS 07a9c2f9dc15fedb52f83d2fc35d375e4b6720ffad9e389cc711de307802ce3a`, a valid receipt of one leaf.
+
+| receipt | expected, strict | this reader |
+|---|---|---|
+| path_empty | PASS | PASS 07a9c2f9dc15fedb52f83d2fc35d375e4b6720ffad9e389cc711de307802ce3a |
+| one_leaf_empty_path | PASS | PASS 07a9c2f9dc15fedb52f83d2fc35d375e4b6720ffad9e389cc711de307802ce3a |
+| root_as_leaf_empty_data_hash | FAIL | FAIL leaf_hash |
+| root_as_leaf_data_hash_32 | FAIL | FAIL signature |
+| root_as_leaf_evidence_not_utf8 | FAIL | FAIL cbor_proof: text string is not valid UTF-8 |
+
+What refuses the root of a larger tree read as a leaf, measured with this reader and with copies of it that have
+lines cut out (`tests/test_pr31_strict_reader.py`):
+- `root_as_leaf_empty_data_hash` stops at the check that `data-hash` has 32 bytes. Without that check it stops at the
+  comparison of `data-hash` with the statement digest (`FAIL digest_mismatch`). Without both, it passes with the
+  signed root of the two-leaf tree.
+- `root_as_leaf_evidence_not_utf8` stops at the CBOR reading, because its evidence is not valid UTF-8. Its
+  `data-hash` is empty too, so the two checks of the first case stand behind that; this was not measured on its own.
+  The preimage of a leaf whose hash values are hash outputs is valid UTF-8 only by chance, so this is the case a real
+  ledger gives.
+- `root_as_leaf_data_hash_32`: with a `data-hash` of 32 bytes the preimage is 96 bytes, not the 64 bytes of a node,
+  so the root is another and the signature fails.
+
+The Go reader and the earlier reference were not run again on `path_empty` and not run on the four new vectors: NOT
+MEASURED.
+
 ## Reproducing
 
 From the repository root:
@@ -216,13 +267,14 @@ From the repository root:
 
 `make_vectors.py` needs only the standard library and `cryptography` 43 or later, the first release with
 deterministic ECDSA. The package itself declares 42 as its floor. Its signatures are deterministic (RFC 6979), so
-a second run writes the same bytes. `tests/test_pr31_strict_reader.py` runs this reader on all 66 receipts. It holds
-the verdict of each probe, the whole line of each vector and the reasons of five probes, it checks that
-`make_vectors.py` writes the files in `vectors/` byte for byte, and it runs `reader.py` as a script as shown above.
+a second run writes the same bytes. `tests/test_pr31_strict_reader.py` runs this reader on all 70 receipts. It holds
+the verdict of each probe, the whole line of each vector and the reasons of five probes and of `path_empty`, it checks
+that `make_vectors.py` writes the files in `vectors/` byte for byte, it recomputes the signed roots of the
+`root_as_leaf_*` vectors without the reader, and it runs `reader.py` as a script as shown above.
 
 ## Limitations
 
-- Readers beyond the three named above are not measured.
+- Readers beyond the three named above are not measured. Since draft -06 only this reader is measured.
 - The seven receipts from microsoft/scitt-ccf-ledger are not part of this run.
 - The Go reader's reasons are coarser than this reader's (`proof` for most failures inside a proof), so only its
   verdicts are compared, not its reasons.

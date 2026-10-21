@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """A strict reader of a CCF inclusion receipt, written to the profile text after pull request 31.
 
-Text: ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile, pull request 31, with commits eb01db3f ("Require inclusion
-proofs to be valid CBOR before validation") and f6d4eb04 ("Require the vdp map to be valid CBOR and match
-verifiable-proofs"). Every CBOR item it reads goes through ``proofbundle._strict_cbor``: the receipt, its protected
+Text: ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile, pull request 31 at its head d1163a26 (draft -06), with
+commits eb01db3f ("Require inclusion proofs to be valid CBOR before validation"), f6d4eb04 ("Require the vdp map to be
+valid CBOR and match verifiable-proofs") and ebb96213 ("Allow empty inclusion proof paths for trees of size 1"): the
+path of an inclusion proof is ``[* ccf-proof-element]``, and an empty path is the proof of a tree of one leaf, whose
+root is the leaf hash. Every CBOR item it reads goes through ``proofbundle._strict_cbor``: the receipt, its protected
 header, the vdp map and each proof. A duplicate map key, an encoding that is not valid under RFC 8949 Section 5.3.1
 and bytes after an item are refused before any algorithm runs. A head that is not the shortest and an indefinite
 length are valid CBOR and are read.
 
 It is an inclusion reader. The whole vdp map must match ``verifiable-proofs`` before any root is computed, so each
-consistency proof is held to its schema too (Section 4 of the profile at 820c5e4e), but no consistency root is computed:
-``compute_roots`` needs an older root the verifier already trusts, and a receipt does not carry it.
+consistency proof is held to its schema too (Section 4 of the profile at d1163a26, unchanged since 820c5e4e), but no
+consistency root is computed: ``compute_roots`` needs an older root the verifier already trusts, and a receipt does
+not carry it. The path of a consistency proof stays ``[+ ccf-proof-element]``, so there an empty path is refused.
 
 A label is an integer or a text string (RFC 9052 Section 1.4, ``label = int / tstr``), and an integer is an integer:
 a key or value 1.0 or ``true`` equals 1 in Python but is a different CBOR data item, so a header map, the vdp map, a
@@ -159,7 +162,7 @@ def _proof_element(el) -> bool:
 
 
 def _check_consistency(m: dict) -> None:
-    """One ccf-consistency-proof against its schema, Section 4 of the profile at 820c5e4e: a closed map of exactly
+    """One ccf-consistency-proof against its schema, Section 4 of the profile at d1163a26: a closed map of exactly
     anchor (1), a byte string of 32 bytes, and path (2), a non-empty array of ccf-proof-element. The form only; no
     consistency root is computed (see the module docstring)."""
     if not all(_int(k) for k in m) or set(m) != {1, 2}:
@@ -270,7 +273,8 @@ def check(receipt_raw: bytes, keys: list, digest: bytes) -> str:
         evidence_bytes = evidence.encode("utf-8")
         if not 1 <= len(evidence_bytes) <= 1024:
             raise Fail("evidence_len")
-        if not (isinstance(path, list) and path):
+        # Draft -06 (ebb96213): the path is ``[* ccf-proof-element]``; an empty one is the proof of a tree of one leaf.
+        if not isinstance(path, list):
             raise Fail("path")
         if not all(_proof_element(el) for el in path):
             raise Fail("path_el")

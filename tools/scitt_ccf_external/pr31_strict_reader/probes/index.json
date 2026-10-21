@@ -116,7 +116,7 @@
    "file": "path_empty.cose",
    "original_name": "sonden/leerer_pfad.cose",
    "original_sha256": "d7daae5ba00c7227bbb47daa724f60320559b5710a6b39e8b09b46b71f00e17b",
-   "expected_strict": "FAIL",
+   "expected_strict": "PASS",
    "expected_by_generator": "FAIL"
   },
   "path_indefinite": {

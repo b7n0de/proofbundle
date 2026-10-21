@@ -27,6 +27,13 @@ that keeps the first value and one that keeps the last one agree there. These ve
 * ``signature_padded``: the signature of ``vdp_twin`` with a zero byte in front of r and of s (RFC 9053 Section 2.1
   fixes the length of each).
 * ``curve_p256_es256``, ``curve_p521_es512``: valid receipts under two more fixed TEST keys, in ``keys_p256_p521.cbor``.
+* ``one_leaf_empty_path`` and ``root_as_leaf_*`` (draft -06, commit ebb96213, which allows an empty path): a valid
+  receipt of a tree of one leaf, and the root of a tree of two leaves written as a leaf with an empty path. Leaf and
+  node hashes are not domain separated, so the root's 64-byte preimage, the left child as ``internal-transaction-hash``,
+  the right child's preimage as ``internal-evidence`` and an empty ``data-hash``, recomputes the signed root. What
+  refuses it: ``data-hash`` of 32 bytes (``root_as_leaf_empty_data_hash``, whose right child has a preimage that is
+  valid UTF-8 on purpose), a different root when ``data-hash`` has 32 bytes (``root_as_leaf_data_hash_32``), and
+  evidence that is not valid UTF-8, as the preimage of a leaf with hash values is (``root_as_leaf_evidence_not_utf8``).
 
 Every vector carries ``strict_line``, the whole line this reader must print, derived from the text of pull request 31
 and RFC 9052, not from a run of the reader.
@@ -96,6 +103,11 @@ def cmap(pairs: list) -> bytes:
 ITS, DH, S1, S2, S3 = H(b"its"), H(b"statement"), H(b"s1"), H(b"s2"), H(b"s3")
 EV = b"ce:2.5:" + b"a" * 64
 EV_OTHER = b"ce:2.5:" + b"b" * 64
+#: A leaf whose 96-byte preimage is valid UTF-8: two hash values of 32 ASCII bytes, and evidence whose SHA-256 is valid
+#: UTF-8. 51654972 is the smallest n for which SHA-256(b"ce:2.5:%d" % n) is, found by counting up from 0.
+ITS_TEXT = b"internal-transaction-hash-000001"
+DH_TEXT = b"data-hash-of-a-statement-0000001"
+EV_TEXT = b"ce:2.5:51654972"
 
 
 def leaf(ev: bytes = EV, dh: bytes = DH, its: bytes = ITS, ev_item: bytes | None = None) -> bytes:
@@ -115,6 +127,25 @@ def root(ev: bytes = EV, els: list = PATH_A, dh: bytes = DH, its: bytes = ITS) -
     for left, x in els:
         h = H(x + h) if left else H(h + x)
     return h
+
+
+def root_as_leaf(right_its: bytes, right_ev: bytes, right_dh: bytes) -> tuple:
+    """The tree of two leaves, [ITS, EV, DH] on the left and the given leaf on the right, and its root read as a leaf:
+    (internal-transaction-hash, evidence bytes, signed root). The leaf hash of [left child, right child's preimage,
+    empty data-hash] is H(left || right), the root."""
+    left = H(ITS + H(EV) + DH)
+    right_preimage = right_its + H(right_ev) + right_dh
+    return left, right_preimage, H(left + H(right_preimage))
+
+
+_TEXT_TREE = root_as_leaf(ITS_TEXT, EV_TEXT, DH_TEXT)      # the right leaf's preimage is valid UTF-8
+_HASH_TREE = root_as_leaf(ITS, EV_OTHER, DH)                # the right leaf's preimage is not
+#: Each case: (internal-transaction-hash, evidence bytes, data-hash, signed root).
+ROOT_AS_LEAF = {
+    "root_as_leaf_empty_data_hash": (_TEXT_TREE[0], _TEXT_TREE[1], b"", _TEXT_TREE[2]),
+    "root_as_leaf_data_hash_32": (_TEXT_TREE[0], _TEXT_TREE[1], DH, _TEXT_TREE[2]),
+    "root_as_leaf_evidence_not_utf8": (_HASH_TREE[0], _HASH_TREE[1], b"", _HASH_TREE[2]),
+}
 
 
 def protected(alg_label: bytes = b"\x01", alg: bytes = b"\x38\x22", vds: bytes = b"\x02", kid: bytes = KID,
@@ -309,7 +340,30 @@ def vectors() -> dict:
         v[f"empty_map_{name}"] = (receipt([inclusion(p)], root(dh=dh)), dh, stmt, {
             "strict": "PASS" if name == "a0" else "FAIL", "preimage_empty_map_hex": em.hex(),
             "strict_line": "PASS " + root(dh=dh).hex() if name == "a0" else "FAIL digest_mismatch"})
+    # Draft -06 (ebb96213): an empty path is the proof of a tree of one leaf. Then the root of a larger tree, read as
+    # a leaf with an empty path, recomputes the signed root unless the leaf's schema or the data hash stops it.
+    one = root(els=[])
+    v["one_leaf_empty_path"] = (receipt([inclusion(proof([(uint(1), leaf()), (uint(2), path([]))]))], one), DH, None,
+                                {"strict": "PASS", "strict_line": "PASS " + one.hex()})
+    if not (_utf8(_TEXT_TREE[1]) and not _utf8(_HASH_TREE[1])):
+        raise ValueError("the text tree must have a UTF-8 preimage on the right and the hash tree must not")
+    for name, line in (("root_as_leaf_empty_data_hash", "FAIL leaf_hash"),
+                       ("root_as_leaf_data_hash_32", "FAIL signature"),
+                       ("root_as_leaf_evidence_not_utf8", "FAIL cbor_proof: text string is not valid UTF-8")):
+        its, ev, dh, signed = ROOT_AS_LEAF[name]
+        p = proof([(uint(1), arr([bs(its), ts(ev), bs(dh)])), (uint(2), path([]))])
+        v[name] = (receipt([inclusion(p)], signed), DH, None,
+                   {"strict": "FAIL", "strict_line": line, "twin": "one_leaf_empty_path",
+                    "signed_root_hex": signed.hex()})
     return v
+
+
+def _utf8(b: bytes) -> bool:
+    try:
+        b.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def main(argv: list) -> int:

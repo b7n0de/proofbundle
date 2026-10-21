@@ -1,9 +1,10 @@
-"""The strict reader of tools/scitt_ccf_external/pr31_strict_reader on all 66 receipts next to it.
+"""The strict reader of tools/scitt_ccf_external/pr31_strict_reader on all 70 receipts next to it.
 
 Pull request 31 to the CCF receipt profile requires a Verifier to reject a proof that is not valid CBOR, in particular
 one whose map has a duplicate key (commits eb01db3f and 820c5e4e), and a receipt whose vdp map is not valid CBOR or
-does not match verifiable-proofs (commit f6d4eb04). The data-hash preimage carries an empty unprotected header map,
-which this reader writes as the one byte a0.
+does not match verifiable-proofs (commit f6d4eb04). Since draft -06 (commit ebb96213, head d1163a26) an inclusion proof
+may have an empty path, the proof of a tree of one leaf. The data-hash preimage carries an empty unprotected header
+map, which this reader writes as the one byte a0.
 
 Every receipt in ``probes/index.json`` and ``vectors/vectors.json`` is read: the verdict of each probe and the whole
 line of each vector are held against the file, and the reasons of the probes that matter for pull request 31 by
@@ -17,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import types
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -54,9 +56,9 @@ def _vector(name: str, reader=READER) -> str:
     return reader.verdict(receipt, keys, digest=bytes.fromhex(entry["data_hash_hex"]))
 
 
-def test_the_files_carry_24_probes_and_42_vectors():
+def test_the_files_carry_24_probes_and_46_vectors():
     assert len(PROBES["probes"]) == 24
-    assert len(VECTORS) == 42
+    assert len(VECTORS) == 46
 
 
 @pytest.mark.parametrize("name", sorted(PROBES["probes"]))
@@ -102,6 +104,55 @@ def test_the_vectors_in_the_tree_are_those_the_generator_writes(tmp_path):
 ])
 def test_the_probes_of_pull_request_31_are_refused_for_their_reason(name, reason):
     assert _probe(name) == reason
+
+
+def test_under_draft_06_an_empty_path_is_a_receipt_of_one_leaf():
+    """Draft -06 at d1163a26: commit ebb96213 allows an empty path for a tree of one leaf (CDDL
+    ``[* ccf-proof-element]``) and drops the check that the path is not empty. The probe path_empty is then a valid
+    receipt, and its root is its leaf hash. Under the text of 820c5e4e it was refused with ``FAIL path``."""
+    assert _probe("path_empty") == "PASS 07a9c2f9dc15fedb52f83d2fc35d375e4b6720ffad9e389cc711de307802ce3a"
+    assert _vector("one_leaf_empty_path") == _probe("path_empty")
+
+
+ROOT_AS_LEAF = ["root_as_leaf_empty_data_hash", "root_as_leaf_data_hash_32", "root_as_leaf_evidence_not_utf8"]
+
+
+@pytest.mark.parametrize("name", ROOT_AS_LEAF)
+def test_the_root_read_as_a_leaf_recomputes_the_signed_root_only_with_an_empty_data_hash(name):
+    """The oracle of the root_as_leaf vectors, without the reader: the leaf hash of [left child, right child's
+    preimage, empty data-hash] is the signed root, so only the checks of the leaf stand between it and a PASS. With a
+    data-hash of 32 bytes the preimage is 96 bytes and the root is another."""
+    its, ev, dh, signed = GEN.ROOT_AS_LEAF[name]
+    leaf_hash = hashlib.sha256(its + hashlib.sha256(ev).digest() + dh).digest()
+    assert (leaf_hash == signed) is (dh == b"")
+    assert VECTORS[name]["signed_root_hex"] == signed.hex()
+
+
+def _reader_without(*cuts):
+    """reader.py with the named lines cut out of its source, as a reader that lacks those checks would be."""
+    source = (HERE / "reader.py").read_text(encoding="utf-8")
+    for old, new in cuts:
+        assert source.count(old) == 1, old
+        source = source.replace(old, new)
+    namespace = {"__name__": "_pr31_reader_cut", "__file__": str(HERE / "reader.py")}
+    exec(compile(source, str(HERE / "reader.py"), "exec"), namespace)  # noqa: S102 - the reader's own source
+    return types.SimpleNamespace(verdict=namespace["verdict"])
+
+
+WITHOUT_THE_LENGTH = ("and isinstance(data_hash, bytes) and len(data_hash) == 32)", "and isinstance(data_hash, bytes))")
+WITHOUT_THE_DIGEST = ('        if data_hash != digest:\n            raise Fail("digest_mismatch")\n', "")
+
+
+def test_counter_probe_without_the_length_and_the_digest_check_the_root_passes_as_a_leaf():
+    """What stops root_as_leaf_empty_data_hash: the check that data-hash has 32 bytes, and the comparison of data-hash
+    with the statement digest. Without the first the second still refuses it; without both the root of the two-leaf
+    tree passes as a leaf with an empty path."""
+    signed = VECTORS["root_as_leaf_empty_data_hash"]["signed_root_hex"]
+    assert _vector("root_as_leaf_empty_data_hash", _reader_without(WITHOUT_THE_LENGTH)) == "FAIL digest_mismatch"
+    assert _vector("root_as_leaf_empty_data_hash",
+                   _reader_without(WITHOUT_THE_LENGTH, WITHOUT_THE_DIGEST)) == "PASS " + signed
+    assert _vector("root_as_leaf_data_hash_32", _reader_without(WITHOUT_THE_LENGTH, WITHOUT_THE_DIGEST)) == \
+        "FAIL signature"
 
 
 @pytest.mark.parametrize("name, reason", [
