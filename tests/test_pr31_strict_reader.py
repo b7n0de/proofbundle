@@ -8,10 +8,11 @@ map, which this reader writes as the one byte a0.
 
 Every receipt in ``probes/index.json`` and ``vectors/vectors.json`` is read: the verdict of each probe and the whole
 line of each vector are held against the file, and the reasons of the probes that matter for pull request 31 by
-name. The twins are the controls. Three counter-probes run an earlier reading on the same bytes and show that these
-cases would be green against it: without the check of the whole vdp map; with labels looked up as Python values, so
-that 1.0 and ``true`` are read as 1; and, where cbor2 is installed, with cbor2 decoding, where the last value of a
-duplicate key wins.
+name. The twins are the controls. Four counter-probes run an earlier or weaker reading on the same bytes and show that
+these cases would be green against it: without the check of the whole vdp map; with labels looked up as Python values,
+so that 1.0 and ``true`` are read as 1; where cbor2 is installed, with cbor2 decoding, where the last value of a
+duplicate key wins; and without the 32-byte check on data-hash and the comparison with the statement digest, where the
+root of a two-leaf tree passes as a leaf with an empty path.
 """
 from __future__ import annotations
 

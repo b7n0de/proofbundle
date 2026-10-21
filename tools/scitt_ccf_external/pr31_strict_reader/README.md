@@ -9,7 +9,7 @@ measured results of three readers on them.
 `reader.py` reads a CCF inclusion receipt and prints one line, `PASS <root hex>` or `FAIL <reason>`. Every CBOR item
 it reads, the receipt, its protected header, the `vdp` map and each proof, goes through
 `src/proofbundle/_strict_cbor.py`. It follows these requirements of pull request 31, quoted from its head commit
-`d1163a26f5aa39fe891001c5d8b9b53768cad3c6` (2026-10-21, draft -06):
+`d1163a26f5aa39fe891001c5d8b9b53768cad3c6` (2026-10-21; its author calls it draft -06, which is not published yet):
 
 > After decoding each `ccf-inclusion-proof` byte string, the Verifier MUST validate that the decoded value is well
 > constructed with regard to the schema defined in {{ccf-inclusion-proof-cddl}}, including {{ccf-leaf-cddl}} for the
@@ -225,7 +225,8 @@ The table is the reading of 2026-10-15, under the text of `820c5e4e`. Under draf
 
 ## What was measured, 2026-10-21 (draft -06)
 
-This reader after the change for `ebb96213` (the path may be empty), CPython 3.10.12, `cryptography` 49.0.0, no cbor2,
+This reader after the change for `ebb96213` (the path may be empty), CPython 3.10.12, `cryptography` 49.0.0 (cbor2
+6.1.5 is installed there, the reader does not import it),
 on the 66 receipts above and the four new vectors:
 
 - 65 of the 66 verdicts are the same as before the change, measured on both sides in the same environment. The one
