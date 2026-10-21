@@ -19,7 +19,7 @@ use x509_cert::der::Decode;
 
 /// ADR 0009, Decision 8: the limits of the profile, counted in bytes of encoded input.
 pub const MAX_STATEMENT_BYTES: usize = 65536;
-const MAX_DEPTH: usize = 16;
+pub(crate) const MAX_DEPTH: usize = 16;
 /// Relying-party keys beyond this many are ignored, as in Python.
 pub const MAX_TRUSTED_KEYS: usize = 64;
 /// The range of a tag-1 time Python accepts: cbor2 turns it into a datetime, whose years run from 1
@@ -27,15 +27,15 @@ pub const MAX_TRUSTED_KEYS: usize = 64;
 const TIME_MIN: i128 = -62_135_596_800;
 const TIME_MAX: i128 = 253_402_300_799;
 
-const ALG: i128 = 1;
-const CRIT: i128 = 2;
-const CTY: i128 = 3;
-const KID: i128 = 4;
-const CWT: i128 = 15;
-const X5CHAIN: i128 = 33;
-const PAYLOAD_HASH_ALG: i128 = 258;
-const PREIMAGE_CTY: i128 = 259;
-const PAYLOAD_LOCATION: i128 = 260;
+pub(crate) const ALG: i128 = 1;
+pub(crate) const CRIT: i128 = 2;
+pub(crate) const CTY: i128 = 3;
+pub(crate) const KID: i128 = 4;
+pub(crate) const CWT: i128 = 15;
+pub(crate) const X5CHAIN: i128 = 33;
+pub(crate) const PAYLOAD_HASH_ALG: i128 = 258;
+pub(crate) const PREIMAGE_CTY: i128 = 259;
+pub(crate) const PAYLOAD_LOCATION: i128 = 260;
 const RSA_BITS: (usize, usize) = (2048, 8192);
 /// OpenSSL, which verifies on the Python side, takes any odd e below n for a modulus of up to 3072 bits
 /// and an e of at most 64 bits above that (OPENSSL_RSA_SMALL_MODULUS_BITS, OPENSSL_RSA_MAX_PUBEXP_BITS).
@@ -45,8 +45,8 @@ const RSA_MAX_PUBEXP_BITS: usize = 64;
 pub const CONFIRMED: &str = "confirmed";
 pub const INVALID: &str = "statement_signature_invalid";
 pub const MALFORMED: &str = "malformed";
-const OUTSIDE: &str = "outside_profile";
-const NEEDS_RP_TRUST: &str = "needs_rp_trust";
+pub(crate) const OUTSIDE: &str = "outside_profile";
+pub(crate) const NEEDS_RP_TRUST: &str = "needs_rp_trust";
 
 // ---------------------------------------------------------------------------------------------------
 // The CBOR reader: one data item over the whole input, definite lengths, shortest heads, integers,
@@ -54,34 +54,34 @@ const NEEDS_RP_TRUST: &str = "needs_rp_trust";
 // the policy allows them. Anything else is refused, and a refusal is `malformed`.
 // ---------------------------------------------------------------------------------------------------
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Key {
+pub(crate) enum Key {
     Int(i128),
     Text(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Item {
+pub(crate) enum Item {
     Int(i128),
     Bytes(Vec<u8>),
     Text(String),
     Array(Vec<Item>),
     Map(Vec<(Key, Item)>),
     Tag(u64, Box<Item>),
-    Bool,
+    Bool(bool),
     Null,
 }
 
 /// A step of the position of an item: a map key or an array index read as an integer, or a text
 /// key. The position of a map key itself is the text step `<key>`.
 #[derive(Clone, Debug, PartialEq)]
-enum Step {
+pub(crate) enum Step {
     Int(i128),
     Text(String),
 }
 
-type TagPolicy = fn(&[Step], u64) -> bool;
+pub(crate) type TagPolicy = fn(&[Step], u64) -> bool;
 
-fn root_18(path: &[Step], number: u64) -> bool {
+pub(crate) fn root_18(path: &[Step], number: u64) -> bool {
     path.is_empty() && number == 18
 }
 
@@ -210,7 +210,7 @@ impl Reader<'_> {
                 Ok((Item::Tag(arg, Box::new(v)), next))
             }
             _ => match arg {
-                20 | 21 => Ok((Item::Bool, i)),
+                20 | 21 => Ok((Item::Bool(arg == 21), i)),
                 22 => Ok((Item::Null, i)),
                 _ => Err(()), // any other simple value
             },
@@ -219,7 +219,16 @@ impl Reader<'_> {
 }
 
 /// Exactly one data item that covers all of `data`, at most `MAX_STATEMENT_BYTES` of it.
-fn scan(data: &[u8], policy: TagPolicy) -> Result<Item, ()> {
+pub(crate) fn scan(data: &[u8], policy: TagPolicy) -> Result<Item, ()> {
+    scan_spans(data, policy).map(|(v, _)| v)
+}
+
+/// `scan`, and the (start, end) offsets of the elements of a top-level array, looked through at most
+/// one tag; empty for any other top-level item.
+pub(crate) fn scan_spans(
+    data: &[u8],
+    policy: TagPolicy,
+) -> Result<(Item, Vec<(usize, usize)>), ()> {
     if data.len() > MAX_STATEMENT_BYTES {
         return Err(());
     }
@@ -228,10 +237,22 @@ fn scan(data: &[u8], policy: TagPolicy) -> Result<Item, ()> {
     if end != data.len() {
         return Err(()); // trailing bytes
     }
-    Ok(v)
+    let (mut mt, mut arg, mut next) = r.head(0)?;
+    if mt == 6 {
+        (mt, arg, next) = r.head(next)?;
+    }
+    let mut spans = Vec::new();
+    if mt == 4 {
+        for k in 0..arg {
+            let (_, after) = r.item(next, 1, &mut vec![Step::Int(i128::from(k))])?;
+            spans.push((next, after));
+            next = after;
+        }
+    }
+    Ok((v, spans))
 }
 
-fn get(map: &[(Key, Item)], label: i128) -> Option<&Item> {
+pub(crate) fn get(map: &[(Key, Item)], label: i128) -> Option<&Item> {
     map.iter()
         .find(|(k, _)| *k == Key::Int(label))
         .map(|(_, v)| v)
@@ -240,23 +261,37 @@ fn get(map: &[(Key, Item)], label: i128) -> Option<&Item> {
 // ---------------------------------------------------------------------------------------------------
 // The COSE_Sign1 (RFC 9052 section 4.2) and the header types of a statement (the CDDL pass)
 // ---------------------------------------------------------------------------------------------------
-struct Statement {
-    protected_raw: Vec<u8>,
-    protected: Vec<(Key, Item)>,
-    unprotected: Vec<(Key, Item)>,
-    payload: Option<Vec<u8>>,
-    signature: Vec<u8>,
+/// A COSE_Sign1 as served: its headers, payload and signature, whether it is tagged 18, and the
+/// served bytes of its four elements.
+pub(crate) struct Cose {
+    pub(crate) tagged: bool,
+    pub(crate) elements: Vec<Vec<u8>>,
+    pub(crate) protected_raw: Vec<u8>,
+    pub(crate) protected: Vec<(Key, Item)>,
+    pub(crate) unprotected: Vec<(Key, Item)>,
+    pub(crate) payload: Option<Vec<u8>>,
+    pub(crate) signature: Vec<u8>,
 }
 
-fn decode_statement(data: &[u8]) -> Result<Statement, ()> {
-    let top = scan(data, root_18)?;
-    let body = match top {
-        Item::Tag(_, inner) => *inner,
-        other => other,
+/// No tag anywhere: the protected header of a receipt, and a proof.
+pub(crate) fn no_tags(_path: &[Step], _number: u64) -> bool {
+    false
+}
+
+/// Read a COSE_Sign1 (RFC 9052 section 4.2): tag 18 at most at the root, a four-element array, and
+/// a protected header whose tags `protected_policy` allows.
+pub(crate) fn decode_cose(data: &[u8], protected_policy: TagPolicy) -> Result<Cose, ()> {
+    let (top, spans) = scan_spans(data, root_18)?;
+    let (tagged, body) = match top {
+        Item::Tag(n, inner) => (n == 18, *inner),
+        other => (false, other),
     };
     let Item::Array(parts) = body else {
         return Err(());
     };
+    if spans.len() != 4 {
+        return Err(());
+    }
     let [prot, unprot, payload, sig]: [Item; 4] = parts.try_into().map_err(|_| ())?;
     let Item::Bytes(protected_raw) = prot else {
         return Err(());
@@ -275,7 +310,7 @@ fn decode_statement(data: &[u8]) -> Result<Statement, ()> {
     if protected_raw.is_empty() {
         return Err(()); // alg must be protected
     }
-    let Item::Map(protected) = scan(&protected_raw, statement_protected_tags)? else {
+    let Item::Map(protected) = scan(&protected_raw, protected_policy)? else {
         return Err(());
     };
     if protected
@@ -284,7 +319,9 @@ fn decode_statement(data: &[u8]) -> Result<Statement, ()> {
     {
         return Err(()); // a label in both header buckets
     }
-    Ok(Statement {
+    Ok(Cose {
+        tagged,
+        elements: spans.iter().map(|(a, b)| data[*a..*b].to_vec()).collect(),
         protected_raw,
         protected,
         unprotected,
@@ -293,15 +330,15 @@ fn decode_statement(data: &[u8]) -> Result<Statement, ()> {
     })
 }
 
-fn is_int(v: &Item) -> bool {
+pub(crate) fn is_int(v: &Item) -> bool {
     matches!(v, Item::Int(_))
 }
 
-fn is_uint(v: &Item) -> bool {
+pub(crate) fn is_uint(v: &Item) -> bool {
     matches!(v, Item::Int(n) if *n >= 0)
 }
 
-fn is_label(v: &Item) -> bool {
+pub(crate) fn is_label(v: &Item) -> bool {
     matches!(v, Item::Int(_) | Item::Text(_))
 }
 
@@ -318,7 +355,7 @@ fn is_cose_x509(v: &Item) -> bool {
 type TypeRule = (i128, fn(&Item) -> bool);
 
 /// The statement's header types, in either bucket: RFC 9052, RFC 9360, RFC 9597 and RFC 9995.
-fn statement_types_hold(st: &Statement) -> bool {
+fn statement_types_hold(st: &Cose) -> bool {
     let rules: [TypeRule; 9] = [
         (ALG, |v| is_int(v) || matches!(v, Item::Text(_))),
         (
@@ -387,7 +424,7 @@ fn der_uint(buf: &[u8], pos: usize, end: usize) -> Result<(BigUint, usize), ()> 
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum PubKey {
+pub(crate) enum PubKey {
     P256(p256::PublicKey),
     P384(p384::PublicKey),
     Rsa { n: BigUint, e: BigUint },
@@ -401,7 +438,7 @@ const OID_P384: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x22];
 /// SubjectPublicKeyInfo DER -> a key of the type it names, or `Err` for any key v1 does not verify
 /// with, before a key object exists. The RSA numbers are held to the checks `cryptography` makes
 /// when it builds a key from them: n at least 3, e odd, at least 3 and below n.
-fn key_from_spki(spki: &[u8]) -> Result<PubKey, ()> {
+pub(crate) fn key_from_spki(spki: &[u8]) -> Result<PubKey, ()> {
     let (tag, s, e) = der(spki, 0, spki.len())?;
     if tag != 0x30 || e != spki.len() {
         return Err(());
@@ -501,7 +538,7 @@ fn certificate_spki(cert: &[u8]) -> Result<&[u8], ()> {
 // The signature
 // ---------------------------------------------------------------------------------------------------
 /// RFC 9052 section 4.4 ToBeSigned of a COSE_Sign1, external_aad empty by profile.
-fn sig_structure(protected_raw: &[u8], payload: &[u8]) -> Vec<u8> {
+pub(crate) fn sig_structure(protected_raw: &[u8], payload: &[u8]) -> Vec<u8> {
     let mut out = vec![0x84, 0x6A];
     out.extend_from_slice(b"Signature1");
     out.extend(bstr_head(protected_raw.len()));
@@ -512,7 +549,7 @@ fn sig_structure(protected_raw: &[u8], payload: &[u8]) -> Vec<u8> {
     out
 }
 
-fn bstr_head(len: usize) -> Vec<u8> {
+pub(crate) fn bstr_head(len: usize) -> Vec<u8> {
     let len = len as u64;
     match len {
         0..=23 => vec![0x40 | len as u8],
@@ -524,7 +561,7 @@ fn bstr_head(len: usize) -> Vec<u8> {
 }
 
 /// True only if `alg` belongs to the key's type and curve AND the signature verifies.
-fn verify(alg: Option<&Item>, key: &PubKey, tbs: &[u8], sig: &[u8]) -> bool {
+pub(crate) fn verify(alg: Option<&Item>, key: &PubKey, tbs: &[u8], sig: &[u8]) -> bool {
     let Some(Item::Int(alg)) = alg else {
         return false;
     };
@@ -586,49 +623,64 @@ fn verify(alg: Option<&Item>, key: &PubKey, tbs: &[u8], sig: &[u8]) -> bool {
     }
 }
 
-/// `proofbundle.scitt_ccf.verify_statement_signature`: the ToBeSigned of a statement and its
-/// signature under relying-party statement keys (SubjectPublicKeyInfo DER, as hex).
-pub fn verify_statement_signature(data: &[u8], keys_hex: &[&str]) -> (&'static str, Option<bool>) {
-    let Ok(st) = decode_statement(data) else {
-        return (MALFORMED, None);
-    };
+/// The statement key selector (owner answer N4 b): `None` without a protected x5chain, else the
+/// end-entity key, `Some(None)` when it is a key v1 does not verify with. Never trust.
+pub(crate) type Selector = Option<Option<PubKey>>;
+
+/// `_validate_statement`: the statement's COSE_Sign1, its header types and its x5chain certificate.
+/// `Err` is `malformed`.
+pub(crate) fn validate_statement(data: &[u8]) -> Result<(Cose, Selector), ()> {
+    let st = decode_cose(data, statement_protected_tags)?;
     if !statement_types_hold(&st) {
-        return (MALFORMED, None);
+        return Err(());
     }
-    // The key selector (owner answer N4 b): the protected x5chain's end-entity key, never trust.
-    let leaf_key = match get(&st.protected, X5CHAIN) {
+    let selector = match get(&st.protected, X5CHAIN) {
         None => None,
         Some(chain) => {
             let leaf = match chain {
                 Item::Bytes(b) => b,
                 Item::Array(certs) => match certs.first() {
                     Some(Item::Bytes(b)) => b,
-                    _ => return (MALFORMED, None),
+                    _ => return Err(()),
                 },
-                _ => return (MALFORMED, None),
+                _ => return Err(()),
             };
             if x509_cert::Certificate::from_der(leaf).is_err() {
-                return (MALFORMED, None); // the end-entity certificate is not DER X.509
+                return Err(()); // the end-entity certificate is not DER X.509
             }
             Some(certificate_spki(leaf).and_then(key_from_spki).ok())
         }
     };
-    let Some(payload) = &st.payload else {
-        return (OUTSIDE, None); // a detached payload
-    };
-    let Some(leaf_key) = leaf_key else {
-        return (OUTSIDE, None); // no protected x5chain
-    };
-    let usable: Vec<PubKey> = keys_hex
+    Ok((st, selector))
+}
+
+/// Relying-party keys, SubjectPublicKeyInfo DER as hex: the first `MAX_TRUSTED_KEYS`, each one v1
+/// verifies with; any other entry is absent trust, never trust.
+pub(crate) fn usable_keys(keys_hex: &[&str]) -> Vec<PubKey> {
+    keys_hex
         .iter()
         .take(MAX_TRUSTED_KEYS)
         .filter_map(|h| hex::decode(h).ok())
         .filter_map(|spki| key_from_spki(&spki).ok())
-        .collect();
-    if usable.is_empty() {
+        .collect()
+}
+
+/// `_statement_signature`: the statement's signature under the relying party's statement keys.
+pub(crate) fn statement_signature(
+    st: &Cose,
+    selector: &Selector,
+    keys: &[PubKey],
+) -> (&'static str, Option<bool>) {
+    let Some(payload) = &st.payload else {
+        return (OUTSIDE, None); // a detached payload
+    };
+    let Some(leaf_key) = selector else {
+        return (OUTSIDE, None); // no protected x5chain
+    };
+    if keys.is_empty() {
         return (NEEDS_RP_TRUST, None);
     }
-    let candidates: Vec<&PubKey> = usable
+    let candidates: Vec<&PubKey> = keys
         .iter()
         .filter(|k| leaf_key.as_ref() == Some(*k))
         .collect();
@@ -645,6 +697,15 @@ pub fn verify_statement_signature(data: &[u8], keys_hex: &[&str]) -> (&'static s
     } else {
         (INVALID, Some(false))
     }
+}
+
+/// `proofbundle.scitt_ccf.verify_statement_signature`: the ToBeSigned of a statement and its
+/// signature under relying-party statement keys (SubjectPublicKeyInfo DER, as hex).
+pub fn verify_statement_signature(data: &[u8], keys_hex: &[&str]) -> (&'static str, Option<bool>) {
+    let Ok((st, selector)) = validate_statement(data) else {
+        return (MALFORMED, None);
+    };
+    statement_signature(&st, &selector, &usable_keys(keys_hex))
 }
 
 #[cfg(test)]
