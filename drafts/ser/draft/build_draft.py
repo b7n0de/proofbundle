@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble draft-gruszka-signed-evaluation-receipts-02 from the body and vectors.json.
+"""Assemble draft-gruszka-signed-evaluation-receipts-03 from the body and vectors.json.
 
 Substitutes @@VECTORS_TABLE@@ and @@VECTORS_APPENDIX@@ in draft_body.md with content generated from
 ../examples/vectors.json, so the draft's vectors are the run set byte for byte. Deterministic.
@@ -11,7 +11,7 @@ import textwrap
 HERE = __file__.rsplit("/", 1)[0] or "."
 BODY = HERE + "/draft_body.md"
 VEC = HERE + "/../examples/vectors.json"
-OUT = HERE + "/draft-gruszka-signed-evaluation-receipts-02.md"
+OUT = HERE + "/draft-gruszka-signed-evaluation-receipts-03.md"
 
 def order(v):
     """Presentation order: positive vectors first, then negative, each by number."""

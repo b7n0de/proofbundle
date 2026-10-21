@@ -1,7 +1,7 @@
 ---
 title: Signed Evaluation Receipts
 abbrev: Signed Evaluation Receipts
-docname: draft-gruszka-signed-evaluation-receipts-02
+docname: draft-gruszka-signed-evaluation-receipts-03
 v: 3
 category: info
 submissiontype: IETF
@@ -222,6 +222,54 @@ informative:
     seriesinfo:
       Internet-Draft: draft-ozturk-scitt-prml-profile-00
     target: https://datatracker.ietf.org/doc/draft-ozturk-scitt-prml-profile/00/
+  I-D.sirkkavaara-vaara-receipt:
+    title: "The Vaara Receipt: A Recomputable Receipt Format for Decisions About Autonomous Actions"
+    author:
+      - ins: H. Sirkkavaara
+    date: 2026-10-15
+    seriesinfo:
+      Internet-Draft: draft-sirkkavaara-vaara-receipt-14
+    target: https://datatracker.ietf.org/doc/draft-sirkkavaara-vaara-receipt/14/
+  I-D.sahu-agent-action-receipts:
+    title: "Signed, Hash-Chained Action Receipts for AI Agents"
+    author:
+      - ins: N. Sahu
+    date: 2026-08-16
+    seriesinfo:
+      Internet-Draft: draft-sahu-agent-action-receipts-00
+    target: https://datatracker.ietf.org/doc/draft-sahu-agent-action-receipts/00/
+  I-D.wang-jep-receipt-profile:
+    title: "JEP Receipt Profile: Verifiable Behavior and Evidence Receipts"
+    author:
+      - ins: Y. Wang
+    date: 2026-10-05
+    seriesinfo:
+      Internet-Draft: draft-wang-jep-receipt-profile-01
+    target: https://datatracker.ietf.org/doc/draft-wang-jep-receipt-profile/01/
+  I-D.watts-agent-evidence-boundary:
+    title: "Evidence-Bounded Authorization for Agentic Systems: Evidence Qualification Receipts"
+    author:
+      - ins: D. Watts
+    date: 2026-09-12
+    seriesinfo:
+      Internet-Draft: draft-watts-agent-evidence-boundary-00
+    target: https://datatracker.ietf.org/doc/draft-watts-agent-evidence-boundary/00/
+  I-D.watts-scientific-admissibility-evidence:
+    title: "Scientific Admissibility Evidence Records for Verifiable Research Provenance"
+    author:
+      - ins: D. Watts
+    date: 2026-09-01
+    seriesinfo:
+      Internet-Draft: draft-watts-scientific-admissibility-evidence-00
+    target: https://datatracker.ietf.org/doc/draft-watts-scientific-admissibility-evidence/00/
+  I-D.templeman-scitt-measurement-capsule:
+    title: "Declared-versus-Observed Measurement Capsules: A Profile for Third-Party Measurement Statements in SCITT"
+    author:
+      - ins: N. Templeman
+    date: 2026-09-27
+    seriesinfo:
+      Internet-Draft: draft-templeman-scitt-measurement-capsule-00
+    target: https://datatracker.ietf.org/doc/draft-templeman-scitt-measurement-capsule/00/
   PRML:
     title: "PRML: Pre-Registered ML Manifest Specification, Version 0.1"
     author:
@@ -463,7 +511,7 @@ the criteria set, by computing SHA-256 over them. What the member does not show
 is part of {{non-claims}}.
 
 As an informative example, the profile of {{I-D.ozturk-scitt-prml-profile}}
-carries in its hash mode the 32 octets of SHA-256 over the canonical bytes of a
+carries in its hash-only mode the 32 octets of SHA-256 over the canonical bytes of a
 criteria set written in {{PRML}} as the payload of a Signed Statement. When the
 bytes of the criteria set are those canonical bytes, the 64 hexadecimal digits
 of `criteria_digest` are those 32 octets written in lowercase hexadecimal.
@@ -695,6 +743,63 @@ defining a signed result:
   receipt records one result after it and names such criteria at most by
   `criteria_digest` ({{criteria}}).
 
+The following individual drafts were read on 2026-10-19. The summaries
+describe their scope and construction in the cited revisions and identify
+differences from this document. The first three concern receipts for decisions
+or actions:
+
+* {{I-D.sirkkavaara-vaara-receipt}} records decisions about autonomous actions
+  as allow, block or escalate, optionally with decimal-string scores and
+  thresholds. It authenticates an RFC 8785 encoding of a fixed set of members
+  with ES256 or RS256 signatures or an HS256 MAC. Its required backLink follows
+  the applicable profile; the initial receipt in the engine decision profile
+  uses the SHA-256 digest of the empty string.
+* {{I-D.sahu-agent-action-receipts}} records agent actions with a boolean
+  success member. A detached Ed25519 signature covers compact UTF-8 JSON with
+  signed top-level members in a fixed, non-lexicographic order; objects within
+  params are recursively sorted. In its receipt log, the first entry omits
+  prev_hash. Each later entry carries the SHA-256 digest of the preceding
+  serialized line, including its public key and signature but excluding its
+  terminating newline.
+* {{I-D.wang-jep-receipt-profile}} binds a JSON behavior record to an event of
+  the Judgment Event Protocol through a critical extension. The record
+  identifies an agent and an action and contains zero or more evidence
+  descriptors, each carrying a digest. It is addressed by SHA-256 over its RFC
+  8785 serialization. The profile defines no independent signature format and
+  leaves signature processing to that protocol.
+
+Among these three revisions, Vaara explicitly defines optional thresholdAllow
+and thresholdBlock members for decision scores. This document requires score,
+comparator, threshold and passed for an evaluation result and checks their
+consistency using exact decimal comparison. That check does not establish that
+the reported score is correct. Three further individual drafts concern
+evaluation or measurement records:
+
+* {{I-D.watts-agent-evidence-boundary}} defines an Evidence Qualification
+  Receipt that binds an exact proposition digest to a versioned
+  evidence-requirements profile, evidence digests and one of three evaluation
+  results, PASS, FAIL or INDETERMINATE, as one input to an authorization
+  system; it defines no signature format and requires a receipt exchanged
+  between domains to be integrity protected by a mechanism acceptable to the
+  verifier, while this document defines the signature of a receipt.
+* {{I-D.watts-scientific-admissibility-evidence}} describes a JSON evidence
+  record whose members include a preregistered decision procedure and an
+  admissibility evaluation of binding gate results, serializes the core of
+  each event with RFC 8785 before hashing when an event digest is used, and
+  requires every event but the first to reference the digest of the
+  preceding one; it names SHA-256 and Ed25519 only for profiles that use
+  them, while this document fixes both for every receipt.
+* {{I-D.templeman-scitt-measurement-capsule}} defines capsules that compare
+  declarations with observations, carry no decision and distinguish UNCHECKABLE
+  from pass or failure. Self-measurement is permitted. A capsule's identifier is
+  SHA-256 over its RFC 8785 serialization with capsule_id omitted; batches use
+  an RFC 9162 Merkle Tree Hash over those identifiers. The profile describes
+  COSE_Sign1 registration of a capsule, batch record or index. The draft reports
+  comparisons with evaluation reruns but states that its implementation does not
+  yet encode COSE and has made no SCITT registration. This document instead
+  fixes a signed format for one Issuer-reported evaluation result and defines no
+  SCITT registration profile.
+
 # Security Considerations {#security}
 
 This section follows the guidance of {{RFC3552}}. The attacker considered can
@@ -910,6 +1015,14 @@ and gaps in the numbering carry no meaning.
 
 # Changes (to be removed before publication)
 {:numbered="false"}
+
+## Since draft-gruszka-signed-evaluation-receipts-02
+{:numbered="false"}
+
+* {{related}} adds six individual drafts, read on 2026-10-19, and the
+  informative references to them.
+* {{criteria}} calls the mode of {{I-D.ozturk-scitt-prml-profile}}
+  hash-only, as that draft does.
 
 ## Since draft-gruszka-signed-evaluation-receipts-01
 {:numbered="false"}

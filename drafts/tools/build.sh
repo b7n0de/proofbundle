@@ -16,7 +16,7 @@ W=$1; DOC_DATE=$2; B=$3; mkdir -p "$B"; B=$(cd "$B" && pwd)
 PY=${PYTHON:-python3}
 export ID_DATE=$DOC_DATE   # the name fixdate.rb reads
 case $W in
-  ser) N=draft-gruszka-signed-evaluation-receipts-02 ;;
+  ser) N=draft-gruszka-signed-evaluation-receipts-03 ;;
   map) N=draft-gruszka-evaluation-receipt-mappings-03 ;;
   id)  N=draft-gruszka-scitt-statement-identification-02 ;;
   *) echo "unknown draft $W"; exit 2 ;;
