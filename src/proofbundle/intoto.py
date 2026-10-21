@@ -761,8 +761,9 @@ def _verdict_agreement(predicate: dict, urteile: list) -> list:
     `urteile` holds (passed, suite or None) of every descriptor of ours that annotates a boolean
     `passed`. Nothing is judged without one: a generic test result is not ours to judge.
 
-    `result`, when present, is PASSED exactly when `passed` is true, which is how
-    `to_test_result_statement` writes them. The case lists follow the rule
+    `result` is PASSED exactly when `passed` is true, which is how `to_test_result_statement` writes
+    them, and it must be there. A case list may be absent only when no verdict names a suite, because
+    the export writes the suite's list whenever the claim has one. The case lists follow the rule
     `verifier_block.validate_test_result_statement` holds for its own statements: each present list
     is an array of strings; the lists derive the result (FAILED when any case failed, else WARNED
     when any case warned, else PASSED), and a statement whose lists name no case is not a test
@@ -775,6 +776,15 @@ def _verdict_agreement(predicate: dict, urteile: list) -> list:
     """
     if not urteile:
         return []
+    # WHAT THE EXPORT ALWAYS WRITES CANNOT BE LEFT OUT (lens on pull request 374 at ca844d0c, P2,
+    # measured: an export with the case lists, or the lists and `result`, removed and signed again
+    # verified ok=True, while three empty lists failed). `to_test_result_statement` writes `result`
+    # for every verdict, and a list naming the suite whenever the claim has one; the in-toto
+    # predicate requires `result` as well. Without a suite the export writes no list, so a statement
+    # of ours with no lists stays one this export produces. A missing `result` is the last reason,
+    # so a statement that also breaks a rule of the lists still names that rule first.
+    ohne_result = [("result", "is missing; the export writes it for every verdict, and the in-toto "
+                              "test-result predicate requires it")]
     if "result" in predicate:
         for urteil, _ in urteile:
             erwartet = _RESULT_ENUM[urteil]
@@ -789,7 +799,12 @@ def _verdict_agreement(predicate: dict, urteile: list) -> list:
                 return [(name, f"must be an array of strings, got {render_safe(liste)}")]
             listen[name] = liste
     if not listen:
-        return []
+        for urteil, suite in urteile:
+            if suite is not None:
+                wo = "passedTests" if urteil else "failedTests"
+                return [(wo, f"is missing; the export lists the suite {render_safe(suite)} there "
+                             f"whenever the claim has one, and passed is {urteil}")]
+        return [] if "result" in predicate else ohne_result
     bestanden = listen.get("passedTests", [])
     gewarnt = listen.get("warnedTests", [])
     gescheitert = listen.get("failedTests", [])
@@ -808,7 +823,7 @@ def _verdict_agreement(predicate: dict, urteile: list) -> list:
     doppelt = sorted(x for x, n in Counter(bestanden + gewarnt + gescheitert).items() if n > 1)
     if doppelt:
         return [("case lists", f"list a case more than once: {render_safe(doppelt)}")]
-    return []
+    return [] if "result" in predicate else ohne_result
 
 
 def _test_result_claim_fields(statement: dict, predicate: dict) -> list:

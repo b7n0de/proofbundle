@@ -50,6 +50,7 @@ from collections import Counter
 
 import hashlib
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,23 @@ _SOURCE_TREE_SUFFIXES = (".py", ".json", ".typed")
 
 class VerifierBlockError(ProofBundleError):
     """A verifier block, a test-result statement, or a measurement is malformed (fail-closed)."""
+
+
+#: The Unicode categories of a character that shows nothing on its own: the separators and the control
+#: and format characters (a space, a no-break space, a tab, a zero-width space).
+_SHOWS_NOTHING = frozenset(("Zs", "Zl", "Zp", "Cc", "Cf"))
+
+
+def _names_a_case(name: Any) -> bool:
+    """Whether ``name`` names a case: text with at least one character outside `_SHOWS_NOTHING`.
+
+    The one rule for the producer's ``caseId`` and for every entry of a statement's case lists (lens on
+    pull request 374 at ca844d0c, P2, measured: ``passedTests: [""]``, ``[" "]``, ``["\\u200b"]`` or
+    ``["\\u00a0"]`` and no other list counted as a named case, and the statement was signed and joined as
+    a passing run over nothing; the producer refused only the empty ``caseId``). Names are otherwise
+    opaque, as the in-toto predicate leaves them: case, script and lookalikes are not judged."""
+    return isinstance(name, str) and any(not is_member(unicodedata.category(c), _SHOWS_NOTHING)
+                                         for c in name)
 
 
 def _is_digest(obj: Any) -> bool:
@@ -518,7 +536,7 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
         url = _block_once(url, "url")
     passed, warned, failed = [], [], []
     for r in results:
-        if not isinstance(r, dict) or not isinstance(r.get("caseId"), str) or not r["caseId"]:
+        if not isinstance(r, dict) or not _names_a_case(r.get("caseId")):
             raise VerifierBlockError(f"case result without a caseId: {render_safe(r)}")
         ok = r.get("ok")
         if type(ok) is not bool:
@@ -592,9 +610,15 @@ def validate_test_result_statement(statement: Any) -> list[str]:
                     "with name and sha256 digest (the vector set)")
     listen_ok = True
     for k in ("passedTests", "warnedTests", "failedTests"):
+        if k not in pred:
+            continue
         v = pred.get(k)
-        if k in pred and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+        if not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
             errs.append(f"predicate.{k} must be a list of strings")
+            listen_ok = False
+        elif not all(_names_a_case(x) for x in v):
+            errs.append(f"predicate.{k} holds an entry that names no case (empty, or only spaces, "
+                        "control or format characters)")
             listen_ok = False
     if "url" in pred and not (isinstance(pred["url"], str) and pred["url"]):
         errs.append("predicate.url, when present, must be a non-empty string")

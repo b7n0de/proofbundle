@@ -21,6 +21,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- A test-result statement whose case list holds an entry that names nothing no longer validates, signs or joins (`tests/test_640_a_case_name_names_a_case.py`). An empty name, or one of only spaces, control or format characters, counted as a named case, so `passedTests: [" "]` and no other list was signed and joined as a passing run; the producer's `caseId` check refused only the empty name and now refuses these as well. `verify_intoto_dsse` refused three empty case lists on an export of ours but verified the same export with the lists, or the lists and `result`, removed and signed again; it now asks for `result`, and for the list that names the suite whenever the verdict has one, as the export writes them. These rules are this package's and stricter than the in-toto predicate; `docs/VERIFIER_BLOCK.md` states them.
 - **The 22 lines K3 to P2-4 of the list for 6.3.1** (`docs/release_scope/6.3.1.md`), one commit each and two for D3.
   - The pilot reads one copy of each input for verification and for judgement (K3, `tests/test_one_reading_of_the_checked_objects.py`).
   - The verdict-contract checker pins the key it trusts (K4, `tests/test_verdict_contract_example_pins_its_key.py`).
