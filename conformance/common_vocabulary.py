@@ -83,6 +83,7 @@ CASE_KINDS = frozenset({
     "relation_statement", "provenance_version_status", "envelope_profile_rule",
     "agent_review_predicate",
     "cap1_document",
+    "content_root_vector",
 })
 
 AXES = ("exitClass", "lineage", "policyVerdict")
@@ -104,13 +105,20 @@ def _normalize_lineage(value: Any) -> Any:
     return value
 
 
+class ObservedLabel(dict):
+    """A label that states what a run OBSERVED, as ``label_from_verify`` builds it. Its ``None`` means "the report does
+    not carry this axis", while the ``None`` of an expectation (``expected_label``) means "this axis is not pinned".
+    ``compare`` reads the difference from the type (6.3.1, CV1); every other reader sees a plain dict over the same three
+    axes."""
+
+
 def label_from_verify(exit_code: int, report: dict | None) -> dict[str, Any]:
     """The ONE mapping ``(verify exit code, verify --json report) -> common label``.
 
     Called by all three differential layers so a scenario can never be labelled one way by
     the conformance runner and another way by the cross-format or Rust differential. Returns
-    a dict over the three axes; an axis the report does not carry is ``None`` (absent), never
-    fabricated."""
+    a dict over the three axes, an ``ObservedLabel``; an axis the report does not carry is ``None``
+    (absent), never fabricated."""
     report = report or {}
     lineage = _normalize_lineage(report.get("lineage"))
     # The decision predicate verdict, when the report surfaces it (decision receipts).
@@ -122,11 +130,11 @@ def label_from_verify(exit_code: int, report: dict | None) -> dict[str, Any]:
             verdict = dec["verdict"]
     if verdict is None and isinstance(report.get("policyVerdict"), str):
         verdict = report["policyVerdict"]
-    return {
+    return ObservedLabel({
         "exitClass": exit_class(exit_code),
         "lineage": lineage,
         "policyVerdict": verdict,
-    }
+    })
 
 
 def expected_label(expected: dict) -> dict[str, Any]:
@@ -153,22 +161,50 @@ def _axis_equal(want: Any, got: Any) -> bool:
 
 
 def compare(want: dict, got: dict) -> tuple[bool, list[str]]:
-    """Compare two labels axis by axis. Only axes the EXPECTED side pins (non-None) are
-    checked (fail-closed on the pinned axes; silent on unpinned ones). Returns
-    ``(ok, [human-readable diffs])``."""
+    """Compare two labels axis by axis. Returns ``(ok, [human-readable diffs])``.
+
+    Between two observations (two ``ObservedLabel``) every axis either side fills is checked. Otherwise one side is
+    an expectation, and only the axes it pins (non-None) are checked, fail-closed on those and silent on the others:
+    the first side's, as before, or the second side's where the first side is the observation. A label that is no
+    ``ObservedLabel`` is read as an expectation, as before.
+
+    6.3.1, CV1. Until 6.3.1 only the axes the FIRST side filled were checked, also between two observations: the
+    Python<->Rust differential (tools/pb_verify_rs/crosscheck.py) passes two labels of ``label_from_verify``, the Python
+    one first, so an axis only the Rust side filled (a lineage, a policy verdict) was never compared, and a
+    disagreement on it passed. An expectation passed second was held to the first side's axes, so an axis it does
+    not pin failed."""
+    diffs: list[str] = []
+    both_observed = isinstance(want, ObservedLabel) and isinstance(got, ObservedLabel)
+    for axis in AXES:
+        want_v, got_v = want.get(axis), got.get(axis)
+        if both_observed:
+            pinned = True                      # two observations: every axis either side fills
+        elif isinstance(want, ObservedLabel):
+            pinned = got_v is not None         # the expectation is the second side
+        else:
+            pinned = want_v is not None        # the expectation is the first side, as before
+        if pinned and not _axis_equal(want_v, got_v):
+            diffs.append(f"{axis}: expected {want_v!r} but got {got_v!r}")
+    return (not diffs, diffs)
+
+
+def agree(left: dict, right: dict) -> tuple[bool, list[str]]:
+    """Whether two OBSERVED labels agree: every axis is compared, whichever side fills it.
+
+    ``compare`` checks only the axes its first argument pins, which is right for a declared expectation held
+    against an observation and wrong between two observations (matrix630, finding of delta at 479e01ee, the
+    sibling of CODEX-KLASSENSUCHE-631-01 F1): a Python label with ``policyVerdict`` None was never compared
+    with the Rust one, whatever Rust reported. NOT_EVALUATED and None stay one observable fact."""
     diffs: list[str] = []
     for axis in AXES:
-        want_v = want.get(axis)
-        if want_v is None:
-            continue
-        got_v = got.get(axis)
-        if not _axis_equal(want_v, got_v):
-            diffs.append(f"{axis}: expected {want_v!r} but got {got_v!r}")
+        left_v, right_v = left.get(axis), right.get(axis)
+        if not _axis_equal(left_v, right_v):
+            diffs.append(f"{axis}: {left_v!r} on one side, {right_v!r} on the other")
     return (not diffs, diffs)
 
 
 __all__ = [
     "EXIT_CLASS", "EXIT_CLASSES", "EXIT_VERIFIED", "EXIT_CRYPTO_FAIL", "EXIT_MALFORMED",
     "EXIT_POLICY_UNMET", "LINEAGE_STATES", "POLICY_VERDICTS", "AXES",
-    "exit_class", "label_from_verify", "expected_label", "compare",
+    "exit_class", "label_from_verify", "expected_label", "compare", "agree",
 ]

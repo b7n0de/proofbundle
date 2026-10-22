@@ -59,9 +59,9 @@ offers — and out of scope here. proofbundle deliberately targets the lightweig
 portable, tamper-evident, selectively disclosable *result artifact*. The two are complementary trust models
 for different threats (computation-correctness vs. artifact authenticity/integrity + private disclosure).
 
-## ValiChord — an adjacent eval-attestation library
+## valichord-attestation — an adjacent eval-attestation library
 
-[ValiChord](https://github.com/ValiChord/ValiChord) is a real neighbour: its `valichord_attestation` (Apache-2.0) also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Since format v2 (August 2026) it also uses an **RFC 6962 domain-separated Merkle tree** (v1.x used a plain SHA-256 tree and remains verifiable). Named fairly, it still differs in the standards proofbundle leads with: **no format version carries a digital signature**, and it has **no SD-JWT, no in-toto, and no Every Eval Ever converter**. Separately, ValiChord runs a Holochain protocol in which independent validators give blind commit–reveal verdicts on whether a result reproduces; the attestation format is not yet wired to it. proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
+[`valichord-attestation`](https://github.com/ValiChord/valichord-attestation) (Apache-2.0) is a real neighbour. It is a separate project from the [ValiChord](https://github.com/ValiChord/ValiChord) commit-reveal protocol, and moved to its own repository on 2026-10-19. It also attests eval runs and, like proofbundle, canonicalizes with RFC 8785 JCS. Since format v2 (August 2026) it also uses an **RFC 6962 domain-separated Merkle tree** (v1.x used a plain SHA-256 tree and remains verifiable). Named fairly, it still differs in the standards proofbundle leads with: **no format version carries a digital signature**, and it has **no SD-JWT, no in-toto, and no Every Eval Ever converter**. Separately, ValiChord runs a Holochain protocol in which independent validators give blind commit–reveal verdicts on whether a result reproduces; the attestation format is not yet wired to it. proofbundle is complementary — the portable, standards-native, transparency-log-anchored receipt layer — not a rival network.
 
 ## CSOAI inspect-receipts — measured, three pinned commits
 

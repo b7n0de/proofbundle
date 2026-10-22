@@ -411,6 +411,7 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
     from proofbundle import run_ledger, statuslist as sl, tlogproof, trust_pack as tp
     from proofbundle import verification_summary as vs, verifier_block as vb
     from proofbundle.adapters import eee
+    from proofbundle.budget import render_text
     from proofbundle.policy_profiles import instantiate_template
     from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
     from proofbundle.signer import key_id_of
@@ -609,6 +610,9 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
         ("run_ledger.link_runs, default statuses", run_ledger.link_runs,
          {"result_digests": ("a" * 64,)}, ("result_digests",), _json),
         ("evalclaim.canonicalize", ec.canonicalize, {"claim": f.claim_in}, ("claim",), ident),
+        # The text of a subject name, a looked-up key or a digest-bound line. `_ein_stand` hands the
+        # function a copy that holds the stored text and no method of the caller's class.
+        ("budget.render_text", render_text, {"value": "subject-name"}, ("value",), ident),
         ("signer.key_id_of", key_id_of, {"public_key_raw": _raw(f.sk)}, ("public_key_raw",), ident),
     ]
     if eee_path.is_file():
@@ -1057,6 +1061,9 @@ _SWEEP = {
     ("src/proofbundle/anchors_rootcommit.py", "build_preimage"): "not affected: formats its arguments, checks none",
     ("src/proofbundle/budget.py", "render_safe"): "not a producer: renders a diagnostic",
     ("src/proofbundle/budget.py", "render_keys_safe"): "not a producer: renders a diagnostic",
+    ("src/proofbundle/budget.py", "render_key_list"): "not a producer: renders the keys of a mapping for a "
+        "message",
+    ("src/proofbundle/budget.py", "render_text"): _c("budget.render_text"),
     ("src/proofbundle/checkpoint.py", "checkpoint_note"): _c("checkpoint.checkpoint_note"),
     ("src/proofbundle/checkpoint.py", "key_id"): _c("checkpoint.key_id"),
     ("src/proofbundle/checkpoint.py", "vkey"): _c("checkpoint.vkey"),
