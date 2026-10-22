@@ -243,6 +243,12 @@ REFUSED = [
     ("evaluatedAt not RFC 3339", _set("evaluatedAt", "05.07.2026 12:00"), "evaluatedAt"),
     ("evaluatedAt without an offset", _set("evaluatedAt", "2026-07-05T12:00:00"), "evaluatedAt"),
     ("evaluatedAt month 13", _set("evaluatedAt", "2026-13-05T12:00:00Z"), "evaluatedAt"),
+    # RFC 3339 digits are ASCII (ABNF DIGIT). Python's \d took these three, and int() read them as numbers.
+    ("evaluatedAt with an Arabic-Indic year",
+     _set("evaluatedAt", "٢٠٢٦-07-05T12:00:00Z"), "evaluatedAt"),
+    ("evaluatedAt with fullwidth seconds", _set("evaluatedAt", "2026-07-05T12:00:００Z"), "evaluatedAt"),
+    ("evaluatedAt with a Devanagari offset",
+     _set("evaluatedAt", "2026-07-05T12:00:00+०२:00"), "evaluatedAt"),
     ("suite.version absent", _drop("suite", "version"), "suite"),
     ("suite absent", _drop("suite"), "suite"),
     ("harness without version", _set("harness", {"name": "inspect_ai"}), "harness"),

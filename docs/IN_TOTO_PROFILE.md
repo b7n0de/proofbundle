@@ -107,8 +107,21 @@ its own digest.
 ## The `eval-result/v0.1` predicate (released, still verified)
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.1`. Emitted and signed by released
-versions and still the CLI default. It is verified under its own contract, unchanged: signature, content
-root, type; no shape check (`predicate_shape_ok` is `None`). Fields:
+versions and still the CLI default. Its predicate is verified under its own contract, unchanged: signature,
+content root, type; no shape check (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
+verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
+`_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
+`digest`, because in-toto matches subject artifacts by digest alone. A digest under a hash function the
+package knows must have that function's length in lowercase hex; under any other algorithm name it must be
+a non-empty string. A statement without that layer names no artifact and does not verify (`statement_ok`
+is `False`); every export function writes it, and verifying an eval-result, test-result or SVR attestation
+that released versions wrote gives the same verdict as before. The same rule judges the Statement of a
+decision, outcome, relation statement, verification summary, run ledger and trust pack in the Python
+verifier, and the Rust verifier applies it on its relation, relation-statement and trust-pack-threshold
+paths, since it stands in the one Statement oracle (`_statement_payload`). One verdict changes there: the
+emitters of those six wrote a caller's `subject_sha256` override verbatim, so a statement a released version
+wrote with an override that is not 64 lowercase hex characters, one in capitals for example, no longer
+verifies, and the emitters now refuse such an override. Fields:
 
 | field | meaning |
 |---|---|
@@ -169,7 +182,9 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
   malformed, as any other field would. Envelopes signed before this default keep the bytes they were
   signed with and carry no keyid: the archived agent-review receipts under `receipts/agent_review`, the
   fixture `tests/fixtures/kette_147/receipt.json` and the eval-result v0.1 statements that released
-  versions emitted, under `tests/fixtures/eval_result_v0_1`. The sdist ships all three as regression
+  versions emitted, under `tests/fixtures/eval_result_v0_1`. The calls the suite makes to every public
+  function, recorded as seeds in `tests/fixtures/public_surface_seeds.json`, hold the test receipts as
+  the suite passed them, and those carry no keyid either. The sdist ships all four as regression
   inputs, and a reader that requires a keyid refuses them.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension
