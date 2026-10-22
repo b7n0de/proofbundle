@@ -877,10 +877,15 @@ def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
         scope = _scope_for(report, c, frozen)
         obs = [o for o in report["obligations"] if o["instruction_id"] in scope["instructions"]]
         instr = [e for e in report["instructions"] if e["instruction_id"] in scope["instructions"]]
+        # Every requested member is resolved against the population, or the claim is not supported: the filters
+        # above keep only the members that exist, so an unknown one would leave the evidence check without a
+        # subject and pass over an empty or partial set (CODEX-630-K9).
+        bekannt = {str(e["instruction_id"]) for e in report["instructions"]}
+        unaufgeloest = [i for i in scope["instructions"] if i not in bekannt]
         global_block = [b for b in structural["pass_blockers"] if b["code"] not in ("OBLIGATIONS_NOT_CONFIRMED",
                                                                                     "EMPTY_TARGET_SET_NOT_PERMITTED",
                                                                                     "TARGET_SET_NOT_CLOSED")]
-        scoped_pass = (not global_block and all(o["disposition"] == "CONFIRMED" for o in obs)
+        scoped_pass = (not unaufgeloest and not global_block and all(o["disposition"] == "CONFIRMED" for o in obs)
                        and all(e["class"] != "not_closed" for e in instr)
                        and all(e.get("empty_set_permitted", True) for e in instr if e["class"] == "zero_obligations"))
         scoped_fail = any(o["disposition"] in POSITIVE_FAILURES for o in obs) and not report["profile"]["errors"]
@@ -917,6 +922,10 @@ def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
             if c.get("scope", {}).get("obligation"):
                 i, t = c["scope"]["obligation"]
                 ob_sel = next((o for o in report["obligations"] if o["instruction_id"] == i and o["target_id"] == t), None)
+                if ob_sel is None:
+                    # a named obligation that does not exist is an unresolved member as well, never a fall-back to
+                    # every obligation in scope (CODEX-630-K9, same class)
+                    unaufgeloest.append(f"{i}/{t}")
             if kind == "scoped_failure":
                 fobs = [ob_sel] if ob_sel else [o for o in obs if o["disposition"] in POSITIVE_FAILURES]
                 ok = bool(fobs) and all(o and o["disposition"] in POSITIVE_FAILURES for o in fobs)
@@ -946,6 +955,10 @@ def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
             if kind == "preserved_disposition":
                 pid = c.get("scope", {}).get("path_id")
                 p = next((x for x in report["intermediary_paths"] if x["path_id"] == pid), None)
+                if p is None:
+                    # an absent path is an unresolved member too, not a predicate a profile may declare
+                    # conditional (CODEX-630-K9, same class)
+                    unaufgeloest.append(f"path {pid}")
                 preds["lossless_path"] = (bool(p) and p["preservation"] == "PRESERVED",
                                           f"path {pid}: {p['preservation'] if p else 'absent'}")
             support = "FULLY_SUPPORTED"
@@ -963,6 +976,10 @@ def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
                 else:
                     support = "NOT_SUPPORTED"                                            # S6.6-9
                     missing.append({"predicate": pname, "detail": detail, "class": "not declared conditional"})
+        if unaufgeloest:
+            support = "NOT_SUPPORTED"
+            missing.append({"predicate": "scope_resolved",
+                            "detail": f"requested members not in the population: {unaufgeloest}"})
         if report["profile"]["errors"]:
             support = "NOT_SUPPORTED"
             missing.append({"predicate": "valid_profile", "detail": "profile declaration errors"})
