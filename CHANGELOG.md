@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- A test-result statement no longer counts an entry that names nothing as a named case. `verifier_block.validate_test_result_statement`, and with it the signing helper and `join_test_result`, refuses an entry of `passedTests`, `warnedTests` or `failedTests` that is empty or made only of spaces, control or format characters, and `build_test_result_statement` refuses such a `caseId`. These rules are this package's and stricter than the in-toto predicate, which makes each list optional; `docs/VERIFIER_BLOCK.md` states them. `verify_intoto_dsse` refused three empty case lists on an export of ours but verified the same export with the lists, or the lists and `result`, removed and signed again; it now asks for `result`, and for the list that names the suite whenever the verdict has one, as the export writes them.
+
 ## [6.3.1] - 2026-10-21
 
 6.3.1 is a patch release following 6.3.0, with stricter verification and changes to public result reporting. `automation.referencesResolved` is `None` rather than `True` when no reference was checked. The eval-result, in-toto and SVR verifiers require the in-toto Statement v1 layer and report `statement_ok` separately from `signature_ok`. These and the six predicate verifiers named below require subjects that identify artifacts by digest. `verify_decision_receipt` derives executed-outcome evidence levels from the digest reference; `action_outcome_proven` and `ok` are unchanged. The inspect_ai adapter records sample counts and early-stopping metadata supplied by the log, and the `inspect` extra admits `inspect_ai` up to 0.3.281. Other entries cover validation, error handling, package contents and repository tools. Some public exception paths remain open, as described below.

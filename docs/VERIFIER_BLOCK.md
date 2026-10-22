@@ -69,6 +69,21 @@ in-toto statement of predicate type `https://in-toto.io/attestation/test-result/
 - **passedTests / warnedTests / failedTests**: the case ids, so a reduction of scope is in the
   statement and not only in a headline.
 
+`validate_test_result_statement`, and with it the signing helper and `join_test_result`, holds a
+statement to rules of this package that are stricter than the in-toto predicate, which makes each
+list optional:
+
+- a statement names at least one case, and an absent list is read as an empty one, so a statement
+  with no list at all is refused like one with three empty lists;
+- every entry of a list names a case: an empty name, or one made only of spaces, control or format
+  characters (a tab, a no-break space, a zero-width space), is refused, and so is a list that is
+  `null`, a number or an object in place of an array;
+- `result` is the one the lists derive (`FAILED` when any case failed, else `WARNED` when any case
+  warned, else `PASSED`), and no case stands in two lists.
+
+A statement another tool wrote within the in-toto text can therefore be refused here; the error
+says which rule it broke.
+
 The statement is written unsigned. Signing is the producer's step
 (`verifier_block.sign_test_result_statement`, the same DSSE primitive every receipt of this package
 uses); a runner signing with a key of its own would be one more identity nobody can look up. The
