@@ -90,11 +90,32 @@ def check() -> dict:
     if RECEIPT.is_file():
         try:
             from proofbundle import verify_bundle  # noqa: PLC0415
-            bundle = json.loads(RECEIPT.read_text(encoding="utf-8"))
+            from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+            from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+            # STRICT AT THE FILE BOUNDARY (CODEX-KLASSENSUCHE-631-01, D3, measured at f6ea5cc3): `json.loads` kept
+            # the last of two `payload_b64` members, so a receipt with an empty `payload_b64` in front of the real
+            # one verified, manifest_matches and receipt_verifies True, exit 0. The bytes are read once within the
+            # input budget and parsed strictly; a member twice is no receipt, whichever comes first.
+            kappe = int(DEFAULT_BUDGET.input_bytes)
+            with RECEIPT.open("rb") as fh:
+                roh = fh.read(kappe + 1)
+            if len(roh) > kappe:
+                raise ValueError(f"the self-receipt holds more than the input_bytes budget of {kappe} bytes")
+            bundle = loads_strict(roh)
             r = verify_bundle(bundle)
-            receipt_ok = bool(r.get("ok")) if isinstance(r, dict) else bool(r)
+            # THE VERDICT IS THE RESULT'S `ok`, AND IT COVERS THE RECORDED MANIFEST (found beside D3, measured at
+            # 0e540436): `verify_bundle` returns a VerificationResult, no dict, and `bool()` of it is always True, so
+            # a receipt whose signature did not verify gave receipt_verifies=True; and a valid receipt over other
+            # bytes than MANIFEST.sha256 passed as the receipt of this pack.
+            verdict = r.get("ok") if isinstance(r, dict) else getattr(r, "ok", None)
+            receipt_ok = verdict is True
             if not receipt_ok:
                 problems.append("proofbundle self-receipt does not verify")
+            else:
+                from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+                if decode_b64(bundle["payload_b64"]) != recorded.encode("utf-8"):
+                    receipt_ok = False
+                    problems.append("the self-receipt covers other bytes than MANIFEST.sha256")
         except Exception as exc:  # noqa: BLE001
             problems.append(f"self-receipt verify errored: {type(exc).__name__}: {exc}")
     else:
