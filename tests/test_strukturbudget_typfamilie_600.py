@@ -24,10 +24,10 @@ import unittest
 from proofbundle._strict_json import enforce_structural_budget
 from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded
 from proofbundle.errors import BundleFormatError
-from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: the test load is capped by memory
 
 _SL = gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=1)
-_JN = gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=8)
+_JN = gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT["json_nodes"])
 
 
 class _TraegtLaengeIstAberKeinJson:

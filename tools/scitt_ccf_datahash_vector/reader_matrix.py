@@ -34,6 +34,9 @@ from pycose.keys import OKPKey
 from pycose.keys.curves import Ed25519
 from pycose.messages import CoseMessage, Sign1Message
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from json_strict import load_json  # noqa: E402
+
 HERE = pathlib.Path(__file__).resolve().parent
 
 
@@ -42,9 +45,9 @@ def _error(exc: BaseException) -> str:
 
 
 def cases() -> dict[str, bytes]:
-    v1 = json.load(open(HERE / "data-hash-vector.json", encoding="utf-8"))
+    v1 = load_json(HERE / "data-hash-vector.json")
     a = bytes.fromhex(v1["A_signed_statement_as_registered"]["bytes_hex"])
-    d = json.load(open(HERE / "vektor_d.json", encoding="utf-8"))["D_indefinite_array"]
+    d = load_json(HERE / "vektor_d.json")["D_indefinite_array"]
     return {"A": a,
             "B": bytes.fromhex(v1["B_same_statement_carrying_a_receipt"]["bytes_hex"]),
             "C": a[1:],
@@ -52,7 +55,7 @@ def cases() -> dict[str, bytes]:
 
 
 def keys() -> tuple[bytes, bytes]:
-    v1 = json.load(open(HERE / "data-hash-vector.json", encoding="utf-8"))
+    v1 = load_json(HERE / "data-hash-vector.json")
     return bytes.fromhex(v1["test_key"]["seed_hex"]), bytes.fromhex(v1["test_key"]["public_key_hex"])
 
 

@@ -370,6 +370,13 @@ def _detect_features() -> list:
     return features
 
 
+#: How to update, said where a user looks (Z43). There is deliberately no self-update and no check
+#: at start-up: the tool promises to work offline, and a verifier that fetches and runs its own new
+#: version would verify with code nobody looked at. The installer is named because a plain `pip`
+#: into an externally managed Python is refused since PEP 668.
+UPDATE_HINT = "update with 'pipx upgrade proofbundle' or 'pip install -U proofbundle'"
+
+
 def _version_string() -> str:
     feature_line = ", ".join(_detect_features()) or "(none detected)"
     return (
@@ -377,12 +384,81 @@ def _version_string() -> str:
         f"spec-revision: {SCHEMA} (rev {SPEC_REVISION})\n"
         f"schema: proofbundle_v0_1\n"
         f"features: {feature_line}\n"
-        f"predicates: eval-result/v0.1 decision-receipt/v0.1"
+        f"predicates: eval-result/v0.1 decision-receipt/v0.1\n"
+        f"{UPDATE_HINT}"
     )
 
 
+#: The top-level command list, grouped by what a reader wants to do (Z43, draft of 2026-09-10).
+#: Every short line is written out rather than cut from the long help: cutting once turned "pb1."
+#: into "pb1". `tests/test_cli_top_help_grouped.py` holds this table and the registered commands
+#: equal, so a command cannot be added without a line here, and a line cannot outlive its command.
+_COMMAND_GROUPS = (
+    ("Verify", (
+        ("verify", "verify an evidence bundle JSON file"),
+        ("verify-proof", "verify a C2SP .tlog-proof file offline"),
+        ("verify-opening", "verify one sample opening against a samples root"),
+        ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+    )),
+    ("Emit and commit", (
+        ("emit", "sign and anchor a payload into a bundle"),
+        ("emit-eval", "emit a signed eval receipt from a claim JSON"),
+        ("show-eval", "verify an eval receipt and print the claim"),
+        ("prereg", "hash an eval protocol to commit to it before the run"),
+        ("evalcard", "hash an external Eval Card to reference it from a claim"),
+        ("hf-token", "pack a receipt into a pb1. token, or verify one"),
+        ("audit-challenge", "derive k audit indices from a samples root"),
+    )),
+    ("Statements over a receipt", (
+        ("decision", "decision-receipt/v0.1: an agent decision"),
+        ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
+        ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
+    )),
+    ("Time anchors", (
+        ("anchor", "package, verify and inspect external time anchors  (experimental)"),
+    )),
+    ("Export to other formats", (
+        ("intoto", "DSSE-signed in-toto eval-result attestation  (proposed)"),
+        ("svr", "in-toto Summary Verification Result, svr/v0.1  (proposed)"),
+    )),
+    ("Try it", (
+        ("demo", "run the whole trust story in memory, offline"),
+    )),
+)
+
+
+def _grouped_epilog() -> str:
+    breite = max(len(name) for _titel, zeilen in _COMMAND_GROUPS for name, _text in zeilen)
+    out = ["commands"]
+    for titel, zeilen in _COMMAND_GROUPS:
+        out.append(f"  {titel}")
+        out.extend(f"    {name:<{breite}}   {text}" for name, text in zeilen)
+        out.append("")
+    out += ["run 'proofbundle <command> --help' for the options and exit codes of one command",
+            "run 'proofbundle --version' for version, spec revision and optional features",
+            UPDATE_HINT]
+    return "\n".join(out)
+
+
+class _TopHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Leaves out argparse's flat command list; the grouped list in the epilog replaces it (Z43).
+
+    WHY NOT ``help=argparse.SUPPRESS`` ON EACH SUBPARSER. Hiding a subparser that way is not honoured
+    the same way across the supported Pythons (3.10 to 3.14); some render the literal marker. This
+    formatter drops the one section and nothing else, and the epilog is raw so its layout survives.
+    """
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            return ""
+        return super()._format_action(action)
+
+
 class _VersionAction(argparse.Action):
-    """Like argparse's built-in ``action='version'``, but prints the raw 4-line block verbatim.
+    """Like argparse's built-in ``action='version'``, but prints the raw multi-line block verbatim
+    (the version/build facts plus the upgrade hint; the number of lines is not a contract, and the
+    docstring said "4-line" while the block had grown — an adversarial lens measured six).
     The built-in action runs the string through HelpFormatter, which collapses embedded newlines
     into a single space-joined line — wrong for this multi-line output. Same external contract:
     ``nargs=0``, exits via ``parser.exit()`` (SystemExit(0)) before argparse checks the otherwise-
@@ -1878,7 +1954,7 @@ def _historical_now_posix(value):
     # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
     # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"[.,](\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
@@ -1925,6 +2001,31 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+#: The options of `intoto` and `svr` that only one of their two modes reads, by dest and spelling. A mode refuses
+#: an option it does not read instead of dropping it (631 part 2, P2 group 1, measured at 063b4e22: `intoto
+#: --verify --predicate-version v0.2`, `--evaluator`, `--receipt-uri not-a-uri` and every other export option
+#: ended `=> OK` with exit 0 exactly as without them, as did `svr --verify` with `--policy-uri` or `--key`, and
+#: an export with `--pub`). `--subject-profile` and `--predicate-version` have no parser default for this reason:
+#: the default is applied in the export, so a value given to `--verify` can be told from none.
+_INTOTO_EXPORT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"),
+                          ("subject_profile", "--subject-profile"), ("subject_name", "--subject-name"),
+                          ("subject_sha256", "--subject-sha256"), ("predicate_version", "--predicate-version"),
+                          ("evaluator", "--evaluator"), ("receipt_uri", "--receipt-uri"))
+_SVR_EMIT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"), ("policy_uri", "--policy-uri"),
+                     ("policy_sha256", "--policy-sha256"))
+
+
+def _options_the_mode_does_not_read(args: argparse.Namespace, command: str, options: tuple) -> bool:
+    """True (with a named error) when `args` carries an option of `options`, which the chosen mode does not read;
+    an option is given when its value is not None, so an empty value counts as given."""
+    given = [flag for dest, flag in options if getattr(args, dest, None) is not None]
+    if given:
+        mode = "--verify" if args.verify else "the export"
+        print(f"ERROR: {command} {mode} does not read {', '.join(given)}; give only the options this mode reads",
+              file=sys.stderr)
+    return bool(given)
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -1942,6 +2043,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             # caller which flag is missing.
             print("ERROR: --verify requires --pub", file=sys.stderr)
             return 2
+        if _options_the_mode_does_not_read(args, "intoto", _INTOTO_EXPORT_OPTIONS):
+            return 2
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -1957,6 +2060,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
         print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
         print("=> OK" if ok else "=> FAILED")
@@ -1965,7 +2070,14 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
     # The version decides which flags mean something; a flag the chosen version does not read is refused,
     # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
-    version, evaluator = args.predicate_version, args.evaluator
+    if _options_the_mode_does_not_read(args, "intoto", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    version = args.predicate_version if args.predicate_version is not None else "v0.1"
+    profile = args.subject_profile if args.subject_profile is not None else "receipt"
+    evaluator = args.evaluator
     if version == "v0.1":
         if evaluator is not None or args.receipt_uri is not None:
             print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
@@ -2000,19 +2112,19 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         roots = recompute_merkle_root_b64(bundle)
         if version == "v0.2":
             model = None
-            if args.subject_profile == "public-model":
+            if profile == "public-model":
                 # The public model is disclosed as the subject; the predicate identifies it once, by the
                 # same name and digest, instead of by a salted commitment.
                 model = {"name": args.subject_name,
                          "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
             envelope = export_eval_result_v02_dsse(
-                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                claim, signer, evaluator_id=str(evaluator), subject_profile=profile,
                 subject_name=args.subject_name, subject_sha256=args.subject_sha256,
                 root_b64=roots.get("stated_b64"), model=model,
                 evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
         else:
             envelope = export_eval_result_dsse(
-                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                claim, signer, subject_profile=profile, subject_name=args.subject_name,
                 subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
@@ -2021,9 +2133,9 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
     if version == "v0.2":
-        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {profile})")
     else:
-        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {profile})")
     return 0
 
 
@@ -2034,6 +2146,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         if args.pub is None:
             # MJ-1: --verify needs --pub (cannot be argparse-required — this command also EMITs).
             print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
+        if _options_the_mode_does_not_read(args, "svr", _SVR_EMIT_OPTIONS):
             return 2
         try:
             with _open_input(args.receipt) as handle:
@@ -2053,6 +2167,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2063,6 +2179,15 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         return 0 if res["ok"] else 1
 
     from .bundle import load_bundle  # noqa: PLC0415
+    if _options_the_mode_does_not_read(args, "svr", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    if args.policy_sha256 is not None and args.policy_uri is None:
+        # The digest is written only as the digest OF a policy URI; alone it was dropped and the SVR written without it.
+        print("ERROR: --policy-sha256 names the digest of --policy-uri and needs it", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
@@ -2225,7 +2350,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -3057,9 +3184,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
+        formatter_class=_TopHelpFormatter,
+        epilog=_grouped_epilog(),
     )
     parser.add_argument("--version", action=_VersionAction)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
 
     verify = sub.add_parser(
         "verify", help="verify an evidence bundle JSON file",
@@ -3279,12 +3408,12 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
     intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
-                        default="receipt",
+                        default=None,
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
-    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default=None,
                         help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
                              "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
     intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
@@ -3293,7 +3422,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
