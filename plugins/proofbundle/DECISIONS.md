@@ -5578,3 +5578,56 @@ Not changed: the long reason for the model, the reason ids in the log and the bi
 session the Stop hook holds keeps its line (Nachtrag 47). The retrospective's 18 cases are a fixture with mishap and
 today's reason; a test shows per case that the line names the danger by its words; whether it fits is judged by the
 retrospective at echo, not here. Tests: tests/test_plugin_n46_danger_line_d116.py.
+
+## D117. git or gh as a word in an argument, a string or the body of a here-document is no call (Nachtrag 48, point 2, 2026-10-22)
+
+Found by delta's sorting by hand (echo, 2026-10-20 16:26Z): of 287 interventions since 2026-10-18, 37 were false alarms,
+36 of one class: git or gh stood only as a word in an argument or in the body of a here-document, and with that text
+made neutral the gate was silent. Ids: net_unmodeled_git 28, directory_unresolved 4, git_form_not_free 3,
+code_names_git 2, done_order_change 1; no catch of the gate among them. Owner answers of 2026-10-21 (Nachtrag 51):
+under Claude Code only, Codex unchanged and its Guard BLOCKED until TG-5 (O48-2); forms whose program can run its
+argument keep asking and are counted in the bilanz (O48-3).
+
+Measured at d3ce27a2 (probe_n48_wort.py, the gate of N37 at 63b88d07 answers the same forms alike), five causes:
+- U1, the net of D27 counts every git or gh word of the whole text with the quotes taken off, and compares with the
+  calls of the scan: `git commit -m "docs: explain git push flow"` has two words and one call (net_unmodeled_git);
+- U2, the scan reads the body of a here-document as commands: `cat > notes.md <<'EOF' … git push … EOF` gives one call;
+  where class c keeps the whole answer, that call decides (a body naming `git push --no-verify` is denied);
+- U3, class c does not model a here-document inside a substitution, so the form Claude Code writes a commit message in,
+  `git commit -m "$(cat <<'EOF' … EOF)"`, falls back to the answer of U1 and U2 (directory_unresolved, git_form_not_free);
+- U4, the search for done-order reads such a body as a command (done_order_change);
+- U5, class c keeps a program it does not know whose text names git or gh (code_names_git), also a path program whose
+  path is `docs/git` or `gh/`.
+
+The rule, under Claude Code only, and only where the session is measured and defines none of the programs the rule relies
+on (D90; _d117_unshadowed):
+- R1 (_d117_literal_heredocs): `"$(cat <<'MARK'` and a newline, the lines up to the first line that is exactly MARK,
+  blanks, `)"` is the literal word of those lines without their last newlines, as the shell gives it; the gate reads the
+  command with that word in single quotes. Only where the double quote stands outside every quote, no here-document
+  stands before it, the marker is quoted, and `cat` is the program.
+- R2 and R3 (_d117_view): for a command whose every step class c reads as git, gh, a data step (_SH_DATA with the limits
+  of _sh_kind), cd, an assignment, or a path program (R5), the body of a here-document whose marker is quoted, or that
+  holds no `$`, backtick or backslash, is input and not shell text for the scan, the net and done-order; a git or gh word
+  in a literal word after the program word of such a step, or in a literal here-string, is an argument the net does not
+  count. Every program position, the steps of every substitution, every assignment and every non-literal word count as
+  before.
+- R5 (_D117_PATH_PROGRAMS): mkdir, touch, cp, mv, rm, rmdir, ln and chmod of GNU coreutils start no program of their
+  own; such a step with literal words only is data, and class c does not keep it for a path that names git or gh. Their
+  writes are judged as before (D96).
+- A deny of today stays (Nachtrag 48: no case that blocks today becomes free; decide and _d117_touches): where R1, R2,
+  R3 or R5 changes the reading of a command, the gate answers it once more without the rule (_D117_OFF) and keeps that
+  answer if it is a deny. The rule takes away asks only. Found by the corpus of the gate: S373, a here-document body
+  naming `git push --no-verify` written into a file, counted harmful, was denied before and passed with the rule alone.
+  Both judgments read the state files of a folder once (D96): decide holds the memo for the whole command, and
+  _sh_write_verdicts keeps it where it is set (found by tests/test_plugin_n28b_state_memo_d96.py).
+
+Not changed: a carrier of code (a shell, an interpreter, xargs, env, make, uv, find with -exec, sed or awk beyond their
+safe forms, rg with a preprocessor) anywhere in the command, a program the gate does not know, a word the shell builds,
+a program position that is quoted or built, an unquoted here-document with a substitution, every answer under Codex,
+and every answer without the flag but the false alarms of the class. Counter cases: a real call in the same line, after
+`;`, in `$(…)`, through xargs, `sh -c`, eval, a here-document read by a shell, a script written and then run; each keeps
+its answer (tests). Limits, named: the rule trusts the parser of class c, as class c does; a shadowing of a data program
+by the session is caught only where the gate measures the session (D90); a chain of git add and git commit whose message
+spans lines keeps the ask of D3, with or without this rule (a sibling, owner question in the report); the pin of D114 and
+the record of D106 read the command as written, so R1 does not free a commit with the message form under the pin (owner
+question). Tests: tests/test_plugin_n48_d117_word_no_call.py.

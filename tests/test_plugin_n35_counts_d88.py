@@ -52,7 +52,9 @@ def _hook(repo, data, command, session="s-d88", host="claude", tool="Bash", tool
     ("git add README.md && git status", "git status"),
     ("git log --oneline $(git rev-parse HEAD)", "git rev-parse HEAD"),
     ("git log --oneline $(git rev-parse HEAD)", "git log --oneline 0123abcd"),
-    ("git commit -m \"$(cat <<'EOF'\nfix: x\n\ngit push later\nEOF\n)\"", "git commit -F /tmp/elsewhere/msg.txt"),
+    # changed in Nachtrag 48 (D117): with a quoted marker the message form is free under Claude Code (R1); the unquoted
+    # marker keeps its ask and the same detour
+    ("git commit -m \"$(cat <<EOF\nfix: x\n\ngit push later\nEOF\n)\"", "git commit -F /tmp/elsewhere/msg.txt"),
 ])
 def test_D88_a_call_of_the_rewrite_completes_the_detour_once(tmp_path, first, then):
     repo = d71._repo(tmp_path)

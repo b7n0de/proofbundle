@@ -247,7 +247,8 @@ COUNTER = {
     'gh pr merge 12 --auto --merge --body "never use --admin"': (("ask", ["net_unmodeled_git"]),
                                                                  ("ask", ["net_unmodeled_git"])),
     "gh pr merge 12 -- --admin": (("ask", ["net_unmodeled_git"]), ("ask", ["net_unmodeled_git"])),
-    'git commit -m "gh pr merge 12 --admin is a house rule"': (("ask", ["free_after_state_check", "net_unmodeled_git"]),
+    # changed in Nachtrag 48 (D117): under Claude Code a word in the message is no call, the net counts it no more
+    'git commit -m "gh pr merge 12 --admin is a house rule"': (("pass", ["free_after_state_check"]),
                                                                ("ask", ["free_after_state_check", "net_unmodeled_git"])),
     "echo 'gh pr merge 12 --admin'": ((None, []), (None, [])),
     "cat > notes2.md <<'EOF'\ngh pr merge 12 --admin\npkill -f x; killall y\nEOF": ((None, []), (None, [])),

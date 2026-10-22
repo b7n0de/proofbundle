@@ -9898,10 +9898,13 @@ class _ShWord:
 
 
 class _ShHeredoc:
-    __slots__ = ("op", "delim", "quoted", "body", "subs")
+    """A here-document: its operator, delimiter, whether the delimiter is quoted, its body and the substitutions in an
+    unquoted body; start and end, the place of the body's lines in the text parsed (D117)."""
+    __slots__ = ("op", "delim", "quoted", "body", "subs", "start", "end")
 
     def __init__(self, op: str, delim: str, quoted: bool):
         self.op, self.delim, self.quoted, self.body, self.subs = op, delim, quoted, "", []
+        self.start = self.end = None
 
 
 class _ShRedir:
@@ -9975,14 +9978,17 @@ class _ShParser:
         while self.pending:
             doc = self.pending.pop(0)
             lines = []
+            doc.start = self.i
             while True:
                 if self.i >= len(self.s):
                     raise _ShUnmodeled(f"here-document {doc.delim!r} not closed")
                 j = self.s.find("\n", self.i)
                 line = self.s[self.i:] if j < 0 else self.s[self.i:j]
+                at = self.i
                 self.i = len(self.s) if j < 0 else j + 1
                 check = line.lstrip("\t") if doc.op == "<<-" else line
                 if check == doc.delim:
+                    doc.end = at
                     break
                 lines.append(check)
             doc.body = "\n".join(lines) + ("\n" if lines else "")
@@ -10992,6 +10998,157 @@ def _sh_walk_subs(subs: list, cwd: str | None, out: list) -> None:
             _sh_walk(s.tree, cwd, out, top_level=False)
 
 
+# --- D117: git or gh as a word in an argument, a string or the body of a here-document is no call (Nachtrag 48) ---
+
+#: D117: programs whose words are paths and options only and which start no program of their own (GNU coreutils:
+#: mkdir, touch, cp, mv, rm, rmdir, ln, chmod), read as data where every word is literal.
+_D117_PATH_PROGRAMS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "rmdir", "ln", "chmod"})
+#: D117: the kinds of class c whose literal words and quoted here-document bodies are data, not a call.
+_D117_DATA_KINDS = frozenset({"git", "gh", "data", "cd", "assign"})
+#: D117: set while decide() answers a second time without D117, to keep a deny of today (Nachtrag 48).
+_D117_OFF: "contextvars.ContextVar[bool]" = contextvars.ContextVar("_D117_OFF", default=False)
+
+
+def _d117_path_step(step: "_ShStep") -> bool:
+    """A step of a path program of D117: its program word a bare name of the set, every word and redirection literal."""
+    return step.kind == "other" and step.head in _D117_PATH_PROGRAMS and step.words[0] == step.head and \
+        all(w.literal for w in step.cmd.words) and \
+        all(isinstance(r.target, _ShHeredoc) or r.target.literal for r in step.cmd.redirs)
+
+
+def _d117_unshadowed(names: set, environ) -> bool:
+    """Whether the session is measured and defines none of the names (B36-2, D90): only then is the word the program."""
+    if not names:
+        return True
+    defined = _session_definitions(set(names), os.environ if environ is None else environ)
+    return defined is not None and not any(defined.get(name) for name in names)
+
+
+def _d117_steps(command: str, environ) -> list | None:
+    """D117: the steps of class c where each one is git, gh, a data step, cd, an assignment or a path program, and the
+    session defines none of the data and path programs; None for every other command and for one class c does not
+    model."""
+    try:
+        steps: list = []
+        _sh_walk(_sh_parse(command), None, steps)
+    except (_ShUnmodeled, RecursionError):
+        return None
+    if not steps or any(s.kind not in _D117_DATA_KINDS and not _d117_path_step(s) for s in steps):
+        return None
+    if not _d117_unshadowed({s.head for s in steps if s.kind == "data" or _d117_path_step(s)}, environ):
+        return None
+    return steps
+
+
+def _d117_words(value: str) -> int:
+    """How many words of a literal value the net counts as git or gh command words (_net_command_word)."""
+    return sum(1 for token in _NET_SPLIT.split("".join(_net_fold(ch) for ch in value))
+               if token and _net_command_word(token))
+
+
+def _d117_view(command: str, host: str, environ) -> tuple[str, int]:
+    """D117 (Nachtrag 48; under Claude Code only, O48-2): (the text the scan, the net and done-order read, the number of
+    git or gh words the net does not count). For a command of _d117_steps: the body of a here-document whose delimiter
+    is quoted, or that holds no `$`, backtick or backslash, is input, not shell text, and is left out of the text; a git
+    or gh word in a literal word after the program word of a step, or in a literal here-string, is an argument and not
+    counted. Every program position, every substitution's own steps and every assignment count as before. Under Codex,
+    and for any other command, (command, 0)."""
+    if host == "codex" or _D117_OFF.get():
+        return command, 0
+    steps = _d117_steps(command, environ)
+    if steps is None:
+        return command, 0
+    spans, words = [], 0
+    for step in steps:
+        for r in step.cmd.redirs:
+            t = r.target
+            if isinstance(t, _ShHeredoc):
+                if t.start is not None and t.end is not None and (
+                        t.quoted or not (t.subs or any(ch in t.body for ch in "$`\\"))):
+                    spans.append((t.start, t.end))
+            elif r.op == "<<<" and t.literal:
+                words += _d117_words(t.value)
+        words += sum(_d117_words(w.value) for w in step.cmd.words[1:] if w.literal)
+    text = command
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + text[end:]
+    return text, words
+
+
+def _d117_touches(command: str, host: str, environ) -> bool:
+    """Whether D117 can change the answer to the command: R1 writes it otherwise, the view leaves out a body or counts
+    a word, or class c reads a path program in it (R5)."""
+    if host == "codex":
+        return False
+    environ = os.environ if environ is None else environ
+    if _d117_literal_heredocs(command, host, environ) != command or _d117_view(command, host, environ) != (command, 0):
+        return True
+    try:
+        steps: list = []
+        _sh_walk(_sh_parse(command), None, steps)
+    except (_ShUnmodeled, RecursionError):
+        return False
+    return any(_d117_path_step(s) for s in steps)
+
+
+#: D117 R1: the opening of the form Claude Code writes a message in, `"$(cat <<'MARK'` and a newline, the marker quoted.
+_D117_CAT_HEREDOC = re.compile(r'"\$\(cat <<\s*(?P<q>[\'"])(?P<d>[A-Za-z_][A-Za-z0-9_]*)(?P=q)\n')
+
+
+def _d117_outside_quotes(text: str, end: int) -> bool:
+    """Whether text[end] stands outside every quote of text[:end] (single, double, backslash), as the shell reads it."""
+    single = double = False
+    i = 0
+    while i < end:
+        ch = text[i]
+        if single:
+            single = ch != "'"
+        elif ch == "\\":
+            i += 1
+        elif double:
+            double = ch != '"'
+        elif ch == "'":
+            single = True
+        elif ch == '"':
+            double = True
+        i += 1
+    return not single and not double
+
+
+def _d117_literal_heredocs(command: str, host: str, environ) -> str:
+    """D117 R1 (Nachtrag 48; under Claude Code only): the command with each `"$(cat <<'MARK'` … `MARK` … `)"` written as
+    the literal word it gives: the lines of the body up to the first line that is exactly MARK, without the newlines at
+    the end (the shell drops them from a substitution's output), in single quotes. Only where the double quote stands
+    outside every quote, no here-document stands before it, only blanks follow MARK up to `)"`, and the session is
+    measured and defines no `cat` (D90). Else, under Codex and for every other form, the command as it is."""
+    if host == "codex" or _D117_OFF.get() or '"$(cat <<' not in command or not _d117_unshadowed({"cat"}, environ):
+        return command
+    out, done = [], 0
+    for m in _D117_CAT_HEREDOC.finditer(command):
+        if m.start() < done or "<<" in command[done:m.start()] or not _d117_outside_quotes(command, m.start()):
+            break
+        delim, line_start, close = m.group("d"), m.end(), None
+        while line_start <= len(command):
+            nl = command.find("\n", line_start)
+            line = command[line_start:] if nl < 0 else command[line_start:nl]
+            if line == delim:
+                close = (line_start, len(command) if nl < 0 else nl + 1)
+                break
+            if nl < 0:
+                break
+            line_start = nl + 1
+        if close is None:
+            break
+        k = close[1]
+        while k < len(command) and command[k] in " \t\n":
+            k += 1
+        if not command.startswith(')"', k):
+            break
+        out += [command[done:m.start()], shlex.quote(command[m.end():close[0]].rstrip("\n"))]
+        done = k + 2
+    return "".join(out) + command[done:] if out else command
+
+
 class _ShKeep(Exception):
     """The whole command keeps the gate's answer of today; with floor "ask", raised to at least ask. step is the step
     the reason belongs to, where it belongs to one (a gated step that is not the first, D46)."""
@@ -11571,7 +11728,8 @@ def _sh_write_verdicts(steps: list, cwd: str, deadline: float, environ) -> tuple
     protected: set = set()
     writers: dict = {}
     env_now = os.environ if environ is None else environ
-    memo = _STATE_FILES_MEMO.set({})   # one read of the state files per folder for this command (D96)
+    outer = _STATE_FILES_MEMO.get()   # decide() holds one for the whole command, both judgments of D117
+    memo = _STATE_FILES_MEMO.set({} if outer is None else outer)   # one read per folder for this command (D96)
     try:
         values = _sh_line_values(steps, env_now)   # D100
         for s in steps:
@@ -11613,7 +11771,9 @@ def _sh_judge_steps(steps: list, cwd: str, deadline: float, host: str, environ, 
                           "ask" if named else None)
     carriers = [s for s in steps if s.kind == "carrier"]
     for s in steps:
-        if s.kind in ("carrier", "other") and _SH_GIT_TEXT.search(s.code_text()):
+        if s.kind in ("carrier", "other") and _SH_GIT_TEXT.search(s.code_text()) and not (
+                host != "codex" and not _D117_OFF.get() and _d117_path_step(s) and
+                _d117_unshadowed({s.head}, environ)):   # D117
             raise _ShKeep(f"{s.head} carries text that names git or gh", "ask")
         if s.kind == "carrier" and s.pipeline_size > 1 and any(
                 t.kind in ("git", "gh", "git-x") for t in s.before[len(s.before) - s.pipeline_size + 1:]):
@@ -13807,6 +13967,29 @@ def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, 
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
+    """The answer of _decide_judged, with one rule of D117 (Nachtrag 48): a word in data is no call, and so D117 takes
+    away an ask, never a deny. Where D117 can change the answer (_d117_touches) and the answer is no deny, the gate
+    answers once more without D117; is that answer a deny, it stands (kein Fall, der heute sperrt, wird frei; the corpus
+    counts a here-document that writes `git push --no-verify` into a file as harmful, S373). Both judgments read the
+    state files of a folder once (D96): the memo holds for the whole command and no longer."""
+    memo = _STATE_FILES_MEMO.set({})
+    try:
+        outcome = _decide_judged(command, cwd, deadline, host, environ)
+        if (outcome is None or outcome.decision != "deny") and _d117_touches(command, host, environ):
+            token = _D117_OFF.set(True)
+            try:
+                before = _decide_judged(command, cwd, deadline, host, environ)
+            finally:
+                _D117_OFF.reset(token)
+            if before is not None and before.decision == "deny":
+                return before
+        return outcome
+    finally:
+        _STATE_FILES_MEMO.reset(memo)
+
+
+def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude",
+                   environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
@@ -13857,6 +14040,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     the heaviest, never the first by its place (D72)."""
     head = _interpreter_heredoc_head(command)
     written = command if head is None else head
+    written = _d117_literal_heredocs(written, host, environ)   # D117 R1: a message in "$(cat <<'MARK' … )" is a word
     judged = _program_values(written)
     outcome = _decide_outcome(judged, cwd, deadline, host, environ)
     if outcome is not None and judged != written:
@@ -13976,7 +14160,8 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
     """The answer of the whole command as the gate gave it before class c: the scan, the safety net and the judge.
     With handover False (a step of class c) the command is not the plain push form for the hand-over (D35); with rules
     False (a step of class c) no rule of N24 applies, as a rule frees no step of a longer command (D25)."""
-    calls = gated_calls(command)
+    scan, data_words = _d117_view(command, host, environ)   # D117: a word in data is no call
+    calls = gated_calls(scan)
     # The plain push form decides the Codex warning (D12) and is a condition of the hand-over under Claude Code (D35).
     # Under Claude Code it decides nothing else, so a step of class c is judged as no plain form there.
     plain = _codex_plain_push(command) and (handover or host == "codex")
@@ -13990,8 +14175,8 @@ def _decide_outcome_whole(command: str, cwd: str, deadline: float, host: str, en
         applied = _match_rule(command, cwd, deadline, environ)
         if applied is not None and applied[0] == "free":
             return _approved_outcome(applied[1])
-    nw = _net_words(command)
-    unresolved = _net_unresolved(command)
+    nw = max(0, _net_words(scan) - data_words)
+    unresolved = _net_unresolved(scan)
     if not calls:
         return (_judge([net_call], cwd, deadline, host, plain_push=plain, environ=environ)
                 if (nw >= 1 or unresolved) else None)
@@ -14068,7 +14253,8 @@ def _write_targets(tool: str, tool_input: object) -> list[str] | None:
 
 
 #: D96: the state files of each folder, read once while class c judges the writes of one command; None outside it. A
-#: context variable, set and reset by _sh_write_verdicts, so no function rebinds a module-level name (N405-a).
+#: context variable, set and reset by decide() for the whole command (both judgments of D117) and by
+#: _sh_write_verdicts where none is set, so no function rebinds a module-level name (N405-a).
 _STATE_FILES_MEMO: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar("_STATE_FILES_MEMO", default=None)
 
 
@@ -20908,7 +21094,8 @@ def _done_order_verdict(command: str, host: str = "codex", environ: dict | None 
     (_read_only_command)."""
     environ = os.environ if environ is None else environ
     deadline = time.monotonic() + DEADLINE_SECONDS if deadline is None else deadline
-    if _read_only_command(command, host, environ, deadline) or "change" not in _done_order_calls(command):
+    if _read_only_command(command, host, environ, deadline) or \
+            "change" not in _done_order_calls(_d117_view(command, host, environ)[0]):   # D117
         return None
     return Verdict("ask", "NOT MEASURED: the command replaces or removes a local done order, or calls done-order in a "
                           "form the gate cannot read whole. A done order is a duty a person set (D38); a new order and "

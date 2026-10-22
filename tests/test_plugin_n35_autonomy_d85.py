@@ -44,6 +44,9 @@ _clean = d71._clean
 AUTONOMOUS = [gate.AUTONOMOUS_FLAG] if hasattr(gate, "AUTONOMOUS_FLAG") else []
 
 COMMIT = "git commit -m \"$(cat <<'EOF'\nfix: x\n\ngit push later\nEOF\n)\""
+#: Changed in Nachtrag 48 (D117): with a quoted marker the message form is free under Claude Code (R1), so the detour
+#: case takes the unquoted marker, which keeps its ask and the same rewrite.
+COMMIT_UNQUOTED = COMMIT.replace("<<'EOF'", "<<EOF")
 #: Detours: (form, first hint, the calls the rewrite names, {R} the repository); each asked at bbf576ff.
 DETOURS = [
     ("cd {R} && git status", "git_C_statt_cd", ["git -C {R} status"]),
@@ -51,7 +54,7 @@ DETOURS = [
     ("git log --oneline $(git rev-parse HEAD)", "git_nicht_in_subst",
      ["git rev-parse HEAD", "git log --oneline <output of call 1>"]),
     ("H=$(git rev-parse HEAD); echo $H", "git_nicht_in_subst", ["git rev-parse HEAD", "echo <output of call 1>"]),
-    (COMMIT, "nachricht_als_datei",
+    (COMMIT_UNQUOTED, "nachricht_als_datei",
      ["Write <a file outside the repository>", "git commit -F <a file outside the repository>"]),
     ("git worktree list | head", "pipe_teilen", ["git worktree list"]),
     ("git fetch origin && git log --oneline HEAD..origin/main", "kette_teilen",
