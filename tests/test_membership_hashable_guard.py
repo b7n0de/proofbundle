@@ -1197,6 +1197,13 @@ _LOOKUPS_CLASSIFIED = {
         (1, "own value: every caller passes what _schwaeche returned after `is not None`, the literal \"low-order\" or \"non-canonical\""),
     ("proofbundle/adapters/agt_receipt.py", "_vertrauensliste", "_NICHT_LESBAR", "art"):
         (1, "guarded: is_member(art, _NICHT_LESBAR) in the same branch"),
+    # Seen once the TRACE verifier (Z404) met this guard on main after 6.3.1. Each was read at its source.
+    ("proofbundle/adapters/trace_record.py", "_parse_public_jwk", "_CURVE_BYTES", "crv"):
+        (1, "guarded: `crv in (\"P-256\", \"P-384\")` against a tuple in the same branch, which compares and "
+         "hashes nothing"),
+    ("proofbundle/adapters/trace_record.py", "verify_trace_record", "_ALGS", "alg"):
+        (1, "guarded: alg is the literal \"EdDSA\" of the embedded form or what _read_jws returns, and it "
+         "returns alg only after is_member(alg, _ALGS)"),
     ("proofbundle/canonical.py", "_fremdkoerper", "FREMDKOERPER_KLASSEN", "id(klasse)"):
         (1, "own value: id() returns an int"),
     ("proofbundle/canonical.py", "_fremdkoerper", "_EINGEBAUT", "roh"):
@@ -1470,6 +1477,10 @@ _OTHER_USES_CLASSIFIED = {
         (1, "own value: a copy of a dict of string literals of this package, returned as the violation"),
     ("proofbundle/relation.py", "evaluate_relations_policy", "dict(_KEIN_OBJEKT)", "List"):
         (1, "own value: a copy of a dict of string literals of this package, returned as the violation"),
+    # Seen once the TRACE verifier (Z404) met this guard on main after 6.3.1.
+    ("proofbundle/adapters/trace_record.py", "TraceVerdict", "dict(SPEC_PIN)", "Dict"):
+        (1, "own value: a copy of SPEC_PIN, a dict of string literals of this package naming the pinned "
+         "specification, put into the verdict as its `specification`"),
     # Seen once a set or dict built over a module-level tuple constant is a container (the lens on
     # c3bd89a4). Each was read at its source.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "_kanonisch(argument 1)"):
