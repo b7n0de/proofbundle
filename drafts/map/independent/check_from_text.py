@@ -3,6 +3,12 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 36 (Codex thread 4302888167 on PR 358, no change to the text): the host of an absolute URI took any run of
+hexadecimal digits, colons, full stops, the letter v and the other unreserved and sub-delims characters between brackets,
+so https://[v] and https://[:::] were absolute URIs. An IP-literal is now an IPv6address or an IPvFuture, each row of
+the ABNF of RFC 3986 Appendix A written out. R36-IPLIT computes the status of M2 with such hosts under a pair with
+exactly that iss; R36-ORACLE holds the grammar to the ipaddress module and the old alternative to the thread's hosts.
+
 Round 35 (revision -03 of the receipts draft, no change to the text of Draft 2): Draft 1 is read in its -03. Its
 vectors, A.1, its section titles and the paragraph and list of Section 6 are those of the -02, and its vectors still end
 at the appendix of changes; the -03 adds to Section 7 and to the references only. No check and no vector changes.
@@ -235,8 +241,10 @@ Check categories:
 """
 import base64
 import hashlib
+import ipaddress
 import json as _json
 import os
+import random
 import re
 import struct as _struct
 import sys
@@ -2126,11 +2134,29 @@ check("D2", "S522-1T", well_formed and not inner_valid
 # "[" and "]" only around an IP-literal), 3.3 (path-abempty = *( "/" segment ), path-absolute, path-rootless =
 # segment-nz *( "/" segment ), path-empty; segment = *pchar, segment-nz = 1*pchar), 2.1 to 2.3. Round 20: the
 # hier-part has all four forms; before, only "//" authority path-abempty was written here, so an absolute URI such
-# as a did:x509 identifier (path-rootless) was wrongly no absolute URI.
+# as a did:x509 identifier (path-rootless) was wrongly no absolute URI. Round 36: an IP-literal is an IPv6address or
+# an IPvFuture, each row of the ABNF of RFC 3986 Appendix A written out below; a quoted string of ABNF is
+# case-insensitive (RFC 5234 Section 2.3), so "v" is also "V". Before, any run of these characters stood between the
+# brackets (Codex thread 4302888167 on PR 358).
 _unres, _sub = r"A-Za-z0-9\-._~", r"!$&'()*+,;="
 _pct = r"%[0-9A-Fa-f]{2}"
 _pchar = rf"(?:[{_unres}{_sub}:@]|{_pct})"
-_host = rf"(?:\[[0-9A-Fa-f:.vV{_unres}{_sub}]+\]|(?:[{_unres}{_sub}]|{_pct})*)"
+_h16 = r"[0-9A-Fa-f]{1,4}"
+_dec_octet = r"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])"
+_ls32 = rf"(?:{_h16}:{_h16}|{_dec_octet}\.{_dec_octet}\.{_dec_octet}\.{_dec_octet})"
+_ipv6 = "|".join([
+    rf"(?:{_h16}:){{6}}{_ls32}",                                  #                            6( h16 ":" ) ls32
+    rf"::(?:{_h16}:){{5}}{_ls32}",                                #                       "::" 5( h16 ":" ) ls32
+    rf"(?:{_h16})?::(?:{_h16}:){{4}}{_ls32}",                     # [               h16 ] "::" 4( h16 ":" ) ls32
+    rf"(?:(?:{_h16}:){{0,1}}{_h16})?::(?:{_h16}:){{3}}{_ls32}",   # [ *1( h16 ":" ) h16 ] "::" 3( h16 ":" ) ls32
+    rf"(?:(?:{_h16}:){{0,2}}{_h16})?::(?:{_h16}:){{2}}{_ls32}",   # [ *2( h16 ":" ) h16 ] "::" 2( h16 ":" ) ls32
+    rf"(?:(?:{_h16}:){{0,3}}{_h16})?::{_h16}:{_ls32}",            # [ *3( h16 ":" ) h16 ] "::"    h16 ":"   ls32
+    rf"(?:(?:{_h16}:){{0,4}}{_h16})?::{_ls32}",                   # [ *4( h16 ":" ) h16 ] "::"              ls32
+    rf"(?:(?:{_h16}:){{0,5}}{_h16})?::{_h16}",                    # [ *5( h16 ":" ) h16 ] "::"              h16
+    rf"(?:(?:{_h16}:){{0,6}}{_h16})?::",                          # [ *6( h16 ":" ) h16 ] "::"
+])
+_ipvfuture = rf"[vV][0-9A-Fa-f]+\.[{_unres}{_sub}:]+"             # "v" 1*HEXDIG "." 1*( unreserved / sub-delims / ":" )
+_host = rf"(?:\[(?:{_ipv6}|{_ipvfuture})\]|(?:[{_unres}{_sub}]|{_pct})*)"
 _hier = (rf"(?://(?:(?:[{_unres}{_sub}:]|{_pct})*@)?{_host}(?::[0-9]*)?(?:/{_pchar}*)*"
          rf"|/(?:{_pchar}+(?:/{_pchar}*)*)?|{_pchar}+(?:/{_pchar}*)*|)")
 _abs_uri = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*:{_hier}(?:\?(?:{_pchar}|[/?])*)?\Z")
@@ -3652,6 +3678,67 @@ check("D2", "R33-R14", _r14 is not None and norm_ws(_r14[1]) == "R1 preceded by 
       "are R1, Verified with MATCH",
       "row: %s" % (_r14,), "R14 %d bytes, R1 %d bytes; R14: %s; without the mark: %s" % (len(_b14), len(_b1), _got33,
                                                                                       _drop33))
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 36: an IP-literal in iss is an IPv6address or an IPvFuture (5.2.2 step 2, RFC 3986 3.2.2) ===")
+
+
+def _m2_iss36(iss_):
+    """M2 with iss replaced, signed again with the issuer seed of Draft 1 A.1; kid, sub and payload unchanged."""
+    ph36 = dict(cbor2.loads(ph_b))
+    ph36[15] = {1: iss_, 2: ph36[15][2]}
+    ph36_b = cenc(ph36)
+    sig36 = Ed25519PrivateKey.from_private_bytes(ISSUER_SEED).sign(cenc(["Signature1", ph36_b, b"", payload]))
+    return cenc(cbor2.CBORTag(18, [ph36_b, {}, payload, sig36]))
+
+
+_c36 = ([(h_, ("outside_profile", 2)) for h_ in ("[v]", "[:::]", "[v1.]", "[vg.x]", "[1::2::3]", "[12345::]",
+                                                  "[1:2:3:4::5:6:7:8]", "[::ffff:1.2.3.04]", "[1.2.3.4]",
+                                                  "[fe80::1%25eth0]", "[]")]
+        + [(h_, ("accepted", None)) for h_ in ("[::1]", "[2001:db8::7]", "[::ffff:192.0.2.1]", "[1:2:3:4:5:6:7:8]",
+                                                "[::]", "[v1.x]", "[V7.a:b]")])
+_got36 = [(h_, status20(_m2_iss36("https://" + h_), VEC["P1"]["R"], ISSUER_PK, [("https://" + h_, ISSUER_PK)],
+                        cpairs20), w_) for h_, w_ in _c36]
+check("DEMO", "R36-IPLIT", all(g_ == w_ for _, g_, w_ in _got36),
+      "Section 5.2.2 step 2 with RFC 3986 Section 3.2.2: M2 with an iss whose host is the IP-literal named, signed "
+      "again and under a pair with exactly that iss, is outside_profile at step 2 where the host is no IPv6address and "
+      "no IPvFuture ([v] and [:::] of the thread, a zone, a leading zero, nine groups, :: twice), and accepted where it "
+      "is one", *["host %s: %s (expected %s)" % (h_, g_, w_) for h_, g_, w_ in _got36])
+_rng36 = random.Random(36)
+
+
+def _is_ipv6_36(s_):
+    try:
+        ipaddress.IPv6Address(s_)
+        return True
+    except ValueError:
+        return False
+
+
+_tok36 = ["0", "1", "ab", "db8", "FFFF", "fffe", "12345", "g1", "1.2.3.4", "192.0.2.1", "1.2.3.04", "256.0.0.1"]
+
+
+def _one36():
+    """Groups, mostly good ones, with "::" at a random place in most strings and a stray empty group in some."""
+    g_ = [_rng36.choice(_tok36[:6]) if _rng36.random() < 0.8 else _rng36.choice(_tok36[6:])
+          for _ in range(_rng36.randint(1, 9))]
+    if _rng36.random() < 0.6:
+        i_ = _rng36.randint(0, len(g_))
+        g_ = g_[:i_] + [""] * (2 if i_ in (0, len(g_)) else 1) + g_[i_:]
+    if _rng36.random() < 0.15:
+        g_.insert(_rng36.randint(0, len(g_)), "")
+    return ":".join(g_)
+
+
+_cand36 = [_one36() for _ in range(5000)]
+_diff36 = [s_ for s_ in _cand36 if (_abs_uri.match("https://[%s]" % s_) is not None) != _is_ipv6_36(s_)]
+_old36 = re.compile(_abs_uri.pattern.replace(_host, rf"(?:\[[0-9A-Fa-f:.vV{_unres}{_sub}]+\]|(?:[{_unres}{_sub}]|{_pct})*)"))
+check("SELF", "R36-ORACLE", not _diff36 and sum(_is_ipv6_36(s_) for s_ in _cand36) > 500
+      and _old36.pattern != _abs_uri.pattern and _old36.match("https://[v]") and _old36.match("https://[:::]"),
+      "the IPv6address of this script agrees with the ipaddress module on 5000 generated strings, and the host "
+      "alternative before round 36 takes the two hosts of the thread (the check can fail)",
+      "valid %d of %d; differing: %s" % (sum(_is_ipv6_36(s_) for s_ in _cand36), len(_cand36), _diff36[:5] or "none"))
 print()
 
 # ---------------------------------------------------------------------------

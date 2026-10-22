@@ -216,10 +216,27 @@ def match(citation, receipt: bytes) -> str:
 
 
 # RFC 3986 absolute-URI = scheme ":" `hier-part` [ "?" query ], with the four forms of `hier-part` (Section 3) and "["
-# "]" only around an IP-literal (Section 3.2.2).
+# "]" only around an IP-literal (Section 3.2.2), which is an IPv6address or an IPvFuture as the ABNF of Appendix A
+# gives them, row for row. A quoted string of ABNF is case-insensitive (RFC 5234 Section 2.3), so "v" is also "V".
+# Before, the brackets took any run of these characters, so https://[v] and https://[:::] were absolute URIs
+# (Codex thread 4302888167 on PR 358).
 _U, _SD, _PCT = r"A-Za-z0-9\-._~", r"!$&'()*+,;=", r"%[0-9A-Fa-f]{2}"
 _PCH = rf"(?:[{_U}{_SD}:@]|{_PCT})"
-_HOST = rf"(?:\[[0-9A-Fa-f:.vV{_U}{_SD}]+\]|(?:[{_U}{_SD}]|{_PCT})*)"
+_H16 = r"[0-9A-Fa-f]{1,4}"
+_DEC_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])"
+_LS32 = rf"(?:{_H16}:{_H16}|{_DEC_OCTET}(?:\.{_DEC_OCTET}){{3}})"
+
+
+def _before(n: int) -> str:
+    """[ *(n-1)( h16 ":" ) h16 ], at most n groups before "::"; nothing for n = 0."""
+    return rf"(?:(?:{_H16}:){{0,{n - 1}}}{_H16})?" if n else ""
+
+
+_IPV6 = "|".join([rf"(?:{_H16}:){{6}}{_LS32}"] + [_before(n) + "::" + after for n, after in enumerate((
+    rf"(?:{_H16}:){{5}}{_LS32}", rf"(?:{_H16}:){{4}}{_LS32}", rf"(?:{_H16}:){{3}}{_LS32}",
+    rf"(?:{_H16}:){{2}}{_LS32}", rf"{_H16}:{_LS32}", _LS32, _H16, ""))])
+_IPVFUTURE = rf"[vV][0-9A-Fa-f]+\.[{_U}{_SD}:]+"
+_HOST = rf"(?:\[(?:{_IPV6}|{_IPVFUTURE})\]|(?:[{_U}{_SD}]|{_PCT})*)"
 _HIER = (rf"(?://(?:(?:[{_U}{_SD}:]|{_PCT})*@)?{_HOST}(?::[0-9]*)?(?:/{_PCH}*)*"
          rf"|/(?:{_PCH}+(?:/{_PCH}*)*)?|{_PCH}+(?:/{_PCH}*)*|)")
 ISS_RE = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*:{_HIER}(?:\?(?:{_PCH}|[/?])*)?\Z")

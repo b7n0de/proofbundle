@@ -10,15 +10,23 @@ signature meets the four rules of that Section 4.4, R as well as S, with the Sig
 The keys here are made at run time: the eight points of small order, in every encoding that decodes to one of them,
 and a fresh key from os.urandom, alone and with a point of order 8 added. No key is stored in this file.
 
+Step 2: iss of the key profile is an absolute URI of RFC 3986, and an IP-literal in it is an IPv6address or an
+IPvFuture (Section 3.2.2). The statements of these cases are M2 with iss replaced, signed again with the issuer test
+seed of the receipts draft's vectors.json, under a configured pair with exactly that iss; the IPv6 grammar is compared
+with the ipaddress module on generated strings, and the grammar before the fix fails the same comparison.
+
 Run: python3 -m unittest test_check_mappings   (in this folder)
 """
 from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import pathlib
+import random
+import re
 import subprocess
 import sys
 import unittest
@@ -78,7 +86,9 @@ def small_order_encodings():
 class Examples:
     def __init__(self):
         self.d = json.loads((HERE / "mappings.json").read_text(encoding="utf-8"))
-        vectors = json.loads((SER / "vectors.json").read_text(encoding="utf-8"))["vectors"]
+        doc = json.loads((SER / "vectors.json").read_text(encoding="utf-8"))
+        vectors = doc["vectors"]
+        self.issuer_seed = bytes.fromhex(doc["test_keys"]["issuer"]["ed25519_seed_hex"])
         self.p1 = bytes.fromhex(next(v for v in vectors if v["id"] == "P1")["receipt_hex"])
         self.receipt_key = base64.b64decode(self.d["issuer_public_key_b64"])
         self.iss = self.d["receiver_pairs"][0][0]
@@ -96,6 +106,19 @@ class Examples:
 
     def status(self, stmt: bytes, key: bytes):
         return cm.check_statement(stmt, self.p1, self.receipt_key, [(self.iss, key)])
+
+    def with_iss(self, iss: str) -> bytes:
+        """M2 with iss replaced and signed again under the issuer test key; kid, sub and payload unchanged."""
+        prot = dict(cbor2.loads(self.prot_b))
+        prot[15] = {1: iss, 2: prot[15][2]}
+        prot_b = cm.cbor_encode(prot)
+        tbs = cm.cbor_encode(["Signature1", prot_b, b"", self.payload])
+        sig = Ed25519PrivateKey.from_private_bytes(self.issuer_seed).sign(tbs)
+        return cm.cbor_encode(cbor2.CBORTag(18, [prot_b, {}, self.payload, sig]))
+
+    def status_under_its_pair(self, iss: str):
+        """The status of with_iss(iss) when the Receiver configured exactly (iss, issuer test key)."""
+        return cm.check_statement(self.with_iss(iss), self.p1, self.receipt_key, [(iss, self.receipt_key)])
 
 
 class FreshKey:
@@ -215,6 +238,72 @@ class TheSignatureMeetsTheFourRules(unittest.TestCase):
         for r_bytes in others:
             stmt = EX.statement(key.public, lambda tbs, rb=r_bytes: key.sign_by_hand(key.public, tbs, r_bytes=rb))
             self.assertEqual(EX.status(stmt, key.public), ("signature_invalid", 4), r_bytes.hex())
+
+
+#: The host alternative of the issuer grammar before the fix: any run of these characters between brackets.
+OLD_HOST = rf"(?:\[[0-9A-Fa-f:.vV{cm._U}{cm._SD}]+\]|(?:[{cm._U}{cm._SD}]|{cm._PCT})*)"
+
+
+def generated_ipv6_candidates(n: int, seed: int):
+    """n strings of hexadecimal groups, dotted decimals and empty parts joined by colons, from a fixed seed."""
+    rng = random.Random(seed)
+    octets = [0, 1, 9, 10, 99, 100, 199, 200, 249, 250, 255, 256, 300, "01", "00"]
+    out = []
+    for _ in range(n):
+        parts = []
+        for _ in range(rng.randint(1, 10)):
+            r = rng.random()
+            if r < 0.55:
+                parts.append("".join(rng.choice("0123456789abcdefABCDEF") for _ in range(rng.randint(0, 5))))
+            elif r < 0.75:
+                parts.append(".".join(str(rng.choice(octets)) for _ in range(rng.randint(1, 5))))
+            else:
+                parts.append("")
+        out.append(":".join(parts))
+    return out
+
+
+def is_ipv6(s: str) -> bool:
+    try:
+        ipaddress.IPv6Address(s)
+        return True
+    except ValueError:
+        return False
+
+
+class TheIssuerIsAnAbsoluteUri(unittest.TestCase):
+    """Step 2 of the key profile: iss is an absolute URI (RFC 3986 Section 4.3), and "[" and "]" stand only around an
+    IP-literal, an IPv6address or an IPvFuture (Section 3.2.2). Codex thread 4302888167 on PR 358: https://[v] and
+    https://[:::] passed step 2 and could be accepted under a configured pair with exactly that iss."""
+
+    def test_the_two_hosts_of_the_thread_are_outside_the_profile_under_their_exact_pair(self):
+        for host in ("[v]", "[:::]"):
+            self.assertEqual(EX.status_under_its_pair("https://" + host), ("outside_profile", 2), host)
+
+    def test_ip_literals_of_the_grammar_are_accepted_under_their_exact_pair(self):
+        for host in ("[::1]", "[2001:db8::7]", "[::ffff:192.0.2.1]", "[1:2:3:4:5:6:7:8]", "[::]", "[v1.x]",
+                     "[V7.a:b]", "[vF.!$&'()*+,;=:-._~]"):
+            self.assertEqual(EX.status_under_its_pair("https://" + host + "/eval"), ("accepted", None), host)
+
+    def test_near_neighbours_are_outside_the_profile(self):
+        for host in ("[v1.]", "[v.x]", "[vg.x]", "[1::2::3]", "[12345::]", "[1:2:3:4:5:6:7:8:9]",
+                     "[1:2:3:4::5:6:7:8]", "[::ffff:1.2.3.04]", "[::256.1.1.1]", "[1.2.3.4]", "[fe80::1%25eth0]",
+                     "[]", "[::1", "::1]"):
+            self.assertEqual(EX.status_under_its_pair("https://" + host), ("outside_profile", 2), host)
+
+    def test_the_ipv6_grammar_agrees_with_the_ipaddress_module(self):
+        cands = generated_ipv6_candidates(20000, 4302888167)
+        valid = [s for s in cands if is_ipv6(s)]
+        self.assertGreater(len(valid), 500)
+        differ = [s for s in cands if (cm.ISS_RE.match("https://[%s]" % s) is not None) != is_ipv6(s)]
+        self.assertEqual(differ, [])
+
+    def test_the_old_grammar_fails_the_same_comparison(self):
+        old = re.compile(cm.ISS_RE.pattern.replace(cm._HOST, OLD_HOST))
+        self.assertNotEqual(old.pattern, cm.ISS_RE.pattern)
+        self.assertTrue(old.match("https://[v]") and old.match("https://[:::]"))
+        cands = generated_ipv6_candidates(20000, 4302888167)
+        self.assertTrue(any((old.match("https://[%s]" % s) is not None) != is_ipv6(s) for s in cands))
 
 
 class TheExamplesKeepTheirStatus(unittest.TestCase):
