@@ -7,8 +7,9 @@ front of bytes, and bytes in UTF-16 or UTF-32. Each is refused now with the erro
 (`BundleFormatError`), so every caller handles it the way it handles a duplicate key.
 
 The first class holds the reader. The second holds one case per verify path whose outcome changed: each was a
-positive verdict before (or a value that left the surface as JSON no reader parses) and is a refusal now. Integers
-outside the I-JSON range are not decided here; that is a question to the owner.
+positive verdict before (or a value that left the surface as JSON no reader parses) and is a refusal now. Integer
+literals outside the I-JSON range (+-(2**53 - 1)) are refused too, by owner choice A of 2026-10-22, with the bound
+and the literal rule of the Rust verifier.
 """
 from __future__ import annotations
 
@@ -95,12 +96,42 @@ class TheReaderTakesOnlyJson(unittest.TestCase):
 
     def test_the_refusal_is_the_error_of_a_duplicate_key(self):
         refusals = []
-        for form in ('{"a": 1, "a": 2}', '{"a": NaN}', BOM + b"{}", "{}".encode("utf-16")):
+        for form in ('{"a": 1, "a": 2}', '{"a": NaN}', BOM + b"{}", "{}".encode("utf-16"), '{"a": 9007199254740992}'):
             try:
                 loads_strict(form)
             except Exception as exc:  # noqa: BLE001 - the type is what is measured
                 refusals.append(type(exc))
-        self.assertEqual(refusals, [BundleFormatError] * 4)
+        self.assertEqual(refusals, [BundleFormatError] * 5)
+
+
+class TheReaderTakesOnlyIJsonIntegers(unittest.TestCase):
+    """Owner choice A (2026-10-22): an integer literal outside +-(2**53 - 1) is refused, as the Rust verifier refuses it
+    (tools/pb_verify_rs/src/main.rs, `IJSON_INT_MAX`, `IJSON_INT_MIN` and `ganzzahl_literale_pruefen`, owner order
+    OA-2f7da83522). The bound is inclusive, and the literal decides: a number without `.`, `e` or `E` is an integer
+    literal, any other stays a float literal, so the RFC 8785 appendix B lines Rust names are still read."""
+
+    REFUSED = ("9007199254740992", "-9007199254740992", "[18446744073709551616]", '{"v": 295147905179352825856}',
+               "1" + "0" * 39, '{"x": ' + "9" * 2400 + "}")
+
+    def test_RED_an_integer_literal_outside_the_i_json_range_is_refused(self):
+        for text in self.REFUSED:
+            for form in (text, text.encode("ascii")):
+                with self.subTest(form=form[:60]):
+                    with self.assertRaises(BundleFormatError) as info:
+                        loads_strict(form)
+                    self.assertIn("I-JSON", str(info.exception))
+                    self.assertLess(len(str(info.exception)), 300, "the literal is not mirrored at full length")
+
+    def test_CONTROL_the_edge_and_float_literals_are_taken_as_rust_takes_them(self):
+        for text, want in (("9007199254740991", 9007199254740991), ("-9007199254740991", -9007199254740991),
+                           ("0", 0), ("-0", 0), ("9007199254740992.0", 9007199254740992.0), ("1e21", 1e21),
+                           ("2.9514790517935283e20", 2.9514790517935283e20),
+                           ("295147905179352825856.0", 295147905179352825856.0),
+                           ('"9007199254740992"', "9007199254740992")):
+            with self.subTest(text=text):
+                got = loads_strict(text)
+                self.assertEqual(got, want)
+                self.assertIs(type(got), type(want))
 
 
 class EachVerifyPathWhoseOutcomeChanged(unittest.TestCase):
@@ -140,6 +171,20 @@ class EachVerifyPathWhoseOutcomeChanged(unittest.TestCase):
             with self.subTest(label=label):
                 res = verify_status_snapshot(_resigned(token, signer, payload=raw), **args)
                 self.assertFalse(res["ok"], res)
+
+    def test_RED_a_status_list_token_whose_exp_is_beyond_i_json_is_refused(self):
+        """`exp` must be an int and was read at any size; a token with `exp = 2**53` verified as fresh at 07a722d5."""
+        from proofbundle.statuslist import verify_status_snapshot  # noqa: PLC0415
+        token, signer = self._status_token()
+        payload = json.loads(_unb64u(token.split(".")[1]))
+        args = dict(expected_uri="https://issuer.example/sl/1", index=0, issuer_pubkey=_raw_pub(signer),
+                    now=1_780_000_100)
+        payload["exp"] = 2 ** 53 - 1
+        self.assertTrue(verify_status_snapshot(_resigned(token, signer, payload=json.dumps(payload).encode()),
+                                               **args)["ok"], "precondition: the largest I-JSON exp is taken")
+        payload["exp"] = 2 ** 53
+        res = verify_status_snapshot(_resigned(token, signer, payload=json.dumps(payload).encode()), **args)
+        self.assertFalse(res["ok"], res)
 
     def test_RED_an_enclave_attestation_carrying_nan_is_refused(self):
         from proofbundle.experimental.enclave import (issue_enclave_attestation,  # noqa: PLC0415
@@ -235,7 +280,9 @@ class TheRefusalNamesItsOwnReason(unittest.TestCase):
                 ("NaN in the header", {"header": b'{"alg":"EdDSA","x":NaN}'}, "is not a JSON number"),
                 ("a byte order mark before the header", {"header": BOM + b'{"alg":"EdDSA"}'}, "byte order mark"),
                 ("a lone surrogate in the header", {"header": b'{"alg":"EdDSA","x":"\\ud800"}'}, "surrogate"),
-                ("NaN in a disclosure", {"disclosure": b'["c2FsdA","n",NaN]'}, "is not a JSON number")):
+                ("NaN in a disclosure", {"disclosure": b'["c2FsdA","n",NaN]'}, "is not a JSON number"),
+                ("2**53 in the header", {"header": b'{"alg":"EdDSA","x":9007199254740992}'}, "I-JSON"),
+                ("2**53 in a disclosure", {"disclosure": b'["c2FsdA","n",9007199254740992]'}, "I-JSON")):
             with self.subTest(label=label):
                 res = verify_sd_jwt(_sd_jwt(**kwargs))
                 self.assertFalse(res["structure_ok"], res)
@@ -258,13 +305,14 @@ class TheRefusalNamesItsOwnReason(unittest.TestCase):
         header = json.loads(_unb64u(kb.split(".")[0]))
         for label, raw, reason in (
                 ("NaN", json.dumps({**header, "x": float("nan")}).encode(), "is not a JSON number"),
+                ("2**53", json.dumps({**header, "x": 2 ** 53}).encode(), "I-JSON"),
                 ("a duplicate key", b'{"alg":"EdDSA","alg":"EdDSA"}', "duplicate JSON key")):
             with self.subTest(label=label):
                 res = verify_key_binding(sd_part + _resigned(kb, holder, header=raw), expected_aud="verifier.example",
                                          expected_nonce="n-1", now=IAT + 10)
                 self.assertFalse(res["ok"], res)
                 self.assertIn(reason, res["detail"])
-                if label == "NaN":
+                if label != "a duplicate key":
                     self.assertNotIn("duplicate", res["detail"].lower(), res["detail"])
 
 

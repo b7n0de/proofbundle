@@ -47,11 +47,13 @@ both (SPEC §6). So that one receipt has one root, the root is computed over one
    - the header decodes to a JSON object as proofbundle's strict JSON reader reads it
      (`_strict_json.loads_strict`, the reader verification uses). That reader is Python's `json`
      module over the decoded bytes, with a duplicate key or a lone surrogate in a string refused and
-     with the limits of the default verification budget: 200,000 keys and items, nesting depth 64
+     with the limits of the default verification budget: 200,000 keys and items and nesting depth 64
      (a value counts one level below the container that holds it, so 64 nested arrays pass only when
-     the innermost one is empty), and integers of 8,192 bits. An integer literal longer than the
-     interpreter's `sys.get_int_max_str_digits()` is refused too; that is 4,300 digits by default in
-     CPython, and a different setting changes it. The reader's input and string limits (8 MiB,
+     the innermost one is empty). An integer literal outside ±(2^53 − 1), the I-JSON range (RFC 7493
+     §2.2), is refused; a number with a fraction or an exponent is a float literal and stays read
+     (since 2026-10-22; before, integers of 8,192 bits were read, and an integer literal longer than
+     the interpreter's `sys.get_int_max_str_digits()`, 4,300 digits by default in CPython, was
+     refused). The reader's input and string limits (8 MiB,
      1,000,000 characters) do not bind here: the receipt's own budget refuses any string over
      1,000,000 characters, the compact included, before a root is computed, so such a slot is
      refused, never folded. It refuses what that module would accept beyond RFC 8259: `NaN`,

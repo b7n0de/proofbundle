@@ -196,7 +196,7 @@ def _strict_json_object(raw: bytes) -> "dict | None":
     """docs/ANCHORS.md, step 2: a JSON object as Python's ``json`` module reads the decoded bytes, a
     duplicate key or a lone surrogate refused, and refused too what the text names beyond RFC 8259
     (``NaN``, ``Infinity``, a number that overflows to infinity, a UTF-8 byte order mark, UTF-16 and
-    UTF-32; refused since 2026-10-22, read before).
+    UTF-32, and an integer literal outside +-(2**53 - 1); refused since 2026-10-22, read before).
 
     NOT INDEPENDENT on that axis (lens run 3 at 15d0b643): it reads with the same module the code
     reads with, so it pins that code and text agree, not that the module is right. The size limits of
@@ -215,10 +215,16 @@ def _strict_json_object(raw: bytes) -> "dict | None":
         if value in (float("inf"), float("-inf")):
             raise ValueError("no finite double")
         return value
+
+    def i_json(text):
+        if len(text.lstrip("-")) > 16 or abs(int(text)) > 2**53 - 1:
+            raise ValueError("integer outside I-JSON")
+        return int(text)
     if raw[:3] == b"\xef\xbb\xbf" or raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:4]:
         return None
     try:
-        obj = json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_constant, parse_float=finite)
+        obj = json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_constant, parse_float=finite,
+                         parse_int=i_json)
     except ValueError:
         return None
     stack = [obj]
@@ -247,7 +253,8 @@ def _docs_name_the_fold_domain(text: str) -> list:
               "UTF-16 and UTF-32 accepted": "UTF-16 or UTF-32", "the digit limit": "4,300 digits",
               "the fold ignores the verdict": "whether or not its signature verifies",
               "how depth is counted": "one level below the container",
-              "the digit limit is the interpreter's": "get_int_max_str_digits"}
+              "the digit limit is the interpreter's": "get_int_max_str_digits",
+              "the I-JSON integer range": "±(2^53 − 1)"}
     return [name for name, phrase in wanted.items() if phrase not in section]
 
 
@@ -529,7 +536,8 @@ class TwinsHaveOneIdentity(unittest.TestCase):
         Until 07b6122c this case pinned that acceptance. Since DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01
         (2026-10-22) the strict reader refuses these forms, as the Rust verifier always did; the case now
         pins the other side, as the edge forms above: neither spelling verifies, neither is folded, and
-        the code and the recipe as written agree on each root."""
+        the code and the recipe as written agree on each root. An integer literal outside the I-JSON
+        range joined them the same day (owner choice A)."""
         from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
 
         def signed(header_raw: bytes) -> str:
@@ -542,7 +550,8 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
         forms = {"NaN in the header": b'{"alg":"ES256","typ":"dc+sd-jwt","x":NaN}',
                  "a UTF-8 byte order mark": b"\xef\xbb\xbf" + b'{"alg":"ES256","typ":"dc+sd-jwt"}',
-                 "UTF-16-LE text": '{"alg":"ES256","typ":"dc+sd-jwt"}'.encode("utf-16-le")}
+                 "UTF-16-LE text": '{"alg":"ES256","typ":"dc+sd-jwt"}'.encode("utf-16-le"),
+                 "2**53 in the header": b'{"alg":"ES256","typ":"dc+sd-jwt","x":9007199254740992}'}
         for label, raw in forms.items():
             compact = signed(raw)
             bundle = _carrying(compact, self.pub_b64)

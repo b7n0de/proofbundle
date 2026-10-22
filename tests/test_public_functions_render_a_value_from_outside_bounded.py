@@ -21,9 +21,11 @@ functions again from the suite of main 570dd164 with the commits carried before 
 there): the smallest recorded call that returns, and the largest under 6,000 bytes. A function whose recorded calls all
 refuse borrows a returning call of a sibling in its module. Values JSON cannot hold are written as
 markers (`_decode`); a private key is written as the name of one of two fixed test keys, never as key
-material, because this file ships in the sdist and must not read a key from a file. One entry is
-written rather than recorded and says so in its `note`: the lineage value
-`evaluate_relations_policy` renders under `reject_superseded`, which no recorded call reaches. A
+material, because this file ships in the sdist and must not read a key from a file. Two entries are
+written rather than recorded and say so in their `note`: the lineage value
+`evaluate_relations_policy` renders under `reject_superseded`, which no recorded call reaches, and
+the second seed of `loads_strict`, whose recorded integer literal the parser refuses since
+2026-10-22 (I-JSON). A
 function that needs a file, a key object or a callable is seeded in `_HAND_SEEDS`.
 `test_every_family_member_is_seeded` is the forcing function: a new public function without a seed
 or a named reason turns it red.

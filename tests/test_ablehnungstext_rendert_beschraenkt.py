@@ -25,7 +25,8 @@ DREI TEILE, weil einer nicht reicht (Muster des Hauses):
 
 EHRLICHE GRENZE des Riegels: er erkennt die Form ``sorted(set(x) - …)`` / ``sorted(extra|unknown)`` im
 Quelltext. Eine Interpolation ``{wert!r}`` prüft er NICHT strukturell — davon gibt es rund 190 im Paket, die
-meisten über Werte, die ``loads_strict`` bereits auf 4300 Ziffern, ``json_depth`` und ``string_len`` begrenzt.
+meisten über Werte, die ``loads_strict`` bereits auf den I-JSON-Bereich der Ganzzahlen (seit 2026-10-22,
+vorher 4300 Ziffern), ``json_depth`` und ``string_len`` begrenzt.
 Der direct-dict-Pfad ist über den Budget-Chokepoint geschlossen; die verbleibende Lücke sind RP-Kwargs, die
 ohne Budget interpoliert werden (die genannten sind umgestellt, siehe ``test_rp_kwarg_typboden_familie``).
 
@@ -176,10 +177,15 @@ class DerMechanismusSitztAmChokepoint(unittest.TestCase):
         später. Eine echte Baumgröße liegt unter 2**64, ein Zeitstempel unter 2**63; 8192 Bit sind
         astronomisch großzügig. Diese Zeile hält die Grenze fest, damit eine spätere Änderung sie nicht
         stillschweigend verschiebt.
+
+        SEIT 2026-10-22 (Owner-Wahl A zu I-JSON) weist der Leser schon jedes Ganzzahl-Literal ausserhalb
+        +-(2**53 - 1) ab, also auch die 2400 Ziffern, die hier vorher geparst wurden. Auf dem DATEI-Pfad
+        greift ``int_bits`` damit nicht mehr zuerst; auf dem direct-dict-Pfad bleibt es die Schranke.
         """
         from proofbundle._strict_json import loads_strict
         self.assertEqual(DEFAULT_BUDGET.int_bits, 8192)
-        loads_strict('{"x": %s}' % ("9" * 2400))                     # unter der Schranke: geparst
+        with self.assertRaises(BundleFormatError):
+            loads_strict('{"x": %s}' % ("9" * 2400))                  # unter int_bits, ausserhalb I-JSON
         with self.assertRaises(ProofBundleError):
             loads_strict('{"x": %s}' % ("9" * 3000))                  # darüber: typisiert, vorher geparst
         with self.assertRaises(ProofBundleError):

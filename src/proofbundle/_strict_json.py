@@ -33,8 +33,9 @@ Only JSON (DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01, 2026-10-22): Python's ``json``
 a UTF-8 byte order mark or in UTF-16 or UTF-32. None of these is JSON under RFC 8259 and I-JSON (RFC 7493),
 none has a form under RFC 8785, and the second verifier of this repository refuses each. ``loads_strict``
 refuses them too, with the error of a duplicate key, so every caller handles them as it handles a duplicate.
-Integers outside the I-JSON range are still read here (an open owner question; RFC 8785 refuses them when a
-value is canonicalized).
+An integer literal outside +-(2**53 - 1) is refused the same way (owner choice A, 2026-10-22), with the bound
+and the literal rule of the Rust verifier (``tools/pb_verify_rs/src/main.rs``, owner order OA-2f7da83522):
+before, it was read here and refused only where RFC 8785 canonicalized it.
 """
 from __future__ import annotations
 
@@ -81,6 +82,25 @@ def _finite_number(text: str) -> float:
     if not math.isfinite(value):
         raise BundleFormatError(f"the JSON number {text[:40]!r} has no finite IEEE 754 double (RFC 7493 section "
                                 "2.2) — rejected fail-closed so both verifiers agree")
+    return value
+
+
+#: The I-JSON range of an integer (RFC 7493 section 2.2), inclusive at both ends, as the Rust verifier holds it
+#: (``IJSON_INT_MAX``, ``IJSON_INT_MIN``) and as ``rfc8785`` holds it (``_INT_MAX``, ``_INT_MIN``).
+_IJSON_INT_MAX = 2**53 - 1
+
+
+def _ijson_int(text: str) -> int:
+    """``parse_int`` hook: ``json`` hands it every number literal without a fraction or an exponent, which is the
+    integer literal of the Rust verifier (a token without ``.``, ``e`` or ``E``). One outside +-(2**53 - 1) is
+    refused; a float literal such as ``1e21`` or ``9007199254740992.0`` never reaches this hook and stays read, as
+    RFC 8785 appendix B needs it. The digits are counted before the conversion, so a long literal costs no int."""
+    ziffern = len(text) - text.startswith("-")
+    value = int(text) if ziffern <= 16 else None
+    if value is None or not -_IJSON_INT_MAX <= value <= _IJSON_INT_MAX:
+        gezeigt = text if len(text) <= 40 else f"{text[:24]}... ({ziffern} digits)"
+        raise BundleFormatError(f"the JSON integer literal {gezeigt} is outside the I-JSON range +-(2**53 - 1) "
+                                "(RFC 7493 section 2.2) — rejected fail-closed so both verifiers agree")
     return value
 
 
@@ -257,14 +277,16 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
     """``json.loads`` that rejects duplicate object keys at any nesting depth, and everything that is no JSON.
 
     Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), for ``NaN``, ``Infinity``
-    and ``-Infinity``, for a number without a finite double (``1e400``), for bytes with a UTF-8 byte order mark or
+    and ``-Infinity``, for a number without a finite double (``1e400``), for an integer literal outside
+    +-(2**53 - 1), for bytes with a UTF-8 byte order mark or
     in UTF-16 or UTF-32 (text with a leading U+FEFF stays the ``ValueError`` ``json`` raises), for
     pathologically deep nesting (both the CPython ``RecursionError`` on <=3.11 AND the explicit
     ``budget.json_depth`` bound that catches the 3.12+ case where the C scanner accepts deep input without
     raising — one stable ``"JSON nesting is too deep"`` outcome on every interpreter), and maps the
     ``int``/``str`` conversion-limit ``ValueError`` from a JSON integer literal
     with more than ``sys.get_int_max_str_digits()`` digits (CWE-674 / CVE-2020-10735) to it too —
-    never a raw traceback — mirroring :func:`proofbundle.bundle.load_bundle`. Ordinary JSON syntax
+    never a raw traceback — mirroring :func:`proofbundle.bundle.load_bundle` (since 2026-10-22 the
+    I-JSON rule refuses such a literal before any conversion; the mapping stays as a backstop). Ordinary JSON syntax
     errors keep raising ``ValueError`` (``json.JSONDecodeError``) so existing ``except (ValueError,
     ...)`` handling at the call sites stays correct.
 
@@ -305,7 +327,7 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         _utf8_bytes_only(bytes(text[:4]))
     try:
         obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys, parse_constant=_no_json_constant,
-                         parse_float=_finite_number)
+                         parse_float=_finite_number, parse_int=_ijson_int)
     except RecursionError as exc:
         # CPython <=3.11 raises here on deep nesting; 3.12+ accepts it and the explicit depth bound in
         # _enforce_structural_budget catches it below. Both map to the SAME BundleFormatError.
