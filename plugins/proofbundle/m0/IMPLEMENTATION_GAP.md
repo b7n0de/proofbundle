@@ -4,7 +4,8 @@ Each row: the property as [PRODUCT_SPEC.md](PRODUCT_SPEC.md) wants it, what stan
 statement is about, and the measurement behind it. A harness measurement starts the hook or the server as a process with
 a recorded event or request; a host measurement runs the real host. Where nothing was measured, the row says NOT
 MEASURED and claims nothing. Written for Nachtrag 45 (2026-10-20); the head of this delivery carries the gate blob
-1c4b7810, the same as commit edfb9ace.
+1c4b7810, the same as commit edfb9ace. Nachtrag 48 adds the owner answers O45-1 to O45-3 as decided and the triage of
+PRODUCT_SPEC.md; the measurements of the rows stay those named in them.
 
 ## Claude Code
 
@@ -42,7 +43,7 @@ MEASURED and claims nothing. Written for Nachtrag 45 (2026-10-20); the head of t
 
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
-| V-CX-1 | the plugin loads in Codex with a real model | not run | NOT MEASURED; BLOCKED until the run at the owner's machine (D16) | n/a | n/a |
+| V-CX-1 | the plugin loads in Codex with a real model | not run | NOT MEASURED; BLOCKED until the run at the owner's machine (D16); Codex Verify counts for M1 only after that run (O45-2) | n/a | n/a |
 | V-CX-2 | the server, the skills and the manifest Codex reads | tests/test_codex_plugin.py | VERIFIED (harness) | edfb9ace | test files at the head |
 | V-CX-3 | every `verify_receipt` result under Codex says the server cannot see whether the hooks run | `gate_note` in the result | VERIFIED (harness) | edfb9ace | tests/test_codex_plugin.py |
 | V-CX-4 | `emit_receipt` under Codex | the plugin data directory is not in the environment Codex hands the server, so `key_path` is needed | NOT MEASURED in a host (documented in the README) | n/a | n/a |
@@ -52,7 +53,7 @@ MEASURED and claims nothing. Written for Nachtrag 45 (2026-10-20); the head of t
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
 | G-CX-1 | the gate answers under `--host codex` against Codex's hook schema | tests and fallbook under both hosts | VERIFIED (harness) | edfb9ace | tests/test_codex_plugin.py; fallbook (PLUGIN_N45) |
-| G-CX-2 | the gate runs inside a Codex turn with a real model | not run | NOT MEASURED; BLOCKED until the run at the owner's machine (D16) | n/a | n/a |
+| G-CX-2 | the gate runs inside a Codex turn with a real model | not run | NOT MEASURED; BLOCKED until TG-5 (O45-2) | n/a | n/a |
 | G-CX-3 | hooks run only after the user trusts them, and then block | Codex 0.161.0 with a scripted local model loads the Stop hook, runs it after trust, inserts a block in the same turn | VERIFIED (host, scripted model) | not named in D28 | host runs of 2026-10-08 (D28) |
 | G-CX-4 | a plain `git push` under Codex is denied | it warns and is not denied (owner choice Karte 5 A with D) | INACTIVE | edfb9ace | README, D12 |
 | G-CX-5 | no autonomous answer under Codex | `.codex-plugin/plugin.json` starts the gate with `--host codex`, without `--autonomous` | VERIFIED | edfb9ace | the manifest at the head |
@@ -62,8 +63,8 @@ MEASURED and claims nothing. Written for Nachtrag 45 (2026-10-20); the head of t
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
 | P-1 | house profile: Guard on, `strict`, autonomous answer under Claude Code | the one manifest set that ships | VERIFIED | edfb9ace | the manifests at the head |
-| P-2 | delivery profile with the Guard off or observing until M2 | no such setting exists | INACTIVE; the default is REQUIRES APPROVAL | n/a | n/a |
-| P-3 | an observing Guard that logs and never denies or asks | not built | INACTIVE | n/a | n/a |
+| P-2 | delivery profile with the Guard off until M2, decided by the owner (O45-3) | no such setting exists | INACTIVE | n/a | n/a |
+| P-3 | an observing Guard that logs and never denies or asks | not built; only on the owner's request, and then built and measured (O45-3) | INACTIVE | n/a | n/a |
 | L-1 | clean install from the marketplace, per host | not run in a recorded measurement | NOT MEASURED | n/a | n/a |
 | L-2 | update from one plugin version to the next, per host | not run | NOT MEASURED | n/a | n/a |
 | L-3 | removal, per host, and what stays behind (data folder, keys, gate directory) | the README describes Claude Code's behaviour (`--keep-data`); not run | NOT MEASURED | n/a | n/a |

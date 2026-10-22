@@ -4,7 +4,8 @@ What has to be measured, per host and area, before a property of [PRODUCT_SPEC.m
 [IMPLEMENTATION_GAP.md](IMPLEMENTATION_GAP.md). Nothing in this file is a result. Every run keeps: the commit and the
 gate blob, the host and its version, the model (or "scripted"), the date, the plugin version, the pinned package, the
 command, the full output, and the gate log lines it produced. A run in a test harness and a run in a real host are kept
-apart and named as such.
+apart and named as such. A row that fails is triaged by the four questions of PRODUCT_SPEC.md before it blocks
+Verify, the Guard or both.
 
 ## Kinds of test
 
@@ -28,6 +29,7 @@ apart and named as such.
 | TV-5 | Claude Code | Real host | `/mcp` lists `plugin:proofbundle:proofbundle` with seven tools after a fresh start | listed; V-CC-2 moves from FAILED only with this run |
 | TV-6 | Codex | Real host | the same skills and tools in a Codex turn with a real model, at the owner's machine (D16) | listed and answering; `gate_note` present |
 | TV-7 | both | Positive | `safe_for_automation` and `automation_blockers` are copied, never derived | equal to the package's report; `null` with `not reported by the core` where absent |
+| TV-8 | Claude Code (cloud session) and the receiving side | Positive and negative | the delivery receipt: every cloud delivery carries a proofbundle receipt over its archive, which Verify checks on arrival (owner decision after Nachtrag 45) | positive: verified with the delivery key, and the sha256 the receipt names is the archive's; negative: one byte of the archive changed, the receipt of another delivery, a wrong key, no receipt at all: not verified, the delivery is not taken, and a missing receipt is named missing, never passed |
 
 ## Guard
 
@@ -65,9 +67,19 @@ M1 is reached for one host and one area when all of the following hold. Each hol
    and blocks M1 for that area.
 3. TV-5 (Claude Code) or TV-6 (Codex) holds for Verify: the plugin's MCP server is loaded in the real host.
 4. For the Guard, the house profile passes TG-1 to TG-4 (Claude Code) or TG-1, TG-2 and TG-5 (Codex), and the delivery
-   profile passes TG-9 or TG-10, whichever the owner sets as its default.
+   profile passes TG-9, the Guard off, the default the owner decided (O45-3); TG-10 counts only once an observing Guard
+   is built and measured on the owner's request.
 5. Clean install, update and removal (TL-1 to TL-5) are run for the host.
 6. No text of the plugin carries a non-claim of PRODUCT_SPEC.md; checked by reading, and by a test where a phrase can
    be named.
 7. IMPLEMENTATION_GAP.md is updated with the commit and the measurement of every row; a row not run stays NOT MEASURED,
    and an area with such a row is not at M1.
+8. The delivery receipt (TV-8) holds, positive and negative, for the cloud deliveries of the M1 run.
+
+## Host matrix for M1 (decided, O45-2)
+
+| Host | Area | For M1 |
+|---|---|---|
+| Claude Code | Verify and Guard, house profile | first, on the farmer's Linux state; owner choice A of 2026-10-21 (Nachtrag 52): after the tag v6.3.1 the gate runs in the account echo, while delta and foxtrot stay without it |
+| Codex | Verify | only after a run with a real model (TV-6) |
+| Codex | Guard | BLOCKED until TG-5 |

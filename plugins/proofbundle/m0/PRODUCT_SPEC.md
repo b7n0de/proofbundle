@@ -4,7 +4,9 @@ Stage M0 is this text, written, nothing built. It says what the plugin is meant 
 separately, under two profiles. What is built and measured today, row by row, stands in
 [IMPLEMENTATION_GAP.md](IMPLEMENTATION_GAP.md); how each property is to be measured, and the acceptance for M1, in
 [TEST_PLAN.md](TEST_PLAN.md). Owner decision of 2026-10-20 (Nachtrag 45): Verify and Guard in one plugin, released
-separately; two profiles; stages M0 to M4.
+separately; two profiles; stages M0 to M4. Decided by the owner on 2026-10-20 (O45-1 to O45-3, Nachtrag 48): the name
+stays proofbundle, the first released version is 0.4.0 with M1, and there is no 1.0 before M3; the host matrix of M1
+stands in TEST_PLAN.md; the delivery profile ships with the Guard off.
 
 ## One plugin, two areas
 
@@ -51,10 +53,11 @@ early warning; the boundary is the required CI check and git's pre-push hook whe
 | Profile | Who | Verify | Guard |
 |---|---|---|---|
 | House profile | the owner's own machines and sessions | on | on, `strict`, the autonomous answer under Claude Code, as today |
-| Delivery profile | anyone the plugin is handed to | on | off, or observing only, until M2; which of the two is the default is an owner question (REQUIRES APPROVAL) |
+| Delivery profile | anyone the plugin is handed to | on | off (INACTIVE) until M2, decided by the owner (O45-3); observing only on the owner's request, and only once it is built and measured |
 
-Observing means: the gate runs and logs what it would answer, and never denies or asks. A Guard that is off or only
-observes is no protection, and no text may present it as one.
+Observing means: the gate runs and logs what it would answer, and never denies or asks. A Guard that is off, only
+observes, does not run, or that the host does not trust (Codex runs hooks only after the user trusts them, D16) is no
+protection, and no text may present it as one.
 
 Today one manifest set ships with the Guard always registered, under Claude Code always with `--autonomous`; the
 delivery profile does not exist as a setting (IMPLEMENTATION_GAP.md).
@@ -64,9 +67,30 @@ delivery profile does not exist as a setting (IMPLEMENTATION_GAP.md).
 | Stage | Content |
 |---|---|
 | M0 | this specification, IMPLEMENTATION_GAP.md and TEST_PLAN.md, written; nothing built |
-| M1 | the acceptance in TEST_PLAN.md, per host and area, measured in real hosts, with a clean install, an update and a removal |
-| M2 | the point until which the Guard of the delivery profile stays off or observing |
-| M3, M4 | defined by the owner's overall concept, not by this order (REQUIRES APPROVAL) |
+| M1 | the acceptance in TEST_PLAN.md, per host and area, measured in real hosts, with a clean install, an update and a removal; the first released version, 0.4.0 (O45-1) |
+| M2 | Guard Preview; until M2 the Guard of the delivery profile stays off (O45-3) |
+| M3 | Durchsetzung beim Empfänger (enforcement at the receiving side); only from here may a text call a property enforced, where the protection at the receiving side is measured (Non-claims); no version 1.0 before M3 (O45-1) |
+| M4 | Piloten außerhalb des Hauses (pilots outside the house) |
+
+The names of M2 to M4 are those of the decision of 2026-10-20; what a stage holds beyond its name and the lines above
+is the owner's decision, and this text claims nothing more.
+
+## Triage on every plugin card
+
+The decision of 2026-10-20 (kraxo/00_standards_regeln/ENTSCHEIDUNG_plugin_verify_und_guard_getrennt_freigeben_20261020.md,
+section „Triage auf jeder Plugin-Karte“), word for word, as the owner handed it over in Nachtrag 51 (O48-1):
+
+> Jede Karte zu einem Fund am Plugin beantwortet vier Fragen.
+>
+> 1. Trifft der Fund eine zugesagte Eigenschaft von Verify? Dann hält er die Freigabe von Verify an.
+> 2. Trifft er nur einen Guard-Pfad, der im Auslieferungsprofil nicht aktiv ist? Dann hält er die Reifeaussage des Guard
+>    an, nicht Verify.
+> 3. Wirkt er über gemeinsamen Kern oder Paketierung auf Verify? Dann reicht die Trennung nicht, und der ganze betroffene
+>    Stand wird geprüft.
+> 4. Eine unbekannte Folge heißt NICHT GEMESSEN, keine Entwarnung.
+
+Every finding in IMPLEMENTATION_GAP.md and every failed row of TEST_PLAN.md is triaged by these four questions before
+it is called a block of Verify, of the Guard, or of both.
 
 ## Status of a property
 
@@ -79,7 +103,7 @@ Every property in these texts carries exactly one of these, and only on the evid
 | NOT MEASURED | nothing measured; no claim either way |
 | BLOCKED | cannot be measured until a named precondition is met |
 | REQUIRES APPROVAL | waits for a decision of the owner |
-| INACTIVE | not built, switched off, or not running; never counted as protection |
+| INACTIVE | not built, switched off, not running, or not trusted by the host; never counted as protection |
 
 A measurement in a test harness (the hook started as a process with a recorded event) and a measurement in a real host
 with a real model are different measurements and are named as such.
@@ -98,4 +122,5 @@ No text of the plugin, its README, its manifests, its skills or its reports may 
 - That something is completely checked where the evals are synthetic only.
 - That something is enforced where no protection at the receiving side is measured.
 - Any seal of the kind "agent secured".
-- That a Guard that is off, observing only, or not running protects anything.
+- That a Guard that is off, observing only, or not running, or that the host does not trust, protects anything
+  (checklist no. 10 of 2026-10-20, „Ein Guard, der aus ist, nicht läuft oder dem der Wirt nicht vertraut, als Schutz.“).
