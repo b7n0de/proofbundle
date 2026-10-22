@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import os
 import re
 import shutil
@@ -264,6 +265,33 @@ MUTATIONS = [
      "    ok = bool(sig_ok) and binding_ok and (type_ok is not False)",
      "    ok = bool(sig_ok) and binding_ok",
      "intoto: predicateType-confusion enforcement disabled", True),
+    # The neighbour of L5-03 (2026-10-17) — the one Statement oracle reads the subject; dropping that check
+    # lets every structure_ok verifier accept a statement that names no artifact.
+    ("src/proofbundle/_statement_payload.py",
+     "    if subject_error is not None:",
+     "    if False:",
+     "statement oracle: subject rule dropped (a statement without a subject is a well-formed statement)", True),
+    # The emitter side of that rule (second reading of 2026-10-18): dropping it signs a subject_sha256 override
+    # the verifier then refuses.
+    ("src/proofbundle/_statement_payload.py",
+     "    if problem is not None:",
+     "    if False:",
+     "statement emitters: a subject_sha256 override the verifier refuses is signed", True),
+    ("src/proofbundle/agent_review.py",
+     "        if text and text != abgeleitet:",
+     "        if False:",
+     "agent-review emitter: a subject override the verifier refuses is signed", True),
+    # L5-03 (2026-10-17) — the in-toto Statement v1 layer (`_type`, a subject whose every entry carries a
+    # digest) is part of the verdict of the three in-toto verifiers; dropping it must go red.
+    ("src/proofbundle/intoto.py",
+     " and (type_ok is not False) and (statement_ok is not False)",
+     " and (type_ok is not False)",
+     "intoto: Statement v1 layer dropped from the verdict (subjectless statement verifies)", True),
+    # L1-SEM-02 (carried 2026-10-18) — with every reference field None no check ran; the vacuous True came back.
+    ("src/proofbundle/automation_verdict.py",
+     '"referencesResolved": (False if refs_fremd else None if not geprueft else not unresolved),',
+     '"referencesResolved": (False if refs_fremd else None if not reference_keys else not unresolved),',
+     "automation: referencesResolved vacuously True when no reference check ran", True),
     # chia-datalayer/v1 (first-party extension) — the offline Merkle checks must fail closed.
     ("src/proofbundle/anchors_chia.py",
      "if root != published_root:", "if False:",
@@ -472,6 +500,13 @@ MUTATIONS = [
      "    if type(executor_key_id) is not str or type(receiver_key_id) is not str or receiver_key_id == executor_key_id:",
      "    if False:",
      "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId / non-str-keyId reaches INDEPENDENTLY_ATTESTED)", True),
+    # L1-SEM-03 (2026-10-17): the outcomeRef level is read from the digest inside the ref; handing the classifier
+    # the {uri, digest} wrapper again must go red — killed by tests/test_assurance.py's
+    # test_the_outcome_ref_level_reads_the_digest_inside_the_ref.
+    ("src/proofbundle/decision.py",
+     '            _ao_ref.get("digest") if isinstance(_ao_ref, dict) else None,\n',
+     "            _ao_ref,\n",
+     "decision: outcomeRef level judged on the {uri, digest} wrapper (every executed outcome reads CLAIMED)", True),
     # Refuter round 2 — dsse payload pre-decode DoS cap: removing it lets an oversized base64 payload be
     # fully decoded before any cap — killed by tests/test_budget.py's
     # test_verify_envelope_rejects_oversized_base64_payload_before_decode.
@@ -697,6 +732,30 @@ MUTATIONS = [
      "            for art_j, ordner_j in kette[i + 1:]:",
      "            for art_j, ordner_j in kette:",
      "matrix: Reihenfolge im Artefaktfluss fallen gelassen — Koexistenz genuegt wieder", True),
+
+    # Gate on 3562dc71 (228bcA-01/02, 228bcB-03): the predicate validators read the shapes of their schemas
+    # as the schemas do. Killed by tests/test_every_validator_refuses_what_its_schema_refuses.py (the ECMA-
+    # reading generator; it needs the jsonschema dev extra, which the mutation job installs).
+    ("src/proofbundle/_schema_shapes.py",
+     '    return (isinstance(obj, dict) and len(obj) == 1 and isinstance(obj.get("sha256"), str)',
+     '    return (isinstance(obj, dict) and isinstance(obj.get("sha256"), str)',
+     "schema shapes: a digest object with a second key accepted again", True),
+    ("src/proofbundle/_schema_shapes.py",
+     r'RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")',
+     r'RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")',
+     "schema shapes: RFC3339 reads Unicode digits again (Python \\d, not ECMA-262)", True),
+    ("src/proofbundle/trust_pack.py",
+     '                if "scheme" in kv and kv.get("scheme") != "ed25519":',
+     '                if False:',
+     "trust_pack: the scheme const is not read again", True),
+    ("src/proofbundle/trust_pack.py",
+     '                label = _KEY_ALG_LABEL.get(alg, "Ed25519") if alg in _KEY_ALGS else "Ed25519"',
+     '                label = _KEY_ALG_LABEL.get(alg, "Ed25519")',
+     "trust_pack: an unhashable alg reaches the label lookup again (raises before any signature)", True),
+    ("src/proofbundle/outcome.py",
+     '    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))',
+     '    pass',
+     "outcome: nested value types (traceparent, audience, nonce) not read again", True),
 
     # junit_ctrf (KRAXO-ADAPTER-JUNIT-CTRF-01): one operator per reading rule of the test report
     # adapter. Each is killed by tests/test_junit_ctrf_adapter.py; the two belts (external entity,
@@ -1082,8 +1141,32 @@ def _cap_the_address_space_of_the_child() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
 
+#: THE LIMIT OF ONE RUN OF THE SUITE FOLLOWS THE BASELINE OF ITS SELECTION (owner card OA-667bf9346e,
+#: 2026-10-19). Z230 set one fixed limit of 3600 s for every run, when the whole suite took 2168 s in
+#: CI. A selection that reaches almost every module grows with the suite. Measured on the head of pull
+#: request 385 (877bc38f, run 39167414888, shard 17): the baseline over 500 test files took 3435 s,
+#: three mutants were KILLED after 3348 to 3378 s, and `hashalg: B2 deprecated-algorithm reject
+#: disabled` stopped at 3600.0 s in both attempts, NOT MEASURABLE. On main 2379659e the same mutant was
+#: KILLED after 3267 s. A fixed limit turned the growth of the suite into gaps that say nothing about
+#: a mutant.
+#: The limit keeps its first reason (a mutant that removes a resource bound may hang the child), so it
+#: is not dropped: a mutant run may take 1.5 times as long as the baseline over the same selection
+#: took, and never less than 3600 s. The baseline has no measurement before it and runs under 5400 s.
+#: A run past its limit stays NOT MEASURABLE, a gap, as before. The step limit of the CI job (345 min)
+#: still bounds a whole shard, and a shard it cuts is red.
+GRENZE_JE_LAUF = 3600
+GRENZE_BASISLINIE = 5400
+FAKTOR_JE_MUTANT = 1.5
+
+
+def _grenze_je_mutant(basisdauer: float) -> int:
+    """The limit in seconds of one mutant run over a selection whose baseline took `basisdauer`."""
+    return max(GRENZE_JE_LAUF, math.ceil(FAKTOR_JE_MUTANT * basisdauer))
+
+
 def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
-               aus: list | None = None, gruen: list | None = None) -> int | None:
+               aus: list | None = None, gruen: list | None = None,
+               grenze: int = GRENZE_JE_LAUF) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -1105,11 +1188,11 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
     # when given, receives the red tests of the run by identifier (see `_rote_kennungen`), or None
     # when the report cannot name them; `gruen` receives the tests that passed (see
     # `_bestandene_kennungen`), or None. The count stays the return value, as every caller before
-    # expected.
+    # expected. `grenze` is the limit of the run in seconds (see `GRENZE_JE_LAUF`).
     try:
         with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
             bericht = Path(_b) / "bilanz.xml"
-            proc = _lauf_der_suite(work, bericht, auswahl)
+            proc = _lauf_der_suite(work, bericht, auswahl, grenze)
             rot = _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
             if aus is not None:
                 aus.append(_rote_kennungen(bericht) if rot is not None else None)
@@ -1129,7 +1212,8 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
 
 
 def _lauf_der_suite(work: Path, bericht: Path | None = None,
-                    auswahl: tuple[str, ...] | None = None) -> subprocess.CompletedProcess:
+                    auswahl: tuple[str, ...] | None = None,
+                    grenze: int = GRENZE_JE_LAUF) -> subprocess.CompletedProcess:
     # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
     # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
     # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
@@ -1181,8 +1265,9 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None,
         # Gefunden von der un-Gegenlesung dieses Diffs (K5), nicht vom Autor.
         # 3600 s SINCE Z230 (owner word C, 2026-09-26): the whole suite took 2168 s on main in CI
         # (PR 279, run 36253567619), seven baselines stopped at the former 1800 s, and a selection
-        # that reaches almost every module is almost the whole suite.
-        timeout=3600,
+        # that reaches almost every module is almost the whole suite. 3600 s stays the limit of a
+        # call that names none; a baseline and a mutant run name theirs (see `GRENZE_JE_LAUF`).
+        timeout=grenze,
         # The ceiling of the child's address space (see `CHILD_ADDRESS_SPACE_CAP`): a load past it
         # is a red test in the child, not a dead runner.
         preexec_fn=_cap_the_address_space_of_the_child,
@@ -2226,9 +2311,11 @@ def _kennungen(rot: int | None, aus: list) -> dict[str, str] | None:
 
 
 class Basislinie(NamedTuple):
-    """One baseline: its red tests (identifier -> class) and the tests that passed."""
+    """One baseline: its red tests (identifier -> class), the tests that passed, and how long it took
+    in seconds (the limit of each mutant run over the same selection follows it)."""
     rot: dict[str, str]
     bestanden: frozenset[str]
+    dauer: float = 0.0
 
 
 def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -> Basislinie:
@@ -2236,7 +2323,10 @@ def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -
     failed, or when the run cannot name the tests that passed (the verdict needs them)."""
     aus: list = []
     gruen: list = []
-    kennungen = _kennungen(_red_count(work, auswahl=auswahl, aus=aus, gruen=gruen), aus)
+    _t0 = time.monotonic()
+    kennungen = _kennungen(_red_count(work, auswahl=auswahl, aus=aus, gruen=gruen,
+                                      grenze=GRENZE_BASISLINIE), aus)
+    dauer = time.monotonic() - _t0
     if kennungen is None:
         raise SystemExit("mutation_check: the baseline over a selection left no verdict — without a "
                          "baseline no operator on it can be judged, and a run without a verdict must "
@@ -2253,7 +2343,8 @@ def _basislinie(work: Path, auswahl: tuple[str, ...], erlaubt: dict[str, str]) -
         raise SystemExit("mutation_check: the baseline over a selection cannot name the tests that "
                          "passed; a killer must be one of them, so no operator on it can be judged")
     print(f"  baseline passed: {len(bestanden)} tests")
-    return Basislinie(kennungen, frozenset(bestanden))
+    print(f"  limit per mutant run: {_grenze_je_mutant(dauer)} s (the baseline took {dauer:.1f} s)")
+    return Basislinie(kennungen, frozenset(bestanden), dauer)
 
 
 def _baum_abdruck(work: Path, dateien: list[str]) -> dict[str, bytes]:
@@ -2346,11 +2437,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         laufbar: tuple[str, ...] = ()
         unter_mutant: dict[str, str] | None = None
         _bestaetigung = 0.0
+        grenze = _grenze_je_mutant(basislinien[auswahl].dauer)
         try:
             path.write_text(mutated, encoding="utf-8")
             _t0 = time.monotonic()
             aus: list = []
-            red = _red_count(work, auswahl=auswahl, aus=aus)
+            red = _red_count(work, auswahl=auswahl, aus=aus, grenze=grenze)
             _dauer = time.monotonic() - _t0
             rote = _kennungen(red, aus)
             if rote is not None:
@@ -2361,8 +2453,12 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
                 _t1 = time.monotonic()
                 laufbar = tuple(sorted({kn for kn in (_knoten_der_kennung(work, t) for t in toeter) if kn}))
                 if laufbar:
+                    # The same limit as the mutant run: a killer that is a module which failed to
+                    # collect runs as its whole file, and a confirmation under a fixed 3600 s could
+                    # cost a verdict the mutant run had (second reading of 06ed1dd9).
                     aus2: list = []
-                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2), aus2)
+                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2, grenze=grenze),
+                                              aus2)
                 _bestaetigung += time.monotonic() - _t1
         finally:
             path.write_bytes(roh)  # restore the pristine bytes held in memory
@@ -2382,7 +2478,7 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             # translated on the way; the German original is in the history.)
             dauern[label] = round(_dauer, 1)
             print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
-                  f"({_dauer:.1f}s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
+                  f"({_dauer:.1f}s, limit {grenze} s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
             gaps += 1
             continue
         bestaetigt: list[str] = []
@@ -2394,7 +2490,8 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             if laufbar:
                 aus3: list = []
                 gruen3: list = []
-                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3), aus3)
+                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3,
+                                                 grenze=grenze), aus3)
                 rein_bestanden = gruen3[0] if gruen3 else None
             _bestaetigung += time.monotonic() - _t2
             bestaetigt, wackelt = _bestaetigt(toeter, unter_mutant, rein_rot, rein_bestanden)

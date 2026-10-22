@@ -12,7 +12,7 @@ PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model mockll
 ```
 
 Installed via the `inspect_ai` entry-point group; when enabled, the hook can write a receipt at the end of a task.
-The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.266`. Configure it through environment variables.
+The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.281`. Configure it through environment variables.
 `PROOFBUNDLE_KEY` is a path to a file containing a 32-byte raw Ed25519 seed; when unset, signing uses an ephemeral
 key with a warning. `PROOFBUNDLE_OUT` selects a file or directory. `PROOFBUNDLE_METRIC` selects the metric,
 `PROOFBUNDLE_COMPARATOR` defaults to `>=`, and `PROOFBUNDLE_THRESHOLD` is required for receipt emission since

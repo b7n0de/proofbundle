@@ -386,12 +386,24 @@ def verify_and_count(repo: Path | str = REPO, expected_version: str | None = Non
     if not path.is_file():
         return {"ok": False, "reason": f"findings register missing at {REGISTER_REL} (RT-10: absence is FAIL, not PASS)",
                 "open_ids": [], **triple}
-    raw = path.read_bytes()
+    # ONE STRICT READING (CODEX-KLASSENSUCHE-631-01, D2, measured at f6ea5cc3): `json.loads` kept the last of two
+    # members, so a valid signed register with a second `findings` list holding an open P1 put in front of it
+    # passed with ok=True and open_ids=[]; a reader that keeps the first member saw the open P1. The bytes are
+    # read once within the input budget and parsed strictly, so a member twice, wherever it stands, is no register.
+    from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from proofbundle.errors import ProofBundleError  # noqa: PLC0415
+    kappe = int(DEFAULT_BUDGET.input_bytes)
+    with path.open("rb") as fh:
+        raw = fh.read(kappe + 1)
     source_digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    if len(raw) > kappe:
+        return {"ok": False, "reason": f"register holds more than the input_bytes budget of {kappe} bytes (fail-closed)",
+                "open_ids": [], **triple, "source_digest": source_digest}
     try:
-        register = json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as exc:
-        return {"ok": False, "reason": f"register is not valid JSON (fail-closed): {exc}",
+        register = loads_strict(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError, ProofBundleError) as exc:
+        return {"ok": False, "reason": f"register is not valid strict JSON (fail-closed): {exc}",
                 "open_ids": [], **triple, "source_digest": source_digest}
     if not isinstance(register, dict) or register.get("schema") != "proofbundle.findings_register.v1":
         return {"ok": False, "reason": "register has the wrong schema (fail-closed)",

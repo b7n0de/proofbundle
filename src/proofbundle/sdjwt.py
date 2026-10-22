@@ -80,7 +80,10 @@ def issuer_key_fingerprint(alg, pub) -> Optional[str]:
     public key>"`` (for example ``"ed25519:ABCD…"``). ``None`` when the algorithm is not one this verifier
     accepts or the key is not bytes, so a caller fails closed rather than guessing a prefix — an
     algorithm-confused or key-absent pin must never match a verifying key (Nachtrag 32, the Critical's pin)."""
-    prefix = _ISSUER_FP_PREFIX.get(alg) if isinstance(alg, str) else None
+    # The characters of the algorithm, not the caller's object: `isinstance(alg, str)` held for a str subclass
+    # whose `__hash__` is None or raises, and the lookup raised TypeError (second reading of c0b1dab3, Z1-1).
+    text = _zeichen_von(alg)
+    prefix = _ISSUER_FP_PREFIX.get(text) if text is not None else None
     if prefix is None or not isinstance(pub, (bytes, bytearray)):
         return None
     return prefix + base64.b64encode(bytes(pub)).decode("ascii")
@@ -133,6 +136,57 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
     elif isinstance(node, list):
         for item in node:
             _collect_committed_digests(item, out)
+
+
+def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
+    """Why the presented disclosures do not resolve to ONE reading of the claims, or None (RFC 9901 section 7.1,
+    CODEX-KLASSENSUCHE-631-01 A1). Each disclosure is placed where its digest stands: a ``[salt, name, value]``
+    disclosure in the object whose ``_sd`` names it, a ``[salt, value]`` disclosure at the array position of its
+    ``{"...": digest}``. In one object a claim name stands once, whether open or disclosed, and is neither ``_sd``
+    nor ``...``; a disclosure stands at one place only. Measured at f6ea5cc3: two disclosures
+    ``[salt0, "passed", false]`` and ``[salt1, "passed", true]`` under one signed ``_sd`` passed in both orders,
+    so a last-wins merge read another value after the order was swapped while both presentations verified."""
+    placed: Set[str] = set()
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            names = {key for key in node if key != "_sd"}
+            sd = node.get("_sd")
+            for dg in (sd if isinstance(sd, list) else ()):
+                if not (isinstance(dg, str) and dg in by_digest):
+                    continue
+                if dg in placed:
+                    return "a disclosure is committed at more than one place (RFC 9901 section 7.1, rejected)"
+                placed.add(dg)
+                parsed = by_digest[dg]
+                if len(parsed) != 3:
+                    return "an array-element disclosure is committed in an object's _sd (RFC 9901 section 7.1, rejected)"
+                name = parsed[1]
+                if not isinstance(name, str) or name in ("_sd", "..."):
+                    return "a disclosure names no valid claim (RFC 9901 section 7.1, rejected)"
+                if name in names:
+                    return (f"the claim name {name!r} stands more than once in one object, disclosed twice or beside "
+                            "an open claim, so the claims have no single reading (RFC 9901 section 7.1, rejected)")
+                names.add(name)
+                stack.append(parsed[2])
+            stack.extend(value for key, value in node.items() if key != "_sd")
+        elif isinstance(node, list):
+            for item in node:
+                if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
+                        and item["..."] in by_digest):
+                    dg = item["..."]
+                    if dg in placed:
+                        return "a disclosure is committed at more than one place (RFC 9901 section 7.1, rejected)"
+                    placed.add(dg)
+                    parsed = by_digest[dg]
+                    if len(parsed) != 2:
+                        return ("an object-property disclosure is committed at an array position (RFC 9901 "
+                                "section 7.1, rejected)")
+                    stack.append(parsed[1])
+                else:
+                    stack.append(item)
+    return None
 
 
 @_ein_stand
@@ -278,6 +332,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         if resolved_count != len(parsed_disclosures):
             # at least one disclosure never became committed — uncommitted / not rooted in the signed payload
             all_committed = False
+        else:
+            # Committed is not yet one reading (A1): every disclosure must resolve at its own place, and no claim
+            # name may stand twice in its object, so no merge order can choose between two signed values.
+            problem = _placement_problem(payload, {dg: group[0][1] for dg, group in digest_groups.items()})
+            if problem is not None:
+                all_committed = False
+                result["detail"] = problem
 
     result["structure_ok"] = all_committed and bool(parts[0])
 
