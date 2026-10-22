@@ -107,8 +107,11 @@ to prevent.
 | when | **before every tag** (step B1 of the release run), plus nightly on the Farmer | on every pull request |
 | operators | all 88 in one process, sequentially | 88 split deterministically across K jobs |
 | per-mutant suite | full | minus the named exclusion list |
-| wall clock | ~100 min measured 2026-09-02 | longest shard, K=10 → ~1005 s projected |
+| wall clock | ~67 h at `07b6122c` on the Farmer, projected 2026-10-22 from a measured baseline (2089.6 s over 528 test files) and nine measured mutants (2002 s to 2104 s each) for 117 operators; it was ~100 min on 2026-09-02, before the per-mutant selection | longest shard, K=10 → ~1005 s projected |
 | what it settles | the release verdict | whether this change broke the gate |
+
+Measured on the Farmer with the same program split into 8 parallel shards: the 106 operators at `479e01ee`
+took about 10 h, from 2026-10-13 18:28Z to 2026-10-14 04:41Z.
 
 ### Why both measure the same thing
 
