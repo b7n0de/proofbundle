@@ -1252,6 +1252,18 @@ _LOOKUPS_CLASSIFIED = {
     # c3bd89a4, `allowed = set(_T)`): `daten = {f: receipt[f] for f in _PFLICHTFELDER}`.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "f"):
         (1, "own value: f runs over _WAHLFELDER, a tuple of two string literals of the module"),
+    # Seen once pull request 391 (the signer interface with the optional PKCS#11 signer) met this guard on main
+    # 07b6122c; each site read at its source.
+    ("proofbundle/signer.py", "ExternalSigner", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and the lookup "
+            "stands under weakness is not None"),
+    ("proofbundle/signer.py", "key_id_of", "TRUST_ANCHOR_REFUSAL", "weakness"):
+        (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and the lookup "
+            "stands under weakness is not None"),
+    ("proofbundle/signer.py", "_login", "_PIN_REFUSALS", "failed"):
+        (1, "own value: failed is the empty literal or type(exc).__name__, which Python keeps a str"),
+    ("proofbundle/signer.py", "_text_value", "_PATH_TEXT", "name"):
+        (1, "guarded by the one caller: parse_pkcs11_uri calls _text_value only after is_member(name, _PATH_TEXT)"),
 }
 
 
@@ -1485,6 +1497,25 @@ _OTHER_USES_CLASSIFIED = {
         (1, _OWN_SET.format(x="obj", what="a dict (isinstance(obj, dict) returns before it)")),
     ("proofbundle/relation.py", "validate_relationships", "set(_EDGE_ALLOWED)", "Sub set(edge)"):
         (1, _OWN_SET.format(x="edge", what="a dict (a non-dict edge is skipped by `continue` before it)")),
+    # Seen once pull request 391 met this guard on main 07b6122c: the character sets of the RFC 7512 grammar
+    # and the three calls that test a URI value against them, each read at its source.
+    ("proofbundle/signer.py", "<modulebene>", "_ALPHA_DIGIT", "BitOr frozenset('-._~')"):
+        (1, "own value: a union of two frozensets of characters of string literals of the module (_UNRESERVED)"),
+    ("proofbundle/signer.py", "<modulebene>", "_ALPHA_DIGIT", "BitOr frozenset('-_')"):
+        (1, "own value: a union of two frozensets of characters of string literals of the module (_NAME_CHAR)"),
+    ("proofbundle/signer.py", "<modulebene>", "_UNRESERVED | _RES_AVAIL", "BitOr frozenset('&')"):
+        (1, "own value: a union of frozensets of characters of string literals of the module (_PCHAR)"),
+    ("proofbundle/signer.py", "<modulebene>", "_UNRESERVED | _RES_AVAIL", "BitOr frozenset('/?|')"):
+        (1, "own value: a union of frozensets of characters of string literals of the module (_QCHAR)"),
+    ("proofbundle/signer.py", "_text_value", "_PCHAR", "_unescape(argument 2)"):
+        (1, "passed to _unescape: it tests the value one character at a time with is_member(ch, allowed), "
+         "and the value is a str that parse_pkcs11_uri split from the exact text of the URI"),
+    ("proofbundle/signer.py", "parse_pkcs11_uri", "_PCHAR", "_unescape(argument 2)"):
+        (1, "passed to _unescape: it tests the value one character at a time with is_member(ch, allowed), "
+         "and the value is a str that parse_pkcs11_uri split from the exact text of the URI"),
+    ("proofbundle/signer.py", "parse_pkcs11_uri", "_QCHAR", "_unescape(argument 2)"):
+        (1, "passed to _unescape: it tests the value one character at a time with is_member(ch, allowed), "
+         "and the value is a str that parse_pkcs11_uri split from the exact text of the URI"),
 }
 
 

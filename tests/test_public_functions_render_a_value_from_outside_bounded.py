@@ -506,6 +506,13 @@ _HAND_SEEDS = {
         ("EdDSA", _test_key().public_key().public_bytes_raw()), {})],
     "proofbundle.sdjwt_issue.issue_sd_jwt": lambda tmp: [(
         (_claim_of_the_test_key(), _test_key()), {"root_b64": base64.b64encode(b"\x00" * 32).decode()})],
+    # The public functions of the signer interface of pull request 391, which met this family on main 07b6122c;
+    # each seed is the smallest call that returns. `pin_from_env` needs a variable that is set when it is called,
+    # and PATH is; the PIN source it returns is not called here, so no value of PATH is read or shown.
+    "proofbundle.signer.key_id_of": lambda tmp: [((_test_key().public_key().public_bytes_raw(),), {})],
+    "proofbundle.signer.parse_pkcs11_uri": lambda tmp: [(("pkcs11:token=sweep;object=key",), {})],
+    "proofbundle.signer.pin_from_env": lambda tmp: [(("PATH",), {})],
+    "proofbundle.signer.pin_from_prompt": lambda tmp: [(("PIN: ",), {})],
 }
 
 #: Family members with parameters that are not planted into, each with the reason.

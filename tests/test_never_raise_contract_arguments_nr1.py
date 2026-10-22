@@ -42,7 +42,7 @@ import unittest
 from pathlib import Path
 
 import proofbundle
-from proofbundle import agent_review, bundle, emit, evalcard, prereg, public_transparency, verifier_block
+from proofbundle import agent_review, bundle, emit, evalcard, prereg, public_transparency, signer, verifier_block
 from proofbundle._membership import Fremdkoerper
 from proofbundle.adapters import eee, inspect_ai, lm_eval, promptfoo, samples
 from proofbundle.canonical import _ein_stand
@@ -338,6 +338,9 @@ _PATH_SURFACES = {
     "prereg.prereg_hash": lambda p: prereg.prereg_hash(p),
     "prereg.verify_prereg": lambda p: prereg.verify_prereg(p, dict(_CLAIM)),
     "agent_review.load_policy": lambda p: agent_review.load_policy(p),
+    # The key file of the signer interface of pull request 391, `FileSigner.load`, whose path contract met this
+    # table on main 07b6122c; the table names a function by its module and its own name, as the source search does.
+    "signer.load": lambda p: signer.FileSigner.load(p),
 }
 #: The second path argument of a function in the table: answered the same way.
 _FURTHER_PATH_ARGUMENTS = {
