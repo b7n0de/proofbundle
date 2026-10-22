@@ -11,6 +11,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ### Fixed
 
 - `sdjwt.verify_sd_jwt` refuses a disclosure that the signed payload commits only from where no disclosure can stand, a `...` marker with a second member or one inside an `_sd` that is not an array. Such a disclosure counted as committed and was never placed, so the presentation verified, and with it `verify_sdjwt_vc` and the bundle check `sd-jwt-disclosures`. `structure_ok` turns False.
+- The Rust second verifier `tools/pb_verify_rs` reads the `sd_jwt_vc` block of a bundle as `bundle.py` does and judges its disclosures by the rules of RFC 9901 section 7.1 that `sdjwt.verify_sd_jwt` holds. Before, it did not read them at all. The differential in `tools/pb_verify_rs/crosscheck.py` holds 46 such vectors, and Python and Rust give the same exit code on each. One gap is named and pinned rather than closed: a disclosure whose JSON only Python's parser reads (NaN, an integer beyond 2^53 - 1, `1E400`, a byte order mark) fails in Rust and verifies in Python.
 
 ## [6.3.1] - 2026-10-21
 
