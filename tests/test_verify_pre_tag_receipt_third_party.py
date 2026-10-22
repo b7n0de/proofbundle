@@ -42,7 +42,14 @@ def _run(cmd, cwd, env=None):
 
 
 def _git(args, cwd):
-    r = _run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd)
+    """Fixture git without git's automatic maintenance, so that no object of a case is packed behind its
+    back (git 2.47 and later run that maintenance in the background after `commit`), as `_git_still` does in
+    tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py. F3 takes the gate blob out of the store as a
+    loose object. Measured: test (3.10) of pull request 391 at c698b178, git 2.55.0, found that blob no longer
+    loose at its precondition, and git 2.43.0 with the loose-objects maintenance task switched on gives the
+    same red after the second commit of `welt`."""
+    r = _run(["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "user.name=t", "-c", "user.email=t@t",
+              *args], cwd)
     assert r.returncode == 0, f"git {args} failed: {r.stderr}"
     return r.stdout.strip()
 
