@@ -386,6 +386,37 @@ def last_achsen(dateien) -> set[str]:
     return achsen
 
 
+def typed_costs_below_the_table(path: Path, table: dict) -> list[str]:
+    """'file:line axis: ...' for every call `gedeckelt(<budget>.<axis>, bytes_je_element=<int literal>)` whose
+    literal lies below the measured entry of its axis in `tests/_lastdeckel.py`, or names an axis the table does not
+    carry. A typed number below the entry makes the cap laxer than the 64 MiB it promises.
+
+    EXACTLY THIS FORM AND NO OTHER: a call by the bare name `gedeckelt`, its first positional argument an attribute,
+    its cost an int literal. Every other form passes unread, a table lookup among them, and so do a named
+    constant, an expression, the value passed by keyword, `**` arguments, an alias of the cap or of the table and code
+    in a string. Four counter reviews on 2026-10-17 tried to make a static guard read more of them, and each found
+    forms the round before had passed, so this guard claims no more than it reads. The class closes when the cap
+    takes the axis instead of a cost and reads the table itself; that is its own change."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "gedeckelt" and node.args
+                and isinstance(node.args[0], ast.Attribute)):
+            continue
+        axis = node.args[0].attr
+        cost = next((kw.value for kw in node.keywords if kw.arg == "bytes_je_element"), None)
+        if not (isinstance(cost, ast.Constant) and type(cost.value) is int):
+            continue
+        if axis not in table:
+            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B, the table has no entry")
+        elif cost.value < table[axis]:
+            found.append(f"{path.name}:{node.lineno} {axis}: typed {cost.value} B below the table's {table[axis]} B")
+    return found
+
+
 class TestKeineUngedeckelteTestlast(unittest.TestCase):
 
     def test_kein_test_baut_eine_ungedeckelte_last_aus_einem_budget_wert(self):
@@ -576,7 +607,15 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         instance of ArchiveTimeStamp had broken the key sharing of the instance dicts before, and every further
         instance cost 572.8 B instead of 356.6 B. That is memory the suite really holds, so the table must carry it.
         Measured in a FRESH process, because the break changes the class state for the rest of the process and must
-        touch nothing else here."""
+        touch nothing else here.
+
+        The break costs memory on CPython 3.10 only. Measured 2026-10-16 in a fresh process per version: 216.4 B more
+        per element on 3.10.12, between 0.0 and 0.2 B on 3.11.15, 3.12.15, 3.13.16 and 3.14.8, where an instance keeps
+        its values without a dict of its own until one is asked for (Objects/object_layout.md in CPython). The control
+        below therefore states what each interpreter does, a cost above the noise on 3.10 and none beyond it from 3.11
+        on. The former `ungeteilt > geteilt` decided on the 0.1 B rounding there: under the baseline of the mutation
+        layer (PYTHONHASHSEED=0, CPython 3.12.15) it read 320.9 against 320.9 and stopped all 36 shards of run
+        38932917601."""
         import subprocess  # noqa: PLC0415
         programm = (
             "import importlib.util, sys\n"
@@ -587,14 +626,72 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             "x = ArchiveTimeStamp('sha256', 'a' * 64, 0)\n"
             "geteilt = t.gemessene_bytes_je_element('renewal_ats_chain')\n"
             "object.__delattr__(x, 'time')\n"
+            "assert not hasattr(x, 'time'), 'the instance still holds time, the key sharing is not broken'\n"
             "print(geteilt, t.gemessene_bytes_je_element('renewal_ats_chain'))\n")
         lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
         self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
         geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
-        self.assertGreater(ungeteilt, geteilt, "control: breaking the key sharing costs memory")
+        # The child broke the sharing (its assert above) and measured something (631 part 2, P2 group 4).
+        self.assertGreater(geteilt, 0.0, "control: the measurement measured something")
+        # One pointer per element: far above the measured spread (0.2 B), far below the effect on 3.10 (216.4 B).
+        rauschen = 8.0
+        if sys.version_info < (3, 11):
+            self.assertGreater(ungeteilt - geteilt, rauschen, "control: breaking the key sharing costs memory")
+        else:
+            self.assertLessEqual(
+                abs(ungeteilt - geteilt), rauschen,
+                "control: from CPython 3.11 on breaking the key sharing costs nothing measurable; if it does again, "
+                "the entry renewal_ats_chain of the table has to be measured again on this interpreter")
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
-        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
+        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], max(geteilt, ungeteilt))
+
+    def test_no_typed_cost_per_element_lies_below_the_table(self):
+        """Measured 2026-10-16 on the head of pull request 354: 19 calls in eight test files gave `gedeckelt` a typed
+        cost per element below the table, 8 B for json_nodes against 48, 256 B for signatures against 320 and 64 B
+        for merkle_path against 128. Under the current budget that changes nothing, but under a mutant that raises
+        the budget, `list(range(gedeckelt(B.json_nodes, bytes_je_element=8)))` admitted about five times the memory
+        the cap promises. The same class as the default of 64 that the docstring of `gedeckelt` names."""
+        sys.path.insert(0, str(TESTS))
+        from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
+        found = []
+        for f in alle_testdateien():
+            found.extend(typed_costs_below_the_table(f, KOSTEN_JE_ELEMENT))
+        self.assertEqual(found, [], "these calls give the cap a cost per element below the measured table:\n  "
+                         + "\n  ".join(found))
+
+    def test_meta_a_planted_typed_cost_below_the_table_is_caught(self):
+        """Planted cases for the guard above: one below the entry and one axis without an entry are caught; a typed
+        number at the entry, a table lookup and a call inside a string are not."""
+        sys.path.insert(0, str(TESTS))
+        from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
+        entry = KOSTEN_JE_ELEMENT["json_nodes"]
+        source = (
+            "from proofbundle.budget import DEFAULT_BUDGET as B\n"
+            "from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt\n"
+            f"below = gedeckelt(B.json_nodes, bytes_je_element={entry - 1})\n"
+            f"at = gedeckelt(B.json_nodes, bytes_je_element={entry})\n"
+            "lookup = gedeckelt(B.json_nodes, bytes_je_element=KOSTEN_JE_ELEMENT['json_nodes'])\n"
+            "unknown = gedeckelt(B.no_such_axis, bytes_je_element=4096)\n"
+            "text = 'gedeckelt(B.json_nodes, bytes_je_element=1)'\n")
+        with tempfile.TemporaryDirectory() as d:
+            planted = Path(d) / "test_planted.py"
+            planted.write_text(source, encoding="utf-8")
+            found = typed_costs_below_the_table(planted, KOSTEN_JE_ELEMENT)
+        self.assertEqual([f.split(" ", 1)[0] for f in found], ["test_planted.py:3", "test_planted.py:6"], found)
+
+    def test_the_table_refuses_every_change_at_run_time(self):
+        """The guard reads source, and code can reach the table at run time in forms no reading of source lists. So
+        the table itself refuses a change: no entry can be set, updated or deleted, whatever form the code takes."""
+        sys.path.insert(0, str(TESTS))
+        import _lastdeckel  # noqa: PLC0415
+        with self.assertRaises(TypeError):
+            _lastdeckel.KOSTEN_JE_ELEMENT["json_nodes"] = 8
+        with self.assertRaises(TypeError):
+            del _lastdeckel.KOSTEN_JE_ELEMENT["json_nodes"]
+        with self.assertRaises(AttributeError):
+            _lastdeckel.KOSTEN_JE_ELEMENT.update(json_nodes=8)
+        self.assertEqual(_lastdeckel.KOSTEN_JE_ELEMENT["json_nodes"], 48)
 
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle

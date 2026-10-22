@@ -2,23 +2,30 @@
 """A pull request carries a milestone, and its description ends with the house footer.
 
 Owner decision 2026-09-28: every pull request in this repository carries a milestone from the moment
-it opens. Its description ends with exactly the two lines of the house footer, and it carries no tool
-attribution, no session link and neither of the two retired closing sentences. Three rules:
+it opens. Its description ends with the house footer, and it carries no tool attribution, no session
+link and neither of the two retired closing sentences. Owner word of 2026-10-17: the house footer is
+one sentence, `Assisted by little helpers.`, without brackets and without names. Three rules:
 
   (a) the pull request has a milestone;
-  (b) the description ends with exactly the two footer lines, separated by one empty line;
+  (b) the description ends with exactly the footer sentence;
   (c) the description carries no tool attribution, no session link and no retired sentence.
 
 WHAT IS READ. The event payload the runner writes for this run, `$GITHUB_EVENT_PATH`: the fields
-`pull_request.milestone` and `pull_request.body`. No API call, no token. Its own workflow,
-`.github/workflows/pr-form.yml`, runs this script and starts a run on `edited`, `milestoned` and
-`demilestoned`, so a changed description or milestone is judged by a run that reads the new state;
-ci.yml does not run it and does not start on those events.
+`pull_request.milestone`, `pull_request.body` and, for the transition below, `pull_request.created_at`.
+No API call, no token. Its own workflow, `.github/workflows/pr-form.yml`, runs this script and starts
+a run on `edited`, `milestoned` and `demilestoned`, so a changed description or milestone is judged by
+a run that reads the new state; ci.yml does not run it and does not start on those events.
 
-WHAT (b) ACCEPTS. The two lines byte for byte, with one empty line between them, at the end of the
-text or after a line break. A line break is LF or CRLF, because a description saved from the browser
-carries CRLF; trailing line breaks after the footer are not text. Anything else after the footer, a
-space included, is text after the footer.
+WHAT (b) ACCEPTS. The sentence byte for byte as the last line, at the end of the text or after a line
+break. A line break is LF or CRLF, because a description saved from the browser carries CRLF; trailing
+line breaks after the footer are not text. Anything else after the footer, a space included, is text
+after the footer.
+
+THE TRANSITION. Before 2026-10-17 the footer was two lines, `OLD_FOOTER`, with one empty line between
+them. A pull request opened before `NEW_FOOTER_FROM`, by its `created_at`, may still end with them, so
+an open pull request does not turn red on its next event; one opened from that moment on ends with the
+sentence. A description that ends with the old lines and a payload whose `created_at` cannot be read
+is red and says NOT MEASURABLE. Older texts on GitHub are not rewritten.
 
 WHAT (c) READS. The description is folded before the search: HTML character references resolved,
 NFKC, format characters such as a zero-width space removed, case folded, whitespace runs collapsed,
@@ -41,6 +48,13 @@ and the path is the path of the parsed address: a segment in its query or fragme
 (thread 4217549831). Without the parser rule (c) is NOT MEASURABLE; pr-form.yml installs it from
 `.github/pr-form-requirements.txt`, pinned by hash.
 
+DEPENDABOT (owner order of 2026-10-17, the landing band, point 5). Dependabot opens pull requests itself and writes
+neither a milestone nor the house footer, so its pull requests were red here for days. A pull request whose author in
+the payload, `pull_request.user`, has the login `dependabot[bot]` and the type `Bot` is green without the three rules,
+and the output says why. A login with `[bot]` belongs to a GitHub App and cannot be taken by a person; the type is held
+as well. Another app, a person named dependabot and a payload without a readable author are judged by the three rules.
+Only this check lets it through; every other check of the repository stays.
+
 LIMITS, said here. An attribution in another form, such as a tool named in plain prose without a
 link, is not caught by (c); at the end of a description (b) still refuses it, because nothing may
 follow the footer. A re-run of a job reads the payload of its original event and so judges the
@@ -56,6 +70,7 @@ this gate cannot read is RED and says NOT MEASURABLE, never a pass.
 from __future__ import annotations
 
 import argparse
+import datetime
 import html
 import html.parser
 import json
@@ -70,9 +85,18 @@ try:  # the CommonMark parser that decides what renders as a link (WHAT RENDERS 
 except ImportError:
     MarkdownIt = None
 
-#: The house footer, the two lines in order. Between them one empty line, after them nothing.
-FOOTER = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
-_FOOTER_TEXT = FOOTER[0] + "\n\n" + FOOTER[1]
+#: The house footer since the owner's word of 2026-10-17: one sentence as the last line, after it nothing.
+FOOTER = "Assisted by little helpers."
+#: The footer before it, the two lines in order with one empty line between them (THE TRANSITION).
+OLD_FOOTER = ("Written by an AI session of b7n0de under owner review.", "Measurement, not certification.")
+_OLD_FOOTER_TEXT = OLD_FOOTER[0] + "\n\n" + OLD_FOOTER[1]
+#: From this moment on a pull request ends with the sentence; one whose `created_at` lies before it may still end with
+#: the old lines. It lies after the landing of this rule, not at the moment it was written: until the rule is on main,
+#: the gate a pull request runs is the old one and requires the old lines, so a pull request opened in between carries
+#: them. If the rule lands later than this moment, a pull request opened in between turns red on its next event.
+NEW_FOOTER_FROM = datetime.datetime(2026, 10, 20, 0, 0, 0, tzinfo=datetime.timezone.utc)
+#: `created_at` as GitHub writes it into the payload.
+_CREATED_AT = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 
 #: The two retired closing sentences, by the part that names each of them. Searched in the folded
 #: text, so a line break, emphasis or capitals inside the sentence do not hide it.
@@ -156,6 +180,11 @@ def _rendered(body: str) -> tuple[list[list[tuple[str, str]]], list[str]]:
             ziele += [z for art, z in items if art == "link"]
             laeufe.append(items)
             continue
+        if tok.type in ("fence", "code_block"):
+            # a code block renders its text, as an HTML block carries its <pre> text; leaving it out joined
+            # the text before it to the link after it (CODEX-630-K8, same class)
+            laeufe.append([("text", tok.content)])
+            continue
         if tok.type != "inline":
             continue
         lauf: list[tuple[str, str]] = []
@@ -182,19 +211,41 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", _folded(text))
 
 
+#: How much of the rendered text before a run is carried into it, cut at a word boundary: more than the
+#: longest attribution phrase with the character before it, so words at the end of one block reach a link
+#: at the start of the next without the whole description being folded again for every item.
+_CARRY = 64
+
+
+def _joined(vorher: str, davor: str) -> str:
+    """The folded text before a link: the carried end of the earlier runs, a block boundary, this run's text."""
+    return re.sub(r"\s+", " ", vorher + " " + _norm(davor)) if vorher else _norm(davor)
+
+
 def _has_attribution(laeufe: list[list[tuple[str, str]]]) -> bool:
-    """The words, then a link: rendered (the parser's), or a bare address in the same text."""
+    """The words, then a link: rendered (the parser's), or a bare address in the same text.
+
+    Read over the description as one rendered sequence, a block boundary as whitespace. Read run by run, the
+    text before a link was forgotten at the boundary of a parser segment: `Generated by`, an empty line and a
+    Markdown link was green, while the HTML that CommonMark renders from it, byte for byte the same, was RED,
+    because an HTML block is one segment (CODEX-630-K8). The same rendered text now gets the same verdict."""
+    vorher = ""
     for lauf in laeufe:
         davor = ""
         for art, inhalt in lauf:
             if art == "link":
-                if _PHRASE.search(_norm(davor)):
+                if _PHRASE.search(_joined(vorher, davor)):
                     return True
-                davor = ""
+                vorher = davor = ""
             else:
                 davor += inhalt
-                if _PHRASE_THEN_BARE.search(_norm(davor)):
+                if _PHRASE_THEN_BARE.search(_joined(vorher, davor)):
                     return True
+        ende = _joined(vorher, davor)
+        if len(ende) > _CARRY:
+            ende = ende[-_CARRY:]
+            ende = ende[ende.find(" "):] if " " in ende else ""
+        vorher = ende
     return False
 
 
@@ -321,10 +372,47 @@ def _has_session_link(folded: str, ziele: list[str]) -> bool:
             or any(_session_path(a, aus_text=True) for a in _ADDRESS.findall(folded.replace("\\", ""))))
 
 
-def ends_with_footer(body: str) -> bool:
-    """(b): the footer lines, exactly, as the last text."""
+def _ends_with(body: str, footer: str) -> bool:
     text = body.replace("\r\n", "\n").rstrip("\n")
-    return text == _FOOTER_TEXT or text.endswith("\n" + _FOOTER_TEXT)
+    return text == footer or text.endswith("\n" + footer)
+
+
+def ends_with_footer(body: str) -> bool:
+    """(b): the footer sentence, exactly, as the last text."""
+    return _ends_with(body, FOOTER)
+
+
+def ends_with_old_footer(body: str) -> bool:
+    """The two lines of the old footer, exactly, as the last text (THE TRANSITION)."""
+    return _ends_with(body, _OLD_FOOTER_TEXT)
+
+
+def _created_at(pr: dict) -> datetime.datetime | None:
+    """The `created_at` of the pull request, or None when the payload carries none in GitHub's form."""
+    value = pr.get("created_at")
+    if not (isinstance(value, str) and _CREATED_AT.match(value)):
+        return None
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+
+
+def footer_finding(pr: dict, body: str) -> str | None:
+    """(b), with the transition: the reason in fixed words, or None when the footer holds."""
+    if ends_with_footer(body):
+        return None
+    if ends_with_old_footer(body):
+        opened = _created_at(pr)
+        if opened is None:
+            return ("(b) NOT MEASURABLE: the description ends with the old two-line footer, and the payload carries no "
+                    "readable created_at to tell whether the pull request was opened before the footer became one "
+                    "sentence")
+        if opened < NEW_FOOTER_FROM:
+            return None
+        return ("(b) the description ends with the old two-line footer, and the pull request was opened after the "
+                "footer became one sentence")
+    return f"(b) the description does not end with exactly the house footer, the one line {FOOTER!r}"
 
 
 def attribution_findings(body: str) -> list[str]:
@@ -339,11 +427,23 @@ def attribution_findings(body: str) -> list[str]:
     return found
 
 
+#: The author whose pull requests pass without the three rules (DEPENDABOT): its login and its type, both.
+DEPENDABOT = ("dependabot[bot]", "Bot")
+
+
+def _is_dependabot(pr: dict) -> bool:
+    """Whether the payload names Dependabot as the author, by login and type exactly as GitHub writes them."""
+    user = pr.get("user")
+    return isinstance(user, dict) and (user.get("login"), user.get("type")) == DEPENDABOT
+
+
 def judge(payload: object) -> tuple[list[str], str | None]:
     """The reasons for RED, empty when green, and the milestone title when there is one."""
     pr = payload.get("pull_request") if isinstance(payload, dict) else None
     if not isinstance(pr, dict):
         return ["NOT MEASURABLE: the event payload carries no pull_request object"], None
+    if _is_dependabot(pr):
+        return [], None
     reasons: list[str] = []
     title = None
     if "milestone" not in pr:
@@ -367,8 +467,9 @@ def judge(payload: object) -> tuple[list[str], str | None]:
         reasons.append("(b) NOT MEASURABLE: the description is not text")
         reasons.append("(c) NOT MEASURABLE: the description is not text")
         return reasons, title
-    if not ends_with_footer(body):
-        reasons.append("(b) the description does not end with exactly the two lines of the house footer")
+    finding = footer_finding(pr, body)
+    if finding is not None:
+        reasons.append(finding)
     try:
         reasons += [f"(c) the description carries {name}" for name in attribution_findings(body)]
     except NotMeasurable as exc:
@@ -388,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         reasons, title = judge(payload)
     print("pr-form: RED" if reasons else "pr-form: green")
+    pr = payload.get("pull_request") if not reasons and isinstance(payload, dict) else None
+    if isinstance(pr, dict) and _is_dependabot(pr):
+        print(f"  the author is {DEPENDABOT[0]}; the form rules do not apply to its pull requests")
     for reason in reasons:
         print(f"  {reason}")
     if title is not None:

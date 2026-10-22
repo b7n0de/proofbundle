@@ -13,22 +13,20 @@ Field names are lowerCamelCase (ITE-9).
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
-from ._statement_payload import load_statement_strict
+from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
 from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
+# RFC3339-Z, 64-hex and 0.1.x as the schema reads them (ECMA-262): one definition, not a copy.
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z, SEMVER_0_1_X as _SEMVER_0_1_X
+from ._schema_shapes import is_sha256_digest
 
 VERIFICATION_SUMMARY_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/verification-summary/v0.1"
 SUMMARY_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _LEVEL_KINDS = {"eval", "decision", "outcome"}
 _STATUS = {"VERIFIED", "FAILED", "NOT_EVALUATED"}
@@ -49,7 +47,7 @@ class VerificationSummaryError(ProofBundleError):
 
 
 def _is_digest(obj: Any) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+    return is_sha256_digest(obj)   # key-closed like the schema's `sha256Digest` (228bcA-01)
 
 
 @_ein_stand
@@ -64,7 +62,7 @@ def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[
         return ["predicate must be a JSON object"]
 
     for k in predicate:
-        if k not in _ALLOWED_TOP:
+        if not is_member(k, _ALLOWED_TOP):
             errors.append(f"unknown field {k!r} (additionalProperties:false)")
     for req in _REQUIRED_ALWAYS:
         if req not in predicate:
@@ -116,7 +114,7 @@ def _validate_level(lvl: Any) -> list[str]:
     if not isinstance(lvl, dict):
         return ["must be an object"]
     for k in lvl:
-        if k not in _LEVEL_ALLOWED:
+        if not is_member(k, _LEVEL_ALLOWED):
             errs.append(f"unknown field {k!r}")
     for req in _LEVEL_REQUIRED:
         if req not in lvl:
@@ -150,6 +148,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise VerificationSummaryError(
             "verification summaries need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise VerificationSummaryError(
+            f"a verification summary value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -183,12 +187,12 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))
     name = subject_name or f"verification-summary:{predicate.get('summaryId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": VERIFICATION_SUMMARY_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, VerificationSummaryError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})

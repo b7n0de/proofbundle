@@ -1,0 +1,1 @@
+{"_type":"https://in-toto.io/Statement/v1","contentRootAlg":"jcs-sha256-v1","predicate":{"float_int":1.0,"text":"ü"},"predicateType":"https://b7n0de.com/proofbundle/vector/v0.1","subject":[{"digest":{"sha256":"abababababababababababababababababababababababababababababababab"},"name":"vector-subject"}]}

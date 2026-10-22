@@ -163,12 +163,67 @@ _REPO_CONTEXT_TESTS = frozenset({
     # einzigen Ort, an dem das Tor laeuft — liefert sie fuenf. Der Eintrag haette echte Abdeckung
     # stillgelegt, um eine Messung an der falschen Flaeche gruen zu bekommen.
     "test_mutationstor_sammler_sieht_die_freigabeflaeche::test_der_sammler_des_tors_sieht_JEDE_testdatei",
+    # ── 2026-10-19, measured from the extracted sdist, owner card OA-32bfb1f213 answer A ──────────
+    #
+    # Seven test functions of four modules the 6.3.1 list (K3 to P2-4) added. hermetic-cleanroom on
+    # head c0e38230 showed 13 failed and 7 errors, all of them here and none elsewhere; the same 20
+    # fail from a locally built and extracted sdist of that head. Each reaches a file the sdist prunes
+    # through a form the derivation above cannot see, which is the case this list stays for:
+    #   test_a_mode_refuses_the_options_it_does_not_read: the renderer paths are strings in RENDERERS
+    #     and are joined to REPO only inside the test (tools/, benchmarks/).
+    #   test_a_form_rule_reads_one_spelling: reads tools/merkle_accumulator/accumulator.py through the
+    #     neighbour module test_merkle_accumulator.
+    #   test_audit_matrix_differential_cell_recomputes_agreement: the path is the constant REL
+    #     (audit_artifacts/).
+    #   test_rust_parity_gate_refuses_invalid_coverage_evidence: loads scripts/rust_parity_gate.py,
+    #     whose default paths read the Rust tree under tools/ (as test_rust_parity_gate above).
+    # The other tests of these modules pass from the sdist and stay off this list.
+    "test_a_mode_refuses_the_options_it_does_not_read::test_a_renderer_refuses_an_argument_it_does_not_read",
+    "test_a_mode_refuses_the_options_it_does_not_read::test_control_a_renderer_checks_and_writes_as_documented",
+    "test_a_form_rule_reads_one_spelling::test_a_frontier_that_is_no_list_is_refused",
+    "test_a_form_rule_reads_one_spelling::test_control_the_written_empty_frontier_restores",
+    "test_audit_matrix_differential_cell_recomputes_agreement::test_control_the_committed_report_holds_complete_agreeing_rows",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_a_missing_binary_stays_data_blocked",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_the_full_subcommand_list_passes",
 })
 
 
 def running_in_repo_checkout() -> bool:
     """True iff the repo-only markers are present (a git checkout / CI), False from a distributed sdist."""
     return any((_REPO_ROOT / m).exists() for m in _REPO_ONLY_MARKERS)
+
+
+def baumkontext(wurzel: pathlib.Path = _REPO_ROOT) -> tuple[str | None, str]:
+    """("checkout" | "distribution" | None, why), each from POSITIVE evidence only (review round 22, R22-2).
+
+    `running_in_repo_checkout` reads the absence of three markers as a distribution. Measured by the reviewer on
+    2026-10-15: a copy of the checkout with `.git`, without `.github/`, `tools/` and `SPEC.md`, ran the strict decoding
+    guard as a distribution, skipped the lost `tools/` paths as not shipped and ended green. The absence of what a
+    test protects is no evidence of a package. So this reader asks for evidence of each kind:
+      checkout       a `.git` at the root, a directory or the file of a linked worktree;
+      distribution   a PKG-INFO at the root that names the project pyproject.toml names, and no `.git`;
+      None           neither, or both: no basis, and a caller without a basis stays loud.
+    Only the strict decoding guard asks this so far; the derived skip set above keeps the markers (a named sibling)."""
+    wurzel = pathlib.Path(wurzel)
+    git = (wurzel / ".git").exists()
+    name = None
+    try:
+        for zeile in (wurzel / "PKG-INFO").read_text(encoding="utf-8", errors="replace").splitlines():
+            if zeile.startswith("Name:"):
+                name = zeile.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    projekt = _projektname(wurzel)
+    verteilung = bool(name and projekt and _normalisierter_name(name) == _normalisierter_name(projekt))
+    if git and verteilung:
+        return None, f"{wurzel} carries both a .git and a PKG-INFO of {projekt}, so neither tree is shown"
+    if git:
+        return "checkout", f"{wurzel}/.git exists"
+    if verteilung:
+        return "distribution", f"{wurzel}/PKG-INFO names {name}, the project of pyproject.toml, and there is no .git"
+    return None, (f"{wurzel} has no .git and no PKG-INFO naming the project of pyproject.toml "
+                  f"(PKG-INFO name {name!r}, project {projekt!r})")
 
 
 # ── The skip set is DERIVED, not enumerated (deep gate finding L6-01, P1) ────────────────────────────
@@ -714,6 +769,73 @@ def _glob_trifft(muster: list[str], pfad: list[str], *, rekursiv: bool) -> bool:
             return any(ab(i + 1, k) for k in range(j, len(pfad) + 1))
         return j < len(pfad) and fnmatch.fnmatchcase(pfad[j], muster[i]) and ab(i + 1, j + 1)
     return ab(0, 0)
+
+
+def _glob_trifft_darunter(muster: list[str], pfad: list[str], *, rekursiv: bool) -> bool:
+    """Could setuptools' glob yield a path AT OR BELOW `pfad`: does `muster` match `pfad` followed by zero or more
+    further segments? The same segment rule as `_glob_trifft`; the segments below `pfad` are free, so a pattern
+    segment left over when `pfad` is used up can always be met (review round 22, R22-3)."""
+    import fnmatch  # noqa: PLC0415
+    import functools  # noqa: PLC0415
+
+    @functools.lru_cache(maxsize=None)
+    def ab(i: int, j: int) -> bool:
+        if j == len(pfad):
+            return True
+        if i == len(muster):
+            return False
+        if rekursiv and muster[i] == "**":
+            return ab(i + 1, j) or ab(i, j + 1)
+        return fnmatch.fnmatchcase(pfad[j], muster[i]) and ab(i + 1, j + 1)
+    return ab(0, 0)
+
+
+def _manifest_verspricht_verzeichnis(rel: str, wurzel: pathlib.Path = _REPO_ROOT) -> bool:
+    """Does this distribution promise a file at or below the DIRECTORY `rel`? The directory form of
+    `_manifest_verspricht`, with the same reading of the template and the same glob (review round 22, R22-3).
+
+    The first form lived in tests/test_strict_decoding_guard.py and compared the segments of a line with the segments
+    of the directory literally. Measured by the reviewer: with `graft inter*` setuptools shipped 21 files under
+    `interop/`, and with `interop/` removed from the extracted sdist the guard skipped it as not promised and ended
+    green; `graft intero?`, `recursive-include inter* *.py` and `include inter*/*.py` read the same way. Here a line
+    promises the directory when its pattern can match a path at or below it: `include` through the glob of its
+    pattern, `recursive-include` through its directory, `**` and each pattern, `graft` through its directory and
+    everything below, any `global-include`, and the `where` of the package discovery at, below or above it. As in
+    `_manifest_verspricht`, a negative line withdraws nothing, and no template and no PKG-INFO promise nothing."""
+    wurzel = pathlib.Path(wurzel)
+    try:
+        text: str | None = (wurzel / "MANIFEST.in").read_text(encoding="utf-8")
+    except OSError:
+        text = None
+    if text is None and not (wurzel / "PKG-INFO").is_file():
+        return False
+    pfad = _segmente(rel)
+    konf = _paketkonfiguration(wurzel) or {}
+    pakete = konf.get("packages")
+    finden = pakete.get("find") if isinstance(pakete, dict) else None
+    orte = finden.get("where", ["."]) if isinstance(finden, dict) else []
+    for ort in (orte if isinstance(orte, list) else []):
+        teile = _segmente(ort) if isinstance(ort, str) else None
+        if teile is not None and (teile[:len(pfad)] == pfad or pfad[:len(teile)] == teile):
+            return True
+    if text is None:
+        return False
+    for zeile in _manifest_zeilen(text):
+        worte = zeile.split()
+        befehl, args = worte[0], worte[1:]
+        if befehl == "include" and args:
+            if any(not m.endswith("/") and _glob_trifft_darunter(_segmente(m), pfad, rekursiv=False) for m in args):
+                return True
+        elif befehl == "recursive-include" and len(args) >= 2:
+            if any(_glob_trifft_darunter(_segmente(args[0]) + ["**"] + _segmente(m), pfad, rekursiv=True)
+                   for m in args[1:]):
+                return True
+        elif befehl == "graft" and len(args) == 1:
+            if _glob_trifft_darunter(_segmente(args[0]) + ["**", "*"], pfad, rekursiv=True):
+                return True
+        elif befehl == "global-include" and args:
+            return True
+    return False
 
 
 def _translate_pattern(glob: str):
