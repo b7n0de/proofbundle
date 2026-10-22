@@ -47,7 +47,9 @@ def _fahre(monkeypatch, tmp_path, *, basislinie_s: float, mutant_s: float, besta
     uhr = {"jetzt": 0.0}
     selektion = ("tests/test_x.py",)
 
-    def lauf(work, *, auswahl=None, aus=None, gruen=None, grenze=3600):
+    def lauf(work, *, auswahl=None, aus=None, gruen=None, grenze=3600, **_frueh):
+        # `_frueh`: the mutant run that stops at its first failure passes `erster_fehler` and
+        # `ausklammern`; on this clock it takes as long as the full run would.
         mutiert = (work / "src" / "x.py").read_text(encoding="utf-8") == "neu\n"
         # the killer runs again by itself, under the mutant and on the restored tree
         braucht = (mutant_s if mutiert else basislinie_s) if auswahl == selektion else bestaetigung_s

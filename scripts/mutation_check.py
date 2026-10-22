@@ -920,9 +920,23 @@ def _grenze_je_mutant(basisdauer: float) -> int:
     return max(GRENZE_JE_LAUF, math.ceil(FAKTOR_JE_MUTANT * basisdauer))
 
 
+def _ausklammer_args(work: Path, kennungen) -> list[str]:
+    """The tests that were red in the baseline of a selection, as pytest arguments for the mutant run
+    that stops at its first failure: a test by `--deselect`, a module that failed to collect by
+    `--ignore`. An identifier no file of the tree carries is left out; if such a test is the first red
+    one, it is no killer, and the full run decides as before."""
+    args = []
+    for kennung in sorted(kennungen):
+        knoten = _knoten_der_kennung(work, kennung)
+        if knoten:
+            args.append(f"--deselect={knoten}" if "::" in knoten else f"--ignore={knoten}")
+    return args
+
+
 def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
                aus: list | None = None, gruen: list | None = None,
-               grenze: int = GRENZE_JE_LAUF) -> int | None:
+               grenze: int = GRENZE_JE_LAUF, ausklammern: tuple[str, ...] = (),
+               erster_fehler: bool = False) -> int | None:
     # Stale-bytecode defense (real incident during per-sample development): a same-size
     # mutation + coarse-mtime filesystem leaves a VALID-looking .pyc for the OLD code; -B only
     # stops WRITING caches — existing ones are still read; and cache dirs may be undeletable on
@@ -948,8 +962,15 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
     try:
         with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-bilanz-") as _b:
             bericht = Path(_b) / "bilanz.xml"
-            proc = _lauf_der_suite(work, bericht, auswahl, grenze)
+            frueh = {"ausklammern": tuple(ausklammern), "erster_fehler": True} if erster_fehler else {}
+            proc = _lauf_der_suite(work, bericht, auswahl, grenze, **frueh)
             rot = _rote_aus_lauf(bericht, proc.stdout + "\n" + proc.stderr, proc.returncode)
+            if erster_fehler and rot is None and proc.returncode == 1:
+                # `-x` ends the session at its first failure with a banner of its own ("stopping
+                # after 1 failures"), which the abort check above reads as an abort. Such a run is
+                # measured up to that failure, and the JUnit report names it; a report without a red
+                # record says nothing (a `pytest.exit` before the first failure), and stays None.
+                rot = _rote_aus_bericht(bericht) or None
             if aus is not None:
                 aus.append(_rote_kennungen(bericht) if rot is not None else None)
             if gruen is not None:
@@ -969,7 +990,8 @@ def _red_count(work: Path, *, auswahl: tuple[str, ...] | None = None,
 
 def _lauf_der_suite(work: Path, bericht: Path | None = None,
                     auswahl: tuple[str, ...] | None = None,
-                    grenze: int = GRENZE_JE_LAUF) -> subprocess.CompletedProcess:
+                    grenze: int = GRENZE_JE_LAUF, *, ausklammern: tuple[str, ...] = (),
+                    erster_fehler: bool = False) -> subprocess.CompletedProcess:
     # DIE ARGUMENTLISTE STEHT INLINE UND NICHT IN EINER HILFSFUNKTION — und das ist keine Stilfrage.
     # `tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py::_startet_suite` klassifiziert
     # einen Suite-Laeufer an den Zeichenketten INNERHALB des subprocess-Knotens: steht dort
@@ -1009,7 +1031,11 @@ def _lauf_der_suite(work: Path, bericht: Path | None = None,
          *([f"--junitxml={bericht}"] if bericht is not None else []),
          # A selection names its test files; without one the whole `tests` directory runs.
          "--continue-on-collection-errors", *(auswahl if auswahl else ("tests",)),
-         *_ausschluss_args(work)],
+         *_ausschluss_args(work),
+         # The mutant run that stops at its first new red test (ECHO-MUTATION-HOCHRECHNUNG-UND-STOPP-01):
+         # `-x`, without the tests that were red in the baseline of the same selection. Only when
+         # asked; the baseline, the full mutant run and the confirmations run as before.
+         *(("-x", *_ausklammer_args(work, ausklammern)) if erster_fehler else ())],
         # `errors="replace"`: `text=True` dekodiert sonst strikt, und ein Kindprozess, der ein
         # einzelnes Nicht-UTF8-Byte ausgibt, wuerde den Lauf mit UnicodeDecodeError abreissen.
         cwd=work, capture_output=True, text=True, errors="replace",
@@ -2107,6 +2133,77 @@ def _baum_abdruck(work: Path, dateien: list[str]) -> dict[str, bytes]:
     return {rel: (work / rel).read_bytes() for rel in dateien if (work / rel).is_file()}
 
 
+class MutantLauf(NamedTuple):
+    """One run of a mutant with its confirmations: the red count and red tests (None: not measured), the
+    killers found, those that held and those that flipped, and the seconds of the run and of the
+    confirmations."""
+    red: int | None
+    rote: dict[str, str] | None
+    toeter: list[str]
+    bestaetigt: list[str]
+    wackelt: list[str]
+    dauer: float
+    bestaetigung: float
+
+
+def _mutant_lauf(work: Path, path: Path, roh: bytes, mutated: str, auswahl: tuple[str, ...],
+                 basis: Basislinie, grenze: int, *, erster_fehler: bool = False) -> MutantLauf:
+    """Apply the mutant, run the selection, run each killer again by itself under the mutant, restore
+    the pristine bytes, and run the killers again on the restored tree (`_bestaetigt`).
+
+    With `erster_fehler` the run stops at its first failure and leaves out the tests that were red in
+    the baseline of this selection (ECHO-MUTATION-HOCHRECHNUNG-UND-STOPP-01). A kill still counts only
+    when the killer is red again under the mutant and green on the restored tree."""
+    toeter: list[str] = []
+    laufbar: tuple[str, ...] = ()
+    unter_mutant: dict[str, str] | None = None
+    rote: dict[str, str] | None = None
+    red: int | None = None
+    dauer = bestaetigung = 0.0
+    # The keywords only for the run that stops early: a replaced `_red_count` without them keeps working
+    # for the baseline, the full run and the confirmations.
+    frueh = {"ausklammern": tuple(basis.rot), "erster_fehler": True} if erster_fehler else {}
+    try:
+        path.write_text(mutated, encoding="utf-8")
+        _t0 = time.monotonic()
+        aus: list = []
+        red = _red_count(work, auswahl=auswahl, aus=aus, grenze=grenze, **frueh)
+        dauer = time.monotonic() - _t0
+        rote = _kennungen(red, aus)
+        if rote is not None:
+            toeter = _getoetet(basis.bestanden, rote)
+        if toeter:
+            # THE KILLERS RUN AGAIN, by themselves, first under the mutant (the file is still
+            # mutated here) and then on the restored tree below (`_bestaetigt`).
+            _t1 = time.monotonic()
+            laufbar = tuple(sorted({kn for kn in (_knoten_der_kennung(work, t) for t in toeter) if kn}))
+            if laufbar:
+                # The same limit as the mutant run: a killer that is a module which failed to
+                # collect runs as its whole file, and a confirmation under a fixed 3600 s could
+                # cost a verdict the mutant run had (second reading of 06ed1dd9).
+                aus2: list = []
+                unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2, grenze=grenze), aus2)
+            bestaetigung += time.monotonic() - _t1
+    finally:
+        path.write_bytes(roh)  # restore the pristine bytes held in memory
+    if rote is None:
+        return MutantLauf(red, None, [], [], [], dauer, bestaetigung)
+    bestaetigt: list[str] = []
+    wackelt: list[str] = []
+    if toeter:
+        _t2 = time.monotonic()
+        rein_rot: dict[str, str] | None = None
+        rein_bestanden: set[str] | None = None
+        if laufbar:
+            aus3: list = []
+            gruen3: list = []
+            rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3, grenze=grenze), aus3)
+            rein_bestanden = gruen3[0] if gruen3 else None
+        bestaetigung += time.monotonic() - _t2
+        bestaetigt, wackelt = _bestaetigt(toeter, unter_mutant, rein_rot, rein_bestanden)
+    return MutantLauf(red, rote, toeter, bestaetigt, wackelt, dauer, bestaetigung)
+
+
 def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
     dauern: dict[str, float] = {}
     # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
@@ -2189,35 +2286,25 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         mutated = src
         for o, n in pairs:
             mutated = mutated.replace(o, n, 1)
-        toeter: list[str] = []
-        laufbar: tuple[str, ...] = ()
-        unter_mutant: dict[str, str] | None = None
-        _bestaetigung = 0.0
         grenze = _grenze_je_mutant(basislinien[auswahl].dauer)
-        try:
-            path.write_text(mutated, encoding="utf-8")
-            _t0 = time.monotonic()
-            aus: list = []
-            red = _red_count(work, auswahl=auswahl, aus=aus, grenze=grenze)
-            _dauer = time.monotonic() - _t0
-            rote = _kennungen(red, aus)
-            if rote is not None:
-                toeter = _getoetet(basislinien[auswahl].bestanden, rote)
-            if toeter:
-                # THE KILLERS RUN AGAIN, by themselves, first under the mutant (the file is still
-                # mutated here) and then on the restored tree below (`_bestaetigt`).
-                _t1 = time.monotonic()
-                laufbar = tuple(sorted({kn for kn in (_knoten_der_kennung(work, t) for t in toeter) if kn}))
-                if laufbar:
-                    # The same limit as the mutant run: a killer that is a module which failed to
-                    # collect runs as its whole file, and a confirmation under a fixed 3600 s could
-                    # cost a verdict the mutant run had (second reading of 06ed1dd9).
-                    aus2: list = []
-                    unter_mutant = _kennungen(_red_count(work, auswahl=laufbar, aus=aus2, grenze=grenze),
-                                              aus2)
-                _bestaetigung += time.monotonic() - _t1
-        finally:
-            path.write_bytes(roh)  # restore the pristine bytes held in memory
+        # THE MUTANT STOPS AT ITS FIRST NEW RED TEST (ECHO-MUTATION-HOCHRECHNUNG-UND-STOPP-01, owner
+        # choice 2026-10-22). Measured at 07b6122c: a KILLED mutant took as long as the baseline (nine
+        # mutants 2002 s to 2104 s against 2089.6 s), because its run went on through all 528 selected
+        # test files after the first had gone red. The run now stops there, without the tests that
+        # were red in the baseline. A kill counts only when that test holds, red again under the
+        # mutant and green on the restored tree. A run that went through without a red test is the
+        # whole selection (the survivor's run, its verdict unchanged); anything else, a red test that
+        # is no killer, a killer that flips, a run without a verdict, runs the full selection as before.
+        frueh = _mutant_lauf(work, path, roh, mutated, auswahl, basislinien[auswahl], grenze, erster_fehler=True)
+        if frueh.bestaetigt or frueh.rote == {}:
+            lauf, frueh_s = frueh, 0.0
+        else:
+            frueh_s = frueh.dauer + frueh.bestaetigung
+            lauf = _mutant_lauf(work, path, roh, mutated, auswahl, basislinien[auswahl], grenze)
+        red, rote, toeter, bestaetigt = lauf.red, lauf.rote, lauf.toeter, lauf.bestaetigt
+        # An unstable killer is named wherever it flipped, in the run that stopped early or in the full one.
+        wackelt = list(dict.fromkeys(lauf.wackelt + ([] if lauf is frueh else frueh.wackelt)))
+        _dauer, _bestaetigung = frueh_s + lauf.dauer, lauf.bestaetigung
         if rote is None:
             # THE THIRD STATE, and N20 in RESTRISIKO_600.md already names it: "Not measurable is
             # its own state — not a kill, not a survivor." This is where the operator
@@ -2232,25 +2319,11 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             # Z231 a run whose red tests cannot be named is this state too: the verdict needs
             # the names. (This comment moved out of the `try` block in Z230 round 2 and was
             # translated on the way; the German original is in the history.)
-            dauern[label] = round(_dauer, 1)
+            dauern[label] = round(_dauer + _bestaetigung, 1)
             print(f"  GAP  [{label}] NICHT MESSBAR — der Lauf hinterliess keine Bilanzzeile "
                   f"({_dauer:.1f}s, limit {grenze} s; Sammelfehler, OOM-Kill oder Timeout) *** UNEXPECTED ***")
             gaps += 1
             continue
-        bestaetigt: list[str] = []
-        wackelt: list[str] = []
-        if toeter:
-            _t2 = time.monotonic()
-            rein_rot: dict[str, str] | None = None
-            rein_bestanden: set[str] | None = None
-            if laufbar:
-                aus3: list = []
-                gruen3: list = []
-                rein_rot = _kennungen(_red_count(work, auswahl=laufbar, aus=aus3, gruen=gruen3,
-                                                 grenze=grenze), aus3)
-                rein_bestanden = gruen3[0] if gruen3 else None
-            _bestaetigung += time.monotonic() - _t2
-            bestaetigt, wackelt = _bestaetigt(toeter, unter_mutant, rein_rot, rein_bestanden)
         dauern[label] = round(_dauer + _bestaetigung, 1)
         killed = bool(bestaetigt)
         ok = killed == expect_killed
@@ -2263,7 +2336,8 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         # round 2 and translated; the German original is in the history.)
         print(f"  {'ok  ' if ok else 'GAP '} [{label}] {verdict} "
               f"(red={red}, new red={len(toeter)}, confirmed={len(bestaetigt)}, {len(auswahl)} files, "
-              f"{_dauer:.1f}s + {_bestaetigung:.1f}s confirming) {expected}")
+              f"{_dauer:.1f}s + {_bestaetigung:.1f}s confirming"
+              f"{', stopped at its first new red test' if lauf is frueh and killed else ''}) {expected}")
         if killed:
             print(f"      killed by {bestaetigt[0]}"
                   + (f" and {len(bestaetigt) - 1} more" if len(bestaetigt) > 1 else ""))
