@@ -1,9 +1,9 @@
 """Canonical bytes, digests and time values used by this implementation's profile.
 
 The draft leaves projection, digest algorithm, canonicalisation and domain separation to the
-profile (R-CD-2, lines 665-668). This implementation supports exactly one combination and names it
-in the profile; any other value is a profile error, never a silent fallback (Section 10.1, lines
-1594-1595: downgrade-resistant selection).
+profile (R-CD-2, lines 699-702 of -02). This implementation supports exactly one combination and
+names it in the profile; any other value is a profile error, never a silent fallback (Section 10.1,
+lines 1804-1805: downgrade-resistant selection).
 """
 from __future__ import annotations
 

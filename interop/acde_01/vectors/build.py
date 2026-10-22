@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from acde01 import canon  # noqa: E402
 from acde01.profile import example_profile, with_changes  # noqa: E402
+from acde01.reconcile import reconcile  # noqa: E402
 
 CONTENT = {"verb": "stop", "task": "task-9", "scope": "all-egress"}
 OTHER_CONTENT = {"verb": "stop", "task": "task-9", "scope": "egress-a-only"}
@@ -91,16 +92,34 @@ def V(vid, vtype, reqs, polarity, desc, inp, expect, case=None):
     one requirement (a vector can show the conforming path of one requirement while it presents
     the defect another requirement must catch)."""
     cases = [] if case is None else (list(case) if isinstance(case, (list, tuple)) else [case])
-    return {"id": vid, "type": vtype, "requirements": reqs, "conformance_cases": cases,
+    return {"id": vid, "type": vtype, "requirements": list(dict.fromkeys(reqs)), "conformance_cases": cases,
             "polarity": polarity, "description": desc, "input": inp, "expect": expect}
+
+
+DRILLS = {"rule_id": "drills", "version": "1", "reason": "drills are not live controls", "applies_to": "issuer_attribute",
+          "attribute": "class", "equals": "drill"}
+CANARY = {"rule_id": "canary-exempt", "version": "3", "reason": "canary targets are outside the stop scope",
+          "applies_to": "target_attribute", "attribute": "tier", "equals": "canary"}
+CLASS_INPUT = {"issuer_attribute": ["class"], "target_attribute": []}
+TIER_INPUT = {"issuer_attribute": [], "target_attribute": ["tier"]}
+NARROW_FAIL = {"EXPLICIT_FAILURE": True, "SUBSTITUTION": False, "CONFLICT": False, "INVALID": False,
+               "exclusion_rule_violation": False}
+
+
+def canary_frozen(*targets):
+    fz = frozen()
+    for t in targets:
+        fz["target_directory"]["targets"][t]["attributes"] = {"tier": "canary"}
+    return fz
 
 
 def profile_vectors():
     p = example_profile()
-    out = [V("P-00", "profile", ["S5.1-2", "S5.1-4", "S5.2-2", "S5.3-2", "S5.3-4", "S5.9-2", "S5.11-8",
-                                 "S5.12-1", "S5.6-2", "S5.10-6", "S6.3-1", "S6.6-8", "S8.1-1", "S8.3-1",
+    out = [V("P-00", "profile", ["S5.1-2", "S5.1-4", "S5.2-2", "S5.3-2", "S5.3-4", "S5.9-2", "S5.11-14",
+                                 "S5.12-1", "S5.6-2", "S5.10-10", "S6.3-1", "S6.6-8", "S8.1-1", "S8.3-1",
                                  "S9.2-1", "S5.8-2", "S5.15-3", "S6.6-5", "S6.1-1", "S9.4-1", "S4.4-1",
-                                 "S5.1-3", "S5.16-2", "S5.10-5", "S6.4-8"],
+                                 "S5.1-3", "S5.16-2", "S5.10-9", "S5.11-4", "S5.11-1", "S5.11-2", "S5.10-5",
+                                 "S5.11-7", "S6.5-2", "S6.5-3"],
              "positive", "the example profile makes every declaration the draft requires", p, {"errors": []})]
     neg = [
         ("P-01", ["S5.1-2"], "identifier uniqueness scope and reuse rule missing", dict(identifier=None)),
@@ -115,7 +134,7 @@ def profile_vectors():
         ("P-07", ["S5.3-4"], "structural processing without trust not declared", dict(structural_without_trust=None)),
         ("P-08", ["S8.1-1"], "native verification neither performed nor consumed", dict(native_verification="skipped")),
         ("P-09", ["S5.9-2"], "precedence reported without an ordering mechanism", dict(time={"trusted_bases": []})),
-        ("P-10", ["S5.11-8"], "empty target-set semantics not defined", dict(empty_target_set_valid=None)),
+        ("P-10", ["S5.11-14"], "empty target-set semantics not defined", dict(empty_target_set_valid=None)),
         ("P-11", ["S5.12-1"], "behavior for stale references not defined", dict(
             resolution_failure={"unresolved": "INDETERMINATE", "ambiguous": "INDETERMINATE", "inconsistent": "INVALID"})),
         ("P-12", ["S4.3-1"], "transport acknowledgement treated as receipt without the four definitions", dict(
@@ -125,9 +144,9 @@ def profile_vectors():
             ack_point={"point": ["parsing", "durable_persistence"]})),
         ("P-15", ["S5.6-2"], "native enforcement states cannot express REFUSED", dict(
             enforcement_mapping={"DONE": "APPLIED", "NOOP": "NO_EFFECT"})),
-        ("P-16", ["S5.10-5"], "extra disposition weakens UNCONFIRMED into success", dict(
+        ("P-16", ["S5.10-9"], "extra disposition weakens UNCONFIRMED into success", dict(
             extra_dispositions={"ACK_PENDING_OK": {"maps_to": "CONFIRMED", "refines": "UNCONFIRMED"}})),
-        ("P-17", ["S5.10-6"], "reduction precedence is not a total order over the minimum set", dict(
+        ("P-17", ["S5.10-10"], "reduction precedence is not a total order over the minimum set", dict(
             reduction_rule={"precedence": ["INVALID", "CONFIRMED"]})),
         ("P-18", ["S6.3-1"], "duplicate selection rule not reviewable", dict(duplicate_selection_rule="any")),
         ("P-19", ["S6.6-8"], "conditional predicates not stated", dict(claims=None)),
@@ -137,10 +156,27 @@ def profile_vectors():
         ("P-21", ["S5.16-2"], "intermediary mapping leaves DEFER unmapped without saying so", dict(
             intermediary_mappings={"gw": {"governance_states": ["DENY", "DEFER"], "map": {"DENY": "REJECTED"}}})),
         ("P-22", ["S8.3-1"], "telemetry used without stating binding kinds", dict(uses_telemetry=True)),
-        ("P-23", ["S6.4-8"], "exclusion rule decided on receiver evidence", dict(
-            exclusion_rules=[{"rule_id": "x", "applies_to": "receiver_record", "attribute": "late"}])),
+        ("P-23", ["S4.2-1"], "exclusion rule decided on receiver evidence", dict(
+            exclusion_rules=[{"rule_id": "x", "version": "1", "reason": "late records", "applies_to": "receiver_record",
+                              "attribute": "late", "equals": True}])),
         ("P-24", ["S5.8-2"], "unknown negative condition", dict(negative_conditions=["deadline_elapsed", "vibes"])),
         ("P-25", ["S9.4-1"], "freeze semantics without an effective boundary", dict(control_activation=None)),
+        ("P-26", ["S5.11-5"], "exclusion rule reads an input the profile does not declare permitted", dict(
+            exclusion_rules=[DRILLS])),
+        ("P-27", ["S6.5-9"], "exclusion rule without a version", dict(
+            exclusion_rules=[{k: v for k, v in DRILLS.items() if k != "version"}], exclusion_inputs=CLASS_INPUT)),
+        ("P-28", ["S5.11-4"], "exclusion rule without a reason", dict(
+            exclusion_rules=[{k: v for k, v in DRILLS.items() if k != "reason"}], exclusion_inputs=CLASS_INPUT)),
+        ("P-29", ["S5.11-1"], "permitted exclusion inputs not declared", dict(exclusion_inputs=None)),
+        ("P-29b", ["S5.11-7"], "whether an all-target exclusion may pass is not predeclared",
+         dict(exclusion_induced_zero_pass=None)),
+        ("P-29c", ["S6.5-2"], "positive FAIL conditions not published", dict(fail_conditions=None)),
+        ("P-29d", ["S6.5-5", "S6.5-2"], "missing evidence declared a FAIL condition", dict(
+            fail_conditions={**p["fail_conditions"], "UNCONFIRMED": True})),
+        ("P-29e", ["S6.5-2"], "exclusion-rule violations declared a FAIL condition this implementation cannot apply",
+         dict(fail_conditions={**p["fail_conditions"], "exclusion_rule_violation": True})),
+        ("P-29f", ["S5.12-1"], "an unresolved reference profiled INVALID", dict(resolution_failure={
+            "unresolved": "INVALID", "stale": "INDETERMINATE", "ambiguous": "INDETERMINATE", "inconsistent": "INVALID"})),
     ]
     for vid, reqs, desc, ch in neg:
         out.append(V(vid, "profile", list(reqs), "negative", desc, with_changes(p, **ch), {"errors_include": list(reqs)}))
@@ -154,7 +190,7 @@ def profile_vectors():
         ("P-32", ["S9.2-2"], "combined acknowledgement point with combined semantics and residual window", dict(
             ack_point={"point": ["verification", "durable_persistence"],
                        "combined_semantics": "ack after verify and fsync", "residual_failure_window": "none after fsync"})),
-        ("P-33", ["S5.10-5"], "lossless extra disposition", dict(
+        ("P-33", ["S5.10-9"], "lossless extra disposition", dict(
             extra_dispositions={"UNCONFIRMED_DEADLINE": {"maps_to": "UNCONFIRMED", "refines": "UNCONFIRMED"}})),
         ("P-34", ["S5.16-2"], "incomplete mapping declared as incomplete", dict(
             intermediary_mappings={"gw": {"governance_states": ["DENY", "DEFER"], "map": {"DENY": "REJECTED"},
@@ -163,9 +199,14 @@ def profile_vectors():
             uses_telemetry=True, telemetry_bindings={"instruction_id": "native", "content_digest": "absent"})),
         ("P-36", ["S5.6-2"], "native states with a lossless mapping", dict(
             enforcement_mapping={"BLOCKED": "APPLIED", "DECLINED": "REFUSED", "NOOP": "NO_EFFECT", "?": "UNKNOWN"})),
-        ("P-37", ["S6.4-8"], "exclusion rule on an issuer attribute", dict(
-            exclusion_rules=[{"rule_id": "drills", "applies_to": "issuer_attribute", "attribute": "class",
-                              "equals": "drill"}])),
+        ("P-37", ["S5.11-4", "S5.11-5", "S4.2-1"], "exclusion rule on a permitted issuer attribute", dict(
+            exclusion_rules=[DRILLS], exclusion_inputs=CLASS_INPUT)),
+        ("P-38", ["S5.11-7", "S5.11-1"], "target exclusion on a permitted input, all-target exclusion predeclared",
+         dict(exclusion_rules=[CANARY], exclusion_inputs=TIER_INPUT, exclusion_induced_zero_pass=True)),
+        ("P-39", ["S5.12-1"], "an inconsistent target-set binding classified CONFLICT", dict(resolution_failure={
+            "unresolved": "INDETERMINATE", "stale": "INDETERMINATE", "ambiguous": "INDETERMINATE",
+            "inconsistent": "CONFLICT"})),
+        ("P-40", ["S6.5-2", "S6.5-3"], "a narrower frozen FAIL condition set", dict(fail_conditions=NARROW_FAIL)),
     ]
     for vid, reqs, desc, ch in pos:
         out.append(V(vid, "profile", reqs, "positive", desc, with_changes(p, **ch), {"errors": []}))
@@ -175,15 +216,15 @@ def profile_vectors():
 def run_vectors():
     out = []
     add = out.append
-    add(V("R-01", "run", ["S5.5-1", "S5.10-1", "S5.11-2", "S6.2-1", "S6.5-2", "S5.2-1", "S6.6-1", "S6.6-2",
-                          "S5.13-1", "S5.13-3", "S5.4-1", "S5.1-1", "S6.4-1", "S6.4-5"], "positive",
+    add(V("R-01", "run", ["S5.5-1", "S5.10-1", "S5.11-3", "S6.2-1", "S6.5-4", "S5.2-1", "S6.6-1", "S6.6-2",
+                          "S5.13-1", "S5.13-3", "S5.4-1", "S5.1-1", "S6.4-2", "S6.4-7"], "positive",
           "matching issuer and receiver records for both targets", base_run(),
           {"obl:ctrl-1/EP-A.disposition": "CONFIRMED", "obl:ctrl-1/EP-B.disposition": "CONFIRMED",
-           "instr:ctrl-1.parent.fully_confirmed_within_target_set": True, "instr:ctrl-1.dispatched": True,
+           "instr:ctrl-1.parent.fully_confirmed_within_target_set": True, "instr:ctrl-1.dispatch": "DISPATCHED",
            "structural.structural_result": "PASS", "claim:population.claim_support": "FULLY_SUPPORTED",
            "conservation.obligations.holds": True, "conservation.receiver_records.holds": True,
-           "check": []}, case=1))
-    add(V("R-02", "run", ["S5.10-3", "S6.2-2", "S6.5-4", "S5.14-1", "S10.4-1", "S5.5-1"], "negative",
+           "check": []}))
+    add(V("R-02", "run", ["S5.10-3", "S6.2-2", "S6.5-6", "S5.14-1", "S10.4-1", "S5.5-1"], "negative",
           "one instruction, two required targets, EP-A confirmed and EP-B without receiver record",
           base_run([issuer(), receiver("rcv-a", "EP-A")], claims=[
               {"claim_id": "cd", "kind": "complete_delivery", "scope": {"instructions": ["ctrl-1"],
@@ -192,25 +233,25 @@ def run_vectors():
            "instr:ctrl-1.parent.fully_confirmed_within_target_set": False,
            "structural.structural_result": "INCONCLUSIVE", "claim:cd.claim_support": "NOT_SUPPORTED",
            "claim:cd.assertable": False, "check": []}, case=17))
-    add(V("R-02b", "run", ["S5.10-3", "S6.5-3"], "negative", "expected obligation with issuer evidence only",
+    add(V("R-02b", "run", ["S5.10-3", "S6.5-5"], "negative", "expected obligation with issuer evidence only",
           base_run([issuer()]),
           {"obl:ctrl-1/EP-A.disposition": "UNCONFIRMED", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED",
            "structural.structural_result": "INCONCLUSIVE", "check": []}, case=2))
-    add(V("R-03", "run", ["S5.2-1", "S6.5-3"], "negative", "same obligation identity, receiver digest differs",
+    add(V("R-03", "run", ["S5.2-1", "S6.5-5"], "negative", "same obligation identity, receiver digest differs",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2)]),
           {"obl:ctrl-1/EP-B.disposition": "SUBSTITUTION", "structural.structural_result": "FAIL",
            "receiver:rcv-b.class": "matched", "check": []}, case=3))
-    add(V("R-04", "run", ["S5.11-3", "S6.4-5"], "negative", "receiver record with no expected obligation",
+    add(V("R-04", "run", ["S5.11-8", "S6.4-7"], "negative", "receiver record with no expected obligation",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"),
                     receiver("rcv-x", "EP-A", iid="ctrl-9")]),
           {"receiver:rcv-x.class": "orphan", "conservation.receiver_records.counts.orphan": 1,
            "conservation.receiver_records.R": 3, "conservation.receiver_records.holds": True,
            "structural.structural_result": "PASS", "check": []}, case=4))
-    add(V("R-05", "run", ["S6.1-2", "S4.5-3"], "negative", "transport rejection bound to attempt a1 and EP-B",
+    add(V("R-05", "run", ["S6.1-2", "S4.5-4"], "negative", "transport rejection bound to attempt a1 and EP-B",
           base_run([issuer(), receiver("rcv-a", "EP-A"), transport("tr-b", "EP-B", "rejected")]),
           {"obl:ctrl-1/EP-B.disposition": "EXPLICIT_FAILURE", "obl:ctrl-1/EP-A.disposition": "CONFIRMED",
            "obl:ctrl-1/EP-B.failure_scope.target_id": "EP-B", "structural.structural_result": "FAIL",
-           "check": []}, case=5))
+           "check": []}))
     bad_iss = issuer()
     del bad_iss["content_digest"]
     add(V("R-06", "run", ["S5.10-2", "S5.4-2"], "negative", "malformed issuer record (no content binding)",
@@ -224,7 +265,7 @@ def run_vectors():
           base_run([issuer(), receiver("rcv-a", "EP-A"), bad_rcv]),
           {"receiver:rcv-b.class": "invalid_receiver", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED",
            "conservation.receiver_records.counts.invalid_receiver": 1, "check": []}, case=7))
-    add(V("R-08", "run", ["S6.3-1", "S5.11-3"], "positive", "duplicate matching receiver records for EP-A",
+    add(V("R-08", "run", ["S6.3-1", "S5.11-8"], "positive", "duplicate matching receiver records for EP-A",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-a2", "EP-A", time="2026-09-10T10:00:09Z"),
                     receiver("rcv-b", "EP-B")]),
           {"receiver:rcv-a.class": "matched", "receiver:rcv-a2.class": "duplicate",
@@ -240,7 +281,7 @@ def run_vectors():
            "observed": "acknowledgement deadline of 60 s elapsed with no matching acknowledgement for EP-B",
            "cutoff": "2026-09-10T10:01:00Z", "instruction_id": "ctrl-1", "target_id": "EP-B", "attempt_id": "a1",
            "time": "2026-09-10T10:01:00Z", "clock": "tsa:example-tsa", "native": "verified"}
-    add(V("R-10", "run", ["S5.8-1", "S5.10-3", "S6.5-3"], "negative",
+    add(V("R-10", "run", ["S5.8-1", "S5.10-3", "S6.5-5"], "negative",
           "deadline-elapsed negative observation for EP-B and no acknowledgement",
           base_run([issuer(), receiver("rcv-a", "EP-A"), neg]),
           {"obl:ctrl-1/EP-B.disposition": "UNCONFIRMED", "obl:ctrl-1/EP-B.has_diag": "NEGATIVE_DEADLINE_ELAPSED",
@@ -251,7 +292,7 @@ def run_vectors():
           base_run([issuer(), receiver("rcv-a", "EP-A"), neg_bad]),
           {"input:neg-b.class": "negative_observation:invalid", "check": []}))
     late_rcv = receiver("rcv-b", "EP-B", time="2026-09-10T12:30:00Z")
-    add(V("R-11", "versions", ["S9.1-2", "S6.4-8"], "positive",
+    add(V("R-11", "versions", ["S9.1-2", "S5.11-4"], "positive",
           "deadline-elapsed observation, then a late matching receipt after the first cutoff",
           {"run": base_run([issuer(), receiver("rcv-a", "EP-A"), neg, late_rcv]),
            "cutoffs": [CUTOFF, "2026-09-10T13:00:00Z"]},
@@ -273,7 +314,7 @@ def run_vectors():
     add(V("R-13", "run", ["S5.7-1", "S5.6-1"], "positive", "enforcement APPLIED, control effect not observed",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"), enf]),
           {"obl:ctrl-1/EP-A.enforcement.outcome": "APPLIED", "obl:ctrl-1/EP-A.control_effect.summary": "UNKNOWN",
-           "obl:ctrl-1/EP-B.enforcement.outcome": "UNKNOWN", "check": []}, case=13))
+           "obl:ctrl-1/EP-B.enforcement.outcome": "UNKNOWN", "check": []}))
     fz = frozen()
     fz["trust"]["observers"]["ep-a-obs"]["authority_verified"] = False
     add(V("R-14", "run", ["S5.3-4", "S5.3-5", "S8.1-4", "S5.13-4", "S8.1-2"], "negative",
@@ -293,7 +334,7 @@ def run_vectors():
           base_run(), {"claim:population.claim_support": "FULLY_SUPPORTED"}))
     fz = frozen()
     fz["target_sets"]["set-1"]["members"] = ["EP-A", {"ref": "edge-gateway"}]
-    add(V("R-15", "run", ["S5.12-1", "S5.12-2"], "negative", "required target reference cannot be resolved",
+    add(V("R-15", "run", ["S5.12-1", "S5.12-1"], "negative", "required target reference cannot be resolved",
           base_run([issuer(), receiver("rcv-a", "EP-A")], fz=fz),
           {"obl:ctrl-1/ref:edge-gateway.disposition": "INDETERMINATE", "structural.structural_result": "INCONCLUSIVE",
            "check": []}, case=15))
@@ -301,22 +342,32 @@ def run_vectors():
     fz2["target_directory"]["refs"]["edge-gateway"] = ["EP-B", "EP-C"]
     add(V("R-15b", "run", ["S5.12-1"], "negative", "required target reference resolves ambiguously",
           base_run([issuer(), receiver("rcv-a", "EP-A")], fz=fz2),
-          {"obl:ctrl-1/ref:edge-gateway.disposition": "INDETERMINATE", "check": []}))
+          {"obl:ctrl-1/ref:edge-gateway.disposition": "INDETERMINATE", "check": []}, case=15))
     fz3 = copy.deepcopy(fz)
     fz3["target_directory"]["refs"]["edge-gateway"] = "EP-B"
-    add(V("R-15c", "run", ["S5.12-1", "S5.12-2"], "positive", "reference resolves to one known target",
+    add(V("R-15c", "run", ["S5.12-1", "S5.12-1"], "positive", "reference resolves to one known target",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")], fz=fz3),
           {"obl:ctrl-1/EP-B.disposition": "CONFIRMED", "structural.structural_result": "PASS", "check": []}))
     prof = with_changes(example_profile(), resolution_failure={"unresolved": "INVALID", "stale": "INDETERMINATE",
                                                                "ambiguous": "INDETERMINATE", "inconsistent": "INVALID"})
-    add(V("R-15d", "run", ["S5.12-1"], "negative", "unresolved reference under a profile that maps it to INVALID",
+    add(V("R-15d", "run", ["S5.12-1"], "negative",
+          "unresolved reference under a profile that maps it to INVALID: the profile is refused, Section 5.12 defines "
+          "the class",
           base_run([issuer(), receiver("rcv-a", "EP-A")], fz=copy.deepcopy(fz), profile=prof),
-          {"obl:ctrl-1/ref:edge-gateway.disposition": "INVALID", "check": []}, case=15))
+          {"profile.valid": False, "structural.has_blocker": "PROFILE_INVALID",
+           "structural.structural_result": "INCONCLUSIVE", "check": []}))
+    fz4 = copy.deepcopy(fz)
+    fz4["target_sets"]["set-1"]["members"] = ["EP-A", 42]
+    add(V("R-15e", "run", ["S5.12-1"], "positive", "a malformed target-set member is INVALID, a structural defect",
+          base_run([issuer(), receiver("rcv-a", "EP-A")], fz=fz4),
+          {"obl:ctrl-1/malformed:" + canon.document_digest(42)[8:20] + ".disposition": "INVALID",
+           "obl:ctrl-1/EP-A.disposition": "CONFIRMED", "structural.structural_result": "INCONCLUSIVE", "check": []},
+          case=15))
     fz = frozen()
     fz["expected_counts"] = {"instructions": 1, "obligations": 3}
-    add(V("R-16", "run", ["S5.11-1", "S6.5-5"], "negative", "declared expected counts do not balance",
+    add(V("R-16", "run", ["S5.11-1", "S6.5-9"], "negative", "declared expected counts do not balance",
           base_run(fz=fz), {"structural.structural_result": "INCONCLUSIVE",
-                            "structural.has_blocker": "EXPECTED_COUNTS_DIFFER", "check": []}, case=16))
+                            "structural.has_blocker": "EXPECTED_COUNTS_DIFFER", "check": []}))
     fz = frozen()
     fz["expected_counts"] = {"instructions": 1, "obligations": 2}
     add(V("R-16b", "run", ["S5.11-1"], "positive", "declared expected counts balance",
@@ -333,7 +384,7 @@ def run_vectors():
                                                                      "fact": "every member of set-1 confirmed"}},
           {"claim_id": "cm", "kind": "complete_mediation", "scope": {"instructions": ["ctrl-1"],
                                                                       "fact": "every egress path received the stop"}}]
-    add(V("R-19", "run", ["S5.15-2", "S5.15-4", "S5.11-13", "S9.3-2"], "negative",
+    add(V("R-19", "run", ["S5.15-2", "S5.15-4", "S5.11-19", "S9.3-2"], "negative",
           "both targets CONFIRMED while target-set coverage is DECLARED_ONLY",
           base_run(claims=cl, fz=fz),
           {"structural.structural_result": "PASS", "claim:cd.claim_support": "FULLY_SUPPORTED",
@@ -352,32 +403,34 @@ def run_vectors():
           "DECLARED_ONLY coverage under a profile that lists coverage as neither conditional nor mandatory",
           base_run(claims=cl, fz=copy.deepcopy(fz), profile=prof_d),
           {"claim:cm.claim_support": "NOT_SUPPORTED", "claim:cd.claim_support": "FULLY_SUPPORTED", "check": []}))
-    add(V("R-19c", "run", ["S5.15-2", "S5.11-13"], "positive", "coverage VERIFIED supports complete mediation",
+    add(V("R-19c", "run", ["S5.15-2", "S5.11-19"], "positive", "coverage VERIFIED supports complete mediation",
           base_run(claims=cl), {"claim:cm.claim_support": "FULLY_SUPPORTED", "check": []}))
     fz = frozen()
     fz["instructions"][0]["target_resolution"] = {"open": {"reason": "service mesh membership not enumerable",
                                                            "known_targets": ["EP-A"]}}
-    add(V("R-20", "run", ["S5.11-11", "S5.11-12"], "negative", "open Required Target Set",
+    add(V("R-20", "run", ["S5.11-17", "S5.11-18"], "negative", "open Required Target Set",
           base_run([issuer(), receiver("rcv-a", "EP-A")], claims=cl[:1], fz=fz),
-          {"instr:ctrl-1.class": "not_closed", "obl:ctrl-1/EP-A.open_scope": True,
+          {"instr:ctrl-1.class": "target_resolution_unclosed", "conservation.obligations.O": 0,
+           "instr:ctrl-1.unclosed_reason": "service mesh membership not enumerable",
+           "instr:ctrl-1.subscope.known_targets": ["EP-A"], "receiver:rcv-a.class": "orphan",
            "structural.structural_result": "INCONCLUSIVE", "claim:cd.claim_support": "NOT_SUPPORTED",
-           "conservation.instructions.draft_equation_holds": False,
-           "conservation.instructions.extended_equation_holds": True, "check": []}, case=20))
+           "conservation.instructions.target_resolution_unclosed": 1,
+           "conservation.instructions.equation_holds": True, "check": []}, case=20))
     fz = frozen()
     fz["instructions"][0]["target_resolution"] = {"set_id": "set-unknown"}
-    add(V("R-20b", "run", ["S5.11-11", "S5.12-1"], "negative", "target-set reference does not resolve",
+    add(V("R-20b", "run", ["S5.11-17", "S5.12-1"], "negative", "target-set reference does not resolve",
           base_run([issuer(target_set_ref="set-unknown"), receiver("rcv-a", "EP-A")], claims=cl[:1], fz=fz),
-          {"instr:ctrl-1.class": "not_closed", "structural.structural_result": "INCONCLUSIVE",
+          {"instr:ctrl-1.class": "target_resolution_unclosed", "structural.structural_result": "INCONCLUSIVE",
            "claim:cd.claim_support": "NOT_SUPPORTED", "receiver:rcv-a.class": "orphan", "check": []}))
     vf = receiver("rcv-b", "EP-B", event="verification_failed")
-    add(V("R-22", "run", ["S6.5-3", "S5.5-6"], "positive",
+    add(V("R-22", "run", ["S6.5-5", "S5.5-6"], "positive",
           "verified receiver failure observation for EP-B: FAIL with a fully supported scoped failure",
           base_run([issuer(), receiver("rcv-a", "EP-A"), vf], claims=[
               {"claim_id": "fb", "kind": "scoped_failure",
                "scope": {"instructions": ["ctrl-1"], "obligation": ["ctrl-1", "EP-B"],
                          "fact": "EP-B did not accept ctrl-1 attempt a1"}}]),
           {"obl:ctrl-1/EP-B.disposition": "EXPLICIT_FAILURE", "structural.structural_result": "FAIL",
-           "claim:fb.claim_support": "FULLY_SUPPORTED", "claim:fb.structural_result": "FAIL", "check": []}, case=22))
+           "claim:fb.claim_support": "FULLY_SUPPORTED", "claim:fb.structural_result": "FAIL", "check": []}))
     out += race_vectors() + more_run_vectors()
     return out
 
@@ -408,7 +461,7 @@ def race_vectors():
             op("o2-pe", "O2", "provider_entry", "refused", "2026-09-10T10:00:12Z")]
     fz = frozen()
     fz["target_sets"]["set-1"]["coverage"] = "DECLARED_ONLY"
-    out.append(V("R-23", "run", ["S9.4-2", "S9.4-3", "S9.4-4", "S9.4-5", "S4.5-3", "S9.4-1"], "positive",
+    out.append(V("R-23", "run", ["S9.4-2", "S9.4-3", "S9.4-4", "S9.4-5", "S4.5-4", "S9.4-1"], "positive",
                  "freeze applied after O1 crossed provider entry and before O2 attempted it; EP-B unconfirmed",
                  base_run(recs, fz=fz, claims=[
                      {"claim_id": "ie", "kind": "independent_effect",
@@ -429,10 +482,11 @@ def race_vectors():
     out.append(V("R-23b", "run", ["S5.9-3", "S5.9-1"], "negative",
                  "O1 provider entry recorded on an untrusted clock: precedence is not reported",
                  base_run(recs_b, fz=copy.deepcopy(fz)),
-                 {"op:O1.fact:provider_entry": "INDETERMINATE", "op:O1.status": "ordering_indeterminate", "check": []}))
+                 {"op:O1.fact:provider_entry": "INDETERMINATE", "op:O1.status": "ordering_indeterminate", "check": []},
+                 case=23))
     eff_self = dict(eff, record_id="eff-self", observer="ep-a-obs", independence_claimed=True,
                     observer_relationship="independent (self-declared)")
-    out.append(V("R-23c", "run", ["S4.5-1", "S4.5-2", "S8.1-2"], "negative",
+    out.append(V("R-23c", "run", ["S4.5-2", "S4.5-3", "S8.1-2"], "negative",
                  "effect observed by the enforcement point's own observer, labelled independent",
                  base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"), eff_self],
                           claims=[{"claim_id": "ie", "kind": "independent_effect",
@@ -451,13 +505,13 @@ def race_vectors():
     out.append(V("R-23e", "run", ["S5.7-3", "S5.7-2"], "positive", "a bounded NO_EFFECT effect observation",
                  base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"), noeff]),
                  {"obl:ctrl-1/EP-A.control_effect.summary": "NO_EFFECT",
-                  "obl:ctrl-1/EP-B.control_effect.summary": "UNKNOWN", "check": []}))
+                  "obl:ctrl-1/EP-B.control_effect.summary": "UNKNOWN", "check": []}, case=13))
     noeff_bad = dict(noeff, record_id="eff-nb")
     del noeff_bad["window"]
     out.append(V("R-23f", "run", ["S5.7-3", "S5.7-2"], "negative", "a NO_EFFECT claim without a window",
                  base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"), noeff_bad]),
                  {"input:eff-nb.class": "effect_observation:invalid",
-                  "obl:ctrl-1/EP-A.control_effect.summary": "UNKNOWN", "check": []}))
+                  "obl:ctrl-1/EP-A.control_effect.summary": "UNKNOWN", "check": []}, case=13))
     return out
 
 
@@ -492,7 +546,7 @@ def more_run_vectors():
                    claims=claim),
           {"path:p1.preservation": "INDETERMINATE", "path:p1.hop0": "mapping_unavailable",
            "claim:pd.claim_support": "NOT_SUPPORTED", "check": []}))
-    add(V("R-26", "run", ["SA.MCC-2", "S5.2-1", "S5.5-5"], "negative",
+    add(V("R-26", "run", ["S5.10-6", "S5.2-1", "S5.5-5"], "negative",
           "stable identifier survives the intermediary, the content the receiver read changed",
           base_run([issuer(content=CONTENT), receiver("rcv-a", "EP-A"),
                     receiver("rcv-b", "EP-B", digest=D2, content=OTHER_CONTENT)]),
@@ -509,22 +563,25 @@ def more_run_vectors():
                                                                             "resolution rule selects only live runtimes"}}})
     recs = [issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"),
             issuer(rid="iss-2", iid="ctrl-2", target_set_ref="none")]
-    add(V("R-27", "run", ["S5.11-4", "S5.11-5", "S5.11-6", "S5.11-7", "S6.4-2", "S6.4-3", "S6.4-4"], "positive",
+    add(V("R-27", "run", ["S5.11-10", "S5.11-11", "S5.11-12", "S5.11-13", "S6.4-6", "S6.4-3", "S6.4-5"], "positive",
           "an instruction whose target resolution yields an empty set, valid under the profile",
           base_run(recs, fz=fz),
           {"instr:ctrl-2.class": "zero_obligations", "instr:ctrl-2.contributed_obligations": 0,
            "instr:ctrl-2.zero_obligation_condition_present": True, "conservation.instructions.I": 2,
            "conservation.instructions.with_obligations": 1, "conservation.instructions.zero_obligation_instructions": 1,
-           "conservation.instructions.draft_equation_holds": True, "conservation.obligations.O": 2,
+           "conservation.instructions.equation_holds": True, "conservation.obligations.O": 2,
+           "instr:ctrl-2.zero_cause": "terminal_empty", "instr:ctrl-2.candidate_count": 0,
+           "instr:ctrl-2.parent.fully_confirmed_within_target_set": None,
+           "conservation.instructions.zero_subdivision.terminal_empty": 1,
            "structural.structural_result": "PASS", "check": []}, case=27))
-    add(V("R-27b", "run", ["S5.11-9", "S5.11-10"], "negative", "the same empty set under a profile that does not permit it",
+    add(V("R-27b", "run", ["S5.11-15", "S5.11-16"], "negative", "the same empty set under a profile that does not permit it",
           base_run(copy.deepcopy(recs), fz=copy.deepcopy(fz), profile=with_changes(p, empty_target_set_valid=False)),
           {"instr:ctrl-2.class": "zero_obligations", "conservation.obligations.O": 2,
            "conservation.obligations.counts.EXPLICIT_FAILURE": 0, "structural.structural_result": "INCONCLUSIVE",
            "structural.has_blocker": "EMPTY_TARGET_SET_NOT_PERMITTED", "check": []}, case=27))
     many = [issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2),
             receiver("rcv-b2", "EP-B", event="verification_failed", time="2026-09-10T10:00:06Z")]
-    add(V("R-29", "run", ["S5.10-6", "S5.10-7"], "positive",
+    add(V("R-29", "run", ["S5.10-10", "S5.10-11"], "positive",
           "EP-B with a content mismatch and a verification failure reduced to one disposition",
           base_run(many),
           {"obl:ctrl-1/EP-B.disposition": "SUBSTITUTION",
@@ -534,20 +591,23 @@ def more_run_vectors():
     fz = frozen()
     fz["instructions"] = []
     fz["population_closed"] = False
-    add(V("R-30", "run", ["S6.5-3", "S5.10-4"], "negative",
+    add(V("R-30", "run", ["S6.5-5", "S5.10-4"], "negative",
           "an unmatched receipt while the comparison population was never established",
           base_run([receiver("rcv-x", "EP-A")], fz=fz),
           {"structural.structural_result": "INCONCLUSIVE", "receiver:rcv-x.class": "orphan", "check": []}, case=30))
     # attempts (S5.1-1, S5.1-4, Section 9.1)
     add(V("R-31", "run", ["S5.1-4", "S5.1-1"], "negative", "receiver observation of an attempt the issuer never emitted",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", attempt="a2")]),
-          {"receiver:rcv-b.class": "orphan", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED", "check": []}))
-    add(V("R-31b", "run", ["S5.1-4", "S9.1-3"], "positive", "attempt a1 rejected in transport, retry a2 confirmed",
+          {"receiver:rcv-b.class": "matched", "receiver:rcv-b.detail.code": "ATTEMPT_NOT_EMITTED",
+           "conservation.receiver_records.matched_subdivision.non_confirming": 1,
+           "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED", "check": []}))
+    add(V("R-31b", "run", ["S5.1-4", "S9.1-4"], "positive", "attempt a1 rejected in transport, retry a2 confirmed",
           base_run([issuer(), issuer(rid="iss-1b", attempt="a2", time="2026-09-10T10:02:00Z"), receiver("rcv-a", "EP-A"),
                     transport("tr-b", "EP-B", "rejected"), receiver("rcv-b", "EP-B", attempt="a2",
                                                                      time="2026-09-10T10:02:05Z")]),
           {"obl:ctrl-1/EP-B.disposition": "CONFIRMED", "obl:ctrl-1/EP-B.has_diag": "OTHER_ATTEMPT_FAILED",
-           "structural.structural_result": "PASS", "check": []}))
+           "obl:ctrl-1/EP-B.attempts": ["a1", "a2"], "conservation.obligations.O": 2,
+           "structural.structural_result": "PASS", "check": []}, case=1))
     add(V("R-31c", "run", ["S5.1-1"], "negative", "identifier not stable across the boundary",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", iid="ctrl-1-rewritten")]),
           {"receiver:rcv-b.class": "orphan", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED", "check": []}))
@@ -557,14 +617,28 @@ def more_run_vectors():
           {"obl:ctrl-1/EP-A.disposition": "SUBSTITUTION", "obl:ctrl-1/EP-B.disposition": "SUBSTITUTION",
            "obl:ctrl-1/EP-A.has_diag": "ISSUER_ID_REUSED_WITH_DIFFERENT_CONTENT", "check": []}))
     failed = issuer(event="emission_failed", boundary="issuer-internal-queue")
-    add(V("R-33", "run", ["S5.4-4", "S5.4-5", "S6.1-2"], "negative", "emission failed before the issuer boundary",
+    add(V("R-33", "run", ["S5.4-6", "S5.4-8"], "negative",
+          "emission failed before the issuer boundary without a bound target: an instruction diagnostic, not fanned out",
           base_run([failed]),
-          {"instr:ctrl-1.dispatched": False, "obl:ctrl-1/EP-A.disposition": "EXPLICIT_FAILURE",
-           "obl:ctrl-1/EP-A.has_diag": "EMISSION_FAILED_BEFORE_BOUNDARY", "structural.structural_result": "FAIL",
-           "check": []}))
-    add(V("R-33b", "run", ["S5.4-1"], "negative", "no issuer-side observation at all", base_run([receiver("rcv-a", "EP-A")]),
-          {"instr:ctrl-1.dispatched": False, "obl:ctrl-1/EP-A.disposition": "INDETERMINATE",
-           "structural.has_blocker": "ISSUER_POPULATION_MISMATCH", "check": []}))
+          {"instr:ctrl-1.dispatch": "NOT_ESTABLISHED", "instr:ctrl-1.has_diag": "EMISSION_FAILED_BEFORE_BOUNDARY",
+           "obl:ctrl-1/EP-A.disposition": "INDETERMINATE", "obl:ctrl-1/EP-B.disposition": "INDETERMINATE",
+           "structural.structural_result": "INCONCLUSIVE", "check": []}, case=5))
+    scoped = issuer(rid="iss-f", event="emission_failed", boundary="issuer-internal-queue", target_id="EP-B",
+                    failed_before_boundary="issuer-egress")
+    add(V("R-33c", "run", ["S5.4-8", "S6.1-2"], "positive",
+          "a pre-boundary rejection bound to attempt a1, EP-B and the issuer boundary: EXPLICIT_FAILURE for EP-B only",
+          base_run([issuer(rid="iss-0", attempt="a0", time="2026-09-10T09:59:00Z"),
+                    receiver("rcv-a", "EP-A", attempt="a0"), scoped]),
+          {"obl:ctrl-1/EP-B.disposition": "EXPLICIT_FAILURE", "obl:ctrl-1/EP-B.failure_scope.target_id": "EP-B",
+           "obl:ctrl-1/EP-A.disposition": "CONFIRMED", "instr:ctrl-1.dispatch": "DISPATCHED",
+           "structural.structural_result": "FAIL", "check": []}, case=5))
+    add(V("R-33b", "run", ["S5.4-1", "S6.5-7"], "negative",
+          "no issuer-side observation for an instruction of the frozen population, valid receiver observation for EP-A",
+          base_run([receiver("rcv-a", "EP-A")]),
+          {"instr:ctrl-1.dispatch": "NOT_ESTABLISHED", "obl:ctrl-1/EP-A.disposition": "INDETERMINATE",
+           "obl:ctrl-1/EP-A.has_diag": "ISSUER_RECORD_ABSENT", "receiver:rcv-a.class": "matched",
+           "structural.has_blocker": "DISPATCH_NOT_ESTABLISHED", "structural.structural_result": "INCONCLUSIVE",
+           "check": []}, case=6))
     ts_digest = canon.document_digest(["EP-A", "EP-B"])
     add(V("R-34", "run", ["S5.4-3", "S5.12-1"], "positive", "issuer binds the Required Target Set by its digest",
           base_run([issuer(target_set_digest=ts_digest), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")]),
@@ -575,7 +649,7 @@ def more_run_vectors():
           {"obl:ctrl-1/EP-A.disposition": "INVALID", "obl:ctrl-1/EP-A.has_diag": "TARGET_SET_INCONSISTENT", "check": []}))
     fz = frozen()
     fz["target_sets"]["set-1"]["valid_until"] = "2026-09-10T11:30:00Z"
-    add(V("R-34c", "run", ["S5.12-1", "S5.12-2"], "negative", "target-set reference stale at the cutoff",
+    add(V("R-34c", "run", ["S5.12-1", "S5.12-1"], "negative", "target-set reference stale at the cutoff",
           base_run(fz=fz), {"obl:ctrl-1/EP-A.disposition": "INDETERMINATE", "structural.structural_result": "INCONCLUSIVE",
                             "check": []}))
     add(V("R-35", "run", ["S4.3-1", "S5.5-1"], "negative", "only a transport acceptance for EP-B",
@@ -611,7 +685,8 @@ def more_run_vectors():
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"),
                     enf("enf-a", "NO_EFFECT", predicate="task-9 already stopped",
                         window={"start": "2026-09-10T10:00:07Z", "end": "2026-09-10T10:05:00Z"})]),
-          {"obl:ctrl-1/EP-A.enforcement.outcome": "NO_EFFECT", "check": []}))
+          {"obl:ctrl-1/EP-A.enforcement.outcome": "NO_EFFECT", "obl:ctrl-1/EP-A.control_effect.summary": "UNKNOWN",
+           "check": []}, case=13))
     add(V("R-37", "run", ["S8.1-1"], "negative", "receiver record whose native verification failed",
           base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", native="failed")]),
           {"receiver:rcv-b.class": "invalid_receiver", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED", "check": []}))
@@ -632,7 +707,7 @@ def more_run_vectors():
     add(V("R-38c", "run", ["S5.3-1"], "negative", "record without an observer",
           base_run([issuer(), receiver("rcv-a", "EP-A"), noobs]), {"receiver:rcv-b.class": "invalid_receiver", "check": []}))
     fz = frozen()
-    add(V("R-39", "run", ["S5.10-4", "S6.4-8"], "negative",
+    add(V("R-39", "run", ["S5.10-4", "S5.11-4"], "negative",
           "an issuer emission inside the window that the frozen population omits",
           base_run([issuer(), issuer(rid="iss-2", iid="ctrl-2"), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")], fz=fz),
           {"structural.has_blocker": "ISSUER_POPULATION_MISMATCH", "structural.structural_result": "INCONCLUSIVE",
@@ -640,14 +715,15 @@ def more_run_vectors():
     fz = frozen()
     fz["instructions"].append({"instruction_id": "ctrl-2", "target_resolution": {"set_id": "set-1"},
                                "attributes": {"class": "drill"}})
-    add(V("R-39b", "run", ["S6.4-8"], "positive", "an instruction excluded by a published issuer-side rule",
+    add(V("R-39b", "run", ["S5.11-4"], "positive", "an instruction excluded by a published issuer-side rule",
           base_run([issuer(), issuer(rid="iss-2", iid="ctrl-2"), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")],
-                   fz=fz, profile=with_changes(p, exclusion_rules=[{"rule_id": "drills", "applies_to": "issuer_attribute",
-                                                                     "attribute": "class", "equals": "drill"}])),
-          {"exclusions.drills.count": 1, "structural.structural_result": "PASS", "check": []}))
+                   fz=fz, profile=with_changes(p, exclusion_rules=[DRILLS], exclusion_inputs=CLASS_INPUT)),
+          {"exclusions.drills.count": 1, "exclusions.drills.version": "1",
+           "exclusions.drills.reason": "drills are not live controls", "input:iss-2.class": "excluded",
+           "structural.structural_result": "PASS", "check": []}))
     fz = frozen()
     fz["population_closed"] = False
-    add(V("R-40", "run", ["S6.5-2"], "negative", "population not declared closed", base_run(fz=fz),
+    add(V("R-40", "run", ["S6.5-4"], "negative", "population not declared closed", base_run(fz=fz),
           {"structural.structural_result": "INCONCLUSIVE", "structural.has_blocker": "POPULATION_NOT_DECLARED_CLOSED",
            "check": []}))
     fz = frozen()
@@ -685,6 +761,108 @@ def more_run_vectors():
           {"obl:ctrl-1/EP-A.disposition": "CONFIRMED", "obl:ctrl-1/EP-A.enforcement.outcome": "APPLIED",
            "obl:ctrl-1/EP-A.control_effect.summary": "UNKNOWN", "obl:ctrl-1/EP-B.disposition": "UNCONFIRMED",
            "check": []}))
+    out += exclusion_vectors() + draft02_vectors()
+    return out
+
+
+def exclusion_vectors():
+    """Sections 4.2, 5.11 and 6.4 of -02: candidates C_i, exclusions E_i, Required Target Set T_i."""
+    out = []
+    add = out.append
+    p = example_profile()
+    deny = with_changes(p, exclusion_rules=[CANARY], exclusion_inputs=TIER_INPUT, exclusion_induced_zero_pass=False)
+    allow = with_changes(p, exclusion_rules=[CANARY], exclusion_inputs=TIER_INPUT, exclusion_induced_zero_pass=True)
+    add(V("R-47", "run", ["S6.5-8", "S5.11-7"], "negative",
+          "C_i with two resolved candidates and E_i equal to C_i under a profile that does not permit the narrow case",
+          base_run([issuer()], fz=canary_frozen("EP-A", "EP-B"), profile=deny),
+          {"instr:ctrl-1.class": "zero_obligations", "instr:ctrl-1.zero_cause": "exclusion_induced",
+           "instr:ctrl-1.candidate_count": 2, "instr:ctrl-1.excluded_count": 2, "instr:ctrl-1.required_count": 0,
+           "conservation.obligations.O": 0, "conservation.instructions.zero_subdivision.exclusion_induced": 1,
+           "exclusions.canary-exempt.count": 2, "exclusions.canary-exempt.version": "3",
+           "structural.has_blocker": "EXCLUSION_INDUCED_ZERO_NOT_PERMITTED",
+           "structural.structural_result": "INCONCLUSIVE", "check": []}, case=16))
+    add(V("R-47b", "run", ["S6.5-8", "S5.11-7", "S4.2-2", "S4.2-3", "S6.4-1", "S6.4-6", "S5.11-4", "S6.4-11"],
+          "positive", "the same all-target exclusion under a profile that expressly permits it, with its claim scope",
+          base_run([issuer()], fz=canary_frozen("EP-A", "EP-B"), profile=allow),
+          {"instr:ctrl-1.zero_cause": "exclusion_induced", "instr:ctrl-1.excluded_targets.0.rule": "canary-exempt",
+           "instr:ctrl-1.excluded_targets.0.reason": "canary targets are outside the stop scope",
+           "instr:ctrl-1.parent.fully_confirmed_within_target_set": None,
+           "claim:population.claim_scope.zero_obligation_instructions.0.zero_cause": "exclusion_induced",
+           "claim:population.claim_scope.zero_obligation_instructions.0.excluded": 2,
+           "structural.structural_result": "PASS", "check": []}, case=16))
+    add(V("R-47c", "run", ["S4.2-1", "S4.2-2", "S5.10-5", "S5.11-2", "S5.11-5"], "positive",
+          "one of two candidates excluded on a frozen target attribute: one obligation, the receipt for the excluded "
+          "target is not used",
+          base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")], fz=canary_frozen("EP-B"), profile=deny),
+          {"instr:ctrl-1.class": "with_obligations", "instr:ctrl-1.candidate_count": 2, "instr:ctrl-1.required_count": 1,
+           "conservation.obligations.O": 1, "input:rcv-b.class": "excluded", "conservation.receiver_records.R": 1,
+           "structural.structural_result": "PASS", "check": []}))
+    add(V("R-47d", "run", ["S5.11-7", "S6.5-8"], "negative",
+          "an all-target exclusion under a profile that does not declare whether it may pass",
+          base_run([issuer()], fz=canary_frozen("EP-A", "EP-B"),
+                   profile=with_changes(deny, exclusion_induced_zero_pass=None)),
+          {"profile.valid": False, "structural.structural_result": "INCONCLUSIVE", "check": []}, case=16))
+    add(V("R-47e", "run", ["S5.11-5", "S4.2-1"], "negative",
+          "a target exclusion over an input the profile does not permit is refused, so no PASS",
+          base_run([issuer(), receiver("rcv-a", "EP-A")], fz=canary_frozen("EP-B"),
+                   profile=with_changes(deny, exclusion_inputs={"issuer_attribute": [], "target_attribute": []})),
+          {"profile.valid": False, "structural.structural_result": "INCONCLUSIVE", "check": []}, case=16))
+    add(V("R-47f", "run", ["S6.5-9"], "negative", "a target exclusion whose rule version cannot be established",
+          base_run([issuer(), receiver("rcv-a", "EP-A")], fz=canary_frozen("EP-B"),
+                   profile=with_changes(deny, exclusion_rules=[{k: v for k, v in CANARY.items() if k != "version"}])),
+          {"profile.valid": False, "structural.structural_result": "INCONCLUSIVE", "check": ["S6.4-11"]}, case=16))
+    return out
+
+
+def draft02_vectors():
+    """The other rules that changed from -01 to -02."""
+    out = []
+    add = out.append
+    p = example_profile()
+    sub_recs = [issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2)]
+    add(V("R-48", "run", ["S6.5-2", "S6.5-3", "S6.5-6"], "positive",
+          "a profile whose frozen FAIL conditions do not include SUBSTITUTION: the substitution prevents PASS but is no FAIL",
+          base_run(copy.deepcopy(sub_recs), profile=with_changes(p, fail_conditions=NARROW_FAIL)),
+          {"obl:ctrl-1/EP-B.disposition": "SUBSTITUTION", "structural.structural_result": "INCONCLUSIVE",
+           "structural.positive_failing_conditions": [], "check": []}, case=22))
+    add(V("R-48b", "run", ["S6.5-5", "S6.5-2"], "positive",
+          "the same records under the example profile, which declares SUBSTITUTION a FAIL condition",
+          base_run(copy.deepcopy(sub_recs)),
+          {"structural.structural_result": "FAIL", "profile.fail_conditions.SUBSTITUTION": True, "check": []}, case=22))
+    add(V("R-49", "run", ["S5.10-8"], "positive",
+          "an issuer record with the same identifier string from another uniqueness scope is not merged",
+          base_run([issuer(), issuer(rid="iss-x", digest=D2, identifier_scope="deployment-b"),
+                    receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")]),
+          {"obl:ctrl-1/EP-A.disposition": "CONFIRMED", "obl:ctrl-1/EP-B.disposition": "CONFIRMED",
+           "input:iss-x.class": "issuer:outside_population", "structural.has_blocker": "ISSUER_POPULATION_MISMATCH",
+           "check": []}))
+    add(V("R-49b", "run", ["S5.10-8", "S5.10-6", "S5.10-7"], "negative",
+          "the same identifier string reused for different content inside one uniqueness scope",
+          base_run([issuer(), issuer(rid="iss-y", attempt="a2", digest=D2, time="2026-09-10T10:02:00Z"),
+                    receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")]),
+          {"obl:ctrl-1/EP-A.disposition": "SUBSTITUTION", "structural.structural_result": "FAIL", "check": []}, case=3))
+    add(V("R-50", "run", ["S5.4-5"], "positive",
+          "missing issuer observation with a receiver verification failure for EP-B: the scoped failure is not suppressed",
+          base_run([receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", event="verification_failed")]),
+          {"obl:ctrl-1/EP-B.disposition": "EXPLICIT_FAILURE", "obl:ctrl-1/EP-B.has_diag": "ISSUER_RECORD_ABSENT",
+           "obl:ctrl-1/EP-A.disposition": "INDETERMINATE", "instr:ctrl-1.dispatch": "NOT_ESTABLISHED", "check": []},
+          case=6))
+    add(V("R-50b", "run", ["S5.4-5", "S5.4-4"], "positive",
+          "a malformed issuer record stays INVALID while dispatch is not established",
+          base_run([dict(issuer(), content_digest="sha-256:0"), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")]),
+          {"obl:ctrl-1/EP-A.disposition": "INVALID", "instr:ctrl-1.dispatch": "NOT_ESTABLISHED",
+           "receiver:rcv-a.class": "matched", "check": []}, case=6))
+    add(V("R-51", "run", ["S5.4-1", "S5.4-6"], "negative",
+          "an emission recorded at another boundary than the issuer boundary does not establish dispatch",
+          base_run([issuer(boundary="issuer-internal-queue"), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")]),
+          {"instr:ctrl-1.dispatch": "NOT_ESTABLISHED", "instr:ctrl-1.has_diag": "ISSUER_RECORD_NOT_AT_BOUNDARY",
+           "obl:ctrl-1/EP-A.disposition": "INDETERMINATE", "structural.structural_result": "INCONCLUSIVE",
+           "check": []}))
+    add(V("R-52", "run", ["S6.6-3"], "positive",
+          "the default claim names profile, cutoff and structural rules",
+          base_run(),
+          {"structural.claim_scope.profile.profile_id": "acde01-interop-example",
+           "structural.claim_scope.cutoff": CUTOFF, "check": []}, case=28))
     return out
 
 
@@ -707,28 +885,28 @@ def check_vectors():
     fail = base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2)])
     r02 = base_run([issuer(), receiver("rcv-a", "EP-A")])
     st = ["structural"]
-    out.append(RC("C-00", ["S6.6-3", "S6.6-4", "S6.5-6", "S6.4-1", "S6.4-5", "S5.13-1", "S6.5-7"], "positive",
+    out.append(RC("C-00", ["S6.6-3", "S6.6-4", "S6.5-10", "S6.4-2", "S6.4-7", "S5.13-1", "S6.5-11"], "positive",
                   "an untampered PASS report", good, [], {"violations": []}))
-    out.append(RC("C-00b", ["S6.6-3", "S6.5-3"], "positive", "an untampered FAIL report", fail, [], {"violations": []}))
+    out.append(RC("C-00b", ["S6.6-3", "S6.5-5"], "positive", "an untampered FAIL report", fail, [], {"violations": []}))
     bare = [_D(st + ["claim_scope"]), _D(st + ["claim_support"]), _D(st + ["conditions"])]
-    out.append(RC("C-01", ["S6.6-3", "S6.6-4", "S6.5-7", "S5.13-3"], "negative",
+    out.append(RC("C-01", ["S6.6-3", "S6.6-4", "S6.5-11", "S5.13-3"], "negative",
                   "bare structural PASS without claim scope and support", good, bare,
                   {"violations_include": ["S6.6-3"]}, case=28))
     out.append(RC("C-02", ["S6.6-3", "S6.6-4"], "negative", "bare structural FAIL without claim scope and support",
                   fail, bare, {"violations_include": ["S6.6-3"]}, case=28))
-    out.append(RC("C-03", ["S6.4-1"], "negative", "published counts do not balance |O|", good,
-                  [_S(["conservation", "obligations", "counts", "CONFIRMED"], 3)], {"violations_include": ["S6.4-1"]}, case=16))
-    out.append(RC("C-04", ["S6.5-5"], "negative", "PASS reported while conservation fails", good,
-                  [_S(["conservation", "obligations", "holds"], False)], {"violations_include": ["S6.5-5"]}, case=16))
-    out.append(RC("C-05", ["S6.5-3"], "negative", "FAIL without a positive failing condition", good,
-                  [_S(st + ["structural_result"], "FAIL")], {"violations_include": ["S6.5-3"]}, case=30))
+    out.append(RC("C-03", ["S6.4-2"], "negative", "published counts do not balance |O|", good,
+                  [_S(["conservation", "obligations", "counts", "CONFIRMED"], 3)], {"violations_include": ["S6.4-2"]}, case=16))
+    out.append(RC("C-04", ["S6.5-9"], "negative", "PASS reported while conservation fails", good,
+                  [_S(["conservation", "obligations", "holds"], False)], {"violations_include": ["S6.5-9"]}, case=16))
+    out.append(RC("C-05", ["S6.5-5"], "negative", "FAIL without a positive failing condition", good,
+                  [_S(st + ["structural_result"], "FAIL")], {"violations_include": ["S6.5-5"]}, case=30))
     out.append(RC("C-06", ["S6.2-2"], "negative", "parent fully confirmed with an UNCONFIRMED obligation", r02,
                   [_S(["instructions", {"where": {"instruction_id": "ctrl-1"}}, "parent",
                        "fully_confirmed_within_target_set"], True)], {"violations_include": ["S6.2-2"]}, case=17))
     out.append(RC("C-07", ["S6.2-1"], "negative", "parent result without per-target dispositions", good,
                   [_D(["instructions", 0, "parent", "per_target"])], {"violations_include": ["S6.2-1"]}))
-    out.append(RC("C-08", ["S6.5-4"], "negative", "PASS while an obligation is UNCONFIRMED", r02,
-                  [_S(st + ["structural_result"], "PASS")], {"violations_include": ["S6.5-4"]}))
+    out.append(RC("C-08", ["S6.5-6"], "negative", "PASS while an obligation is UNCONFIRMED", r02,
+                  [_S(st + ["structural_result"], "PASS")], {"violations_include": ["S6.5-6"]}))
     out.append(RC("C-09", ["S5.6-3"], "negative", "APPLIED without enforcement evidence", good,
                   [_S(["obligations", 0, "enforcement", "outcome"], "APPLIED")], {"violations_include": ["S5.6-3"]}))
     out.append(RC("C-10", ["S6.6-6"], "negative", "conditional support without named conditions",
@@ -740,26 +918,26 @@ def check_vectors():
                   {"violations_include": ["S5.13-1"]}))
     out.append(RC("C-13", ["S6.6-1"], "negative", "claim scope without cutoff", good,
                   [_D(["claims", 0, "claim_scope", "cutoff"])], {"violations_include": ["S6.6-1"]}))
-    out.append(RC("C-14", ["S5.11-7"], "negative", "|I| not published consistently", good,
-                  [_S(["conservation", "instructions", "I"], 5)], {"violations_include": ["S5.11-7"]}))
+    out.append(RC("C-14", ["S5.11-13"], "negative", "|I| not published consistently", good,
+                  [_S(["conservation", "instructions", "I"], 5)], {"violations_include": ["S5.11-13"]}))
     fz = frozen()
     fz["instructions"].append({"instruction_id": "ctrl-2", "target_resolution": {"empty": {"condition": "no live runtime"}}})
     zero = base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B"),
                      issuer(rid="iss-2", iid="ctrl-2", target_set_ref="none")], fz=fz)
-    out.append(RC("C-15", ["S6.4-4", "S5.11-5"], "negative", "zero-obligation instruction without its condition", zero,
+    out.append(RC("C-15", ["S6.4-5", "S5.11-11"], "negative", "zero-obligation instruction without its condition", zero,
                   [_S(["instructions", {"where": {"instruction_id": "ctrl-2"}}, "zero_obligation_condition"], None)],
-                  {"violations_include": ["S6.4-4"]}, case=27))
-    out.append(RC("C-15b", ["S6.4-4", "S5.11-5", "S6.4-3"], "positive", "zero-obligation instruction reported with its condition",
+                  {"violations_include": ["S6.4-5"]}, case=27))
+    out.append(RC("C-15b", ["S6.4-5", "S5.11-11", "S6.4-3"], "positive", "zero-obligation instruction reported with its condition",
                   zero, [], {"violations": []}, case=27))
-    out.append(RC("C-16", ["S6.4-5"], "negative", "|R| does not balance", good,
-                  [_S(["conservation", "receiver_records", "R"], 7)], {"violations_include": ["S6.4-5"]}))
-    out.append(RC("C-17", ["S6.4-7", "S6.4-6"], "negative", "subdivision does not preserve the parent count", good,
+    out.append(RC("C-16", ["S6.4-7"], "negative", "|R| does not balance", good,
+                  [_S(["conservation", "receiver_records", "R"], 7)], {"violations_include": ["S6.4-7"]}))
+    out.append(RC("C-17", ["S6.4-10", "S6.4-8"], "negative", "subdivision does not preserve the parent count", good,
                   [_S(["conservation", "receiver_records", "matched_subdivision", "confirming"], 0)],
-                  {"violations_include": ["S6.4-7"]}))
-    out.append(RC("C-18", ["S6.5-6"], "negative", "aggregate label without class counts", good, [_D(st + ["class_counts"])],
-                  {"violations_include": ["S6.5-6"]}))
-    out.append(RC("C-19", ["S5.11-2", "S5.10-5"], "negative", "obligation disposition outside the minimum set", good,
-                  [_S(["obligations", 0, "disposition"], "DELIVERED")], {"violations_include": ["S5.11-2"]}))
+                  {"violations_include": ["S6.4-10"]}))
+    out.append(RC("C-18", ["S6.5-10"], "negative", "aggregate label without class counts", good, [_D(st + ["class_counts"])],
+                  {"violations_include": ["S6.5-10"]}))
+    out.append(RC("C-19", ["S5.11-3", "S5.10-9"], "negative", "obligation disposition outside the minimum set", good,
+                  [_S(["obligations", 0, "disposition"], "DELIVERED")], {"violations_include": ["S5.11-3"]}))
     out.append(RC("C-20", ["S6.5-1"], "negative", "aggregate label outside PASS, FAIL, INCONCLUSIVE", good,
                   [_S(st + ["structural_result"], "DONE")], {"violations_include": ["S6.5-1"]}))
     out.append(RC("C-21", ["S6.6-5"], "negative", "claim support outside the three meanings", good,
@@ -768,14 +946,24 @@ def check_vectors():
                   [_D(["obligations", 0, "enforcement"])], {"violations_include": ["S5.6-1"]}))
     many = base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2),
                      receiver("rcv-b2", "EP-B", event="verification_failed", time="2026-09-10T10:00:06Z")])
-    out.append(RC("C-23", ["S5.10-7"], "negative", "reduced diagnostics hidden", many,
+    out.append(RC("C-23", ["S5.10-11"], "negative", "reduced diagnostics hidden", many,
                   [_S(["obligations", {"where": {"target_id": "EP-B"}}, "diagnostics"], [])],
-                  {"violations_include": ["S5.10-7"]}, case=29))
+                  {"violations_include": ["S5.10-11"]}, case=29))
     fz = frozen()
     fz["instructions"][0]["target_resolution"] = {"open": {"reason": "mesh not enumerable", "known_targets": ["EP-A"]}}
-    out.append(RC("C-24", ["S5.11-12"], "negative", "per-known-target result without open scope",
-                  base_run([issuer(), receiver("rcv-a", "EP-A")], fz=fz), [_S(["obligations", 0, "open_scope"], False)],
-                  {"violations_include": ["S5.11-12"]}, case=20))
+    opened = base_run([issuer(), receiver("rcv-a", "EP-A")], fz=fz)
+    out.append(RC("C-24", ["S5.11-18"], "negative", "known targets of an unclosed resolution without their narrower scope",
+                  opened, [_S(["instructions", 0, "subscope"], {"known_targets": ["EP-A"]})],
+                  {"violations_include": ["S5.11-18"]}, case=20))
+    one_obligation = reconcile(base_run())["obligations"][0]
+    out.append(RC("C-24b", ["S6.4-4", "S5.11-17"], "negative", "a Delivery Obligation reported for an unclosed instruction",
+                  opened, [_S(["obligations"], [one_obligation]), _S(["conservation", "obligations", "O"], 1),
+                           _S(["conservation", "obligations", "counts", "CONFIRMED"], 1)],
+                  {"violations_include": ["S6.4-4"]}, case=20))
+    out.append(RC("C-24c", ["S6.4-4"], "negative", "an unclosed instruction without its reason",
+                  opened, [_D(["instructions", 0, "unclosed_reason"])], {"violations_include": ["S6.4-4"]}, case=20))
+    out.append(RC("C-24d", ["S6.4-4", "S5.11-17", "S5.11-18", "S6.4-3"], "positive", "the untampered unclosed report",
+                  opened, [], {"violations": []}, case=20))
     out.append(RC("C-25", ["S6.1-2"], "negative", "a scoped failure generalised to all targets",
                   base_run([issuer(), receiver("rcv-a", "EP-A"), transport("tr-b", "EP-B", "rejected")]),
                   [_S(["obligations", {"where": {"target_id": "EP-B"}}, "failure_scope"],
@@ -792,11 +980,86 @@ def check_vectors():
                   {"violations_include": ["S9.4-2", "S9.4-5"]}, case=23))
     out.append(RC("C-28", ["S9.4-2", "S9.4-4", "S9.4-5"], "positive", "the untampered freeze-race report", race, [],
                   {"violations": []}, case=23))
+    p = example_profile()
+    retry = base_run([issuer(), issuer(rid="iss-1b", attempt="a2", time="2026-09-10T10:02:00Z"), receiver("rcv-a", "EP-A"),
+                      transport("tr-b", "EP-B", "rejected"), receiver("rcv-b", "EP-B", attempt="a2",
+                                                                       time="2026-09-10T10:02:05Z")])
+    out.append(RC("C-29", ["S6.5-2", "S6.5-3"], "negative",
+                  "FAIL from a disposition the frozen profile does not publish as a FAIL condition",
+                  base_run([issuer(), receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B", digest=D2)],
+                           profile=with_changes(p, fail_conditions=NARROW_FAIL)),
+                  [_S(st + ["structural_result"], "FAIL"),
+                   _S(st + ["positive_failing_conditions"], [{"instruction_id": "ctrl-1", "target_id": "EP-B",
+                                                              "disposition": "SUBSTITUTION"}])],
+                  {"violations_include": ["S6.5-2"]}, case=22))
+    out.append(RC("C-30", ["S4.2-5", "S5.1-5"], "negative", "a retry reported as a second obligation for EP-B", retry,
+                  [_S(["obligations"], reconcile(retry)["obligations"] + [one_obligation_b(retry)]),
+                   _S(["conservation", "obligations", "O"], 3),
+                   _S(["conservation", "obligations", "counts", "CONFIRMED"], 3)],
+                  {"violations_include": ["S4.2-5"]}, case=1))
+    out.append(RC("C-31", ["S5.1-6"], "negative", "the earlier failed attempt erased by the confirmed retry", retry,
+                  [_S(["obligations", {"where": {"target_id": "EP-B"}}, "attempts"], ["a2"])],
+                  {"violations_include": ["S5.1-6"]}, case=1))
+    out.append(RC("C-31b", ["S5.1-6", "S4.2-5", "S5.1-5", "S2-1", "S4.2-4"], "positive",
+                  "the untampered retry report: one obligation, both attempts and the failure kept", retry, [],
+                  {"violations": []}, case=1))
+    out.append(RC("C-32", ["S6.5-7", "S5.4-4"], "negative", "PASS while dispatch is not established", good,
+                  [_S(["instructions", 0, "dispatch"], "NOT_ESTABLISHED")], {"violations_include": ["S6.5-7"]}, case=6))
+    out.append(RC("C-32b", ["S5.4-4"], "negative", "absence rendered as dispatched=false", good,
+                  [_S(["instructions", 0, "dispatch"], False)], {"violations_include": ["S5.4-4"]}, case=6))
+    excl = base_run([issuer()], fz=canary_frozen("EP-A", "EP-B"),
+                    profile=with_changes(p, exclusion_rules=[CANARY], exclusion_inputs=TIER_INPUT,
+                                         exclusion_induced_zero_pass=True))
+    out.append(RC("C-33", ["S4.2-2", "S5.11-4"], "negative", "exclusion-induced zero without its excluded candidates", excl,
+                  [_S(["instructions", 0, "excluded_targets"], [])], {"violations_include": ["S4.2-2"]}, case=16))
+    out.append(RC("C-34", ["S6.4-6", "S6.4-1", "S4.2-3"], "negative",
+                  "a zero-obligation instruction that does not say how it became zero", excl,
+                  [_D(["instructions", 0, "zero_cause"])], {"violations_include": ["S6.4-6"]}, case=16))
+    out.append(RC("C-35", ["S6.4-11", "S5.11-4"], "negative", "an exclusion reported without its rule version", excl,
+                  [_D(["exclusions", 0, "version"])], {"violations_include": ["S6.4-11"]}, case=16))
+    out.append(RC("C-36", ["S6.2-3"], "negative", "a zero-obligation parent reported fully confirmed by vacuous truth", excl,
+                  [_S(["instructions", 0, "parent", "fully_confirmed_within_target_set"], True)],
+                  {"violations_include": ["S6.2-3"]}, case=27))
+    out.append(RC("C-37", ["S6.5-8"], "negative", "PASS over an exclusion-induced zero the profile does not permit", excl,
+                  [_S(["profile", "exclusion_induced_zero_pass"], False)], {"violations_include": ["S6.5-8"]}, case=16))
+    out.append(RC("C-37b", ["S6.5-8", "S4.2-2", "S6.4-11", "S6.4-6", "S6.2-3", "S6.2-4"], "positive",
+                  "the untampered exclusion-induced PASS report", excl, [], {"violations": []}, case=16))
+    out.append(RC("C-38", ["S5.10-7"], "negative", "SUBSTITUTION reported without the conflicting records", fail,
+                  [_S(["obligations", {"where": {"target_id": "EP-B"}}, "diagnostics"],
+                      [{"code": "CONTENT_BINDING_DIFFERS"}])], {"violations_include": ["S5.10-7"]}, case=3))
+    out.append(RC("C-39", ["S6.5-4"], "negative", "PASS over an unclosed instruction", opened,
+                  [_S(st + ["structural_result"], "PASS")], {"violations_include": ["S6.5-4"]}, case=20))
+    inc = base_run([issuer(), receiver("rcv-a", "EP-A")])
+    out.append(RC("C-40", ["S6.6-3", "S6.6-4"], "negative", "bare structural INCONCLUSIVE without claim scope and support",
+                  inc, bare, {"violations_include": ["S6.6-3"]}, case=28))
+    out.append(RC("C-40b", ["S6.6-3"], "positive", "an untampered INCONCLUSIVE report", inc, [], {"violations": []},
+                  case=28))
+    nodisp = base_run([receiver("rcv-a", "EP-A"), receiver("rcv-b", "EP-B")])
+    out.append(RC("C-43", ["S5.4-5"], "negative", "dispatch not established and the missing-evidence diagnostic dropped",
+                  nodisp, [_S(["obligations", {"where": {"target_id": "EP-A"}}, "diagnostics"], [])],
+                  {"violations_include": ["S5.4-5"]}, case=6))
+    out.append(RC("C-43b", ["S5.4-5", "S5.4-4"], "positive", "the untampered report without issuer evidence", nodisp, [],
+                  {"violations": []}, case=6))
+    out.append(RC("C-44", ["S5.11-9", "S5.11-8"], "negative", "a correlated duplicate counted a second time as matched", good,
+                  [_S(["conservation", "receiver_records", "counts", "matched"], 3),
+                   _S(["conservation", "receiver_records", "R"], 3),
+                   _S(["conservation", "receiver_records", "matched_subdivision", "non_confirming"], 1)],
+                  {"violations_include": ["S5.11-9"]}, case=8))
+    out.append(RC("C-45", ["S6.4-3"], "negative", "the instruction equation stated false while the entries balance", good,
+                  [_S(["conservation", "instructions", "equation_holds"], False)], {"violations_include": ["S6.4-3"]}))
+    out.append(RC("C-46", ["S6.4-7", "S6.4-9"], "negative", "a derived correlated total added beside its subclasses", good,
+                  [_S(["conservation", "receiver_records", "counts", "correlated"], 2),
+                   _S(["conservation", "receiver_records", "R"], 4)], {"violations_include": ["S6.4-7"]}))
     out.append(V("T-01", "render_check", ["S6.6-3", "S5.13-3"], "positive", "the text rendering keeps the claim context",
                  {"from_run": base_run()}, {"violations": []}, case=28))
     out.append(V("T-02", "render_check", ["S6.6-3", "S5.13-3"], "negative", "a bare text line with the structural result",
                  {"text": "structural result: PASS\n"}, {"violations_include": ["S6.6-3"]}, case=28))
     return out
+
+
+def one_obligation_b(run):
+    rep = reconcile(run)
+    return next(o for o in rep["obligations"] if o["target_id"] == "EP-B")
 
 
 def _fz_unverified():
@@ -806,23 +1069,28 @@ def _fz_unverified():
 
 
 EXTRA = {
-    "R-01": ["+S5.10-4", "+S5.11-11", "+S5.14-1", "+S5.15-1", "+S5.15-3", "+S5.4-2", "+S5.4-4", "+S5.5-2", "+S5.5-3",
-             "+S5.5-4", "+S6.5-2", "+S6.6-7", "+S8.1-1", "+S5.9-1", "+S6.2-2", "+S6.1-1", "+S5.3-1", "+S6.4-6",
-             "+S6.4-7", "+S5.1-2", "+S6.5-5", "+S6.5-4"],
+    "R-01": ["+S6.5-7", "+S5.10-4", "+S5.14-1", "+S5.15-1", "+S5.15-3", "+S5.4-2", "+S5.4-6", "+S5.5-2", "+S5.5-3",
+             "+S5.5-4", "+S6.5-4", "+S6.6-7", "+S8.1-1", "+S5.9-1", "+S6.2-2", "+S6.1-1", "+S5.3-1", "+S6.4-8",
+             "+S6.4-10", "+S5.1-2", "+S6.5-9", "+S6.5-6"],
     "R-02": ["-S6.6-7", "+S10.4-1"],
-    "R-04": ["+S5.10-2"], "R-05": ["+S6.1-2"], "R-08": ["+S5.10-2"], "R-10": ["+S5.8-1"],
-    "R-14c": ["+S5.13-4", "+S8.1-2", "+S8.1-4"], "R-16b": ["+S6.5-5"], "R-19c": ["+S5.15-4", "+S8.1-3", "+S9.3-2"],
+    "R-04": ["+S5.10-2"], "R-05": ["+S6.1-2"], "R-10": ["+S5.8-1"],
+    "R-14c": ["+S5.13-4", "+S8.1-2", "+S8.1-4"], "R-16b": ["+S6.5-9"], "R-19c": ["+S5.15-4", "+S8.1-3", "+S9.3-2"],
     "R-22": ["+S6.1-2"], "R-23": ["+S9.4-3"], "R-23b": ["-S9.4-3", "-S9.4-2"],
-    "R-25b": ["+S5.13-5", "+S5.16-3", "+S5.16-4", "+S7-2"], "R-31": ["-S9.1-3"], "R-35b": ["+S5.5-1"],
+    "R-25b": ["+S5.13-5", "+S5.16-3", "+S5.16-4", "+S7-2"], "R-35b": ["+S5.5-1"],
     "C-00": ["+S5.13-3", "+S6.6-5", "+S6.6-2", "+S6.5-1", "+S6.1-2"], "C-01": ["-S6.6-2"], "C-03": ["-S10.4-1"],
-    "C-12": ["-S5.13-2"], "C-14": ["-S5.11-4", "-S5.11-6"], "C-15": ["-S6.4-2"],
+    "C-12": ["-S5.13-2"], "C-14": ["-S5.11-10", "-S5.11-12"],
     "P-15": ["-S4.4-1"], "P-36": ["+S4.4-1"], "R-12": ["+S5.6-1", "+S5.7-1"],
     "R-23-extra": [],
-    "R-33": ["+S5.4-5"], "R-33b": ["-S5.4-5"], "R-26b": ["-S5.5-6"], "C-19": ["-S5.10-1"],
-    "R-27": ["+S5.11-9", "+S5.11-10"], "R-20": ["+S5.11-12", "-S6.4-3"], "R-14": ["+S6.6-6"],
-    "P-00": ["+S6.6-9"], "R-19": ["+S6.6-9"], "R-26c": ["+SA.MCC-2"],
+    "R-33b": ["+S5.4-4", "+S5.4-5"], "R-26b": ["-S5.5-6"], "C-19": ["-S5.10-1"],
+    "R-27": ["+S5.11-15", "+S5.11-16", "+S6.4-5", "+S6.4-6", "+S6.2-3", "+S6.2-4"],
+    "R-20": ["+S5.11-18", "+S6.4-3", "+S6.4-4", "+S5.11-17"], "R-14": ["+S6.6-6"],
+    "R-31": ["-S9.1-4", "+S5.11-8", "+S5.11-9", "+S6.4-8", "+S6.4-9"], "R-08": ["+S5.10-2", "+S5.11-8", "+S5.11-9"],
+    "R-47": ["-S4.2-3", "-S6.4-1"], "R-11": ["+S9.1-2"], "R-11a": ["-S9.1-2"],
+    "C-30": ["-S2-1", "-S4.2-4"], "R-23e": ["+S4.5-1"], "R-23f": ["-S4.5-1"], "P-26": ["-S5.10-5", "-S5.11-2"],
+    "R-32": ["+S5.10-7"], "R-03": ["+S5.10-7"], "R-27b": ["-S6.2-4"],
+    "P-00": ["+S6.6-9"], "R-19": ["+S6.6-9"], "R-26c": ["+S5.10-6"],
 }
-EXTRA["R-23"] = ["+S9.4-3", "+S4.5-1", "+S4.5-2", "+S5.3-3", "+S5.9-3"]
+EXTRA["R-23"] = ["+S9.4-3", "+S4.5-2", "+S4.5-3", "+S5.3-3", "+S5.9-3"]
 EXTRA["R-01"] = EXTRA["R-01"] + ["+S5.10-3"]
 EXTRA.pop("R-23-extra")
 

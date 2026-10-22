@@ -1,5 +1,5 @@
 {
- "draft": "draft-abak-agent-control-delivery-evidence-01",
+ "draft": "draft-abak-agent-control-delivery-evidence-02",
  "categories": [
   "agreement",
   "contradiction",
@@ -7,9 +7,28 @@
   "not_implemented"
  ],
  "requirements": {
+  "S2-1": {
+   "category": "agreement"
+  },
   "S4-1": {
    "category": "not_implemented",
    "reason": "Permission addressed to producers about packaging. This implementation uses one representation; nothing follows for a verifier to check."
+  },
+  "S4.2-1": {
+   "category": "agreement",
+   "note": "Exclusion rules may read only issuer attributes or target attributes from the frozen target directory; any other input is a profile error."
+  },
+  "S4.2-2": {
+   "category": "agreement"
+  },
+  "S4.2-3": {
+   "category": "agreement"
+  },
+  "S4.2-4": {
+   "category": "agreement"
+  },
+  "S4.2-5": {
+   "category": "agreement"
   },
   "S4.3-1": {
    "category": "agreement",
@@ -27,6 +46,9 @@
   "S4.5-3": {
    "category": "agreement"
   },
+  "S4.5-4": {
+   "category": "agreement"
+  },
   "S5.1-1": {
    "category": "agreement"
   },
@@ -38,6 +60,13 @@
   },
   "S5.1-4": {
    "category": "agreement"
+  },
+  "S5.1-5": {
+   "category": "agreement"
+  },
+  "S5.1-6": {
+   "category": "agreement",
+   "note": "Each obligation lists every attempt that carries evidence; report_check refuses a named attempt missing from that list."
   },
   "S5.2-1": {
    "category": "agreement"
@@ -61,18 +90,8 @@
    "category": "agreement"
   },
   "S5.4-1": {
-   "category": "ambiguity",
-   "finding": "Disposition when no issuer-side observation exists for an instruction in the population",
-   "text_refs": [
-    "Section 5.4, lines 697-701",
-    "Section 6.1 INVALID and INDETERMINATE, lines 1077-1085"
-   ],
-   "readings": [
-    "(a) INDETERMINATE (a reason other than ordinary absence of a receiver observation)",
-    "(b) INVALID (a required record is missing)"
-   ],
-   "implemented": "(a), and the instruction is reported as not dispatched",
-   "why": "INVALID covers a required record that is malformed, fails verification or lacks a binding; an absent record is not named."
+   "category": "agreement",
+   "note": "-01 finding S5.4-1 (Disposition when no issuer-side observation exists for an instruction in the population) is resolved in -02: Section 5.4 lines 746-758 define a missing required issuer observation: the instruction stays accounted for, dispatch is NOT_ESTABLISHED, the obligation INDETERMINATE by default. Implemented."
   },
   "S5.4-2": {
    "category": "agreement"
@@ -84,19 +103,28 @@
    "category": "agreement"
   },
   "S5.4-5": {
+   "category": "agreement"
+  },
+  "S5.4-6": {
+   "category": "agreement"
+  },
+  "S5.4-7": {
+   "category": "not_implemented",
+   "reason": "Addressed to the issuer side (recording a failed emission). The verifier consumes such a record and keeps it as an instruction-level diagnostic; that behaviour is tested under S5.4-8. -01 finding S5.4-5 (result of an emission that failed before the issuer boundary) is resolved by Section 5.4 lines 760-766."
+  },
+  "S5.4-8": {
    "category": "ambiguity",
-   "finding": "Result of an emission that failed before the issuer boundary",
+   "finding": "Disposition of the obligations of an instruction whose only issuer record is an unscoped failed emission",
    "text_refs": [
-    "Section 5.4, lines 708-710",
-    "Section 6.1 EXPLICIT_FAILURE, lines 1051-1055"
+    "Section 5.4, lines 746-766",
+    "Section 6.1 UNCONFIRMED and INDETERMINATE, lines 1186-1210"
    ],
    "readings": [
-    "(a) EXPLICIT_FAILURE for each obligation of the attempt, scoped to the issuer boundary",
-    "(b) UNCONFIRMED with the failure kept as a diagnostic",
-    "(c) the instruction is excluded from I as never dispatched"
+    "(a) INDETERMINATE: the required issuer observation at the boundary is missing (5.4 default)",
+    "(b) UNCONFIRMED: an expected obligation without a matching receiver observation"
    ],
-   "implemented": "(a); the instruction is reported as not dispatched",
-   "why": "The failure is positive and attributable, but it is observed at the issuer boundary for all targets at once, while EXPLICIT_FAILURE is defined per attempt, target and boundary and must not be generalised to other targets."
+   "implemented": "(a), with dispatch NOT_ESTABLISHED and the failure kept as an instruction diagnostic",
+   "why": "5.4 makes a missing issuer observation INDETERMINATE by default and forbids consuming the failure as proof of non-delivery; UNCONFIRMED is defined by the absence of a receiver observation only, while here the issuer side itself is not established."
   },
   "S5.5-1": {
    "category": "agreement"
@@ -133,37 +161,19 @@
    "category": "agreement"
   },
   "S5.7-3": {
-   "category": "ambiguity",
-   "finding": "NO_EFFECT is used in two dimensions and the control-effect vocabulary is not defined",
-   "text_refs": [
-    "Section 4.4 NO_EFFECT, lines 606-609",
-    "Section 5.7, lines 753-758",
-    "Section 6.1, lines 1093-1097"
-   ],
-   "readings": [
-    "(a) NO_EFFECT in 5.7 is the enforcement value of 4.4",
-    "(b) NO_EFFECT in 5.7 is a control-effect result with its own vocabulary"
-   ],
-   "implemented": "(b): control-effect results EFFECT_OBSERVED, NO_EFFECT, UNKNOWN; NO_EFFECT requires predicate and window in both dimensions",
-   "why": "4.4 lists NO_EFFECT among enforcement outcomes, 5.7 forbids reporting silence 'as NO_EFFECT' in the control-effect section, and the appendix example uses UNKNOWN for control_effect without naming the other values."
+   "category": "agreement",
+   "note": "-01 finding S5.7-3 (NO_EFFECT is used in two dimensions and the control-effect vocabulary is not defined) is resolved in -02: Sections 4.4 (lines 635-639) and 4.5 (lines 653-658) put enforcement NO_EFFECT and control-effect NO_EFFECT in separate namespaces; the -01 reading (b) stands."
   },
   "S5.8-1": {
-   "category": "ambiguity",
-   "finding": "Deadline-elapsed negative observation: UNCONFIRMED or EXPLICIT_FAILURE",
-   "text_refs": [
-    "Minimum Conformance Cases, case 10, lines 2441-2442",
-    "Section 5.8, lines 776-778",
-    "Section 9.1, lines 1484-1486"
-   ],
-   "readings": [
-    "(a) a deadline-elapsed record keeps the obligation UNCONFIRMED and is reported as a diagnostic",
-    "(b) a deadline-elapsed record is a positive, attributable failure observation and yields EXPLICIT_FAILURE"
-   ],
-   "implemented": "(a)",
-   "why": "Case 10 says a missing acknowledgement WITHOUT a negative-observation record is UNCONFIRMED, not EXPLICIT_FAILURE, which reads as if the record would change the result; 5.8 says the record establishes only the reconciler's bounded view, and 9.1 lets a late receipt turn UNCONFIRMED into CONFIRMED."
+   "category": "agreement",
+   "note": "-01 finding S5.8-1 (Deadline-elapsed negative observation: UNCONFIRMED or EXPLICIT_FAILURE) is resolved in -02: Section 5.8 lines 833-836 and 9.1 lines 1692-1694: deadline elapsed leaves UNCONFIRMED with a deadline diagnostic; the -01 reading (a) stands."
   },
   "S5.8-2": {
    "category": "agreement"
+  },
+  "S5.8-3": {
+   "category": "not_implemented",
+   "reason": "MAY. This verifier defines no timely-delivery claim kind; the deadline diagnostic stays on the obligation, which remains UNCONFIRMED (Section 5.8)."
   },
   "S5.9-1": {
    "category": "agreement"
@@ -190,10 +200,33 @@
    "category": "agreement"
   },
   "S5.10-6": {
+   "category": "agreement"
+  },
+  "S5.10-7": {
+   "category": "agreement"
+  },
+  "S5.10-8": {
+   "category": "ambiguity",
+   "finding": "How a record names the uniqueness scope of its identifier, and which scopes are valid",
+   "text_refs": [
+    "Section 5.10, lines 879-885",
+    "Section 5.1, lines 679-682"
+   ],
+   "readings": [
+    "(a) a record or frozen instruction may carry its own identifier scope; equal strings from different scopes are different identities",
+    "(b) only scopes the profile lists are valid; a record of another scope is INVALID"
+   ],
+   "implemented": "(a): an optional identifier_scope; a record of a scope the frozen population does not hold stays outside the population and blocks PASS through the population check",
+   "why": "5.1 asks the profile to define one uniqueness scope; 5.10 speaks of several valid scopes without saying how a record conveys which one it belongs to."
+  },
+  "S5.10-9": {
+   "category": "agreement"
+  },
+  "S5.10-10": {
    "category": "agreement",
    "note": "Reduction rule: the profile's published precedence over the seven dispositions; every applicable disposition stays listed."
   },
-  "S5.10-7": {
+  "S5.10-11": {
    "category": "agreement"
   },
   "S5.11-1": {
@@ -203,20 +236,7 @@
    "category": "agreement"
   },
   "S5.11-3": {
-   "category": "ambiguity",
-   "finding": "Record class of a receiver record that addresses an expected obligation but does not confirm it",
-   "text_refs": [
-    "Section 5.11, lines 852-854",
-    "Section 6.1, lines 1087-1091",
-    "Section 6.4, lines 1222-1226"
-   ],
-   "readings": [
-    "(a) matched (it was correlated to the obligation, whose disposition is SUBSTITUTION, CONFLICT or INDETERMINATE)",
-    "(b) orphan (it matches no obligation in the CONFIRMED sense)",
-    "(c) a separate conflicting class"
-   ],
-   "implemented": "(a), with the matched class subdivided into confirming and non-confirming (6.4 allows subdivision that preserves the parent count)",
-   "why": "6.1 defines ORPHAN as matching no expected Delivery Obligation, while CONFIRMED is defined by a match of identifier, attempt, content, target and boundary; the word 'match' carries both meanings."
+   "category": "agreement"
   },
   "S5.11-4": {
    "category": "agreement"
@@ -225,13 +245,15 @@
    "category": "agreement"
   },
   "S5.11-6": {
-   "category": "agreement"
+   "category": "not_implemented",
+   "reason": "Addressed to whoever runs reconciliations. Each report names the exclusion rule versions it applied (S5.11-4) and the digest of the report before it, so a changed rule shows as a separate report; a single verifier run cannot see whether a producer rewrote another run."
   },
   "S5.11-7": {
    "category": "agreement"
   },
   "S5.11-8": {
-   "category": "agreement"
+   "category": "agreement",
+   "note": "-01 finding S5.11-3 (record class of a receiver record that addresses an expected obligation but does not confirm it) is resolved in -02: matched means correlated (Section 5.11 lines 939-947, Section 6.1 lines 1212-1220). A receiver record of an attempt the issuer never emitted is now correlated, not orphan."
   },
   "S5.11-9": {
    "category": "agreement"
@@ -248,23 +270,39 @@
   "S5.11-13": {
    "category": "agreement"
   },
+  "S5.11-14": {
+   "category": "agreement"
+  },
+  "S5.11-15": {
+   "category": "agreement"
+  },
+  "S5.11-16": {
+   "category": "agreement"
+  },
+  "S5.11-17": {
+   "category": "agreement",
+   "note": "Receiver records of an unclosed instruction have no expected obligation to correlate with and are ORPHAN, with the instruction class named."
+  },
+  "S5.11-18": {
+   "category": "agreement",
+   "note": "Known targets of an unclosed resolution are reported as a subscope with its narrower scope stated, outside the Delivery Obligation population."
+  },
+  "S5.11-19": {
+   "category": "agreement"
+  },
   "S5.12-1": {
    "category": "ambiguity",
-   "finding": "Unresolved required target: INDETERMINATE by definition or INVALID by profile",
+   "finding": "Class of an issuer binding that contradicts the frozen Required Target Set",
    "text_refs": [
-    "Section 6.1 INDETERMINATE, lines 1082-1085",
-    "case 15, lines 2455-2456",
-    "Section 5.12, lines 910-915"
+    "Section 5.12, lines 1015-1028",
+    "Section 6.1 INVALID and CONFLICT, lines 1198-1205"
    ],
    "readings": [
-    "(a) always INDETERMINATE (6.1 names 'an unresolved required target' there)",
-    "(b) INDETERMINATE or INVALID as the profile declares (case 15)"
+    "(a) INVALID: the issuer record lacks the binding required for structural validity",
+    "(b) CONFLICT: two verified inputs (issuer record and frozen target set) make irreconcilable claims"
    ],
-   "implemented": "(b): the profile declares the behaviour per case (unresolved, stale, ambiguous, inconsistent); vectors cover both choices",
-   "why": "6.1 places an unresolved required target under INDETERMINATE, while case 15 and 5.12 leave INDETERMINATE or INVALID to the profile."
-  },
-  "S5.12-2": {
-   "category": "agreement"
+   "implemented": "the profile classifies it as INVALID or CONFLICT; the example profile says INVALID. Unresolved, ambiguous and stale references are always INDETERMINATE (the -01 finding S5.12-1 is resolved)",
+   "why": "5.12 names INVALID for a missing required binding and CONFLICT for irreconcilable verified records; a binding to a different set is neither missing nor a second record of the same kind."
   },
   "S5.13-1": {
    "category": "agreement"
@@ -313,40 +351,23 @@
    "category": "agreement"
   },
   "S6.1-1": {
-   "category": "ambiguity",
-   "finding": "Issuer-side identifier reuse with different content",
-   "text_refs": [
-    "Section 6.1 SUBSTITUTION, lines 1069-1071",
-    "Section 9.1, lines 1489-1491"
-   ],
-   "readings": [
-    "(a) SUBSTITUTION for every obligation of the instruction (9.1)",
-    "(b) CONFLICT (two issuer records make incompatible assertions)",
-    "(c) INVALID (the identifier rule of the profile is violated)"
-   ],
-   "implemented": "(a)",
-   "why": "6.1 defines SUBSTITUTION between issuer-side and receiver-side records; 9.1 says reusing one identifier for different content creates SUBSTITUTION without a receiver record being involved."
+   "category": "agreement",
+   "note": "-01 finding S6.1-1 (Issuer-side identifier reuse with different content) is resolved in -02: Sections 5.10 (lines 879-885) and 6.1 (lines 1190-1196) define SUBSTITUTION for issuer-issuer reuse within one uniqueness scope; the -01 reading (a) stands, now with the records named."
   },
   "S6.1-2": {
    "category": "agreement"
   },
   "S6.2-1": {
-   "category": "ambiguity",
-   "finding": "Parent result of an instruction with zero obligations",
-   "text_refs": [
-    "Section 6.2, lines 1101-1105",
-    "Section 5.11, lines 870-877",
-    "case 27, lines 2514-2531"
-   ],
-   "readings": [
-    "(a) not defined: neither fully confirmed nor not fully confirmed",
-    "(b) vacuously fully confirmed",
-    "(c) not fully confirmed"
-   ],
-   "implemented": "(a) (null), while a structural PASS may cover the instruction where the profile permits empty sets",
-   "why": "6.2 speaks only of 'a parent instruction that has one or more required targets'."
+   "category": "agreement",
+   "note": "-01 finding S6.2-1 (Parent result of an instruction with zero obligations) is resolved in -02: Section 6.2 lines 1252-1254: parent confirmation of a terminal empty set is NOT_APPLICABLE or absent; the -01 reading (a) stands (null)."
   },
   "S6.2-2": {
+   "category": "agreement"
+  },
+  "S6.2-3": {
+   "category": "agreement"
+  },
+  "S6.2-4": {
    "category": "agreement"
   },
   "S6.3-1": {
@@ -354,37 +375,15 @@
    "note": "Duplicate selection rule: earliest observed time, then record id; the discarded record names the selected one."
   },
   "S6.4-1": {
-   "category": "ambiguity",
-   "finding": "Unit of a Delivery Obligation",
-   "text_refs": [
-    "Section 2 'Delivery Obligation', lines 354-358",
-    "Section 6.4, lines 1187-1192"
-   ],
-   "readings": [
-    "(a) one obligation per (instruction, required target); attempts are bindings inside it",
-    "(b) one obligation per (delivery attempt, required target), as the terminology also allows"
-   ],
-   "implemented": "(a)",
-   "why": "Section 6.4 defines O = {(i,t) : i in I and t in T_i} over instructions. Under (b) |O| grows with retries and is no longer the set 6.4 counts, so a profile choosing (b) cannot use the 6.4 equation as written."
-  },
-  "S6.4-2": {
    "category": "agreement"
   },
+  "S6.4-2": {
+   "category": "agreement",
+   "note": "-01 finding S6.4-1 (Unit of a Delivery Obligation) is resolved in -02: Sections 2 (lines 354-360), 4.2 (lines 574-579) and 5.1 (lines 687-693) fix the base obligation as instruction times required target; the -01 reading (a) stands."
+  },
   "S6.4-3": {
-   "category": "ambiguity",
-   "finding": "Instruction-level equation has no class for a target resolution that fails or stays open",
-   "text_refs": [
-    "Section 6.4, lines 1203-1214",
-    "Section 5.11, lines 856-868 and 882-886",
-    "Section 5.12, lines 910-915"
-   ],
-   "readings": [
-    "(a) such an instruction counts in neither class; the draft equation does not balance and complete accounting cannot be claimed",
-    "(b) a third published class (not closed) is added beside the two, so every instruction stays accounted for",
-    "(c) the instruction is represented by placeholder obligations"
-   ],
-   "implemented": "(a) and (b) together: the report publishes the draft equation (fails) and an extended equation with the third class (balances); no complete-accounting claim",
-   "why": "5.11 requires every instruction to remain accounted for, 6.4 offers only with-obligations and zero-obligation classes, and 6.4 allows extra classes only for records, not for instructions. (c) conflicts with the spirit of 5.11-10 (no synthetic obligations)."
+   "category": "agreement",
+   "note": "-01 finding S6.4-3 (Instruction-level equation has no class for a target resolution that fails or stays open) is resolved in -02: Sections 5.11 (lines 983-990) and 6.4 (lines 1365-1374) add the disjoint class target_resolution_unclosed; the instruction equation now has three terms and no obligation is created for an unclosed instruction. Implemented: class renamed, no obligations, one equation."
   },
   "S6.4-4": {
    "category": "agreement"
@@ -401,49 +400,60 @@
   "S6.4-8": {
    "category": "agreement"
   },
+  "S6.4-9": {
+   "category": "agreement",
+   "note": "The matched class is a primary class; its confirming and non-confirming subdivision is published beside the equation and not added to it."
+  },
+  "S6.4-10": {
+   "category": "agreement"
+  },
+  "S6.4-11": {
+   "category": "agreement"
+  },
   "S6.5-1": {
    "category": "agreement"
   },
   "S6.5-2": {
-   "category": "agreement"
+   "category": "ambiguity",
+   "finding": "How an exclusion-rule violation becomes a positive FAIL condition",
+   "text_refs": [
+    "Section 6.5, lines 1420-1426 and 1467-1470",
+    "Section 5.11, lines 921-929"
+   ],
+   "readings": [
+    "(a) a positively established invalid or outcome-adaptive exclusion is a FAIL condition the profile may declare",
+    "(b) such an exclusion only prevents PASS"
+   ],
+   "implemented": "(b) for this implementation: it finds exclusion-rule violations only as profile declaration errors, under which no FAIL is derived, and refuses a profile that declares them a FAIL condition; the dispositions EXPLICIT_FAILURE, SUBSTITUTION, CONFLICT and INVALID are declared true or false by the profile",
+   "why": "6.5 asks how exclusion-rule violations are handled in the FAIL conditions, while 5.11 says such an exclusion prevents PASS and only a predeclared positive condition produces FAIL; the text does not say what evidence makes the violation positive."
   },
   "S6.5-3": {
-   "category": "ambiguity",
-   "finding": "Which dispositions are positive failing conditions for FAIL",
-   "text_refs": [
-    "Section 6.5, lines 1258-1263",
-    "Section 6.1, lines 1051-1085"
-   ],
-   "readings": [
-    "(a) EXPLICIT_FAILURE and SUBSTITUTION",
-    "(b) EXPLICIT_FAILURE only",
-    "(c) also INVALID"
-   ],
-   "implemented": "(a)",
-   "why": "6.5 lists UNCONFIRMED, CONFLICT, INVALID and INDETERMINATE as preventing PASS but does not say which dispositions make FAIL; SUBSTITUTION rests on positive records that disagree, INVALID on a malformed record."
+   "category": "agreement"
   },
   "S6.5-4": {
-   "category": "ambiguity",
-   "finding": "Excluding an obligation 'before population construction' cannot depend on its disposition",
-   "text_refs": [
-    "Section 6.5, lines 1261-1263",
-    "Section 6.3 steps 1-2, lines 1129-1136",
-    "Section 10.3, lines 1608-1613"
-   ],
-   "readings": [
-    "(a) the exclusion rule is decided on issuer-side attributes before any receiver evidence is used",
-    "(b) an obligation known to be UNCONFIRMED, CONFLICT, INVALID or INDETERMINATE may be excluded under a published rule"
-   ],
-   "implemented": "(a); the profile validator refuses exclusion rules over receiver-side attributes",
-   "why": "Dispositions exist only after population construction (6.3), so (b) is circular and would allow the favourable-subset selection 10.3 warns about."
+   "category": "agreement"
   },
   "S6.5-5": {
-   "category": "agreement"
+   "category": "agreement",
+   "note": "-01 finding S6.5-3 (Which dispositions are positive failing conditions for FAIL) is resolved in -02: Section 6.5 lines 1420-1426: the profile publishes and freezes its positive FAIL conditions; no universal mapping. Implemented as fail_conditions in the profile."
   },
   "S6.5-6": {
-   "category": "agreement"
+   "category": "agreement",
+   "note": "-01 finding S6.5-4 (Excluding an obligation 'before population construction' cannot depend on its disposition) is resolved in -02: Sections 4.2 (lines 565-572) and 5.11 (lines 921-926): exclusions are frozen before receiver evidence and never depend on a disposition; the -01 reading (a) stands."
   },
   "S6.5-7": {
+   "category": "agreement"
+  },
+  "S6.5-8": {
+   "category": "agreement"
+  },
+  "S6.5-9": {
+   "category": "agreement"
+  },
+  "S6.5-10": {
+   "category": "agreement"
+  },
+  "S6.5-11": {
    "category": "agreement"
   },
   "S6.6-1": {
@@ -453,18 +463,8 @@
    "category": "agreement"
   },
   "S6.6-3": {
-   "category": "ambiguity",
-   "finding": "Co-exposure when no relying-party claim is requested",
-   "text_refs": [
-    "Section 6.6, lines 1293-1304",
-    "Section 5.13, lines 926-935"
-   ],
-   "readings": [
-    "(a) the structural result always travels with an implicit claim ('the declared population reconciled under the profile's structural rules') and its support",
-    "(b) a structural result may only be exposed together with an explicitly requested claim"
-   ],
-   "implemented": "(a)",
-   "why": "6.6 requires 'the corresponding claim scope and claim-support qualification' wherever a structural result is exposed, but defines claim scope for claims exposed to a relying party; which claim corresponds when none is requested is not said."
+   "category": "agreement",
+   "note": "-01 finding S6.6-3 (Co-exposure when no relying-party claim is requested) is resolved in -02: Section 6.6 lines 1487-1492: with no stronger claim requested, the corresponding claim is the minimal structural statement under the named profile, cutoff and structural rules; the -01 reading (a) stands, the claim scope now names the profile."
   },
   "S6.6-4": {
    "category": "agreement"
@@ -514,6 +514,10 @@
    "category": "agreement"
   },
   "S9.1-3": {
+   "category": "not_implemented",
+   "reason": "MAY. No timely-delivery claim kind (see S5.8-3)."
+  },
+  "S9.1-4": {
    "category": "agreement"
   },
   "S9.2-1": {
@@ -533,18 +537,8 @@
    "category": "agreement"
   },
   "S9.4-2": {
-   "category": "ambiguity",
-   "finding": "'Occurred before control activation' needs an ordering basis",
-   "text_refs": [
-    "Section 9.4, lines 1539-1544",
-    "Section 5.9, lines 797-800"
-   ],
-   "readings": [
-    "(a) without a supported ordering the crossing is neither protected nor blockable: indeterminate",
-    "(b) the reconciler orders by the asserted timestamps"
-   ],
-   "implemented": "(a)",
-   "why": "9.4 protects only crossings that actually occurred before activation; 5.9 says matching identifiers do not establish precedence and unsupported ordering claims must be omitted or indeterminate."
+   "category": "agreement",
+   "note": "-01 finding S9.4-2 ('Occurred before control activation' needs an ordering basis) is resolved in -02: Section 9.4 lines 1753-1756: only a crossing whose ordering is supported under Section 5.9 is protected; unsupported ordering is omitted or INDETERMINATE; the -01 reading (a) stands."
   },
   "S9.4-3": {
    "category": "agreement"
@@ -572,10 +566,7 @@
   },
   "SA.MCC-1": {
    "category": "agreement",
-   "note": "Every one of the 30 cases is exercised by at least one vector (tests/test_vectors.py checks this)."
-  },
-  "SA.MCC-2": {
-   "category": "agreement"
+   "note": "Every one of the 30 cases of -02 is exercised by at least one vector (tests/check_vectors.py)."
   }
  }
 }

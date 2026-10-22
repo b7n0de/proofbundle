@@ -71,6 +71,6 @@ def test_every_conformance_case_has_a_vector():
 
 
 def test_requirement_index_counts():
-    assert REQS["sha256"] == "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf"
-    assert REQS["line_count"] == 2576
-    assert REQS["requirement_count"] == len(REQS["requirements"]) == 130
+    assert REQS["sha256"] == "fe3baeb08c8e0979ca64efece098c972827fab483debe0b2bcbfd697bb714782"
+    assert REQS["line_count"] == 2856
+    assert REQS["requirement_count"] == len(REQS["requirements"]) == 161

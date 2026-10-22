@@ -1,7 +1,7 @@
 """The requirement index is reproducible from the pinned draft copy, when that copy is available.
 
 The draft text is not stored in this repository. Set ACDE01_DRAFT_TXT to the path of the plain-text
-copy (SHA-256 2f0356fc...fabf) to re-extract and compare; without it this test is skipped.
+copy (SHA-256 fe3baeb0...4782, revision -02) to re-extract and compare; without it this test is skipped.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def test_every_keyword_occurrence_is_in_a_requirement():
     def at(heading):
         return lines.index(heading)            # the column-0 heading, not the table of contents line
     body = lines[at("1.  Introduction"):at("1.2.  Requirements Language")] + \
-        lines[at("2.  Terminology"):at("17.  Normative References")] + \
+        lines[at("2.  Terminology"):at("17.  References")] + \
         lines[at("Illustrative Multi-Target Reconciliation Record"):at("Author's Address")]
     n_doc = len(extract_requirements._KW_RE.findall("\n".join(body)))
     with open(os.path.join(ROOT, "requirements.json"), encoding="ascii") as fh:

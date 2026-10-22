@@ -61,6 +61,8 @@ def _select(report, key):
             return _MISSING
         if path == "zero_obligation_condition_present":
             return bool(e.get("zero_obligation_condition"))
+        if path == "has_diag":
+            return sorted({d["code"] for d in e["diagnostics"]})
         return _dig(e, path)
     if key.startswith("claim:"):
         cid, _, path = key[6:].partition(".")

@@ -1,4 +1,4 @@
-"""Extract every BCP 14 requirement sentence from draft-abak-agent-control-delivery-evidence-01.
+"""Extract every BCP 14 requirement sentence from draft-abak-agent-control-delivery-evidence-02.
 
 Input is the plain-text rendering of the draft (one file, given on the command line). The file is
 pinned by its SHA-256: a different copy is refused, so the line numbers in the output always refer
@@ -18,17 +18,17 @@ import json
 import re
 import sys
 
-PINNED_SHA256 = "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf"
-PINNED_LINES = 2576
-DRAFT_NAME = "draft-abak-agent-control-delivery-evidence-01"
+PINNED_SHA256 = "fe3baeb08c8e0979ca64efece098c972827fab483debe0b2bcbfd697bb714782"
+PINNED_LINES = 2856
+DRAFT_NAME = "draft-abak-agent-control-delivery-evidence-02"
 
 # Upper-case key words only (RFC 8174). Longer forms first so "MUST NOT" is one token.
 KEYWORDS = ("MUST NOT", "SHALL NOT", "SHOULD NOT", "NOT RECOMMENDED", "MUST", "SHALL", "SHOULD",
             "RECOMMENDED", "REQUIRED", "MAY", "OPTIONAL")
 _KW_RE = re.compile(r"\b(" + "|".join(k.replace(" ", r"\s+") for k in KEYWORDS) + r")\b")
 
-_PAGE_FOOTER = re.compile(r"^Abak\s+Expires 8 March 2027\s+\[Page \d+\]$")
-_PAGE_HEADER = re.compile(r"^Internet-Draft\s+Agent Control Delivery Evidence\s+September 2026$")
+_PAGE_FOOTER = re.compile(r"^Abak\s+Expires 14 April 2027\s+\[Page \d+\]$")
+_PAGE_HEADER = re.compile(r"^Internet-Draft\s+Agent Control Delivery Evidence\s+October 2026$")
 _NUMBERED_HEADING = re.compile(r"^(\d+(?:\.\d+)*)\.\s+(\S.*)$")
 # Unnumbered appendix headings stand at column 0 and are not part of the front matter.
 _APPENDIX_HEADINGS = ("Illustrative Multi-Target Reconciliation Record",
@@ -128,7 +128,7 @@ def extract(path):
     counter = {}
     for idx, (hline, sid, title) in enumerate(heads):
         end = heads[idx + 1][0] if idx + 1 < len(heads) else len(lines) + 1
-        if sid == "1.2" or title == "Author's Address" or sid in ("17", "18"):
+        if sid == "1.2" or title == "Author's Address" or sid == "17" or sid.startswith("17."):
             continue
         paras = _join_page_split(list(_paragraphs(lines, hline + 1, end)))
         for para in paras:

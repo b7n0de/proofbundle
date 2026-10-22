@@ -100,6 +100,8 @@ def _check_record(rec, profile, seen_ids):
             return False, f"effect result {rec['result']!r} unknown"
     if kind == "operation_event" and rec["op_boundary"] not in ("admission", "provider_entry"):
         return False, "op_boundary must be admission or provider_entry"
+    if "identifier_scope" in rec and (not isinstance(rec["identifier_scope"], str) or not rec["identifier_scope"]):
+        return False, "identifier_scope must be a non-empty string when given"            # S5.10-8
     nv = rec.get("native")
     if nv == "failed":
         return False, "native verification failed"                                       # S8.1-1
@@ -133,12 +135,84 @@ def _resolve_member(member, directory):
     return None, "malformed"
 
 
+def _cid(scope, iid):
+    """The correlation identity of an instruction. Equal identifier strings from distinct valid uniqueness scopes are
+    not merged (S5.10-8): a record or instruction that names its own identifier scope correlates only within it, and
+    the profile's single declared scope keeps the bare identifier."""
+    if not isinstance(scope, str) or scope == "" or not isinstance(iid, str):
+        return iid
+    return f"{scope}/{iid}"
+
+
+def _matches(rule, attrs):
+    return isinstance(attrs, dict) and rule.get("attribute") in attrs and attrs[rule["attribute"]] == rule.get("equals")
+
+
+def _resolve_instruction(spec, frozen, directory, profile, target_rules, book, run_errors, cutoff):
+    """Target resolution of one instruction from frozen inputs only (Section 4.2, S4.2-1): the candidate set C_i,
+    the frozen pre-population exclusions E_i and the Required Target Set T_i, or an unclosed resolution."""
+    tr = spec.get("target_resolution") or {}
+    iid = spec["instruction_id"]
+    res = {"class": None, "target_set": None, "candidates": [], "excluded": [], "required": [], "set_fail": None}
+    if "empty" in tr:
+        res.update({"class": "zero_obligations", "zero_cause": "terminal_empty",
+                    "condition": (tr["empty"] or {}).get("condition")})
+        return res
+    if "open" in tr:
+        op = tr["open"] or {}
+        res.update({"class": "target_resolution_unclosed",
+                    "reason": op.get("reason") or "the target resolution is declared open",
+                    "known_targets": list(op.get("known_targets") or [])})
+        return res
+    if "set_id" not in tr:
+        res.update({"class": "target_resolution_unclosed", "reason": "no target resolution is declared"})
+        return res
+    sid = tr["set_id"]
+    ts = (frozen.get("target_sets") or {}).get(sid)
+    res["target_set"] = sid
+    if not isinstance(ts, dict) or not isinstance(ts.get("members"), list):
+        res.update({"class": "target_resolution_unclosed", "reason": f"target set {sid} does not resolve",
+                    "resolution_failure": {"case": "unresolved",
+                                           "class": (profile.get("resolution_failure") or {}).get("unresolved")}})
+        return res
+    if not ts.get("closure_basis") or ts.get("coverage") not in ("VERIFIED", "DECLARED_ONLY", "INDETERMINATE"):
+        e = {"requirement": "S5.15-1", "error": f"target set {sid}: closure basis and coverage condition must be stated"}
+        if e not in run_errors:
+            run_errors.append(e)
+    vu = canon.parse_time(ts.get("valid_until")) if ts.get("valid_until") else None
+    if vu is not None and cutoff is not None and vu < cutoff:
+        res["set_fail"] = "stale"          # age is a freshness question, never invalidity by itself (S5.12-1)
+    for m in ts["members"]:
+        tid, fail = _resolve_member(m, directory)
+        res["candidates"].append(m)
+        hit = None
+        if tid is not None:
+            hit = next((r for r in target_rules
+                        if _matches(r, (directory.get("targets", {}).get(tid) or {}).get("attributes"))), None)
+        if hit is not None:
+            res["excluded"].append({"target_id": tid, "rule": hit["rule_id"], "version": hit.get("version"),
+                                    "reason": hit.get("reason")})
+            book(hit, "target_candidate", f"{iid}/{tid}")
+        else:
+            res["required"].append(m)
+    if res["required"]:
+        res["class"] = "with_obligations"
+    elif res["candidates"]:
+        rules = sorted({x["rule"] for x in res["excluded"]})
+        res.update({"class": "zero_obligations", "zero_cause": "exclusion_induced",
+                    "condition": f"every one of the {len(res['candidates'])} resolved target candidates is excluded "
+                                 f"under {', '.join(rules)}"})
+    else:
+        res.update({"class": "zero_obligations", "zero_cause": "terminal_empty", "condition": ts.get("empty_condition")})
+    return res
+
+
 def reconcile(run) -> dict:
     run = copy.deepcopy(run)
+    input_digest = canon.document_digest(run) if _jsonable(run) else None
     profile = run.get("profile") or {}
     perrors = validate_profile(profile)
     frozen = run.get("frozen") or {}
-    records = run.get("records") or []
     claims_req = run.get("claims") or []
     cutoff_s = frozen.get("cutoff")
     cutoff = canon.parse_time(cutoff_s)
@@ -152,34 +226,58 @@ def reconcile(run) -> dict:
     if not isinstance(frozen.get("issuer_inclusion_rule"), str):
         run_errors.append({"requirement": "S5.11-1", "error": "issuer inclusion rule must be declared"})
     precedence = (profile.get("reduction_rule") or {}).get("precedence") or list(MIN_DISPOSITIONS)
+    fc = profile.get("fail_conditions") if isinstance(profile.get("fail_conditions"), dict) else {}
+    fail_set = {d for d in MIN_DISPOSITIONS if fc.get(d) is True}                        # S6.5-2
+    rules = [r for r in profile.get("exclusion_rules") or [] if isinstance(r, dict)] \
+        if isinstance(profile.get("exclusion_rules"), list) else []
+    instr_rules = [r for r in rules if r.get("applies_to") == "issuer_attribute"]
+    target_rules = [r for r in rules if r.get("applies_to") == "target_attribute"]
+    issuer_boundary = frozen.get("issuer_boundary")
 
-    # ---- Step 1: frozen inputs, exclusions decided on issuer attributes only (S6.4-8, S6.5-4)
+    # Records name their instruction by its correlation identity (S5.10-8); the input itself is not changed.
+    records = []
+    for rec in run.get("records") or []:
+        if isinstance(rec, dict) and isinstance(rec.get("identifier_scope"), str) and rec["identifier_scope"] \
+                and isinstance(rec.get("instruction_id"), str):
+            rec = dict(rec, instruction_id=_cid(rec["identifier_scope"], rec["instruction_id"]))
+        records.append(rec)
+
+    # ---- Steps 1/2: frozen inputs; instructions and target candidates excluded on frozen issuer-side or
+    # target-resolution inputs only, each with rule, version and reason (S4.2-1, S5.11-4, S5.11-5)
     exclusions = []
+
+    def book(rule, kind, ident):
+        ex = next((e for e in exclusions if e["rule"] == rule["rule_id"] and e["kind"] == kind), None)
+        if ex is None:
+            ex = {"rule": rule["rule_id"], "version": rule.get("version"), "reason": rule.get("reason"),
+                  "kind": kind, "count": 0, "ids": []}
+            exclusions.append(ex)
+        ex["count"] += 1
+        ex["ids"].append(ident)
+
     excluded_ids = set()
     instr_specs = []
     for spec in frozen.get("instructions") or []:
-        rule_hit = None
-        for rule in profile.get("exclusion_rules") or []:
-            if (spec.get("attributes") or {}).get(rule.get("attribute")) == rule.get("equals"):
-                rule_hit = rule["rule_id"]
-                break
-        if rule_hit:
-            excluded_ids.add(spec.get("instruction_id"))
-            ex = next((e for e in exclusions if e["rule"] == rule_hit), None)
-            if ex is None:
-                ex = {"rule": rule_hit, "kind": "instruction", "count": 0, "ids": []}
-                exclusions.append(ex)
-            ex["count"] += 1
-            ex["ids"].append(spec.get("instruction_id"))
+        spec = dict(spec, instruction_id=_cid(spec.get("identifier_scope"), spec.get("instruction_id")))
+        hit = next((r for r in instr_rules if _matches(r, spec.get("attributes"))), None)
+        if hit is not None:
+            excluded_ids.add(spec["instruction_id"])
+            book(hit, "instruction", spec["instruction_id"])
         else:
             instr_specs.append(spec)
+    resolutions = {}
+    for spec in sorted(instr_specs, key=lambda s: str(s.get("instruction_id"))):
+        resolutions[spec["instruction_id"]] = _resolve_instruction(spec, frozen, directory, profile, target_rules,
+                                                                   book, run_errors, cutoff)
+    excluded_targets = {(iid, x["target_id"]) for iid, res in resolutions.items() for x in res["excluded"]}
 
-    # ---- Step 3/4: parse every record, keep the invalid ones (S5.10-2), consume native results
+    # ---- Steps 3/4: parse every record, keep the invalid ones (S5.10-2), consume native results
     input_class = {}
     valid = []
     seen = set()
     keys = []
-    late = {"rule": "observed-after-cutoff", "kind": "record", "count": 0, "ids": []}
+    late = {"rule": "observed-after-cutoff", "version": cutoff_s, "reason": "observed after the reconciliation cutoff",
+            "kind": "record", "count": 0, "ids": []}
     for idx, rec in enumerate(records):
         rid = rec.get("record_id") if isinstance(rec, dict) else None
         key = rid if isinstance(rid, str) and rid and rid not in seen else f"#input[{idx}]"
@@ -193,6 +291,9 @@ def reconcile(run) -> dict:
             continue
         if rec.get("instruction_id") in excluded_ids:
             input_class[key] = {"class": "excluded", "reason": "instruction excluded before population construction"}
+            continue
+        if (rec.get("instruction_id"), rec.get("target_id")) in excluded_targets:
+            input_class[key] = {"class": "excluded", "reason": "target candidate excluded before population construction"}
             continue
         if cutoff is not None and canon.parse_time(rec["time"]) > cutoff:
             late["count"] += 1
@@ -215,8 +316,7 @@ def reconcile(run) -> dict:
     for lst in by_kind.values():
         lst.sort(key=lambda r: (canon.parse_time(r["time"]), r["record_id"]))
 
-    # ---- Step 2: expected population from issuer inclusion + target resolution (S5.10-4, S6.3)
-    issuer_boundary = frozen.get("issuer_boundary")
+    # ---- issuer population computed from issuer records at the declared boundary (S5.10-4, Section 4.1)
     issuer_by_instr = {}
     computed_population = set()
     for rec in by_kind.get("issuer_emission", []):
@@ -226,65 +326,45 @@ def reconcile(run) -> dict:
         if at_boundary and w_start and w_end and w_start <= t <= w_end:
             computed_population.add(rec["instruction_id"])
     frozen_population = [s.get("instruction_id") for s in instr_specs]
-    population_mismatch = sorted(set(frozen_population) ^ computed_population)
+    population_mismatch = sorted(map(str, set(frozen_population) ^ computed_population))
 
     instructions = []
     obligations = []
     obl_index = {}
-    for spec in sorted(instr_specs, key=lambda s: str(s.get("instruction_id"))):
-        iid = spec.get("instruction_id")
-        tr = spec.get("target_resolution") or {}
-        entry = {"instruction_id": iid, "class": None, "target_set": None, "dispatched": None,
-                 "diagnostics": []}
-        members = []
-        set_fail = None
-        if "empty" in tr:
-            entry["class"] = "zero_obligations"
-            entry["zero_obligation_condition"] = (tr["empty"] or {}).get("condition")
-            entry["empty_set_permitted"] = profile.get("empty_target_set_valid") is True
-            if not entry["zero_obligation_condition"]:
-                entry["diagnostics"].append(_diag("EMPTY_SET_CONDITION_MISSING"))
-        elif "open" in tr:
-            entry["class"] = "not_closed"
-            entry["open_scope"] = {"reason": (tr["open"] or {}).get("reason"),
-                                   "known_targets": list((tr["open"] or {}).get("known_targets") or [])}
-            members = list(entry["open_scope"]["known_targets"])
-        elif "set_id" in tr:
-            sid = tr["set_id"]
-            ts = (frozen.get("target_sets") or {}).get(sid)
-            entry["target_set"] = sid
-            if not isinstance(ts, dict) or not isinstance(ts.get("members"), list):
-                entry["class"] = "not_closed"
-                entry["resolution_failure"] = {"case": "unresolved",
-                                               "profile_behavior": (profile.get("resolution_failure") or {}).get("unresolved")}
+    for iid, res in resolutions.items():
+        entry = {"instruction_id": iid, "class": res["class"], "target_set": res["target_set"], "dispatch": None,
+                 "candidate_count": len(res["candidates"]), "excluded_count": len(res["excluded"]),
+                 "required_count": len(res["required"]), "excluded_targets": res["excluded"], "diagnostics": []}
+        if res["class"] == "zero_obligations":
+            entry["zero_cause"] = res["zero_cause"]
+            entry["zero_obligation_condition"] = res["condition"]
+            if res["zero_cause"] == "terminal_empty":
+                entry["empty_set_permitted"] = profile.get("empty_target_set_valid") is True       # S5.11-14
             else:
-                if not ts.get("closure_basis") or ts.get("coverage") not in ("VERIFIED", "DECLARED_ONLY", "INDETERMINATE"):
-                    e = {"requirement": "S5.15-1",
-                         "error": f"target set {sid}: closure basis and coverage condition must be stated"}
-                    if e not in run_errors:
-                        run_errors.append(e)
-                vu = canon.parse_time(ts.get("valid_until")) if ts.get("valid_until") else None
-                if vu is not None and cutoff is not None and vu < cutoff:
-                    set_fail = "stale"
-                members = list(ts["members"])
-                entry["class"] = "with_obligations" if members else "zero_obligations"
-                if not members:
-                    entry["zero_obligation_condition"] = ts.get("empty_condition")
-                    entry["empty_set_permitted"] = profile.get("empty_target_set_valid") is True
-        else:
-            entry["class"] = "not_closed"
-            entry["resolution_failure"] = {"case": "unresolved",
-                                           "profile_behavior": (profile.get("resolution_failure") or {}).get("unresolved")}
+                entry["exclusion_zero_permitted"] = profile.get("exclusion_induced_zero_pass") is True  # S5.11-7
+            if not res["condition"]:
+                entry["diagnostics"].append(_diag("EMPTY_SET_CONDITION_MISSING"))
+        if res["class"] == "target_resolution_unclosed":
+            entry["unclosed_reason"] = res["reason"]                                       # S6.4-4
+            if "resolution_failure" in res:
+                entry["resolution_failure"] = res["resolution_failure"]
+            if res.get("known_targets"):
+                # S5.11-18: a narrower subscope only with its scope explicit; it is not counted in O
+                entry["subscope"] = {"known_targets": res["known_targets"],
+                                     "scope": "known targets of an unclosed resolution; not a Required Target Set "
+                                              "and not part of the Delivery Obligation population"}
         instructions.append(entry)
 
-        # issuer-side state for this instruction (S5.4, S9.1)
+        # issuer-side state for this instruction (S5.4, Section 4.1)
         irecs = issuer_by_instr.get(iid, [])
         emitted = [r for r in irecs if r["event"] == "emitted"]
+        crossed = [r for r in emitted if r["boundary"] == issuer_boundary]
+        elsewhere = [r for r in emitted if r["boundary"] != issuer_boundary]
         failed_emissions = [r for r in irecs if r["event"] == "emission_failed"]
-        entry["dispatched"] = bool(emitted)                                              # S5.4-4
+        entry["dispatch"] = "DISPATCHED" if crossed else "NOT_ESTABLISHED"                # S5.4-4, S5.4-6
         attempts = {}
         issuer_dups = []
-        for r in emitted:
+        for r in crossed:
             a = r.get("attempt_id", "-")
             if a in attempts and attempts[a]["content_digest"] == r["content_digest"]:
                 issuer_dups.append(r["record_id"])
@@ -293,46 +373,67 @@ def reconcile(run) -> dict:
         digests = sorted({r["content_digest"] for r in emitted})
         issuer_state = None
         if len(digests) > 1:
-            issuer_state = ("SUBSTITUTION", _diag("ISSUER_ID_REUSED_WITH_DIFFERENT_CONTENT", digests=digests))
-        elif not emitted and failed_emissions:
-            issuer_state = ("EXPLICIT_FAILURE", _diag("EMISSION_FAILED_BEFORE_BOUNDARY",
-                                                      records=[r["record_id"] for r in failed_emissions],
-                                                      scope="issuer boundary; all targets of the failed attempt"))
-        elif not irecs:
-            if iid in invalid_by_instr and any(k == "issuer_emission" for k, _, _ in invalid_by_instr[iid]):
-                issuer_state = ("INVALID", _diag("ISSUER_RECORD_INVALID",
-                                                 records=[rid for k, rid, _ in invalid_by_instr[iid] if k == "issuer_emission"]))
+            # S5.10-6, S5.10-7: issuer-issuer reuse with different content, with the records that carry it
+            issuer_state = ("SUBSTITUTION", _diag("ISSUER_ID_REUSED_WITH_DIFFERENT_CONTENT", digests=digests,
+                                                  records=sorted(r["record_id"] for r in emitted)))
+        elif not crossed:
+            invalid_iss = [rid for k, rid, _ in invalid_by_instr.get(iid, []) if k == "issuer_emission"]
+            if not irecs and invalid_iss:
+                issuer_state = ("INVALID", _diag("ISSUER_RECORD_INVALID", records=invalid_iss))   # case 6
+            elif not irecs:
+                issuer_state = ("INDETERMINATE", _diag("ISSUER_RECORD_ABSENT"))                    # S5.4-4, S5.4-5
             else:
-                issuer_state = ("INDETERMINATE", _diag("ISSUER_RECORD_ABSENT"))
+                why = "emission failed before the issuer boundary" if failed_emissions else \
+                    "no emission recorded at the issuer boundary"
+                issuer_state = ("INDETERMINATE", _diag("DISPATCH_NOT_ESTABLISHED", reason=why,
+                                                       records=[r["record_id"] for r in irecs]))
         for r in emitted:
-            if entry["target_set"] is not None and r["target_set_ref"] != entry["target_set"]:
-                set_fail = "inconsistent"
-            ts = (frozen.get("target_sets") or {}).get(entry["target_set"]) if entry["target_set"] else None
+            if res["target_set"] is not None and r["target_set_ref"] != res["target_set"]:
+                res["set_fail"] = "inconsistent"
+            ts = (frozen.get("target_sets") or {}).get(res["target_set"]) if res["target_set"] else None
             if isinstance(ts, dict) and "target_set_digest" in r \
                     and r["target_set_digest"] != canon.document_digest(ts.get("members")):
-                set_fail = "inconsistent"
+                res["set_fail"] = "inconsistent"
         entry["issuer_records"] = [r["record_id"] for r in irecs]
         entry["issuer_duplicates"] = issuer_dups
+        scoped_failures = {}
         if failed_emissions:
-            entry["diagnostics"].append(_diag("EMISSION_FAILURE_RECORDED",
-                                              records=[r["record_id"] for r in failed_emissions]))
+            # S5.4-7, S5.4-8: an instruction-level failure event; a per-obligation EXPLICIT_FAILURE only where the
+            # record binds the failed attempt, a required target and the issuer boundary
+            for r in failed_emissions:
+                if isinstance(r.get("attempt_id"), str) and r.get("failed_before_boundary") == issuer_boundary \
+                        and r.get("target_id") in res["required"]:
+                    scoped_failures.setdefault(r["target_id"], []).append(r)
+            entry["diagnostics"].append(_diag("EMISSION_FAILED_BEFORE_BOUNDARY",
+                                              records=[r["record_id"] for r in failed_emissions],
+                                              scoped_to=sorted(scoped_failures) or None))
+        if elsewhere:
+            entry["diagnostics"].append(_diag("ISSUER_RECORD_NOT_AT_BOUNDARY", records=[r["record_id"] for r in elsewhere],
+                                              boundary=issuer_boundary))
+        if issuer_state is not None and not res["required"]:
+            # no obligation carries it: the finding stays at instruction level (Section 6.1 SUBSTITUTION)
+            entry["diagnostics"].append(issuer_state[1])
+            entry["instruction_finding"] = issuer_state[0]
 
-        for m in members:
+        for m in res["required"]:
             tid, fail = _resolve_member(m, directory)
             label = tid if tid is not None else ("ref:" + m["ref"] if isinstance(m, dict) and isinstance(m.get("ref"), str)
                                                  else "malformed:" + canon.document_digest(m)[8:20] if _jsonable(m) else "malformed")
             ob = {"instruction_id": iid, "target_id": label, "disposition": None, "candidates": [],
                   "diagnostics": [], "matched_records": [], "attempts": sorted(attempts),
-                  "open_scope": entry["class"] == "not_closed",
                   "scope": {"instruction_id": iid, "target_id": label,
                             "receiving_boundary": (directory.get("targets", {}).get(tid) or {}).get("boundary")}}
             if issuer_state is not None:
                 ob["candidates"].append(issuer_state[0])
                 ob["diagnostics"].append(issuer_state[1])
-            if set_fail is not None:
-                beh = (profile.get("resolution_failure") or {}).get(set_fail, "INDETERMINATE")
+            for r in scoped_failures.get(label, []):
+                ob["candidates"].append(("EXPLICIT_FAILURE", r["attempt_id"]))
+                ob["diagnostics"].append(_diag("EMISSION_FAILED_BEFORE_BOUNDARY", record=r["record_id"],
+                                               attempt_id=r["attempt_id"], boundary=issuer_boundary))
+            if res["set_fail"] is not None:
+                beh = (profile.get("resolution_failure") or {}).get(res["set_fail"], "INDETERMINATE")
                 ob["candidates"].append(beh)
-                ob["diagnostics"].append(_diag("TARGET_SET_" + set_fail.upper(), set_id=entry["target_set"]))
+                ob["diagnostics"].append(_diag("TARGET_SET_" + res["set_fail"].upper(), set_id=res["target_set"]))
             if fail == "malformed":
                 ob["candidates"].append("INVALID")
                 ob["diagnostics"].append(_diag("TARGET_MEMBER_MALFORMED", member=m))
@@ -341,10 +442,14 @@ def reconcile(run) -> dict:
                 ob["candidates"].append(beh)
                 ob["diagnostics"].append(_diag("TARGET_" + fail.upper(), member=m))
             ob["_attempts"] = attempts
+            ob["_seen_attempts"] = set(attempts) | {r["attempt_id"] for r in scoped_failures.get(label, [])}
             obligations.append(ob)
             obl_index[(iid, label)] = ob
 
-    # ---- Steps 5/6/8: receiver records, grouped by obligation identity without assuming equality
+    # ---- Steps 5/6/8: receiver records, grouped by obligation identity without assuming equality. Every record
+    # takes exactly one primary class; "matched" means correlated to an expected obligation, not CONFIRMED, and an
+    # orphan is a record that no expected obligation correlates (S5.11-8, S5.11-9, Section 6.1)
+    unclosed = {e["instruction_id"] for e in instructions if e["class"] == "target_resolution_unclosed"}
     rclass = {}
     dup_keys = {}
     for rec in by_kind.get("receiver_observation", []):
@@ -352,13 +457,15 @@ def reconcile(run) -> dict:
         ob = obl_index.get((rec["instruction_id"], rec["target_id"]))
         if ob is None:
             rclass[rid] = ("orphan", _diag("NO_EXPECTED_OBLIGATION", instruction_id=rec["instruction_id"],
-                                           target_id=rec["target_id"]))
+                                           target_id=rec["target_id"],
+                                           instruction_class="target_resolution_unclosed"
+                                           if rec["instruction_id"] in unclosed else None))
             continue
         tdir = directory.get("targets", {}).get(rec["target_id"]) or {}
         obs = trust_obs.get(rec["observer"])
         if obs is None:
-            # READING: an observer absent from the trust configuration is an unresolved trust
-            # binding (6.1 INDETERMINATE), not a malformed record.
+            # READING: an observer absent from the trust configuration is an unresolved trust binding (6.1
+            # INDETERMINATE), not a malformed record.
             rclass[rid] = ("matched", _diag("TRUST_BINDING_UNRESOLVED", observer=rec["observer"]))
             ob["candidates"].append("INDETERMINATE")
             ob["diagnostics"].append(_diag("TRUST_BINDING_UNRESOLVED", record=rid, observer=rec["observer"]))
@@ -372,8 +479,8 @@ def reconcile(run) -> dict:
             ob["diagnostics"].append(_diag("RECORD_NOT_BOUND_TO_TARGET", record=rid))
             continue
         if obs.get("authority_verified") is not True and profile.get("structural_without_trust") is False:
-            # S5.3-4: this profile does not permit structural processing without a verified
-            # authority binding, so the record lacks a binding required for structural validity.
+            # S5.3-4: this profile does not permit structural processing without a verified authority binding, so
+            # the record lacks a binding required for structural validity.
             rclass[rid] = ("invalid_receiver", _diag("AUTHORITY_BINDING_REQUIRED", observer=rec["observer"]))
             ob["diagnostics"].append(_diag("AUTHORITY_BINDING_REQUIRED", record=rid))
             continue
@@ -384,11 +491,6 @@ def reconcile(run) -> dict:
             continue
         attempts = ob["_attempts"]
         a = rec.get("attempt_id", "-")
-        if profile.get("attempts", {}).get("distinguished") and a not in attempts:
-            # S5.1-4: an observation of an attempt the issuer never emitted is not merged into another.
-            rclass[rid] = ("orphan", _diag("ATTEMPT_NOT_EMITTED", attempt_id=a))
-            ob["diagnostics"].append(_diag("RECEIVER_RECORD_FOR_UNKNOWN_ATTEMPT", record=rid, attempt_id=a))
-            continue
         issuer_digest = attempts[a]["content_digest"] if a in attempts else None
         key = (ob["instruction_id"], ob["target_id"], a, rec["content_digest"], rec["event"])
         if key in dup_keys:
@@ -397,13 +499,19 @@ def reconcile(run) -> dict:
             continue
         dup_keys[key] = rid
         ob["matched_records"].append(rid)
+        ob["_seen_attempts"].add(a)
         if rec["event"] == "verification_failed":
             rclass[rid] = ("matched", _diag("RECEIVER_FAILURE_OBSERVATION"))
             ob["candidates"].append(("EXPLICIT_FAILURE", a))
             ob["diagnostics"].append(_diag("RECEIVER_VERIFICATION_FAILED", record=rid, attempt_id=a))
+        elif not attempts:
+            # S5.4-5: the receiver fact stays reportable and is not promoted into the missing issuer evidence
+            rclass[rid] = ("matched", _diag("NO_ISSUER_OBSERVATION"))
+            ob["diagnostics"].append(_diag("RECEIVER_RECORD_WITHOUT_ISSUER_OBSERVATION", record=rid, attempt_id=a))
         elif issuer_digest is None:
-            rclass[rid] = ("matched", _diag("NO_ISSUER_DIGEST"))
-            ob["diagnostics"].append(_diag("NO_ISSUER_DIGEST_FOR_ATTEMPT", record=rid))
+            # S5.1-4: an observation of an attempt the issuer never emitted is not merged into another attempt
+            rclass[rid] = ("matched", _diag("ATTEMPT_NOT_EMITTED", attempt_id=a))
+            ob["diagnostics"].append(_diag("RECEIVER_RECORD_FOR_UNKNOWN_ATTEMPT", record=rid, attempt_id=a))
         elif rec["content_digest"] == issuer_digest:
             rclass[rid] = ("matched", _diag("CONFIRMING"))
             ob["candidates"].append(("CONFIRMED", a))
@@ -412,7 +520,8 @@ def reconcile(run) -> dict:
             rclass[rid] = ("matched", _diag("CONTENT_BINDING_DIFFERS"))
             ob["candidates"].append(("SUBSTITUTION", a))
             ob["diagnostics"].append(_diag("CONTENT_BINDING_DIFFERS", record=rid, attempt_id=a,
-                                           issuer=issuer_digest, receiver=rec["content_digest"]))
+                                           issuer=issuer_digest, receiver=rec["content_digest"],
+                                           records=[attempts[a]["record_id"], rid]))
 
     # transport acknowledgements: evidence about the transport boundary only (Section 4.3, S4.3-1)
     te = profile.get("transport_equivalence")
@@ -423,6 +532,7 @@ def reconcile(run) -> dict:
         if ob is None:
             input_class[rid] = {"class": "transport:unmatched", "reason": "no expected obligation"}
             continue
+        ob["_seen_attempts"].add(a)
         if rec["event"] == "rejected":
             input_class[rid] = {"class": "transport:failure_evidence", "reason": "positive rejection of one attempt"}
             ob["candidates"].append(("EXPLICIT_FAILURE", a))
@@ -445,15 +555,17 @@ def reconcile(run) -> dict:
             continue
         input_class[rid] = {"class": "negative:attached", "reason": rec["condition"]}
         a = rec.get("attempt_id", "-")
+        if isinstance(rec.get("attempt_id"), str):
+            ob["_seen_attempts"].add(a)
         d = _diag("NEGATIVE_" + rec["condition"].upper(), record=rid, observed=rec["observed"],
                   boundary=rec["boundary"], as_of=rec["cutoff"], attempt_id=rec.get("attempt_id"))
         ob["diagnostics"].append(d)
         if rec["condition"] in ("transport_rejected", "verification_failed"):
             ob["candidates"].append(("EXPLICIT_FAILURE", a))
-        # READING: deadline_elapsed and counterpart_missing stay UNCONFIRMED (S5.8, lines 776-778;
-        # Section 9.1 lines 1484-1486), with the record kept as a diagnostic.
+        # deadline_elapsed and counterpart_missing leave delivery UNCONFIRMED with the record kept as a diagnostic
+        # (Section 5.8, lines 833-836; Section 9.1, lines 1692-1694)
 
-    # ---- Step 7: exactly one disposition per obligation, deterministic reduction (S5.10-6/7)
+    # ---- Step 7: exactly one disposition per obligation, deterministic reduction (S5.10-10, S5.10-11)
     for ob in obligations:
         cands = ob["candidates"]
         plain = set()
@@ -476,8 +588,8 @@ def reconcile(run) -> dict:
         if conflict:
             derived.add("CONFLICT")
         if any_confirmed:
-            # READING: a confirmed attempt is not undone by a failure of a different attempt of
-            # the same obligation; the failure stays visible as a diagnostic (Section 9.1).
+            # S5.1-6: a confirmed retry does not erase the failure of another attempt of the same obligation; that
+            # failure stays visible as a diagnostic, and its attempt stays in the obligation's attempt list
             other_fail = [a for a, k in by_attempt.items() if k & set(POSITIVE_FAILURES) and "CONFIRMED" not in k]
             if other_fail and not conflict:
                 derived -= set(POSITIVE_FAILURES) - {c for c in plain}
@@ -489,10 +601,11 @@ def reconcile(run) -> dict:
         ob["reduction"] = {"rule": "profile precedence", "precedence": list(precedence),
                            "applicable": sorted(derived), "selected": chosen}
         ob["candidates"] = sorted({c if isinstance(c, str) else c[0] for c in cands})
+        ob["attempts"] = sorted(ob["_seen_attempts"])                                    # S4.2-5, S5.1-6
         if chosen in ("EXPLICIT_FAILURE", "SUBSTITUTION"):
             ob["failure_scope"] = dict(ob["scope"])                                      # S6.1-2
 
-    # receiver record accounting (S5.11-3, S6.4-5)
+    # receiver record accounting (S5.11-8, S6.4-7)
     per_receiver = {}
     for idx, rec in enumerate(records):
         if not (isinstance(rec, dict) and rec.get("kind") == "receiver_observation"):
@@ -512,7 +625,7 @@ def reconcile(run) -> dict:
     for rid, v in per_receiver.items():
         input_class[rid] = {"class": "receiver:" + v["class"], "reason": v["detail"]["code"]}
 
-    # enforcement and control-effect dimensions (S5.6, S5.7, Section 4.4/4.5)
+    # enforcement and control-effect dimensions (S5.6, S5.7, Sections 4.4 and 4.5: separate namespaces)
     emap = profile.get("enforcement_mapping") or {}
     for ob in obligations:
         ob["enforcement"] = {"outcome": "UNKNOWN", "records": [], "diagnostics": []}
@@ -596,29 +709,33 @@ def reconcile(run) -> dict:
         obs = [o for o in obligations if o["instruction_id"] == entry["instruction_id"]]
         per_target = {o["target_id"]: o["disposition"] for o in obs}
         if entry["class"] == "zero_obligations":
-            parent = None   # READING: 6.2 defines parent confirmation only for one or more targets
-        elif entry["class"] == "not_closed":
+            parent = None   # S6.2-3: NOT_APPLICABLE or absent, never fully confirmed by vacuous truth
+            entry["contributed_obligations"] = 0                                          # S5.11-11
+        elif entry["class"] == "target_resolution_unclosed":
             parent = False
+            entry["contributed_obligations"] = 0                                          # S6.4-4
         else:
             parent = bool(obs) and all(d == "CONFIRMED" for d in per_target.values())
         entry["parent"] = {"fully_confirmed_within_target_set": parent, "per_target": per_target}
-        if entry["class"] == "zero_obligations":
-            entry["contributed_obligations"] = 0                                          # S5.11-5
 
     # ---- conservation (Section 6.4)
     counts_o = {d: sum(1 for o in obligations if o["disposition"] == d) for d in MIN_DISPOSITIONS}
     n_with = sum(1 for e in instructions if e["class"] == "with_obligations")
     n_zero = sum(1 for e in instructions if e["class"] == "zero_obligations")
-    n_open = sum(1 for e in instructions if e["class"] == "not_closed")
+    n_open = sum(1 for e in instructions if e["class"] == "target_resolution_unclosed")
     total_inputs = len(records)
     accounted_inputs = len(input_class)
     conservation = {
         "obligations": {"O": len(obligations), "counts": counts_o,
                         "holds": len(obligations) == sum(counts_o.values())},
         "instructions": {"I": len(instructions), "with_obligations": n_with,
-                         "zero_obligation_instructions": n_zero, "not_closed": n_open,
-                         "draft_equation_holds": len(instructions) == n_with + n_zero,
-                         "extended_equation_holds": len(instructions) == n_with + n_zero + n_open},
+                         "zero_obligation_instructions": n_zero,
+                         "zero_subdivision": {
+                             "terminal_empty": sum(1 for e in instructions if e.get("zero_cause") == "terminal_empty"),
+                             "exclusion_induced": sum(1 for e in instructions
+                                                      if e.get("zero_cause") == "exclusion_induced")},
+                         "target_resolution_unclosed": n_open,
+                         "equation_holds": len(instructions) == n_with + n_zero + n_open},
         "receiver_records": {"R": len(per_receiver), "counts": counts_r,
                              "matched_subdivision": {"confirming": matched_confirming,
                                                      "non_confirming": counts_r["matched"] - matched_confirming},
@@ -626,7 +743,7 @@ def reconcile(run) -> dict:
         "inputs": {"presented": total_inputs, "accounted": accounted_inputs,
                    "holds": total_inputs == accounted_inputs},
         "population": {"frozen": sorted(map(str, frozen_population)),
-                       "computed_from_issuer_records": sorted(computed_population),
+                       "computed_from_issuer_records": sorted(map(str, computed_population)),
                        "mismatch": population_mismatch},
     }
     exp = frozen.get("expected_counts")
@@ -645,28 +762,33 @@ def reconcile(run) -> dict:
         blockers.append(_diag("POPULATION_NOT_DECLARED_CLOSED"))
     if n_open:
         blockers.append(_diag("TARGET_SET_NOT_CLOSED",
-                              instructions=[e["instruction_id"] for e in instructions if e["class"] == "not_closed"]))
+                              instructions=[e["instruction_id"] for e in instructions
+                                            if e["class"] == "target_resolution_unclosed"]))
     if population_mismatch:
         blockers.append(_diag("ISSUER_POPULATION_MISMATCH", ids=population_mismatch))
     for name in ("obligations", "receiver_records", "inputs"):
         if not conservation[name]["holds"]:
             blockers.append(_diag("CONSERVATION_FAILED", equation=name))
-    if not conservation["instructions"]["draft_equation_holds"]:
+    if not conservation["instructions"]["equation_holds"]:
         blockers.append(_diag("CONSERVATION_FAILED", equation="instructions"))
     if "expected_counts" in conservation and not conservation["expected_counts"]["matches"]:
         blockers.append(_diag("EXPECTED_COUNTS_DIFFER"))
     for e in instructions:
-        if e["class"] == "zero_obligations" and not e.get("empty_set_permitted"):
-            blockers.append(_diag("EMPTY_TARGET_SET_NOT_PERMITTED", instruction_id=e["instruction_id"]))  # S5.11-9
+        if e.get("zero_cause") == "terminal_empty" and not e.get("empty_set_permitted"):
+            blockers.append(_diag("EMPTY_TARGET_SET_NOT_PERMITTED", instruction_id=e["instruction_id"]))  # S5.11-15
+        if e.get("zero_cause") == "exclusion_induced" and not e.get("exclusion_zero_permitted"):
+            blockers.append(_diag("EXCLUSION_INDUCED_ZERO_NOT_PERMITTED", instruction_id=e["instruction_id"]))  # S6.5-8
+        if e["dispatch"] != "DISPATCHED":
+            blockers.append(_diag("DISPATCH_NOT_ESTABLISHED", instruction_id=e["instruction_id"]))  # S6.5-7
     not_ok = [o for o in obligations if o["disposition"] != "CONFIRMED"]
     if not_ok:
         blockers.append(_diag("OBLIGATIONS_NOT_CONFIRMED", count=len(not_ok)))
     positive = [{"instruction_id": o["instruction_id"], "target_id": o["target_id"],
                  "disposition": o["disposition"], "scope": o["scope"]}
-                for o in obligations if o["disposition"] in POSITIVE_FAILURES]
+                for o in obligations if o["disposition"] in fail_set]
     structural_invalid = bool(perrors) or bool(run_errors)
     if positive and not structural_invalid:
-        result = "FAIL"
+        result = "FAIL"                                     # only a frozen positive condition (S6.5-2, S6.5-5)
     elif not blockers:
         result = "PASS"
     else:
@@ -674,16 +796,19 @@ def reconcile(run) -> dict:
 
     for o in obligations:
         o.pop("_attempts", None)
+        o.pop("_seen_attempts", None)
 
     report = {
         "report_version": REPORT_VERSION,
         "implementation": {"name": "acde01", "version": IMPLEMENTATION_VERSION,
                            "draft": DRAFT, "draft_sha256": DRAFT_SHA256},
         "profile": {"profile_id": profile.get("profile_id"), "profile_revision": profile.get("profile_revision"),
+                    "fail_conditions": profile.get("fail_conditions"),
+                    "exclusion_induced_zero_pass": profile.get("exclusion_induced_zero_pass"),
                     "valid": not perrors, "errors": perrors},
         "run": {"cutoff": cutoff_s, "window": window, "issuer_boundary": issuer_boundary,
                 "issuer_inclusion_rule": frozen.get("issuer_inclusion_rule"),
-                "input_digest": canon.document_digest(run) if _jsonable(run) else None,
+                "input_digest": input_digest,
                 "previous_report_digest": run.get("previous_report_digest"),
                 "errors": run_errors},
         "target_sets": _target_sets_view(frozen),
@@ -701,9 +826,9 @@ def reconcile(run) -> dict:
                   "pass_blockers": blockers,
                   "class_counts": {"obligations": counts_o, "receiver_records": counts_r,
                                    "instructions": {"with_obligations": n_with, "zero": n_zero,
-                                                    "not_closed": n_open}}}
+                                                    "target_resolution_unclosed": n_open}}}
     report["claims"] = _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
-                               issuer_by_instr)
+                               issuer_by_instr, fail_set)
     default = next(c for c in report["claims"] if c["claim_id"] == "population")
     structural["claim_scope"] = default["claim_scope"]
     structural["claim_support"] = default["claim_support"]
@@ -855,20 +980,30 @@ def _scope_for(report, claim, frozen):
                    if e["instruction_id"] in instr and e["target_set"]})
     bounds = sorted({o["scope"]["receiving_boundary"] or "unresolved" for o in report["obligations"]
                      if o["instruction_id"] in instr})
+    zero = [{"instruction_id": e["instruction_id"], "zero_cause": e.get("zero_cause"),
+             "condition": e.get("zero_obligation_condition"), "excluded": e.get("excluded_count", 0)}
+            for e in report["instructions"] if e["instruction_id"] in instr and e["class"] == "zero_obligations"]
     return {"instructions": sorted(map(str, instr)), "target_sets": sets,
             "boundaries": [frozen.get("issuer_boundary") or "undeclared"] + bounds,
             "cutoff": frozen.get("cutoff"), "window": frozen.get("window"),
+            "profile": {"profile_id": report["profile"]["profile_id"],
+                        "profile_revision": report["profile"]["profile_revision"]},
+            "zero_obligation_instructions": zero,                                  # S6.2-4, S6.5-8
             "obligation": sc.get("obligation"), "path_id": sc.get("path_id"),
             "fact": sc.get("fact") or claim.get("kind")}
 
 
-def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind, issuer_by_instr):
+def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind, issuer_by_instr, fail_set):
     cl = profile.get("claims") or {}
     conditional = set(cl.get("conditional_predicates") or [])
     mandatory = cl.get("mandatory_predicates") or {}
+    # Section 6.6, lines 1487-1492: with no stronger claim requested, the corresponding claim is the minimal
+    # structural statement under the named profile, cutoff and structural rules.
     requested = [{"claim_id": "population", "kind": "structural_reconciliation",
-                  "scope": {"instructions": "all", "fact": "the declared population reconciled under the "
-                                                          "profile's structural rules"}}]
+                  "scope": {"instructions": "all",
+                            "fact": f"the declared population reconciled under profile {profile.get('profile_id')} "
+                                    f"revision {profile.get('profile_revision')}, cutoff {frozen.get('cutoff')}, "
+                                    "and that profile's structural rules"}}]
     requested += [c for c in claims_req if isinstance(c, dict) and c.get("claim_id") != "population"]
     rec_by_id = {r["record_id"]: r for lst in by_kind.values() for r in lst}
     out = []
@@ -882,13 +1017,16 @@ def _claims(report, structural, claims_req, profile, frozen, trust_obs, by_kind,
         # subject and pass over an empty or partial set (CODEX-630-K9).
         bekannt = {str(e["instruction_id"]) for e in report["instructions"]}
         unaufgeloest = [i for i in scope["instructions"] if i not in bekannt]
-        global_block = [b for b in structural["pass_blockers"] if b["code"] not in ("OBLIGATIONS_NOT_CONFIRMED",
-                                                                                    "EMPTY_TARGET_SET_NOT_PERMITTED",
-                                                                                    "TARGET_SET_NOT_CLOSED")]
+        per_instruction = ("OBLIGATIONS_NOT_CONFIRMED", "EMPTY_TARGET_SET_NOT_PERMITTED", "TARGET_SET_NOT_CLOSED",
+                           "EXCLUSION_INDUCED_ZERO_NOT_PERMITTED", "DISPATCH_NOT_ESTABLISHED")
+        global_block = [b for b in structural["pass_blockers"] if b["code"] not in per_instruction]
         scoped_pass = (not unaufgeloest and not global_block and all(o["disposition"] == "CONFIRMED" for o in obs)
-                       and all(e["class"] != "not_closed" for e in instr)
-                       and all(e.get("empty_set_permitted", True) for e in instr if e["class"] == "zero_obligations"))
-        scoped_fail = any(o["disposition"] in POSITIVE_FAILURES for o in obs) and not report["profile"]["errors"]
+                       and all(e["class"] != "target_resolution_unclosed" and e["dispatch"] == "DISPATCHED"
+                               for e in instr)
+                       and all(e.get("empty_set_permitted", e.get("exclusion_zero_permitted")) for e in instr
+                               if e["class"] == "zero_obligations"))
+        scoped_fail = any(o["disposition"] in fail_set for o in obs) and not report["profile"]["errors"] \
+            and not report["run"]["errors"]
         scoped_result = "PASS" if scoped_pass else ("FAIL" if scoped_fail else "INCONCLUSIVE")
         driving = []
         for o in obs:

@@ -37,8 +37,8 @@ def compact(vec, bp, bf):
 def render() -> bytes:
     vs = build.all_vectors()
     bp, bf = build.example_profile(), build.frozen()
-    head = {"draft": "draft-abak-agent-control-delivery-evidence-01",
-            "draft_sha256": "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf",
+    head = {"draft": "draft-abak-agent-control-delivery-evidence-02",
+            "draft_sha256": "fe3baeb08c8e0979ca64efece098c972827fab483debe0b2bcbfd697bb714782",
             "note": "Derived from the draft text alone. Not a wire format. Each vector input is a JSON Merge "
                     "Patch (RFC 7396) against base_profile and base_frozen; see README.md.",
             "base_profile": bp, "base_frozen": bf, "vector_count": len(vs)}

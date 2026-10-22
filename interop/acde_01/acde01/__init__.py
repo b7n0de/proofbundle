@@ -1,7 +1,8 @@
-"""Independent reading of draft-abak-agent-control-delivery-evidence-01 (verification side).
+"""Independent reading of draft-abak-agent-control-delivery-evidence-02 (verification side).
 
 Derived from the text of the draft alone (plain-text copy, SHA-256
-2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf, 2576 lines). This package is an
+fe3baeb08c8e0979ca64efece098c972827fab483debe0b2bcbfd697bb714782, 2856 lines). Release 0.1.0 read
+revision -01 (SHA-256 2f0356fc...fabf); the changes are listed in README.md. This package is an
 interop experiment. It is not part of the proofbundle library, defines no proofbundle format, and
 its JSON shapes are this implementation's own descriptive representation, not a wire format.
 
@@ -14,6 +15,6 @@ Entry points:
 * :func:`acde01.reconcile.render_summary` - a text rendering that keeps the claim context.
 """
 
-DRAFT = "draft-abak-agent-control-delivery-evidence-01"
-DRAFT_SHA256 = "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf"
-IMPLEMENTATION_VERSION = "0.1.0"
+DRAFT = "draft-abak-agent-control-delivery-evidence-02"
+DRAFT_SHA256 = "fe3baeb08c8e0979ca64efece098c972827fab483debe0b2bcbfd697bb714782"
+IMPLEMENTATION_VERSION = "0.2.0"

@@ -11,14 +11,23 @@ import copy
 from . import canon
 
 MIN_DISPOSITIONS = ("CONFIRMED", "EXPLICIT_FAILURE", "UNCONFIRMED", "SUBSTITUTION", "CONFLICT",
-                    "INVALID", "INDETERMINATE")                       # Section 6.1, lines 1042-1085
-NON_SUCCESS_PROTECTED = ("UNCONFIRMED", "INVALID", "CONFLICT", "INDETERMINATE")   # S5.10-5
+                    "INVALID", "INDETERMINATE")                       # Section 6.1, lines 1160-1210
+NON_SUCCESS_PROTECTED = ("UNCONFIRMED", "INVALID", "CONFLICT", "INDETERMINATE")   # S5.10-9
 ENFORCEMENT_MEANINGS = ("APPLIED", "REFUSED", "NO_EFFECT", "UNKNOWN")  # Section 4.4, S5.6-2
 COVERAGE_CONDITIONS = ("VERIFIED", "DECLARED_ONLY", "INDETERMINATE")   # S5.15-3
 SUPPORT_MEANINGS = ("FULLY_SUPPORTED", "CONDITIONALLY_SUPPORTED", "NOT_SUPPORTED")  # S6.6-5
 NEGATIVE_CONDITIONS = ("deadline_elapsed", "counterpart_missing", "transport_rejected",
                        "verification_failed", "outcome_undetermined")  # S5.8-2
 RESOLUTION_CASES = ("unresolved", "stale", "ambiguous", "inconsistent")  # S5.12-1
+#: Section 5.12 (lines 1015-1028) defines the class of each case instead of leaving it to the profile: a valid
+#: reference that cannot be resolved, cannot be selected unambiguously or lacks freshness evidence is INDETERMINATE.
+#: An issuer binding that contradicts the frozen target set is INVALID or CONFLICT as the profile classifies it.
+RESOLUTION_CLASSES = {"unresolved": ("INDETERMINATE",), "stale": ("INDETERMINATE",),
+                      "ambiguous": ("INDETERMINATE",), "inconsistent": ("INVALID", "CONFLICT")}
+#: The positive FAIL conditions a profile publishes and freezes (S6.5-2). UNCONFIRMED and INDETERMINATE are
+#: missing evidence and never a positive condition (S6.5-5).
+FAIL_CONDITION_KEYS = ("EXPLICIT_FAILURE", "SUBSTITUTION", "CONFLICT", "INVALID", "exclusion_rule_violation")
+EXCLUSION_KINDS = ("issuer_attribute", "target_attribute")
 ACK_POINTS = ("parsing", "verification", "durable_persistence", "enforcement_queue_admission",
               "completed_enforcement")                                 # S9.2-1
 DUPLICATE_RULES = ("earliest-time-then-record-id",)
@@ -54,16 +63,18 @@ def example_profile() -> dict:
         "time": {"ordering_mechanism": "trusted-timestamp bases listed in trusted_bases, or one "
                                        "observer's own clock for its own records",
                  "trusted_bases": ["tsa:example-tsa"]},     # S5.9-1, S5.9-2
-        "empty_target_set_valid": True,                     # S5.11-8
+        "empty_target_set_valid": True,                     # S5.11-14
         "resolution_failure": {"unresolved": "INDETERMINATE", "stale": "INDETERMINATE",
                                "ambiguous": "INDETERMINATE", "inconsistent": "INVALID"},  # S5.12-1
+        "fail_conditions": {"EXPLICIT_FAILURE": True, "SUBSTITUTION": True, "CONFLICT": False,
+                            "INVALID": False, "exclusion_rule_violation": False},     # S6.5-2
         "transport_equivalence": None,                      # S4.3-1: none declared
         "ack_point": {"point": "verification"},             # S9.2-1, S9.2-2
         "enforcement_mapping": {"APPLIED": "APPLIED", "REFUSED": "REFUSED",
                                 "NO_EFFECT": "NO_EFFECT", "UNKNOWN": "UNKNOWN"},   # S5.6-2
-        "extra_dispositions": {},                           # S5.10-5
+        "extra_dispositions": {},                           # S5.10-9
         "reduction_rule": {"precedence": ["INVALID", "CONFLICT", "SUBSTITUTION", "EXPLICIT_FAILURE",
-                                          "INDETERMINATE", "CONFIRMED", "UNCONFIRMED"]},  # S5.10-6
+                                          "INDETERMINATE", "CONFIRMED", "UNCONFIRMED"]},  # S5.10-10
         "duplicate_selection_rule": "earliest-time-then-record-id",   # S6.3-1
         "claims": {                                         # S6.6-8, S6.6-9
             "conditional_predicates": ["observer_authority_verified", "coverage_verified"],
@@ -78,7 +89,9 @@ def example_profile() -> dict:
         },
         "intermediary_mappings": {},                        # S5.16-2
         "uses_telemetry": False,                            # S8.3-1
-        "exclusion_rules": [],                              # S6.4-8
+        "exclusion_rules": [],                              # S5.11-1, S5.11-4
+        "exclusion_inputs": {"issuer_attribute": [], "target_attribute": []},   # S5.11-1, S5.11-2
+        "exclusion_induced_zero_pass": False,               # S5.11-7
         "negative_conditions": list(NEGATIVE_CONDITIONS),   # S5.8-2
         "control_activation": {                             # S9.4-1
             "effective_boundary": "provider_entry",
@@ -151,17 +164,32 @@ def validate_profile(profile) -> list:
                                "ordering mechanism and its trusted bases")
 
     if not isinstance(profile.get("empty_target_set_valid"), bool):
-        _err(errors, "S5.11-8", "the profile must define whether an empty Required Target Set is a "
+        _err(errors, "S5.11-14", "the profile must define whether an empty Required Target Set is a "
                                 "valid terminal resolution")
 
     rf = profile.get("resolution_failure")
     if not isinstance(rf, dict):
-        _err(errors, "S5.12-1", "behavior for unresolved, stale, ambiguous and inconsistent "
-                                "references must be defined")
+        _err(errors, "S5.12-1", "the class of unresolved, stale, ambiguous and inconsistent references "
+                                "must be stated")
     else:
         for case in RESOLUTION_CASES:
-            if rf.get(case) not in ("INDETERMINATE", "INVALID"):
-                _err(errors, "S5.12-1", f"resolution_failure.{case} must be INDETERMINATE or INVALID")
+            if rf.get(case) not in RESOLUTION_CLASSES[case]:
+                _err(errors, "S5.12-1", f"resolution_failure.{case} must be one of {RESOLUTION_CLASSES[case]} "
+                                        "(Section 5.12 defines the class)")
+
+    fc = profile.get("fail_conditions")
+    if not isinstance(fc, dict) or sorted(fc) != sorted(FAIL_CONDITION_KEYS) \
+            or any(not isinstance(v, bool) for v in fc.values()):
+        extra = sorted(set(fc) - set(FAIL_CONDITION_KEYS)) if isinstance(fc, dict) else []
+        if any(k in ("UNCONFIRMED", "INDETERMINATE") for k in extra):
+            _err(errors, "S6.5-5", f"fail_conditions names {extra}: missing evidence is never a positive "
+                                   "failing condition")
+        _err(errors, "S6.5-2", f"fail_conditions must state true or false for each of {FAIL_CONDITION_KEYS}, "
+                               "frozen before evidence evaluation")
+    elif fc["exclusion_rule_violation"]:
+        _err(errors, "S6.5-2", "this implementation finds exclusion-rule violations only as profile declaration "
+                               "errors, under which no FAIL is derived; declaring them a FAIL condition would be a "
+                               "condition it cannot apply")
 
     te = profile.get("transport_equivalence", None)
     if te is not None:
@@ -197,22 +225,22 @@ def validate_profile(profile) -> list:
 
     xd = profile.get("extra_dispositions", {})
     if not isinstance(xd, dict):
-        _err(errors, "S5.10-5", "extra_dispositions must be an object")
+        _err(errors, "S5.10-9", "extra_dispositions must be an object")
     else:
         for name, spec in xd.items():
             if not isinstance(spec, dict) or spec.get("maps_to") not in MIN_DISPOSITIONS:
-                _err(errors, "S5.10-5", f"extra disposition {name!r} has no lossless mapping to the minimum set")
+                _err(errors, "S5.10-9", f"extra disposition {name!r} has no lossless mapping to the minimum set")
                 continue
             if spec.get("refines") in NON_SUCCESS_PROTECTED and spec["maps_to"] == "CONFIRMED":
-                _err(errors, "S5.10-5", f"extra disposition {name!r} weakens {spec['refines']} into success")
+                _err(errors, "S5.10-9", f"extra disposition {name!r} weakens {spec['refines']} into success")
             if spec.get("refines") not in (None, spec["maps_to"]):
-                _err(errors, "S5.10-5", f"extra disposition {name!r} refines {spec.get('refines')} but "
+                _err(errors, "S5.10-9", f"extra disposition {name!r} refines {spec.get('refines')} but "
                                         f"maps to {spec['maps_to']}: not lossless")
 
     rr = profile.get("reduction_rule")
     prec = rr.get("precedence") if isinstance(rr, dict) else None
     if not isinstance(prec, list) or sorted(prec) != sorted(MIN_DISPOSITIONS):
-        _err(errors, "S5.10-6", "the reduction rule must be a published total precedence over the "
+        _err(errors, "S5.10-10", "the reduction rule must be a published total precedence over the "
                                 "seven minimum dispositions (deterministic and reviewable)")
 
     if profile.get("duplicate_selection_rule") not in DUPLICATE_RULES:
@@ -269,15 +297,36 @@ def validate_profile(profile) -> list:
     elif not isinstance(profile.get("uses_telemetry"), bool):
         _err(errors, "S8.3-1", "uses_telemetry must be declared")
 
+    inputs = profile.get("exclusion_inputs")
+    if not isinstance(inputs, dict) or sorted(inputs) != sorted(EXCLUSION_KINDS) \
+            or any(not isinstance(v, list) for v in inputs.values()):
+        _err(errors, "S5.11-1", "the permitted issuer-side and target-resolution inputs of the exclusion rules "
+                                f"must be declared (exclusion_inputs with {EXCLUSION_KINDS})")
+        inputs = {k: [] for k in EXCLUSION_KINDS}
+    if not isinstance(profile.get("exclusion_induced_zero_pass"), bool):
+        _err(errors, "S5.11-7", "the profile must predeclare whether an instruction whose every resolved target "
+                                "candidate is excluded may be covered by a structural PASS")
     ex = profile.get("exclusion_rules", [])
     if not isinstance(ex, list):
-        _err(errors, "S6.4-8", "exclusion_rules must be a list")
+        _err(errors, "S5.11-4", "exclusion_rules must be a list")
     else:
         for rule in ex:
             if not isinstance(rule, dict) or not _nonempty_str(rule.get("rule_id")) \
-                    or rule.get("applies_to") != "issuer_attribute" or not _nonempty_str(rule.get("attribute")):
-                _err(errors, "S6.4-8", "an exclusion rule needs rule_id and must be stated over an "
-                                       "issuer-side attribute (decided before receiver evidence)")
+                    or not _nonempty_str(rule.get("attribute")) or "equals" not in rule:
+                _err(errors, "S5.11-4", "an exclusion rule needs rule_id, attribute and equals")
+                continue
+            if rule.get("applies_to") not in EXCLUSION_KINDS:
+                _err(errors, "S4.2-1", f"exclusion rule {rule['rule_id']!r} applies to {rule.get('applies_to')!r}: "
+                                       "only issuer-side or target-resolution inputs may decide inclusion")
+                continue
+            if rule["attribute"] not in inputs.get(rule["applies_to"], []):
+                _err(errors, "S5.11-5", f"exclusion rule {rule['rule_id']!r} reads {rule['attribute']!r}, which is "
+                                        "not a declared permitted input; it could depend on receiver evidence")
+            if not _nonempty_str(rule.get("version")):
+                _err(errors, "S6.5-9", f"exclusion rule {rule['rule_id']!r} has no version, so the applied frozen "
+                                       "rule version cannot be established")
+            if not _nonempty_str(rule.get("reason")):
+                _err(errors, "S5.11-4", f"exclusion rule {rule['rule_id']!r} has no reason to report")
 
     ca = profile.get("control_activation")
     if not isinstance(ca, dict) or ca.get("effective_boundary") not in ("admission", "provider_entry") \
