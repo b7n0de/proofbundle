@@ -189,12 +189,25 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         und der Sammelaufruf des Tors selbst zaehlt fuer diese Datei ebenfalls genau 5. Ein Eintrag
         dort haette echte Abdeckung stillgelegt, um eine Messung an der falschen Flaeche gruen zu
         bekommen.
+
+        THE SIXTH REASON, 2026-10-19, owner card OA-32bfb1f213 answer A. hermetic-cleanroom on head
+        c0e38230 showed 13 failed and 7 errors in four modules of the 6.3.1 list, and the same 20 fail
+        from a locally built and extracted sdist. Measured with the derivation: it sees no missing path
+        in any of them, because each reaches the pruned file through a form it cannot bind. Renderer
+        paths are strings handed in by parametrize, one module reads through its neighbour
+        test_merkle_accumulator, one names its path in the constant REL, and one loads
+        scripts/rust_parity_gate.py, whose default paths read tools/ (as test_rust_parity_gate). Only
+        the seven failing functions are listed; the other 52 tests of these modules run from the sdist.
+        Teaching the derivation these forms is the class fix, and it is not part of this branch.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
                      "test_roadmap_frontload_foundations", "test_rust_parity_gate",
                      "test_pre_tag_receipt_commit_flow",
                      "test_not_after_gilt_auch_auf_dem_registerpfad", "test_release_text_hygiene",
-                     "test_mutationstor_sammler_sieht_die_freigabeflaeche"}
+                     "test_mutationstor_sammler_sieht_die_freigabeflaeche",
+                     "test_a_mode_refuses_the_options_it_does_not_read", "test_a_form_rule_reads_one_spelling",
+                     "test_audit_matrix_differential_cell_recomputes_agreement",
+                     "test_rust_parity_gate_refuses_invalid_coverage_evidence"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
