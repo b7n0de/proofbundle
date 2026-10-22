@@ -12,7 +12,11 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
 
 ### Changed
 
-- **The strict JSON reader takes only what JSON and I-JSON define.** `proofbundle._strict_json.loads_strict` refuses `NaN`, `Infinity`, `-Infinity` and every number that becomes infinite, an integer literal outside plus or minus 2^53 - 1 (RFC 7493 section 2.2, the range the Rust verifier `pb_verify_rs` reads), a byte order mark and text in UTF-16 or UTF-32. It raises `BundleFormatError`, the error it already raises for a duplicate member, and every verifier that reads through it refuses such an input instead of reading a value RFC 8785 cannot represent. The SD-JWT and KB-JWT checks name the reader's reason in their detail instead of reporting every refusal as a duplicate key.
+- **The strict JSON reader takes only what JSON and I-JSON define.** `proofbundle._strict_json.loads_strict` refuses `NaN`, `Infinity`, `-Infinity` and every number that becomes infinite, an integer literal outside plus or minus 2^53 - 1 (RFC 7493 section 2.2, the range the Rust verifier `pb_verify_rs` reads), and JSON bytes with a UTF-8 byte order mark or in UTF-16 or UTF-32; text with a leading U+FEFF stays the `JSONDecodeError` it was. It raises `BundleFormatError`, the error it already raises for a duplicate member, and every verifier that reads through it refuses such an input instead of reading a value RFC 8785 cannot represent. The SD-JWT and KB-JWT checks name the reason of a refusal in their detail instead of reporting every refusal as a duplicate key.
+
+### Fixed
+
+- **`verify_bundle` no longer reads a payload the strict reader refuses as a payload without a claim.** With an `sd_jwt_vc` whose issuer signature verifies, such a payload skipped the `sd-jwt-bundle-binding` check, so an eval-claim payload with a duplicate member verified, and with the stricter reader so would one with `NaN` or an integer outside I-JSON. The binding is now demanded and fails, as the holder-binding check and `hf_evals` already treat the same refusal. A payload that is not JSON at all stays out of scope for that binding.
 
 ## [6.3.1] - 2026-10-21
 

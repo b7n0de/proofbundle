@@ -316,5 +316,49 @@ class TheRefusalNamesItsOwnReason(unittest.TestCase):
                     self.assertNotIn("duplicate", res["detail"].lower(), res["detail"])
 
 
+class TheBundleBindingDoesNotReadARefusalAsNoClaim(unittest.TestCase):
+    """The counter-reading of 1d96dec0 (F1): ``verify_bundle`` read every refusal of the reader on the signed payload as
+    "no claim" and then skipped the SD-JWT binding. An eval-claim payload carrying NaN or 2**53, signed by the bundle
+    signer, with an issuer-valid generic SD-JWT attached, went from refused to verified once the reader refused those
+    values; a duplicate key did the same on main. A refusal of the strict reader now demands the binding and fails it,
+    as ``_issuer_requires_holder_binding`` and ``hf_evals.to_eval_results_entry`` treat the same refusal."""
+
+    HEAD = (b'{"schema":"proofbundle/eval-claim/v0.1","suite":"safety","comparator":">=","threshold":"0.8",'
+            b'"passed":true,"issuer":"x","extra":')
+
+    @staticmethod
+    def _bundle(payload: bytes) -> dict:
+        from proofbundle import emit_bundle  # noqa: PLC0415
+        issuer = generate_signer()
+        h = _b64u(b'{"alg":"EdDSA","typ":"dc+sd-jwt"}')
+        p = _b64u(b'{"iss":"https://issuer.example","vct":"https://issuer.example/vct/generic"}')
+        generic = f"{h}.{p}.{_b64u(issuer.sign(f'{h}.{p}'.encode('ascii')))}~"
+        vc = {"compact": generic, "issuer_public_key_b64": base64.b64encode(_raw_pub(issuer)).decode("ascii")}
+        return json.loads(json.dumps(emit_bundle(payload, generate_signer(), sd_jwt_vc=vc)))
+
+    @staticmethod
+    def _binding(res) -> list:
+        return [c for c in res.checks if c.name == "sd-jwt-bundle-binding"]
+
+    def test_RED_a_payload_the_reader_refuses_does_not_skip_the_binding(self):
+        from proofbundle import verify_bundle  # noqa: PLC0415
+        for label, tail in (("NaN", b"NaN}"), ("2**53", b"9007199254740992}"), ("a duplicate key", b'1,"extra":2}')):
+            with self.subTest(label=label):
+                res = verify_bundle(self._bundle(self.HEAD + tail))
+                self.assertFalse(res.ok, res)
+                binding = self._binding(res)
+                self.assertEqual([c.ok for c in binding], [False], binding)
+                self.assertIn("strict JSON reader", binding[0].detail)
+
+    def test_CONTROL_a_readable_claim_is_bound_as_before_and_a_payload_that_is_not_json_stays_out_of_scope(self):
+        from proofbundle import verify_bundle  # noqa: PLC0415
+        readable = verify_bundle(self._bundle(self.HEAD + b"1}"))
+        self.assertEqual([c.ok for c in self._binding(readable)], [False], "a generic SD-JWT does not bind the claim")
+        self.assertNotIn("strict JSON reader", self._binding(readable)[0].detail)
+        opaque = verify_bundle(self._bundle(b"an opaque payload, not JSON"))
+        self.assertEqual(self._binding(opaque), [], "a payload that is not JSON has no claim to bind against")
+        self.assertTrue(opaque.ok, opaque)
+
+
 if __name__ == "__main__":
     unittest.main()

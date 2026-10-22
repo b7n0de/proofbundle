@@ -213,7 +213,7 @@ def verify_key_binding(
     except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError
         # the reader's own reason, bounded (RESTRISIKO_600 S104): since 2026-10-22 it also refuses NaN,
         # a byte order mark and UTF-16, which "duplicate JSON key or over verification budget" did not name
-        result["detail"] = f"KB-JWT or issuer JWT refused by the strict JSON reader: {str(exc)[:200]}"
+        result["detail"] = f"KB-JWT or issuer JWT refused: {str(exc)[:200]}"
         return result
     except (ValueError, TypeError, json.JSONDecodeError):
         result["detail"] = "malformed KB-JWT or issuer JWT"

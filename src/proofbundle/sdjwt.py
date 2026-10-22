@@ -232,7 +232,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         # structure gate — structure_ok stays False, so the bundle fails fail-closed.
         # The reader's own reason, bounded (RESTRISIKO_600 S104): a fixed duplicate-key text was false for
         # a lone surrogate or the budget, and since 2026-10-22 for NaN, a byte order mark or UTF-16 too.
-        result["detail"] = f"SD-JWT header/payload refused by the strict JSON reader: {str(exc)[:200]}"
+        result["detail"] = f"SD-JWT header/payload refused: {str(exc)[:200]}"
         return result
     except (ValueError, json.JSONDecodeError):
         result["detail"] = "malformed JWT header or payload"
@@ -283,7 +283,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
             # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set the
             # reader's own reason, bounded (S104), so it is not masked by the generic "N disclosure(s)"
             # fall-through and does not name a duplicate key the disclosure does not have.
-            result["detail"] = f"an SD-JWT disclosure refused by the strict JSON reader: {str(exc)[:200]}"
+            result["detail"] = f"an SD-JWT disclosure refused: {str(exc)[:200]}"
             all_committed = False
             break
         except (ValueError, json.JSONDecodeError):
