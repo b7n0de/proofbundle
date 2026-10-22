@@ -111,7 +111,8 @@ to prevent.
 | what it settles | the release verdict | whether this change broke the gate |
 
 Measured on the Farmer with the same program split into 8 parallel shards: the 106 operators at `479e01ee`
-took about 10 h, from 2026-10-13 18:28Z to 2026-10-14 04:41Z.
+took about 10 h, from 2026-10-13 18:28Z to 2026-10-14 04:41Z, and the 117 operators at `07b6122c` took about
+10.5 h, from 2026-10-22 05:30Z to 15:58Z, with 528 of 531 test files per mutant.
 
 ### Why both measure the same thing
 
