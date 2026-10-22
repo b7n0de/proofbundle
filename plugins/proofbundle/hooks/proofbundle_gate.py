@@ -15964,7 +15964,7 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
     out = decide(text, directory, deadline, "claude", environ)
     if out is not None and out.decision == "ask":
         out = _autonomy_external(out, text, directory, deadline, environ) or \
-            _autonomy_recorded(out, directory, deadline, environ) or \
+            _autonomy_recorded(out, text, directory, deadline, environ) or \
             _autonomy_pinned(out, text, directory, deadline, environ) or \
             _autonomy_local(out, text, directory, deadline, environ) or out   # D106, D114 and D115, D91
         if out.decision == "ask" and (out.autonomy or {}).get("klasse") == "aussen":
@@ -16030,7 +16030,7 @@ def _autonomy_answer(outcome: "Outcome | None", command: str | None, cwd: str, d
         kept = _autonomy_external(outcome, command, cwd, deadline, environ)
         if kept is not None:
             return kept
-        recorded = _autonomy_recorded(outcome, cwd, deadline, environ)   # D106
+        recorded = _autonomy_recorded(outcome, command, cwd, deadline, environ)   # D106, the rule of D114
         if recorded is not None:
             return recorded
         pinned = _autonomy_pinned(outcome, command, cwd, deadline, environ)   # D114, D115
@@ -16899,13 +16899,15 @@ def _recorded_pass(outcome: "Outcome", names: list[str], directory: str) -> "Out
     return _autonomy_record(new, "lokal", wirkung=names)
 
 
-def _autonomy_recorded(outcome: "Outcome", cwd: str, deadline: float, environ: dict) -> "Outcome | None":
+def _autonomy_recorded(outcome: "Outcome", command: str, cwd: str, deadline: float,
+                       environ: dict) -> "Outcome | None":
     """D106 (Nachtrag 41, O39-1): the answer to an ask of decide() whose every verdict that is no pass is the not-free
-    answer of D3 for `git add` or `git commit` (a form of its own or their chain): a pass where the state check of each
-    repository finds nothing with the hooks the owner recorded left out (_recorded_hooks, _hook_recorded), in a
-    repository that does not overlap the gate directory. None otherwise, and D91 and D85 answer. cwd is unused: each
-    verdict names its repository."""
-    if outcome is None or outcome.decision != "ask":
+    answer of D3 for `git add` or `git commit` (a form of its own or their chain), for a command of plain git calls only
+    (_pinned_command, the rule of D114; Nachtrag 51, O46-3): a pass where the state check of each repository finds
+    nothing with the hooks the owner recorded left out (_recorded_hooks, _hook_recorded), in a repository that does not
+    overlap the gate directory. None otherwise, and D91 and D85 answer. cwd is unused: each verdict names its
+    repository."""
+    if outcome is None or outcome.decision != "ask" or not _pinned_command(command):
         return None
     asks = [v for v in outcome.verdicts if v.decision != "pass"]
     if not asks or any(v.reason_id != "git_form_not_free" or v.evidence not in _STATE_FREE_EVIDENCE

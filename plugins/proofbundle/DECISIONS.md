@@ -5251,6 +5251,17 @@ what the session wrote there); the gate reads the hook when it answers and git o
 needs a second process (D27, the class of the D98 limit); a Bash step in another language that writes a hook is not
 gated (D8). Tests: tests/test_plugin_n33_recorded_hooks_d106.py.
 
+Nachtrag 51, point 1 (owner answer O46-3 of 2026-10-21, finding 1 of PLUGIN_N46): the step in another language was a
+gap in the same line, not only in a second process. With the hook recorded, `python3 -c '…pre-commit…' && git commit -m
+work` and the same with `perl -e` were free (free_recorded_hooks; measured at 70e98e91 and d3ce27a2,
+probe_n46_d106_sibling.py): the gate read the recorded bytes, the first step changed them, git ran the changed hook.
+D114 had the rule against this from the start. Now _autonomy_recorded answers only the command that rule takes
+(_pinned_command): plain git calls of add, commit and the read forms of D115, joined by `&&` or `;`, each
+`git [-C <absolute path>] <form> …` in the literal grammar, no other program, no redirection, no pipe, no expansion.
+Every other command gets the answer of D91 and D85, as without a record; nothing that was blocked becomes free. The
+merge of D91 is unchanged: _local_form already takes only a command that is one literal git form. Tests:
+tests/test_plugin_n51_d106_command_rule.py.
+
 ## D107. A file of the hook folder counts as a hook only by a name git runs and where git may run it (Nachtrag 33, point 5, 2026-10-19)
 
 Order of Nachtrag 33, point 5: as a hook counts only a file with exactly the name of a hook git runs and with the right
