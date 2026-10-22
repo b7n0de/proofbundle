@@ -13870,6 +13870,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
     outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline,
                                 environ)   # the house rules and the guards read the environment decide() is given
+    outcome = _with_pin_script(outcome, judged, host, environ, deadline)   # D114, Nachtrag 51: only a person pins
     if outcome is not None and outcome.decision in ("ask", "deny", "warn"):
         # D72: the line names the heaviest git or gh step, not the first, with the reason of that step
         outcome.step = outcome.step or _short_step_name(judged, cwd)
@@ -20928,6 +20929,56 @@ def _with_done_order(outcome: Outcome | None, command: str, host: str = "codex",
     if outcome is None or outcome.decision not in ("deny", "ask"):
         return Outcome("ask", verdict.text(), ([] if outcome is None else list(outcome.verdicts)) + [verdict])
     return Outcome(outcome.decision, f"{outcome.text} {verdict.text()}", list(outcome.verdicts) + [verdict])
+
+
+#: D114 (Nachtrag 51, point 4; owner answer O46-1): the owner's script that writes pin-state.json in the gate directory,
+#: beside the gate. Only a person pins or renews a clone, outside the agent, never a session.
+PIN_SCRIPT = "pin_state_schleuse.py"
+
+
+def _pin_script_verdict(command: str, host: str = "codex", environ: dict | None = None,
+                        deadline: float | None = None) -> Verdict | None:
+    """D114 (Nachtrag 51, O46-1): a deny for a command that names the owner's pin script and is not a command that only
+    reads (D66, D77): the script writes the gate directory where it takes the folder from the environment, a path the
+    command does not name, so the write guard of D25 does not see it. The name is looked for in the text and in the
+    net's normal form (quotes and ANSI-C quotes resolved), in any letter case. None otherwise. A name the shell builds
+    from parts, or a script run under another name, is not seen (D8, the class of a write in another language)."""
+    stem = PIN_SCRIPT[:-len(".py")]
+    if stem not in command.lower() and stem not in _net_normal_form(command):
+        return None
+    environ = os.environ if environ is None else environ
+    deadline = time.monotonic() + DEADLINE_SECONDS if deadline is None else deadline
+    if _read_only_command(command, host, environ, deadline) or _pin_script_read(command):
+        return None
+    return Verdict("deny", f"proofbundle gate: the command runs or names the owner's pin script {PIN_SCRIPT}, which "
+                           "writes pin-state.json in the gate directory; only a person pins or renews a clone, outside "
+                           "the agent (Nachtrag 51, O46-1; DECISIONS.md D114, D25).", "write_to_gate_dir",
+                   evidence="the pin state in the gate directory",
+                   failed="a session would pin its own clone through the owner's script",
+                   next_step="the owner runs the script through the lock, outside the agent")
+
+
+def _pin_script_read(command: str) -> bool:
+    """D114 (Nachtrag 51): whether class c reads the command as data steps only (_SH_DATA with the limits of _sh_kind,
+    and cd): such a command reads the pin script or names it, and runs no program that could run it. A command class c
+    does not model is no such command."""
+    try:
+        steps: list = []
+        _sh_walk(_sh_parse(command), None, steps)
+    except (_ShUnmodeled, RecursionError):
+        return False
+    return bool(steps) and all(s.kind in ("data", "cd") for s in steps)
+
+
+def _with_pin_script(outcome: Outcome | None, command: str, host: str = "codex", environ: dict | None = None,
+                     deadline: float | None = None) -> Outcome | None:
+    """The answer of decide() with the deny of the pin script (D114, Nachtrag 51) before every other answer."""
+    verdict = _pin_script_verdict(command, host, environ, deadline)
+    if verdict is None:
+        return outcome
+    known = [] if outcome is None else list(outcome.verdicts)
+    text = verdict.text() if outcome is None or not outcome.text else f"{verdict.text()} {outcome.text}"
+    return Outcome("deny", text, [verdict] + known)
 
 
 DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE | --receipt-dir DIR] [--at-commit REV]"

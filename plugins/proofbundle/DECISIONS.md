@@ -5512,6 +5512,22 @@ gate reads them when it answers and git opens them later, so a swap in between n
 the D98 limit); "own tree" is the tree the owner pinned, the gate cannot tell which tree a session was given. Tests:
 tests/test_plugin_n46_pinned_state_d114_d115.py.
 
+
+Nachtrag 51, point 4 (owner answers O46-1 and O46-2 of 2026-10-21): pinning and renewing only by the owner, through a
+checked script over the lock in the Leitstand, never by a session; pin-state.json in the gate directory beside mode and
+hook-state.json, one entry per work tree the owner gives a session, a linked work tree its own entry. The script,
+hooks/pin_state_schleuse.py, reads only the tree the owner names, through the gate's own `pin-state`, and pin-state.json;
+`zeigen` prints the entry and a release value, the sha256 over the gate directory, the bytes of pin-state.json now and
+the bytes to come, and writes nothing; `schreiben` writes only with that value (a changed tree or file changes it, and
+then nothing is written), under a lock, after a backup beside the file (pin-state.json.vor-<time>, or .keine where there
+was none), atomically, and reads the file back; `zurueck` restores a backup and backs up what it replaces; a file that
+does not read whole for the gate is never written over. The gate denies every command that names the script and is not
+a command that only reads (write_to_gate_dir, _pin_script_verdict): the script takes the gate directory from the
+environment, a path the command need not name, so the write guard of D25 would not see it. The script also refuses in
+an agent's environment (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, measured in a Claude Code Bash call; a name CODEX_…, not
+measured); a session can change its environment, so that is a brake, the boundary is the gate. Limits, named: a name
+the shell builds from parts, or a copy run under another name in a later command, is not seen (D8). Tests:
+tests/test_plugin_n51_pin_schleuse.py (the case book F1 to F17).
 ## D115. The read forms of the order are free under the same pin (Nachtrag 46, Teil B, point 2, 2026-10-20)
 
 Order of Nachtrag 46, Teil B, point 2: reading git without an ask under the condition of D114, for rev-parse, status,
