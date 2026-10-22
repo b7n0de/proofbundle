@@ -37,6 +37,10 @@ the clock, 86400 s and 300 s), and optional expectations: a challenge nonce (`--
 policy bundle hashes (`--policy-hash`), accepted subjects (`--subject`), and the hash of the
 transcript it holds (`--transcript-hash`).
 
+The window values are whole seconds, bounded like every integer of the record: `--now` within
+plus or minus 2**53 - 1, the two maxima from 0 to 2**53 - 1. A value outside is unusable trust
+material (exit 2).
+
 The record's `cnf.jwk` never supplies trust. The signature must verify under a trusted key, and
 `cnf.jwk` must then name that same key by RFC 7638 thumbprint. The age check cannot be switched
 off.

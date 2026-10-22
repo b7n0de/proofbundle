@@ -921,8 +921,9 @@ def verify_trace_record(
     3.2.2, "made by the key in cnf").
 
     The time window is the relying party's: ``now`` (default: the clock), ``max_age_seconds``
-    (default 86400) and ``max_future_skew_seconds`` (default 300) are the section 3.2.2 defaults,
-    each an integer within the RFC 8785 safe range, as every integer of the record is.
+    (default 86400) and ``max_future_skew_seconds`` (default 300) are the section 3.2.2 defaults.
+    They are bounded like every integer of the record: ``now`` within -(2**53 - 1)..2**53 - 1, the
+    two maxima within 0..2**53 - 1; a value outside is unusable trust material (exit 2).
     The age check cannot be switched off; section 3.2.2 says a verifier MUST enforce one.
 
     Expectations are optional and each is checked only when supplied: ``expected_nonce`` against

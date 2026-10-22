@@ -400,7 +400,7 @@ _COMMAND_GROUPS = (
         ("verify-opening", "verify one sample opening against a samples root"),
         ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
         ("verify-trace", "verify a TRACE v0.2 Trust Record against your keys"),
-        ("policy","inspect a trust policy: explain its pins, lint for vacuousness"),
+        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
     )),
     ("Emit and commit", (
         ("emit", "sign and anchor a payload into a bundle"),
@@ -3479,11 +3479,11 @@ def build_parser() -> argparse.ArgumentParser:
     verify_trace.add_argument("--key", action="append", required=True, metavar="JWK_FILE",
                               help="a trusted public key (JWK or JWK Set file); repeatable")
     verify_trace.add_argument("--now", type=int, default=None,
-                              help="the verification instant, Unix seconds (default: the clock)")
+                              help="the verification instant, Unix seconds within +-(2**53 - 1) (default: the clock)")
     verify_trace.add_argument("--max-age", dest="max_age", type=int, default=86400,
-                              help="maximum record age in seconds (default 86400, TRACE section 3.2.2)")
+                              help="maximum record age in seconds, 0 to 2**53 - 1 (default 86400, TRACE section 3.2.2)")
     verify_trace.add_argument("--max-future-skew", dest="max_future_skew", type=int, default=300,
-                              help="allowed future clock skew in seconds (default 300)")
+                              help="allowed future clock skew in seconds, 0 to 2**53 - 1 (default 300)")
     verify_trace.add_argument("--nonce", default=None, help="the challenge runtime.nonce must echo")
     verify_trace.add_argument("--policy-hash", dest="policy_hash", action="append", default=None,
                               metavar="DIGEST", help="an expected policy.bundle_hash (sha256:/sha384:); "

@@ -106,11 +106,13 @@ _EXCLUDED_MODULES = {
 _SIBLING_BRANCH_FILES = frozenset({"intoto.py", "_verdict.py", "sdjwt_issue.py", "canonical.py",
                                    "evalclaim.py"})
 
-#: A module that documents a builtin exception as its refusal.
+#: A module, or one function of it, that documents a builtin exception as its refusal.
 _DOCUMENTED_BUILTIN = {
     "proofbundle._wire_b64": (binascii.Error,),       # module docstring, EXCEPTIONS
     "proofbundle.adapters._provenance": (ValueError,),  # _als_text, add_provenance, bind_reported_version
-    "proofbundle.adapters.trace_record": (ValueError,),  # jwk_thumbprint: "Raises ValueError otherwise"
+    # One function, not the module: verify_trace_record never raises in its body, and a module-wide
+    # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
+    "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
 }
 
 #: Per-call time limit in seconds, and the functions with a shorter one because a planted number is
@@ -647,7 +649,8 @@ def _class_escape(exc: BaseException) -> bool:
 def _typed(qual: str, exc: BaseException) -> bool:
     if type(exc).__module__.split(".")[0] == "proofbundle":
         return True
-    return isinstance(exc, _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ()))
+    erlaubt = _DOCUMENTED_BUILTIN.get(qual, ()) + _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ())
+    return isinstance(exc, erlaubt)
 
 
 def _internal_error(antwort) -> bool:
@@ -1182,3 +1185,11 @@ def test_the_planted_values_do_what_they_stand_for():
             json.dumps(_VALUES[label]())
     with pytest.raises(_Rendered):
         f"{_Hostile()!r}"
+
+
+def test_a_builtin_documented_by_one_function_does_not_cover_its_module():
+    """The counter-reading of 2026-10-22 (F-1): a module-wide entry for `trace_record` let a ValueError planted
+    in `verify_trace_record`, whose body never raises, pass as typed. The entry names `jwk_thumbprint` alone."""
+    assert _typed("proofbundle.adapters.trace_record.jwk_thumbprint", ValueError("x"))
+    assert not _typed("proofbundle.adapters.trace_record.verify_trace_record", ValueError("x"))
+    assert _typed("proofbundle.adapters._provenance.add_provenance", ValueError("x"))   # a module entry still holds
