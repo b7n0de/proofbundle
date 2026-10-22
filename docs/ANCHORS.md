@@ -54,18 +54,20 @@ both (SPEC §6). So that one receipt has one root, the root is computed over one
      CPython, and a different setting changes it. The reader's input and string limits (8 MiB,
      1,000,000 characters) do not bind here: the receipt's own budget refuses any string over
      1,000,000 characters, the compact included, before a root is computed, so such a slot is
-     refused, never folded. Beyond RFC 8259 it accepts what that module accepts from bytes: `NaN`,
-     `Infinity` and `-Infinity`, a leading UTF-8 byte order mark, and UTF-16 or UTF-32 text, so a
-     header in one of these forms is folded too;
+     refused, never folded. It refuses what that module would accept beyond RFC 8259: `NaN`,
+     `Infinity` and `-Infinity`, a number that overflows to an infinite double, a leading UTF-8 byte
+     order mark, and UTF-16 or UTF-32 text, so a header in one of these forms is not folded (since
+     2026-10-22; before, these headers were read and folded);
    - that object has `"alg": "ES256"`;
    - its signature segment is strict base64url in the same sense and decodes to 64 bytes `R‖S`
      (big-endian) with `⌊n / 2⌋ < S < n`.
 
    A folded slot gets its signature segment replaced with the base64url, unpadded, of `R‖(n − S)`.
    Every other slot, and every other byte of the compact, stays as it is. So a slot whose header
-   segment is padded, or whose header carries a duplicate key, is not folded, and its two spellings
-   keep two roots. A bundle that carries such a slot fails verification too, because verification
-   reads the header with the same decoders. The fold does not depend on the verdict: a slot whose
+   segment is padded, whose header carries a duplicate key, or whose header is in one of the forms
+   the reader refuses, is not folded, and its two spellings keep two roots. A bundle that carries
+   such a slot fails verification too, because verification reads the header with the same
+   decoders. The fold does not depend on the verdict: a slot whose
    header and signature decode as above is folded whether or not its signature verifies.
 3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
 

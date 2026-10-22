@@ -27,10 +27,19 @@ a downstream concern of the field validators, not of the parser.
 Stdlib-only (``object_pairs_hook``), so the base install keeps rejecting duplicates without any
 extra. The hook fires for every nested object (including objects inside arrays), so duplicates are
 rejected at ANY depth.
+
+Only JSON (DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01, 2026-10-22): Python's ``json`` also reads ``NaN``,
+``Infinity`` and ``-Infinity``, a number that overflows to an infinite double (``1e400``), and bytes with
+a UTF-8 byte order mark or in UTF-16 or UTF-32. None of these is JSON under RFC 8259 and I-JSON (RFC 7493),
+none has a form under RFC 8785, and the second verifier of this repository refuses each. ``loads_strict``
+refuses them too, with the error of a duplicate key, so every caller handles them as it handles a duplicate.
+Integers outside the I-JSON range are still read here (an open owner question; RFC 8785 refuses them when a
+value is canonicalized).
 """
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any, Union
 
@@ -57,6 +66,34 @@ def _reject_duplicate_keys(pairs: list) -> dict:
                 "differently across JSON implementations; parser-differential guard, WP-C1)")
         obj[key] = value
     return obj
+
+
+def _no_json_constant(name: str):
+    """``parse_constant`` hook: ``NaN``, ``Infinity`` and ``-Infinity`` are no JSON numbers (RFC 8259 section 6)."""
+    raise BundleFormatError(f"{name} is not a JSON number (RFC 8259 section 6; RFC 8785 has no form for it) — "
+                            "rejected fail-closed so both verifiers agree")
+
+
+def _finite_number(text: str) -> float:
+    """``parse_float`` hook: a JSON number with a fraction or an exponent, read as ``json`` reads it, and refused when
+    it has no finite IEEE 754 double (``1e400`` overflows to infinity; RFC 7493 section 2.2)."""
+    value = float(text)
+    if not math.isfinite(value):
+        raise BundleFormatError(f"the JSON number {text[:40]!r} has no finite IEEE 754 double (RFC 7493 section "
+                                "2.2) — rejected fail-closed so both verifiers agree")
+    return value
+
+
+def _utf8_bytes_only(head: bytes) -> None:
+    """JSON bytes are UTF-8 without a byte order mark (RFC 8259 section 8.1, RFC 7493 section 2.1). ``json`` reads
+    bytes in UTF-16 and UTF-32 too, recognized by a byte order mark or by NUL among the first four bytes, and drops a
+    UTF-8 byte order mark; both are refused here from the first four bytes (no JSON text holds a raw NUL)."""
+    if head[:3] == b"\xef\xbb\xbf":
+        raise BundleFormatError("a UTF-8 byte order mark precedes the JSON bytes (RFC 8259 section 8.1) — rejected "
+                                "fail-closed so both verifiers agree")
+    if head[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in head:
+        raise BundleFormatError("the JSON bytes are UTF-16 or UTF-32, not UTF-8 (RFC 8259 section 8.1, RFC 7493 "
+                                "section 2.1) — rejected fail-closed so both verifiers agree")
 
 
 def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int,
@@ -217,9 +254,11 @@ def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
-    """``json.loads`` that rejects duplicate object keys at any nesting depth.
+    """``json.loads`` that rejects duplicate object keys at any nesting depth, and everything that is no JSON.
 
-    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), for
+    Raises :class:`BundleFormatError` for a duplicate key (fail-closed, clear message), for ``NaN``, ``Infinity``
+    and ``-Infinity``, for a number without a finite double (``1e400``), for bytes with a UTF-8 byte order mark or
+    in UTF-16 or UTF-32 (text with a leading U+FEFF stays the ``ValueError`` ``json`` raises), for
     pathologically deep nesting (both the CPython ``RecursionError`` on <=3.11 AND the explicit
     ``budget.json_depth`` bound that catches the 3.12+ case where the C scanner accepts deep input without
     raising — one stable ``"JSON nesting is too deep"`` outcome on every interpreter), and maps the
@@ -262,8 +301,11 @@ def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
         _n_bytes = len(text.encode("utf-8", "surrogatepass"))
     if _n_bytes > b.input_bytes:
         raise BudgetExceeded("input_bytes", _n_bytes, b.input_bytes)
+    if isinstance(text, (bytes, bytearray, memoryview)):
+        _utf8_bytes_only(bytes(text[:4]))
     try:
-        obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+        obj = json.loads(text, object_pairs_hook=_reject_duplicate_keys, parse_constant=_no_json_constant,
+                         parse_float=_finite_number)
     except RecursionError as exc:
         # CPython <=3.11 raises here on deep nesting; 3.12+ accepts it and the explicit depth bound in
         # _enforce_structural_budget catches it below. Both map to the SAME BundleFormatError.

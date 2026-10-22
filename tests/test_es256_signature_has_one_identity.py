@@ -194,19 +194,31 @@ def _strict_b64url(segment: str) -> "bytes | None":
 
 def _strict_json_object(raw: bytes) -> "dict | None":
     """docs/ANCHORS.md, step 2: a JSON object as Python's ``json`` module reads the decoded bytes, a
-    duplicate key or a lone surrogate refused. The text names that module and what it accepts beyond
-    RFC 8259 (``NaN``, a UTF-8 byte order mark, UTF-16 and UTF-32), so this reading follows it.
+    duplicate key or a lone surrogate refused, and refused too what the text names beyond RFC 8259
+    (``NaN``, ``Infinity``, a number that overflows to infinity, a UTF-8 byte order mark, UTF-16 and
+    UTF-32; refused since 2026-10-22, read before).
 
     NOT INDEPENDENT on that axis (lens run 3 at 15d0b643): it reads with the same module the code
-    reads with, so it pins that code and text agree, not that the module's extensions are right. The
-    size limits of the reader are not modelled either; no input here comes near them."""
+    reads with, so it pins that code and text agree, not that the module is right. The size limits of
+    the reader are not modelled either; no input here comes near them."""
     def no_duplicates(pairs):
         keys = [k for k, _ in pairs]
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate key")
         return dict(pairs)
+
+    def no_constant(name):
+        raise ValueError(f"{name} is no JSON number")
+
+    def finite(text):
+        value = float(text)
+        if value in (float("inf"), float("-inf")):
+            raise ValueError("no finite double")
+        return value
+    if raw[:3] == b"\xef\xbb\xbf" or raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:4]:
+        return None
     try:
-        obj = json.loads(raw, object_pairs_hook=no_duplicates)
+        obj = json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_constant, parse_float=finite)
     except ValueError:
         return None
     stack = [obj]
@@ -511,13 +523,13 @@ class TwinsHaveOneIdentity(unittest.TestCase):
             self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
                                 f"{label}: not folded, by the code and by the text")
 
-    def test_a_header_the_reader_accepts_beyond_rfc_8259_is_folded_by_both(self):
-        """Lens run 3 at 15d0b643, D3-1-a: a header with ``NaN``, a UTF-8 byte order mark, or in UTF-16
-        verifies, and the code folds its twins to one root; the text of that commit did not say the
-        reader accepts these forms, so a reader of it following RFC 8259 got two roots. The text names
-        them now. This pins, for each form, that verification accepts both spellings, that the code
-        gives them one root, and that the recipe as written gives the same root. GREEN on f536af50 and
-        accd932c; RED on 126ed1dc, where the twins had two roots."""
+    def test_a_header_beyond_rfc_8259_is_refused_and_folded_by_neither(self):
+        """Lens run 3 at 15d0b643, D3-1-a, named the forms beyond RFC 8259 the reader took: a header with
+        ``NaN``, a UTF-8 byte order mark, or in UTF-16 verified and the code folded its twins to one root.
+        Until 07b6122c this case pinned that acceptance. Since DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01
+        (2026-10-22) the strict reader refuses these forms, as the Rust verifier always did; the case now
+        pins the other side, as the edge forms above: neither spelling verifies, neither is folded, and
+        the code and the recipe as written agree on each root."""
         from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
 
         def signed(header_raw: bytes) -> str:
@@ -535,10 +547,12 @@ class TwinsHaveOneIdentity(unittest.TestCase):
             compact = signed(raw)
             bundle = _carrying(compact, self.pub_b64)
             twin = _with_compact(bundle, _twin(compact))
-            self.assertTrue(verify_bundle(bundle).ok, label)
-            self.assertTrue(verify_bundle(twin).ok, label)
-            self.assertEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin), label)
-            self.assertEqual(receipt_canonical_root(twin), _root_per_docs(twin), label)
+            self.assertFalse(verify_bundle(bundle).ok, label)
+            self.assertFalse(verify_bundle(twin).ok, label)
+            for spelling in (bundle, twin):
+                self.assertEqual(receipt_canonical_root(spelling), _root_per_docs(spelling), label)
+            self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
+                                f"{label}: not folded, by the code and by the text")
 
     def test_the_docs_name_the_domain_of_the_fold(self):
         """RED on the docs/ANCHORS.md of accd932c, which named neither condition, and of 15d0b643, which

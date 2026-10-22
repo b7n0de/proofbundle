@@ -1,8 +1,9 @@
 """A value RFC 8785 cannot represent is a typed refusal, never a defect of the verifier.
 
 THE CLASS, stated as the violated assumption: *what the strict parser admits, the canonicalizer can
-represent.* It cannot. `loads_strict` reads an integer outside +-(2**53 - 1), NaN and Infinity, and
-`rfc8785.dumps` refuses each with IntegerDomainError or FloatDomainError, both ValueError. The
+represent.* It cannot. `loads_strict` reads an integer outside +-(2**53 - 1) (and until 2026-10-22
+NaN and Infinity), and `rfc8785.dumps` refuses each with IntegerDomainError or FloatDomainError,
+both ValueError. The
 in-toto verifiers and `anchors.receipt_canonical_root` already mapped that refusal to their own
 typed answer; the agent-review module and seven other wrappers of the canonicalizer did not.
 
@@ -38,7 +39,6 @@ from __future__ import annotations
 import ast
 import copy
 import json
-import math
 from pathlib import Path
 
 import pytest
@@ -54,8 +54,14 @@ SRC = REPO / "src" / "proofbundle"
 SK = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 PK = SK.public_key().public_bytes_raw()
 
-#: What the strict parser admits and RFC 8785 refuses.
+#: What RFC 8785 refuses. A producer can hold each in its own dict, so every producer and wrapper
+#: below is asked all four.
 OUTSIDE_JCS = [2**53, -(2**53) - 5, float("nan"), float("inf")]
+#: What of it the strict parser still admits, so it reaches a verifier inside a signed payload. NaN
+#: and Infinity it refuses since 2026-10-22 (DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01): they are no
+#: JSON numbers, and the reader refuses them like a duplicate key, before any canonical form is asked.
+PARSER_ADMITS = [w for w in OUTSIDE_JCS if isinstance(w, int)]
+PARSER_REFUSES = [w for w in OUTSIDE_JCS if not isinstance(w, int)]
 
 
 def _conformance(name: str) -> dict:
@@ -124,16 +130,40 @@ def _no_internal_error(r: dict) -> None:
 @pytest.mark.parametrize("version", sorted(VERSIONS))
 @pytest.mark.parametrize("through_any", [False, True], ids=["direct", "any"])
 @pytest.mark.parametrize("pfad", PATHS, ids=lambda p: ".".join(map(str, p)))
-@pytest.mark.parametrize("wert", OUTSIDE_JCS, ids=repr)
+@pytest.mark.parametrize("wert", PARSER_ADMITS, ids=repr)
 def test_a_signed_receipt_with_such_a_value_is_refused_by_type(version, through_any, pfad, wert):
     """The signature verifies, the receipt is refused, and the reason is a code about the receipt:
-    STATEMENT_NOT_CANONICALIZABLE. At 8ecb6edf all 96 of these calls answered `internal_error`."""
+    STATEMENT_NOT_CANONICALIZABLE. At 8ecb6edf all 96 of these calls answered `internal_error`;
+    since 2026-10-22 the 48 with NaN or Infinity are asked by the next test instead."""
     bauen, typ, verify = VERSIONS[version]
     env = _signed_as_sent(_set(bauen(), pfad, wert), typ)
     r = AR.verify_agent_review_any(env, PK) if through_any else verify(env, PK)
     _no_internal_error(r)
     assert r["crypto_ok"] is True and r["ok"] is False
     assert "STATEMENT_NOT_CANONICALIZABLE" in r["reason_codes"], r["errors"]
+
+
+@pytest.mark.parametrize("version", sorted(VERSIONS))
+@pytest.mark.parametrize("through_any", [False, True], ids=["direct", "any"])
+@pytest.mark.parametrize("pfad", PATHS, ids=lambda p: ".".join(map(str, p)))
+@pytest.mark.parametrize("wert", PARSER_REFUSES, ids=repr)
+def test_a_signed_receipt_with_nan_or_infinity_is_refused_by_the_reader(version, through_any, pfad,
+                                                                        wert):
+    """NaN and Infinity are no JSON numbers, so the payload is not read at all: the same answer a
+    duplicate key gets, never `internal_error`. Directly that is a structure refusal with no reason
+    code, as for a duplicate key; through `verify_agent_review_any` it is
+    AGENT_REVIEW_ENVELOPE_UNREADABLE. Until 2026-10-22 these 48 calls were read and answered
+    STATEMENT_NOT_CANONICALIZABLE by the test above."""
+    bauen, typ, verify = VERSIONS[version]
+    env = _signed_as_sent(_set(bauen(), pfad, wert), typ)
+    r = AR.verify_agent_review_any(env, PK) if through_any else verify(env, PK)
+    _no_internal_error(r)
+    assert r["ok"] is False and "STATEMENT_NOT_CANONICALIZABLE" not in r["reason_codes"]
+    if through_any:
+        assert r["reason_codes"] == ["AGENT_REVIEW_ENVELOPE_UNREADABLE"], r
+    else:
+        assert r["crypto_ok"] is True and r["structure_ok"] is False
+        assert any("is not a JSON number" in e for e in r["errors"]), r["errors"]
 
 
 @pytest.mark.parametrize("version", sorted(VERSIONS))
@@ -310,12 +340,16 @@ def test_the_verifier_block_join_answers_instead_of_raising(wert):
 
 
 def test_the_values_are_what_the_strict_parser_admits():
-    """The premise, measured rather than assumed: each value survives the strict parser, so each
-    reaches a verifier inside a correctly signed payload."""
+    """The premise, measured rather than assumed: each integer survives the strict parser, so it
+    reaches a verifier inside a correctly signed payload. NaN and Infinity do not since 2026-10-22,
+    and the parser refuses them with the error type it uses for a duplicate key."""
     from proofbundle._strict_json import loads_strict  # noqa: PLC0415
-    for wert in OUTSIDE_JCS:
-        gelesen = loads_strict(json.dumps({"x": wert}))["x"]
-        assert gelesen == wert or (math.isnan(wert) and math.isnan(gelesen))
+    from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+    for wert in PARSER_ADMITS:
+        assert loads_strict(json.dumps({"x": wert}))["x"] == wert
+    for wert in PARSER_REFUSES:
+        with pytest.raises(BundleFormatError, match="is not a JSON number"):
+            loads_strict(json.dumps({"x": wert}))
 
 
 # ── what the structural budget refuses first (the lens on d5747000) ───────────────────────────

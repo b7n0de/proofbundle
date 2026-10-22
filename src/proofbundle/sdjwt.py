@@ -224,13 +224,15 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     try:
         header = loads_strict(_b64url_decode(header_b64))
         payload = loads_strict(_b64url_decode(payload_b64))
-    except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError
         # WP-C1 (F12, 2026-07-12): a DUPLICATE JSON key in the issuer-signed JWT header/payload is a
         # parser differential — plain json.loads is last-wins, so a duplicated `cnf` lets an attacker
         # holder key silently win over the intended one (kbjwt.holder_key_from_cnf). Every other verify
         # path already parses with loads_strict; this closes the documented SD-JWT residual at the
         # structure gate — structure_ok stays False, so the bundle fails fail-closed.
-        result["detail"] = "duplicate JSON key in SD-JWT header/payload (parser-differential, rejected)"
+        # The reader's own reason, bounded (RESTRISIKO_600 S104): a fixed duplicate-key text was false for
+        # a lone surrogate or the budget, and since 2026-10-22 for NaN, a byte order mark or UTF-16 too.
+        result["detail"] = f"SD-JWT header/payload refused by the strict JSON reader: {str(exc)[:200]}"
         return result
     except (ValueError, json.JSONDecodeError):
         result["detail"] = "malformed JWT header or payload"
@@ -277,10 +279,11 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     for d in disclosures:
         try:
             parsed = loads_strict(_b64url_decode(d))
-        except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
-            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set a
-            # duplicate-specific detail so it is not masked by the generic "N disclosure(s)" fall-through.
-            result["detail"] = "duplicate JSON key in an SD-JWT disclosure (parser-differential, rejected)"
+        except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError
+            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set the
+            # reader's own reason, bounded (S104), so it is not masked by the generic "N disclosure(s)"
+            # fall-through and does not name a duplicate key the disclosure does not have.
+            result["detail"] = f"an SD-JWT disclosure refused by the strict JSON reader: {str(exc)[:200]}"
             all_committed = False
             break
         except (ValueError, json.JSONDecodeError):
