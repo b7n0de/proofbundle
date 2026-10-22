@@ -186,6 +186,12 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                     stack.append(parsed[1])
                 else:
                     stack.append(item)
+    # Committed is not placed: `_collect_committed_digests` counts a `...` member wherever it stands, so a marker
+    # with a second member, or one inside an `_sd` that is no array, commits a disclosure the walk above never
+    # places (pull request 373, its disclosure differential at main 07b6122c: both verified with exit 0).
+    if placed != set(by_digest):
+        return ("a disclosure is committed only where no disclosure can stand, so it has no place (RFC 9901 "
+                "section 7.1, rejected)")
     return None
 
 
