@@ -1308,7 +1308,18 @@ def _reviewed_changes(spec: dict, modules_file: Path) -> dict[tuple[str, str], t
 
 
 def measure(root: Path, modules_file: Path) -> dict:
-    """Closure and findings at `root`, without comparing them to anything."""
+    """Closure and findings at `root`, without comparing them to anything.
+
+    The reading raises the recursion limit of the process; the caller gets its own limit back, since a test run in
+    the same process (pytest) would otherwise run every later case under the gate's limit."""
+    limit = sys.getrecursionlimit()
+    try:
+        return _measure(root, modules_file)
+    finally:
+        sys.setrecursionlimit(limit)
+
+
+def _measure(root: Path, modules_file: Path) -> dict:
     spec = _read_json(modules_file)
     package = spec.get("package")
     roots = spec.get("roots")
