@@ -114,3 +114,6 @@ and stay out of the repository's own test collection.
 ## Run record
 
 See `RUN_RECORD.md`; its machine-readable form is `run_record.json`.
+
+- head of the run: `c949eed93c76a031354d1cee7ce8bb789c5917a2`
+- run_record.json SHA-256: `5e0f2970ede44cdc098a0cc7f53501961e6a5efd26d5d39d24b62f84feecdd9f`
