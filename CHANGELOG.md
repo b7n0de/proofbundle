@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Added
+
+- Repository tools, outside the installed package. An advisory language check for the title, the body and the commit messages of a pull request, `scripts/pr_language_check.py`, runs as the job `pr-language` in `.github/workflows/pr-form.yml`, also after an edit of the title or the body. It reads the repository's one word list in `tests/_deutsche_prosa.py`, and an event payload without its two commits, or a commit git does not have, is NOT MEASURABLE with exit 2 (`tests/test_pr_language_check.py`). It is not a required context of the ruleset protect-main and blocks no merge.
+
 ## [6.3.1] - 2026-10-21
 
 6.3.1 is a patch release following 6.3.0, with stricter verification and changes to public result reporting. `automation.referencesResolved` is `None` rather than `True` when no reference was checked. The eval-result, in-toto and SVR verifiers require the in-toto Statement v1 layer and report `statement_ok` separately from `signature_ok`. These and the six predicate verifiers named below require subjects that identify artifacts by digest. `verify_decision_receipt` derives executed-outcome evidence levels from the digest reference; `action_outcome_proven` and `ok` are unchanged. The inspect_ai adapter records sample counts and early-stopping metadata supplied by the log, and the `inspect` extra admits `inspect_ai` up to 0.3.281. Other entries cover validation, error handling, package contents and repository tools. Some public exception paths remain open, as described below.
