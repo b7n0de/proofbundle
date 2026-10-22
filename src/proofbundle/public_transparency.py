@@ -192,8 +192,18 @@ def _konsistenz_stand(wert: Any) -> Any:
     ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before. The
     object can only be read through its own code, so `canonical._stand` runs this reader before its first collect and
     after its second and compares the two answers field by field: a gc callback between two of its reads, or one
-    that changes it and another argument together, cannot pair two states."""
-    if wert is None or not hasattr(wert, "validate"):
+    that changes it and another argument together, cannot pair two states. Asking for ``validate`` runs the object's
+    own attribute lookup, so it stands inside the same guard: until NR1 of 6.3.1 an object whose ``__getattr__``
+    raised let the caller's exception escape `evaluate_public_transparency`, which answers every input with a
+    verdict (the sweep of the never-raise surfaces at 22aa954e)."""
+    if wert is None:
+        return wert
+    try:
+        if not hasattr(wert, "validate"):
+            return wert
+    except RecursionError:
+        raise   # as below
+    except Exception:  # noqa: BLE001 - an object that cannot be asked is read by the evaluation as before
         return wert
     felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed")
 

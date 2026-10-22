@@ -324,6 +324,21 @@ def _baumeintraege(inhalt: bytes, stellen: int) -> list:
         mode, typ = _modus(inhalt[pos:leer])
         raus.append((mode, typ, inhalt[nul + 1:nul + 1 + breite].hex(), inhalt[leer + 1:nul]))
         pos = nul + 1 + breite
+    # A NAME STANDS ONCE IN A TREE (R13-3, external review round 13, measured at f6ea5cc3). A tree
+    # written with `hash-object --literally` may name one path twice; `git show` then reads the first
+    # entry and a checkout leaves the other on disk, while the digest sorted the listing lines and gave
+    # the same value for both orders, so one receipt verified two trees with different content. Every
+    # reader of a tree object here goes through this function (`git_tree` for the digest, `git_file`
+    # for the trust anchor and the gate source), so the refusal holds on every level and before any
+    # exclusion.
+    gesehen: set = set()
+    for _mode, _typ, _oid, name in raus:
+        if name in gesehen:
+            raise BaumNichtLesbar(
+                f"a tree names {name!r} twice — two readers of one tree read two contents under that "
+                "name (`git show` the first entry, a checkout the other), so no digest and no file is "
+                "taken from it")
+        gesehen.add(name)
     return raus
 
 

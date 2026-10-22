@@ -290,7 +290,10 @@ def main(argv=None) -> int:
     # which assertion fell. For a dimension named in NICHT_ZAEHLBAR (string_len) the assertion passes
     # because the gap is named, not because a curve was judged; the count also misses quadratic work
     # inside one C call or operator (see the head of tests/_arbeitszaehler.py).
-    for art, eintraege in (("achse", d["achsen"]), ("kombi", d["kombis"])):
+    # BA1 (6.3.1): the reader takes the field `messe()` writes, `kombinationen`. It read `kombis`, a name only a
+    # hand-built dict in a test carried, so every run that reached this line died with KeyError and exit 1 after the
+    # file was written, a passing run included. tests/test_budget_axis_real_run_exit.py drives the real messe().
+    for art, eintraege in (("achse", d["achsen"]), ("kombi", d["kombinationen"])):
         for e in eintraege:
             if e.get("urteil") != "BESTANDEN":
                 print(f"[budget-axis]   {art} {e['name']}: {e['urteil']} — {e.get('meldung', '')}")
