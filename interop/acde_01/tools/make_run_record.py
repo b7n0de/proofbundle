@@ -141,7 +141,7 @@ def main(argv):
     # Requirement table
     t = [f"# Requirements of {acde01.DRAFT}", "",
          f"Every sentence of the draft that carries a BCP 14 key word in upper case, outside Section 1.2. "
-         f"Line numbers refer to the plain-text copy with SHA-256 `{acde01.DRAFT_SHA256}` (2576 lines). "
+         f"Line numbers refer to the plain-text copy with SHA-256 `{acde01.DRAFT_SHA256}` ({reqs['line_count']} lines). "
          "Generated from `requirements.json` and `requirements_map.json`.", "",
          "| id | section | lines | key words | requirement (quoted) | category |", "|---|---|---|---|---|---|"]
     for r in reqs["requirements"]:
