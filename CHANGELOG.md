@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they are merged.
+
+### Changed
+
+- **The strict JSON reader takes only what JSON and I-JSON define.** `proofbundle._strict_json.loads_strict` refuses `NaN`, `Infinity`, `-Infinity` and every number that becomes infinite, an integer literal outside plus or minus 2^53 - 1 (RFC 7493 section 2.2, the range the Rust verifier `pb_verify_rs` reads), a byte order mark and text in UTF-16 or UTF-32. It raises `BundleFormatError`, the error it already raises for a duplicate member, and every verifier that reads through it refuses such an input instead of reading a value RFC 8785 cannot represent. The SD-JWT and KB-JWT checks name the reader's reason in their detail instead of reporting every refusal as a duplicate key.
+
 ## [6.3.1] - 2026-10-21
 
 6.3.1 is a patch release following 6.3.0, with stricter verification and changes to public result reporting. `automation.referencesResolved` is `None` rather than `True` when no reference was checked. The eval-result, in-toto and SVR verifiers require the in-toto Statement v1 layer and report `statement_ok` separately from `signature_ok`. These and the six predicate verifiers named below require subjects that identify artifacts by digest. `verify_decision_receipt` derives executed-outcome evidence levels from the digest reference; `action_outcome_proven` and `ok` are unchanged. The inspect_ai adapter records sample counts and early-stopping metadata supplied by the log, and the `inspect` extra admits `inspect_ai` up to 0.3.281. Other entries cover validation, error handling, package contents and repository tools. Some public exception paths remain open, as described below.
