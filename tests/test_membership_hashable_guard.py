@@ -1252,6 +1252,24 @@ _LOOKUPS_CLASSIFIED = {
     # c3bd89a4, `allowed = set(_T)`): `daten = {f: receipt[f] for f in _PFLICHTFELDER}`.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "f"):
         (1, "own value: f runs over _WAHLFELDER, a tuple of two string literals of the module"),
+    # Seen once pull request 390 (the JUnit XML and CTRF test report adapter) met this guard on main 07b6122c;
+    # each site read at its source.
+    ("proofbundle/adapters/junit_ctrf.py", "_JunitReading", "_PARENTS", "tag"):
+        (1, "own value: expat hands every element name to the StartElementHandler as a str"),
+    ("proofbundle/adapters/junit_ctrf.py", "_check_fields", "_CTRF_REQUIRED", "required_key"):
+        (1, "own value: each of the five calls, all in read_ctrf_json, passes a string literal"),
+    ("proofbundle/adapters/junit_ctrf.py", "_check_fields", "_KIND_TEXT", "kind"):
+        (1, "own value: kind is a value of one of the module-level _CTRF_ field tables, all string literals"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "by_status", "s"):
+        (1, "own value: s runs over _CTRF_STATUSES, a tuple of string literals of the module"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "by_status", "test['status']"):
+        (1, "guarded: _check_fields(test, _CTRF_TEST, ...) before it requires status and refuses a value that is not "
+            "a str in _CTRF_STATUSES (_kind_ok of the kind status, through is_member)"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_junit_xml", "_EXPAT_CODES", "exc.code"):
+        (1, "own value: exc is an ExpatError the parser raised, whose code is an int; the handlers raise "
+            "ReportRefused, never an ExpatError"),
+    ("proofbundle/adapters/junit_ctrf.py", "verify_test_receipt", "_READERS", "fmt"):
+        (1, "guarded: type(fmt) is not str or not is_member(fmt, _READERS) returns before it"),
 }
 
 
@@ -1485,6 +1503,48 @@ _OTHER_USES_CLASSIFIED = {
         (1, _OWN_SET.format(x="obj", what="a dict (isinstance(obj, dict) returns before it)")),
     ("proofbundle/relation.py", "validate_relationships", "set(_EDGE_ALLOWED)", "Sub set(edge)"):
         (1, _OWN_SET.format(x="edge", what="a dict (a non-dict edge is skipped by `continue` before it)")),
+    # Seen once pull request 390 met this guard on main 07b6122c: the frozensets of the module-level table
+    # _PARENTS, the counters of a JUnit reading and the CTRF field tables, each read at its source.
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "_FLAKY | _RERUN", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, which _JunitReading.start reads only by "
+         "_PARENTS.get(tag) and hands to is_member as its second argument"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({'properties'})", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, read only as the second argument of is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({'testcase'})", "Dict"):
+        (7, "own value: seven values of the module-level table _PARENTS, each read only as the second argument of "
+         "is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({'testsuite', 'testcase'}) | _FLAKY | _RERUN", "Dict"):
+        (2, "own value: two values of the module-level table _PARENTS, each read only as the second argument of "
+         "is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({'testsuite'})", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, read only as the second argument of is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({'testsuites', 'testsuite', 'testcase'})", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, read only as the second argument of is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({None, 'testsuites', 'testsuite'})", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, read only as the second argument of is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "<modulebene>", "frozenset({None})", "Dict"):
+        (1, "own value: a value of the module-level table _PARENTS, read only as the second argument of is_member"),
+    ("proofbundle/adapters/junit_ctrf.py", "_JunitReading", "dict.fromkeys(_OUTCOMES, 0)", "Assign"):
+        (1, "own value: self.outcomes is looked up only with the four string literals of _end_testcase and with k "
+         "over _OUTCOMES in result"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "_CTRF_RESULTS", "_check_fields(argument 2)"):
+        (1, "passed to _check_fields: it tests each key of obj with type(key) is str and is_member(key, fields) "
+         "before it looks up fields[key]"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "_CTRF_ROOT", "_check_fields(argument 2)"):
+        (1, "passed to _check_fields: it tests each key of obj with type(key) is str and is_member(key, fields) "
+         "before it looks up fields[key]"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "_CTRF_SUMMARY", "_check_fields(argument 2)"):
+        (1, "passed to _check_fields: it tests each key of obj with type(key) is str and is_member(key, fields) "
+         "before it looks up fields[key]"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "_CTRF_TEST", "_check_fields(argument 2)"):
+        (1, "passed to _check_fields: it tests each key of obj with type(key) is str and is_member(key, fields) "
+         "before it looks up fields[key]"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "_CTRF_TOOL", "_check_fields(argument 2)"):
+        (1, "passed to _check_fields: it tests each key of obj with type(key) is str and is_member(key, fields) "
+         "before it looks up fields[key]"),
+    ("proofbundle/adapters/junit_ctrf.py", "read_ctrf_json", "by_status", "Dict"):
+        (1, "own value: **by_status copies the five string literals of _CTRF_STATUSES into counted, which is looked "
+         "up only with k over _CTRF_SUMMARY_COUNTS, a tuple of string literals of the module"),
 }
 
 

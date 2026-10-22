@@ -445,6 +445,20 @@ def _claim_of_the_test_key() -> dict:
     return claim
 
 
+_JUNIT_REPORT = "test_reports/junit/pytest-9.1.1_all_passed.xml"
+_CTRF_REPORT = "test_reports/ctrf/jest-ctrf-json-reporter-0.2.0_all_passed.json"
+
+
+def _test_receipt_and_report(tmp: Path):
+    """A test receipt of the adapter of pull request 390 and the JUnit report it is about, signed with the fixed
+    test key."""
+    from proofbundle.adapters import junit_ctrf
+    from proofbundle.evalclaim import emit_eval_receipt
+    bericht = _fixture(tmp, _JUNIT_REPORT)
+    claim, _ = junit_ctrf.from_junit_xml(bericht, timestamp=_TS, **_SALTS)
+    return [((emit_eval_receipt(claim, _test_key()), bericht), {})]
+
+
 #: Seeds built at run time: a file, a key object or a callable, which the recording cannot hold.
 _HAND_SEEDS = {
     "proofbundle._integration.emit_claim_receipt": _emit_claim,
@@ -506,6 +520,17 @@ _HAND_SEEDS = {
         ("EdDSA", _test_key().public_key().public_bytes_raw()), {})],
     "proofbundle.sdjwt_issue.issue_sd_jwt": lambda tmp: [(
         (_claim_of_the_test_key(), _test_key()), {"root_b64": base64.b64encode(b"\x00" * 32).decode()})],
+    # The public functions of the test report adapter of pull request 390, which met this family on main
+    # 07b6122c; each seed reads a report of the adapter's own corpus that the reader accepts.
+    "proofbundle.adapters.junit_ctrf.read_junit_xml": lambda tmp: [(
+        ((REPO / "tests" / "fixtures" / _JUNIT_REPORT).read_bytes(),), {})],
+    "proofbundle.adapters.junit_ctrf.read_ctrf_json": lambda tmp: [(
+        ((REPO / "tests" / "fixtures" / _CTRF_REPORT).read_bytes(),), {})],
+    "proofbundle.adapters.junit_ctrf.from_junit_xml": lambda tmp: [(
+        (_fixture(tmp, _JUNIT_REPORT),), dict(timestamp=_TS, **_SALTS))],
+    "proofbundle.adapters.junit_ctrf.from_ctrf_json": lambda tmp: [(
+        (_fixture(tmp, _CTRF_REPORT),), dict(timestamp=_TS, **_SALTS))],
+    "proofbundle.adapters.junit_ctrf.verify_test_receipt": _test_receipt_and_report,
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
@@ -829,6 +854,18 @@ _WRONG_TYPE_GAPS: dict = {
         "adapters/eee.py:_pick_metric AttributeError", "adapters/eee.py:from_eee_dataset AttributeError",
     },
     "adapters.inspect_ai.from_inspect_ai_log": {"adapters/inspect_ai.py:from_inspect_ai_log TypeError"},
+    # The test report adapter of pull request 390, measured by this sweep on main 07b6122c: an argument that is no
+    # report in bytes, a max_bytes that is no positive int, and a commit, suite or timestamp the claim builder
+    # refuses each raise ValueError or TypeError, as the arguments of the adapters above do. Pinned, not fixed:
+    # which class the adapter raises for its arguments is the decision of its pull request.
+    "adapters.junit_ctrf.from_ctrf_json": {
+        "adapters/junit_ctrf.py:_check_limit ValueError", "adapters/junit_ctrf.py:_claim_from_counts ValueError", "adapters/junit_ctrf.py:_provenance ValueError",
+    },
+    "adapters.junit_ctrf.from_junit_xml": {
+        "adapters/junit_ctrf.py:_check_limit ValueError", "adapters/junit_ctrf.py:_claim_from_counts ValueError", "adapters/junit_ctrf.py:_provenance ValueError",
+    },
+    "adapters.junit_ctrf.read_ctrf_json": {"adapters/junit_ctrf.py:_check_limit ValueError", "adapters/junit_ctrf.py:_the_bytes TypeError"},
+    "adapters.junit_ctrf.read_junit_xml": {"adapters/junit_ctrf.py:_check_limit ValueError", "adapters/junit_ctrf.py:_the_bytes TypeError"},
     "adapters.lm_eval.from_lm_eval_results": {
         "adapters/lm_eval.py:_find_metric TypeError", "adapters/lm_eval.py:from_lm_eval_results TypeError",
         "adapters/lm_eval.py:from_lm_eval_results ValueError",

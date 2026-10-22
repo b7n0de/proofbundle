@@ -44,7 +44,7 @@ from pathlib import Path
 import proofbundle
 from proofbundle import agent_review, bundle, emit, evalcard, prereg, public_transparency, verifier_block
 from proofbundle._membership import Fremdkoerper
-from proofbundle.adapters import eee, inspect_ai, lm_eval, promptfoo, samples
+from proofbundle.adapters import eee, inspect_ai, junit_ctrf, lm_eval, promptfoo, samples
 from proofbundle.canonical import _ein_stand
 from proofbundle.errors import BundleFormatError, ProofBundleError
 
@@ -316,6 +316,15 @@ class TheReadingOfAPath(unittest.TestCase):
 
 
 _ZEIT = "2026-01-01T00:00:00Z"
+def _test_receipt() -> dict:
+    """A test receipt over a JUnit report of the adapter's corpus, so that `verify_test_receipt` gets past the
+    receipt to its report argument."""
+    from proofbundle.evalclaim import emit_eval_receipt  # noqa: PLC0415
+    bericht = Path(__file__).parent / "fixtures" / "test_reports" / "junit" / "pytest-9.1.1_all_passed.xml"
+    claim, _ = junit_ctrf.from_junit_xml(bericht, timestamp=_ZEIT)
+    return emit_eval_receipt(claim, emit.generate_signer())
+
+
 #: Every function with a path contract, called with one value in its path argument and plausible other arguments.
 _PATH_SURFACES = {
     "bundle.load_bundle": lambda p: bundle.load_bundle(p),
@@ -338,6 +347,10 @@ _PATH_SURFACES = {
     "prereg.prereg_hash": lambda p: prereg.prereg_hash(p),
     "prereg.verify_prereg": lambda p: prereg.verify_prereg(p, dict(_CLAIM)),
     "agent_review.load_policy": lambda p: agent_review.load_policy(p),
+    # The test report adapter of pull request 390, whose three path contracts met this table on main 07b6122c.
+    "adapters.junit_ctrf.from_junit_xml": lambda p: junit_ctrf.from_junit_xml(p, timestamp=_ZEIT),
+    "adapters.junit_ctrf.from_ctrf_json": lambda p: junit_ctrf.from_ctrf_json(p, timestamp=_ZEIT),
+    "adapters.junit_ctrf.verify_test_receipt": lambda p: junit_ctrf.verify_test_receipt(_test_receipt(), p),
 }
 #: The second path argument of a function in the table: answered the same way.
 _FURTHER_PATH_ARGUMENTS = {
