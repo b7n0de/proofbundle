@@ -56,7 +56,7 @@ from .._membership import is_member
 from .._strict_json import loads_strict
 from .._wire_b64 import decode_b64url
 from ..automation_verdict import automation_summary
-from ..budget import DEFAULT_BUDGET
+from ..budget import DEFAULT_BUDGET, render_safe
 from ..canonical import _bytes_von, _ein_stand, _zeichen_von
 from ..errors import ProofBundleError, VerificationResult
 from ..signature import (_ec_point_on_curve, ed25519_trust_anchor_weakness, verify_ecdsa_p256,
@@ -287,7 +287,8 @@ def _parse_public_jwk(jwk: Any) -> _Key:
         if not _ec_point_on_curve(crv, point):
             raise ValueError(f"the {crv} point is not on the curve")
         return _Key("EC", crv, point, _thumbprint("EC", crv, jwk["x"], jwk["y"]))
-    raise ValueError(f"unsupported key type kty={kty!r} crv={crv!r}; supported: OKP/Ed25519, EC/P-256, EC/P-384")
+    raise ValueError(f"unsupported key type kty={render_safe(kty)} crv={render_safe(crv)}; supported: "
+                     "OKP/Ed25519, EC/P-256, EC/P-384")
 
 
 @_ein_stand
@@ -763,8 +764,9 @@ def _finish(res: VerificationResult, *, form: Optional[str] = None, alg: Optiona
 
 
 def _non_negative_int(name: str, v: Any) -> int:
-    if type(v) is not int or v < 0:
-        raise ValueError(f"{name} must be a non-negative integer number of seconds")
+    # Bounded like every integer of the record (section 3.2.2), so that a verdict can always say it.
+    if type(v) is not int or not 0 <= v <= _SAFE_INT:
+        raise ValueError(f"{name} must be an integer number of seconds within 0..{_SAFE_INT}")
     return v
 
 
@@ -810,8 +812,9 @@ def _read_config(trusted_keys: Any, accepted_profiles: Any, max_age_seconds: Any
     skew = _non_negative_int("max_future_skew_seconds", max_future_skew_seconds)
     if now is None:
         at = int(time.time())
-    elif type(now) is not int:
-        raise ValueError("now must be an integer Unix time in seconds, or None for the clock")
+    elif type(now) is not int or not -_SAFE_INT <= now <= _SAFE_INT:
+        raise ValueError(f"now must be an integer Unix time in seconds within -{_SAFE_INT}..{_SAFE_INT}, "
+                         "or None for the clock")
     else:
         at = now
     if expected_nonce is not None:
@@ -863,7 +866,7 @@ def _read_jws(text: str, res: VerificationResult,
                                      "(section 3.2.2)")
         return None
     if not is_member(alg, _ALGS):
-        res.add("jws-header", False, f"alg {alg!r} is not one of ES256, ES384, EdDSA (section 3.2.1)")
+        res.add("jws-header", False, f"alg {render_safe(alg)} is not one of ES256, ES384, EdDSA (section 3.2.1)")
         return None
     others = sorted(k for k in header if not is_member(k, _HEADER_MEMBERS))
     unknown.extend((_member_path("header", k), False) for k in others)
@@ -918,7 +921,8 @@ def verify_trace_record(
     3.2.2, "made by the key in cnf").
 
     The time window is the relying party's: ``now`` (default: the clock), ``max_age_seconds``
-    (default 86400) and ``max_future_skew_seconds`` (default 300) are the section 3.2.2 defaults.
+    (default 86400) and ``max_future_skew_seconds`` (default 300) are the section 3.2.2 defaults,
+    each an integer within the RFC 8785 safe range, as every integer of the record is.
     The age check cannot be switched off; section 3.2.2 says a verifier MUST enforce one.
 
     Expectations are optional and each is checked only when supplied: ``expected_nonce`` against
@@ -1077,7 +1081,8 @@ def verify_trace_record(
         res.add("profile", False, "the superseded v0.1 profile; a v0.2 verifier MUST reject it "
                                   "(Changes from v0.1)")
     else:
-        res.add("profile", False, f"eat_profile {profile_value!r} is outside the accepted set {list(accepted)}")
+        res.add("profile", False, f"eat_profile {render_safe(profile_value)} is outside the accepted set "
+                                  f"{list(accepted)}")
     findings = _check_structure(rec, form)
     if findings.violations:
         shown = "; ".join(findings.violations[:6])

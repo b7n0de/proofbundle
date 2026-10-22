@@ -399,7 +399,8 @@ _COMMAND_GROUPS = (
         ("verify-proof", "verify a C2SP .tlog-proof file offline"),
         ("verify-opening", "verify one sample opening against a samples root"),
         ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
-        ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
+        ("verify-trace", "verify a TRACE v0.2 Trust Record against your keys"),
+        ("policy","inspect a trust policy: explain its pins, lint for vacuousness"),
     )),
     ("Emit and commit", (
         ("emit", "sign and anchor a payload into a bundle"),
@@ -3465,8 +3466,9 @@ def build_parser() -> argparse.ArgumentParser:
                "  0  verified: signed by a trusted key, cnf names that key, well formed, fresh, and every\n"
                "     supplied expectation holds\n"
                "  1  cryptographic or structural failure (signature, cnf binding, canonical payload,\n"
-               "     profile, schema, unknown member)\n"
-               "  2  unreadable input under this profile, or unusable trust material\n"
+               "     profile, schema, a record member the schema does not define)\n"
+               "  2  unreadable input under this profile, a JWS header member other than alg, typ\n"
+               "     and kid included, or unusable trust material\n"
                "  3  sound record, but a relying-party requirement is unmet (time window, nonce,\n"
                "     policy hash, subject, transcript hash)\n"
                "Trust comes only from the options: the record's own cnf key, policy hash and time are\n"

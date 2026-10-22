@@ -290,10 +290,32 @@ def test_unusable_trust_material_is_exit_2_and_reads_nothing(bad):
     {"expected_policy_hashes": ["sha256:abc"]}, {"expected_policy_hashes": []},
     {"expected_policy_hashes": "sha256:" + "b2" * 32},
     {"expected_transcript_hash": "md5:00"}, {"expected_subjects": []}, {"expected_nonce": 7},
+    {"now": 10**5000}, {"now": -10**5000}, {"now": 2**53}, {"max_age_seconds": 10**5000},
+    {"max_age_seconds": 2**53}, {"max_future_skew_seconds": 10**5000},
 ])
 def test_an_unusable_relying_party_configuration_is_refused(kw):
     v = verify(embedded(record(ed_jwk())), **kw)
     assert exit_code(v) == 2 and failed(v) == ["verifier-config"]
+
+
+def test_the_window_takes_every_integer_of_the_safe_range_and_no_other():
+    """The window's numbers are bounded like the record's own (section 3.2.2), so that every verdict can
+    state them. Found by the counter-reading of 2026-10-22: `now` or a maximum past 4300 digits made the
+    freshness sentence raise a raw ValueError out of a body that never raises."""
+    data = embedded(record(ed_jwk()))
+    assert exit_code(verify(data, max_age_seconds=2**53 - 1, max_future_skew_seconds=2**53 - 1)) == 0
+    v = verify(data, now=2**53 - 1)
+    assert exit_code(v) == 3 and failed(v) == ["freshness"]
+    v = verify(data, now=-(2**53 - 1))
+    assert exit_code(v) == 3 and failed(v) == ["freshness"]
+
+
+@pytest.mark.parametrize("member", ["kty", "crv"])
+def test_a_trusted_key_member_too_large_to_print_is_named_by_its_size(member):
+    v = verify(embedded(record(ed_jwk())), keys=[dict(ed_jwk(), **{member: 10**5000})])
+    assert exit_code(v) == 2 and failed(v) == ["verifier-config"]
+    detail = v.result.checks[0].detail
+    assert "bits>" in detail and "integer string conversion" not in detail, detail
 
 
 # ----------------------------------------------------------------------------------------------

@@ -46,8 +46,8 @@ off.
 | Code | Meaning |
 |---|---|
 | 0 | Verified: well formed, signed by a trusted key, `cnf` names that key, fresh, and every supplied expectation holds |
-| 1 | A cryptographic or structural failure: signature, `cnf` binding, canonical payload, profile, schema, unknown member |
-| 2 | Unreadable input under this profile, or unusable trust material |
+| 1 | A cryptographic or structural failure: signature, `cnf` binding, canonical payload, profile, schema, a record member the schema does not define |
+| 2 | Unreadable input under this profile, a JWS header member other than `alg`, `typ` and `kid` included, or unusable trust material |
 | 3 | A sound record that misses a relying-party requirement: window, nonce, policy hash, subject, transcript hash |
 
 ## What a pass does not say
