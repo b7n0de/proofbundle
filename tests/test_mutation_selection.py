@@ -280,6 +280,43 @@ class TheSelectionHoldsEveryImporter(unittest.TestCase):
         self.assertIn("tests/sub/test_below.py", got)
         self.assertNotIn("tests/test_beside.py", got)
 
+    def test_a_docstring_reaches_nothing(self):
+        """A string that stands alone as a statement (a docstring) is evaluated and thrown away, so it
+        globs, imports and runs nothing. Measured at 07b6122c (ECHO-MUTATIONSAUSWAHL-GANZE-SUITE-01):
+        three docstrings in tests/conftest.py carry `*.py`, the conftest read as reaching every file,
+        and every mutated file selected 528 of 531 test files. Here the conftest carries a glob, a file
+        path and an import line in its module, class and function docstrings; the selection of
+        `src/pkg/a.py` must stay its one importer. The control: the same glob as a value in code still
+        reaches everything."""
+        mc = _load()
+        grund = {
+            "src/pkg/__init__.py": "",
+            "src/pkg/a.py": "def f(x):\n    return x\n",
+            "src/pkg/b.py": "def g(x):\n    return x\n",
+            "tests/test_a.py": "from pkg.a import f\ndef test_x():\n    assert f(1)\n",
+            "tests/test_b.py": "from pkg.b import g\ndef test_x():\n    assert g(1)\n",
+        }
+        prosa = '''
+            """Does MANIFEST.in promise this path? A module (`*.py`) directly in a package."""
+
+
+            class Versprechen:
+                """The directory form, as tests/test_b.py reads it."""
+
+                def pruefe(self, rel):
+                    """Measured with:
+                    from pkg.b import g
+                    """
+                    return rel
+        '''
+        with tempfile.TemporaryDirectory(prefix="mutsel-docstring-") as d:
+            tree = _tree(Path(d), {**grund, "tests/conftest.py": prosa})
+            self.assertEqual(set(mc._auswahl(tree, "src/pkg/a.py")), {"tests/test_a.py"})
+        mc = _load()
+        with tempfile.TemporaryDirectory(prefix="mutsel-docstring-code-") as d:
+            tree = _tree(Path(d), {**grund, "tests/conftest.py": 'MUSTER = "*.py"\n'})
+            self.assertIn("tests/test_b.py", set(mc._auswahl(tree, "src/pkg/a.py")))
+
     def test_every_direct_importer_in_this_tree_is_selected(self):
         """Property 1 on the real tree, for every file an operator mutates: each test file that
         imports the operator's module by an import statement is in its selection."""

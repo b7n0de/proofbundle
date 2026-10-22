@@ -1505,7 +1505,8 @@ def _indizes_des_laufs(shard: tuple[int, int] | None,
 # `-m`/`-c` in a command that starts Python, `exec`/`eval`, a glob over `*.py`, pytest in a subprocess
 # or in process — is selected for every mutant, and so is every test file under a `conftest.py` that
 # reaches the mutant. A file that is neither Python nor a script (MANIFEST.in) is reached by every
-# file that names it, and by every file that reaches one of those.
+# file that names it, and by every file that reaches one of those. A string that stands alone as a
+# statement (a docstring) reaches nothing: it is never used as a value.
 #
 # ONE BOUNDARY, decided: the pytest11 entry point `proofbundle.pytest_plugin` loads in every run and
 # reaches modules, but only inside `pytest_terminal_summary`, after the last test report; it cannot
@@ -1600,6 +1601,15 @@ def _nur_zur_typpruefung(baum: ast.AST) -> set[int]:
             for teil in k.body:
                 ids.update(id(n) for n in ast.walk(teil))
     return ids
+
+
+def _nur_als_text(baum: ast.AST) -> set[int]:
+    """ids of the strings that stand alone as a statement (a docstring): Python evaluates them and throws
+    them away, so they glob, import and run nothing. Measured at 07b6122c: three docstrings of
+    tests/conftest.py carry `*.py`, the conftest read as reaching every file, and every mutated file
+    selected 528 of 531 test files."""
+    return {id(k.value) for k in ast.walk(baum)
+            if isinstance(k, ast.Expr) and isinstance(k.value, ast.Constant) and isinstance(k.value.value, str)}
 
 
 def _parse(text: str) -> ast.AST:
@@ -1746,9 +1756,9 @@ def _verweise(rel: str, text: str, tabellen: dict[str, dict[str, str]] | None = 
                 return True
         return False
 
-    typ_nur = _nur_zur_typpruefung(baum)
+    wirkungslos = _nur_zur_typpruefung(baum) | _nur_als_text(baum)   # never runs, or never used as a value
     for k in ast.walk(baum):
-        if id(k) in typ_nur:
+        if id(k) in wirkungslos:
             continue
         folge = (k.elts if isinstance(k, (ast.List, ast.Tuple))
                  else k.args if isinstance(k, ast.Call) else None)
