@@ -70,6 +70,14 @@ trace-tests at the pinned commits, and these are among them:
 - Platform state is not appraised.
 - No level is legal compliance.
 
+## A gap in the specification
+
+Section 3.1 says that all fields are required unless marked OPTIONAL, and it does not mark
+`tool_transcript` OPTIONAL. The pinned `schema/trace-claim.json` does not require it. The two texts
+decide a record without `tool_transcript` differently, and this verifier follows the schema: such a
+record is accepted, as the reference accepts it. The comparison in `interop/trace/` carries the case
+as `E-CONTESTED-tool_transcript-absent` with the expectation `n/a`, because no single text decides it.
+
 ## No Rust counterpart
 
 The Rust second verifier in `tools/pb_verify_rs` has no TRACE path. The registry
