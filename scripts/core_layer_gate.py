@@ -307,6 +307,10 @@ _MAPPING_WRITES = frozenset({"update", "setdefault", "__setitem__", "__delitem__
                              "__init__"})
 #: The flag by its own name, or as the last part of a dotted name: `"typing.TYPE_CHECKING"`, `"typing:TYPE_CHECKING"`.
 _FLAG = re.compile(r"(?:[\w.]*[.:])?TYPE_CHECKING")
+#: Callables, by the name they resolve to, that format a string they are handed as text and never take it for the
+#: name of something to set (Codex on PR 395, round two, P2). Only for that string: they keep their arguments.
+_TEXT_SINKS = frozenset({f"logging.{n}" for n in ("debug", "info", "warning", "error", "critical", "exception", "log")}
+                        | {"warnings.warn"})
 
 
 def _attribute_call(node: ast.Call, quals) -> tuple[str, str, ast.expr | None, ast.expr | None, bool] | None:
@@ -350,6 +354,26 @@ def _attribute_call(node: ast.Call, quals) -> tuple[str, str, ast.expr | None, a
 
 def _literal(node: ast.AST | None) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _mapping_value(subject: ast.expr | None, key: ast.expr) -> ast.expr | None:
+    """The value the key of a mapping pattern matches in a subject that is a dict written out, looked up as Python
+    looks it up: equal keys are one key (`1`, `1.0` and `True`), and the last of them wins. None when the gate cannot
+    read it: the subject is no dict display, a key is not a literal, or `**other` may bring the key in."""
+    if not isinstance(subject, ast.Dict):
+        return None
+    try:
+        wanted = ast.literal_eval(key)
+        found = None
+        for k, v in zip(subject.keys, subject.values):
+            if k is None:
+                return None
+            have = ast.literal_eval(k)
+            if hash(have) == hash(wanted) and have == wanted:
+                found = v
+        return found
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
 
 
 class _ChangeScan:
@@ -527,7 +551,10 @@ class _ChangeScan:
         name of an attribute set or deleted, a key handed to a method that writes a mapping (`m.update({...})`), or
         a dotted name handed to any call (`patch("typing.TYPE_CHECKING", True)`). The same string as data, in a
         list, a dict that stays where it is or a call that only reads, writes nothing (Codex on PR 395, P2). A
-        mapping that carries it into a module's namespace is judged where that namespace is used."""
+        mapping that carries it into a module's namespace is judged where that namespace is used. A dotted name handed
+        to a callable that resolves to a reader (`print`, `json.dumps`) or to a text sink (`logging.info`,
+        `warnings.warn`) is text as well (round two, P2); any other callable, a parameter's method among them
+        (`monkeypatch.setattr("typing.TYPE_CHECKING", True)`), may set what it names."""
         up = self.parents.get(node)
         if isinstance(up, ast.Subscript) and up.slice is node:
             return isinstance(up.ctx, (ast.Store, ast.Del))
@@ -535,6 +562,10 @@ class _ChangeScan:
             call = _attribute_call(up, self.names.quals)
             if call is not None and call[0] in ("set", "del"):
                 return call[3] is node or call[3] is None
+            # A callable that resolves to a reader or a text sink takes a dotted name as text (round two, P2).
+            quals = self.names.quals(up.func)
+            if self.calls_a_reader(up) or (bool(quals) and all(q in _TEXT_SINKS for q in quals)):
+                return False
             return "." in node.value or ":" in node.value or self._writes_a_mapping(up)
         if isinstance(up, ast.Dict) and any(k is node for k in up.keys):
             holder = self.parents.get(up)
@@ -936,8 +967,11 @@ class _Names:
     def _match_binds(self, pattern: ast.AST, value: ast.expr | None, scope: _Scope) -> None:
         """What a match capture binds, as far as the gate can read it (Codex on PR 395, P1). `case name:` and
         `case <pattern> as name:` bind the value matched there, every alternative of `case a | b:` matches the
-        same value, and an element of `case [a, b]:` is the element at its place when the subject is a list or a
-        tuple written out. Any other capture binds a value the gate cannot read; the generic walk binds its name."""
+        same value, an element of `case [a, b]:` is the element at its place when the subject is a list or a
+        tuple written out, and the value of `case {"k": a}:` is the value of that key when the subject is a dict
+        written out with literal keys (round two, P1). Any other capture binds a value the gate cannot read; the
+        generic walk binds its name. That includes a capture in a class pattern, `case C(a):`, which binds an
+        attribute of the subject: the gate reads no attribute of an object, as it reads none in `a = C(x).item`."""
         if isinstance(pattern, ast.MatchAs):
             if pattern.name and value is not None:
                 owner = self.module if pattern.name in scope.globals else scope
@@ -953,6 +987,10 @@ class _Names:
                 and not any(isinstance(sub, ast.MatchStar) for sub in pattern.patterns)
             for i, sub in enumerate(pattern.patterns):
                 self._match_binds(sub, value.elts[i] if fits else None, scope)
+        elif isinstance(pattern, ast.MatchMapping):
+            # `**rest` binds a new dict, never a module; the generic walk binds its name.
+            for key, sub in zip(pattern.keys, pattern.patterns):
+                self._match_binds(sub, _mapping_value(value, key), scope)
         else:
             for sub in ast.iter_child_nodes(pattern):
                 if isinstance(sub, ast.pattern):

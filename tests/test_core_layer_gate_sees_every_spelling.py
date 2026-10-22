@@ -261,6 +261,22 @@ BINDINGS_FROM_ELSEWHERE = {
     "an or-pattern in another module": (
         'from .other import os\nVALUE = os.getenv("X")\n',
         {"other.py": "import os as real\nmatch [real]:\n    case [os] | [_, os]:\n        pass\n"}),
+    # Codex on PR 395, round two, P1: a capture inside a mapping pattern, and its neighbours in a mapping.
+    "a mapping pattern in another module": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": 'import os as real\nmatch {"k": real}:\n    case {"k": os}:\n        pass\n'}),
+    "a mapping pattern that takes the second key": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": 'import os as real\nmatch {"j": 1, "k": real}:\n    case {"k": os}:\n        pass\n'}),
+    "a mapping pattern inside a sequence pattern": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": 'import os as real\nmatch [{"k": real}]:\n    case [{"k": os}]:\n        pass\n'}),
+    "a mapping pattern whose key a later one replaces": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": 'import math, os as real\nmatch {"k": math, "k": real}:\n    case {"k": os}:\n        pass\n'}),
+    "a mapping pattern whose key is equal under another spelling": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": 'import os as real\nmatch {1: real}:\n    case {True: os}:\n        pass\n'}),
 }
 
 
@@ -288,6 +304,25 @@ STAR_IMPORTS_THAT_DO_NOT_BIND = {
                                + 'from .other import *\nVALUE = dropped.getenv("X")\n',
                                {"other.py": "__all__ = ['kept']\nimport os as dropped\nkept = 1\n"}),
 }
+
+
+#: The other direction of the mapping pattern: a capture binds the value of its own key, not every value of the subject.
+#: The key named in the pattern holds a local class, so the run reads no environment and the gate stays green.
+MAPPING_CAPTURES_OF_ANOTHER_KEY = {
+    "a mapping pattern that takes a local class": (
+        'from .other import os\nVALUE = os.getenv("X")\n',
+        {"other.py": _LOCAL_READER.format(name="_r")
+         + 'import os as real\nmatch {"k": real, "j": _r}:\n    case {"j": os}:\n        pass\n'}),
+}
+
+
+@pytest.mark.parametrize("case", list(MAPPING_CAPTURES_OF_ANOTHER_KEY.values()), ids=list(MAPPING_CAPTURES_OF_ANOTHER_KEY))
+def test_CONTROL_a_mapping_capture_binds_the_value_of_its_key(tmp_path, case):
+    code, extra = case
+    args = build(tmp_path, {"core.py": code, **extra}, listed=("probepkg", "probepkg.core", "probepkg.other"))
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE)") == "X"
+    rc, report = gate(args)
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set()), report["measured"]["findings"]
 
 
 @pytest.mark.parametrize("case", list(STAR_IMPORTS_THAT_DO_NOT_BIND.values()), ids=list(STAR_IMPORTS_THAT_DO_NOT_BIND))
@@ -409,6 +444,12 @@ READS_THE_LENS_FOUND = {
     "the name as a keyword of an unknown call": "def _p(configure):\n    return configure(TYPE_CHECKING=False)\n",
     "the name in a list": "RESERVED = ['TYPE_CHECKING', 'Any']\n",
     "the name handed to a logger": "def _p(log):\n    log('TYPE_CHECKING')\n",
+    # Codex on PR 395, round two, P2: a dotted name handed to a call that only reads or formats it writes nothing.
+    "a dotted name handed to print": 'print("typing.TYPE_CHECKING")\n',
+    "a dotted name handed to json.dumps": "import json\ndef _p():\n    return json.dumps('typing.TYPE_CHECKING')\n",
+    "a dotted name formatted by a literal": "def _p():\n    return 'flag {}'.format('typing.TYPE_CHECKING')\n",
+    "a dotted name handed to logging": "import logging\ndef _p():\n    logging.info('typing.TYPE_CHECKING')\n",
+    "a dotted name handed to warnings.warn": "import warnings\ndef _p():\n    warnings.warn('typing:TYPE_CHECKING')\n",
 }
 
 #: Forms that count ON PURPOSE: the gate cannot show the object is no module, or does not see where a setter goes.
@@ -423,6 +464,15 @@ COUNTS_ON_PURPOSE = {
     "the flag as a keyword of an update": "def put(m):\n    m.update(TYPE_CHECKING=True)\n",
     "the flag as a key of an update": "def put(m):\n    m.update({'TYPE_CHECKING': True})\n",
     "setattr on an imported object": "from .settings import config\ndef put(k, v):\n    setattr(config, k, v)\n",
+    # The reader of round two is resolved, not matched by spelling: a parameter's method and a print the module
+    # defines itself may set what the dotted name says.
+    "a dotted name handed to a parameter's method": (
+        "def t(monkeypatch):\n    monkeypatch.setattr('typing.TYPE_CHECKING', True)\n"),
+    "a dotted name handed to a print the module defines": (
+        "import unittest.mock\ndef print(target):\n    unittest.mock.patch(target, True).start()\n"
+        "print('typing.TYPE_CHECKING')\n"),
+    "a dotted name handed to a logging the module rebinds": (
+        "import unittest.mock as logging\ndef _p():\n    logging.patch('typing.TYPE_CHECKING', True).start()\n"),
 }
 
 
