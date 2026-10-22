@@ -18,6 +18,7 @@ a .mutbak file in the working tree. Belt and braces, the run additionally compar
 `git status --porcelain` before/after and fails closed on any left-over working tree change.
 
 Usage:  python3 scripts/mutation_check.py            # exit 0 = all as expected, 1 = gap found
+        python3 scripts/mutation_check.py --budget-stunden 12   # exit 3 = projection above the budget, NICHT MESSBAR
 CI:     runs in the mutation job (see .github/workflows/ci.yml).
 """
 from __future__ import annotations
@@ -2107,7 +2108,44 @@ def _baum_abdruck(work: Path, dateien: list[str]) -> dict[str, bytes]:
     return {rel: (work / rel).read_bytes() for rel in dateien if (work / rel).is_file()}
 
 
-def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
+# ── THE RUN PROJECTS ITS WALL CLOCK (ECHO-MUTATION-HOCHRECHNUNG-UND-STOPP-01, owner choice 2026-10-22) ──
+#
+# The night of 2026-10-21 was lost: the canonical run at 07b6122c started unsharded at 23:13Z, every
+# mutant selected 528 of 531 test files and took as long as the baseline (2089.6 s, nine mutants
+# 2002 s to 2104 s), and the projected 67 h became visible only hours later, from outside. The run now
+# says it itself: after every judged operator a line `MUTATION_PROJECTION` with a projection, marked as
+# one, for this run (the shard, or the whole list) and for the whole list in one process. With a
+# budget in hours the run stops between two operators once the projection for this run is above it,
+# and its closing line says NICHT MESSBAR with projection and budget, never OK, under its own exit code.
+
+#: The exit code of a run that stopped because its projection was above its budget.
+RC_UEBER_BUDGET = 3
+
+
+class HochrechnungUeberBudget(Exception):
+    """The run stopped between two operators: its projection is above the budget. Not measured, not
+    green; the operators judged before the stop keep their lines."""
+
+    def __init__(self, hochrechnung: dict, gaps: int):
+        super().__init__(f"projection {hochrechnung.get('lauf_s')} s above budget {hochrechnung.get('budget_s')} s")
+        self.hochrechnung = hochrechnung
+        self.gaps = gaps
+
+
+def _hochrechnung_s(mutanten: list[tuple[float, int]], basislinien: list[tuple[float, int]],
+                    offen: list[int], basis_offen: list[int]) -> float:
+    """Seconds still to come, projected: each operator still to run costs its selection size times the
+    seconds per selected test file its measured mutants took (mutant run and confirmation), each
+    selection still without a baseline its size times the seconds per file of the measured baselines.
+    A projection, not a measurement; an empty selection costs nothing."""
+    def je_datei(paare: list[tuple[float, int]]) -> float:
+        dateien = sum(n for _, n in paare)
+        return sum(s for s, _ in paare) / dateien if dateien else 0.0
+    je_mutant, je_basis = je_datei(mutanten), je_datei(basislinien) or je_datei(mutanten)
+    return je_mutant * sum(offen) + je_basis * sum(basis_offen)
+
+
+def _run_operators(work: Path, *, shard: tuple[int, int] | None = None, budget_s: float | None = None) -> int:
     dauern: dict[str, float] = {}
     # SYMMETRIE DER MESSUNG (Stufe 2 Teil A, Befund
     # MUTATIONSTOR-BASELINE-UND-MUTANT-MESSEN-VERSCHIEDENE-SUITEN-01).
@@ -2149,7 +2187,40 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         for idx in indizes:
             print(f"  shard-item {idx} [{MUTATIONS[idx][3]}]")
     urspruenglich: dict[str, bytes] = {}
-    for idx in indizes:
+    _t_lauf = time.monotonic()
+    auswahl_je_datei: dict[str, tuple[str, ...]] = {}   # one graph walk per file, the projection reuses it
+    groesse_je_label: dict[str, int] = {}
+    ueber_budget: dict | None = None
+
+    def _auswahl_von(datei: str) -> tuple[str, ...]:
+        if datei not in auswahl_je_datei:
+            auswahl_je_datei[datei] = _auswahl(work, datei)
+        return auswahl_je_datei[datei]
+    for pos, idx in enumerate(indizes):
+        if dauern:
+            # THE PROJECTION, before the next operator runs, from everything measured so far.
+            gemessen = [(dauern[lab], groesse_je_label[lab]) for lab in dauern]
+            basis = [(b.dauer, len(sel)) for sel, b in basislinien.items()]
+            rest = [MUTATIONS[i][0] for i in indizes[pos:]]
+            neu = {_auswahl_von(r) for r in rest} - set(basislinien) - {()}
+            lauf_s = (time.monotonic() - _t_lauf) + _hochrechnung_s(
+                gemessen, basis, [len(_auswahl_von(r)) for r in rest], [len(s) for s in neu])
+            if shard is None:
+                gesamt_s = lauf_s
+            else:
+                alle = [m[0] for m in MUTATIONS]
+                gesamt_s = _hochrechnung_s(gemessen, basis, [len(_auswahl_von(r)) for r in alle],
+                                           [len(s) for s in {_auswahl_von(r) for r in alle} - {()}])
+            h = {"art": "Hochrechnung, keine Messung", "nach_operatoren": pos, "von_operatoren": len(indizes),
+                 "verstrichen_s": round(time.monotonic() - _t_lauf, 1), "lauf_s": round(lauf_s, 1),
+                 "gesamt_s": round(gesamt_s, 1), "budget_s": budget_s,
+                 "shard": None if shard is None else f"{shard[0]}/{shard[1]}"}
+            print("MUTATION_PROJECTION " + json.dumps(h, sort_keys=True))
+            if budget_s is not None and lauf_s > budget_s:
+                print(f"  ! the projection of this run, {lauf_s / 3600:.1f} h, is above the budget of "
+                      f"{budget_s / 3600:.1f} h: the run stops before operator {pos + 1} of {len(indizes)}")
+                ueber_budget = h
+                break
         rel, old, new, label, expect_killed = MUTATIONS[idx]
         path = work / rel
         roh = path.read_bytes()
@@ -2174,7 +2245,8 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
             print(f"  GAP  [{label}] pattern not found — operator is stale")
             gaps += 1
             continue
-        auswahl = _auswahl(work, rel)
+        auswahl = _auswahl_von(rel)
+        groesse_je_label[label] = len(auswahl)
         if not auswahl:
             # No test file reaches the mutated file: no test can kill it, so it survives, and
             # nothing needs to run to say so.
@@ -2284,6 +2356,8 @@ def _run_operators(work: Path, *, shard: tuple[int, int] | None = None) -> int:
         if (work / rel).read_bytes() != roh:
             print(f"GAP: {rel} is not restored to its bytes before the first mutant")
             gaps += 1
+    if ueber_budget is not None:
+        raise HochrechnungUeberBudget(ueber_budget, gaps)
     return gaps
 
 
@@ -2292,6 +2366,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="mutation gate")
     ap.add_argument("--shard", default=None, metavar="i/K",
                     help="nur Shard i von K fahren (deterministische Round-robin-Partition)")
+    ap.add_argument("--budget-stunden", default=None, type=float, metavar="H",
+                    help="stop as NICHT MESSBAR (exit 3) once the projected wall clock of this run is above H hours")
     # `parse_args(None)` liest sys.argv — unter pytest also DESSEN Argumente, und argparse
     # beendet den Prozess mit SystemExit(2). Genau das hat die CI gefangen:
     # tests/test_mutation_isolation.py ruft `main()` ohne Argumente auf, und der Lauf starb an
@@ -2307,6 +2383,16 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"--shard erwartet die Form i/K, bekam {a.shard!r}") from None
         if not (1 <= shard[0] <= shard[1]):
             raise SystemExit(f"--shard {a.shard}: i muss zwischen 1 und K liegen")
+    if a.budget_stunden is not None and not (a.budget_stunden > 0 and math.isfinite(a.budget_stunden)):
+        raise SystemExit(f"--budget-stunden {a.budget_stunden}: a budget is a positive number of hours")
+    # Keywords only when given: a stub of `_run_operators` without them keeps working (the contract
+    # in tests/test_mutation_shard_partition.py, found by CI when `shard=` was passed unconditionally).
+    kw: dict = {}
+    if shard is not None:
+        kw["shard"] = shard
+    if a.budget_stunden is not None:
+        kw["budget_s"] = a.budget_stunden * 3600
+    ueber: HochrechnungUeberBudget | None = None
     status_before = _worktree_status(ROOT)
     with tempfile.TemporaryDirectory(prefix="proofbundle-mutation-") as tmp:
         work = Path(tmp) / "tree"
@@ -2317,7 +2403,10 @@ def main(argv: list[str] | None = None) -> int:
         # `_run_operators` durch eine Attrappe OHNE `shard`-Parameter, und ein bedingungslos
         # uebergebenes Schluesselwort bricht sie. Ein neuer Parameter darf den Vertrag des alten
         # Pfades nicht aendern - sonst passt man die Tests an den Code an statt umgekehrt.
-        gaps = _run_operators(work) if shard is None else _run_operators(work, shard=shard)
+        try:
+            gaps = _run_operators(work, **kw)
+        except HochrechnungUeberBudget as stopp:
+            ueber, gaps = stopp, stopp.gaps
     # Fail-closed leftover check: the probe run must not have changed the REAL working tree at
     # all (v1.4 isolation makes this structurally true; this assert catches any regression).
     status_after = _worktree_status(ROOT)
@@ -2335,6 +2424,14 @@ def main(argv: list[str] | None = None) -> int:
     # operators" meldet, obwohl er elf gefahren hat, macht die Summenpruefung des Sammel-Jobs
     # wertlos — sie wuerde jedes Mal aufgehen.
     _shard_txt = "" if shard is None else f" shard={shard[0]}/{shard[1]}"
+    if ueber is not None:
+        # NOT MEASURED, NEVER GREEN: the closing line carries neither OK nor FAILED, so the summary
+        # job reads no operator count from it and fails the shard; the exit code is its own.
+        h = ueber.hochrechnung
+        print(f"=> NICHT MESSBAR (projection {h['lauf_s'] / 3600:.1f} h above the budget of "
+              f"{h['budget_s'] / 3600:.1f} h, stopped after {h['nach_operatoren']} of {h['von_operatoren']} "
+              f"operators, {gaps} gap(s)){_shard_txt} total={len(MUTATIONS)}")
+        return RC_UEBER_BUDGET
     # `total=` STEHT HIER, DAMIT ES NIRGENDWO SONST GETIPPT WERDEN MUSS (2026-09-07). Der
     # Sammel-Job der CI prueft, ob die Shards zusammen die ganze Liste gefahren haben, und hielt
     # seine Erwartung als Konstante `ERWARTET=88`. Am 2026-09-06 kamen zwoelf Operatoren dazu
