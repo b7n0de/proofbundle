@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- Repository tools, outside the installed package. The pre-commit hook (`scripts/git-hooks/pre-commit`) asks whether every file under `scripts/` has a decision in `MANIFEST.in` before the commit, when a staged path lies under `scripts/`, deletions included. It runs the same test node CI runs, against the staged snapshot written out with `git checkout-index` and not against the working tree (`tests/test_the_hook_asks_before_the_long_job.py`). Without pytest it says so on stderr and lets the commit through; CI stays the gate.
+
 ## [6.3.1] - 2026-10-21
 
 6.3.1 is a patch release following 6.3.0, with stricter verification and changes to public result reporting. `automation.referencesResolved` is `None` rather than `True` when no reference was checked. The eval-result, in-toto and SVR verifiers require the in-toto Statement v1 layer and report `statement_ok` separately from `signature_ok`. These and the six predicate verifiers named below require subjects that identify artifacts by digest. `verify_decision_receipt` derives executed-outcome evidence levels from the digest reference; `action_outcome_proven` and `ok` are unchanged. The inspect_ai adapter records sample counts and early-stopping metadata supplied by the log, and the `inspect` extra admits `inspect_ai` up to 0.3.281. Other entries cover validation, error handling, package contents and repository tools. Some public exception paths remain open, as described below.
