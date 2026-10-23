@@ -25,7 +25,7 @@ from ._membership import is_member
 from .canonical import _bytes_von, _ein_stand
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
+           "plain_bytes", "plain_text", "verify_ecdsa_p256", "verify_ecdsa_p384", "canonical_es256_signature"]
 
 
 # --- RFC 7515 §4.1.11 critical-header handling (Nachtrag 50, Z309 / 6.2.0) ------------------------
@@ -319,6 +319,46 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
+
+
+@_ein_stand
+def verify_ecdsa_p384(public_key: bytes, signature: bytes, message: bytes) -> bool:
+    """Return True iff ``signature`` is a valid ECDSA P-384 with SHA-384 (ES384, RFC 7518 section 3.4)
+    signature over ``message``.
+
+    The P-384 counterpart of :func:`verify_ecdsa_p256`, with the same contract: ``public_key`` is the
+    97-byte SEC1 UNCOMPRESSED point (``0x04 || X(48) || Y(48)``), ``signature`` the 96-byte raw
+    ``R || S``, converted for ``cryptography`` with ``encode_dss_signature``. A point that is not on
+    the curve, and any malformed input, returns False and never raises. Verification only: this
+    package makes no ECDSA signature. Added for the TRACE Trust Record verifier
+    (``adapters.trace_record``, section 3.2.1 of the TRACE specification names ES384).
+    """
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
+        return False
+    if len(public_key) != 97 or public_key[:1] != b"\x04" or len(signature) != 96:
+        return False
+    try:
+        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP384R1(), public_key)
+        r = int.from_bytes(signature[:48], "big")
+        s = int.from_bytes(signature[48:], "big")
+        pub.verify(encode_dss_signature(r, s), message, ec.ECDSA(hashes.SHA384()))
+        return True
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+
+
+def _ec_point_on_curve(crv: str, point: bytes) -> bool:
+    """Whether ``point`` is a SEC1 uncompressed point on the named curve (``P-256`` or ``P-384``), for a
+    caller that has to refuse a key before any signature is checked under it. Never raises."""
+    curve = {"P-256": ec.SECP256R1, "P-384": ec.SECP384R1}.get(crv) if type(crv) is str else None
+    if curve is None or type(point) is not bytes:
+        return False
+    try:
+        ec.EllipticCurvePublicKey.from_encoded_point(curve(), point)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 #: The order n of the P-256 group (FIPS 186-5, SEC 2 secp256r1). The r and s of an ES256 signature
