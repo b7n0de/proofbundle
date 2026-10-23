@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they are merged.
+
+### Added
+
+- **Line Z381 of the scope for 6.4.0**, a decision proof for the Rust verifier `pb_verify_rs` and two workflows that run it. `formal/z381_pruefentscheidung` proves over the domains D1 to D6 that `verify-bundle` gives every input exactly one verdict of the closed list, without a panic and the same verdict twice, built from the bytes of the shipped verifier source; `paritaet_python.py` measures the Rust and the Python verdict over the same argv and file bytes; Kani harnesses with decidable bounds carry one planted counter-check per property. The workflow `decision-proof` runs the proof with the real binary and five mutants that must turn it red on every pull request, advisory until its first runs are measured. The workflow `kani-nightly` runs k5 and k6 every night from a Kani 0.67.0 whose crate and bundle are pinned by sha256.
+
+### Fixed
+
+- **`pb_verify_rs` reads its command line as the Python CLI does under CPython 3.13 (Z381).** It reads argv with `args_os`, so a path that is not UTF-8 reaches the file read and a text argument that is not UTF-8 is a usage error (exit 2) instead of a panic (exit 101). `verify-bundle` requires `schema` `proofbundle/v0.1`, `signature.alg` `ed25519` and `merkle.hash_alg` `sha256-rfc6962` before the cryptography, refuses `--allow-pending` without an anchor requirement, takes only `receipt`, `preRegistration` or `statement` for `--anchor-target`, and reads `--expected-tree-size` as Python's `int()` reads it. `verify-bundle` and `verify-relation` read their argument values before the signature, an option takes the next word only when argparse takes it as an argument, and `verify-bundle`, `verify-relation` and `verify-relation-statement` read the words after the subcommand with argparse's rules, `--pub` included. These readings follow CPython 3.13 (Unicode 15.1), and 3.12 reads the measured digits the same way. Under Python 3.10 and 3.11 a digit that Unicode added later, such as a Kawi digit in `--expected-tree-size`, is a usage error for the Python CLI and a number for `pb_verify_rs`; under Python 3.14 a digit of Unicode 16.0, such as a Garay digit, is a number for the Python CLI and a usage error for `pb_verify_rs`. A help word and an option that only Python carries out stay different on purpose; `CROSS_IMPLEMENTATION_REPORT.md` states both as a contract, and names the earlier relation form without `--pub`, which `pb_verify_rs` still reads and the Python CLI refuses, as a residual.
+- The independent cap1 verifier `cap1_verify_rs` reads argv with `args_os`, so a file under a name that is not UTF-8 gets a verdict instead of a panic (Z381).
+
 ## [6.3.1] - 2026-10-21
 
 6.3.1 is a patch release following 6.3.0, with stricter verification and changes to public result reporting. `automation.referencesResolved` is `None` rather than `True` when no reference was checked. The eval-result, in-toto and SVR verifiers require the in-toto Statement v1 layer and report `statement_ok` separately from `signature_ok`. These and the six predicate verifiers named below require subjects that identify artifacts by digest. `verify_decision_receipt` derives executed-outcome evidence levels from the digest reference; `action_outcome_proven` and `ok` are unchanged. The inspect_ai adapter records sample counts and early-stopping metadata supplied by the log, and the `inspect` extra admits `inspect_ai` up to 0.3.281. Other entries cover validation, error handling, package contents and repository tools. Some public exception paths remain open, as described below.
