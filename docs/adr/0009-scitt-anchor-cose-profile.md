@@ -465,7 +465,7 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 | `consistency_proof_missing` | no `vdp`, no -2, or an empty -2 (4.1, 4.2) |
 | `consistency_payload_attached` | the newer root is not detached (4.1) |
 | `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
-| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given or taken from the header (4) |
+| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given (4) |
 | `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -05 (G5) |
 | `consistency_path_not_canonical` | with both sizes: a proof's path describes no node of the tree of n leaves |
 | `consistency_anchor_position_mismatch` | with both sizes: a proof's tags are not those of RFC 9162 2.1.4.1 for m and n (for a proof that does not recompute the older root, for the m its anchor implies), so its anchor is not the root of T[m-2^t] .. T[m-1] (4) |
@@ -477,13 +477,17 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 
 `confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that the implemented checks
 passed without both tree sizes being available. It does not establish strict growth or the full
-anchor rule. `confirmed` requires both sizes and the corresponding checks; the sizes must be bound
-to the roots under the caller's trust model and our local txid-to-size rule. The older size is the caller's (`older_size`), bound
+anchor rule. `confirmed` requires both sizes and the corresponding checks; both sizes are the
+caller's, bound to the roots under the caller's trust model. Draft -06, section "Consistency
+Receipts": a verifier that needs m or n MUST obtain them from a source it trusts independently of
+the receipt, so the reader takes neither from the receipt. The older size (`older_size`) is bound
 like `older_root` to the state it came from, typically the seqno of the txid of the inclusion
-receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
-none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
-is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement of -05
-(`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
+receipt that verified it; the newer size (`newer_size`) likewise, typically from the inclusion
+receipt the caller verified for the newer state. Until 2026-10-23 the reader took the newer size
+from this receipt's own `ccf.v1` txid where the caller gave none; now that txid only has to agree
+with a newer size the caller gives (`consistency_newer_size_mismatch`). That a seqno is the tree size
+its signature covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a
+requirement of the draft (`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
 exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it
 does not establish canonical tags. Without sizes, an anchor that is no node of the newer tree,
 such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5

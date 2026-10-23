@@ -82,7 +82,7 @@ CONSISTENCY_STATUS_ORDER = (
     "consistency_proof_missing",         # 4.1: vdp MUST carry -2 with one or more proofs
     "consistency_payload_attached",      # 4.1: the payload (the newer root) MUST be detached
     "consistency_newer_roots_differ",    # 4.1: every proof MUST compute to the same newer root
-    "consistency_tree_sizes_invalid",    # 4: 0 < m < n, for the sizes given or from the header
+    "consistency_tree_sizes_invalid",    # 4: 0 < m < n, for the sizes the caller gives
     "consistency_newer_size_mismatch",   # PROOFBUNDLE'S OWN RULE, not a requirement of -05: the
                                          # caller's newer size is not the header txid's (G5)
     "consistency_path_not_canonical",    # 4, both sizes: the path is no node of the newer tree
@@ -98,14 +98,14 @@ CONSISTENCY_STATUS_ORDER = (
 MAX_CONSISTENCY_PROOFS = 8
 #: confirmed_without_tree_sizes means that the implemented checks passed without both tree sizes
 #: being available. It does not establish strict growth or the full anchor rule. confirmed requires
-#: both sizes and the corresponding checks; the sizes must be bound to the roots under the caller's
-#: trust model and our local txid-to-size rule.
+#: both sizes and the corresponding checks; both sizes are the caller's, bound to the roots under the
+#: caller's trust model. Draft -06, section "Consistency Receipts": a verifier that needs m or n MUST
+#: obtain them from a source it trusts independently of the receipt, so neither is taken from it.
 CONFIRMED_WITHOUT_TREE_SIZES = "confirmed_without_tree_sizes"
 #: The largest tree size taken: a tree of more leaves has paths longer than 64, beyond MAX_PATH.
 MAX_TREE_SIZE = 1 << 64
 #: A CCF transaction ID "view.seqno" in ASCII digits without leading zeros, as CCF 7.0.17 writes it.
 _TXID = re.compile(r"(0|[1-9][0-9]{0,19})\.(0|[1-9][0-9]{0,19})")
-_SIZE_FROM_HEADER = "protected header ccf.v1 txid"
 
 #: The closed set of statuses, in the order that decides an entry without a confirmed receipt.
 STATUS_ORDER = ("no_lib", "malformed", "outside_profile", "unbound", "statement_signature_invalid",
@@ -910,9 +910,14 @@ def _is_tree_size(x: Any) -> bool:
 def _txid_tree_size(txid: Optional[str]) -> Optional[int]:
     """The tree size a CCF signature at this txid covers: its seqno, leaf 0 counted.
 
-    PROOFBUNDLE'S OWN RULE, not a requirement of -05, which relates no txid to a tree size
+    PROOFBUNDLE'S OWN RULE, not a requirement of the draft, which relates no txid to a tree size
     (SECTION4_WGLC.md, G5). Measured on CCF 7.0.17: the signature at seqno s signs the tree of s
-    leaves, leaf 0 being 32 zero bytes. Anything but "view.seqno" in ASCII digits yields None."""
+    leaves, leaf 0 being 32 zero bytes. Anything but "view.seqno" in ASCII digits yields None.
+
+    It only CROSS-CHECKS a newer size the caller gives (``consistency_newer_size_mismatch``) and is
+    never the size itself: -06, section "Consistency Receipts", requires a verifier that needs m or
+    n to obtain them from a source it trusts independently of the receipt, and this txid is part of
+    the receipt."""
     hit = _TXID.fullmatch(txid) if isinstance(txid, str) else None
     return int(hit.group(2)) if hit else None
 
@@ -986,19 +991,15 @@ def _left_siblings_rule(tags: tuple, m: int) -> Optional[tuple]:
 
 def _consistency_sizes(older_size: Any, newer_size: Any, txid: Optional[str]) -> tuple:
     """(m, n, source of n, refusal): the sizes the anchor rule is checked with, refusal None or
-    (status, detail). A size the caller gives must be one; the header's is used where the caller
-    gives none."""
+    (status, detail). Both sizes are the caller's and must be tree sizes. The receipt's own txid is
+    never taken as n (-06, section "Consistency Receipts": a source trusted independently of the
+    receipt); it only has to agree with a newer size the caller gives."""
     header = _txid_tree_size(txid)
     for name, value in (("older_size", older_size), ("newer_size", newer_size)):
         if value is not None and not _is_tree_size(value):
             return None, None, None, ("consistency_tree_sizes_invalid",
                                       f"{name} is not a tree size, an int from 1 to 2^64")
-    if newer_size is not None:
-        n, source = newer_size, "caller"
-    elif header is not None:
-        n, source = header, _SIZE_FROM_HEADER
-    else:
-        n, source = None, None
+    n, source = (newer_size, "caller") if newer_size is not None else (None, None)
     m = older_size
     refusal = None
     if m is not None and n is not None and not (_is_tree_size(n) and m < n):
@@ -1007,7 +1008,7 @@ def _consistency_sizes(older_size: Any, newer_size: Any, txid: Optional[str]) ->
     elif newer_size is not None and header is not None and header != newer_size:
         refusal = ("consistency_newer_size_mismatch",
                    f"newer_size is {newer_size}, the header's txid {txid!r} yields {header} "
-                   "(proofbundle's own rule, not a requirement of -05; SECTION4_WGLC.md, G5)")
+                   "(proofbundle's own rule, not a requirement of the draft; SECTION4_WGLC.md, G5)")
     return m, n, source, refusal
 
 
@@ -1223,17 +1224,21 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     relying-party key for that issuer and kid verifies the receipt signature over the newer root
     (4.2). confirmed_without_tree_sizes means that the implemented checks passed without both tree
     sizes being available. It does not establish strict growth or the full anchor rule. confirmed
-    requires both sizes and the corresponding checks; the sizes must be bound to the roots under the
-    caller's trust model and our local txid-to-size rule. Anything else is one of
-    ``CONSISTENCY_STATUS_ORDER``, the first that applies.
+    requires both sizes and the corresponding checks; both sizes are the caller's, bound to the roots
+    under the caller's trust model. Anything else is one of ``CONSISTENCY_STATUS_ORDER``, the first
+    that applies.
 
-    THE TREE SIZES. ``older_size`` is the size of the state ``older_root`` came from; like
-    ``older_root`` it is the caller's to bind, and the reader cannot see where it came from. The
-    caller takes it from the txid of the receipt that verified ``older_root``. ``newer_size`` is
-    taken from this receipt's own protected header (``ccf.v1`` txid) where the caller gives none,
-    and must equal it where both are known. That the seqno of a txid is the tree size its signature
-    covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement
-    of -05 (SECTION4_WGLC.md, G5).
+    THE TREE SIZES. Both are the caller's. Draft -06, section "Consistency Receipts": "A Verifier
+    that needs `m` or `n` MUST obtain them from a source it trusts independently of the receipt", so
+    the reader takes neither from this receipt. ``older_size`` is the size of the state
+    ``older_root`` came from; like ``older_root`` it is the caller's to bind, and the reader cannot
+    see where it came from, typically the txid of the receipt that verified ``older_root``.
+    ``newer_size`` likewise, typically the txid of an inclusion receipt the caller verified for the
+    newer state. Where the caller gives ``newer_size`` and this receipt's protected header carries a
+    ``ccf.v1`` txid, the two must agree (``consistency_newer_size_mismatch``): that the seqno of a txid
+    is the tree size its signature covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf
+    0 counted, not a requirement of the draft (SECTION4_WGLC.md, G5). Without ``newer_size`` the
+    result is at most ``confirmed_without_tree_sizes``, whatever the txid says.
 
     THE ANCHOR CHECK. With both sizes the check is complete: the proof that recomputes
     ``older_root`` must carry exactly the tags of RFC 9162 2.1.4.1 for m and n, which puts its anchor
@@ -1375,6 +1380,6 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
                else "not checked beyond the first tag")
         return out(CONFIRMED_WITHOUT_TREE_SIZES,
                    detail=f"the anchor rule of section 4 was {how}, and 0 < m < n not at all: "
-                          f"{missing} not known (older_size from the caller, newer_size from the "
-                          "caller or this receipt's ccf.v1 txid)")
+                          f"{missing} not known (both from the caller, from a source independent "
+                          "of this receipt)")
     return out(CONFIRMED)
