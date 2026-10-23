@@ -721,6 +721,10 @@ _ECDSA_WATCHED = _CURVE_FLOOR | _installed_curves() | {
     "generate_private_key", "derive_private_key", "EllipticCurvePrivateKey",
     "EllipticCurvePrivateNumbers", "get_curve_for_oid", "_CURVE_TYPES"}
 _ECDSA_ALLOWED = frozenset({("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
+                            # 2026-10-16: the ES384 VERIFIER (`signature.verify_ecdsa_p384`) for TRACE
+                            # Trust Records. The curve's name is allowed in signature.py as P-256's is;
+                            # a path that SIGNS on P-384 is still found by its key maker and its call.
+                            ("signature.py", "SECP384R1"),
                             ("anchors_rootcommit.py", "SECP256k1")})
 
 
@@ -847,9 +851,10 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
                 copy_of.write_text(source + "\n\n" + plant, encoding="utf-8")
                 if not _ecdsa_inventory(pathlib.Path(tmp)) - _ECDSA_ALLOWED:
                     missed.append(what)
-        # SECP256R1 is the verifier's own curve in signature.py, so its name alone is allowed there;
-        # a path that SIGNS on it is found by the key maker and by the signing call
-        self.assertEqual(sorted(missed), ["SECP256R1 by string", "SECP256R1 named"])
+        # SECP256R1 and SECP384R1 are the verifiers' own curves in signature.py, so their names alone
+        # are allowed there; a path that SIGNS on either is found by the key maker and by the signing call
+        self.assertEqual(sorted(missed), ["SECP256R1 by string", "SECP256R1 named",
+                                          "SECP384R1 by string", "SECP384R1 named"])
 
 
 class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
