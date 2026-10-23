@@ -86,7 +86,9 @@ def main() -> int:
         rc_make, _ = quiet(make_example.main, ["--reply", str(d / "reply.in"), "--out", str(d / "out"),
                                                "--key", str(HERE / "example.key"),
                                                "--declared-at", "2026-10-11T08:30:00Z"])
-        rc_own, _ = quiet(check_example.main, d / "out")
+        # the case is signed with example.key; the checker is told that key, not the folder's publickey.hex
+        own_key = make_example.load_key(HERE / "example.key").public_key().public_bytes_raw()
+        rc_own, _ = quiet(check_example.main, d / "out", own_key)
         cross = d / "cross"
         shutil.copytree(baseline, cross, ignore=shutil.ignore_patterns("toyrepo"))
         (cross / "reply.txt").write_bytes(raw)

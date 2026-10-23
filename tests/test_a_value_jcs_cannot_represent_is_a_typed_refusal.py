@@ -189,7 +189,7 @@ def _wrappers() -> dict:
                              relation_statement, run_ledger, subject_binding, trust_pack,
                              verification_summary, verifier_block)
     from proofbundle._statement_payload import load_statement_strict  # noqa: PLC0415
-    from proofbundle.adapters import _provenance, eee  # noqa: PLC0415
+    from proofbundle.adapters import _provenance, eee, trace_record  # noqa: PLC0415
     from proofbundle.errors import BundleFormatError  # noqa: PLC0415
     return {
         ("agent_review", "_rfc8785_bytes"): (AR._rfc8785_bytes, AR.AgentReviewError),
@@ -220,6 +220,11 @@ def _wrappers() -> dict:
         # A producer helper that labels its fallback instead of refusing: the answer is a string.
         ("adapters._provenance", "config_hash"): (_provenance.config_hash, "sha256-sortkeys:"),
         ("adapters.eee", "_record_digest"): (eee._record_digest, "sha256-sortkeys:"),
+        # The TRACE verifier's serializer passes the refusal on, as the primitives do: its one caller,
+        # `verify_trace_record`, hands it only a record that the strict parser and `_canonicalizable`
+        # have read, and those refuse each of these values first, as an unreadable record with exit 2
+        # (tests/test_trace_record.py).
+        ("adapters.trace_record", "_jcs"): (trace_record._jcs, ValueError),
         # The primitives pass the canonicalizer's refusal on unchanged: that is their documented
         # contract (canonical.canonicalize_statement), and every caller above maps it.
         ("canonical", "canonicalize_statement"): (canonical.canonicalize_statement, ValueError),
@@ -365,6 +370,11 @@ _BUDGET_ANSWERS: dict = {
     # this tree (2026-10-18): `canonicalize` and `emit_eval_receipt` in front of it refuse all three.
     ("evalclaim", "_jcs_bytes"): {"lone surrogate": EvalClaimError, "nesting 70 deep": b'{"x":[',
                                   "2**8194": EvalClaimError},
+    # `trace_record._jcs` calls rfc8785 without the package's budget as well: seventy levels are written,
+    # and a lone surrogate and 2**8194 are RFC 8785's own refusals, passed on (measured 2026-10-22). The
+    # strict parser in front of it refuses all three, so no record that reaches it holds one.
+    ("adapters.trace_record", "_jcs"): {"lone surrogate": ValueError, "nesting 70 deep": b'{"x":[',
+                                        "2**8194": ValueError},
 }
 
 #: Entries of `_wrappers` this section does not ask, each with the reason.

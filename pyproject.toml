@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "6.3.0"
+version = "6.3.1"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -134,13 +134,35 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # concerns a control channel this package does not call.
 # The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
 #
+# 2026-10-16, THE MEASURED BUMP 0.3.266 -> 0.3.281 (6.3.1, IA1). The line above was true until this
+# paragraph. 0.3.281 is the newest release on PyPI that day (uploaded 2026-10-15). Each of 0.3.267 to
+# 0.3.281 (there is no 0.3.274) in its own FRESH venv on python 3.12.3, 0.3.281 again on 3.11.17 and
+# 3.13.16, and 0.3.266 and 0.3.280 on 3.10.20, with this package as a wheel built from 7fb7f0b2, whose
+# src is that of main 22aa954e, no mocks. The command, per version and interpreter:
+#   uv venv --python <python> <venv>
+#   uv pip install --python <venv>/bin/python "proofbundle[eval] @ file://<wheel>" \
+#       "inspect_ai==<version>" "pytest==9.1.1"
+#   PROOFBUNDLE_RELEASE_LANE=1 <venv>/bin/python -m pytest -q tests/test_inspect_hook.py \
+#       tests/test_adapters.py
+# and, in the same venv, a probe of the entry points and of the `Hooks` API:
+#   * entry-point discovery finds `proofbundle` and it loads, `ProofbundleHooks` is a `Hooks` subclass,
+#     the API still has 17 `on_*` methods, and `on_task_end`, the one this package overrides, is among them
+#   * the two test files, run together: 19 passed, nothing skipped, nothing failed, in every version and
+#     interpreter named above; under PROOFBUNDLE_RELEASE_LANE=1 an absent inspect_ai fails, never skips
+# 0.3.281 is the first release that requires python >=3.11; 0.3.280 and the ones before require >=3.10.
+# The floor here is python 3.10, so under this ceiling a 3.10 install resolves 0.3.280 and 3.11 to 3.14
+# resolve 0.3.281 (`uv pip compile --python-version <v>`, 2026-10-16); both are measured above, and
+# 0.3.281 itself does not install on 3.10 (measured). The changelogs of 0.3.267 to 0.3.281 were NOT read
+# for this bump: what is admitted is what was run.
+# The ceiling still stays a ceiling: 0.3.282 and later are UNMEASURED and therefore excluded.
+#
 # 2026-10-18, THE COUNT MOVED, from 10 to 13 cases in `test_adapters.py` (three cases for a run that
 # stopped early), and the two files were run again instead of the number being raised. Each of
 # 0.3.261 through 0.3.266 in its own FRESH env (python 3.10.12, `inspect_ai==<version>` plus this
 # package built from the branch, no mocks): the two files run together, 22 passed, nothing skipped,
 # nothing failed, in every one of the six versions. Measured at 4480c5d7 and again at e1b835a0,
 # which reads the early stop as the library writes it and binds a count only when the log set it.
-inspect = ['inspect_ai>=0.3.112,<=0.3.280']
+inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -163,7 +185,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.280']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (76 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (77 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -182,7 +204,9 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.280']
 #   reader beside `_strict_json`), and mypy **2.3.0** was re-run over the 75 and exits 0. On
 #   2026-10-17 it became 76 (`src/proofbundle/_schema_shapes.py`, the one definition of the three
 #   shapes the predicate schemas share, read as ECMA-262), and mypy **2.3.0** was re-run over the 76
-#   and exits 0. The other seven versions were NOT re-run for any of the six new files; that is the
+#   and exits 0. On 2026-10-22 it became 77 (`src/proofbundle/adapters/trace_record.py`, the
+#   independent verifier of TRACE v0.2 Trust Records), and mypy **2.3.0** was re-run over the 77 and
+#   exits 0. The other seven versions were NOT re-run for any of the seven new files; that is the
 #   same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated
 #   here rather than absorbed into the sentence above.
 #
@@ -200,7 +224,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.280']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.18", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.280']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.281']
 
 [project.urls]
 Homepage = "https://b7n0de.com"

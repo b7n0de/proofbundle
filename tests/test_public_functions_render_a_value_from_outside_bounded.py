@@ -106,10 +106,13 @@ _EXCLUDED_MODULES = {
 _SIBLING_BRANCH_FILES = frozenset({"intoto.py", "_verdict.py", "sdjwt_issue.py", "canonical.py",
                                    "evalclaim.py"})
 
-#: A module that documents a builtin exception as its refusal.
+#: A module, or one function of it, that documents a builtin exception as its refusal.
 _DOCUMENTED_BUILTIN = {
     "proofbundle._wire_b64": (binascii.Error,),       # module docstring, EXCEPTIONS
     "proofbundle.adapters._provenance": (ValueError,),  # _als_text, add_provenance, bind_reported_version
+    # One function, not the module: verify_trace_record never raises in its body, and a module-wide
+    # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
+    "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
 }
 
 #: Per-call time limit in seconds, and the functions with a shorter one because a planted number is
@@ -445,6 +448,61 @@ def _claim_of_the_test_key() -> dict:
     return claim
 
 
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _trace_jwk() -> dict:
+    """The public JWK of the fixed test key "a", the key the TRACE seeds sign with."""
+    return {"kty": "OKP", "crv": "Ed25519", "x": _b64url(_test_key().public_key().public_bytes_raw())}
+
+
+_TRACE_NOW = 1792000000
+
+
+def _trace_record_call():
+    """A TRACE v0.2 record in the embedded form, signed by the fixed test key "a" over its RFC 8785 form,
+    and a call that supplies every expectation, so a seed reaches freshness and each expectation check."""
+    import rfc8785
+    from proofbundle.adapters.trace_record import TRACE_PROFILE_V0_2
+    body = {
+        "eat_profile": TRACE_PROFILE_V0_2, "iat": _TRACE_NOW - 60,
+        "subject": "spiffe://trust.example.org/agent/payments/prod",
+        "model": {"provider": "example-provider", "model_id": "example-model"},
+        "runtime": {"platform": "software-only", "measurement": "sha384:" + "c9" * 48, "nonce": "challenge-1"},
+        "policy": {"bundle_hash": "sha256:" + "b2" * 32, "enforcement_mode": "enforce"},
+        "data_class": "confidential",
+        "tool_transcript": {"hash": "sha256:" + "d4" * 32, "call_count": 3},
+        "build_provenance": {"slsa_level": 2, "digest": "sha256:" + "e5" * 32},
+        "appraisal": {"status": "none", "verifier": "https://verifier.example.org"},
+        "cnf": {"jwk": _trace_jwk()},
+    }
+    signed = dict(body, signature=_b64url(_test_key().sign(rfc8785.dumps(body))))
+    return (json.dumps(signed).encode("utf-8"),), dict(
+        trusted_keys=[_trace_jwk()], now=_TRACE_NOW, max_age_seconds=86400, max_future_skew_seconds=300,
+        expected_nonce="challenge-1", expected_policy_hashes=["sha256:" + "b2" * 32],
+        expected_subjects=["spiffe://trust.example.org/agent/payments/prod"],
+        expected_transcript_hash="sha256:" + "d4" * 32, accepted_profiles=[TRACE_PROFILE_V0_2])
+
+
+def _trace_verdict(tmp: Path):
+    from proofbundle.adapters.trace_record import verify_trace_record
+    a, k = _trace_record_call()
+    return [((verify_trace_record(*a, **k),), {})]
+
+
+def _p384_call(tmp: Path):
+    """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+    key = ec.derive_private_key(int.from_bytes(_FIXED_SEED_A, "big"), ec.SECP384R1())
+    nums = key.public_key().public_numbers()
+    r, s = decode_dss_signature(key.sign(b"message", ec.ECDSA(hashes.SHA384())))
+    return [((b"\x04" + nums.x.to_bytes(48, "big") + nums.y.to_bytes(48, "big"),
+              r.to_bytes(48, "big") + s.to_bytes(48, "big"), b"message"), {})]
+
+
 #: Seeds built at run time: a file, a key object or a callable, which the recording cannot hold.
 _HAND_SEEDS = {
     "proofbundle._integration.emit_claim_receipt": _emit_claim,
@@ -506,6 +564,12 @@ _HAND_SEEDS = {
         ("EdDSA", _test_key().public_key().public_bytes_raw()), {})],
     "proofbundle.sdjwt_issue.issue_sd_jwt": lambda tmp: [(
         (_claim_of_the_test_key(), _test_key()), {"root_b64": base64.b64encode(b"\x00" * 32).decode()})],
+    # The TRACE v0.2 verifier and its ES384 primitive, public since they were cut from main before this
+    # file seeded every family member; a signed record and a P-384 signature need a key at run time.
+    "proofbundle.adapters.trace_record.exit_code": _trace_verdict,
+    "proofbundle.adapters.trace_record.jwk_thumbprint": lambda tmp: [((_trace_jwk(),), {})],
+    "proofbundle.adapters.trace_record.verify_trace_record": lambda tmp: [_trace_record_call()],
+    "proofbundle.signature.verify_ecdsa_p384": _p384_call,
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
@@ -585,7 +649,8 @@ def _class_escape(exc: BaseException) -> bool:
 def _typed(qual: str, exc: BaseException) -> bool:
     if type(exc).__module__.split(".")[0] == "proofbundle":
         return True
-    return isinstance(exc, _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ()))
+    erlaubt = _DOCUMENTED_BUILTIN.get(qual, ()) + _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ())
+    return isinstance(exc, erlaubt)
 
 
 def _internal_error(antwort) -> bool:
@@ -824,6 +889,7 @@ _WRONG_TYPE_GAPS: dict = {
         "adapters/_provenance.py:bind_reported_version TypeError",
     },
     "adapters.agt_receipt.exit_code": {"adapters/agt_receipt.py:exit_code AttributeError"},
+    "adapters.trace_record.exit_code": {"adapters/trace_record.py:exit_code AttributeError"},
     "adapters.eee.from_eee_dataset": {
         "adapters/eee.py:_extract_score TypeError", "adapters/eee.py:_load TypeError",
         "adapters/eee.py:_pick_metric AttributeError", "adapters/eee.py:from_eee_dataset AttributeError",
@@ -1119,3 +1185,11 @@ def test_the_planted_values_do_what_they_stand_for():
             json.dumps(_VALUES[label]())
     with pytest.raises(_Rendered):
         f"{_Hostile()!r}"
+
+
+def test_a_builtin_documented_by_one_function_does_not_cover_its_module():
+    """The counter-reading of 2026-10-22 (F-1): a module-wide entry for `trace_record` let a ValueError planted
+    in `verify_trace_record`, whose body never raises, pass as typed. The entry names `jwk_thumbprint` alone."""
+    assert _typed("proofbundle.adapters.trace_record.jwk_thumbprint", ValueError("x"))
+    assert not _typed("proofbundle.adapters.trace_record.verify_trace_record", ValueError("x"))
+    assert _typed("proofbundle.adapters._provenance.add_provenance", ValueError("x"))   # a module entry still holds

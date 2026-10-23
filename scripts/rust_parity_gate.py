@@ -37,7 +37,8 @@ CLI:
   python scripts/rust_parity_gate.py [--json] [--markdown] [--strict] [--rust-bin PATH]
 
 Exit code: 0 always, UNLESS --strict is passed and a registry-integrity problem (STALE_COVERED_CLAIM /
-UNTRACKED / ORPHANED) exists, in which case exit 1. PENDING entries never cause a non-zero exit, in
+UNTRACKED / ORPHANED, or a binary that is there and whose coverage-report is not valid evidence) exists, in
+which case exit 1. PENDING entries never cause a non-zero exit, in
 any mode — an honestly-declared gap is not a failure.
 """
 from __future__ import annotations
@@ -180,10 +181,29 @@ def rust_match_arms(rust_main: Path = RUST_MAIN) -> set[str]:
     return set(_MATCH_ARM_RE.findall(rust_main.read_text(encoding="utf-8")))
 
 
+class CoverageReportInvalid(ValueError):
+    """The measured binary is there, but what it answers to `coverage-report` is not valid evidence."""
+
+
+def _coverage_subcommands(report) -> list:
+    """The subcommand list of a coverage report, or CoverageReportInvalid. Only an object whose
+    `verify_subcommands` is a list of strings is evidence; `{}`, another type or another shape is not, and an
+    explicitly empty list stays the evidence that the binary covers nothing (CODEX-630-K7)."""
+    if type(report) is not dict:
+        raise CoverageReportInvalid(f"the coverage-report is {type(report).__name__}, not an object")
+    subcommands = report.get("verify_subcommands")
+    if type(subcommands) is not list or not all(type(s) is str for s in subcommands):
+        raise CoverageReportInvalid("the coverage-report carries no list of strings under verify_subcommands")
+    return subcommands
+
+
 def rust_coverage_report(rust_bin: Optional[Path] = None) -> Optional[dict]:
     """Run the built binary's self-declared `coverage-report`. Returns None (never a fabricated empty
     dict) when no binary is available — an honest DATA_BLOCKED for that one cross-check layer, not a
-    silent pass and not a failure (cargo is not assumed to be installed everywhere this gate runs)."""
+    silent pass and not a failure (cargo is not assumed to be installed everywhere this gate runs).
+    A binary that is there and does not answer with valid evidence (it does not run, exits non-zero, prints
+    no JSON, or JSON of another shape) raises CoverageReportInvalid: present invalid evidence is neither
+    absent evidence nor a skipped comparison (CODEX-630-K7)."""
     # ONE binary is measured, the first that is named: the caller's, else the one tests/_pb_verify_rs.py pins
     # (as crosscheck.py reads it), else the target lookup. A named binary that is missing is DATA_BLOCKED and is
     # never replaced by another: the fallback measured the pin when a test named a missing binary to simulate
@@ -203,14 +223,16 @@ def rust_coverage_report(rust_bin: Optional[Path] = None) -> Optional[dict]:
             proc = subprocess.run(
                 [str(candidate), "coverage-report"], capture_output=True, text=True, timeout=10
             )
-        except OSError:
-            continue
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CoverageReportInvalid(f"{candidate} is there but does not run: {type(exc).__name__}") from None
         if proc.returncode != 0:
-            continue
+            raise CoverageReportInvalid(f"{candidate} coverage-report exited {proc.returncode}")
         try:
-            return json.loads(proc.stdout.strip())
+            report = json.loads(proc.stdout.strip())
         except ValueError:
-            continue
+            raise CoverageReportInvalid(f"{candidate} coverage-report printed no JSON") from None
+        _coverage_subcommands(report)
+        return report
     return None
 
 
@@ -226,8 +248,14 @@ def evaluate(*, src_dir: Path = SRC, registry_path: Path = REGISTRY_PATH, rust_m
     registry = load_registry(registry_path)
     entries = registry.get("entries", {})
     arms = rust_match_arms(rust_main)
-    coverage = rust_coverage_report(rust_bin)
-    cov_subcommands = set(coverage["verify_subcommands"]) if coverage else None
+    # Absent evidence (no binary) skips the binary comparison; present invalid evidence never does, it is a
+    # problem of every claim that names a subcommand and of the registry's integrity (CODEX-630-K7).
+    coverage_problem = None
+    try:
+        coverage = rust_coverage_report(rust_bin)
+    except CoverageReportInvalid as exc:
+        coverage, coverage_problem = None, str(exc)
+    cov_subcommands = set(_coverage_subcommands(coverage)) if coverage is not None else None
     crosscheck_text = _crosscheck_text(crosscheck_py)
 
     items: list[dict] = []
@@ -278,6 +306,10 @@ def evaluate(*, src_dir: Path = SRC, registry_path: Path = REGISTRY_PATH, rust_m
             if subcommand not in arms:
                 problem = f"claims rust_subcommand {subcommand!r} but it is not a match arm in main.rs"
                 break
+            if coverage_problem is not None:
+                problem = (f"claims rust_subcommand {subcommand!r} but the built binary's coverage-report is "
+                           f"not valid evidence: {coverage_problem}")
+                break
             if cov_subcommands is not None and subcommand not in cov_subcommands:
                 problem = (f"claims rust_subcommand {subcommand!r} but the built binary's "
                            "coverage-report does not list it")
@@ -308,7 +340,7 @@ def evaluate(*, src_dir: Path = SRC, registry_path: Path = REGISTRY_PATH, rust_m
     def _pct(n: int) -> float:
         return round(100.0 * n / total, 1) if total else 0.0
 
-    registry_integrity_ok = not (untracked or orphaned or stale)
+    registry_integrity_ok = not (untracked or orphaned or stale or coverage_problem)
     return {
         "schema": "proofbundle.rust_parity_gate.v1",
         "total_python_verify_surfaces": total,
@@ -319,7 +351,8 @@ def evaluate(*, src_dir: Path = SRC, registry_path: Path = REGISTRY_PATH, rust_m
         "orphaned": orphaned,
         "stale": stale,
         "registry_integrity_ok": registry_integrity_ok,
-        "binary_available": coverage is not None,
+        "binary_available": coverage is not None or coverage_problem is not None,
+        "coverage_report_problem": coverage_problem,
         "items": items,
     }
 
@@ -333,6 +366,8 @@ def _format_human(result: dict) -> str:
         + ("" if result["binary_available"] else "  [rust binary not built — coverage-report "
                                                   "cross-check skipped for un-built claims]"),
     ]
+    if result.get("coverage_report_problem"):
+        lines.append(f"  Rust-Parity: COVERAGE_REPORT_INVALID — {result['coverage_report_problem']}")
     for item in result["items"]:
         status = item["status"]
         if status == STATUS_PENDING:
