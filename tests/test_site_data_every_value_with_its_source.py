@@ -813,7 +813,13 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
                     names = {f(v) for f in house}
                     assert len(names) == 1, (v, names)
                     assert RSD._stage_name(v)[0] == names.pop(), v
-        versions = [f"{a}.{b}.{c}" for a in (0, 6, 12, 123) for b in (0, 3, 9) for c in range(10)]
+        # A release with a pre, post, dev or local suffix, as this repository has tagged them.
+        for v in ("6.4.1rc1", "6.4.1.post1", "6.4.1+ubuntu1", "1.0.0a2", "2.0.0b1", "5.1.0.post1",
+                  "6.4.1.dev3"):
+            names = {f(v) for f in house}
+            assert len(names) == 1, (v, names)
+            assert RSD._stage_name(v)[0] == names.pop(), v
+        versions =[f"{a}.{b}.{c}" for a in (0, 6, 12, 123) for b in (0, 3, 9) for c in range(10)]
         for v in versions:
             (tmp_path / "audit_artifacts" / house[0](v)).mkdir(parents=True)
         monkeypatch.setattr(RSD, "REPO", tmp_path)
@@ -821,7 +827,7 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
             d = RSD.audit_state_field(v)["audit_state"]
             assert d.get("value") == house[0](v), (v, d)
 
-    def test_only_a_release_triple_gets_a_stage(self, tmp_path, monkeypatch):
+    def test_only_a_release_version_gets_a_stage(self, tmp_path, monkeypatch):
         """FOUND BY A REVIEW LENS: every other string was taken by exclusion.
 
         "631", "63.1" and "6.31" named 631/ like 6.3.1, "6.3.1.0" named the folder the refused
@@ -832,13 +838,36 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
         for name in ("631", "6310", "99999"):
             (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
         monkeypatch.setattr(RSD, "REPO", tmp_path)
-        for v in ("631", "63.1", "6.31", "6.3.1.0", "6.3.1rc1", "6.3.1.post1", "v6.3.1", " 6.3.1",
-                  "6.3.1\n", "...", ".", "", "6.3.", "٦.٣.١"):
+        for v in ("631", "63.1", "6.31", "6.3.1.0", "6.3.1.10", "v6.3.1", " 6.3.1", "6.3.1\n",
+                  "...", ".", "", "6.3.", "6.3.1+1", "6.3.1/../x", "٦.٣.١"):
             d = RSD.audit_state_field(v)
             assert d["audit_state"].get("not_measurable") is True, (v, d["audit_state"])
             assert "value" not in d["audit_link"], (v, d["audit_link"])
         # COUNTER-CONTROL on the same tree: the release triple still names its folder.
         assert RSD.audit_state_field("6.3.1")["audit_state"].get("value") == "631"
+
+    def test_a_release_with_a_suffix_finds_the_folder_its_receipt_is_filed_in(self, tmp_path,
+                                                                              monkeypatch):
+        """FOUND BY CODEX on this pull request: the derivation and the lookup disagreed.
+
+        The receipt tools file the receipt of 6.4.1rc1 under audit_artifacts/641rc1/, and the stage
+        list held only names made of digits, so the folder could never be found and the evidence of
+        such a release was reported absent. The lookup now asks for the exact derived folder. The
+        tree also holds 641/ and 640/, so a derivation that drops the suffix or the patch lands on a
+        real folder and the case can tell.
+        """
+        for name in ("640", "641", "641rc1", "641post1", "641+ubuntu1"):
+            (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        for v, stage in (("6.4.1rc1", "641rc1"), ("6.4.1.post1", "641post1"),
+                         ("6.4.1+ubuntu1", "641+ubuntu1")):
+            d = RSD.audit_state_field(v)
+            assert d["audit_state"].get("value") == stage, (v, d["audit_state"])
+            assert d["audit_link"].get("value") == "audit_artifacts/" + stage + "/", (
+                v, d["audit_link"])
+        # A suffixed release whose folder is absent is a gap, never the folder without the suffix.
+        d = RSD.audit_state_field("6.4.1rc2")
+        assert d["audit_state"].get("not_measurable") is True, d["audit_state"]
 
     def test_a_folder_named_with_a_non_ascii_digit_is_no_stage(self, tmp_path, monkeypatch):
         # `str.isdigit` accepts "²" and `int()` refuses it, so the numeric sort raised. Measured by a

@@ -577,10 +577,14 @@ def _stage_name(version: str) -> tuple[str | None, str | None]:
     the README linked 631/ correctly. A second rule for one name holds until the first case its
     author did not think of.
 
-    ONLY A RELEASE TRIPLE GETS A NAME, and a review lens measured why. Taking every other string by
-    exclusion let "6.3.1", "631", "63.1" and "6.31" all name 631/, and a version made only of dots
-    gave the empty name, which fell through to the newest stage. Every audit folder in this tree
-    belongs to a version X.Y.Z, so anything else is a gap with its reason, not a guess.
+    ONLY A RELEASE VERSION GETS A NAME, and a review lens measured why. Taking every other string by
+    exclusion let "6.3.1", "631", "63.1" and "6.31" all name 631/, "6.3.1.0" named the folder of the
+    refused 6.3.10, and a version made only of dots gave the empty name, which fell through to the
+    newest stage. A release version is X.Y.Z, optionally followed by a suffix that starts with a
+    letter after at most one separator, as in 6.4.1rc1, 6.4.1.post1 or 6.4.1+ubuntu1. Codex found
+    the other side on this pull request: the receipt of 6.4.1rc1 is filed under 641rc1/, so such a
+    release must get that name, and the lookup must find that folder (see `audit_state_field`).
+    Anything else is a gap with its reason, not a guess.
 
     A MINOR OR A PATCH OF TWO DIGITS HAS NO UNAMBIGUOUS NAME, so 6.10.0 and 61.0.0 are both "6100",
     and 6.3.10 and 63.1.0 both "6310". Rather than pick one reading, the generator refuses: a stage
@@ -593,14 +597,15 @@ def _stage_name(version: str) -> tuple[str | None, str | None]:
     concrete partner a reader can check, and `stages` lists what is actually present, so nothing is
     hidden - only the DERIVATION is refused.
     """
-    m = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+    m = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)((?:[.+-]?[A-Za-z][0-9A-Za-z.+-]*)?)", version)
     if m is None:
         return None, (f"the stage name for version {version!r} is not derivable: a name is derived "
-                      "only for a release version X.Y.Z, and every audit folder of this tree "
-                      "belongs to one")
+                      "only for a release version X.Y.Z, optionally with a suffix that starts with "
+                      "a letter, as the receipt tools file it")
     name = version.replace(".", "")
     if len(m.group(2)) > 1 or len(m.group(3)) > 1:
-        partner = f"{name[:-2]}.{name[-2]}.{name[-1]}"
+        core = m.group(1) + m.group(2) + m.group(3)
+        partner = f"{core[:-2]}.{core[-2]}.{core[-1]}{m.group(4)}"
         return None, (
             f"the stage name for version {version} is not derivable: the name is the version "
             f"without its dots, and with a minor of {m.group(2)} and a patch of {m.group(3)} it is "
@@ -632,7 +637,11 @@ def audit_state_field(version_value) -> dict:
     if expected_gap:
         return {"audit_state": _gap(source="audit_artifacts/", stages=stages, reason=expected_gap),
                 "audit_link": _gap(source="audit_artifacts/", reason=expected_gap)}
-    if expected and expected not in stages:
+    # THE EXACT FOLDER, NOT THE LIST OF NUMERIC STAGES. A suffixed release is filed under a name
+    # with letters (641rc1/), which the numeric list never holds, so a lookup in that list reported
+    # the evidence of such a release absent (found by Codex on this pull request). `_stage_name` only
+    # returns names made of ASCII letters, digits, "+" and "-", so the name cannot leave the folder.
+    if expected and not (d / expected).is_dir():
         return {"audit_state": _gap(
                     source="audit_artifacts/", stages=stages,
                     reason=(f"for version {version_value} stage {expected} would be expected; it "
