@@ -5631,3 +5631,54 @@ by the session is caught only where the gate measures the session (D90); a chain
 spans lines keeps the ask of D3, with or without this rule (a sibling, owner question in the report); the pin of D114 and
 the record of D106 read the command as written, so R1 does not free a commit with the message form under the pin (owner
 question). Tests: tests/test_plugin_n48_d117_word_no_call.py.
+
+## D118. A completion message ends only with evidence that names a checked count above zero (Nachtrag 47, 2026-10-23)
+
+Owner choice of 2026-10-20 (Nachtrag 47): the Stop hook with evidence, next. Delta's look back at 89d2e8b7 counted five
+completion messages without evidence (F1 to F5) and none held. Measured in Nachtrag 47 (messung/stop_f1_f5.jsonl): at
+89d2e8b7 the Stop hook ran only the declared done check (D26, D28), and neither repository declares one, so all five
+ended silently; D80 (Nachtrag 32) came after 89d2e8b7, and at db5ea274 it holds all five as it rebuilt them. What D80
+still let end at db5ea274 (tests/test_plugin_n47_claim_count_d118.py, red there):
+
+- a status of green, holds or OK without a test word or a script word ("Abnahme grün", "N46 hält", "Alles OK");
+- a verdict word with a suffix (WITHSTANDS_DEEPGATE, the word of delta's F2);
+- a run whose own exit code is 0 but that names no checked count above zero (`Ran 0 tests`, `5 tests collected`,
+  `rows 0 of 0` beside OK, no output at all);
+- a check script whose exit code is not its own (a pipe without pipefail after it).
+
+The house rules the rule follows: who reports green names the checked set; zero checked items are never green; exit
+codes without a pipe; claim nothing that was not measured.
+
+The rule, under Claude Code, where D80 runs (claim_check):
+
+- Words, in addition to D80's closed list (_claim_status): green (grün, gruen, green), holds (hält, holds) and OK in
+  capitals, each as the status of a clause of at most eight words without a test word (D80 judges those as the tests)
+  or a script word (D80 judges those as a check script); OK not as the first word of its sentence; holds not where a
+  word after it in its clause makes another verb of it (an, auf, fest, zurück, für, back, up, …: "hält die Meldung an",
+  "holds back"). A word of _CLAIM_TAKEN_BACK among the four words before, or one of it or of wäre, sei, erst, only among
+  the three after, takes the status back, and so does a sentence that names red ones. A verdict word may carry a suffix
+  of capitals and digits after an underscore.
+- Evidence for a status: the last test run or check-script run after the last change (a script run at the last change,
+  since D80 counts it as one) exits 0 with its own exit code and names a checked count above zero; each Python version a
+  green status names needs a test run that names it (D80). There is evidence only where a run is: a status without any
+  run is held, also where the transcript shows no change.
+- The count (_claim_count): for a test run the tests its runner names as passed or run (`5 passed`, `Ran 4 tests`,
+  `Tests: 5 passed`); for any other run the largest whole number of its own, not a part of a decimal, a duration, a
+  path, a name or an id. D80's evidence for the tests and for a check script needs it as well, and a check script's exit
+  code must be its own; D80's own wording stays where it already names the gap (no number beside OK).
+- A repository may declare what a completion needs (.proofbundle/done-claims.json, schema
+  proofbundle-plugin/done-claims/v0.1, keys schema and evidence; each entry id and program, 1 to 8 words). For a claim
+  of done, the tests, green, holds or OK each declared entry needs a run after the last change whose program (by the
+  last part of its path; any python for python, its switches before -m read over) and following words begin as
+  declared, that exits 0 with its own exit code and names a checked count above zero. The gate reads the declaration at
+  HEAD, at the default branch of the remote origin and in the work tree, and takes the union: a session drops no entry
+  by changing one of them. A declaration that is there but does not hold its form holds every completion claim with one
+  line that names it. Examples, not checked in: plugins/proofbundle/examples/done-claims/.
+- The line, the cap of two equal blocks and the log are D80's; a new kind of claim names itself (green, holds, ok).
+
+Profiles: there is no setting for a delivery profile in the plugin (P-2, INACTIVE, O45-3); the rule runs where D80 runs,
+the house profile. Nachtrag 47 asks for an observing delivery profile until M2, O45-3 decided the delivery profile off
+until M2 (owner question). Not under Codex (D80). Limits, named: the words are a closed list, not an understanding of
+the message; a count is read from the output a run left in the transcript, not measured again; a runner that names no
+count (go test without -v) gives no evidence; a declaration at a remote other than origin is not read; the evidence
+of a subagent stands in a transcript the hook does not read (D80). Tests: tests/test_plugin_n47_claim_count_d118.py.

@@ -19365,8 +19365,26 @@ _CLAIM_TEST_RED = re.compile(r"(?i)(?<![\w.-])[1-9][0-9]* (failed|failing|errors
 _CLAIM_PUSHED = re.compile(r"(?i)(?<!\w)(gepusht|gepushed|pushed)(?![\w-])")
 _CLAIM_MERGED = re.compile(r"(?i)(?<!\w)(gemergt|gemerged|merged|gelandet|landed)(?![\w-])")
 _CLAIM_LOCAL = re.compile(r"(?i)(?<![\w-])(lokal|lokale|lokalen|locally|local)(?![\w-])")
-_CLAIM_VERDICT = re.compile(r"(?<![\w/-])(WITHSTANDS|PASS|PASSED|FREIGABE|FREIGEGEBEN)(?![\w/-])")
+_CLAIM_VERDICT = re.compile(r"(?<![\w/-])(WITHSTANDS|PASS|PASSED|FREIGABE|FREIGEGEBEN)(?:_[A-Z0-9]+)*(?![\w/-])")
 _CLAIM_OK = re.compile(r"(?<![\w/-])OK(?![\w/-])")
+#: D118: a status of its clause without a test word or a script word: green, holds, OK (Nachtrag 47).
+_CLAIM_GREEN = re.compile(r"(?i)(?<![\w-])(grün|gruen|green)(?![\w-])")
+_CLAIM_HOLDS = re.compile(r"(?i)(?<![\w-])(hält|haelt|holds)(?![\w-])")
+#: D118: a word after hält or holds in its clause that makes it another verb (anhalten, festhalten, für etwas halten,
+#: hold back): the clause claims nothing.
+_CLAIM_HOLDS_OTHER = re.compile(r"(?i)(?<![\w-])(an|auf|fest|zurück|zurueck|für|fuer|ab|aus|ein|inne|still|stand|"
+                                r"back|up|off|on|onto|out|for)(?![\w-])")
+#: D118: the words after a status word that take it back in addition to _CLAIM_TAKEN_BACK: a subjunctive or "only then".
+_CLAIM_TAKEN_BACK_AFTER = frozenset({"wäre", "wären", "sei", "seien", "erst", "only"})
+#: D118: a count of tests a runner names as run or passed; a checked count of any run is a whole number of its own.
+_CLAIM_TEST_RAN = re.compile(r"(?i)(?<![\w.-])([0-9]+) (?:passed|bestanden)(?![\w-])|(?<![\w-])Ran ([0-9]+) tests?(?![\w-])"
+                             r"|(?<![\w-])Tests?: +([0-9]+) passed(?![\w-])")
+_CLAIM_WHOLE = re.compile(r"(?<![\w./:,-])([0-9]+)(?![\w./:%-]|[.,][0-9])")
+#: D118: the evidence a repository declares a completion needs, read where it is committed, pushed and in the work tree.
+DONE_CLAIMS_FILE = EVIDENCE_DIR + "done-claims.json"
+DONE_CLAIMS_SCHEMA = "proofbundle-plugin/done-claims/v0.1"
+MAX_DONE_CLAIMS_BYTES = 64 * 1024
+MAX_DONE_CLAIMS_EVIDENCE = 16
 _CLAIM_SCRIPT_WORD = re.compile(r"(?i)(?<![\w-])(skript|script|prüfskript|pruefskript|checkskript|crosscheck|"
                                 r"kreuzprobe|probe|prüfung|pruefung|check|verify|verifier|prüfer)(?![\w-])"
                                 r"|(\S+\.(?:sh|py|bash))(?![\w-])")
@@ -19379,7 +19397,8 @@ _CLAIM_QUOTED = re.compile(r"„[^“”\"\n]{0,200}[“”\"]|“[^”\n]{0,200
 _CLAIM_FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
 #: What a claim of each kind says, for the reason.
 _CLAIM_NAMES = {"done": "the work is done", "tests": "the tests pass", "pushed": "it is pushed",
-                "merged": "it is merged or landed", "verdict": "a verdict", "script": "a check script reported OK"}
+                "merged": "it is merged or landed", "verdict": "a verdict", "script": "a check script reported OK",
+                "green": "a checked set is green", "holds": "it holds", "ok": "it is OK"}
 
 
 def _claim_text(message: str) -> str:
@@ -19395,6 +19414,34 @@ def _claim_taken_back(clause: str, start: int) -> bool:
     """Whether a word of _CLAIM_TAKEN_BACK, or a word ending in n't, stands among the four words before the claim."""
     words = [w.lower() for w in _CLAIM_WORDS.findall(clause[:start])][-4:]
     return any(w in _CLAIM_TAKEN_BACK or w.endswith(("n't", "n’t")) for w in words)
+
+
+def _claim_status(clause: str, sentence: str, red: bool, versions: list, kinds: set) -> list[tuple]:
+    """D118 (Nachtrag 47): the status words of a clause of at most eight words that claim a checked set without a test
+    word or a script word: green ("Abnahme grün"), holds ("N46 hält", not where a word after it makes another verb of
+    it: "hält … an", "holds back"), OK in capitals that is not the first word of its sentence. Not in a sentence that
+    names red ones, not where D80 found the tests or a check script in the clause, not where a word of
+    _CLAIM_TAKEN_BACK stands among the four words before it or a word of either list among the three after it."""
+    if len(_CLAIM_WORDS.findall(clause)) > 8:
+        return []
+
+    def taken_back(m: re.Match) -> bool:
+        after = [w.lower() for w in _CLAIM_WORDS.findall(clause[m.end():])][:3]
+        return _claim_taken_back(clause, m.start()) or any(
+            w in _CLAIM_TAKEN_BACK or w in _CLAIM_TAKEN_BACK_AFTER for w in after)
+
+    found = []
+    m = _CLAIM_GREEN.search(clause)
+    if m and not red and "tests" not in kinds and not taken_back(m):
+        found.append(("green", m.group(0), {"versions": versions}))
+    m = _CLAIM_HOLDS.search(clause)
+    if m and not taken_back(m) and not _CLAIM_HOLDS_OTHER.search(clause[m.end():]):
+        found.append(("holds", clause[:m.end()], {}))
+    m = _CLAIM_OK.search(clause)
+    if (m and "script" not in kinds and not taken_back(m)
+            and _CLAIM_WORDS.findall(sentence)[:1] != ["OK"]):
+        found.append(("ok", clause[:m.end()], {}))
+    return found
 
 
 def message_claims(message: str) -> list[dict]:
@@ -19446,6 +19493,7 @@ def message_claims(message: str) -> list[dict]:
             if m and script and not _claim_taken_back(clause, m.start()):
                 found.append(("script", clause[min(m.start(), script.start()):max(m.end(), script.end())],
                               {"script": os.path.basename(script.group(2)) if script.group(2) else None}))
+            found += _claim_status(clause, sentence, red, versions, {k for k, _w, _e in found})
             for kind, words, extra in found:
                 claims.append({"kind": kind, "words": words[:60], "digests": [], "commits": [], "versions": [],
                                "script": None, **extra})
@@ -19751,7 +19799,7 @@ def _claim_command(command: str, depth: int = 0) -> dict:
     call after its switches, "gh": the words of each gh call}. A command the gate cannot read changes and runs
     nothing."""
     out = {"change": True, "test": False, "own": False, "versions": [], "words": set(), "scripts": [], "git": [],
-           "gh": []}
+           "gh": [], "script_own": False, "programs": []}
     parsed = _claim_runs(command) if depth <= MAX_NESTING else None
     if parsed is None:
         return out
@@ -19782,16 +19830,19 @@ def _claim_command(command: str, depth: int = 0) -> dict:
     inner = any(_claim_command(body, depth + 1)["change"] for body in _subst_bodies(command))
     out["test"] = bool(tests)
     out["change"] = inner or (any(n > tests[-1] for n in changes) if tests else bool(changes))
-    own = bool(tests) and ops[-1] != "&"
-    for n in tests:
+
+    def own_exit(n: int) -> bool:
         before = ops[:n]
         last_list = max((i for i, op in enumerate(before) if op in (";", "&")), default=-1)
-        if "||" in before[last_list + 1:]:
-            own = False
-        for op in ops[n:len(runs) - 1]:
-            if op != "&&" and not (op == "|" and pipefail is not None and pipefail < n):
-                own = False
-    out["own"] = own
+        return ops[-1] != "&" and "||" not in before[last_list + 1:] and all(
+            op == "&&" or (op == "|" and pipefail is not None and pipefail < n) for op in ops[n:len(runs) - 1])
+
+    out["own"] = bool(tests) and all(own_exit(n) for n in tests)
+    # D118: the same rule for the script runs and for every program a declaration of done-claims.json may name
+    script_runs = [n for n, run in enumerate(runs) if _claim_script(*_claim_program(run)) is not None]
+    out["script_own"] = bool(script_runs) and all(own_exit(n) for n in script_runs)
+    out["programs"] = [([name] + [a[0] for a in args], own_exit(n), n in tests)
+                       for n, (name, args) in enumerate(_claim_program(run) for run in runs) if name]
     return out
 
 
@@ -19852,7 +19903,7 @@ def _claim_evidence_calls(calls: list[dict]) -> dict:
     """What the transcript shows for the claim check: the index of the last change, the passing test runs after it
     with their own exit code and their versions, the last test run after it (any outcome), the script runs, the git
     fetches and pushes that succeeded, the merges of gh or of the GitHub tools that succeeded."""
-    last_change, runs, scripts, remote, merges, shown, known = -1, [], [], [], [], {}, {}
+    last_change, runs, scripts, remote, merges, shown, known, programs = -1, [], [], [], [], {}, {}, []
     for n, call in enumerate(calls):
         name, inp = call["name"], call["input"]
         if name in _CLAIM_EDIT_TOOLS:
@@ -19880,7 +19931,11 @@ def _claim_evidence_calls(calls: list[dict]) -> dict:
             runs.append({"at": n, "own": info["own"], "ok": succeeded, "versions": info["versions"],
                          "text": call["text"] or "", "words": info["words"]})
         for script in info["scripts"]:
-            scripts.append({"at": n, "script": script, "ok": succeeded, "text": call["text"] or ""})
+            scripts.append({"at": n, "script": script, "ok": succeeded, "text": call["text"] or "",
+                            "own": info["script_own"]})
+        for words, own, is_test in info["programs"]:   # D118: the runs a declaration of done-claims.json may name
+            programs.append({"at": n, "words": words, "own": own, "ok": succeeded, "test": is_test,
+                             "text": call["text"] or ""})
         if succeeded:
             for words in info["git"]:
                 if words[:1] in (["fetch"], ["pull"], ["push"]) or words[:2] == ["remote", "update"]:
@@ -19889,7 +19944,7 @@ def _claim_evidence_calls(calls: list[dict]) -> dict:
                 if words[:2] == ["pr", "merge"] and "--auto" not in words:
                     merges.append(n)
     return {"last_change": last_change, "runs": runs, "scripts": scripts, "remote": remote, "merges": merges,
-            "versions_shown": shown, "count": len(calls)}
+            "versions_shown": shown, "count": len(calls), "programs": programs}
 
 
 def _claim_tests_open(claim: dict, seen: dict, done_passed: bool) -> tuple[str, str] | None:
@@ -19915,6 +19970,10 @@ def _claim_tests_open(claim: dict, seen: dict, done_passed: bool) -> tuple[str, 
                                                                                 "again, or report them as red")
         return ("the exit code of the last test run after the last change is not its own (a pipe without pipefail, a "
                 "list or || after the runner)"), step
+    good = [r for r in good if _claim_count(r["text"], True) > 0]   # D118: zero checked tests are never green
+    if not good:
+        return ("the last passing test run after the last change names no checked count above 0",
+                "run the tests so that the runner names how many passed, and quote that count")
     missing = []
     for version in claim["versions"]:
         if not any(version in run["versions"] or re.search(rf"Python {re.escape(version)}(?![0-9])", run["text"])
@@ -20007,9 +20066,135 @@ def _claim_receipts(repo: str | None) -> list[str]:
     return found
 
 
+def _claim_count(text: str, test: bool) -> int:
+    """D118: the checked count a run names, 0 where it names none: for a test run the tests its runner names as passed
+    or run (`5 passed`, `Ran 4 tests`, `Tests: 5 passed`), for any other run the largest whole number of its own, not
+    a part of a decimal, a duration, a path, a name or an id."""
+    if test:
+        return max((int(next(g for g in m.groups() if g)) for m in _CLAIM_TEST_RAN.finditer(text)), default=0)
+    return max((int(m.group(1)) for m in _CLAIM_WHOLE.finditer(text)), default=0)
+
+
+def _claim_after(run: dict, seen: dict) -> bool:
+    """Whether a run stands after the last change: a test run after it, a script run at it or after it (the run of a
+    script is itself a change, D80)."""
+    return run["at"] > seen["last_change"] or (run["at"] == seen["last_change"] and not run.get("test", True))
+
+
+def _claim_status_open(claim: dict, seen: dict) -> tuple[str, str] | None:
+    """D118: why a status of green, holds or OK has no evidence, and the smallest next step; None where it has. The
+    last test run or check-script run after the last change must exit 0 with its own exit code and name a checked
+    count above 0; each Python version a green status names needs such a test run that names it (D80)."""
+    after = sorted([dict(r, test=True) for r in seen["runs"]] + [dict(s, test=False) for s in seen["scripts"]],
+                   key=lambda r: r["at"])
+    after = [r for r in after if _claim_after(r, seen)]
+    step = ("run the tests or the check after the last change as a command of its own (nothing after it but `&&`, or "
+            "`set -o pipefail` before a pipe) and quote the checked count")
+    if not after:
+        return "no test run or check-script run follows the last change in the transcript", step
+    last = after[-1]
+    if not last["ok"]:
+        return "the last run after the last change did not exit 0", "fix what is red and run it again, or report it as red"
+    if not last["own"]:
+        return ("the exit code of the last run after the last change is not its own (a pipe without pipefail, a list or "
+                "|| after it)"), step
+    if _claim_count(last["text"].replace("OK", " "), last["test"]) == 0:
+        return "the last run after the last change names no checked count above 0", step
+    if claim["versions"]:
+        return _claim_tests_open(claim, seen, False)
+    return None
+
+
+def _done_claims_entries(raw: bytes, where: str) -> list[tuple[str, tuple]]:
+    """D118: the evidence a declaration of done-claims.json names, as (id, program words); GateError where it does not
+    hold its form: exactly the keys schema and evidence, the schema DONE_CLAIMS_SCHEMA, at most
+    MAX_DONE_CLAIMS_EVIDENCE entries of exactly id (a name as in done.checks) and program (1 to 8 words)."""
+    try:
+        doc = strict_json(raw)
+    except (AmbiguousJSON, UnicodeDecodeError, ValueError) as exc:
+        raise GateError(f"{where} is not JSON of one meaning") from exc
+    if not (isinstance(doc, dict) and set(doc) == {"schema", "evidence"} and doc["schema"] == DONE_CLAIMS_SCHEMA
+            and isinstance(doc["evidence"], list) and len(doc["evidence"]) <= MAX_DONE_CLAIMS_EVIDENCE):
+        raise GateError(f"{where} must be an object with exactly the keys schema ({DONE_CLAIMS_SCHEMA}) and evidence, a "
+                        f"list of at most {MAX_DONE_CLAIMS_EVIDENCE} entries")
+    entries = []
+    for n, entry in enumerate(doc["evidence"]):
+        program = entry.get("program") if isinstance(entry, dict) else None
+        if not (isinstance(entry, dict) and set(entry) == {"id", "program"} and isinstance(entry["id"], str)
+                and _CHECK_ID.fullmatch(entry["id"]) and isinstance(program, list) and 1 <= len(program) <= 8
+                and all(isinstance(w, str) and w and len(w) <= 256 and "\0" not in w for w in program)):
+            raise GateError(f"{where} evidence[{n}] must be an object with exactly the keys id and program (1 to 8 "
+                            "words)")
+        entries.append((entry["id"], tuple(program)))
+    return entries
+
+
+def done_claims(repo: str | None, deadline: float) -> list[tuple[str, tuple]]:
+    """D118: the evidence a completion needs in the repository, the union of the declarations of done-claims.json at
+    HEAD, at the default branch of the remote origin (origin/HEAD, else origin/main, else origin/master) and in the
+    work tree, so a session drops no entry by changing only one of them; [] where none declares any. GateError where a
+    declaration is there but does not read."""
+    if repo is None:
+        return []
+    found: list[tuple[str, tuple]] = []
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    revs = ["HEAD"] if head.returncode == 0 and _git_value(head.stdout) else []   # a repository without a commit
+    for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"):
+        got = _git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", deadline=deadline)
+        if got.returncode == 0 and _git_value(got.stdout):
+            revs.append(_git_value(got.stdout))
+            break
+    for rev in revs:
+        raw = _blob(repo, rev, DONE_CLAIMS_FILE, deadline, MAX_DONE_CLAIMS_BYTES)
+        if raw is not None:
+            found += _done_claims_entries(raw, f"{DONE_CLAIMS_FILE} at {'HEAD' if rev == 'HEAD' else 'origin'}")
+    try:
+        raw = _read_regular(os.path.join(repo, DONE_CLAIMS_FILE), MAX_DONE_CLAIMS_BYTES + 1)
+    except FileNotFoundError:
+        raw = None
+    except OSError as exc:
+        raise GateError(f"{DONE_CLAIMS_FILE} in the work tree cannot be read ({exc.strerror or exc})") from exc
+    if raw is not None:
+        if len(raw) > MAX_DONE_CLAIMS_BYTES:
+            raise GateError(f"{DONE_CLAIMS_FILE} in the work tree is larger than {MAX_DONE_CLAIMS_BYTES} bytes")
+        found += _done_claims_entries(raw, f"{DONE_CLAIMS_FILE} in the work tree")
+    return list(dict.fromkeys(found))
+
+
+def _claim_declared_open(seen: dict, declared: list[tuple[str, tuple]]) -> tuple[str, str] | None:
+    """D118: the first evidence of done-claims.json without its run: a run after the last change whose program (by the
+    last part of its path; any python for python) and words begin as declared, exits 0 with its own exit code and
+    names a checked count above 0."""
+    def read_over(words: list) -> list:   # a python's switches before -m or the script, as _claim_test_run reads them
+        rest = list(words[1:])
+        while _CLAIM_PYTHON.fullmatch(words[0]) and rest and rest[0].startswith("-") and rest[0] not in ("-m", "-c"):
+            rest = rest[2:] if rest[0] in ("-X", "-W") else rest[1:]
+        return rest
+
+    for ident, program in declared:
+        name = os.path.basename(program[0])
+        runs = [p for p in seen["programs"] if _claim_after(p, seen) and (
+            p["words"][0] == name or (_CLAIM_PYTHON.fullmatch(p["words"][0]) and _CLAIM_PYTHON.fullmatch(name)))
+            and read_over(p["words"])[:len(program) - 1] == list(program[1:])]
+        last = runs[-1] if runs else None
+        if last is None or not (last["ok"] and last["own"]
+                                and _claim_count(last["text"].replace("OK", " "), last["test"]) > 0):
+            return (f"the declared evidence {ident} ({DONE_CLAIMS_FILE}) has no run after the last change with its own "
+                    "exit code 0 and a checked count above 0",
+                    f"run `{' '.join(program)}` after the last change as a command of its own and quote its count")
+    return None
+
+
+#: D118: the claims a declaration of done-claims.json applies to: a completion, not a push, a merge or a verdict.
+_CLAIM_COMPLETION = frozenset({"done", "tests", "green", "holds", "ok"})
+
+
 def _claim_open(claim: dict, seen: dict | None, why: str | None, repo: str | None, done_passed: bool,
-                receipts: list[str] | None, deadline: float) -> tuple[str, str] | None:
-    """Why one claim has no evidence at the current state, and the smallest next step; None where it has (D80)."""
+                receipts: list[str] | None, deadline: float,
+                declared: tuple[list, str | None] | None = None) -> tuple[str, str] | None:
+    """Why one claim has no evidence at the current state, and the smallest next step; None where it has (D80). D118:
+    a completion needs as well the evidence the repository declares (`declared`: its entries and why it does not
+    read)."""
     kind = claim["kind"]
     if kind == "verdict":
         if not claim["digests"]:
@@ -20022,13 +20207,16 @@ def _claim_open(claim: dict, seen: dict | None, why: str | None, repo: str | Non
             return None
         return ("no receipt in .proofbundle/ names the digest of the verdict",
                 "keep a receipt that names exactly that digest in .proofbundle/, or drop the verdict")
+    entries, problem = declared if declared is not None else ([], None)
     if seen is None:
-        if kind in ("done", "tests") and done_passed and not claim["versions"]:
+        if kind in ("done", "tests") and done_passed and not claim["versions"] and not entries and problem is None:
             return None
         return why or "the transcript cannot be read", "end with a status that claims nothing"
     if kind in ("done", "tests"):
-        return _claim_tests_open(claim, seen, done_passed)
-    if kind == "script":
+        found = _claim_tests_open(claim, seen, done_passed)
+    elif kind in ("green", "holds", "ok"):
+        found = _claim_status_open(claim, seen)
+    elif kind == "script":
         runs = [s for s in seen["scripts"] if claim["script"] is None or s["script"] == claim["script"]]
         step = "run the check script again and quote its numbers, not only OK"
         if not runs:
@@ -20038,8 +20226,20 @@ def _claim_open(claim: dict, seen: dict | None, why: str | None, repo: str | Non
             return "the last run of the check script did not exit 0", step
         if not _claim_numbers(last["text"].replace("OK", " ")):
             return "the output of the last run of the check script names no number beside OK", step
+        if not last["own"]:   # D118
+            return ("the exit code of the last run of the check script is not its own (a pipe without pipefail, a "
+                    "list or || after it)"), step
+        if _claim_count(last["text"].replace("OK", " "), False) == 0:   # D118
+            return "the output of the last run of the check script names no checked count above 0", step
         return None
-    return _claim_repo_ok(repo, seen, claim, deadline)
+    else:
+        return _claim_repo_ok(repo, seen, claim, deadline)
+    if found is None and kind in _CLAIM_COMPLETION:   # D118: the evidence the repository declares
+        if problem is not None:
+            return (f"{DONE_CLAIMS_FILE} cannot be read ({problem})",
+                    "a person fixes the declaration in a commit, or end with a status that claims nothing")
+        found = _claim_declared_open(seen, entries)
+    return found
 
 
 def claim_check(event: dict, deadline: float, done_passed: bool = False) -> dict:
@@ -20064,10 +20264,15 @@ def claim_check(event: dict, deadline: float, done_passed: bool = False) -> dict
         if calls is not None:
             seen = _claim_evidence_calls(calls)
             out["count"] = seen["count"]
-    receipts = None
+    receipts, declared = None, None
+    if any(c["kind"] in _CLAIM_COMPLETION for c in claims):   # D118
+        try:
+            declared = (done_claims(repo, deadline), None)
+        except GateError as exc:
+            declared = ([], str(exc))
     for claim in claims:
         try:
-            found = _claim_open(claim, seen, why, repo, done_passed, receipts, deadline)
+            found = _claim_open(claim, seen, why, repo, done_passed, receipts, deadline, declared)
         except GateError:
             found = ("the gate could not read the repository", "end with a status that claims nothing")
         row = {"kind": claim["kind"], "words": claim["words"], "open": None if found is None else found[0],
