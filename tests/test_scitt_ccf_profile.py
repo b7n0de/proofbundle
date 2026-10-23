@@ -328,13 +328,28 @@ def test_structure_no_receipt_is_not_a_transparent_statement():
 @pytest.mark.parametrize("rkw, status", [
     (dict(evidence=""), "malformed"),
     (dict(evidence="x" * 1025), "malformed"),
-    (dict(path_len=0), "malformed"),
     (dict(tagged=False), "outside_profile"),
 ])
 def test_structure_receipt(rkw, status):
     st = Stmt()
     r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), **rkw).build()]))
     assert r.receipts[0].status == status and not r.profile_satisfied
+
+
+def test_structure_an_inclusion_proof_with_an_empty_path_is_a_tree_of_one_leaf():
+    """-06 section 3 writes the inclusion path as `[* ccf-proof-element]` and says "The `path` is empty for a
+    tree of size 1, whose root is the leaf hash". The reader required one to 64 elements for both proof
+    families, so it refused such a receipt as malformed, the valid example of the profile's own samples
+    included (samples/inclusion-receipts/valid/01-one-leaf-empty-path.cbor, draft -06). A consistency proof
+    keeps its lower bound of one, because section 4 writes its path as `[+ ccf-proof-element]`."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), path_len=0).build()]))
+    leaf = hashlib.sha256(hashlib.sha256(b"itx").digest() + hashlib.sha256(Rcpt().evidence.encode()).digest()
+                          + dh_of(st)).digest()
+    assert (r.status, r.receipts[0].status, r.receipts[0].merkle_root) == ("confirmed", "confirmed", leaf)
+    beside = verify(transparent(st, [Rcpt(data_hash=dh_of(st), path_len=0, consistency="same_root").build()]))
+    assert (beside.receipts[0].status, beside.receipts[0].readable) == ("malformed", False)
+    assert "a path has 1 to" in beside.receipts[0].detail
 
 
 def test_structure_leaf_and_path_element_types():

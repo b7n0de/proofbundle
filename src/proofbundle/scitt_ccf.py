@@ -845,7 +845,10 @@ def _receipt_crit(rc: CoseSign1) -> Optional[str]:
     return _crit_ok(rc.protected, _RECEIPT_CRIT_PROCESSED)
 
 
-def _proof_map(p: Any, what: str, keys: str) -> tuple:
+def _proof_map(p: Any, what: str, keys: str, *, min_path: int = 1) -> tuple:
+    """The two keys of a proof map and its path. ``min_path`` is the lower bound of the path: one for a
+    consistency proof (-06 section 4, ``[+ ccf-proof-element]``), zero for an inclusion proof (-06
+    section 3, ``[* ccf-proof-element]``, empty for a tree of size 1)."""
     article = "an" if what[0] in "aeiou" else "a"
     if not isinstance(p, bytes):
         raise _ProofRefused(f"{article} {what} is not a byte string")
@@ -856,8 +859,8 @@ def _proof_map(p: Any, what: str, keys: str) -> tuple:
     if not isinstance(d, dict) or len(d) != 2 or 1 not in d or 2 not in d:
         raise _ProofRefused(f"{article} {what} is exactly {keys}")
     path = d[2]
-    if not (isinstance(path, list) and 1 <= len(path) <= MAX_PATH):
-        raise _ProofRefused(f"a path has 1 to {MAX_PATH} elements")
+    if not (isinstance(path, list) and min_path <= len(path) <= MAX_PATH):
+        raise _ProofRefused(f"a path has {min_path} to {MAX_PATH} elements")
     for e in path:
         if not (isinstance(e, list) and len(e) == 2 and isinstance(e[0], bool)
                 and isinstance(e[1], bytes) and len(e[1]) == 32):
@@ -866,8 +869,9 @@ def _proof_map(p: Any, what: str, keys: str) -> tuple:
 
 
 def _inclusion_root(p: Any) -> tuple:
-    """-05 section 3.2 compute_root of one ccf-inclusion-proof -> (root, data-hash of its leaf)."""
-    leaf, path = _proof_map(p, "inclusion proof", "{1: leaf, 2: path}")
+    """-06 section 3.2 compute_root of one ccf-inclusion-proof -> (root, data-hash of its leaf). An empty
+    path is a tree of one leaf, whose root is the leaf hash (-06 section 3)."""
+    leaf, path = _proof_map(p, "inclusion proof", "{1: leaf, 2: path}", min_path=0)
     if not (isinstance(leaf, list) and len(leaf) == 3):
         raise _ProofRefused("a leaf has three components")
     itx, ev, dh = leaf
