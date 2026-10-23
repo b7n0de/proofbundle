@@ -566,6 +566,50 @@ def proof_log(*, check: bool = True) -> dict:
 
 
 # ── audit_state / audit_link ────────────────────────────────────────────────────────────────────
+def _stage_name(version: str) -> tuple[str | None, str | None]:
+    """(stage name, None) for a release version, or (None, reason) when no name is derivable.
+
+    THE STAGE NAME IS THE ONE THE RECEIPT TOOLS USE, `version.replace(".", "")`, AND NOT A SECOND
+    SCHEME. `pre_tag_receipt.py` writes the receipt under audit_artifacts/<that name>/,
+    `pre_tag_audit_gate.py` and `verify_pre_tag_receipt.py` read it there. This function had
+    major*100 + minor*10 instead, which agrees with them only while the patch level is 0: measured
+    at the tag v6.3.1, the link named audit_artifacts/630/ while 631/ held that release's audit and
+    the README linked 631/ correctly. A second rule for one name holds until the first case its
+    author did not think of.
+
+    ONLY A RELEASE TRIPLE GETS A NAME, and a review lens measured why. Taking every other string by
+    exclusion let "6.3.1", "631", "63.1" and "6.31" all name 631/, and a version made only of dots
+    gave the empty name, which fell through to the newest stage. Every audit folder in this tree
+    belongs to a version X.Y.Z, so anything else is a gap with its reason, not a guess.
+
+    A MINOR OR A PATCH OF TWO DIGITS HAS NO UNAMBIGUOUS NAME, so 6.10.0 and 61.0.0 are both "6100",
+    and 6.3.10 and 63.1.0 both "6310". Rather than pick one reading, the generator refuses: a stage
+    guessed from an ambiguous key would send a reader to another release's audit directory.
+
+    THE COLLISION IS NAMED, NOT ASSERTED. An un cross-reading argued that refusing hides an audit
+    directory a reader could find by other means, and countered with a collision that does not exist
+    (0.1.0 and 1.0.0 give 010 and 100). Measured by brute force: with a minor and a patch of 0..9
+    the name is injective, and from two digits in either place it collides. So the reason names the
+    concrete partner a reader can check, and `stages` lists what is actually present, so nothing is
+    hidden - only the DERIVATION is refused.
+    """
+    m = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+    if m is None:
+        return None, (f"the stage name for version {version!r} is not derivable: a name is derived "
+                      "only for a release version X.Y.Z, and every audit folder of this tree "
+                      "belongs to one")
+    name = version.replace(".", "")
+    if len(m.group(2)) > 1 or len(m.group(3)) > 1:
+        partner = f"{name[:-2]}.{name[-2]}.{name[-1]}"
+        return None, (
+            f"the stage name for version {version} is not derivable: the name is the version "
+            f"without its dots, and with a minor of {m.group(2)} and a patch of {m.group(3)} it is "
+            f"no longer injective - {version} and {partner} would both be {name}. The stages "
+            "present in this tree are listed, so a reader can pick one; what is refused is the "
+            "automatic derivation, not the directory")
+    return name, None
+
+
 def audit_state_field(version_value) -> dict:
     d = REPO / "audit_artifacts"
     if not d.is_dir():
@@ -576,42 +620,14 @@ def audit_state_field(version_value) -> dict:
     # stage. Today every stage name has three digits, so the two orders agree and the defect is
     # latent; it fires with the first four-digit stage. Found while reading the one function no
     # review lens had looked at.
-    stages = [p.name for p in d.iterdir() if p.is_dir() and p.name.isdigit()]
+    #
+    # ASCII DIGITS ONLY: `str.isdigit` accepts "²", which `int()` refuses, so a folder of that name
+    # made the sort raise (measured by a review lens, on main as well).
+    stages = [p.name for p in d.iterdir() if p.is_dir() and p.name.isascii() and p.name.isdigit()]
     stages.sort(key=int)
     expected, expected_gap = None, None
     if isinstance(version_value, str):
-        # THE STAGE NAME IS THE ONE THE RECEIPT TOOLS USE, `version.replace(".", "")`, AND NOT A
-        # SECOND SCHEME. `pre_tag_receipt.py` writes the receipt under audit_artifacts/<that name>/,
-        # `pre_tag_audit_gate.py` and `verify_pre_tag_receipt.py` read it there. This function had
-        # major*100 + minor*10 instead, which agrees with them only while the patch level is 0:
-        # measured at the tag v6.3.1, the link named audit_artifacts/630/ while 631/ held that
-        # release's audit and the README linked 631/ correctly. A second rule for one name holds
-        # until the first case its author did not think of.
-        m = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)(.*)", version_value, re.DOTALL)
-        if m and (len(m.group(2)) > 1 or len(m.group(3)) > 1):
-            # A MINOR OR A PATCH OF TWO DIGITS HAS NO UNAMBIGUOUS NAME, so 6.10.0 and 61.0.0 are both
-            # "6100", and 6.3.10 and 63.1.0 both "6310". Rather than pick one reading, the generator
-            # refuses: a stage guessed from an ambiguous key would send a reader to another release's
-            # audit directory.
-            #
-            # THE COLLISION IS NAMED, NOT ASSERTED. An un cross-reading argued that refusing hides an
-            # audit directory a reader could find by other means, and countered with a collision that
-            # does not exist (0.1.0 and 1.0.0 give 010 and 100). Measured by brute force over major
-            # 0..99: with a minor and a patch of 0..9 the name is injective, 10000 names and zero
-            # collisions; from two digits in either place it collides. So the reason names the
-            # concrete partner a reader can check, and `stages` lists what is actually present, so
-            # nothing is hidden - only the DERIVATION is refused.
-            name = version_value.replace(".", "")
-            core = m.group(1) + m.group(2) + m.group(3)
-            partner = f"{core[:-2]}.{core[-2]}.{core[-1]}{m.group(4)}"
-            expected_gap = (
-                f"the stage name for version {version_value} is not derivable: the name is the "
-                f"version without its dots, and with a minor of {m.group(2)} and a patch of "
-                f"{m.group(3)} it is no longer injective - {version_value} and {partner} would "
-                f"both be {name}. The stages present in this tree are listed, so a reader can pick "
-                "one; what is refused is the automatic derivation, not the directory")
-        else:
-            expected = version_value.replace(".", "")
+        expected, expected_gap = _stage_name(version_value)
     at, note, at_stable = _source_time("audit_artifacts")
     if expected_gap:
         return {"audit_state": _gap(source="audit_artifacts/", stages=stages, reason=expected_gap),
