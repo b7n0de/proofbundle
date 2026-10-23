@@ -124,7 +124,8 @@ after the merge (see *Release ordering* above).
 - [ ] Update `CHANGELOG.md` (Keep-a-Changelog + SemVer; note any breaking change explicitly).
 - [ ] README.md deliberately hard-codes no test-count or version strings (live badges + CI output are the source); only touch README claims that the release genuinely changes.
 - [ ] `make all` green locally (lint + typecheck + tests); `make tamper-demo` exits 0;
-      `make mutation` reports all operators killed (documented-equivalent survivor excepted).
+      `make mutation`, or a sharded run under the conditions at the end of `docs/PRE_TAG_AUDIT.md`,
+      reports all operators killed (documented-equivalent survivors excepted).
       **N20, named residual risk: this criterion has a THIRD state and the line above names two.** Killed and survived are not exhaustive — a run that does not finish reports neither, and a gate that cannot produce a verdict is not the same as a gate that produced a clean one. Read `NICHT MESSBAR` as its own outcome and treat it as unmet, never as passed.
 - [ ] Open the PR; confirm the CI matrix is green on all supported Pythons **and** the
       `crypto-floor` job; **the Owner merges** the PR to the target branch (`main`, or `release/*`

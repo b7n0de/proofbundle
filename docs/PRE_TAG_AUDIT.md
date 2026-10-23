@@ -103,11 +103,11 @@ to prevent.
 
 | | canonical full run | sharded PR gate |
 |---|---|---|
-| command | `python scripts/mutation_check.py` | `--shard i/K`, K jobs in the CI matrix |
-| when | **before every tag** (step B1 of the release run), plus nightly on the Farmer | on every pull request |
-| operators | all 88 in one process, sequentially | 88 split deterministically across K jobs |
-| per-mutant suite | full | minus the named exclusion list |
-| wall clock | ~67 h at `07b6122c` on the Farmer, projected 2026-10-22 from a measured baseline (2089.6 s over 528 test files) and nine measured mutants (2002 s to 2104 s each) for 117 operators; it was ~100 min on 2026-09-02, before the per-mutant selection | longest shard, K=10 → ~1005 s projected |
+| command | `python scripts/mutation_check.py` | `--shard i/K`, K jobs in the CI matrix (K=36), or K processes on the Farmer |
+| when | before a tag, unless a sharded run meets the conditions at the end of this page; plus nightly on the Farmer | on every pull request, and before a tag under the conditions at the end of this page |
+| operators | all 117 of the operator list (2 of them expected survivors), in one process, sequentially | the same 117, split deterministically across K shards |
+| per-mutant suite | the test files that reach the mutated file, minus the named exclusion list; the baseline runs over the same selection | the same as the canonical run, mutant by mutant |
+| wall clock | ~67 h at `07b6122c` on the Farmer, projected 2026-10-22 from a measured baseline (2089.6 s over 528 test files) and nine measured mutants (2002 s to 2104 s each) for 117 operators; it was ~100 min on 2026-09-02, before the per-mutant selection | about 10.5 h for 8 shards on the Farmer at `07b6122c` (below); the K=10 projection of ~1005 s dates from 2026-09-02 |
 | what it settles | the release verdict | whether this change broke the gate |
 
 Measured on the Farmer with the same program split into 8 parallel shards: the 106 operators at `479e01ee`
@@ -144,7 +144,9 @@ The gate never asserted the health of `tests/test_audit_candidate_360.py`; it as
 *mutant* is caught by it. That module's own health is covered elsewhere, and deliberately so:
 
 * the **binding `test` jobs** of the same CI run the full suite on every push, this module included;
-* the **canonical full run** before every tag runs the complete suite in one process.
+* the **full suite before a tag**, whose output the signed pre-tag receipt binds (see above); the
+  mutation run, canonical or sharded, does not run the complete suite, since every mutant runs its
+  selection minus the exclusion list.
 
 Dropping it from the gate's per-mutant suite therefore removes 78 % of the runtime and no coverage.
 What it *did* remove, until the fix above, was the symmetry of the comparison.
@@ -154,11 +156,30 @@ That is an argument, and arguments are not evidence. It was therefore **measured
 1 expected SURVIVED (`cosign: blob length exact -> lax (EQUIVALENT)`), 0 gaps. No operator died only
 through an excluded test; had one, the count would not have reached 87.
 
-### Why the canonical run stays
+### When a sharded run may stand before a tag
 
-The sharded gate answers a narrower question. It runs in K separate processes on a runner we do not
-control, and its per-mutant suite is smaller by construction. Before a tag we want the widest
-statement the tool can make, from one process, with the complete suite — and cheap enough to keep,
-because it runs once per release rather than once per push.
+Until 2026-10-23 this section said that the sharded gate answers a narrower question because its
+per-mutant suite is smaller by construction, that before a tag we want the statement of one process
+with the complete suite, and that a tag is never cut on a sharded run alone.
 
-**A tag is never cut on a sharded run alone.**
+Since Z230 the code no longer works that way. The canonical run and every shard go through the same
+`_run_operators` in `scripts/mutation_check.py`. Each mutant runs the test files that reach its file,
+minus the same exclusion list, and its baseline runs over exactly that selection. A shard differs
+from the canonical run in which operators it carries, not in how it judges one. What remains
+different is the process boundary and, in CI, a runner we do not control.
+
+The canonical run is projected at about 67 h at `07b6122c`. 6.3.1 was tagged on a run in 8 shards on
+the Farmer by owner decision, as 6.3.0 was. By the owner's decision of 2026-10-23 the rule is now:
+
+**A tag may be cut on a sharded run when every shard ran the canonical program at the tag's head and
+the collector shows each operator exactly once, with 0 gaps.**
+
+The collector is the check the `mutation-summary` job carries in `.github/workflows/ci.yml` and
+`.github/workflows/landung.yml`: every shard reported, the shards name the same total, their sets of
+operator indices are pairwise disjoint, and together they cover every operator. A run outside CI has
+to show the same from its shard logs, and the closing line of every shard log has to read `OK` with
+`0 gap(s)`.
+
+What these conditions do not settle: the eight shard baselines of the 6.3.1 run passed 10321 to 10323
+tests, and the cause of that difference was not measured. Each mutant is judged against the baseline
+of its own shard.
