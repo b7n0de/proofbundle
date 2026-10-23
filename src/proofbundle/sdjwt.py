@@ -138,6 +138,57 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
+    """Why the presented disclosures do not resolve to ONE reading of the claims, or None (RFC 9901 section 7.1,
+    CODEX-KLASSENSUCHE-631-01 A1). Each disclosure is placed where its digest stands: a ``[salt, name, value]``
+    disclosure in the object whose ``_sd`` names it, a ``[salt, value]`` disclosure at the array position of its
+    ``{"...": digest}``. In one object a claim name stands once, whether open or disclosed, and is neither ``_sd``
+    nor ``...``; a disclosure stands at one place only. Measured at f6ea5cc3: two disclosures
+    ``[salt0, "passed", false]`` and ``[salt1, "passed", true]`` under one signed ``_sd`` passed in both orders,
+    so a last-wins merge read another value after the order was swapped while both presentations verified."""
+    placed: Set[str] = set()
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            names = {key for key in node if key != "_sd"}
+            sd = node.get("_sd")
+            for dg in (sd if isinstance(sd, list) else ()):
+                if not (isinstance(dg, str) and dg in by_digest):
+                    continue
+                if dg in placed:
+                    return "a disclosure is committed at more than one place (RFC 9901 section 7.1, rejected)"
+                placed.add(dg)
+                parsed = by_digest[dg]
+                if len(parsed) != 3:
+                    return "an array-element disclosure is committed in an object's _sd (RFC 9901 section 7.1, rejected)"
+                name = parsed[1]
+                if not isinstance(name, str) or name in ("_sd", "..."):
+                    return "a disclosure names no valid claim (RFC 9901 section 7.1, rejected)"
+                if name in names:
+                    return (f"the claim name {name!r} stands more than once in one object, disclosed twice or beside "
+                            "an open claim, so the claims have no single reading (RFC 9901 section 7.1, rejected)")
+                names.add(name)
+                stack.append(parsed[2])
+            stack.extend(value for key, value in node.items() if key != "_sd")
+        elif isinstance(node, list):
+            for item in node:
+                if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
+                        and item["..."] in by_digest):
+                    dg = item["..."]
+                    if dg in placed:
+                        return "a disclosure is committed at more than one place (RFC 9901 section 7.1, rejected)"
+                    placed.add(dg)
+                    parsed = by_digest[dg]
+                    if len(parsed) != 2:
+                        return ("an object-property disclosure is committed at an array position (RFC 9901 "
+                                "section 7.1, rejected)")
+                    stack.append(parsed[1])
+                else:
+                    stack.append(item)
+    return None
+
+
 @_ein_stand
 def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     """Verify an SD-JWT compact serialization.
@@ -173,13 +224,15 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     try:
         header = loads_strict(_b64url_decode(header_b64))
         payload = loads_strict(_b64url_decode(payload_b64))
-    except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
+    except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError
         # WP-C1 (F12, 2026-07-12): a DUPLICATE JSON key in the issuer-signed JWT header/payload is a
         # parser differential — plain json.loads is last-wins, so a duplicated `cnf` lets an attacker
         # holder key silently win over the intended one (kbjwt.holder_key_from_cnf). Every other verify
         # path already parses with loads_strict; this closes the documented SD-JWT residual at the
         # structure gate — structure_ok stays False, so the bundle fails fail-closed.
-        result["detail"] = "duplicate JSON key in SD-JWT header/payload (parser-differential, rejected)"
+        # The reader's own reason, bounded (RESTRISIKO_600 S104): a fixed duplicate-key text was false for
+        # a lone surrogate or the budget, and since 2026-10-22 for NaN, a byte order mark or UTF-16 too.
+        result["detail"] = f"SD-JWT header/payload refused: {str(exc)[:200]}"
         return result
     except (ValueError, json.JSONDecodeError):
         result["detail"] = "malformed JWT header or payload"
@@ -226,10 +279,11 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     for d in disclosures:
         try:
             parsed = loads_strict(_b64url_decode(d))
-        except ProofBundleError:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError (dup key)
-            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set a
-            # duplicate-specific detail so it is not masked by the generic "N disclosure(s)" fall-through.
-            result["detail"] = "duplicate JSON key in an SD-JWT disclosure (parser-differential, rejected)"
+        except ProofBundleError as exc:  # incl. BudgetExceeded (RE-GATE never-raise) + BundleFormatError
+            # a disclosure whose JSON value is an object with a duplicate key is rejected (F12); set the
+            # reader's own reason, bounded (S104), so it is not masked by the generic "N disclosure(s)"
+            # fall-through and does not name a duplicate key the disclosure does not have.
+            result["detail"] = f"an SD-JWT disclosure refused: {str(exc)[:200]}"
             all_committed = False
             break
         except (ValueError, json.JSONDecodeError):
@@ -281,6 +335,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         if resolved_count != len(parsed_disclosures):
             # at least one disclosure never became committed — uncommitted / not rooted in the signed payload
             all_committed = False
+        else:
+            # Committed is not yet one reading (A1): every disclosure must resolve at its own place, and no claim
+            # name may stand twice in its object, so no merge order can choose between two signed values.
+            problem = _placement_problem(payload, {dg: group[0][1] for dg, group in digest_groups.items()})
+            if problem is not None:
+                all_committed = False
+                result["detail"] = problem
 
     result["structure_ok"] = all_committed and bool(parts[0])
 

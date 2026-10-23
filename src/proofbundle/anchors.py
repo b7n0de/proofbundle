@@ -262,9 +262,10 @@ def receipt_canonical_root(bundle: dict) -> bytes:
     except BundleFormatError:
         raise
     except (ProofBundleError, ValueError, RecursionError) as exc:
-        # loads_strict admits NaN/Infinity and ints >= 2^53, but rfc8785.dumps rejects them (FloatDomainError /
-        # IntegerDomainError, both ValueError); over-width trips BudgetExceeded (a ProofBundleError); a deep dict
-        # that slips past the budget could still recurse. All map to the documented BundleFormatError, never raw.
+        # a caller's own dict can hold ints >= 2^53 and NaN/Infinity (loads_strict refuses them since 2026-10-22),
+        # but rfc8785.dumps rejects them (FloatDomainError / IntegerDomainError, both ValueError); over-width trips BudgetExceeded (a
+        # ProofBundleError); a deep dict that slips past the budget could still recurse. All map to the documented
+        # BundleFormatError, never raw.
         raise BundleFormatError(
             f"receipt is not RFC 8785 canonicalizable (fail-closed): {exc}") from exc
 

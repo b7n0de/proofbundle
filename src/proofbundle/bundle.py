@@ -736,16 +736,30 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
                     "sd_jwt_vc issuer signature verifies under a key that is NOT the disclosed issuer "
                     "(reason: issuer-key-mismatch — forged identity: a valid signature by the wrong signer)")
 
+            _claim_refused = None
             try:
                 # PB-2026-0718-11: the strict parser owns RecursionError (deep nesting) so a hostile claim
                 # payload maps to a clean None here, never a raw RecursionError traceback out of verify.
                 _claim = loads_strict(decode_b64(bundle["payload_b64"]).decode("utf-8"))
-            except (ValueError, KeyError, TypeError, ProofBundleError):
+            except ProofBundleError as exc:
+                # The strict reader refused the signed payload (a duplicate key, NaN, an integer outside I-JSON,
+                # a number with no finite double, the node budget). Whether it is an eval claim cannot be read,
+                # so it must not read as "no claim": that skipped the binding below and verified the bundle
+                # (counter-reading of 1d96dec0, F1). Demand the binding and fail it, as
+                # _issuer_requires_holder_binding and hf_evals treat the same refusal.
+                _claim, _claim_refused = None, exc
+            except (ValueError, KeyError, TypeError):
                 _claim = None
             _root = _as_dict(bundle.get("merkle")).get("root_b64")
             # only an eval-claim bundle carries the always-open fields check_binds_bundle compares; a
             # non-eval payload with an sd_jwt_vc is out of scope for this binding (nothing to bind against).
-            if isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:
+            if _claim_refused is not None:
+                result.add(
+                    "sd-jwt-bundle-binding", False,
+                    "the signed payload is refused by the strict JSON reader, so whether it is an eval claim "
+                    "that sd_jwt_vc must bind cannot be read (reason: unreadable claim, refused fail-closed: "
+                    f"{str(_claim_refused)[:200]})")
+            elif isinstance(_claim, dict) and _claim.get("schema") == "proofbundle/eval-claim/v0.1" and _root:
                 bound = check_binds_bundle(compact, _claim, _root)
                 result.add(
                     "sd-jwt-bundle-binding", bound,

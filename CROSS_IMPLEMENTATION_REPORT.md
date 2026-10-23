@@ -89,6 +89,27 @@ a SOTA review (2026) confirms OpenTimestamps-over-Bitcoin as the strongest trust
 an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparency logs as lower-latency
 *connected* alternatives.
 
+## Command-line forms that answer differently on purpose (contract)
+
+`pb_verify_rs verify-bundle`, `verify-relation` and `verify-relation-statement` read their words with argparse's
+rules (Z381). Two forms stay different from the Python CLI by decision, and each is a contract, not a gap:
+
+- **R1.** A help word in a verify command (`-h`, `--help` or an abbreviation such as `--he`, also after the path)
+  makes the Python CLI print its help and exit 0 without verifying anything, while `pb_verify_rs` exits 2, so an
+  exit 0 after a help word is never a verdict.
+- **R2.** An option that only the Python CLI carries out (`--json` and `--policy` on `verify-bundle`, `--strict`
+  on `verify-relation`, among others) is refused by `pb_verify_rs` with exit 2 while the Python CLI gives its
+  verdict, because the Rust verifier refuses an option it does not read instead of dropping it, the rule of 6.3.1
+  P2-1.
+
+These readings follow CPython 3.13 (Unicode 15.1). Measured with argparse and `type=int`, as the CLI declares
+`--expected-tree-size`, under CPython 3.10.12, 3.11.15, 3.12.15, 3.13.16 and 3.14.8: 3.12 reads the measured digits
+as 3.13 does. Under 3.10 and 3.11 a digit that Unicode added later, such as a Kawi digit, is a usage error (exit 2)
+for the Python CLI and a number for `pb_verify_rs`; under 3.14 a digit of Unicode 16.0, such as a Garay digit, is a
+number for the Python CLI and a usage error (exit 2) for `pb_verify_rs`. The earlier relation form, the key as a word
+after the path without `--pub`, is still read by `pb_verify_rs` and refused by the Python CLI with exit 2. It is a
+residual of Z381 named in `docs/release_scope/6.4.0.md`, not a contract.
+
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 
 The full O8 `Mindestumfang` from the 3.2.0 implementation prompt grows from this core. The following

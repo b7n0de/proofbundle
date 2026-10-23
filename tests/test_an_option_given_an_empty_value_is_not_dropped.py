@@ -632,6 +632,8 @@ _DATEI_OPTIONEN_OHNE_FALL = {
     ("verify-proof", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
     ("emit-eval", "--claim"): _PFLICHT,
     ("verify-enclave", "--receipt"): _PFLICHT,
+    ("verify-trace", "--key"): _PFLICHT + "; every content that reads as absent names no usable key and is refused "
+                                          "(exit 2, tests/test_trace_record.py)",
     ("anchor upgrade", "--proof"): _PFLICHT,
     ("policy instantiate", "--issuer-key"): _PFLICHT,
 }

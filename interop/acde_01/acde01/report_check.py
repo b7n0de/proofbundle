@@ -6,8 +6,12 @@ checks without the inputs. Each violation names the requirement sentence it come
 from __future__ import annotations
 
 from .profile import MIN_DISPOSITIONS, SUPPORT_MEANINGS
+from .reconcile import RECEIVER_CLASSES
 
 POSITIVE_FAILURES = ("EXPLICIT_FAILURE", "SUBSTITUTION")
+#: The classes an instruction can have (S5.11-4 to S5.11-7, the ones reconcile writes). An entry of any other class
+#: is none the instruction-level equation can count (CODEX-630-K10).
+INSTRUCTION_CLASSES = ("with_obligations", "zero_obligations", "not_closed")
 
 
 def _v(out, req, msg):
@@ -65,11 +69,29 @@ def check_report(report) -> list:
         _v(out, "S6.4-1", "published obligation counts do not equal the per-obligation dispositions")
     if oc.get("O") != sum((oc.get("counts") or {}).values()):
         _v(out, "S6.4-1", "|O| is not the sum of the disposition classes")
+    o_holds = len(obligations) == sum(counts.values()) and oc.get("O") == len(obligations)
+    if oc.get("holds") is not o_holds:
+        _v(out, "S6.4-1", f"the report states the obligation equation holds {oc.get('holds')!r}, and its "
+                          f"per-obligation dispositions give {o_holds}")
 
     instrs = report.get("instructions") if isinstance(report.get("instructions"), list) else []
     ic = cons.get("instructions") or {}
+    # The vocabulary is closed and the equation is recomputed from the report's own entries; a boolean the report
+    # states about itself is compared with that, never trusted (CODEX-630-K10: an instruction of class UNKNOWN with
+    # the counts 0 + 0 left draft_equation_holds true, and the report kept PASS).
+    for e in instrs:
+        cls = e.get("class") if isinstance(e, dict) else None
+        if cls not in INSTRUCTION_CLASSES:
+            _v(out, "S6.4-3", f"instruction {e.get('instruction_id') if isinstance(e, dict) else e!r:.60}: class "
+                              f"{cls!r} is none of {', '.join(INSTRUCTION_CLASSES)}, so the instruction-level "
+                              "equation cannot count it")
+    instrs = [e for e in instrs if isinstance(e, dict)]
     n_with = sum(1 for e in instrs if e.get("class") == "with_obligations")
     n_zero = sum(1 for e in instrs if e.get("class") == "zero_obligations")
+    draft_holds = len(instrs) == n_with + n_zero
+    if ic.get("draft_equation_holds") is not draft_holds:
+        _v(out, "S6.4-3", f"the report states draft_equation_holds {ic.get('draft_equation_holds')!r}, and its "
+                          f"instruction entries give |I| = {len(instrs)} against {n_with} + {n_zero}")
     if ic.get("I") != len(instrs) or ic.get("with_obligations") != n_with \
             or ic.get("zero_obligation_instructions") != n_zero:
         _v(out, "S5.11-7", "|I| and the with/zero instruction counts are not published consistently")
@@ -79,9 +101,17 @@ def check_report(report) -> list:
                               "the rule or condition that produced the empty set")
 
     rc = cons.get("receiver_records") or {}
-    rcounts = rc.get("counts") or {}
-    if rc.get("R") != sum(rcounts.values()):
+    rcounts = rc.get("counts") if isinstance(rc.get("counts"), dict) else {}
+    fremd = sorted(map(str, set(rcounts) - set(RECEIVER_CLASSES)))
+    if fremd:
+        _v(out, "S6.4-5", f"receiver-record counts name classes the profile does not have: {', '.join(fremd)}")
+    r_holds = (not fremd and all(type(n) is int and n >= 0 for n in rcounts.values())
+               and rc.get("R") == sum(rcounts.values()))
+    if rc.get("R") != sum(n for n in rcounts.values() if type(n) is int):
         _v(out, "S6.4-5", "|R| is not matched + orphan + duplicate + invalid")
+    if rc.get("holds") is not r_holds:
+        _v(out, "S6.4-5", f"the report states the receiver equation holds {rc.get('holds')!r}, and its counts "
+                          f"give {r_holds}")
     sub = rc.get("matched_subdivision")
     if isinstance(sub, dict) and sum(sub.values()) != rcounts.get("matched"):
         _v(out, "S6.4-7", "subdivisions of the matched class do not preserve its count")
@@ -93,7 +123,9 @@ def check_report(report) -> list:
     if res == "PASS":
         if any(o.get("disposition") != "CONFIRMED" for o in obligations if isinstance(o, dict)):
             _v(out, "S6.5-4", "PASS while an obligation is not CONFIRMED")
-        if not (oc.get("holds") and rc.get("holds") and ic.get("draft_equation_holds")):
+        # PASS needs each equation to hold both as the report states it and as its numbers give it (CODEX-630-K10)
+        stated = (oc.get("holds"), rc.get("holds"), ic.get("draft_equation_holds")) == (True, True, True)
+        if not (stated and o_holds and r_holds and draft_holds):
             _v(out, "S6.5-5", "PASS while a conservation equation fails")
         if any(e.get("class") == "not_closed" for e in instrs):
             _v(out, "S6.5-2", "PASS over a population that is not closed")
