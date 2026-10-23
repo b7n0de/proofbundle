@@ -1,0 +1,7 @@
+# PB-2026-0718-15: pin an EXACT toolchain so `cargo fmt --check` and `cargo clippy -D warnings` are
+# deterministic across the dev box and CI. rustfmt/clippy output is toolchain-version-dependent, so an
+# unpinned channel re-diffs when CI's stable float advances (the exact failure mode that turned the
+# rust-parity gate red at main.rs:1132). Bump this deliberately, never implicitly.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]

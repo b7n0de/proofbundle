@@ -130,6 +130,10 @@ def _benign_fixtures() -> dict[str, object]:
         # False — das Gate meldete also korrekt eine Luecke, statt sie stillschweigend zu zaehlen.
         "predicate": {},
         "log_vkey": b64pub, "vkey_str": b64pub, "witness_vkey": b64pub,
+        # The relying party's key list of the TRACE verifier (adapters.trace_record): one public
+        # Ed25519 JWK, so the call reaches the fuzzed record.
+        "trusted_keys": [{"kty": "OKP", "crv": "Ed25519",
+                          "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}],
     }
 
 
