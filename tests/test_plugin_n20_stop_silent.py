@@ -77,10 +77,12 @@ def test_a_blocked_end_shows_the_short_line_and_gives_the_model_the_one_line(env
     assert len(line) <= 160 and line != answer["reason"], line
     assert re.search(r"\(D26\)\.$", line), line
     if language == "de":
-        assert line == "Tor hält das Ende auf, weil eine Quittung einer Pflichtprüfung fehlt (D26).", line
+        assert line == ("Tor hält das Ende auf, weil die Arbeit ohne Quittung einer Pflichtprüfung als fertig gelten "
+                        "würde (D26)."), line   # the danger since Nachtrag 47 (O46-5)
         assert "—" not in line and "–" not in line and ": " not in line
     else:
-        assert line == "Gate holds the end because a receipt of a required check is missing (D26).", line
+        assert line == ("Gate holds the end because the work would count as done without a receipt of a required "
+                        "check (D26)."), line   # the danger since Nachtrag 47 (O46-5)
     assert last_log(env)["verdict"] == "deny"
 
 

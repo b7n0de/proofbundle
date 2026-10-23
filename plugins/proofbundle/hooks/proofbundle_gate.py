@@ -15306,8 +15306,8 @@ _SHORT_DANGER = {
                                      "der Push ohne den Prüfer ungeprüft hinausgehen könnte"),
     "no_receipt": ("the work would count as done without a receipt of a required check",
                    "die Arbeit ohne Quittung einer Pflichtprüfung als fertig gelten würde"),
-    "claim_without_evidence": ("a claim of the last message would stand without evidence",
-                               "eine Behauptung der letzten Nachricht ohne Beleg stehen bliebe"),
+    "claim_without_evidence": ("the owner would take an unmeasured completion for a measured one",
+                               "der Owner eine ungemessene Fertigmeldung für eine gemessene hielte"),
     "verification_failed": ("the evidence does not verify, so the push could carry an unproven state",
                             "die Belege nicht bestätigt sind und der Push einen unbelegten Stand tragen könnte"),
     "not_done": ("the work would count as done while a required check is red",
@@ -15475,8 +15475,8 @@ def _short_reason(verdict: "Verdict | None") -> tuple[str, str, str]:
 
 
 #: D116: the forms of the short line whose reason is what can go wrong: an ask, a block, a warning, the block of D85, a
-#: rewrite and a card. The held end of the Stop hook keeps its reason (Nachtrag 47 is about it).
-_SHORT_DANGER_FORMS = frozenset({"ask", "deny", "warn", "sperre", "umweg", "karte"})
+#: rewrite, a card, and since Nachtrag 47 (O46-5, D118) the end the Stop hook holds.
+_SHORT_DANGER_FORMS = frozenset({"ask", "deny", "warn", "sperre", "umweg", "karte", "stop"})
 #: D116: reasons that say only that the gate cannot read or resolve a call; for the line of a card the danger of a more
 #: specific reason of the same answer comes first.
 _SHORT_DANGER_GENERIC = frozenset({"net_unmodeled_git", "possible_unmodeled_push", "push_not_measured",

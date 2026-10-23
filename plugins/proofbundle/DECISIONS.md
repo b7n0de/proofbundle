@@ -5575,9 +5575,9 @@ and D number whole, no Codex line without its sentence; at 70e98e91, 13 German C
 lost it).
 
 Not changed: the long reason for the model, the reason ids in the log and the bilanz, every decision. The end of a
-session the Stop hook holds keeps its line (Nachtrag 47). The retrospective's 18 cases are a fixture with mishap and
-today's reason; a test shows per case that the line names the danger by its words; whether it fits is judged by the
-retrospective at echo, not here. Tests: tests/test_plugin_n46_danger_line_d116.py.
+session the Stop hook holds kept its line until Nachtrag 47 (O46-5, D118). The retrospective's 18 cases are a
+fixture with mishap and today's reason; a test shows per case that the line names the danger by its words; whether
+it fits is judged by the retrospective at echo, not here. Tests: tests/test_plugin_n46_danger_line_d116.py.
 
 ## D117. git or gh as a word in an argument, a string or the body of a here-document is no call (Nachtrag 48, point 2, 2026-10-22)
 
@@ -5675,6 +5675,10 @@ The rule, under Claude Code, where D80 runs (claim_check):
   by changing one of them. A declaration that is there but does not hold its form holds every completion claim with one
   line that names it. Examples, not checked in: plugins/proofbundle/examples/done-claims/.
 - The line, the cap of two equal blocks and the log are D80's; a new kind of claim names itself (green, holds, ok).
+- O46-5 (owner answer of Nachtrag 51, with Nachtrag 47): the short line of an end the Stop hook holds names what can go
+  wrong, as D116 does for an ask (_SHORT_DANGER_FORMS takes the form stop): "Gate holds the end because the owner would
+  take an unmeasured completion for a measured one (D80)."; a held end of the done check names its own danger ("the
+  work would count as done without a receipt of a required check (D26)"). Every danger fits the line (tests).
 
 Profiles: there is no setting for a delivery profile in the plugin (P-2, INACTIVE, O45-3); the rule runs where D80 runs,
 the house profile. Nachtrag 47 asks for an observing delivery profile until M2, O45-3 decided the delivery profile off

@@ -34,8 +34,9 @@ keys = dc.keys
 declared = dc.declared
 GATE = dc.GATE
 Silent = dc.Silent
-SHORT_EN = "Gate holds the end because a claim has no evidence (D80)."
-SHORT_DE = "Tor hält das Ende auf, weil eine Behauptung keinen Beleg hat (D80)."
+#: Changed in Nachtrag 47 (O46-5, D118): the line of a held end names what can go wrong, as D116 does for an ask.
+SHORT_EN = "Gate holds the end because the owner would take an unmeasured completion for a measured one (D80)."
+SHORT_DE = "Tor hält das Ende auf, weil der Owner eine ungemessene Fertigmeldung für eine gemessene hielte (D80)."
 DIGEST = "61c19afa" + "0" * 48 + "1234abcd"
 
 
