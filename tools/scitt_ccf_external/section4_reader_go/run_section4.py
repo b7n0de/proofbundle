@@ -10,19 +10,30 @@ spki_der_hex), then calls
     ccfverify -consistency <receipt> -older-root <older_root_hex> -keys <keyset>
 
 and prints the reader's line next to the two readings recorded in the vector."""
-import glob, json, os, subprocess, sys, tempfile
+import glob
+import json
+import os
+import subprocess
+import sys
+import tempfile
 
 def head(major, n):
-    if n < 24: return bytes([major << 5 | n])
+    if n < 24:
+        return bytes([major << 5 | n])
     for ai, size in ((24, 1), (25, 2), (26, 4), (27, 8)):
-        if n < 1 << (8 * size): return bytes([major << 5 | ai]) + n.to_bytes(size, "big")
+        if n < 1 << (8 * size):
+            return bytes([major << 5 | ai]) + n.to_bytes(size, "big")
     raise ValueError(n)
 
 def enc(v):
-    if isinstance(v, int): return head(0, v) if v >= 0 else head(1, -1 - v)
-    if isinstance(v, bytes): return head(2, len(v)) + v
-    if isinstance(v, list): return head(4, len(v)) + b"".join(enc(x) for x in v)
-    if isinstance(v, dict): return head(5, len(v)) + b"".join(enc(k) + enc(x) for k, x in v.items())
+    if isinstance(v, int):
+        return head(0, v) if v >= 0 else head(1, -1 - v)
+    if isinstance(v, bytes):
+        return head(2, len(v)) + v
+    if isinstance(v, list):
+        return head(4, len(v)) + b"".join(enc(x) for x in v)
+    if isinstance(v, dict):
+        return head(5, len(v)) + b"".join(enc(k) + enc(x) for k, x in v.items())
     raise TypeError(type(v))
 
 CRV = {"P-256": (1, 32), "P-384": (2, 48), "P-521": (3, 66)}
