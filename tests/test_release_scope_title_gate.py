@@ -1175,11 +1175,13 @@ def test_die_grenze_ein_zufallstreffer_des_stamms_irrt_zu_nicht_messbar(tmp_path
 #: reader, with the reader of 1b581e36 and with that of main d3652ba5, over the files of main and of
 #: this branch: the same branches, riders, lines, guard counts and file verdicts in all three. The
 #: numbers are not pinned, because a scope file grows with its release; the state of a file and the
-#: counting identity in the case below are.
+#: counting identity in the case below are. 6.4.0.md reached main after this reader was written (with
+#: Z381 on 2026-10-23); measured with this reader on main 69e0790f: state measured, 33 lines, branch
+#: lines plus riders equal to them, and the same verdict, lines and identifiers as main's reader.
 _ZUSTAND_DER_ECHTEN = {"3.7.1.md": "kein einziger Zweig", "4.0.0.md": "kein einziger Zweig",
                        "5.0.0.md": "kein einziger Zweig", "6.0.0.md": "kein einziger Zweig",
                        "6.1.0.md": "gemessen", "6.2.0.md": "gemessen", "6.2.1.md": "gemessen",
-                       "6.3.0.md": "gemessen", "6.3.1.md": "gemessen"}
+                       "6.3.0.md": "gemessen", "6.3.1.md": "gemessen", "6.4.0.md": "gemessen"}
 
 
 def test_GRUEN_die_echten_umfangsdateien_lesen_sich_wie_vorher():
