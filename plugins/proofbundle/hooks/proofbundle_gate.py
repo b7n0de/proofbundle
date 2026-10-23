@@ -9797,13 +9797,14 @@ class Outcome:
     is the verdict whose reason the short line gives where it is not the first verdict with the decision: the one of
     the step that decides (D72) or of the house rule that decides (D73); None for the first."""
 
-    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause", "autonomy")
+    __slots__ = ("decision", "text", "verdicts", "applied_rule", "step", "cause", "autonomy", "release")
 
     def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None,
                  step: str | None = None, cause: "Verdict | None" = None):
         self.decision, self.text, self.verdicts, self.applied_rule = decision, text, verdicts, applied_rule
         self.step, self.cause = step, cause
         self.autonomy = None   # D85: the record of the autonomous answer under Claude Code (autonomous_outcome)
+        self.release = None   # D119: the owner's release that lets the call run, the answer without it, and its use
 
     def __iter__(self):
         return iter((self.decision, self.text))
@@ -16183,10 +16184,13 @@ def _autonomy_checked(command: str, cwd: str, deadline: float, environ: dict) ->
 
 
 def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str, deadline: float,
-                       host: str = "claude", environ: dict | None = None, tool: str = "Bash") -> "Outcome | None":
+                       host: str = "claude", environ: dict | None = None, tool: str = "Bash",
+                       take: bool = True) -> "Outcome | None":
     """The answer of the hook to the outcome of decide() under Claude Code with --autonomous: D85 to D92
     (_autonomy_answer), D93 for an ask of the closed list in the work profile of b7n0de (_autonomy_card), and D111 for
-    a Bash call decide() asked about that the owner released on a card (_autonomy_release)."""
+    a Bash call decide() asked about that the owner released on a card (_autonomy_release). take writes the use of such
+    a release before the pass; tool_outcome leaves the use to the hook, which writes it only where the call runs
+    (release_settle, D119)."""
     answer = _autonomy_answer(outcome, command, cwd, deadline, host, environ, tool)
     if host != "claude" or answer is None:
         return answer
@@ -16194,7 +16198,7 @@ def autonomous_outcome(outcome: "Outcome | None", command: str | None, cwd: str,
     if answer.decision == "ask":
         answer = _autonomy_card(answer, command, cwd, deadline, environ, tool)
     if tool == "Bash" and outcome is not None and outcome.decision == "ask" and answer.decision in ("ask", "deny"):
-        released = _autonomy_release(answer, command, environ)   # D111
+        released = _autonomy_release(answer, command, environ, take=take)   # D111, D119
         if released is not None:
             return released
     return answer
@@ -17614,11 +17618,20 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
     except GateError:
         return answer
     said = "; ".join(AUTONOMY_EFFECTS[e][0] for e in effects if e in AUTONOMY_EFFECTS) or "an external effect"
+    binding = ""
+    if tool == "Bash" and command:   # D119 (Nachtrag 49, point 3): what the card carries, and what a release frees
+        door = _release_door(command, answer)
+        binding = (f" The card carries the line verbatim, sha256 {command_sha256(command)}, and what it does outside: "
+                   f"{said}. The owner's answer A frees exactly this line once, in this session, within "
+                   f"{RELEASE_SECONDS // 60} minutes of the answer; a changed line needs a new card (DECISIONS.md "
+                   "D111, D119).") if door is None else \
+            (f" The line touches {_RELEASE_DOORS[door][0]}, an own door of the owner: no card frees it. Say so on the "
+             "card; the owner runs the line themselves (Nachtrag 49; DECISIONS.md D119).")
     verdict = Verdict("deny", f"proofbundle gate, autonomous operation (D93): {said} is asked of the owner on a card in "
                               "the Leitstand, not in the terminal. Put a card in the Leitstand that names the command, "
                               "what it does outside and why, and wait for the owner's answer there; do not try another "
                               "spelling of the call (owner word of 2026-10-18, 16:52 Berlin; Nachtrag 37; "
-                              "DECISIONS.md D93).", "autonomy_card",
+                              f"DECISIONS.md D93).{binding}", "autonomy_card",
                       evidence="the effect of the call and the work profile of the repository (D71)",
                       failed=f"{said} needs the owner", next_step="put a card in the Leitstand", repo=directory)
     new = Outcome("deny", f"{verdict.text()} {answer.text}", list(answer.verdicts) + [verdict], None,
@@ -17641,7 +17654,8 @@ MAX_RELEASE_FILES = 256
 #: before the answer beyond RELEASE_SKEW_SECONDS of clock skew between the farmer and the Leitstand.
 RELEASE_SECONDS = 15 * 60
 RELEASE_SKEW_SECONDS = 60
-#: The releases used, in the plugin data directory: the gate writes the use under a lock before the call runs.
+#: The releases used, in the plugin data directory: the hook writes the use under a lock before the call runs, and only
+#: where it runs (release_settle, D119).
 RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
@@ -17649,6 +17663,81 @@ MAX_RELEASES_USED_BYTES = 512 * 1024
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+#: D119 (Nachtrag 49, point 4): the owner's own doors, which no release on a card opens: --admin, a forced push, a tag, a
+#: release, PyPI, a signature and root; and a merge whose line does not pin the head it merges (--match-head-commit),
+#: as the card shows a line, not the head the merge finds when it runs. (English, German.)
+_RELEASE_DOORS = {
+    "admin": ("--admin", "--admin"),
+    "force": ("a forced push", "ein Force-Push"),
+    "tag": ("a tag", "ein Tag"),
+    "release": ("a release", "eine Release"),
+    "pypi": ("an upload to PyPI", "ein Upload nach PyPI"),
+    "signatur": ("a signature", "eine Signatur"),
+    "root": ("root", "Root"),
+    "merge_kopf": ("a merge without --match-head-commit", "ein Merge ohne --match-head-commit"),
+}
+#: The reasons of decide() that name a door: --admin and the protection API (D73 H1), a forced push (D86), a tag (D73 H2).
+_RELEASE_DOOR_REASONS = {"house_admin_merge": "admin", "house_protection_api": "admin", "push_force": "force",
+                         "house_tag_out": "tag"}
+_RELEASE_ROOT = frozenset({"sudo", "su", "doas", "pkexec", "run0"})
+_RELEASE_SIGNERS = frozenset({"gpg", "gpg2", "cosign", "minisign", "signify", "sigstore", "rekor-cli", "notation"})
+_RELEASE_PUBLISHERS = frozenset({"uv", "poetry", "flit", "hatch", "pdm", "maturin", "rye"})
+_RELEASE_SPLIT = re.compile(r"[\s;&|()<>`'\"]+")
+
+
+def _release_door(command: str, answer: "Outcome") -> str | None:
+    """D119: the own door of _RELEASE_DOORS a line touches, or None: by the words of the line, split at blanks, quotes
+    and the shell's operators without its grammar, so a door word in a chain, a substitution, `sh -c` or a
+    here-document counts as well, and by the reasons decide() gave. A door word in a message or a title holds the
+    release back too: a release frees less, never more."""
+    door = _release_door_words(command)
+    if door is not None:
+        return door
+    for verdict in answer.verdicts:
+        if verdict.reason_id in _RELEASE_DOOR_REASONS:
+            return _RELEASE_DOOR_REASONS[verdict.reason_id]
+    return None
+
+
+def _release_door_words(command: str) -> str | None:
+    words = [w for w in _RELEASE_SPLIT.split(command) if w]
+    names = [os.path.basename(w) for w in words]
+    subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
+    for i, name in enumerate(names):
+        if name in ("git", "gh"):
+            j = i + 1
+            while j < len(words) and words[j].startswith("-"):
+                j += 2 if (name == "git" and words[j] in _GIT_GLOBAL_VALUE) or words[j] in ("-R", "--repo") else 1
+            if j < len(words):
+                subs[j] = name
+    pushed = [k for k, name in subs.items() if name == "git" and words[k] == "push"]
+    after_push = words[min(pushed) + 1:] if pushed else []
+    if any(w == "--admin" or w.startswith("--admin=") for w in words):
+        return "admin"
+    if any(w in ("-f", "--mirror") or w.startswith("--force") or (w.startswith("+") and len(w) > 1) or
+           (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in after_push):
+        return "force"
+    if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or \
+            any(w in ("--tags", "--follow-tags") or "refs/tags/" in w for w in after_push):
+        return "tag"
+    if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \
+            any(name == "gh" and words[k] == "api" and any("/releases" in w for w in words[k + 1:])
+                for k, name in subs.items()):
+        return "release"
+    if "twine" in names or any("pypi.org" in w for w in words) or \
+            any(n in _RELEASE_PUBLISHERS and ("publish" in words[i + 1:] or (n == "maturin" and "upload" in words[i + 1:]))
+                for i, n in enumerate(names)):
+        return "pypi"
+    if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
+            ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
+            ("git" in names and any(w == "-S" or w.startswith("--gpg-sign") for w in words)):
+        return "signatur"
+    if any(n in _RELEASE_ROOT for n in names):
+        return "root"
+    if any(name == "gh" and words[k] == "pr" and words[k + 1:k + 2] == ["merge"] for k, name in subs.items()) and \
+            not any(w == "--match-head-commit" or w.startswith("--match-head-commit=") for w in words):
+        return "merge_kopf"
+    return None
 
 
 def command_sha256(command: str) -> str:
@@ -17695,7 +17784,14 @@ def _releases(environ) -> list[dict]:
 
 
 def _release_key(release: dict) -> str:
-    return f"{release['karte']}:{release['sha256']}:{release['sitzung']}:{release['antwort']}"
+    """D119: a card frees its line once in its session, whatever answer times the fetcher writes for it."""
+    return f"{release['karte']}:{release['sha256']}:{release['sitzung']}"
+
+
+def _release_used(release: dict, used: dict) -> bool:
+    """Whether the record of the releases used names this release: by its key, or by the key of D111, which named the
+    time of the answer as well."""
+    return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
 
 
 def _releases_used(directory: str) -> dict:
@@ -17719,12 +17815,49 @@ def _write_releases_used(directory: str, used: dict) -> None:
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
-def _autonomy_release(answer: "Outcome", command: str | None, environ, now: float | None = None) -> "Outcome | None":
+def _release_take(release: dict, environ, now: float | None = None) -> bool:
+    """D111, D119: write the use of a release to RELEASES_USED in the plugin data directory, under the lock of the
+    answer hook (D94); False where the record names it already, or where the gate cannot read or write the record:
+    then the release lets nothing run."""
+    data = environ.get("CLAUDE_PLUGIN_DATA")
+    if not data or not os.path.isabs(data) or not os.path.isdir(data):
+        return False
+    now = time.time() if now is None else now
+    try:
+        hook = _answer_hook()
+        with hook.asks_lock(data, RELEASES_USED):
+            used = _releases_used(data)
+            if _release_used(release, used):
+                return False
+            used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+            while len(used) > MAX_RELEASES_USED:
+                used.pop(next(iter(used)))
+            _write_releases_used(data, used)
+    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        return False
+    return True
+
+
+def _release_kept(answer: "Outcome", release: dict, why: str) -> "Outcome":
+    """D119: the answer without the owner's release, with one sentence that names why the release does not let the call
+    run; the release stays as it was (freigabe_offen in the record of the answer)."""
+    new = Outcome(answer.decision, f"proofbundle gate: the owner's release on the card {release['karte']} does not let "
+                                   f"this call run: {why}. {answer.text}", list(answer.verdicts), answer.applied_rule,
+                  step=answer.step, cause=answer.cause)
+    new.autonomy = {**(getattr(answer, "autonomy", None) or {}), "freigabe_offen": {"karte": release["karte"],
+                                                                                    "warum": why}}
+    return new
+
+
+def _autonomy_release(answer: "Outcome", command: str | None, environ, now: float | None = None,
+                      take: bool = True) -> "Outcome | None":
     """D111 (Nachtrag 42): the pass for a Bash call decide() asked about and the autonomous answer does not let run,
     where the owner released exactly this command on a card: a release (_releases) whose sha256 is that of the
     command's words as written, whose session is the hook's (CLAUDE_CODE_SESSION_ID) and whose answer lies at most
-    RELEASE_SECONDS back, not used before. The use is written to RELEASES_USED in the plugin data directory, under a
-    lock, before the pass; where the gate cannot write it, or cannot read the record, nothing is released."""
+    RELEASE_SECONDS back, not used before (_release_used). D119 (Nachtrag 49): a line that touches an own door of the
+    owner (_release_door) keeps its answer, with a sentence that names the door. With take the use is written before
+    the pass (_release_take); without it the pass holds the release in outcome.release and the hook writes the use only
+    where the call runs (release_settle). Where the gate cannot read or write the record, nothing is released."""
     session = environ.get("CLAUDE_CODE_SESSION_ID")
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not command or not isinstance(session, str) or not _SESSION_ID.fullmatch(session) or not data or \
@@ -17736,29 +17869,59 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
                and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
     if not fitting:
         return None
+    door = _release_door(command, answer)
+    if door is not None:
+        return _release_kept(answer, fitting[0], f"the line touches {_RELEASE_DOORS[door][0]}, an own door of the "
+                                                 "owner that no card opens (Nachtrag 49; DECISIONS.md D119)")
     try:
-        hook = _answer_hook()
-        with hook.asks_lock(data, RELEASES_USED):
-            used = _releases_used(data)
-            release = next((r for r in fitting if _release_key(r) not in used), None)
-            if release is None:
-                return None
-            used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-            while len(used) > MAX_RELEASES_USED:
-                used.pop(next(iter(used)))
-            _write_releases_used(data, used)
-    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        used = _releases_used(data)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    release = next((r for r in fitting if not _release_used(r, used)), None)
+    if release is None or (take and not _release_take(release, environ, now)):
         return None
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
                               f"answered at {release['antwort']}. The release frees exactly the command whose words "
                               f"as written have the sha256 {sha}, once, in this session, within "
                               f"{RELEASE_SECONDS // 60} minutes of the answer; its use stands in the plugin data "
-                              "(Nachtrag 42; DECISIONS.md D111).", "released_by_owner")
+                              "before the call runs (Nachtrag 42 and 49; DECISIONS.md D111, D119).", "released_by_owner")
     new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
+    new.release = {"freigabe": release, "ohne": answer, "genutzt": take}
     record = getattr(answer, "autonomy", None) or {}
     return _autonomy_record(new, "freigabe", wirkung=list(record.get("wirkung") or []),
                             quittung={"art": "freigabe", "karte": release["karte"], "sha256": sha,
                                       "antwort": release["antwort"]})
+
+
+def release_settle(event: object, outcome: "Outcome", environ, host: str = "claude",
+                   event_text: str | None = None) -> tuple["Outcome", bool]:
+    """D119 (Nachtrag 49, O43-1): the hook's step for an answer that holds an owner's release whose use is not written
+    (outcome.release): the release is used once, and only where the call runs. Where the pilot is on and reads the
+    call as a GitHub write (Level 1, D55), the signer service first decides the call again and signs the receipt ALLOW
+    (D58); only then the hook writes the use (_release_take) and the call runs. Where the service signs nothing, or the
+    use cannot be written, the answer without the release stands, with a sentence that names why, and the release
+    stays as it was. Returns the answer and whether a receipt was asked for this call."""
+    held = outcome.release
+    release, without = held["freigabe"], held["ohne"]
+    config = _pilot_config(environ) if isinstance(event, dict) else None
+    action, key = _pilot_tool_action(event) if config is not None else (None, "")
+    if action is not None:
+        text = event_text if isinstance(event_text, str) else json.dumps(event)
+        try:
+            _pilot_issue(config, environ, action, key, "ALLOW", _pilot_reasons([v.reason_id for v in outcome.verdicts]),
+                         {"level": 1, "host": host, "event": text})
+        except Exception as exc:  # noqa: BLE001 - no signature, no use: the release stays as it was
+            why = str(exc) if isinstance(exc, GateError) and _PILOT_REASON.fullmatch(str(exc)) else \
+                f"internal_{type(exc).__name__}"
+            try:
+                _pilot_journal(config["receipts"], {"issued": False, "why": why})
+            except Exception:  # noqa: BLE001 - nor does a journal it cannot write change the answer
+                pass
+            return _release_kept(without, release, f"the signer service did not sign the effect ({why})"), True
+    if not _release_take(release, environ):
+        return _release_kept(without, release, "its use could not be written, or it was used before"), action is not None
+    held["genutzt"] = True
+    return outcome, action is not None
 
 
 # --- D94: the answers to the asks per reason, and the candidates to free (Nachtrag 37, Ergänzung 4) -----------------
@@ -18005,7 +18168,8 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     if outcome is not None and outcome.applied_rule is not None:
         entry["applied_rule"] = outcome.applied_rule
     if autonomy is not None:
-        entry["autonomy"] = {key: autonomy[key] for key in ("klasse", "hinweise", "wirkung") if key in autonomy}
+        entry["autonomy"] = {key: autonomy[key] for key in ("klasse", "hinweise", "wirkung", "freigabe_offen")
+                             if key in autonomy}   # D119: freigabe_offen, a release that did not let the call run
         if "quittung" in autonomy:
             entry["quittung"] = autonomy["quittung"]   # D92: what the machine check measured in place of a click
     return entry
@@ -22868,6 +23032,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         event_text = sys.stdin.read()
         event, verdict, actions = tool_outcome(event_text, host, deadline, autonomous=AUTONOMOUS_FLAG in argv)
+    receipted = False
+    held = getattr(verdict, "release", None)
+    if held is not None and not held["genutzt"]:
+        try:   # D119: the owner's release is used once, where the call runs, after the signer service's ALLOW
+            verdict, receipted = release_settle(event, verdict, os.environ, host, event_text)
+        except Exception:  # noqa: BLE001 - a release whose use is not written lets nothing run
+            verdict = held["ohne"]
     # D81: under Claude Code a Bash command that reads its evidence wrongly gets a hint as additional context, the one
     # output of a PreToolUse hook measured to reach the model without a question; it never changes the decision, and a
     # call that is denied gets none.
@@ -22896,7 +23067,8 @@ def main(argv: list[str] | None = None) -> int:
     printed = None
     if verdict is not None:
         try:
-            pilot_after_tool(event, verdict, os.environ, host, event_text)
+            if not receipted:   # D119: the receipt of a released call was asked for before its use
+                pilot_after_tool(event, verdict, os.environ, host, event_text)
         except Exception:  # noqa: BLE001 - a receipt never changes the answer (D55)
             pass
         try:
@@ -22938,7 +23110,9 @@ def tool_outcome(event_text: str, host: str, deadline: float,
     """The decision of the PreToolUse hook on one event as the host gave it: (the event read, the outcome, the gated
     actions the log names), without an answer, a log line or a receipt. main decides with it, and so does the signer
     service of the pilot on its own copy of the gate before it signs (D58). autonomous is the hook's --autonomous
-    (D85): an ask under Claude Code gets the autonomous answer; the service decides without it."""
+    (D85): an ask under Claude Code gets the autonomous answer; the service decides with it only where its operator set
+    it (D119). Neither writes the use of an owner's release: the outcome holds it, and the hook writes it only where
+    the call runs (release_settle, D119)."""
     event, actions = None, []
     try:
         try:
@@ -22971,7 +23145,7 @@ def tool_outcome(event_text: str, host: str, deadline: float,
             verdict = decide(command, cwd, deadline, host=host)
         if autonomous and host == "claude" and verdict is not None and verdict.decision == "ask":
             try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
-                verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool)
+                verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool, take=False)
             except Exception:  # noqa: BLE001 - the ask of decide() stands
                 pass
     except Exception as exc:  # noqa: BLE001 - any failure inside the gate denies, it never allows

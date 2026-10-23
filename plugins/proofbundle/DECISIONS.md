@@ -5686,3 +5686,69 @@ until M2 (owner question). Not under Codex (D80). Limits, named: the words are a
 the message; a count is read from the output a run left in the transcript, not measured again; a runner that names no
 count (go test without -v) gives no evidence; a declaration at a remote other than origin is not read; the evidence
 of a subagent stands in a transcript the hook does not read (D80). Tests: tests/test_plugin_n47_claim_count_d118.py.
+
+## D119. An owner's release is used once, where the call runs and after the signer service let it; the own doors stay closed (Nachtrag 49, O43-1, 2026-10-23)
+
+Owner choice of 2026-10-20, 23:3x Berlin (Nachtrag 49, way A): close O43-1 so that the release on the card replaces the
+lines with `!`, from the phone as well; D111 goes to the farmer after the tag v6.3.1 (Nachtrag 52: at echo only).
+Measured on 2026-10-20: for L3 and R1 of 6.3.1 the owner typed nine lines with `!` into delta. Measured in Nachtrag 43
+(point 1, O28B-1) and named O43-1: the hook wrote the use of a release before the signer service decided the call again
+(D58); a service with the autonomous answer in the hook's data directory (A1) then judged DENY, one with a data
+directory of its own (A2) used the same release a second time, and the service as delivered (A0) judged ESCALATE.
+
+The rule:
+
+- tool_outcome writes no use of a release, in the hook or in the service: the answer holds the release
+  (Outcome.release), and the hook writes the use (release_settle, _release_take, under the lock of D94) only where the
+  call runs. autonomous_outcome, called on its own, writes it before the pass as D111 did.
+- Where the pilot is on and reads the call as a GitHub write (Level 1, D55), the hook first has the receipt ALLOW
+  signed, the signer service deciding the call again; only with its signature does the hook write the use and let the
+  call run. Where the service signs nothing, or the use cannot be written, the answer without the release stands with
+  a sentence that names why (freigabe_offen in the log), and the release stays as it was. Without the pilot, or where
+  the pilot reads no write in the call, the hook writes the use itself before the pass. That a receipt never changes
+  the answer (D55) holds for every other answer; a release is the one answer that waits for its receipt.
+- The signer service: with `"autonomous": true` in its configuration, the operator's setting (optional, false where it
+  is missing), it decides a Level 1 call with the hook's autonomous answer (D85), in the session the event names and
+  never one of its configuration (O44-1 a). It writes no use of the hook's and keeps its own record of the releases it
+  signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
+  before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
+  the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
+  release_record_unwritable. Without the setting the service decides without the autonomous answer and signs no
+  release: under it a release lets nothing run (A0).
+- The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
+  its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
+  time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
+  has another sha256 and needs a new card.
+- The card (point 3, D93): the reason that asks for a card names the sha256 of the line and what a release of it
+  frees; for a line that touches an own door it says that no card frees it and the owner runs it themselves.
+- The own doors (point 4, _release_door): no release frees a line that touches --admin, a forced push (--force and its
+  forms, -f in a cluster, a + refspec, --mirror; D86), a tag (git tag, --tags, --follow-tags, refs/tags/; D73 H2), a
+  release (gh release, an API path with /releases), PyPI (twine; publish of uv, poetry, flit, hatch, pdm, rye, maturin;
+  pypi.org), a signature (gpg, cosign, minisign, signify, sigstore, rekor-cli, notation, ssh-keygen -Y sign, openssl
+  -sign, git -S and --gpg-sign) or root (sudo, su, doas, pkexec, run0), nor `gh pr merge` without --match-head-commit,
+  as the card shows a line and not the head the merge finds when it runs. The answer stays, with a sentence that names
+  the door. The words are read without the shell's grammar, so a door word in a chain, `sh -c` or a here-document
+  counts, and one in a message or a title holds the release back too: a release frees less, never more.
+
+Measured (tests/test_plugin_n49_release_once_d119.py, end to end through the hook and the service under the test's
+account): A0 lets nothing run and uses nothing, and the same release lets the call run once the service has the
+setting; A1 and A2 sign one ALLOW for the first call and DENY for the second, and the release is used once on each
+side; a request rebuilt after the use gets verdict_differs; a release of another line, an expired one, one without a
+card and one of another session free nothing and nothing is used or signed; without the pilot the hook uses the
+release itself, once. Lines that a card frees (point 4): a push of the own branch, gh workflow run, closing a thread
+(`gh api graphql` with resolveReviewThread), `gh pr merge` with --match-head-commit; gh pr edit with a title is free in
+the work profile without a card (D92), local add and commit under the pin without a question (D114).
+
+Not changed: a deny of decide() stays a deny; strict stays the house profile; nothing a card did not free before is
+freed now; under Codex and without --autonomous nothing is released. Limits, named: the card id is read by its form
+only, the gate does not know the cards of the Leitstand; once holds on the hook's side as long as its record does,
+which code an interpreter runs can remove (D111, O44-2), and on the service's side as long as the service's record
+does, under its account; a release the service signed ALLOW for whose use the hook then cannot write is spent without
+its call; where the service signed nothing, the answer without the release gets no second request; over three
+accounts the service reads the hook's data directory only where the operator opens it (Nachtrag 44, V6), else it
+decides in a data directory of its own (A2) with its own record; a merge through the REST API is not read as a merge;
+the doors the gate does not gate at all (measured: sudo, twine, uv publish, gpg, cosign and ssh-keygen -Y sign pass
+decide() without a word) are not touched by this rule: no card is asked for them and none frees them (owner question).
+Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
+is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
+in D119).

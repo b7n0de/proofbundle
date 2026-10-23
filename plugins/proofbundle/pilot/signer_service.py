@@ -36,6 +36,15 @@ written on stdout; a journal the service cannot write gives no signature and the
 says whether stdout took the signature (`handedOut`). The key signer keeps the same rule for its own journal, and its
 journal_unwritable reaches the gate as key_journal_unwritable.
 
+The autonomous answer and the owner's release on a card (D119, Nachtrag 49, O43-1): where the operator sets
+`"autonomous": true`, the service decides a Level 1 call with the hook's autonomous answer (D85), in the session the
+event names, never one of its configuration. The hook writes the use of an owner's release (D111) only after the
+service signed ALLOW for it; the service writes no use of the hook's, and keeps its own record of the releases it
+signed ALLOW for, freigaben-geehrt.json beside its journal, each once: a release named there frees nothing again, so a
+second call and a request rebuilt after the use get no ALLOW. The record is written and synced before the signature
+leaves; one it cannot read or write gives no signature (`release_record_unread`, `release_record_unwritable`), and a
+release honoured meanwhile by a second request gives none either (`release_honoured`).
+
     signer_service.py --config FILE            decide the request on stdin, have it signed or refuse
 
 The configuration is the operator's file, in a folder only the deciding account reads:
@@ -43,7 +52,7 @@ The configuration is the operator's file, in a folder only the deciding account 
      plugin folder beside its server/>, "records": <the records folder, for pilot_start.json>, "gate_dir": <the gate
      directory the gate reads: mode, rules.json, pilot.json>, "key_signer": [<the program, by its absolute path>,
      <its arguments>...], "journal": <the service's journal>, "environment": {<name>: <value>, ...},
-     "window_seconds": <1 to 300>}
+     "window_seconds": <1 to 300>, "autonomous": <true or false, optional, false where it is missing>}
 A configuration of v1, which named a key file, is no configuration of this service.
 """
 from __future__ import annotations
@@ -52,6 +61,7 @@ import argparse
 import base64
 import binascii
 import calendar
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -59,11 +69,18 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 CONFIG_SCHEMA = "proofbundle/pilot-signer-config/v2"
 CONFIG_KEYS = frozenset({"schema", "gate_file", "records", "gate_dir", "key_signer", "journal", "environment",
                          "window_seconds"})
+#: The keys a configuration may hold besides CONFIG_KEYS: the operator's setting of the autonomous answer (D119).
+CONFIG_OPTIONAL = frozenset({"autonomous"})
+#: D119: the releases the service signed ALLOW for, beside its journal, each once: {key: time}.
+HONOURED = "freigaben-geehrt.json"
+HONOURED_SCHEMA = "proofbundle/pilot-releases-honoured/v1"
+MAX_HONOURED = 4096
 #: The exit status of a refusal; the gate reads the one reason name on stdout (its PILOT_SIGNER_REFUSES).
 REFUSED = 3
 #: How far a decidedAt may lie after the service's own clock: the two clocks are the same machine's.
@@ -95,8 +112,11 @@ def _read_json(path: str, limit: int = 1024 * 1024) -> object:
 
 def load_config(path: str) -> dict:
     config = _read_json(path)
-    if not isinstance(config, dict) or set(config) != CONFIG_KEYS or config["schema"] != CONFIG_SCHEMA:
+    if not isinstance(config, dict) or not CONFIG_KEYS <= set(config) <= CONFIG_KEYS | CONFIG_OPTIONAL or \
+            config["schema"] != CONFIG_SCHEMA:
         raise ValueError("not a configuration of the signer service")
+    if type(config.get("autonomous", False)) is not bool:
+        raise ValueError("autonomous is not true or false")
     for name in ("gate_file", "records", "gate_dir", "journal"):
         if not (isinstance(config[name], str) and os.path.isabs(config[name])):
             raise ValueError(f"{name} is not an absolute path")
@@ -163,8 +183,12 @@ def _git_refuses(directory: str, deadline: float) -> bool:
     return proc.returncode != 0 and "dubious ownership" in proc.stderr
 
 
-def decide(gate, request: dict, deadline: float) -> tuple[dict, str, str, list[str], str]:
-    """(action, key, verdict, reasons, working directory) of the call, as the service's copy of the gate decides it."""
+def decide(gate, request: dict, deadline: float, autonomous: bool = False, honoured: dict | None = None,
+           held: dict | None = None) -> tuple[dict, str, str, list[str], str]:
+    """(action, key, verdict, reasons, working directory) of the call, as the service's copy of the gate decides it.
+    With autonomous, the operator's setting, a Level 1 call gets the hook's autonomous answer in the session its event
+    names (D119); an owner's release the service signed ALLOW for before (`honoured`) frees nothing, and one that frees
+    the call is put into `held`, for the record the service writes once it has the signature."""
     if request.get("level") == 1:
         if set(request) != {"schema", "level", "host", "event", "statement"} or request["host"] not in gate.HOSTS \
                 or not isinstance(request["event"], str):
@@ -175,7 +199,16 @@ def decide(gate, request: dict, deadline: float) -> tuple[dict, str, str, list[s
             raise Refused("request_malformed") from exc
         cwd = event.get("cwd") if isinstance(event, dict) else None
         os.chdir(_readable(cwd))
-        _event, outcome, _actions = gate.tool_outcome(request["event"], request["host"], deadline)
+        session = event.get("session_id") if isinstance(event, dict) else None
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)   # the session of a decision is its event's, never a configured one
+        if isinstance(session, str) and gate._SESSION_ID.fullmatch(session):
+            os.environ["CLAUDE_CODE_SESSION_ID"] = session
+        _event, outcome, _actions = gate.tool_outcome(request["event"], request["host"], deadline, autonomous=autonomous)
+        release = getattr(outcome, "release", None)
+        if release is not None and _release_key(release["freigabe"]) in (honoured or {}):
+            outcome = release["ohne"]   # D119: a release the service signed ALLOW for before frees nothing again
+        elif release is not None and held is not None:
+            held["release"] = release["freigabe"]
         verdict = gate._pilot_tool_verdict(outcome, request["host"]) if outcome is not None else None
         action, key = gate._pilot_tool_action(event)
         reasons = gate._pilot_reasons([v.reason_id for v in outcome.verdicts]) if outcome is not None else []
@@ -221,10 +254,11 @@ def _differs(proposed: dict, expected: dict) -> str:
     return "statement_differs"
 
 
-def judge(config: dict, request: object, now_ns: int, started: float, note: dict) -> tuple[bytes, str, float]:
+def judge(config: dict, request: object, now_ns: int, started: float, note: dict,
+          held: dict | None = None) -> tuple[bytes, str, float]:
     """The canonical statement the service has signed, the gate's public key of pilot.json and the instant (monotonic)
     by which the service answers; Refused where it signs nothing. `note` gathers what the journal names, as far as the
-    service came, a refusal included."""
+    service came, a refusal included; `held` gets the owner's release the decision used, if any (D119)."""
     if not isinstance(request, dict) or not isinstance(request.get("statement"), str):
         raise Refused("request_malformed")
     note["level"] = request.get("level") if request.get("level") in (1, 2) else None
@@ -252,7 +286,9 @@ def judge(config: dict, request: object, now_ns: int, started: float, note: dict
     if not now_ns - config["window_seconds"] * 1_000_000_000 <= decided_ns <= now_ns + CLOCK_SKEW_SECONDS * 1_000_000_000:
         raise Refused("outside_window")
     deadline = started + gate.PILOT_SIGNER_SECONDS - MARGIN_SECONDS
-    action, key, verdict, reasons, cwd = decide(gate, request, deadline)
+    autonomous = config.get("autonomous") is True
+    action, key, verdict, reasons, cwd = decide(gate, request, deadline, autonomous,
+                                                honoured(config) if autonomous else {}, held)
     note.update(surface=action["surface"], verdict=verdict)
     if matched.group(1) != gate._pilot_action_id(pilot, action, key):
         raise Refused("action_differs")
@@ -298,6 +334,57 @@ def signed_by_the_key_signer(config: dict, body: bytes, public: str, end: float)
     except (ValueError, InvalidSignature) as exc:
         raise Refused("key_differs") from exc   # signed with another key than the gate key pilot.json names
     return signature
+
+
+def _release_key(release: dict) -> str:
+    """D119: an owner's release by its card, the sha256 of its line and its session, as the gate keys its use."""
+    return f"{release['karte']}:{release['sha256']}:{release['sitzung']}"
+
+
+def honoured(config: dict) -> dict:
+    """D119: the releases the service signed ALLOW for, {key: time}; Refused where the record does not read whole."""
+    try:
+        data = _read_json(os.path.join(os.path.dirname(config["journal"]), HONOURED))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise Refused("release_record_unread") from exc
+    if not isinstance(data, dict) or data.get("schema") != HONOURED_SCHEMA or not isinstance(data.get("geehrt"), dict):
+        raise Refused("release_record_unread")
+    return dict(data["geehrt"])
+
+
+def honour(config: dict, release: dict) -> None:
+    """D119: write that the service signed ALLOW for this release, under a lock and synced to the disk, before the
+    signature leaves; Refused where the record names it already (a second request meanwhile) or cannot be written."""
+    folder = os.path.dirname(config["journal"])
+    try:
+        os.makedirs(folder, exist_ok=True)
+        lock = os.open(os.path.join(folder, HONOURED + ".lock"),
+                       os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            done = honoured(config)
+            if _release_key(release) in done:
+                raise Refused("release_honoured")
+            done[_release_key(release)] = _instant()
+            while len(done) > MAX_HONOURED:
+                done.pop(next(iter(done)))
+            fd, tmp = tempfile.mkstemp(prefix=".freigaben-geehrt-", dir=folder)
+            with os.fdopen(fd, "w", encoding="ascii") as handle:
+                json.dump({"schema": HONOURED_SCHEMA, "geehrt": done}, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, os.path.join(folder, HONOURED))
+            directory = os.open(folder, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            os.close(lock)
+    except OSError as exc:
+        raise Refused("release_record_unwritable") from exc
 
 
 def journal(config: dict, entry: dict) -> None:
@@ -346,8 +433,11 @@ def main(argv: list[str] | None = None) -> int:
             request = json.loads(raw)
         except ValueError as exc:
             raise Refused("request_malformed") from exc
-        body, public, end = judge(config, request, now_ns, started, note)
+        held: dict = {}
+        body, public, end = judge(config, request, now_ns, started, note, held)
         signature = signed_by_the_key_signer(config, body, public, end)
+        if held.get("release") is not None:
+            honour(config, held["release"])   # D119: once per release, before the signature leaves
         reason = None
     except Refused as exc:
         reason, signature = str(exc), None
