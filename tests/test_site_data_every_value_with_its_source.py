@@ -687,15 +687,14 @@ class TestEveryVerdictNamesItsCauseAndNotJustItsState:
 
 
 class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
-    """Found by reading the one function no review lens had looked at.
+    """The stage name is the version without its dots, as the receipt tools name the folder.
 
-    Two latent defects sat in `audit_state_field`. The stage name was built by concatenating the
-    major and minor digits and appending a zero, so 6.10.0 and 61.0.0 both produced "6100" - and the
-    naming scheme (major*100 + minor*10) has no unambiguous name for a minor of 10 or more at all. And
-    the stage list was sorted as TEXT, which makes "90" the last of ["610", "90"] and "700" the last
-    of ["6100", "700"], although 6100 is the later stage. Today every stage name has three digits, so
-    both orders agree and neither defect shows; they fire with the first four-digit stage, which is
-    version 6.10.0.
+    Found by reading the one function no review lens had looked at, in two rounds. First: 6.10.0 and
+    61.0.0 both produced "6100", and the stage list was sorted as TEXT, which makes "90" the last of
+    ["610", "90"]. Then, at the tag v6.3.1: the scheme was major*100 + minor*10, which drops the patch
+    level, so 6.3.1 named the folder of 6.3.0. Now the name is the house rule, only a release triple
+    gets one, and a minor or patch of two digits is refused because the name would no longer be
+    injective.
     """
 
     def test_a_minor_of_ten_or_more_is_refused_instead_of_guessed(self):
@@ -713,38 +712,172 @@ class TestTheStageIsDerivedUnambiguouslyOrNotAtAll:
         assert d.get("not_measurable") is not True, d
         assert d["value"] == "610", d
 
+    #: Majors as written, one and three digits and with a leading zero, because a derivation that
+    #: goes through `int()` or keeps two digits only stays invisible on a thin grid. A review lens
+    #: planted four such defects against a grid of 90 versions and all four survived.
+    MAJORS = [str(n) for n in range(200)] + ["00", "06", "012"]
+
     def test_the_scheme_is_injective_below_ten_and_collides_from_ten(self):
-        """The measurement behind the refusal, as a contract.
+        """The measurement behind the refusal, as a contract, measured on the GENERATOR.
 
         An un cross-reading countered with a collision that does not exist (`0.1.0` and `1.0.0` give
-        10 and 100, not 10 and 10) and concluded the refusal was too restrictive. Brute force says the
-        opposite: over major 0..99 the scheme is injective for a minor of 0..9 - 1000 names, zero
-        collisions - and from minor 10 it collides 200 times with that space. The refusal is what keeps
-        it injective, and the reason names a partner a reader can check.
+        010 and 100) and concluded the refusal was too restrictive. Brute force says the opposite: with
+        a minor and a patch of 0..9 every release gets its own name, and from two digits in either
+        place the name collides, so it is refused. The first form of this case computed the names on
+        its own literals and never called the generator, so no defect of the generator could turn it
+        red - a review lens planted sixteen and it stayed green against all of them.
         """
         namen = {}
-        for major in range(100):
+        for major in self.MAJORS:
             for minor in range(10):
-                n = major * 100 + minor * 10
-                assert n not in namen, f"{major}.{minor}.0 collides with {namen.get(n)} at {n}"
-                namen[n] = (major, minor)
-        assert len(namen) == 1000
-        # And from minor 10 the collision is real, which is why it is refused rather than computed.
-        assert 6 * 100 + 10 * 10 == 7 * 100 + 0 * 10 == 700
+                for patch in range(10):
+                    v = f"{major}.{minor}.{patch}"
+                    n, gap = RSD._stage_name(v)
+                    assert n is not None and gap is None, (v, gap)
+                    assert n not in namen, (v, namen.get(n), n)
+                    namen[n] = v
+        assert len(namen) == len(self.MAJORS) * 100
+        # And from two digits the collision is real, which is why it is refused rather than computed.
+        for version, partner in (("6.10.0", "61.0.0"), ("6.3.10", "63.1.0"), ("1.10.10", "110.1.0")):
+            assert RSD._stage_name(version)[0] is None, version
+            assert version.replace(".", "") == partner.replace(".", ""), (version, partner)
+            assert RSD._stage_name(partner)[0] == partner.replace(".", ""), partner
 
     def test_the_refusal_names_a_partner_that_really_collides(self):
         # A named partner that did not actually collide would be a reason a reader cannot check -
-        # worse than the abstract sentence it replaced.
+        # worse than the abstract sentence it replaced. Both places of two digits, minor and patch.
         import re  # noqa: PLC0415
-        d = RSD.audit_state_field("6.10.0")["audit_state"]
-        m = re.search(r"([0-9]+\.[0-9]+\.[0-9]+) and ([0-9]+\.[0-9]+\.[0-9]+) would both be ([0-9]+)",
-                      d["reason"])
-        assert m, d["reason"]
-        links, rechts, zahl = m.group(1), m.group(2), int(m.group(3))
-        def stufe(v):
-            a, b, *_ = v.split(".")
-            return int(a) * 100 + int(b) * 10
-        assert stufe(links) == stufe(rechts) == zahl, (links, rechts, zahl)
+        for version in ("6.10.0", "6.3.10"):
+            d = RSD.audit_state_field(version)["audit_state"]
+            assert d.get("not_measurable") is True, (version, d)
+            m = re.search(r"([0-9]+\.[0-9]+\.[0-9]+) and ([0-9]+\.[0-9]+\.[0-9]+) would both be "
+                          r"([0-9]+)", d["reason"])
+            assert m, d["reason"]
+            links, rechts, name = m.group(1), m.group(2), m.group(3)
+            assert links != rechts, (links, rechts)
+            assert links.replace(".", "") == rechts.replace(".", "") == name, (links, rechts, name)
+
+    def test_the_patch_level_names_its_own_stage(self, tmp_path, monkeypatch):
+        """FOUND AT THE TAG v6.3.1: the link named audit_artifacts/630/.
+
+        The stage was major*100 + minor*10, which drops the patch level, so 6.3.1 named the folder
+        of 6.3.0 while 631/ held its own audit and the README linked that one correctly. The three
+        versions are the ones the order named, each on a tree where the neighbouring folders exist,
+        so a derivation that drops a place lands on a real folder and not on a gap.
+        """
+        for name in ("630", "631", "640"):
+            (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        for version, stage in (("6.3.1", "631"), ("6.3.0", "630"), ("6.4.0", "640")):
+            d = RSD.audit_state_field(version)
+            assert d["audit_state"].get("value") == stage, (version, d["audit_state"])
+            assert d["audit_link"].get("value") == "audit_artifacts/" + stage + "/", (
+                version, d["audit_link"])
+
+    def test_a_missing_patch_stage_is_a_gap_and_not_the_stage_of_its_minor(self, tmp_path,
+                                                                           monkeypatch):
+        # COUNTER-CONTROL for the case above: with only 630/ present, 6.3.1 must not borrow it. A
+        # link to the audit of another release is worse than no link.
+        (tmp_path / "audit_artifacts" / "630").mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        d = RSD.audit_state_field("6.3.1")
+        assert d["audit_state"].get("not_measurable") is True, d["audit_state"]
+        assert "631" in d["audit_state"]["reason"], d["audit_state"]
+        assert d["audit_link"].get("not_measurable") is True, d["audit_link"]
+
+    def test_the_stage_is_the_folder_the_receipt_tools_write_and_read(self, tmp_path, monkeypatch):
+        """ONE NAME, ONE RULE: the generator names the folder the receipt tools use.
+
+        `scripts/pre_tag_receipt.py` writes the receipt under audit_artifacts/<token>/, and
+        `pre_tag_audit_gate.py` and `verify_pre_tag_receipt.py` read it there, each with its own
+        `_version_token`. The generator had a second rule for the same name, and the two agreed only
+        while the patch level was 0. The three functions are run here as they stand in the tree -
+        compiled from their own definitions, not imported, so no module-level code of those scripts
+        runs - and the generator must name the same folder for every version they all agree on.
+        """
+        import ast  # noqa: PLC0415
+        house = []
+        for rel in ("scripts/pre_tag_receipt.py", "scripts/pre_tag_audit_gate.py",
+                    "scripts/verify_pre_tag_receipt.py"):
+            defs = [n for n in ast.parse((REPO / rel).read_text(encoding="utf-8")).body
+                    if isinstance(n, ast.FunctionDef) and n.name == "_version_token"]
+            assert len(defs) == 1, (rel, len(defs))
+            ns = {}
+            exec(compile(ast.Module(body=defs, type_ignores=[]), rel, "exec"), ns)  # noqa: S102
+            house.append(ns["_version_token"])
+        # The rule itself over the whole grid of the case above, then the field on a crafted tree.
+        for major in self.MAJORS:
+            for minor in range(10):
+                for patch in range(10):
+                    v = f"{major}.{minor}.{patch}"
+                    names = {f(v) for f in house}
+                    assert len(names) == 1, (v, names)
+                    assert RSD._stage_name(v)[0] == names.pop(), v
+        # A release with a pre, post, dev or local suffix, as this repository has tagged them.
+        for v in ("6.4.1rc1", "6.4.1.post1", "6.4.1+ubuntu1", "1.0.0a2", "2.0.0b1", "5.1.0.post1",
+                  "6.4.1.dev3"):
+            names = {f(v) for f in house}
+            assert len(names) == 1, (v, names)
+            assert RSD._stage_name(v)[0] == names.pop(), v
+        versions =[f"{a}.{b}.{c}" for a in (0, 6, 12, 123) for b in (0, 3, 9) for c in range(10)]
+        for v in versions:
+            (tmp_path / "audit_artifacts" / house[0](v)).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        for v in versions:
+            d = RSD.audit_state_field(v)["audit_state"]
+            assert d.get("value") == house[0](v), (v, d)
+
+    def test_only_a_release_version_gets_a_stage(self, tmp_path, monkeypatch):
+        """FOUND BY A REVIEW LENS: every other string was taken by exclusion.
+
+        "631", "63.1" and "6.31" named 631/ like 6.3.1, "6.3.1.0" named the folder the refused
+        6.3.10 would name, and a version made only of dots gave the empty name, which fell through to
+        the newest stage. The tree holds the folders those readings would land on and a newer one, so
+        a derivation that accepts any of them lands on a real folder and not on a gap.
+        """
+        for name in ("631", "6310", "99999"):
+            (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        for v in ("631", "63.1", "6.31", "6.3.1.0", "6.3.1.10", "v6.3.1", " 6.3.1", "6.3.1\n",
+                  "...", ".", "", "6.3.", "6.3.1+1", "6.3.1/../x", "٦.٣.١"):
+            d = RSD.audit_state_field(v)
+            assert d["audit_state"].get("not_measurable") is True, (v, d["audit_state"])
+            assert "value" not in d["audit_link"], (v, d["audit_link"])
+        # COUNTER-CONTROL on the same tree: the release triple still names its folder.
+        assert RSD.audit_state_field("6.3.1")["audit_state"].get("value") == "631"
+
+    def test_a_release_with_a_suffix_finds_the_folder_its_receipt_is_filed_in(self, tmp_path,
+                                                                              monkeypatch):
+        """FOUND BY CODEX on this pull request: the derivation and the lookup disagreed.
+
+        The receipt tools file the receipt of 6.4.1rc1 under audit_artifacts/641rc1/, and the stage
+        list held only names made of digits, so the folder could never be found and the evidence of
+        such a release was reported absent. The lookup now asks for the exact derived folder. The
+        tree also holds 641/ and 640/, so a derivation that drops the suffix or the patch lands on a
+        real folder and the case can tell.
+        """
+        for name in ("640", "641", "641rc1", "641post1", "641+ubuntu1"):
+            (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        for v, stage in (("6.4.1rc1", "641rc1"), ("6.4.1.post1", "641post1"),
+                         ("6.4.1+ubuntu1", "641+ubuntu1")):
+            d = RSD.audit_state_field(v)
+            assert d["audit_state"].get("value") == stage, (v, d["audit_state"])
+            assert d["audit_link"].get("value") == "audit_artifacts/" + stage + "/", (
+                v, d["audit_link"])
+        # A suffixed release whose folder is absent is a gap, never the folder without the suffix.
+        d = RSD.audit_state_field("6.4.1rc2")
+        assert d["audit_state"].get("not_measurable") is True, d["audit_state"]
+
+    def test_a_folder_named_with_a_non_ascii_digit_is_no_stage(self, tmp_path, monkeypatch):
+        # `str.isdigit` accepts "²" and `int()` refuses it, so the numeric sort raised. Measured by a
+        # review lens on main as well; the folder is ignored now and the real stage still counts.
+        for name in ("²", "631"):
+            (tmp_path / "audit_artifacts" / name).mkdir(parents=True)
+        monkeypatch.setattr(RSD, "REPO", tmp_path)
+        d = RSD.audit_state_field("6.3.1")["audit_state"]
+        assert d.get("value") == "631", d
+        assert d["stages"] == ["631"], d["stages"]
 
     def test_the_stage_list_is_ordered_numerically_and_not_as_text(self, tmp_path, monkeypatch):
         # WITHOUT A VERSION the newest stage is the fallback, and "newest" must mean the greatest
