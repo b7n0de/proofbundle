@@ -1,0 +1,6 @@
+{
+  "schema": "proofbundle-plugin/done-claims/v0.1",
+  "evidence": [
+    {"id": "tests", "program": ["python", "-m", "pytest"]}
+  ]
+}

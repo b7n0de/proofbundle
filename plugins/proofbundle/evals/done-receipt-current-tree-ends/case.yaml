@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: done-receipt-current-tree-ends
+context:
+  scaffold_script: scaffold.sh
