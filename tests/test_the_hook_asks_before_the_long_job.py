@@ -53,18 +53,23 @@ def _fill(root: pathlib.Path, mark: pathlib.Path, node_fails: bool, manifest: st
         f"    pathlib.Path({str(mark)!r}).write_text('yes')\n"
         f"    assert not {node_fails!r}, 'planted failure'\n"
         "    text = (pathlib.Path(__file__).resolve().parents[1] / 'MANIFEST.in').read_text()\n"
-        "    assert 'undecided' not in text, 'planted: this tree carries no decision'\n",
+        "    assert 'undecided' not in text, 'planted: this tree carries no decision'\n"
+        "    for line in text.splitlines():\n"
+        "        if line.startswith('include '):\n"
+        "            listed = pathlib.Path(__file__).resolve().parents[1] / line.split()[1]\n"
+        "            assert listed.is_file(), 'planted: a listed file is missing here: ' + line\n",
         encoding="utf-8")
 
 
 def _build_tree(tmp_path: pathlib.Path, staged: list[str], node_fails: bool = False,
                 deleted: tuple[str, ...] = (), staged_manifest: str = "decided\n",
-                working_manifest: str = "decided\n"):
+                working_manifest: str = "decided\n", old_git: bool = False):
     """A tree that matches the hook exactly as far as the hook touches it, with a separate INDEX.
 
     The fake `git` keeps the two apart the way git does: `diff --cached` lists what is staged,
     honouring `--diff-filter` for the paths staged as deletions, and `checkout-index --all --prefix=`
-    writes the staged snapshot, not the working tree.
+    writes the staged snapshot, not the working tree. With `old_git` it refuses
+    `--ignore-skip-worktree-bits` with 129, as git before 2.36 does.
     """
     root = tmp_path / "tree"
     index = tmp_path / "index"
@@ -84,6 +89,9 @@ def _build_tree(tmp_path: pathlib.Path, staged: list[str], node_fails: bool = Fa
         "  exit 0\n"
         "fi\n"
         'if [ "$1" = "checkout-index" ]; then\n'
+        + ('  for a in "$@"; do if [ "$a" = "--ignore-skip-worktree-bits" ]; then\n'
+           '    echo "error: unknown option ignore-skip-worktree-bits" >&2; exit 129; fi; done\n'
+           if old_git else "") +
         '  for a in "$@"; do case "$a" in --prefix=*) cp -R ' + f"'{index}'" + '/. "${a#--prefix=}" ;; esac; done\n'
         "  exit 0\n"
         "fi\n"
@@ -162,6 +170,17 @@ def test_a_correct_staged_snapshot_passes_beside_a_stale_working_tree(tmp_path):
     assert p.returncode == 0, f"a correct staged snapshot was refused.\nstdout: {p.stdout}\nstderr: {p.stderr}"
 
 
+def test_a_git_without_the_skip_worktree_option_still_runs_the_node(tmp_path):
+    """The other direction of Codex round four: git before 2.36 has no `--ignore-skip-worktree-bits`
+    and refuses it, while its `--all` already takes every entry. A hook that always passed the option
+    would stop every commit that touches scripts/ on such a git, for a reason that is not the node."""
+    pytest.importorskip("pytest")
+    p, mark = _run(tmp_path, ["scripts/b7_neu.py"], old_git=True)
+    assert mark.is_file(), (
+        f"on a git without the option the node did not run.\nstdout: {p.stdout}\nstderr: {p.stderr}")
+    assert p.returncode == 0, p.stderr
+
+
 def _real_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, dict, pathlib.Path]:
     """A real git repository with the hook's inputs committed, so the staged set comes from git itself.
 
@@ -214,6 +233,25 @@ def test_a_path_outside_ascii_under_scripts_triggers_the_node(tmp_path):
     assert mark.is_file(), (
         f"a staged path outside ASCII under scripts/ did not start the node.\nstdout: {p.stdout}\nstderr: {p.stderr}")
     assert p.returncode == 0, p.stderr
+
+
+def test_a_listed_script_with_the_skip_worktree_bit_stays_in_the_snapshot(tmp_path):
+    """Codex on pull request 368, round four, P2: `git checkout-index --all` leaves out an entry with
+    the skip-worktree bit, which a sparse checkout sets, so a script listed in MANIFEST.in was missing
+    from the copy and the node refused its line as stale although the index carries the file."""
+    pytest.importorskip("pytest")
+    root, env, mark = _real_repo(tmp_path)
+    subprocess.run(["git", "update-index", "--skip-worktree", "scripts/b7_alt.py"], cwd=root, env=env,
+                   check=True, capture_output=True, timeout=60)
+    (root / "scripts" / "b7_neu.py").write_text("print('new')\n", encoding="utf-8")
+    (root / "MANIFEST.in").write_text(
+        "decided\ninclude scripts/b7_alt.py\ninclude scripts/b7_neu.py\n", encoding="utf-8")
+    subprocess.run(["git", "add", "scripts/b7_neu.py", "MANIFEST.in"], cwd=root, env=env, check=True,
+                   capture_output=True, timeout=60)
+    p = _run_real(root, env)
+    assert mark.is_file(), "the node did not run, so this case checks nothing"
+    assert p.returncode == 0, (
+        f"a listed script with the skip-worktree bit was missing from the snapshot.\nstdout: {p.stdout}")
 
 
 def test_the_hook_calls_exactly_the_node_that_ci_runs():

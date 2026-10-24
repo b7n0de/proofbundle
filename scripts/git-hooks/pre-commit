@@ -42,9 +42,18 @@ if git diff --cached --name-only --no-renames -z | tr '\000' '\n' | grep -q '^sc
         # node reads MANIFEST.in and scripts/ beside its own file, so it is run from a copy of the
         # index: a decision that is only on disk passed here and failed in CI, and a stale working
         # tree refused a correct commit.
+        #
+        # EVERY INDEX ENTRY (Codex on pull request 368, round four, P2): since git 2.36 `--all` leaves
+        # out the entries with the skip-worktree bit, which a sparse checkout sets, so a listed script
+        # there was missing from the copy and the node refused its MANIFEST line as stale. Before 2.36
+        # `--all` took every entry and the option did not exist, so it is passed only where git has it.
+        SKIPBITS=""
+        if git checkout-index -h 2>&1 | grep -q 'ignore-skip-worktree-bits'; then
+            SKIPBITS="--ignore-skip-worktree-bits"
+        fi
         SNAP="$(mktemp -d)"
         trap 'rm -rf "$SNAP"' EXIT
-        git checkout-index --all --prefix="$SNAP/"
+        git checkout-index --all ${SKIPBITS:+"$SKIPBITS"} --prefix="$SNAP/"
         PYTHONPATH="$SNAP/src" python3 -m pytest \
             "$SNAP/tests/test_sdist_ohne_signierwerkzeug.py::test_jede_datei_unter_scripts_ist_in_manifest_entschieden" \
             -q -p no:cacheprovider --no-header --rootdir "$SNAP"
