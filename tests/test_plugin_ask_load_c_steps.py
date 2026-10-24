@@ -300,7 +300,7 @@ KEPT = {
     "gh_create_after_view": "gh pr view 41 && gh pr create --fill",
     "pipe_into_shell": "git log --format=%s | sh",
     "comment_r11_2": "true # ; git config proofbundle.reviewMarker changed",
-    "wrapper_glob_r14_1": "sudo gi* status",
+    "wrapper_glob_r14_1": "nice gi* status",   # sudo until O49-1, an own door since D120 (house rule H5)
     "env_glob_r14_1": "env -- gi* push origin main",
 }
 

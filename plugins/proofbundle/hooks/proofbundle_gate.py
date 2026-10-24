@@ -13201,12 +13201,190 @@ def _house_h4_own(step: str) -> "_HouseFinding":
         "name the process to end by its process id")
 
 
+# --- D120: the own doors of the owner, house rule H5 (O49-1) ----------------------------------------------------------
+
+#: D120 (O49-1, owner choice A of 2026-10-24, 11:5x Berlin): the kinds of D119 (_RELEASE_DOORS) that the gate held
+#: nowhere, a deny no card opens: root, an upload to PyPI and a signature with a key. The reason of each kind and what
+#: the long reason says it does.
+_HOUSE_DOOR_REASONS = {"root": "house_own_door_root", "pypi": "house_own_door_pypi",
+                       "signatur": "house_own_door_signature"}
+_HOUSE_DOOR_DOES = {"root": "runs as root", "pypi": "uploads to PyPI, which publishes a version",
+                    "signatur": "signs with a key"}
+#: An interpreter that runs a module with -m (python, python3, python3.12), and its options that take the next word.
+_HOUSE_DOOR_PYTHON = re.compile(r"python([0-9]+(\.[0-9]+)*)?")
+_HOUSE_DOOR_PYTHON_VALUES = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+#: The runners that start a later word as a program: uvx, `pipx run`, `uv tool run` and the run of a publisher of D119
+#: (`uv run`, `poetry run`, `hatch run`, `pdm run`, `rye run`). H5 reads the words among theirs that name a program of
+#: D119 or an interpreter as the program they start (O49-1, a neighbour measured 2026-10-24: `uvx hatch publish`,
+#: `pipx run hatch publish` and `uv tool run flit publish` passed decide() without a word).
+_HOUSE_DOOR_RUNNERS = frozenset({"uvx"})
+_HOUSE_DOOR_NAMES = frozenset({"twine", "ssh-keygen", "openssl"})
+#: A publisher of D119 publishes with the verb of its own (maturin also with upload), unless a word before the verb is
+#: a subcommand that runs or installs something else (`uv run publish`, `uv pip install publish`, `poetry run x`).
+_HOUSE_DOOR_NOT_PUBLISH = frozenset({"run", "exec", "tool", "pip", "x", "shell", "script", "env", "add", "install"})
+#: gpg 2.4 (`gpg --help`, the manual; not run here): the long options that sign, which gpg also takes as an unambiguous
+#: prefix (`--detach`), so a prefix of three letters or more counts; the letters of short options that sign (-s, -b)
+#: and of those that take the next word or the rest of the word as a value (-r, -R, -u, -o, -f, -F, -z).
+_HOUSE_GPG_SIGN = ("sign", "detach-sign", "clearsign", "clear-sign", "sign-key", "lsign-key", "quick-sign-key",
+                   "quick-lsign-key")
+_HOUSE_GPG_SIGN_LETTERS = frozenset("sb")
+_HOUSE_GPG_VALUE_LETTERS = frozenset("rRuofFz")
+#: The subcommands that sign of the signers of D119 that sign by one (cosign, sigstore, notation; rekor-cli upload puts a
+#: signature into the public log), read from their manuals, none run here.
+_HOUSE_SIGN_COMMANDS = {"cosign": frozenset({"sign", "sign-blob", "attest", "attest-blob"}),
+                        "sigstore": frozenset({"sign"}), "notation": frozenset({"sign"}),
+                        "rekor-cli": frozenset({"upload"})}
+
+
+def _house_door(words: list) -> tuple[str, str] | None:
+    """D120, house rule H5: (kind of _RELEASE_DOORS, step) of the own door a run of words opens, or None. A root program
+    of D119 (_RELEASE_ROOT) at the head of the run or behind a wrapper of _HOUSE_WRAPPERS, which sudo itself is one of;
+    else the program behind the wrappers, read with its grammar (_house_door_program). `command -v` and `command -V`
+    name a program and run none."""
+    values = [w[0] for w in words]
+    k = 0
+    while k < len(values):
+        value = values[k]
+        base = os.path.basename(value)
+        if _ASSIGNMENT.match(value) or value in _SH_KEYWORDS or value in ("(", ")"):
+            k += 1
+            continue
+        if base in _RELEASE_ROOT:
+            return "root", base
+        wrapper = _HOUSE_WRAPPERS.get(base)
+        if wrapper is None:
+            return _house_door_program(values[k:])
+        if base == "command" and any(v in ("-v", "-V") for v in values[k + 1:k + 3]):
+            return None
+        options, own = wrapper
+        k += 1
+        while k < len(values) and values[k].startswith("-") and values[k] != "-":
+            k += 2 if values[k] in options else 1
+        k += own
+    return None
+
+
+def _house_door_gpg(base: str, args: list[str]) -> tuple[str, str] | None:
+    """D120: gpg or gpg2 with an option that signs (_HOUSE_GPG_SIGN, -s, -b), read as gpg reads its words: a long option
+    by a prefix of three letters or more, a bundle of short options up to a letter that takes a value, not after `--`."""
+    j = 0
+    while j < len(args):
+        word = args[j]
+        if word == "--":
+            return None
+        if word.startswith("--"):
+            name = word[2:].partition("=")[0]
+            if len(name) >= 3 and any(full.startswith(name) for full in _HOUSE_GPG_SIGN):
+                return "signatur", f"{base} --{name}"
+        elif word.startswith("-") and len(word) > 1:
+            letters = word[1:]
+            for i, letter in enumerate(letters):
+                if letter in _HOUSE_GPG_SIGN_LETTERS:
+                    return "signatur", f"{base} {word}"
+                if letter in _HOUSE_GPG_VALUE_LETTERS:
+                    j += 1 if i == len(letters) - 1 else 0   # the next word is its value, or the rest of this one
+                    break
+        j += 1
+    return None
+
+
+def _house_door_program(words: list[str]) -> tuple[str, str] | None:
+    """D120: the own door a program opens by its words (the program first): an upload to PyPI (twine upload and register,
+    the verb of a publisher of D119, curl or wget sending to pypi.org) or a signature with a key (gpg, ssh-keygen -Y sign
+    and -s, the subcommands of _HOUSE_SIGN_COMMANDS, minisign -S, signify -S, openssl with -sign or -signkey and openssl
+    ca), also as `python -m <program>` and behind a runner of _HOUSE_DOOR_RUNNERS. Every other form of these programs
+    stays as it is (gpg --verify, cosign verify, ssh-keygen -Y verify, twine check)."""
+    base = os.path.basename(words[0])
+    args = words[1:]
+    positional = [w for w in args if not w.startswith("-")]
+    if _HOUSE_DOOR_PYTHON.fullmatch(base):
+        j = 0
+        while j < len(args) and args[j].startswith("-") and args[j] not in ("-", "-c"):
+            module = args[j + 1] if args[j] == "-m" and j + 1 < len(args) else \
+                (args[j][2:] if args[j].startswith("-m") and len(args[j]) > 2 else None)
+            if module is not None:
+                # the module stands for the program of its name: `python -m twine`, `python -m uv publish`,
+                # `python -m sigstore sign`; a module that is no program of a door opens none
+                rest = args[j + 2:] if args[j] == "-m" else args[j + 1:]
+                return _house_door_program([module, *rest])
+            j += 2 if args[j] in _HOUSE_DOOR_PYTHON_VALUES else 1
+        return None
+    if base in _HOUSE_DOOR_RUNNERS or (base == "pipx" and positional[:1] == ["run"]) or \
+            (base == "uv" and positional[:2] == ["tool", "run"]) or \
+            (base in _RELEASE_PUBLISHERS and positional[:1] == ["run"]):
+        for j, word in enumerate(args):
+            name = os.path.basename(word)
+            if name in _HOUSE_DOOR_NAMES or name in _RELEASE_ROOT or name in _RELEASE_SIGNERS or \
+                    name in _RELEASE_PUBLISHERS or _HOUSE_DOOR_PYTHON.fullmatch(name):
+                door = _house_door([(w, False) for w in args[j:]])
+                if door is not None:
+                    return door
+        return None
+    if base == "twine":
+        return ("pypi", f"twine {positional[0]}") if positional[:1] in (["upload"], ["register"]) else None
+    if base in _RELEASE_PUBLISHERS:
+        verbs = ("publish", "upload") if base == "maturin" else ("publish",)
+        for word in positional:
+            if word in verbs:
+                return "pypi", f"{base} {word}"
+            if word in _HOUSE_DOOR_NOT_PUBLISH:
+                return None
+        return None
+    if base in ("curl", "wget") and _upload_form(words) is not None:
+        hosts = []
+        for word in args:
+            if "://" in word:
+                try:
+                    hosts.append((urllib.parse.urlsplit(word).hostname or "").lower())
+                except ValueError:
+                    continue
+        if any(h == "pypi.org" or h.endswith(".pypi.org") for h in hosts):
+            return "pypi", f"{base} to PyPI"
+        return None
+    if base in ("gpg", "gpg2"):
+        return _house_door_gpg(base, args)
+    if base == "ssh-keygen":
+        for j, word in enumerate(args):
+            if word == "-Y":
+                return ("signatur", "ssh-keygen -Y sign") if args[j + 1:j + 2] == ["sign"] else None
+            if word.startswith("-Y") and len(word) > 2:
+                return ("signatur", "ssh-keygen -Y sign") if word[2:] == "sign" else None
+        return ("signatur", "ssh-keygen -s") if "-s" in args else None
+    commands = _HOUSE_SIGN_COMMANDS.get(base)
+    if commands is not None:
+        return ("signatur", f"{base} {positional[0]}") if positional[:1] and positional[0] in commands else None
+    if base in ("minisign", "signify"):
+        signs = any(w.startswith("-") and not w.startswith("--") and "S" in w[1:] for w in args)
+        return ("signatur", f"{base} -S") if signs else None
+    if base == "openssl":
+        if positional[:1] == ["ca"]:
+            return "signatur", "openssl ca"
+        word = next((w for w in args if w in ("-sign", "-signkey")), None)
+        return ("signatur", f"openssl {word}") if word is not None else None
+    return None
+
+
+def _house_h5(kind: str, step: str) -> "_HouseFinding":
+    return _HouseFinding(
+        "deny", _HOUSE_DOOR_REASONS[kind], step,
+        f"proofbundle gate: house rule H5: `{step}` {_HOUSE_DOOR_DOES[kind]}, an own door of the owner: the owner types "
+        "it themselves, and no card frees it, not even with a release of D119 (owner choice of 2026-10-24, O49-1; "
+        "DECISIONS.md D120).",
+        f"`{step}` {_HOUSE_DOOR_DOES[kind]}, an own door of the owner",
+        "say so on the card; the owner types the line themselves")
+
+
 def _house_findings(command: str, cwd: str | None, deadline: float) -> list:
-    """The house rules a command meets (D73), in the order of its runs."""
+    """The house rules a command meets (D73), in the order of its runs; the own doors of H5 (D120) follow them, so a rule
+    of D73 that decides keeps its line."""
     runs = _house_runs(command, cwd)
     created = _house_created_tags(runs)
     found: list = []
+    doors: list = []
     for words, k, directory in runs:
+        door = _house_door(words)
+        if door is not None:
+            doors.append(_house_h5(*door))
         if k is None:
             continue
         base = os.path.basename(words[k][0])
@@ -13216,7 +13394,7 @@ def _house_findings(command: str, cwd: str | None, deadline: float) -> list:
             found.extend(_house_git(words, k, directory, created, deadline))
         elif base in ("pkill", "pgrep", "killall", "pidof", "kill"):
             found.extend(_house_kill(words, k, runs, command))
-    return found
+    return found + doors
 
 
 # --- D102 to D104: the guards of Nachtrag 33 that hold for every command, git or not ---------------------------------
@@ -15198,6 +15376,13 @@ _SHORT_REASONS = {
                            "das Muster auch die eigene Befehlszeile treffen kann; führe ihn einzeln aus"),
     "house_kill_own": ("D73", "the target can be its own shell or the host; name the process id",
                        "das Ziel die eigene Shell oder der Wirt sein kann; nenne die Prozessnummer"),
+    # the own doors of the owner, house rule H5 (D120): deny, and no card frees them
+    "house_own_door_root": ("D120", "it runs as root, an own door, the owner types it themselves",
+                            "es als root läuft, eigene Tür, der Owner tippt sie selbst"),
+    "house_own_door_pypi": ("D120", "it uploads to PyPI, an own door, the owner types it themselves",
+                            "es nach PyPI hochlädt, eigene Tür, der Owner tippt sie selbst"),
+    "house_own_door_signature": ("D120", "it signs with a key, an own door, the owner types it themselves",
+                                 "es mit einem Schlüssel signiert, eigene Tür, der Owner tippt sie selbst"),
     # the autonomous answer under Claude Code (D85): deny
     "autonomy_rewrite": ("D85", "the call is no external effect and a rewrite of it is free",
                          "der Aufruf keine Außenwirkung ist und eine Umschreibung frei ist"),
@@ -15390,6 +15575,7 @@ _SHORT_DANGER = {
 #: same retrospective in Nachtrag 30, the measured push targets of D86, the literal backslash-n of D108).
 _SHORT_DANGER_IN_REASON = frozenset({"house_admin_merge", "house_protection_api", "house_tag_out",
                                      "house_pr_limit_reached", "house_pr_limit", "house_kill_pattern", "house_kill_own",
+                                     "house_own_door_root", "house_own_door_pypi", "house_own_door_signature",
                                      "push_force", "push_mirror", "push_delete", "text_literal_newline"})
 #: D116: what can go wrong for a git form whose answer is the not-free answer of D3, by the form it names.
 _SHORT_DANGER_GIT_FORM = {
@@ -16561,7 +16747,8 @@ FANG_REASONS = frozenset({
     "code_names_git", "program_word_unknown", "done_order_change", "handover_refused", "push_force", "push_mirror",
     "push_protected", "push_delete", "push_unmeasured", "write_to_declaration", "write_to_shell_start",
     "write_to_host_settings", "secret_path", "upload_to_host", "delete_outside_work", "append_outside_work",
-    "text_literal_newline", "text_form_red", "house_pr_limit_reached"})
+    "text_literal_newline", "text_form_red", "house_pr_limit_reached", "house_own_door_root", "house_own_door_pypi",
+    "house_own_door_signature"})
 AUTONOMY_STATE = "autonomy-state.json"
 AUTONOMY_STATE_SCHEMA = "proofbundle-plugin/autonomy-state/v0.1"
 MAX_AUTONOMY_STATE_BYTES = 256 * 1024
@@ -17728,9 +17915,13 @@ def _release_door_words(command: str) -> str | None:
             any(n in _RELEASE_PUBLISHERS and ("publish" in words[i + 1:] or (n == "maturin" and "upload" in words[i + 1:]))
                 for i, n in enumerate(names)):
         return "pypi"
+    # D120 (O49-1, a neighbour measured 2026-10-24): git signs with the owner's key also through its configuration, by
+    # `-c commit.gpgsign=true`, by GIT_CONFIG_KEY_<n>=tag.gpgSign and by -S with its key joined (-S<key>); until then a
+    # release let `git -c commit.gpgsign=true commit -m x` run. A word that names gpgsign holds the release back, also
+    # one that sets it false: a release frees less, never more.
     if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
             ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
-            ("git" in names and any(w == "-S" or w.startswith("--gpg-sign") for w in words)):
+            ("git" in names and any(w.startswith(("-S", "--gpg-sign")) or "gpgsign" in w.lower() for w in words)):
         return "signatur"
     if any(n in _RELEASE_ROOT for n in names):
         return "root"

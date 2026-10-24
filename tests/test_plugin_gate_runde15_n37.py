@@ -103,8 +103,11 @@ def _free(repo, logs_root, command):
 
 
 # --- R14-1 .. R14-3 at the gate exit (both host paths) ------------------------------------------------------------
+#: `sudo gi* status` stood here until O49-1; sudo is an own door since D120 (house rule H5), its answer a deny with the
+#: NOT MEASURED of the net kept in the log (tests/test_plugin_o49_1_own_doors_d120.py), so `nice`, a wrapper with an
+#: option set of its own, stands in its place and answers as sudo did before (measured 2026-10-24).
 _R14_1 = ["env -- gi* push origin main", "if gi* push origin main; then :; fi", "command -- gi* push origin main",
-          "time -p gi* status", "sudo gi* status"]
+          "time -p gi* status", "nice gi* status"]
 _R14_2 = ['echo "$(gi* status)"', ": $'x'; gi* status", 'echo "$(g{i..i}t status)"',
           'echo "`gi* status`"']
 _R14_3 = ['echo "$(printf ' + BS + '); $' + "'" + BS + "147it' status)" + '"',

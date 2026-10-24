@@ -5752,3 +5752,73 @@ decide() without a word) are not touched by this rule: no card is asked for them
 Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
 is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
 in D119).
+
+## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
+
+Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after Nachtrag 49): the doors D119 names in its last limit go to the
+owner, who types them themselves. Measured in Nachtrag 49 (point 4) at 380e9d2a and e7ffa935: sudo, twine upload, uv
+publish, gpg, cosign and ssh-keygen -Y sign pass decide() without a word; measured again on 2026-10-24 at 6b382418 and
+e7ffa935 in the work profile under --autonomous, through the hook of each host: twelve door lines and five counter
+cases gave no answer, with and without a release of D119. D119 reads their words as doors, so no card frees them, but
+nothing held them.
+
+The rule (house rule H5, _house_h5): the gate denies such a line under both hosts. The long reason names the step,
+what it does and that the owner types the line themselves, no card freeing it, not even with a release of D119; the
+short line says "an own door, the owner types it themselves" (German: "eigene Tür, der Owner tippt sie selbst") with
+what can go wrong before it (D116). A release does not open it: a release frees only a call decide() asked about (D111),
+and a deny of decide() stays a deny (D119).
+
+H5 reads each run of a command as D73 does (_house_runs: the step parser of class c, the lexer where the parser does
+not model the command, `bash -c`, eval and every command substitution) and comes after the rules H1 to H4 in the line
+(_house_findings), so a rule of D73 that decides keeps its place; the stricter answer decides, a deny of H5 before an
+ask of H4. It reads the kinds of D119 (_RELEASE_DOORS) by the programs D119 names for them, each with its own grammar
+(_house_door, _house_door_program, _house_door_gpg):
+
+- root (house_own_door_root): a program of _RELEASE_ROOT (sudo, su, doas, pkexec, run0) at the head of a run or behind
+  a wrapper of _HOUSE_WRAPPERS (env, nice, nohup, timeout, xargs, …, sudo and doas being wrappers too); `command -v`
+  and `command -V` name a program and run none.
+- an upload to PyPI (house_own_door_pypi): twine upload and twine register, also by a path; the verb publish of a
+  publisher of D119 (uv, poetry, flit, hatch, pdm, rye, maturin) and maturin upload, unless a word before the verb is a
+  subcommand that runs or installs something else (`uv run publish`, `uv pip install publish`); curl or wget sending a
+  file to pypi.org or a host below it, in an upload form of D103.
+- each program of a door, also as `python -m <program>` (python, python3, python3.12, behind options of the
+  interpreter: the module stands for the program of its name) and behind a runner that starts a later word as a
+  program (uvx, `pipx run`, `uv tool run`, and `uv run`, `poetry run`, `hatch run`, `pdm run`, `rye run`): H5 reads
+  the words of the runner that name a program of D119 or an interpreter as the program it starts.
+- a signature with a key (house_own_door_signature): gpg and gpg2 with --sign, --detach-sign, --clearsign,
+  --clear-sign, --sign-key, --lsign-key, --quick-sign-key or --quick-lsign-key, also by a prefix of three letters or
+  more, as gpg takes an unambiguous prefix, and with -s or -b in a bundle of short options up to a letter that takes a
+  value (-r, -R, -u, -o, -f, -F, -z), not after `--`; cosign sign, sign-blob, attest and attest-blob; ssh-keygen -Y sign
+  and ssh-keygen -s, which signs a certificate with a CA key; minisign -S and signify -S; sigstore sign; notation sign;
+  rekor-cli upload, which puts a signature into the public log; openssl with -sign or -signkey, and openssl ca.
+
+Counter cases, each with the answer it had at e7ffa935: gpg --verify, --list-keys, -k and --export; cosign verify,
+verify-blob and version; ssh-keygen -Y verify, -Y check-novalidate and -l; twine check, also as `python -m twine
+check`; uv build and uv run; poetry build; minisign -V and signify -V; openssl dgst, also with -verify; sigstore verify;
+notation verify; `command -v sudo`, `command -V twine`, which, man; a door word as text (echo, grep, a here-document);
+systemctl status; a curl upload to another host keeps the ask of D103.
+
+A neighbour of the class inside H5, found by a surviving mutant (the module of `python -m` read as twine whatever it
+was): the first form of H5 read only twine behind `python -m` and behind a runner. Measured on 2026-10-24 at that form,
+thirteen lines passed decide() without a word, among them `python -m poetry publish`, `python3 -m uv publish`,
+`python -m sigstore sign`, `uvx hatch publish`, `pipx run hatch publish` and `uv tool run flit publish`; `uv run
+twine upload` and `uv run sudo id` belong to the same class. H5 reads them now, each a case of the tests.
+
+A neighbour of the class, in D119's own rule (_release_door_words): git signs with the owner's key also through its
+configuration (`-c commit.gpgsign=true`, `-c rebase.gpgSign=true`, `GIT_CONFIG_KEY_<n>=commit.gpgsign`) and by -S with
+its key joined (`-S<key>`). Measured at e7ffa935 on 2026-10-24 in the work profile under --autonomous: a release let
+`git -c commit.gpgsign=true commit -m x` run (released_by_owner), while -S and --gpg-sign stayed closed. A word of a
+git line that names gpgsign, or that begins with -S or --gpg-sign, is the door of a signature now, also one that sets
+gpgsign false: a release frees less, never more. H5 does not read git: a git line already asks or needs a card.
+
+The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no
+door form was run here. Not covered, and named: a door the shell builds (`$T upload`, a program in a variable); code an
+interpreter runs that uploads or signs (`python -c`, a script); the signing configuration of a repository that signs a
+plain `git commit` (commit.gpgSign in its own configuration); runuser, which is not a door of D119; and a value of an
+option that names a subcommand (`uv --directory publish …` is read as publish, which denies more, never less).
+
+Changed older tests, each stricter: tests/test_plugin_n30_house_rules_d73.py H4 (`sudo pkill -f sleep` asked for its
+pattern and is a deny of H5 now, the ask of H4 in the log); tests/test_plugin_gate_runde15_n37.py R14-1 and
+tests/test_plugin_ask_load_c_steps.py (`sudo gi* status` asked for the program the net could not read and is a deny of
+H5 now, that NOT MEASURED in the log; `nice gi* status` stands in its place and answers as sudo did before).
+Tests: tests/test_plugin_o49_1_own_doors_d120.py.
