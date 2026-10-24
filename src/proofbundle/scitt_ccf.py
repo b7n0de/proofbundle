@@ -50,10 +50,12 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from . import _scitt_second_reader as _second
 from ._cbor_prescan import CborRefused, Tag, encode_head, scan
 from ._membership import is_member
+from ._scitt_second_reader import ScittUnavailable
 from .canonical import _abbild_stand, _ein_stand
-from .errors import BundleFormatError, UnsupportedError
+from .errors import BundleFormatError
 
 PROFILE = "scitt-ccf/v1"
 
@@ -122,77 +124,27 @@ class ScittFormatError(BundleFormatError):
         super().__init__(f"{status}: {detail}")
 
 
-class ScittUnavailable(UnsupportedError):
-    """The ``[scitt]`` extra is not installed, or its cbor2 lacks an option the profile needs."""
-
-    status = "no_lib"
+# ``ScittUnavailable`` lives in ``_scitt_second_reader`` and is imported above, so ``scitt_ccf.ScittUnavailable`` stays
+# the one class every caller catches.
 
 
 # ------------------------------------------------------------------------------------------------
 # The reader: our pre-scan decides, cbor2 must read the same values
 # ------------------------------------------------------------------------------------------------
-def _cbor2():
-    try:
-        import cbor2  # noqa: PLC0415 - optional extra
-    except ImportError as exc:
-        raise ScittUnavailable("scitt-ccf needs the [scitt] extra: pip install 'proofbundle[scitt]'") from exc
-    try:
-        cbor2.loads(b"\xa0", allow_duplicate_keys=False, allow_indefinite=False)
-    except TypeError as exc:
-        raise ScittUnavailable("the installed cbor2 cannot reject duplicate keys and indefinite "
-                               "lengths; the [scitt] extra pins the measured version") from exc
-    return cbor2
-
-
-def _same(ours: Any, theirs: Any, cbor2) -> bool:
-    """Do the pre-scan and cbor2 read the same value? Container types differ by cbor2 version
-    (list or tuple, dict or frozendict), so the comparison is by content, never by type name."""
-    if isinstance(ours, bool) or ours is None:
-        return theirs is ours
-    if isinstance(ours, int):
-        return isinstance(theirs, int) and not isinstance(theirs, bool) and theirs == ours
-    if isinstance(ours, (bytes, str)):
-        return type(theirs) is type(ours) and theirs == ours
-    if isinstance(ours, list):
-        return (isinstance(theirs, (list, tuple)) and len(theirs) == len(ours)
-                and all(_same(a, b, cbor2) for a, b in zip(ours, theirs)))
-    if isinstance(ours, dict):
-        try:
-            keys = list(theirs.keys())
-        except AttributeError:
-            return False
-        if len(keys) != len(ours) or any(k not in ours for k in keys if isinstance(k, (int, str))):
-            return False
-        return all(isinstance(k, (int, str)) and not isinstance(k, bool) and _same(ours[k], theirs[k], cbor2)
-                   for k in keys)
-    if isinstance(ours, Tag):
-        if ours.number == 1:
-            # cbor2 turns tag 1 into a datetime (measured, 5.9.0 and 6.1.4); that is the one mapped position
-            import datetime  # noqa: PLC0415
-            if isinstance(ours.value, bool) or not isinstance(ours.value, int):
-                return False
-            return (isinstance(theirs, datetime.datetime) and theirs.tzinfo is not None
-                    and theirs == datetime.datetime.fromtimestamp(ours.value, datetime.timezone.utc))
-        return (isinstance(theirs, cbor2.CBORTag) and theirs.tag == ours.number
-                and _same(ours.value, theirs.value, cbor2))
-    return False
-
-
+# THE SECOND READER IS A MODULE OF ITS OWN (owner answer B on card OA-c2b4d6d3e3): `_scitt_second_reader` holds every
+# reference to cbor2, so this module, which judges only the values of the strict pre-scan, imports no decoding library
+# (tests/test_strict_decoding_guard.py). The order is unchanged: without the extra the reader refuses with no_lib
+# before it reads a byte.
 def _read(data: bytes, *, tag_allowed, max_bytes: int = MAX_STATEMENT_BYTES):
     """Pre-scan, then cbor2 with its strict options; both must read the same value."""
-    cbor2 = _cbor2()
+    _second.library()
     try:
         sc = scan(data, max_bytes=max_bytes, max_depth=MAX_DEPTH, tag_allowed=tag_allowed)
     except CborRefused as exc:
         raise ScittFormatError("malformed", str(exc)) from exc
-    try:
-        theirs = cbor2.loads(bytes(data), allow_duplicate_keys=False, allow_indefinite=False,
-                             max_depth=MAX_DEPTH + 2)
-    except Exception as exc:  # noqa: BLE001 - any cbor2 refusal of bytes the pre-scan accepted is a disagreement
-        raise ScittFormatError("malformed", f"cbor2 refused what the pre-scan accepted: "
-                                            f"{type(exc).__name__}") from exc
-    if not _same(sc.value, theirs, cbor2):
-        raise ScittFormatError("malformed", "the pre-scan and cbor2 read different values")
+    why = _second.disagreement(data, sc.value, max_depth=MAX_DEPTH + 2)
+    if why:
+        raise ScittFormatError("malformed", why)
     return sc
 
 

@@ -202,6 +202,10 @@ NOT_DECODING = {
 #: path -> (number of lax decode references, reason they lie outside a verify path)
 EXCEPTIONS = {
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
+    "src/proofbundle/_scitt_second_reader.py": (
+        3, "the second reader of scitt_ccf (ADR 0009, Decision 13): cbor2 reads only bytes the strict pre-scan of "
+           "_cbor_prescan has already accepted, and must read the same values; a refusal of cbor2 or another value "
+           "is a refusal, and cbor2 decides nothing alone (owner answer B on card OA-c2b4d6d3e3)"),
     "src/proofbundle/trust_pack.py": (1, "reads back the RFC 8785 bytes it just wrote from an already parsed object"),
     "tools/cap1_unabhaengige_umsetzung/lauf.py": (
         2, "measures the last-wins and first-wins readings of CAP-1 on purpose; the verdict table is the result"),
@@ -220,6 +224,41 @@ EXCEPTIONS = {
             "under the alias _json build its own test inputs"),
     "tools/scitt_ccf_datahash_vector/reader_matrix.py": (
         2, "measures cbor2 itself: what the library accepts is the result"),
+    # The measurement harnesses of tools/scitt_ccf_external, named when the scitt-ccf reader joined the strict rule
+    # (owner answer B on card OA-c2b4d6d3e3). Each verdict they record comes from proofbundle.scitt_ccf.
+    "tools/scitt_ccf_external/consistency_probe.py": (
+        9, "measurement harness of consistency receipts: reads the output of the third-party Merkle oracle it runs, its "
+           "own run files and stored result, the example bundle, and the service's receipts and proofs with cbor2 to "
+           "rebuild them for its probes"),
+    "tools/scitt_ccf_external/differential_corpus.py": (
+        8, "builds and re-derives the differential corpus: reads the local ledger's configuration, version and quote "
+           "responses, its own manifest and records, the example bundle and the build inputs, and the first receipt of "
+           "a returned statement with cbor2 to store it"),
+    "tools/scitt_ccf_external/differential_corpus_round2.py": (
+        5, "round two of the differential corpus: reads its own manifest and records, the example bundle and the "
+           "build inputs"),
+    "tools/scitt_ccf_external/leafhash/measure.py": (
+        2, "measures the leaf hash of a local ledger: reads the receipts its run wrote with cbor2 to take their proofs "
+           "apart, and judges nothing"),
+    "tools/scitt_ccf_external/leafhash/reader_forgery.py": (
+        2, "builds forgery inputs for readers: reads its own input file and a receipt its run wrote; what the readers "
+           "accept is the result"),
+    "tools/scitt_ccf_external/leafhash/same_digests.py": (
+        1, "reads the stored consistency result of its directory to compare digests"),
+    "tools/scitt_ccf_external/local_ledger_probe.py": (
+        2, "registers the example bundle on a local ledger: reads the example bundle and the build inputs it is given"),
+    "tools/scitt_ccf_external/preimage_candidates.py": (
+        6, "computes candidate preimages of the data-hash: reads stored receipts and requests with cbor2 to re-encode "
+           "them, and its own manifest and records"),
+    "tools/scitt_ccf_external/reader_crosscheck.py": (
+        27, "measures cbor2 and pycose themselves against real statements: what each library accepts is the result"),
+    "tools/scitt_ccf_external/recompute.py": (
+        1, "reads its trust-store document strictly with its own hook `_no_duplicate_keys`, a name STRICT_HOOKS does "
+           "not list"),
+    "tools/scitt_ccf_external/rust_crosscheck.py": (
+        2, "differential harness: reads the stored vector and the JSON output of the Rust verifier it compares"),
+    "tools/scitt_ccf_external/vendored_encoder_probe.py": (
+        3, "reads its own manifest, records and stored result to hold them to the corpus, offline"),
     "docs/scitt/statement_identification/package/build.py": (
         3, "producer of the package: reads back the statements it has just built"),
     "docs/scitt/statement_identification/package/verify.py": (

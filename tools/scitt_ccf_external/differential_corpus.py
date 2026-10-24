@@ -55,6 +55,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -209,9 +210,12 @@ def cose_structure(raw: bytes) -> dict:
 
 
 def _strip(v):
-    if isinstance(v, dict):
+    # Mapping and tuple beside dict and list: the strict decoding guard asks every container check behind
+    # cbor2 to hold under cbor2 6, which returns a frozendict and a tuple under a tag (owner answer B on card
+    # OA-c2b4d6d3e3). The records stripped here are JSON, so the reading is unchanged.
+    if isinstance(v, (dict, Mapping)):
         return {k: _strip(x) for k, x in v.items() if not k.startswith("_")}
-    if isinstance(v, list):
+    if isinstance(v, (list, tuple)):
         return [_strip(x) for x in v]
     return v
 
