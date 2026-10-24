@@ -10,6 +10,13 @@ omission: it makes the item invisible to the count that is supposed to track it.
 Owner decision 2026-09-14: the title form is English, `[<version> <ID>] type(scope): subject`,
 exactly one identifier per pull request.
 
+A FOLLOW-UP OF A LINE carries `[<version> <ID>-FOLGE] type(scope): subject` on a branch of its own
+(Nachtrag 5 of CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01). It belongs to the In row of its parent and needs
+no row of its own: on a branch no row names, a title of that form is judged against the row of `<ID>`
+as the parent's own title would be. A parent that is no In row with a branch leaves its follow-up
+where it stands itself, outside the scope. The landing card never counts a follow-up: the line lands
+with the parent's own pull request, and the branch of a row does not carry the suffix.
+
 WHAT THIS GATE DOES NOT DO, said plainly. It judges the BRANCH, not the diff. A pull request whose
 head branch is named in the scope file must carry that line's identifier; a branch the scope file
 does not name is not judged here at all, and is reported as such rather than as a pass. Deciding
@@ -71,8 +78,13 @@ _KENNUNG = r"[A-Z]\.?-?[A-Z]?\d+(?:[.\-][0-9a-z]+)*"
 #: the form bound the first line and said nothing about the rest. A pull-request title is one
 #: line; whatever follows a line break was never judged, and a rule that stops at the first
 #: newline judges a prefix while claiming to judge a title.
+#:
+#: THE SUFFIX `-FOLGE` IS READ BESIDE THE IDENTIFIER, not as part of it (Nachtrag 5 of
+#: CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01). `_KENNUNG` takes a sub-part in lower case only, so
+#: `[6.4.0 PR371-FOLGE]` matched no form, and the gate was green on such a title only because the
+#: follow-up's branch stood outside the scope, without having read it.
 _TITELFORM = re.compile(
-    rf"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>{_KENNUNG}) *\]"
+    rf"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>{_KENNUNG})(?P<folge>-FOLGE)? *\]"
     r" +(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?: +\S[^\r\n]*\Z")
 
 #: EVERY identifier bracket in the title, whatever its version. The old expression counted only
@@ -794,6 +806,13 @@ def pruefe(*, branch: str, title: str, version: str,
         return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
 
     passend = sorted(zu_zweig.get(branch) or [])
+    form = _TITELFORM.match(title)
+    folge_von = form.group("kennung") if form and form.group("folge") else None
+    # A FOLLOW-UP ON A BRANCH OF ITS OWN IS JUDGED AGAINST THE ROW OF ITS PARENT, which it needs no row
+    # of its own for. A parent that is no row with a branch leaves it outside, where the parent stands.
+    zugeordnet = not passend and folge_von in {k for ks in zu_zweig.values() for k in ks}
+    if zugeordnet:
+        passend = [folge_von]
     if not passend:
         # NOT A PASS, BUT A STATEMENT ABOUT REACH. The caller should see that nothing was checked
         # here, rather than reading a green checkmark as a statement about the content. A scope
@@ -801,7 +820,7 @@ def pruefe(*, branch: str, title: str, version: str,
         # scope forgot.
         return _urteil(branch, title, version, [], None, zu_zweig, mitlaeufer, zustand,
                        ausserhalb=True,
-                       nicht_begonnen=not zu_zweig and umfang_nicht_begonnen(pfad))
+                       nicht_begonnen=not zu_zweig and umfang_nicht_begonnen(pfad), folge_von=folge_von)
     if len(passend) > 1:
         gruende.append(f"der Zweig {branch!r} steht bei MEHREREN Umfangszeilen {passend} — "
                        "ein Zweig je Zeile, sonst zaehlt die Landekarte ihn doppelt oder gar nicht")
@@ -828,12 +847,14 @@ def pruefe(*, branch: str, title: str, version: str,
     # at all, whatever their version. Then, does the title as a WHOLE match the contract form. Only
     # then, does it name the right identifier.
     alle_klammern = _JEDE_KLAMMER.findall(title)
+    if zugeordnet and alle_klammern:
+        gruende.append(f"the follow-up title names {alle_klammern} beside [{version} {folge_von}-FOLGE]: "
+                       "exactly one identifier per pull request")
     if len(alle_klammern) > 1:
         gruende.append(f"der Titel nennt {len(alle_klammern)} Kennungen {alle_klammern} — genau "
                        "eine je Pull Request, sonst ist die Zuordnung zur Umfangszeile mehrdeutig. "
                        "Gezaehlt werden ALLE Versionen, nicht nur die eigene: eine zweite Klammer "
                        "fremder Version macht den Titel genauso mehrdeutig")
-    form = _TITELFORM.match(title)
     if not form and not alle_klammern:
         # THE MOST COMMON CASE DESERVES ITS OWN SENTENCE. A title with no bracket at all and a
         # title with a bracket in the wrong place are two different jobs for whoever has to fix
@@ -856,6 +877,11 @@ def pruefe(*, branch: str, title: str, version: str,
             gruende.append(f"der Titel nennt [{version} {form.group('kennung')}], der Zweig "
                            f"{branch!r} gehoert aber zu {kennung} — Titel und Zweig zeigen auf "
                            "verschiedene Zeilen")
+        elif folge_von and not zugeordnet:
+            gruende.append(f"the title names [{version} {kennung}-FOLGE] on {branch!r}, the own branch "
+                           f"of {kennung}: that branch lands the line, and the landing card counts it "
+                           f"only by [{version} {kennung}]; a follow-up carries the suffix on a branch "
+                           "of its own")
     if kollision:
         # RED, and the foreign model family talked me around here (2026-09-16). My first version
         # let a pull request like this through green, with a note: the author can, after all,
@@ -869,13 +895,15 @@ def pruefe(*, branch: str, title: str, version: str,
             f"die Kennung {kennung!r} fuehrt {len(zeilen)} Zeilen der Umfangsdatei an {zeilen} — "
             "ein Titel mit ihr ist nicht zuordenbar, und die Landekarte zaehlt zwei Zeilen als "
             "eine. Zu tun ist es in der Umfangsdatei, nicht im Titel: die Kennung aufteilen")
-    d = _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand)
+    d = _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand,
+                folge_von=folge_von if zugeordnet else None)
     d["kennung_mehrdeutig"] = kollision
     return d
 
 
 def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand,
-            *, ausserhalb: bool = False, nicht_begonnen: bool = False) -> dict:
+            *, ausserhalb: bool = False, nicht_begonnen: bool = False,
+            folge_von: str | None = None) -> dict:
     gruen = not gruende
     return {
         "schema": "b7n0de.release_scope_title_gate.v1",
@@ -883,6 +911,8 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
         "urteil": "gruen" if gruen else "ROT",
         "gruende": gruende,
         "kennung_des_zweigs": kennung,
+        # The parent whose row a `-FOLGE` title names; None for any other title.
+        "folge_von": folge_von,
         "ausserhalb_des_umfangs": ausserhalb,
         "umfang_nicht_begonnen": nicht_begonnen,
         "umfang_zustand": zustand,
@@ -957,6 +987,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         marke = "ausserhalb des Umfangs" if d["ausserhalb_des_umfangs"] else (
             d["kennung_des_zweigs"] or "—")
+        if d.get("folge_von"):
+            marke += f" · follow-up of {d['folge_von']}"
         print(f"release-scope-title: {d['urteil']} · {d['branch']} · {marke}")
         print(f"  version: {d['version']} ({herkunft})")
         if d.get("umfang_nicht_begonnen"):

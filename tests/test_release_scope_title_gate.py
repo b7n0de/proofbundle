@@ -15,6 +15,8 @@ import pathlib
 import re
 import unittest
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "scope_title_gate", REPO / "scripts" / "b7_release_scope_title_gate.py")
@@ -1856,3 +1858,61 @@ def test_die_zeilen_der_zaehlung_tragen_kennung_punkt_und_zweigzelle(tmp_path):
     zeilen, lage = GATE.fuehrende_kennungen(p)
     assert lage == "gemessen" and zeilen == [("A0", "A0", "`fix/a0`"),
                                              ("A1", "A1 the line", "with A0")], zeilen
+
+
+# ── A follow-up of a scope line, `[<version> <ID>-FOLGE]` (Nachtrag 5 of CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) ──
+# The title form did not read the suffix, and a follow-up branch, which no row names, was outside the scope, so the
+# gate was green on such a title without having read it. A follow-up belongs to the In row of its parent and needs
+# no row of its own; the landing card counts the parent's line by the parent's own pull request only.
+
+_FOLGE_UMFANG = ("| Item | Branch |\n|---|---|\n"
+                 "| PR371 the banner and the import name | `fix/codex-199` |\n"
+                 "| PR375 the paths git quotes | `fix/mutant-guard` |\n\n"
+                 "## Out\n\n| Item | Branch |\n|---|---|\n| PR377 a language check | `feat/pr-language` |\n")
+
+
+def _folge(tmp_path, branch, title, version="6.4.0"):
+    pfad = tmp_path / "6.4.0.md"
+    pfad.write_text(_FOLGE_UMFANG, encoding="utf-8")
+    return GATE.pruefe(branch=branch, title=title, version=version, scope_pfad=pfad)
+
+
+def test_ROT_the_title_form_reads_the_follow_up_of_an_identifier():
+    form = GATE._TITELFORM.match("[6.4.0 PR371-FOLGE] fix(gates): a captured block closes at a titled separator")
+    assert form is not None
+    assert (form.group("version"), form.group("kennung"), form.group("folge")) == ("6.4.0", "PR371", "-FOLGE")
+
+
+def test_ROT_a_follow_up_on_a_branch_of_its_own_belongs_to_the_in_row_of_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371-FOLGE] fix(gates): a captured block closes")
+    assert d["urteil"] == "gruen", d["gruende"]
+    assert (d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"], d.get("folge_von")) == (False, "PR371", "PR371"), d
+
+
+@pytest.mark.parametrize("title, reason", [
+    ("[6.3.0 PR371-FOLGE] fix(gates): another release", "6.3.0"),
+    ("[6.4.0 PR371-FOLGE] fix(gates): carries [6.4.0 PR375] along", "PR375"),
+], ids=["another version", "a second identifier"])
+def test_ROT_a_follow_up_is_held_to_the_form_of_its_parents_row(tmp_path, title, reason):
+    d = _folge(tmp_path, "claude/640-folge-371", title)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    assert any(reason in g for g in d["gruende"]), d["gruende"]
+
+
+def test_ROT_the_branch_of_a_row_does_not_land_it_as_a_follow_up(tmp_path):
+    """The parent's own branch lands its line, and the landing card counts it only by the plain identifier."""
+    d = _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371-FOLGE] fix(gates): the parent itself")
+    assert d["urteil"] == "ROT", d
+    assert any("-FOLGE" in g and "own branch" in g for g in d["gruende"]), d["gruende"]
+
+
+def test_a_follow_up_of_a_line_outside_the_in_section_stays_outside_with_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-377", "[6.4.0 PR377-FOLGE] fix(ci): the language check reads every commit")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"]) == ("gruen", True, None), d
+    assert d.get("folge_von") == "PR377", d
+
+
+def test_CONTROL_the_plain_identifier_keeps_its_verdicts(tmp_path):
+    assert _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371] fix(gates): the parent")["urteil"] == "gruen"
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371] fix(gates): no suffix")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"]) == ("gruen", True), d
