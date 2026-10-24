@@ -453,12 +453,22 @@ def _claim_of_the_test_key() -> dict:
 _SCITT = REPO / "tests" / "fixtures" / "scitt_ccf"
 
 
+def _scitt_keyset(b64: str) -> list:
+    """The service key set of a vector. WITHOUT THE [scitt] EXTRA THE SEED IS NOT MEASURED, BY NAME (the second
+    counter-reading of pull request 406, F-A): the `[test]` extra carries no cbor2 on purpose, so the run of the
+    sdist shows the suite without it, and a seed that raised ScittUnavailable turned six cases red there."""
+    from proofbundle import scitt_ccf
+    try:
+        return scitt_ccf.load_cose_keyset(base64.b64decode(b64))
+    except scitt_ccf.ScittUnavailable as exc:
+        pytest.skip(f"NOT MEASURED: the scitt-ccf reader needs the [scitt] extra here ({exc})")
+
+
 def _scitt_control() -> tuple:
     """(vector, rp_trust) of the local-ledger control: the bytes a CCF ledger wrote and the key set of
     the service, as `tests/test_scitt_ccf_profile.py` reads them."""
-    from proofbundle import scitt_ccf
     v = json.loads((_SCITT / "local_ledger_control.json").read_text(encoding="utf-8"))
-    rp = {"scitt_ccf_services": {v["issuer"]: scitt_ccf.load_cose_keyset(base64.b64decode(v["service_keyset_b64"]))},
+    rp = {"scitt_ccf_services": {v["issuer"]: _scitt_keyset(v["service_keyset_b64"])},
           "scitt_statement_keys": [base64.b64decode(v["statement_signer_spki_b64"])]}
     return v, rp
 
@@ -474,7 +484,7 @@ def _scitt_consistency(tmp: Path):
     verified from its inclusion receipt first, as `tests/test_scitt_ccf_consistency.py` does."""
     from proofbundle import scitt_ccf
     v = json.loads((_SCITT / "local_ledger_consistency.json").read_text(encoding="utf-8"))
-    rp = {"scitt_ccf_services": {v["issuer"]: scitt_ccf.load_cose_keyset(base64.b64decode(v["service_keyset_b64"]))},
+    rp = {"scitt_ccf_services": {v["issuer"]: _scitt_keyset(v["service_keyset_b64"])},
           "scitt_statement_keys": [base64.b64decode(v["statement_signer_spki_b64"])]}
     older = scitt_ccf.verify_transparent_statement(
         base64.b64decode(v["states"]["older"]["transparent_statement_b64"]),
