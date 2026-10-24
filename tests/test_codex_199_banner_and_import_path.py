@@ -177,6 +177,60 @@ def test_A_the_next_section_of_pytest_still_closes_the_capture():
         "a banner after the captured block must stay visible")
 
 
+#: A real abort banner as `pytest.exit` writes it, placed after the short summary as pytest does.
+_EXIT_BANNER = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! _pytest.outcomes.Exit: stop !!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+
+
+def _with_banner(report: str) -> str:
+    return report.replace("1 failed in 0.10s\n", _EXIT_BANNER + "1 failed in 0.10s\n")
+
+
+@pytest.mark.parametrize("header", ["-- Captured x --", "--- Captured stdout call ---"])
+def test_A_a_header_the_test_prints_does_not_reset_the_width(tmp_path, header):
+    """[COUNTS] Counter-reading of pull request 371, F1 (P2): a `Captured` line the test printed itself
+    set the width of the block to its own, no separator of the run closed the block again, and the
+    real abort banner after it was cut away as the test's output."""
+    m = _load("scripts/mutation_check.py", "_mc_a8")
+    report = _report_with_captured(f"{header}\n! ordinary diagnostic !\n")
+    assert m._rote_aus_lauf(_report(tmp_path), _with_banner(report), rc=1) is None, (
+        f"{header!r} printed by the test hid the abort banner after the block")
+    # The counter-direction: without the banner the printed lines stay inside, the run is a measured red.
+    assert "! ordinary diagnostic !" not in m._ohne_aufgefangene_ausgabe(report), header
+    assert m._rote_aus_lauf(_report(tmp_path), report, rc=1) == 1, header
+
+
+def test_A_a_header_wider_than_the_run_still_closes_at_the_runs_width(tmp_path):
+    """[COUNTS] Counter-reading of pull request 371, F1 (P2), the other form: a section whose title is
+    longer than the run's width gets one fill character on each side (`TerminalWriter.sep`), so its
+    header is wider than every separator after it, and the block it opened never closed."""
+    m = _load("scripts/mutation_check.py", "_mc_a9")
+    title = "Captured " + "k" * 80 + " call"
+    report = _report_with_captured("printed\n").replace(
+        "----------------------------- Captured stdout call -----------------------------\n",
+        f"- {title} -\n")
+    assert len(f"- {title} -") > 80, "the header must be wider than the run, or this case checks nothing"
+    assert m._rote_aus_lauf(_report(tmp_path), _with_banner(report), rc=1) is None, (
+        "a wide section header hid the abort banner after its block")
+    without = m._ohne_aufgefangene_ausgabe(report)
+    assert "printed" not in without and "1 failed in 0.10s" in without
+
+
+def test_A_an_internalerror_line_the_test_prints_stays_a_measured_red(tmp_path):
+    """[COUNTS] Counter-reading of pull request 371, F2 (P2): `^INTERNALERROR` was still searched in
+    the whole text, so a captured line that began with it made a measured red NOT MEASURABLE."""
+    m = _load("scripts/mutation_check.py", "_mc_a10")
+    report = _report_with_captured("INTERNALERROR> printed by the test\n")
+    assert m._rote_aus_lauf(_report(tmp_path), report, rc=1) == 1
+
+
+def test_A_ANTI_a_real_internalerror_stays_unmeasurable(tmp_path):
+    """[COUNTS] Anti-parity of the case above: pytest's own INTERNALERROR stands on the top level and
+    still makes the run not measurable, also when no return code is passed."""
+    m = _load("scripts/mutation_check.py", "_mc_a11")
+    text = "INTERNALERROR> Traceback (most recent call last):\nINTERNALERROR> RuntimeError: x\n1 failed in 0.10s\n"
+    assert m._rote_aus_lauf(_report(tmp_path), text) is None
+
+
 def test_A_the_misleading_comment_is_gone():
     """[COUNTS] The text claimed a border of five exclamation marks that the form does not have.
 

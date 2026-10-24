@@ -1261,6 +1261,10 @@ _AUFGEFANGEN_AUF = re.compile(r"^-+ Captured [^\n]*-+\s*$")
 #: through. Found by its own property node, not while writing it.
 _ABSCHNITT_ZU = re.compile(r"^(?:={3,}|_{3,}|-{3,})")
 
+#: A separator pytest draws WITH a title on the top level (`=== FAILURES ===`). Its width is the
+#: run's full width, unless the title is longer than that.
+_TRENNZEILE_MIT_TITEL = re.compile(r"^=+ \S.* =+\s*$")
+
 
 def _ohne_aufgefangene_ausgabe(text: str) -> str:
     """The report text WITHOUT the sections pytest labels as the test's output.
@@ -1277,20 +1281,32 @@ def _ohne_aufgefangene_ausgabe(text: str) -> str:
     THE BLOCK CLOSES ONLY AT A SEPARATOR OF PYTEST'S WIDTH (Codex on pull request 371, round one,
     P2). The first version closed it at any line that began with three of `-`, `=` or `_`, so a test
     that printed `---` and then `! ordinary diagnostic !` put the second line back on the top level
-    and the run counted as NOT MEASURABLE. pytest draws every separator of one run to the same full
-    width (`TerminalWriter.sep` fills the line to `fullwidth`), and the `Captured` line that opened
-    the block has that width. A line the test prints in the same shape AND the same width still
-    closes the block; that is the limit of reading a text, and it is named here.
+    and the run counted as NOT MEASURABLE. pytest draws every separator whose title fits to the same
+    full width of the run (`TerminalWriter.sep` fills the line to `fullwidth`), and the `Captured`
+    line that opened the block has that width. A line the test prints in the same shape AND the same
+    width still closes the block; that is the limit of reading a text, and it is named here.
+
+    A HEADER INSIDE A BLOCK DOES NOT SET ITS WIDTH, AND A WIDE HEADER STILL CLOSES (counter-reading
+    of pull request 371, F1, P2). The width was taken from every `Captured` line, also from one the
+    test printed itself: a narrow `-- Captured x --` in its output reset it, no separator of the run
+    closed the block again, and a real abort banner after it was cut away with the test's output. A
+    header whose title is longer than the run's width is wider than every separator after it and kept
+    the block open the same way. Now a header opens a block only when none is open or when it has the
+    block's width, and a block also closes at the run's full width, read from the first titled `=`
+    separator on the top level (`=== FAILURES ===`).
     """
-    raus, drin, breite = [], False, 0
+    raus, drin, breite, voll = [], False, 0, None
     for zeile in text.splitlines(keepends=True):
         roh = zeile.rstrip("\n")
-        if _AUFGEFANGEN_AUF.match(roh):
-            drin, breite = True, len(roh.rstrip())
-            continue
-        if drin and _ABSCHNITT_ZU.match(zeile) and len(roh.rstrip()) == breite:
+        w = len(roh.rstrip())
+        if drin and _ABSCHNITT_ZU.match(zeile) and w in (breite, voll):
             drin = False
+        if not drin and _AUFGEFANGEN_AUF.match(roh):
+            drin, breite = True, w
+            continue
         if not drin:
+            if voll is None and _TRENNZEILE_MIT_TITEL.match(roh):
+                voll = w
             raus.append(zeile)
     return "".join(raus)
 
@@ -1343,8 +1359,11 @@ def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | Non
     # -----`). Those sections are taken out before the form check. The FORM is still what is asked,
     # only on the right surface, and there is no list of abort reasons that would silently be one
     # short next time.
-    if _ABBRUCH_BANNER.search(_ohne_aufgefangene_ausgabe(text)) \
-            or re.search(r"^INTERNALERROR", text, re.M):
+    # INTERNALERROR IS READ ON THE SAME SURFACE (counter-reading of pull request 371, F2, P2). It was
+    # still searched in the whole text, so a captured line of a test that began with the word made a
+    # measured red run NOT MEASURABLE: the consequence of Codex r3999288387 with another pattern.
+    oben = _ohne_aufgefangene_ausgabe(text)
+    if _ABBRUCH_BANNER.search(oben) or re.search(r"^INTERNALERROR", oben, re.M):
         return None
     aus_bericht = _rote_aus_bericht(bericht)
     return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
