@@ -19,11 +19,24 @@ from __future__ import annotations
 import os
 import pathlib
 import subprocess
+import sys
 
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 HOOK = REPO / "scripts" / "git-hooks" / "pre-commit"
+
+
+def _python3_shim(bin_: pathlib.Path) -> None:
+    """`python3` on the hook's PATH is the interpreter that runs this test, which has pytest.
+
+    THE HOOK ASKS ITS OWN `python3` (witness run on 78a702bb, 2026-10-24): on a runner whose `python3`
+    finds no pytest, the hook skipped the node for that reason, and five cases read the skip as wiring
+    that never calls it. `pytest.importorskip` asked the test's interpreter, not the hook's. The cases
+    measure the wiring, so the interpreter is named here instead of taken from the machine."""
+    shim = bin_ / "python3"
+    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
 
 
 def _fill(root: pathlib.Path, mark: pathlib.Path, node_fails: bool, manifest: str) -> None:
@@ -76,6 +89,7 @@ def _build_tree(tmp_path: pathlib.Path, staged: list[str], node_fails: bool = Fa
         "fi\n"
         "exit 0\n", encoding="utf-8")
     (bin_ / "git").chmod(0o755)
+    _python3_shim(bin_)
     return root, bin_, mark
 
 
@@ -157,9 +171,12 @@ def _real_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, dict, pathlib.Path
     mark = tmp_path / "node_ran"
     _fill(root, mark, False, "decided\n")
     (root / "scripts" / "b7_alt.py").write_text("print('old')\n", encoding="utf-8")
-    # HOME stays: the hook's `python3` may find pytest in the user site under HOME, and a moved HOME
-    # made the hook report pytest missing, which skipped the node for another reason than the one tested.
-    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+    # The hook's `python3` is this test's interpreter (see `_python3_shim`); git stays the real one.
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    _python3_shim(bin_)
+    env = dict(os.environ, PATH=f"{bin_}{os.pathsep}{os.environ['PATH']}",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
     for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
