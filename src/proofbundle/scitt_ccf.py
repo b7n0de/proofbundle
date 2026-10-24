@@ -265,6 +265,19 @@ def _crit_ok(headers: dict, processed: tuple) -> Optional[str]:
     return None
 
 
+def _cwt_claims_outside(ph: dict, uh: dict) -> Optional[str]:
+    # ONE RULE FOR BOTH SIDES (Codex on pull request 406, thread PRRT_kwDOTKah0M6v36Lg, P2): RFC 9943
+    # section 6 asks the protected header of a Signed Statement and of a Receipt for CWT Claims with the
+    # Issuer and the Subject Claim. The receipt side asked for a text iss alone, so a receipt with no sub,
+    # a null or a number as the sub, or an empty iss confirmed.
+    if _CWT in uh:
+        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
+    cwt = ph.get(_CWT)
+    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
+        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
+    return None
+
+
 #: SubjectPublicKeyInfo algorithm OIDs, as DER content bytes, of the key types v1 verifies: RFC 5480
 #: id-ecPublicKey with the named curves P-256 and P-384, and RFC 3279 rsaEncryption.
 _OID_EC = bytes.fromhex("2a8648ce3d0201")
@@ -587,12 +600,7 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
     # RFC 9943 section 6: the protected header of a Signed Statement carries CWT Claims with iss and sub.
     # Round 3 of the policy-boundary matrix measured the service refusing M-u15 (CWT Claims moved to the
     # unprotected header) while this profile confirmed it: a required protected label it did not check.
-    if _CWT in uh:
-        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
-    cwt = ph.get(_CWT)
-    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
-        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
-    why = _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
+    why = _cwt_claims_outside(ph, uh) or _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
     if why:
         return why
     if _CRIT in uh:
@@ -745,7 +753,7 @@ def _receipt_head(rc: CoseSign1) -> tuple:
             raw_vdp if isinstance(raw_vdp, dict) else {})
 
 
-def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) -> Optional[str]:
+def _receipt_outside(rc: CoseSign1, kid: Optional[bytes]) -> Optional[str]:
     """The protected-header rules every -05 receipt shares, inclusion or consistency (3.1, 4.1)."""
     ph = rc.protected
     alg = ph.get(_ALG)
@@ -757,9 +765,7 @@ def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) ->
         return f"vds is {ph.get(_VDS)!r}, not {_CCF_LEDGER_SHA256} (CCF_LEDGER_SHA256)"
     if kid is None:
         return "the receipt has no kid"
-    if iss is None:
-        return "the receipt has no CWT issuer in its protected header"
-    return None
+    return _cwt_claims_outside(ph, rc.unprotected)
 
 
 def _is_ccf(rc: CoseSign1) -> bool:
@@ -889,7 +895,7 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         # A COSE_Sign1 of the profile is a tag 18 array (ADR 0009, the structure row): an untagged receipt's
         # proofs parse, but the receipt is not one that parses under the -05 CDDL (Codex, PR 278, thread 4121760552).
         base.update(readable=bool(parsed) and rc.tagged)
-    why = _receipt_outside(rc, kid, iss)
+    why = _receipt_outside(rc, kid)
     if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
     if why is None:
@@ -1108,7 +1114,7 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
         base.update(proofs=len(computed), readable=bool(computed) and rc.tagged)
-    why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
+    why = _receipt_outside(rc, kid) or _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)
     if not vdp_present:

@@ -28,6 +28,7 @@ from proofbundle._wire_b64 import decode_b64  # noqa: E402
 
 VECTOR = Path(__file__).resolve().parent / "fixtures" / "scitt_ccf" / "local_ledger_consistency.json"
 ISSUER = "service.example"
+SUBJECT = "scitt.ccf.signature.v1"
 SERVICE_KEY = ec.generate_private_key(ec.SECP384R1())
 OTHER_KEY = ec.generate_private_key(ec.SECP384R1())
 H = lambda b: hashlib.sha256(b).digest()  # noqa: E731
@@ -99,7 +100,7 @@ def enc_proof(anchor, path) -> bytes:
 
 def sign_over(newer_root: bytes, *, key=SERVICE_KEY, prot=None) -> tuple:
     prot = prot if prot is not None else {1: -35, 4: kid_of(SERVICE_KEY), 395: 2,
-                                          15: {1: ISSUER, 6: 1790000000}, "ccf.v1": {"txid": "2.24"}}
+                                          15: {1: ISSUER, 2: SUBJECT, 6: 1790000000}, "ccf.v1": {"txid": "2.24"}}
     prot_b = _cbor2().dumps(prot)
     tbs = _cbor2().dumps(["Signature1", prot_b, b"", newer_root])
     r, s = utils.decode_dss_signature(key.sign(tbs, ec.ECDSA(hashes.SHA384())))
@@ -281,12 +282,18 @@ def test_42_the_signature_is_over_the_newer_root():
 # Profile and CDDL
 # ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("prot, status", [
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -35, 395: 2, 15: {1: ISSUER}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
+    ({1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
+    ({1: -35, 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}, 2: [99], 99: 1}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "confirmed"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}, 2: [99], 99: 1}, "outside_profile"),
+    # Codex on 406: RFC 9943 section 6 asks a Receipt for a text iss and sub as it asks a Signed Statement; at
+    # 7fd40593 a consistency receipt without a text sub was confirmed.
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: ""}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "confirmed"),
 ])
 def test_profile_of_the_protected_header(prot, status):
     assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == status
@@ -306,12 +313,12 @@ def test_an_empty_array_of_the_other_proof_family_is_malformed():
 def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
     """Codex, PR 278, the sibling of the inclusion case: proofs are parsed before the profile."""
     assert (c := check(receipt())).status == "confirmed" and c.readable
-    alg8 = {1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}
+    alg8 = {1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}
     good = check(receipt(signed=sign_over(TREE.root(24), prot=alg8)))
     assert (good.status, good.readable) == ("outside_profile", True)
     junk = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=alg8)))
     assert (junk.status, junk.readable) == ("malformed", False)
-    vds1 = {1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER}}
+    vds1 = {1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER, 2: SUBJECT}}
     not_ccf = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=vds1)))
     assert (not_ccf.status, not_ccf.readable) == ("outside_profile", False)
     assert check(receipt(vdp={})).readable is False                 # nothing parsed
@@ -381,7 +388,7 @@ def test_a_null_proof_family_is_malformed(vdp):
 
 @pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
 def test_a_null_crit_in_the_protected_header_is_outside_the_profile(value):
-    prot = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}, 2: value}
+    prot = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}, 2: value}
     assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == "outside_profile"
 
 

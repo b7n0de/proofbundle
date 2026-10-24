@@ -160,6 +160,7 @@ class Rcpt:
     tagged: bool = True
     consistency: object = None         # -2 beside -1: "same_root", "other_root", or the value as given
     vdp_extra: dict = field(default_factory=dict)
+    extra_unprot: dict = field(default_factory=dict)
 
     def build(self) -> bytes:
         key = self.key or SERVICE_KEY
@@ -195,7 +196,7 @@ class Rcpt:
         elif self.consistency is not None:
             vdp[-2] = self.consistency
         vdp.update(self.vdp_extra)
-        body = [prot_b, {396: vdp}, self.payload, sig]
+        body = [prot_b, {396: vdp, **self.extra_unprot}, self.payload, sig]
         return (b"\xd2" if self.tagged else b"") + enc(body)
 
 
@@ -1146,3 +1147,41 @@ def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_c
 
 def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():
     assert _statement_side(_without_cwt({1: "did:example:signer", 2: "s"}), spki(STMT_KEY), ROOT) == "confirmed"
+
+
+#: Codex on 406, the receipt side of the same rule: RFC 9943 section 6 names a Receipt beside a Signed Statement. At
+#: 7fd40593 an inclusion receipt whose CWT Claims carried no text sub, or an empty iss, was confirmed. Every readable
+#: receipt of the local ledger and of the two third-party fixtures carries a text iss and sub in its protected header
+#: and no label 15 in its unprotected one.
+_SUB = "scitt.ccf.signature.v1"
+RECEIPT_CWT_OUTSIDE = {
+    "no sub": (dict(extra_prot={15: {1: ISSUER, 6: 1790000000}}), ISSUER),
+    "a null sub": (dict(extra_prot={15: {1: ISSUER, 2: None, 6: 1790000000}}), ISSUER),
+    "a number as the sub": (dict(extra_prot={15: {1: ISSUER, 2: 7, 6: 1790000000}}), ISSUER),
+    "an empty sub": (dict(extra_prot={15: {1: ISSUER, 2: "", 6: 1790000000}}), ISSUER),
+    "an empty iss": (dict(issuer=""), ""),
+}
+
+
+def _receipt_side(trusted_issuer: str, /, **rcpt_kw) -> str:
+    st = Stmt()
+    rp = {"scitt_ccf_services": {trusted_issuer: [spki(SERVICE_KEY)]}, "scitt_statement_keys": [spki(STMT_KEY)]}
+    return verify(transparent(st, [Rcpt(data_hash=dh_of(st), **rcpt_kw).build()]), rp=rp).receipts[0].status
+
+
+@pytest.mark.parametrize("case", list(RECEIPT_CWT_OUTSIDE.values()), ids=list(RECEIPT_CWT_OUTSIDE))
+def test_a_receipt_carries_a_text_iss_and_sub_in_its_protected_header(case):
+    rcpt_kw, issuer = case
+    assert _receipt_side(issuer, **rcpt_kw) == "outside_profile"
+
+
+def test_CONTROL_the_same_receipt_with_a_text_iss_and_sub_is_confirmed():
+    assert _receipt_side(ISSUER, extra_prot={15: {1: ISSUER, 2: _SUB, 6: 1790000000}}) == "confirmed"
+
+
+def test_CONTROL_cwt_claims_outside_the_protected_header_of_a_receipt_stay_refused():
+    """These two held at 7fd40593 as well, and the shared rule keeps them: CWT Claims only in the unprotected header,
+    and a second CWT map there beside the protected one, which the reader refuses as a label in both buckets."""
+    moved = {15: {1: ISSUER, 2: _SUB}}
+    assert _receipt_side(ISSUER, drop_prot=(15,), extra_unprot=moved) == "outside_profile"
+    assert _receipt_side(ISSUER, extra_unprot=moved) == "malformed"
