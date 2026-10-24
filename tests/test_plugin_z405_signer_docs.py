@@ -62,9 +62,10 @@ def _dropped(text: str) -> set[str]:
     return set(re.findall(r'signature, reason = None, "([a-z_]+)"', text))
 
 
-def test_every_refusal_name_of_the_service_stands_in_d58_d64_or_d65_and_no_other():
+def test_every_refusal_name_of_the_service_stands_in_d58_d64_d65_or_d119_and_no_other():
     """D58 lists the names of the deciding service; D64 adds those it gives for what the key signer answered, and the
-    key signer's own refusals reach the gate as key_<name>; D65 adds the one for its own journal."""
+    key signer's own refusals reach the gate as key_<name>; D65 adds the one for its own journal; D119 (Nachtrag 49)
+    those for its record of the owner's releases it signed ALLOW for."""
     raised = set(re.findall(r'Refused\("([a-z_]+)"', SERVICE))
     differs = set(re.findall(r'"([a-z_]+_differs?)"', SERVICE))
     names = raised | differs | _dropped(SERVICE) | {"internal_error"}
@@ -72,7 +73,9 @@ def test_every_refusal_name_of_the_service_stands_in_d58_d64_or_d65_and_no_other
             "journal_unwritable"} <= names
     listed, added = _names(D58, "The names:"), _names(D64, "its own names for what the key signer gave it:")
     journaled = _names(D65, "The service's name for a journal it cannot write:")
-    assert listed | added | journaled == names and not listed & added and not (listed | added) & journaled
+    released = _names(_section(DECISIONS, "## D119. "), "The service's names for its record of the releases:")
+    assert listed | added | journaled | released == names and not listed & added and not (listed | added) & journaled
+    assert not (listed | added | journaled) & released
     assert 'Refused(f"key_{answer}")' in SERVICE and "`key_<name>`" in D64 and "key_journal_unwritable" in D65
 
 

@@ -72,6 +72,12 @@ another surface (M3), a write without an approval (M5), a refused write that arr
        the agent's session. `window_seconds` is how old a decidedAt may be when the service, and then the key signer,
        reads it; the gate sets it just before it calls the service, and both use 10, the gate's PILOT_SIGNER_SECONDS
        (O405S-2);
+     - `"autonomous": true` in the service's configuration only where the agents' hooks run with `--autonomous`
+       (D119): the service then decides a Level 1 call with the hook's autonomous answer, in the session the event
+       names. Without it a release on a card lets nothing run while the pilot is on: the hook waits for the service's
+       ALLOW before it uses a release, and a service without the autonomous answer does not give it (A0). With it, the
+       service keeps the releases it signed ALLOW for in freigaben-geehrt.json beside its journal, each once; give it
+       a plugin data directory of its own in `environment` (CLAUDE_PLUGIN_DATA) where it cannot read the hook's (A2);
      - read access for the deciding account to every repository the agents work in, to the gate directory and to the
        records, and its own uv cache for the verifier the gate runs on an approval; what it cannot read gets no
        signature (workdir_unreadable, pilot_config_unread), never a guessed one;
@@ -236,6 +242,7 @@ The reconciliation reads nothing the records do not keep, and checks every kept 
 - A write the gate does not read gets no receipt (D55); if it arrives it counts under M5, which is how it is found.
 - Under the hook's autonomous answer (Claude Code, `--autonomous`) a write whose answer it changes can lack its
   receipt of Level 1: the signer service decides without that answer and refuses with `verdict_differs`
-  (O28B-1, D113). If it arrives it counts under M5; the reconciliation says so under `window_notes`.
+  (O28B-1, D113), unless the operator sets `"autonomous": true` in its configuration (D119). If it arrives it counts
+  under M5; the reconciliation says so under `window_notes`.
 - Asked calls are recorded as ESCALATE: the gate does not see the person's answer in the dialog, so an asked write
   that a person allowed counts under M5 as a write without an approval of the gate.

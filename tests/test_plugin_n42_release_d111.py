@@ -95,13 +95,11 @@ def answered(repo, command, host="claude"):
 
 
 #: Commands the gate does not let run under --autonomous today, each an ask of decide(): delta's commit of PR 328 with
-#: a pre-commit hook (blocked), a reset that discards work (blocked), in the profile of b7n0de a pull request (a card
-#: of D93), and a forced push, which the autonomous answer blocks for its target (D86) and the dialog of the terminal
-#: could let run: a release is the owner's yes to exactly that call, as that dialog's is (owner question in the
-#: report).
+#: a pre-commit hook (blocked), a reset that discards work (blocked), and in the profile of b7n0de a pull request (a
+#: card of D93). A forced push, which the autonomous answer blocks for its target (D86), was here until Nachtrag 49: it
+#: is an own door of the owner that no release opens (D119, tests/test_plugin_n49_release_once_d119.py).
 BLOCKED = [("fremd", "git add -A && git commit -m 'PR 328'"), ("fremd", "git reset --hard HEAD~1"),
-           ("b7n0de", "gh pr create -R b7n0de/proofbundle --base main --head topic --title t --body b"),
-           ("fremd", "git push --force origin main")]
+           ("b7n0de", "gh pr create -R b7n0de/proofbundle --base main --head topic --title t --body b")]
 
 
 @pytest.mark.parametrize("kind, command", BLOCKED)

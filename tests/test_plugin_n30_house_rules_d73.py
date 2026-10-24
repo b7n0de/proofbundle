@@ -191,7 +191,8 @@ H4 = [
     ("pkill --full sleep", "pkill -f"),
     ("pkill -fx sleep", "pkill -f"),
     ("pkill -9 -f sleep", "pkill -f"),
-    ("sudo pkill -f sleep", "pkill -f"),
+    # `sudo pkill -f sleep` stood here until O49-1: sudo is an own door of the owner since D120 (house rule H5), so the
+    # line is a deny of H5 and the ask of H4 stays in the log (tests/test_plugin_o49_1_own_doors_d120.py)
     ("killall sleep; echo weiter", "killall"),
     ("killall -9 sleep && echo weiter", "killall"),
     ("sleep 30 & killall sleep", "killall"),

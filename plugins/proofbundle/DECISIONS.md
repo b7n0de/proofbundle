@@ -5686,3 +5686,139 @@ until M2 (owner question). Not under Codex (D80). Limits, named: the words are a
 the message; a count is read from the output a run left in the transcript, not measured again; a runner that names no
 count (go test without -v) gives no evidence; a declaration at a remote other than origin is not read; the evidence
 of a subagent stands in a transcript the hook does not read (D80). Tests: tests/test_plugin_n47_claim_count_d118.py.
+
+## D119. An owner's release is used once, where the call runs and after the signer service let it; the own doors stay closed (Nachtrag 49, O43-1, 2026-10-23)
+
+Owner choice of 2026-10-20, 23:3x Berlin (Nachtrag 49, way A): close O43-1 so that the release on the card replaces the
+lines with `!`, from the phone as well; D111 goes to the farmer after the tag v6.3.1 (Nachtrag 52: at echo only).
+Measured on 2026-10-20: for L3 and R1 of 6.3.1 the owner typed nine lines with `!` into delta. Measured in Nachtrag 43
+(point 1, O28B-1) and named O43-1: the hook wrote the use of a release before the signer service decided the call again
+(D58); a service with the autonomous answer in the hook's data directory (A1) then judged DENY, one with a data
+directory of its own (A2) used the same release a second time, and the service as delivered (A0) judged ESCALATE.
+
+The rule:
+
+- tool_outcome writes no use of a release, in the hook or in the service: the answer holds the release
+  (Outcome.release), and the hook writes the use (release_settle, _release_take, under the lock of D94) only where the
+  call runs. autonomous_outcome, called on its own, writes it before the pass as D111 did.
+- Where the pilot is on and reads the call as a GitHub write (Level 1, D55), the hook first has the receipt ALLOW
+  signed, the signer service deciding the call again; only with its signature does the hook write the use and let the
+  call run. Where the service signs nothing, or the use cannot be written, the answer without the release stands with
+  a sentence that names why (freigabe_offen in the log), and the release stays as it was. Without the pilot, or where
+  the pilot reads no write in the call, the hook writes the use itself before the pass. That a receipt never changes
+  the answer (D55) holds for every other answer; a release is the one answer that waits for its receipt.
+- The signer service: with `"autonomous": true` in its configuration, the operator's setting (optional, false where it
+  is missing), it decides a Level 1 call with the hook's autonomous answer (D85), in the session the event names and
+  never one of its configuration (O44-1 a). It writes no use of the hook's and keeps its own record of the releases it
+  signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
+  before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
+  the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
+  release_record_unwritable. Without the setting the service decides without the autonomous answer and signs no
+  release: under it a release lets nothing run (A0).
+- The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
+  its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
+  time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
+  has another sha256 and needs a new card.
+- The card (point 3, D93): the reason that asks for a card names the sha256 of the line and what a release of it
+  frees; for a line that touches an own door it says that no card frees it and the owner runs it themselves.
+- The own doors (point 4, _release_door): no release frees a line that touches --admin, a forced push (--force and its
+  forms, -f in a cluster, a + refspec, --mirror; D86), a tag (git tag, --tags, --follow-tags, refs/tags/; D73 H2), a
+  release (gh release, an API path with /releases), PyPI (twine; publish of uv, poetry, flit, hatch, pdm, rye, maturin;
+  pypi.org), a signature (gpg, cosign, minisign, signify, sigstore, rekor-cli, notation, ssh-keygen -Y sign, openssl
+  -sign, git -S and --gpg-sign) or root (sudo, su, doas, pkexec, run0), nor `gh pr merge` without --match-head-commit,
+  as the card shows a line and not the head the merge finds when it runs. The answer stays, with a sentence that names
+  the door. The words are read without the shell's grammar, so a door word in a chain, `sh -c` or a here-document
+  counts, and one in a message or a title holds the release back too: a release frees less, never more.
+
+Measured (tests/test_plugin_n49_release_once_d119.py, end to end through the hook and the service under the test's
+account): A0 lets nothing run and uses nothing, and the same release lets the call run once the service has the
+setting; A1 and A2 sign one ALLOW for the first call and DENY for the second, and the release is used once on each
+side; a request rebuilt after the use gets verdict_differs; a release of another line, an expired one, one without a
+card and one of another session free nothing and nothing is used or signed; without the pilot the hook uses the
+release itself, once. Lines that a card frees (point 4): a push of the own branch, gh workflow run, closing a thread
+(`gh api graphql` with resolveReviewThread), `gh pr merge` with --match-head-commit; gh pr edit with a title is free in
+the work profile without a card (D92), local add and commit under the pin without a question (D114).
+
+Not changed: a deny of decide() stays a deny; strict stays the house profile; nothing a card did not free before is
+freed now; under Codex and without --autonomous nothing is released. Limits, named: the card id is read by its form
+only, the gate does not know the cards of the Leitstand; once holds on the hook's side as long as its record does,
+which code an interpreter runs can remove (D111, O44-2), and on the service's side as long as the service's record
+does, under its account; a release the service signed ALLOW for whose use the hook then cannot write is spent without
+its call; where the service signed nothing, the answer without the release gets no second request; over three
+accounts the service reads the hook's data directory only where the operator opens it (Nachtrag 44, V6), else it
+decides in a data directory of its own (A2) with its own record; a merge through the REST API is not read as a merge;
+the doors the gate does not gate at all (measured: sudo, twine, uv publish, gpg, cosign and ssh-keygen -Y sign pass
+decide() without a word) are not touched by this rule: no card is asked for them and none frees them (owner question).
+Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
+is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
+in D119).
+
+## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
+
+Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after Nachtrag 49): the doors D119 names in its last limit go to the
+owner, who types them themselves. Measured in Nachtrag 49 (point 4) at 380e9d2a and e7ffa935: sudo, twine upload, uv
+publish, gpg, cosign and ssh-keygen -Y sign pass decide() without a word; measured again on 2026-10-24 at 6b382418 and
+e7ffa935 in the work profile under --autonomous, through the hook of each host: twelve door lines and five counter
+cases gave no answer, with and without a release of D119. D119 reads their words as doors, so no card frees them, but
+nothing held them.
+
+The rule (house rule H5, _house_h5): the gate denies such a line under both hosts. The long reason names the step,
+what it does and that the owner types the line themselves, no card freeing it, not even with a release of D119; the
+short line says "an own door, the owner types it themselves" (German: "eigene Tür, der Owner tippt sie selbst") with
+what can go wrong before it (D116). A release does not open it: a release frees only a call decide() asked about (D111),
+and a deny of decide() stays a deny (D119).
+
+H5 reads each run of a command as D73 does (_house_runs: the step parser of class c, the lexer where the parser does
+not model the command, `bash -c`, eval and every command substitution) and comes after the rules H1 to H4 in the line
+(_house_findings), so a rule of D73 that decides keeps its place; the stricter answer decides, a deny of H5 before an
+ask of H4. It reads the kinds of D119 (_RELEASE_DOORS) by the programs D119 names for them, each with its own grammar
+(_house_door, _house_door_program, _house_door_gpg):
+
+- root (house_own_door_root): a program of _RELEASE_ROOT (sudo, su, doas, pkexec, run0) at the head of a run or behind
+  a wrapper of _HOUSE_WRAPPERS (env, nice, nohup, timeout, xargs, …, sudo and doas being wrappers too); `command -v`
+  and `command -V` name a program and run none.
+- an upload to PyPI (house_own_door_pypi): twine upload and twine register, also by a path; the verb publish of a
+  publisher of D119 (uv, poetry, flit, hatch, pdm, rye, maturin) and maturin upload, unless a word before the verb is a
+  subcommand that runs or installs something else (`uv run publish`, `uv pip install publish`); curl or wget sending a
+  file to pypi.org or a host below it, in an upload form of D103.
+- each program of a door, also as `python -m <program>` (python, python3, python3.12, behind options of the
+  interpreter: the module stands for the program of its name) and behind a runner that starts a later word as a
+  program (uvx, `pipx run`, `uv tool run`, and `uv run`, `poetry run`, `hatch run`, `pdm run`, `rye run`): H5 reads
+  the words of the runner that name a program of D119 or an interpreter as the program it starts.
+- a signature with a key (house_own_door_signature): gpg and gpg2 with --sign, --detach-sign, --clearsign,
+  --clear-sign, --sign-key, --lsign-key, --quick-sign-key or --quick-lsign-key, also by a prefix of three letters or
+  more, as gpg takes an unambiguous prefix, and with -s or -b in a bundle of short options up to a letter that takes a
+  value (-r, -R, -u, -o, -f, -F, -z), not after `--`; cosign sign, sign-blob, attest and attest-blob; ssh-keygen -Y sign
+  and ssh-keygen -s, which signs a certificate with a CA key; minisign -S and signify -S; sigstore sign; notation sign;
+  rekor-cli upload, which puts a signature into the public log; openssl with -sign or -signkey, and openssl ca.
+
+Counter cases, each with the answer it had at e7ffa935: gpg --verify, --list-keys, -k and --export; cosign verify,
+verify-blob and version; ssh-keygen -Y verify, -Y check-novalidate and -l; twine check, also as `python -m twine
+check`; uv build and uv run; poetry build; minisign -V and signify -V; openssl dgst, also with -verify; sigstore verify;
+notation verify; `command -v sudo`, `command -V twine`, which, man; a door word as text (echo, grep, a here-document);
+systemctl status; a curl upload to another host keeps the ask of D103.
+
+A neighbour of the class inside H5, found by a surviving mutant (the module of `python -m` read as twine whatever it
+was): the first form of H5 read only twine behind `python -m` and behind a runner. Measured on 2026-10-24 at that form,
+thirteen lines passed decide() without a word, among them `python -m poetry publish`, `python3 -m uv publish`,
+`python -m sigstore sign`, `uvx hatch publish`, `pipx run hatch publish` and `uv tool run flit publish`; `uv run
+twine upload` and `uv run sudo id` belong to the same class. H5 reads them now, each a case of the tests.
+
+A neighbour of the class, in D119's own rule (_release_door_words): git signs with the owner's key also through its
+configuration (`-c commit.gpgsign=true`, `-c rebase.gpgSign=true`, `GIT_CONFIG_KEY_<n>=commit.gpgsign`) and by -S with
+its key joined (`-S<key>`). Measured at e7ffa935 on 2026-10-24 in the work profile under --autonomous: a release let
+`git -c commit.gpgsign=true commit -m x` run (released_by_owner), while -S and --gpg-sign stayed closed. A word of a
+git line that names gpgsign, or that begins with -S or --gpg-sign, is the door of a signature now, also one that sets
+gpgsign false: a release frees less, never more. H5 does not read git: a git line already asks or needs a card.
+
+The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no
+door form was run here. Not covered, and named: a door the shell builds (`$T upload`, a program in a variable); code an
+interpreter runs that uploads or signs (`python -c`, a script); the signing configuration of a repository that signs a
+plain `git commit` (commit.gpgSign in its own configuration); runuser, which is not a door of D119; and a value of an
+option that names a subcommand (`uv --directory publish …` is read as publish, which denies more, never less).
+
+Changed older tests, each stricter: tests/test_plugin_n30_house_rules_d73.py H4 (`sudo pkill -f sleep` asked for its
+pattern and is a deny of H5 now, the ask of H4 in the log); tests/test_plugin_gate_runde15_n37.py R14-1 and
+tests/test_plugin_ask_load_c_steps.py (`sudo gi* status` asked for the program the net could not read and is a deny of
+H5 now, that NOT MEASURED in the log; `nice gi* status` stands in its place and answers as sudo did before).
+Tests: tests/test_plugin_o49_1_own_doors_d120.py.
