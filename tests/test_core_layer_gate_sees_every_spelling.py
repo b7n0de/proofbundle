@@ -676,8 +676,55 @@ def test_RED_a_parameter_re_bound_only_when_it_is_None_may_still_be_a_module(tmp
     assert "probepkg.util" in report["measured"]["type_checking_changed_by"]
 
 
+#: Codex on 395, round three, P1: the default of a three-argument getattr is a possible result. At bb0b163f the call
+#: read as `x.name` alone, so its receiver counted as resolved; the base gate of main found the first one.
+GETATTR_DEFAULTS = {
+    "an unresolved default before a file method": (
+        "import math\ndef read(handle):\n    return getattr(math, 'missing', handle).read()\n", ("file", ".read")),
+    "a module as the default": (
+        "import os\nVALUE = getattr(os, 'missing_attribute', os.path).expandvars('$X')\n",
+        ("environment", "os.path.expandvars")),
+}
+
+
+@pytest.mark.parametrize("case", list(GETATTR_DEFAULTS.values()), ids=list(GETATTR_DEFAULTS))
+def test_RED_the_default_of_a_getattr_is_a_possible_result(tmp_path, case):
+    code, finding = case
+    rc, report = gate(build(tmp_path, {"core.py": code}))
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert finding in found(report), report["measured"]["findings"]
+
+
+#: Codex on 395, round three, P2: a reader that another module of the package imports stays a reader. At bb0b163f the
+#: package name it came through stood beside it, so `print("typing.TYPE_CHECKING")` counted as a write and turned the
+#: guards off; the base gate of main stayed green. The guard is held in the findings and in the import closure.
+READERS_THROUGH_THE_PACKAGE = {
+    "print re-exported, the guarded import": (
+        {"core.py": "from .other import print\nfrom typing import TYPE_CHECKING\nprint('typing.TYPE_CHECKING')\n"
+                    "if TYPE_CHECKING:\n    import subprocess\n",
+         "other.py": "from builtins import print\n"}, ("probepkg", "probepkg.core", "probepkg.other")),
+    "json.dumps re-exported, the guarded import": (
+        {"core.py": "from .other import dumps\nfrom typing import TYPE_CHECKING\nVALUE = dumps('typing.TYPE_CHECKING')\n"
+                    "if TYPE_CHECKING:\n    import subprocess\n",
+         "other.py": "from json import dumps\n"}, ("probepkg", "probepkg.core", "probepkg.other")),
+    "print re-exported, a guarded module of the package": (
+        {"core.py": "from .other import print\nfrom typing import TYPE_CHECKING\nprint('typing.TYPE_CHECKING')\n"
+                    "if TYPE_CHECKING:\n    from . import extra\n",
+         "other.py": "from builtins import print\n", "extra.py": "X = 1\n"}, ("probepkg", "probepkg.core", "probepkg.other")),
+}
+
+
+@pytest.mark.parametrize("case", list(READERS_THROUGH_THE_PACKAGE.values()), ids=list(READERS_THROUGH_THE_PACKAGE))
+def test_CONTROL_a_reader_imported_through_the_package_keeps_the_guards(tmp_path, case):
+    files, listed = case
+    rc, report = gate(build(tmp_path, files, listed=listed))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report), report["core_list_new"]) == (0, "GREEN", set(), []), report
+
+
 #: The other direction in the core: the same bindings to an object that reads nothing make no finding.
 BINDINGS_THAT_READ_NOTHING = {
+    "a literal getattr with a harmless default": "import math\nVALUE = getattr(math, 'tau', math.pi)\n",
     "nonlocal to a builtin": (
         "def outer():\n    o = None\n    def inner():\n        nonlocal o\n        o = len\n    inner()\n"
         "    return o('ab')\nVALUE = outer()\n"),

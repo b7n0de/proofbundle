@@ -229,7 +229,8 @@ def _binds(node: ast.AST) -> list[str]:
     return [name] if isinstance(name, str) else []
 
 
-def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
+def type_checking_guards(tree: ast.AST, modname: str = "", is_pkg: bool = False,
+                         package: "_Package | None" = None) -> tuple[frozenset[str], frozenset[str]]:
     """The names that really are `typing.TYPE_CHECKING` in this module: (bare names, module aliases).
 
     A bare name counts only when `from typing import TYPE_CHECKING [as X]` binds it and nothing else
@@ -263,7 +264,10 @@ def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]
         else:
             for bound in _binds(node):
                 other[bound] = 1
-    if star or type_checking_may_change(tree):
+    # THE MODULE IS JUDGED IN ITS PACKAGE (Codex on pull request 395, round three, P2): asked without its name and
+    # its package, a reader the module imports from another module of the package was no reader, so a dotted name
+    # handed to it counted as a write here although the package-wide check of `measure` had found none.
+    if star or type_checking_may_change(tree, modname, is_pkg, package):
         return frozenset(), frozenset()
     return frozenset(names - set(other)), frozenset(modules - set(other))
 
@@ -738,9 +742,12 @@ def _absolute(modname: str, is_pkg: bool, level: int, module: str | None) -> str
 
 
 def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str],
-               guards: tuple[frozenset[str], frozenset[str]] | None = None) -> list[tuple[str, int]]:
+               guards: tuple[frozenset[str], frozenset[str]] | None = None,
+               package: "_Package | None" = None) -> list[tuple[str, int]]:
     """(imported module, line) for every runtime import; parents of a dotted name come along."""
     found: list[tuple[str, int]] = []
+    if guards is None:
+        guards = type_checking_guards(tree, modname, is_pkg, package)
 
     def add(name: str, line: int) -> None:
         parts = name.split(".")
@@ -764,6 +771,7 @@ def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str],
 
 def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
             trees: dict[str, ast.Module], guards: tuple[frozenset[str], frozenset[str]] | None = None,
+            whole: "_Package | None" = None,
             ) -> tuple[dict[str, set[str]], dict[str, dict[str, list[int]]]]:
     """The static closure: member -> roots reaching it, and per member its imports with lines."""
     reached: dict[str, set[str]] = {}
@@ -788,7 +796,7 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
                     queue.append(parent)
             if m not in trees:
                 trees[m] = parse(mods[m][0])
-            imp = imports_of(trees[m], m, mods[m][1], known, guards)
+            imp = imports_of(trees[m], m, mods[m][1], known, guards, whole)
             per = edges.setdefault(m, {})
             for target, line in imp:
                 per.setdefault(target, []).append(line)
@@ -1139,12 +1147,21 @@ class _Names:
             held = self._literal_attribute(node, scope, guesses)
             if held is not None:
                 receiver, attr = held
-                return {f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                found = {f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                if len(node.args) == 3:
+                    # THE DEFAULT IS A POSSIBLE RESULT (Codex on pull request 395, round three, P1): `getattr(math,
+                    # "missing", handle)` returns `handle`, and reading it as `math.missing` made the receiver of
+                    # `.read()` count as resolved, so the file finding of an unresolved receiver was lost. A default
+                    # the gate cannot resolve leaves the result unresolved.
+                    default = self._quals(node.args[2], scope, guesses)
+                    return found | default if default else set()
+                return found
         return set()
 
     def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr, str] | None:
         """(receiver, name) when the call reads an attribute by a literal name: `getattr(x, "name")` with or without
-        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`.
+        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`, and
+        with a default for `x.name` or the default (`_resolve`).
 
         A LITERAL GETATTR CARRIES ITS NAME ON (counter-reading of pull request 395, F3, P1): it was resolved one
         level, as the last attribute of a chain, so `getattr(os, "path").abspath(".")` read the working directory
@@ -1267,8 +1284,15 @@ class _Package:
                 module = ".".join(parts[:i])
                 if module in self._mods:
                     names = self._names_of(module)
-                    for bound in (names.module_binding(parts[i]) if names is not None else ()):
-                        out |= self.expand(".".join([bound, *parts[i + 1:]]), seen)
+                    bound = names.module_binding(parts[i]) if names is not None else set()
+                    for b in bound:
+                        out |= self.expand(".".join([b, *parts[i + 1:]]), seen)
+                    # A NAME A MODULE ONLY IMPORTS NAMES WHERE IT CAME FROM, NOT ANOTHER OBJECT (Codex on pull request
+                    # 395, round three, P2): `from builtins import print` in `other` made `probepkg.other.print` stand
+                    # beside `builtins.print`, and a check that every name be a reader refused the known one. The
+                    # package name stays where the module also binds the name itself.
+                    if bound and names is not None and parts[i] not in names.module.local:
+                        out.discard(qual)
                     break
         if _seen is None:
             self._memo[qual] = out
@@ -1281,7 +1305,7 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
                 package: _Package | None = None) -> list[tuple[str, str, int]]:
     """(rule, operation, line) for one core module."""
     if guards is None:
-        guards = type_checking_guards(tree)
+        guards = type_checking_guards(tree, modname, is_pkg, package)
     names = _Names(tree, modname, is_pkg, guards, package)
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
@@ -1487,7 +1511,7 @@ def _measure(root: Path, modules_file: Path) -> dict:
     stale_reviews = [{"module": m, "form": f, "count": n, "found": seen_reviews.get((m, f), 0)}
                      for (m, f), (n, _) in sorted(reviewed.items()) if seen_reviews.get((m, f), 0) != n]
     guards = _NO_GUARDS if changers else None
-    reached, edges = closure(sorted(roots), mods, package, trees, guards)
+    reached, edges = closure(sorted(roots), mods, package, trees, guards, whole)
     listed = spec.get("modules")
     if not isinstance(listed, list) or not all(isinstance(m, str) for m in listed):
         raise NotMeasurable(f"{modules_file}: modules must be a list of module names")
