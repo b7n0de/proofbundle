@@ -129,6 +129,14 @@ _FILE_METHODS = frozenset((
 # the gate cannot resolve: `Path("x").resolve()` names no qualified receiver.
 _ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser"))
 _BUILTIN_NAMES = frozenset(dir(builtins))
+#: What an expression may stand for that the gate cannot name, beside the names it can (`getattr(os, "path", h)`
+#: is `os.path` or whatever `h` is). It matches no rule, and a receiver that may be it counts as unresolved.
+_UNRESOLVED = "<unresolved>"
+
+
+def _resolved(quals) -> bool:
+    """Whether every name an expression may stand for is known: at least one, and no unresolved alternative."""
+    return bool(quals) and _UNRESOLVED not in quals
 
 
 def _is_ruled_builtin(name: str) -> bool:
@@ -1142,19 +1150,21 @@ class _Names:
         if isinstance(node, ast.Name):
             return self._lookup(node.id, scope, guesses)
         if isinstance(node, ast.Attribute):
-            return {f"{base}.{node.attr}" for base in self._quals(node.value, scope, guesses)}
+            return {base if base == _UNRESOLVED else f"{base}.{node.attr}"
+                    for base in self._quals(node.value, scope, guesses)}
         if isinstance(node, ast.Call):
             held = self._literal_attribute(node, scope, guesses)
             if held is not None:
                 receiver, attr = held
-                found = {f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                found = {base if base == _UNRESOLVED else f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
                 if len(node.args) == 3:
                     # THE DEFAULT IS A POSSIBLE RESULT (Codex on pull request 395, round three, P1): `getattr(math,
                     # "missing", handle)` returns `handle`, and reading it as `math.missing` made the receiver of
                     # `.read()` count as resolved, so the file finding of an unresolved receiver was lost. A default
-                    # the gate cannot resolve leaves the result unresolved.
+                    # the gate cannot resolve stands beside the names it can as `_UNRESOLVED`: dropping those names
+                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1).
                     default = self._quals(node.args[2], scope, guesses)
-                    return found | default if default else set()
+                    return found | (default or {_UNRESOLVED})
                 return found
         return set()
 
@@ -1345,9 +1355,9 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
                         out.extend((rule, full, line) for rule, full in ruled)
                     elif attr in _NAMESPACE_ATTRIBUTES and kind != "has":
                         out.append(("dynamic_access", f".{attr}", line))
-                    elif not known and attr in _FILE_METHODS:
+                    elif not _resolved(known) and attr in _FILE_METHODS:
                         out.append(("file", f".{attr}", line))
-                    elif not known and attr in _ENVIRONMENT_METHODS:
+                    elif not _resolved(known) and attr in _ENVIRONMENT_METHODS:
                         out.append(("environment", f".{attr}", line))
                 elif name_arg is not None or unknown:
                     out.append(("dynamic_access", f"{label}(computed name)", line))
@@ -1383,9 +1393,9 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
             if isinstance(node, ast.Attribute):
                 if node.attr in _NAMESPACE_ATTRIBUTES:
                     out.append(("dynamic_access", f".{node.attr}", line))
-                elif node.attr in _FILE_METHODS and not names.quals(node.value, guesses=False):
+                elif node.attr in _FILE_METHODS and not _resolved(names.quals(node.value, guesses=False)):
                     out.append(("file", f".{node.attr}", line))
-                elif node.attr in _ENVIRONMENT_METHODS and not names.quals(node.value, guesses=False):
+                elif node.attr in _ENVIRONMENT_METHODS and not _resolved(names.quals(node.value, guesses=False)):
                     out.append(("environment", f".{node.attr}", line))
     return out
 

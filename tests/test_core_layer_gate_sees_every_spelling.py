@@ -684,6 +684,11 @@ GETATTR_DEFAULTS = {
     "a module as the default": (
         "import os\nVALUE = getattr(os, 'missing_attribute', os.path).expandvars('$X')\n",
         ("environment", "os.path.expandvars")),
+    # Codex on 395, round four, P1: an unresolved default keeps the known result beside it; at c3eb4c09 it erased it.
+    "None as the default keeps the attribute": (
+        "import os\nVALUE = getattr(os, 'path', None).abspath('.')\n", ("environment", "os.path.abspath")),
+    "None as the default keeps the clock": (
+        "import datetime\nVALUE = getattr(datetime, 'datetime', None).now()\n", ("clock", "datetime.datetime.now")),
 }
 
 
