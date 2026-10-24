@@ -42,8 +42,7 @@ Reports, review summaries and PR bodies follow this shape, in English.
 2. Blocks with a one-line title in capitals, one fact per line, no filler.
 3. Every link and every measured value on its own line.
 4. Measurement separated from judgement. Unverified means unverified, never "probably fine".
-5. Last line, the attribution: `Prepared with AI agent involvement, reviewed and submitted under
-   human oversight.`
+5. Last line, the attribution: `Assisted by little helpers.`
 
 Block order for a review: WHAT WAS CHECKED, FINDINGS (numbered, each with surface, violated
 property, severity, reproduction), CLASSES AND SIBLINGS, TESTS (each with red or green at the
