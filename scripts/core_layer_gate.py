@@ -442,6 +442,11 @@ class _ChangeScan:
                 return expr.id in _BUILTIN_NAMES and expr.id != "__builtins__"
             if expr.id in s.alias:
                 return False
+            # A PARAMETER HOLDS WHAT THE CALLER HANDED IN (counter-reading of pull request 395, F4, P1): it was no
+            # binding in this count, so `if m is None: m = {}` made a parameter "no module", and `setattr(m, n, True)`
+            # on the module a caller passed went unseen. Only the first parameter of a method stays no module.
+            if expr.id in s.params and expr.id != s.self_name:
+                return False
             stores = s.stores.get(expr.id, 0)
             if s.self_name == expr.id and stores == 0:
                 return True
@@ -795,7 +800,7 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
 # ── names and their resolution ─────────────────────────────────────────────────────────────────
 class _Scope:
     __slots__ = ("kind", "parent", "alias", "local", "globals", "nonlocals", "assigns", "stores", "defs",
-                 "classes", "self_name")
+                 "classes", "self_name", "params", "comprehension")
 
     def __init__(self, kind: str, parent: "_Scope | None") -> None:
         self.kind = kind
@@ -811,6 +816,10 @@ class _Scope:
         self.classes: set[str] = set()
         #: The first parameter of a method defined directly in a class body (`self`, `cls`), None elsewhere.
         self.self_name: str | None = None
+        #: The parameters of a function scope: each holds what the caller handed in.
+        self.params: set[str] = set()
+        #: A comprehension: a function scope of its own, except for an assignment expression (PEP 572).
+        self.comprehension = False
 
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -826,7 +835,10 @@ class _Names:
     `import os; VALUE = os.getenv("X"); import math as os` read the environment before the re-binding,
     and the gate resolved the earlier use against the later alias (CODEX-630-K6). A use is judged
     against each binding it may meet. A function does not see the scope of the class it is defined
-    in; `global` sends a name to the module scope. Where a scope binds a name both ways, the alias wins,
+    in; `global` sends a name to the module scope, `nonlocal` to the nearest enclosing function that binds
+    it, and an assignment expression in a comprehension binds in the scope around the comprehension
+    (PEP 572); the annotations of a function are read where they run, in the scope around it (the
+    counter-reading of pull request 395, F1, F2 and F5). Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
     builtin that a rule names, because there the builtin is used whenever the binding has not run.
     """
@@ -839,7 +851,11 @@ class _Names:
         self._scopes: list[_Scope] = [self.module]
         #: The modules a star import of this module reads, absolute: each may bind any name it exports here.
         self.stars: list[str] = []
+        #: Bindings under `nonlocal`, applied once the walk knows every binding of the enclosing functions.
+        self._deferred: list[tuple[_Scope, str, object]] = []
         self._visit(tree, self.module)
+        for scope, name, apply in self._deferred:
+            apply(self._nonlocal_owner(scope, name))
         for _ in range(8):
             changed = False
             for s in self._scopes:
@@ -856,16 +872,66 @@ class _Names:
         self._scopes.append(s)
         return s
 
+    def _on(self, scope: _Scope, name: str, apply) -> None:
+        """Apply a binding of `name` made in `scope` to the scope that owns it: the module for `global`, the nearest
+        enclosing function that binds the name for `nonlocal`, the scope itself otherwise.
+
+        `nonlocal` WAS READ ON THE USE ONLY (counter-reading of pull request 395, F1, P1): the lookup followed it, the
+        binding stayed in the inner scope, so `nonlocal o; o = os` and then `o.getenv("X")` in the outer function read
+        the environment while the gate saw nothing. The owner is found after the walk, when every binding of the
+        enclosing functions is known, because the outer binding may stand after the inner function."""
+        if name in scope.globals:
+            apply(self.module)
+        elif name in scope.nonlocals:
+            self._deferred.append((scope, name, apply))
+        else:
+            apply(scope)
+
+    def _nonlocal_owner(self, scope: _Scope, name: str) -> _Scope:
+        s = scope.parent
+        while s is not None and s is not self.module:
+            if s.kind == "function" and name not in s.nonlocals and (name in s.local or name in s.alias):
+                return s
+            s = s.parent
+        # Python refuses a `nonlocal` no enclosing function binds; read it as the nearest enclosing function.
+        s = scope.parent
+        while s is not None and s is not self.module and s.kind != "function":
+            s = s.parent
+        return s if s is not None and s is not self.module else scope
+
     def _bind(self, scope: _Scope, name: str) -> None:
-        target = self.module if name in scope.globals else scope
-        target.local.add(name)
-        target.stores[name] = target.stores.get(name, 0) + 1
+        def apply(target: _Scope, name: str = name) -> None:
+            target.local.add(name)
+            target.stores[name] = target.stores.get(name, 0) + 1
+        self._on(scope, name, apply)
+
+    def _assign(self, scope: _Scope, name: str, value: ast.expr) -> None:
+        self._on(scope, name, lambda t, n=name, v=value: t.assigns.append((n, v)))
+
+    def _walrus_home(self, scope: _Scope) -> _Scope:
+        """The scope an assignment expression binds in: out of every comprehension around it (PEP 572; the
+        counter-reading of pull request 395, F2, P1: `[(o := os) for _ in [0]]` bound `o` in the comprehension, and
+        `o.getenv("X")` after it read the environment unseen)."""
+        while scope.comprehension and scope.parent is not None:
+            scope = scope.parent
+        return scope
 
     def _args(self, args: ast.arguments, scope: _Scope) -> None:
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             self.scope_of[id(a)] = scope
             scope.local.add(a.arg)
+            scope.params.add(a.arg)
+
+    def _annotations(self, args: ast.arguments, returns: ast.expr | None, scope: _Scope) -> None:
+        """The annotations of a function run where the def runs, in the scope around it (F5 of the counter-reading
+        of pull request 395: they were resolved in the module scope)."""
+        for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
+                  *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
+            if a.annotation is not None:
+                self._visit(a.annotation, scope)
+        if returns is not None:
+            self._visit(returns, scope)
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -875,11 +941,12 @@ class _Names:
             return
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             self._bind(scope, node.name)
-            (self.module if node.name in scope.globals else scope).defs.add(node.name)
+            self._on(scope, node.name, lambda t, n=node.name: t.defs.add(n))
             for d in node.decorator_list:
                 self._visit(d, scope)
             for d in (*node.args.defaults, *[k for k in node.args.kw_defaults if k is not None]):
                 self._visit(d, scope)
+            self._annotations(node.args, node.returns, scope)
             inner = self._new("function", scope)
             self._args(node.args, inner)
             positional = (*node.args.posonlyargs, *node.args.args)
@@ -898,17 +965,23 @@ class _Names:
             return
         if isinstance(node, ast.ClassDef):
             self._bind(scope, node.name)
-            owner = self.module if node.name in scope.globals else scope
-            owner.defs.add(node.name)
-            owner.classes.add(node.name)
+            self._on(scope, node.name, lambda t, n=node.name: (t.defs.add(n), t.classes.add(n)))
             for d in (*node.decorator_list, *node.bases, *[k.value for k in node.keywords]):
                 self._visit(d, scope)
             inner = self._new("class", scope)
             for stmt in node.body:
                 self._visit(stmt, inner)
             return
+        if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            home = self._walrus_home(scope)
+            self.scope_of[id(node.target)] = home
+            self._bind(home, node.target.id)
+            self._assign(home, node.target.id, node.value)
+            self._visit(node.value, scope)
+            return
         if isinstance(node, _COMPREHENSIONS):
             inner = self._new("function", scope)
+            inner.comprehension = True
             for i, gen in enumerate(node.generators):
                 self._visit(gen.iter, scope if i == 0 else inner)
                 self._visit(gen.target, inner)
@@ -923,12 +996,9 @@ class _Names:
             scope.nonlocals.update(node.names)
         elif isinstance(node, ast.Import):
             for a in node.names:
-                target = self.module if (a.asname or a.name.split(".")[0]) in scope.globals else scope
-                if a.asname:
-                    target.alias.setdefault(a.asname, set()).add(a.name)
-                else:
-                    top = a.name.split(".")[0]
-                    target.alias.setdefault(top, set()).add(top)
+                bound = a.asname or a.name.split(".")[0]
+                qual = a.name if a.asname else bound
+                self._on(scope, bound, lambda t, b=bound, q=qual: t.alias.setdefault(b, set()).add(q))
         elif isinstance(node, ast.ImportFrom):
             base = _absolute(self._modname, self._is_pkg, node.level, node.module)
             for a in node.names:
@@ -937,10 +1007,11 @@ class _Names:
                     if base:
                         self.stars.append(base)
                 else:
-                    # `global` sends a from-import to the module scope as it does a plain import
+                    # `global` sends a from-import to the module scope as it does a plain import, `nonlocal` to the
+                    # enclosing function that binds the name
                     bound = a.asname or a.name
-                    target = self.module if bound in scope.globals else scope
-                    target.alias.setdefault(bound, set()).add(f"{base}.{a.name}" if base else a.name)
+                    qual = f"{base}.{a.name}" if base else a.name
+                    self._on(scope, bound, lambda t, b=bound, q=qual: t.alias.setdefault(b, set()).add(q))
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
             self._bind(scope, node.id)
         elif isinstance(node, ast.ExceptHandler) and node.name:
@@ -953,11 +1024,7 @@ class _Names:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for tg in targets:
                 if isinstance(tg, ast.Name) and node.value is not None:
-                    owner = self.module if tg.id in scope.globals else scope
-                    owner.assigns.append((tg.id, node.value))
-        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
-            owner = self.module if node.target.id in scope.globals else scope
-            owner.assigns.append((node.target.id, node.value))
+                    self._assign(scope, tg.id, node.value)
         elif isinstance(node, ast.Match):
             for case in node.cases:
                 self._match_binds(case.pattern, node.subject, scope)
@@ -974,8 +1041,7 @@ class _Names:
         attribute of the subject: the gate reads no attribute of an object, as it reads none in `a = C(x).item`."""
         if isinstance(pattern, ast.MatchAs):
             if pattern.name and value is not None:
-                owner = self.module if pattern.name in scope.globals else scope
-                owner.assigns.append((pattern.name, value))
+                self._assign(scope, pattern.name, value)
             if pattern.pattern is not None:
                 self._match_binds(pattern.pattern, value, scope)
         elif isinstance(pattern, ast.MatchOr):
@@ -1051,7 +1117,33 @@ class _Names:
             return self._lookup(node.id, scope, guesses)
         if isinstance(node, ast.Attribute):
             return {f"{base}.{node.attr}" for base in self._quals(node.value, scope, guesses)}
+        if isinstance(node, ast.Call):
+            held = self._literal_attribute(node, scope, guesses)
+            if held is not None:
+                receiver, attr = held
+                return {f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
         return set()
+
+    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr, str] | None:
+        """(receiver, name) when the call reads an attribute by a literal name: `getattr(x, "name")` with or without
+        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`.
+
+        A LITERAL GETATTR CARRIES ITS NAME ON (counter-reading of pull request 395, F3, P1): it was resolved one
+        level, as the last attribute of a chain, so `getattr(os, "path").abspath(".")` read the working directory
+        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing."""
+        if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
+            return None
+        f = node.func
+        if len(node.args) in (2, 3) and _literal(node.args[1]) is not None \
+                and "builtins.getattr" in self._quals(f, scope, guesses):
+            return node.args[0], node.args[1].value
+        if isinstance(f, ast.Attribute) and f.attr == "__getattribute__":
+            if len(node.args) == 1 and _literal(node.args[0]) is not None:
+                return f.value, node.args[0].value
+            if len(node.args) == 2 and _literal(node.args[1]) is not None and any(
+                    q in ("builtins.object", "builtins.type") for q in self._quals(f.value, scope, guesses)):
+                return node.args[0], node.args[1].value
+        return None
 
     def quals(self, node: ast.expr, guesses: bool = True) -> list[str]:
         """Every qualified name the expression may stand for, sorted; empty when the gate cannot resolve it. A name

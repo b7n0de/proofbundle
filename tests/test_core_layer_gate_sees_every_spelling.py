@@ -582,3 +582,110 @@ def test_RED_an_attribute_function_called_through___call___is_judged(tmp_path):
 def test_RED_a_frame_namespace_in_the_core_is_dynamic_access(tmp_path):
     rc, report = gate(build(tmp_path, {"core.py": "def f(frame):\n    return frame.f_globals.get('__name__')\n"}))
     assert ("dynamic_access", ".f_globals") in found(report)
+
+
+# ── the counter-reading of 159c75dd (one lens, targets set in advance): bindings Python makes and the gate did not ──
+
+#: F1, F2, F3 and F5 of that reading: each core reads the environment through a binding Python makes, and the gate
+#: resolved the name against another scope or not at all. Each one runs first and returns the test value.
+BINDINGS_PYTHON_MAKES = {
+    "F1 an assignment under nonlocal": (
+        "import os\ndef outer():\n    o = None\n    def inner():\n        nonlocal o\n        o = os\n"
+        "    inner()\n    return o.getenv('X')\nVALUE = outer()\n", ("environment", "os.getenv")),
+    "F1 an import under nonlocal": (
+        "def outer():\n    o = None\n    def inner():\n        nonlocal o\n        import os as o\n"
+        "    inner()\n    return o.getenv('X')\nVALUE = outer()\n", ("environment", "os.getenv")),
+    "F1 nonlocal through two functions": (
+        "import os\ndef outer():\n    def middle():\n        def inner():\n            nonlocal o\n            o = os\n"
+        "        inner()\n    middle()\n    return o.getenv('X')\n    o = None\nVALUE = None\n"
+        "def run():\n    return outer()\n", ("environment", "os.getenv")),
+    "F2 a walrus in a list comprehension": (
+        "import os\n[(o := os) for _ in [0]]\nVALUE = o.getenv('X')\n", ("environment", "os.getenv")),
+    "F2 a walrus in a generator in a function": (
+        "import os\ndef f():\n    any((o := os) for _ in [0])\n    return o.getenv('X')\nVALUE = f()\n",
+        ("environment", "os.getenv")),
+    "F3 a literal getattr in a chain": (
+        "import os\nVALUE = getattr(os, 'path').expandvars('$X')\n", ("environment", "os.path.expandvars")),
+    "F3 two literal getattrs": (
+        "import os\nVALUE = getattr(getattr(os, 'path'), 'expandvars')('$X')\n",
+        ("environment", "os.path.expandvars")),
+    "F3 a bound __getattribute__": (
+        "import os\nVALUE = os.__getattribute__('path').expandvars('$X')\n", ("environment", "os.path.expandvars")),
+    "F3 object.__getattribute__": (
+        "import os\nVALUE = object.__getattribute__(os, 'path').expandvars('$X')\n",
+        ("environment", "os.path.expandvars")),
+    "F5 an annotation under a local alias": (
+        "def outer():\n    import os as o\n    def inner(x: o.getenv('X')):\n        pass\n"
+        "    return inner.__annotations__['x']\nVALUE = outer()\n", ("environment", "os.getenv")),
+}
+
+
+@pytest.mark.parametrize("case", list(BINDINGS_PYTHON_MAKES.values()), ids=list(BINDINGS_PYTHON_MAKES))
+def test_RED_a_binding_python_makes_is_resolved_where_python_makes_it(tmp_path, case):
+    code, finding = case
+    args = build(tmp_path, {"core.py": code})
+    probe = "import probepkg.core as c; print(c.run() if c.VALUE is None else c.VALUE)"
+    assert run_core(tmp_path, probe) == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert finding in found(report), report["measured"]["findings"]
+
+
+#: F1, F2 and F4 on the guard: each one runs the type-checking block, and the gate kept the guard.
+GUARD_WRITES_THE_READING_FOUND = {
+    "F1 the module bound under nonlocal": _MODULE_GUARD.format(
+        _NAME + "def outer():\n    m = 1\n    def inner():\n        nonlocal m\n        m = typing\n"
+        "    inner()\n    setattr(m, name, True)\nouter()"),
+    "F2 the module bound by a walrus in a comprehension": _MODULE_GUARD.format(
+        _NAME + "import inspect\nm = 1\n[(m := inspect.getmodule(typing.Any)) for _ in [0]]\nsetattr(m, name, True)"),
+}
+
+
+@pytest.mark.parametrize("code", list(GUARD_WRITES_THE_READING_FOUND.values()), ids=list(GUARD_WRITES_THE_READING_FOUND))
+def test_RED_a_guard_write_through_a_binding_python_makes_is_seen(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_THE_BLOCK) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("subprocess", "import subprocess") in found(report)
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.core"]
+
+
+def test_RED_a_parameter_re_bound_only_when_it_is_None_may_still_be_a_module(tmp_path):
+    """F4 of the reading, in its own form: the helper is in one module and the caller hands it the typing module from
+    another, by a call the gate does not read as typing, so only the parameter can carry the finding. `if m is None:
+    m = {}` made the parameter "no module" and the helper's write by a computed name counted as nothing."""
+    files = {"core.py": _HONEST_CORE,
+             "util.py": "def put(m, n):\n    if m is None:\n        m = {}\n    setattr(m, n, True)\n",
+             "other.py": "import inspect, typing\nfrom .util import put\nput(inspect.getmodule(typing.Any), 'TYPE_' + 'CHECKING')\n"}
+    args = build(tmp_path, files)
+    assert run_core(tmp_path, "import probepkg.other\n" + _RUNS_THE_BLOCK) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert "probepkg.util" in report["measured"]["type_checking_changed_by"]
+
+
+#: The other direction in the core: the same bindings to an object that reads nothing make no finding.
+BINDINGS_THAT_READ_NOTHING = {
+    "nonlocal to a builtin": (
+        "def outer():\n    o = None\n    def inner():\n        nonlocal o\n        o = len\n    inner()\n"
+        "    return o('ab')\nVALUE = outer()\n"),
+    "a walrus in a comprehension to a builtin": "[(o := len) for _ in [0]]\nVALUE = o('ab')\n",
+    "a literal getattr of a harmless name": "import math\nVALUE = getattr(math, 'pi')\n",
+}
+
+
+@pytest.mark.parametrize("code", list(BINDINGS_THAT_READ_NOTHING.values()), ids=list(BINDINGS_THAT_READ_NOTHING))
+def test_CONTROL_a_binding_python_makes_to_a_harmless_object_stays_green(tmp_path, code):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + code}))
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set()), report["measured"]["findings"]
+
+
+def test_CONTROL_a_method_that_re_binds_self_keeps_the_guards(tmp_path):
+    """F4's limit: the first parameter of a method stays no module, also where the method re-binds it to an object of
+    its own class, so a method that fills its own object by name turns no guard off."""
+    demo = ("class C:\n    def set(self, k, v):\n        if k is None:\n            self = C()\n"
+            "        object.__setattr__(self, k, v)\n")
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
