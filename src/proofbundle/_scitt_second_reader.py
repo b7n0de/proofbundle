@@ -41,7 +41,7 @@ def library():
     return cbor2
 
 
-def same(ours: Any, theirs: Any, tag_type: type) -> bool:
+def same(ours: Any, theirs: Any, tag_type: Any) -> bool:
     """Do the pre-scan and cbor2 read the same value? Container types differ by cbor2 version (list or tuple, dict
     or frozendict), so the comparison is by content, never by type name. ``tag_type`` is cbor2's ``CBORTag``."""
     if isinstance(ours, bool) or ours is None:
