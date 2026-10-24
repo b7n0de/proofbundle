@@ -1325,12 +1325,13 @@ def _rote_aus_text(text: str) -> int | None:
 
 def _tracked_files(repo: Path) -> list[str]:
     """Tracked paths (current working-tree bytes are copied, so uncommitted edits ARE tested)."""
-    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
-                          capture_output=True, text=True)
+    # AS BYTES, decoded as Python decodes a file name (counter-reading of pull request 375, F11): a
+    # strict text decoder raised on a name that is not UTF-8.
+    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True)
     if proc.returncode != 0:
         raise SystemExit("mutation_check: `git ls-files` failed; the isolated work tree needs "
                          "a git checkout (CI and dev clones both have one)")
-    return [rel for rel in proc.stdout.split("\0") if rel]
+    return [os.fsdecode(rel) for rel in proc.stdout.split(b"\0") if rel]
 
 
 def _prepare_workdir(repo: Path, work: Path) -> None:
@@ -1533,11 +1534,13 @@ def _dateien_des_baums(work: Path) -> list[str]:
         top = subprocess.run(["git", "-C", str(work), "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, errors="replace", timeout=60)
         if top.returncode == 0 and Path(top.stdout.strip()).resolve() == work.resolve():
+            # As bytes (counter-reading of pull request 375, F11): `errors="replace"` turned a name
+            # that is not UTF-8 into one that opens no file, and it fell out of the list.
             ls = subprocess.run(["git", "-C", str(work), "ls-files", "-z", "--cached", "--others",
-                                 "--exclude-standard"],
-                                capture_output=True, text=True, errors="replace", timeout=120)
+                                 "--exclude-standard"], capture_output=True, timeout=120)
             if ls.returncode == 0:
-                return sorted({r for r in ls.stdout.split("\0") if r and (work / r).is_file()})
+                namen = (os.fsdecode(n) for n in ls.stdout.split(b"\0") if n)
+                return sorted({r for r in namen if (work / r).is_file()})
     except (OSError, subprocess.SubprocessError):
         pass
     gefunden: list[str] = []

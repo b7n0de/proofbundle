@@ -142,13 +142,16 @@ NICHT_AUSGELIEFERT = ("release_notes/", "audit_artifacts/")
 
 
 def _git(repo: Path, *args: str) -> str | None:
+    """git's output decoded as Python decodes a file name: a strict text decoder raised
+    `UnicodeDecodeError` on a name that is not UTF-8, which the handler below does not catch
+    (counter-reading of pull request 375, F11)."""
+    import os  # noqa: PLC0415
     import subprocess  # noqa: PLC0415 — only the CLI path needs it
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
-                           timeout=20)
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return None
-    return r.stdout if r.returncode == 0 else None
+    return os.fsdecode(r.stdout) if r.returncode == 0 else None
 
 
 def liefert_dasselbe_paket(repo: Path, erklaert: str, kopf: str) -> str | None:

@@ -38,12 +38,13 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   read with `-z` and as bytes now (one name that is not UTF-8 would otherwise empty the version
   gate's list through its text decoder), and the language gate decodes a diff header with the
   mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
-  to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
+  to `-z` or to a named reason; five calls keep the quoted form, among them the two tree digests,
   whose listing is hashed and never opened. No tracked path at this change needs quoting, so no
   verdict on this repository changes. A name that is not UTF-8 decodes to a lone surrogate, and each of
   the four tools raised on one while writing its report, with exit 1, the exit code of a finding
-  (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
-  is the escape of the same code point, so the name reads back as it was. When git does not list
+  (measured in every output form each tool has). The reports write such a name with backslash escapes now, and the JSON
+  forms write every character outside ASCII as its JSON escape, so the name reads back as it was under any output
+  encoding. When git does not list
   the tracked files, the version gate's sweep for undeclared current-version claims no longer reads
   that as a tree without files and prints OK over it: in a tree without git its summary names the
   sweep as not measured, and in a checkout git cannot list it fails.
@@ -62,6 +63,21 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   it reads, so `diff.mnemonicPrefix` in a developer's configuration no longer turns `b/` into `i/`
   and leaves the staged form reporting clean over a staged `if False:`; the language gate's
   working-tree form had the same gap with `w/`.
+- Repository tools, after the counter-reading of pull request 375. The mutant guard reads a header
+  only outside a hunk and splits the diff at its line feeds only, so an added line `++ 1` no longer
+  moves the lines after it out of the scope, and a form feed no longer cuts an added `if False:` off
+  its `+`. It asks git for the quoted header form whatever `core.quotePath` says, keeps an octal
+  escape above `\377` as it stands instead of raising, and shows a name with a character that is
+  not printable in git's quoted form, so a newline in a name no longer begins a line of its own in
+  the log (`scripts/mutant_signature_guard.py`). The language gate reads the hunks of its diff the
+  same way (`scripts/neue_zeilen_sind_englisch.py`). The JSON forms of three tools write every
+  character outside ASCII as its JSON escape (`scripts/audit_output_aufloesbar.py`,
+  `scripts/neue_zeilen_sind_englisch.py`, `scripts/verify_pre_tag_receipt.py`). The readiness tree
+  digest pins `core.quotePath=true` as the receipt digest does (`scripts/sign_readiness_artifact.py`),
+  the candidate matrix reads the paths changed after a bound commit with `-z` and trims none
+  (`scripts/audit_candidate_matrix.py`), and the mutation gate and the release renderer decode a
+  name that is not UTF-8 as Python decodes a file name (`scripts/mutation_check.py`,
+  `scripts/render_release.py`).
 
 ## [6.3.1] - 2026-10-21
 

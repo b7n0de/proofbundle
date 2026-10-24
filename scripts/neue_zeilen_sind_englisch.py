@@ -205,13 +205,35 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         return {}, f"NOT MEASURABLE: the diff-header decoder is not loadable ({type(fehler).__name__})"
     je_datei: dict[str, list[tuple[int, str]]] = {}
     datei, nr = None, 0
-    for zeile in aus.splitlines():
+    # A HEADER STANDS OUTSIDE A HUNK, AND THE DIFF IS SPLIT AT ITS LINE FEEDS ONLY, as in the mutant
+    # guard (counter-reading of pull request 375, the neighbour of F10b and F10c in this parser). An
+    # added line `++ b/x` stood in the diff as `+++ b/x` and moved every line after it to a file `x`,
+    # and a form feed cut an added line off its `+`; in both a German line was dropped and the verdict
+    # was green. The hunk header counts the lines of its hunk.
+    alt = neu = 0
+    for zeile in aus.split("\n"):
+        if alt > 0 or neu > 0:
+            if zeile.startswith("+"):
+                if datei:
+                    je_datei[datei].append((nr, zeile[1:]))
+                nr += 1
+                neu -= 1
+            elif zeile.startswith("-"):
+                alt -= 1
+            elif zeile.startswith(" "):
+                nr += 1
+                alt -= 1
+                neu -= 1
+            continue
         if zeile.startswith(("+++ b/", '+++ "b/')):
             datei = _git_path(zeile[4:])[2:]
             je_datei.setdefault(datei, [])
         elif zeile.startswith("@@"):
             m = re.search(r"\+(\d+)", zeile)
             nr = int(m.group(1)) if m else 0
+            k = re.match(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", zeile)
+            if k:
+                alt, neu = (int(g) if g is not None else 1 for g in k.groups())
         elif zeile.startswith("+") and not zeile.startswith("+++") and datei:
             je_datei[datei].append((nr, zeile[1:]))
             nr += 1
@@ -409,8 +431,10 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
 def main(argv=None) -> int:
     # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
     # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead. The JSON form writes
+    # every character outside ASCII as its JSON escape (`ensure_ascii`), because a backslash escape of
+    # `ü` or of an emoji is no JSON escape, and under an output encoding that is not UTF-8 the output
+    # was no JSON, with exit 0 (counter-reading of pull request 375, F5).
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -427,7 +451,7 @@ def main(argv=None) -> int:
     d = pruefe(a.base, a.arbeitsbaum)
     if a.json:
         import json
-        print(json.dumps(d, ensure_ascii=False, indent=2))
+        print(json.dumps(d, ensure_ascii=True, indent=2))
     else:
         print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
               f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"
