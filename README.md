@@ -95,6 +95,8 @@ The demo checks an honest receipt, tampered variants and a sample swap. It exits
 
 **A valid signature does not make a reported result true.** Checks depend on the receipt format and the policy you request.
 
+A PASS means: the signature is valid, the explicitly checked artefacts match the signed digests, and a trust policy passed if you gave one with `--policy` (without it the output says `POLICY: NOT_EVALUATED`). Truth, code quality and provenance from a particular AI model are not confirmed by it.
+
 [Threat model](https://github.com/b7n0de/proofbundle/blob/v6.3.1/THREAT_MODEL.md) · [Non claims](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/NON_CLAIMS.md)
 
 <a name="choose-the-path-that-matches-your-task"></a>
