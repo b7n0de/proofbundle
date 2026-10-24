@@ -309,3 +309,144 @@ def test_no_other_workflow_runs_the_check():
     others = sorted(p.name for p in WORKFLOWS.glob("*.y*ml")
                     if p.name != "pr-form.yml" and _check_steps(_workflow(p.name)))
     assert others == [], f"the check runs outside pr-form.yml: {others}"
+
+
+# ── The counter-reading of pull request 377 at 2aa1d27b: F2 to F9 ──────────────────────────────
+
+def _commit_aus_bytes(repo: pathlib.Path, nachricht: bytes, kopfzeilen: bytes = b"") -> str:
+    """A commit whose message is these bytes, written as an object, the way git writes no such message."""
+    baum = _git(repo, "rev-parse", "HEAD^{tree}")
+    eltern = _git(repo, "rev-parse", "HEAD")
+    roh = (f"tree {baum}\nparent {eltern}\nauthor t <t@example.invalid> 1700000000 +0000\n"
+           f"committer t <t@example.invalid> 1700000000 +0000\n").encode() + kopfzeilen + b"\n" + nachricht
+    sha = subprocess.run(["git", "-C", str(repo), "hash-object", "-t", "commit", "--literally", "-w",
+                          "--stdin"], input=roh, capture_output=True, check=True).stdout.decode().strip()
+    _git(repo, "update-ref", "HEAD", sha)
+    return sha
+
+
+def _lauf(repo: pathlib.Path, tmp_path: pathlib.Path, basis: str, kopf: str, monkeypatch,
+          titel: str = "docs: a title") -> int:
+    monkeypatch.chdir(repo)
+    return plg.main(["--event", _ereignis(tmp_path, {"title": titel, "body": "An English body.",
+                                                      "base": {"sha": basis}, "head": {"sha": kopf}})])
+
+
+def test_F2_a_commit_message_is_read_past_a_nul_byte(zwei_commits, tmp_path, monkeypatch):
+    """F2 (P3): `git log --format=%B` writes a message only up to its first NUL byte, so the German
+    text after it was never read and the run was clean. The message is read whole from its object."""
+    repo, _, _ = zwei_commits
+    basis = _git(repo, "rev-parse", "HEAD")
+    kopf = _commit_aus_bytes(repo, b"feat: english subject\n\nbody line\0Der Riegel bricht den Bau ab, "
+                                   b"wenn das nicht stimmt.\n")
+    assert _lauf(repo, tmp_path, basis, kopf, monkeypatch) == 1
+
+
+def test_F3_a_range_without_a_commit_is_not_measurable(zwei_commits, tmp_path, monkeypatch):
+    """F3 (P3): with the head equal to the base, or an ancestor of it, `git log` read no commit and the
+    check said "clean ... commit messages", the form the check forbids itself for a payload."""
+    repo, basis, kopf = zwei_commits
+    assert _lauf(repo, tmp_path, kopf, kopf, monkeypatch) == 2
+    assert _lauf(repo, tmp_path, kopf, basis, monkeypatch) == 2
+
+
+@pytest.mark.parametrize("argv", [[], ["--event", ""]], ids=["no-source", "empty-event"])
+def test_F4_a_check_without_a_source_is_not_measurable(argv):
+    """F4 (P3): `if a.event:` read an empty path as no event, and with no source at all the check
+    measured nothing and said clean with exit 0."""
+    assert plg.main(argv) == 2
+
+
+@pytest.mark.parametrize("inhalt", [None, "[1]", '{"pull_request": "x"}', "{not json",
+                                    '{"pull_request": {"title": "t", "base": {"sha": 7}, "head": {"sha": 8}}}'],
+                         ids=["missing-file", "list", "pr-string", "invalid-json", "sha-int"])
+def test_F5_an_unreadable_payload_is_not_measurable_never_a_finding(tmp_path, inhalt):
+    """F5 (P3): a missing file, a payload of the wrong shape or invalid JSON stopped the check with a
+    traceback and exit 1, the exit code of German prose found."""
+    pfad = tmp_path / "event.json"
+    if inhalt is not None:
+        pfad.write_text(inhalt, encoding="utf-8")
+    assert plg.main(["--event", str(pfad)]) == 2
+
+
+def test_F5_a_message_that_is_not_utf8_without_an_encoding_header_is_not_measurable(zwei_commits, tmp_path,
+                                                                                     monkeypatch):
+    """F5 for a commit: a Latin-1 message without an `encoding` header raised `UnicodeDecodeError`, exit 1.
+    With the header the message is read in its encoding."""
+    repo, _, _ = zwei_commits
+    basis = _git(repo, "rev-parse", "HEAD")
+    ohne = _commit_aus_bytes(repo, "fix: Prüfung angepasst\n".encode("latin-1"))
+    assert _lauf(repo, tmp_path, basis, ohne, monkeypatch) == 2
+    mit = _commit_aus_bytes(repo, "fix: Prüfung angepasst\n".encode("latin-1"), b"encoding ISO-8859-1\n")
+    assert _lauf(repo, tmp_path, ohne, mit, monkeypatch) == 1
+
+
+@pytest.mark.parametrize("zeile", ["We\u200bnn d\u200bas ni\u200bcht ge\u200bht u\u200bnd d\u200ber Rest bleibt",
+                                   "Pru\u0308fung fu\u0308r Sprache",
+                                   "GRO\u1e9eE Sache"],
+                         ids=["zero-width-space", "decomposed-umlaut", "capital-eszett"])
+def test_F6_an_invisible_or_decomposed_character_does_not_hide_german(zeile):
+    """F6 (P3): a zero-width space split each list word, a decomposed umlaut was no umlaut, and the
+    capital eszett was not in the class. The text is read after NFKC and without format characters."""
+    assert not plg.pruefe("docs: an English title", f"{zeile}\n")["sauber"], zeile
+
+
+def test_F6_LIMIT_words_joined_by_underscores_stay_an_identifier():
+    """F6, the part that stays: the shared boundary counts an underscore as part of a word, so an
+    identifier is no prose, and this house names its scripts in German (`neue_zeilen_sind_englisch.py`).
+    A sentence written with underscores passes; the case pins that limit."""
+    assert plg.pruefe("fix(scripts): neue_zeilen_sind_englisch reads hunks", "")["sauber"]
+    assert plg.pruefe("docs: a title", "Wenn_das_nicht_geht_und_der_Rest_bleibt\n")["sauber"]
+
+
+@pytest.mark.parametrize("zeile", [
+    "The key is read as DER and written back as DER.",
+    "Dependencies are licensed MIT, and one is MIT-0.",
+    "If the parser dies, the worker may die, and the next one may die too.",
+    "fix: DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01 is closed",
+    'reason: "ohne Fangnachweis gibt es nichts, was der Takt selbst fahren koennte"',
+    "Co-authored-by: Jürgen Müller <jm@example.invalid>",
+], ids=["der-twice", "mit-twice", "die-thrice", "capital-identifier", "straight-quotes", "trailer-name"])
+def test_F7_an_english_line_stays_green(zeile):
+    """F7 (P3): a word counted as often as it stood, so one acronym twice made a line German; a finding
+    identifier in capitals and a quotation in straight double quotes were prose; an umlaut in the name
+    of a trailer was German. A line needs two DIFFERENT list words now, and identifiers in capitals,
+    straight quotes and a person's trailer are no prose."""
+    erg = plg.pruefe("docs: an English title", "An English body.", [f"feat: an English subject\n\n{zeile}\n"])
+    assert erg["sauber"], erg["befunde"]
+
+
+def test_F7_a_quotation_wrapped_over_two_lines_is_a_quote():
+    """F7 (c) as commit messages wrap it: three of the commits on main since 2026-09-14 quote German in
+    straight double quotes over a line break (246bc730 among them)."""
+    msg = ('fix: a title\n\nMeasured 14.09.2026. Pull request 189 fails with "die Luecke ist\n'
+           'nicht gemessen, und der Grund steht hier" and nothing else.\n')
+    assert plg.pruefe("docs: an English title", "", [msg])["sauber"]
+    absatz = 'An English line with a stray " quote.\n\nDer Riegel bricht ab, wenn das nicht stimmt. "\n'
+    assert not plg.pruefe("docs: an English title", absatz)["sauber"], "a quote does not span an empty line"
+
+
+def test_F7_a_dependabot_blockquote_is_a_quote():
+    """F7 (d): dependabot quotes the release notes in an HTML `<blockquote>`, and a name with an umlaut
+    in them was German prose."""
+    body = ("Bumps x from 1.0 to 1.1.\n<details>\n<summary>Release notes</summary>\n<blockquote>\n"
+            "<h2>v1.1</h2>\n<p>Thanks to Jürgen Müller for the fix.</p>\n</blockquote>\n</details>\n")
+    assert plg.pruefe("build(deps): bump x from 1.0 to 1.1", body)["sauber"]
+
+
+def test_F7_the_exemptions_leave_prose_scannable():
+    """The other direction of F7: German prose outside the exempt forms stays red, also next to them."""
+    for zeile in ("Der Riegel bricht ab, wenn das nicht stimmt.",
+                  "Thanks to Jürgen Müller for the fix.",
+                  "Co-authored-by: der Riegel bricht ab, wenn das nicht stimmt",
+                  'The reason "is quoted" and der Grund wird hier nicht genannt.'):
+        assert not plg.pruefe("docs: an English title", f"{zeile}\n")["sauber"], zeile
+
+
+def test_F9_a_body_of_empty_lines_is_read_in_linear_time():
+    r"""F9 (P3): `^\s*>.*$` let `\s*` run over the following line breaks, so a body of empty lines took
+    quadratic time (measured at e8748354: 16000 lines 0.26 s, 32000 lines 1.00 s, 65536 lines 4.28 s)."""
+    import time
+    t0 = time.perf_counter()
+    plg.entkernen("\n" * 65536)
+    assert time.perf_counter() - t0 < 1.0
