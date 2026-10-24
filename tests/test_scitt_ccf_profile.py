@@ -428,6 +428,55 @@ def test_crit_receipt():
 
 
 # ------------------------------------------------------------------------------------------------
+# Class: a label with the value null is there, not absent (Codex on pull request 406)
+# Each case names the status of the same label with a value of the wrong type, `[]` or `{}`: a null
+# must read like that, never like the label left out.
+# ------------------------------------------------------------------------------------------------
+_STMT_BASE = {1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"}}
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_the_statement_is_outside_the_profile(value):
+    """Thread PRRT_kwDOTKah0M6vyo0G (P2): `2: null` read as no crit, and the statement confirmed;
+    ADR 0009, Decision 7, asks for a non-empty array."""
+    st = Stmt(prot_map={**_STMT_BASE, 2: value})
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()]))
+    assert (r.status, r.statement_status, r.profile_satisfied) == ("outside_profile", "outside_profile", False)
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_a_receipt_is_outside_the_profile(value):
+    """The same helper reads the receipt's protected header."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), extra_prot={2: value}).build()]))
+    assert (r.receipts[0].status, r.profile_satisfied) == ("outside_profile", False)
+
+
+@pytest.mark.parametrize("vdp_extra", [{-2: None}, {-1: None}, {-2: b"junk"}],
+                         ids=["null-consistency-beside", "null-inclusion", "junk-consistency-beside"])
+def test_a_null_proof_family_is_malformed_not_absent(vdp_extra):
+    """Thread PRRT_kwDOTKah0M6vyo0E (P2): `-2: null` beside valid inclusion proofs read as no
+    consistency proof, and the receipt confirmed. A null `-1` read as no inclusion proof. Both are a
+    family that is not an array, as the junk byte string beside them is."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), vdp_extra=vdp_extra).build()]))
+    assert (r.receipts[0].status, r.receipts[0].readable, r.profile_satisfied) == ("malformed", False, False)
+
+
+def test_a_null_vdp_is_malformed_not_absent():
+    """vdp itself: `396: null` read as no vdp. A map that is empty stays a receipt without proofs."""
+    st = Stmt()
+    rc = S.decode_cose_sign1(Rcpt(data_hash=dh_of(st)).build(), role="receipt")
+
+    def status(vdp):
+        raw = b"\xd2" + enc([rc.protected_raw, {396: vdp}, None, rc.signature])
+        return verify(transparent(st, [raw])).receipts[0].status
+    assert status([1]) == "malformed"            # the control: a vdp that is not a map
+    assert status(None) == "malformed"
+    assert status({}) == "outside_profile"       # an empty map carries no inclusion proof
+
+
+# ------------------------------------------------------------------------------------------------
 # Class: resource and tag limits
 # ------------------------------------------------------------------------------------------------
 def test_limits_control_at_l():

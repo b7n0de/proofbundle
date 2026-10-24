@@ -361,6 +361,30 @@ def test_vdp_not_a_map_is_malformed():
     assert check(raw).status == "malformed"
 
 
+# A label with the value null is there, not absent (Codex on pull request 406, threads
+# PRRT_kwDOTKah0M6vyo0E and PRRT_kwDOTKah0M6vyo0G): each null reads like the same label with a value
+# of the wrong type, never like the label left out.
+def test_a_null_vdp_is_malformed_not_a_missing_proof():
+    prot_b, sig = _SIGNED.setdefault(24, sign_over(TREE.root(24)))
+    raw = b"\xd2" + _cbor2().dumps([prot_b, {396: None}, None, sig])
+    assert check(raw).status == "malformed"
+
+
+@pytest.mark.parametrize("vdp", [
+    lambda: {-2: [enc_proof(*TREE.proof(13, 24))], -1: None},
+    lambda: {-2: None},
+], ids=["null-inclusion-beside", "null-consistency"])
+def test_a_null_proof_family_is_malformed(vdp):
+    c = check(receipt(vdp=vdp()))
+    assert (c.status, c.readable) == ("malformed", False)
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_the_protected_header_is_outside_the_profile(value):
+    prot = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}, 2: value}
+    assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == "outside_profile"
+
+
 # A fixed value, not os.urandom(64): a value drawn while collecting gives each xdist worker
 # another test id, and the run stops before the first test.
 _ARBITRARY_64 = random.Random(64).randbytes(64)
