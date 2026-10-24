@@ -689,6 +689,10 @@ GETATTR_DEFAULTS = {
         "import os\nVALUE = getattr(os, 'path', None).abspath('.')\n", ("environment", "os.path.abspath")),
     "None as the default keeps the clock": (
         "import datetime\nVALUE = getattr(datetime, 'datetime', None).now()\n", ("clock", "datetime.datetime.now")),
+    # Codex on 395, round five, P1: an unknown receiver keeps the marker beside a known default; at ba4bee28 the
+    # known `math` was the only result, and the file finding of main was lost.
+    "an unknown receiver with a known default": (
+        "import math\ndef read(holder):\n    return getattr(holder, 'stream', math).read()\n", ("file", ".read")),
 }
 
 

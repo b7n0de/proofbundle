@@ -1164,7 +1164,9 @@ class _Names:
                     # the gate cannot resolve stands beside the names it can as `_UNRESOLVED`: dropping those names
                     # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1).
                     default = self._quals(node.args[2], scope, guesses)
-                    return found | (default or {_UNRESOLVED})
+                    # Either branch may be the one the gate cannot name: an unknown receiver with a known default
+                    # (`getattr(holder, "stream", math)`) keeps the marker as well (round five, P1).
+                    return (found or {_UNRESOLVED}) | (default or {_UNRESOLVED})
                 return found
         return set()
 
