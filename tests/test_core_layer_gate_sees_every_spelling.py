@@ -433,7 +433,6 @@ READS_THE_LENS_FOUND = {
     "a truth test of sys.modules.get": "import sys\ndef _p():\n    if sys.modules.get('typing'):\n        return 1\n",
     "inspect.getmembers of the module": "import inspect, typing\ndef _p():\n    return inspect.getmembers(typing)\n",
     "a string method on the name": "def _p(s):\n    return s.startswith('TYPE_CHECKING')\n",
-    "a dict union with a module's namespace": "import json\ndef _p(extra):\n    return vars(json) | extra\n",
     "a module's namespace formatted": "import json\ndef _p():\n    return '%s' % vars(json)\n",
     "the names of a module joined": "import json\ndef _p():\n    return ','.join(vars(json))\n",
     "the names of a module yielded": "import json\ndef _p():\n    yield from vars(json)\n",
@@ -466,6 +465,9 @@ COUNTS_ON_PURPOSE = {
     "setattr on an imported object": "from .settings import config\ndef put(k, v):\n    setattr(config, k, v)\n",
     # The reader of round two is resolved, not matched by spelling: a parameter's method and a print the module
     # defines itself may set what the dotted name says.
+    # F7 of the counter-reading of pull request 395: a union with an operand the gate does not know hands the namespace to
+    # that operand's `__ror__`. A read of the lens on the first fix until then; the union with a dict written out stays one.
+    "a dict union with a module's namespace and a parameter": "import json\ndef _p(extra):\n    return vars(json) | extra\n",
     "a dotted name handed to a parameter's method": (
         "def t(monkeypatch):\n    monkeypatch.setattr('typing.TYPE_CHECKING', True)\n"),
     "a dotted name handed to a print the module defines": (
@@ -497,8 +499,8 @@ _FILL = COUNTS_ON_PURPOSE["the namespace of a parameter filled by name"]
 
 
 def _review(count=1, reason="fills the namespace of objects this module builds; no module is ever a target",
-            form=_REVIEWED_FORM):
-    entry = {"module": "probepkg.demo", "form": form, "count": count}
+            form=_REVIEWED_FORM, source=('own = object.__getattribute__(target, "__dict__")',)):
+    entry = {"module": "probepkg.demo", "form": form, "count": count, "source": list(source)}
     if reason is not None:
         entry["reason"] = reason
     return [entry]
@@ -775,3 +777,187 @@ def test_CONTROL_a_method_that_re_binds_self_keeps_the_guards(tmp_path):
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
     assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
     assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+# ── the follow-up of the first counter-reading of pull request 395 (report at 159c75dd): F6 to F15 ───────────────────
+
+_RUNS_AFTER_DEMO = "import probepkg.demo\n" + _RUNS_THE_BLOCK
+
+#: F6 (P2): a dotted name for a patch helper that is not one literal. Each one runs the guarded block.
+DOTTED_NAMES_BUILT_FROM_CONSTANTS = {
+    "a name bound to the literal": (
+        {"demo.py": "import unittest.mock\nTARGET = 'typing.TYPE_CHECKING'\nunittest.mock.patch(TARGET, True).start()\n"}),
+    "a concatenation": (
+        {"demo.py": "import unittest.mock\nunittest.mock.patch('typing.' + 'TYPE_CHECKING', True).start()\n"}),
+    "a join of literals": (
+        {"demo.py": "import unittest.mock\nunittest.mock.patch('.'.join(['typing', 'TYPE_CHECKING']), True).start()\n"}),
+    "an f-string over a bound literal": (
+        {"demo.py": "import unittest.mock\nflag = 'TYPE_CHECKING'\nunittest.mock.patch(f'typing.{flag}', True).start()\n"}),
+    "a literal bound in another module": (
+        {"demo.py": "import unittest.mock\nfrom .consts import TARGET\nunittest.mock.patch(TARGET, True).start()\n",
+         "consts.py": "TARGET = 'typing.TYPE_CHECKING'\n"}),
+}
+
+
+@pytest.mark.parametrize("files", list(DOTTED_NAMES_BUILT_FROM_CONSTANTS.values()),
+                         ids=list(DOTTED_NAMES_BUILT_FROM_CONSTANTS))
+def test_RED_F6_a_dotted_name_built_from_constants_names_the_flag(tmp_path, files):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, **files})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert "probepkg.demo" in report["measured"]["type_checking_changed_by"]
+
+
+def test_CONTROL_F6_a_dotted_name_built_from_other_constants_writes_nothing(tmp_path):
+    demo = ("import unittest.mock\nTARGET = 'json.' + 'dumps'\ndef _p():\n    return unittest.mock.patch(TARGET)\n"
+            "NAMES = '.'.join(['typing', 'Any'])\n")
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+_W = ("import typing\nname = 'TYPE_' + 'CHECKING'\nclass W:\n"
+      "    def __eq__(self, other):\n        other[name] = True\n        return True\n"
+      "    def __or__(self, other):\n        other[name] = True\n        return other\n"
+      "    __ror__ = __or__\n    __hash__ = None\n")
+
+#: F7 (a) (P2): an operand with operators of its own receives the namespace; the operator builds nothing new there.
+OPERATORS_OF_THE_OTHER_OPERAND = {
+    "== with a class of the module": _W + "W() == vars(typing)\n",
+    "| with __ror__": _W + "vars(typing) | W()\n",
+    "| with __or__ on __dict__": _W + "W() | typing.__dict__\n",
+}
+
+
+@pytest.mark.parametrize("demo", list(OPERATORS_OF_THE_OTHER_OPERAND.values()), ids=list(OPERATORS_OF_THE_OTHER_OPERAND))
+def test_RED_F7_an_operator_of_the_other_operand_may_write_the_namespace(tmp_path, demo):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+
+
+#: The other direction of F7 (a): an operand the gate knows builds a new value and hands the namespace to nobody.
+OPERATORS_OF_KNOWN_OPERANDS = {
+    "a union with a dict written out": "import json\ndef _p():\n    return vars(json) | {'a': 1}\n",
+    "a union with a dict a builtin builds": "import json\ndef _p():\n    return vars(json) | dict(a=1)\n",
+    "a membership test in the namespace": "import json\ndef _p(x):\n    return x in vars(json)\n",
+    "a comparison with a literal": "import json\ndef _p():\n    return vars(json) == {}\n",
+}
+
+
+@pytest.mark.parametrize("demo", list(OPERATORS_OF_KNOWN_OPERANDS.values()), ids=list(OPERATORS_OF_KNOWN_OPERANDS))
+def test_CONTROL_F7_an_operator_of_a_known_operand_reads(tmp_path, demo):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+_MODULE_BY_CLASS = "import inspect, typing\nname = 'TYPE_' + 'CHECKING'\n"
+
+#: F7 (b) (P2), the limit the CHANGELOG of 7046cbfb names: a class of the module that builds something else than an
+#: object of its own.
+CLASSES_THAT_BUILD_A_MODULE = {
+    "__new__": _MODULE_BY_CLASS + (
+        "class C:\n    def __new__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "x = C()\nsetattr(x, name, True)\n"),
+    "a metaclass": _MODULE_BY_CLASS + (
+        "class M(type):\n    def __call__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "class C(metaclass=M):\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+    "a base with __new__": _MODULE_BY_CLASS + (
+        "class B:\n    def __new__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "class C(B):\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+    "a class decorator": _MODULE_BY_CLASS + (
+        "def deco(cls):\n    return lambda: inspect.getmodule(typing.Any)\n"
+        "@deco\nclass C:\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+}
+
+
+@pytest.mark.parametrize("demo", list(CLASSES_THAT_BUILD_A_MODULE.values()), ids=list(CLASSES_THAT_BUILD_A_MODULE))
+def test_RED_F7_a_class_that_builds_a_module_is_no_proof_of_no_module(tmp_path, demo):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+
+
+def test_CONTROL_F7_a_plain_class_of_the_module_builds_no_module(tmp_path):
+    """K3 of the report: a class with no `__new__`, no metaclass, no decorator and a plain base builds its object."""
+    demo = ("class B:\n    pass\nclass C(B):\n    def __init__(self):\n        self.v = 1\n"
+            "def fill(k, v):\n    c = C()\n    setattr(c, k, v)\n")
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+def test_RED_F8_a_reviewed_change_is_bound_to_its_source(tmp_path):
+    """F8 (P2): the review bound (module, form, count), so the write could be pointed at another object at the same
+    count and stay approved. It is bound to the source of each line the form occurs on now."""
+    other = _FILL.replace("object.__getattribute__(target,", "object.__getattribute__(__import__('typing'),")
+    assert other != _FILL
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": other}, reviewed=_review()))
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_reviewed")
+    assert report["stale_reviewed_changes"], report
+
+
+def test_the_reason_of_the_reviewed_change_names_the_lines_it_stands_on():
+    """F8, the text: the reason named canonical.py:739 and :668, one line before the write and the `object.__new__`."""
+    spec = json.loads((ROOT / "scripts" / "core_layer_modules.json").read_text(encoding="utf-8"))
+    reason = spec["type_checking_reviewed"][0]["reason"]
+    lines = (ROOT / "src" / "proofbundle" / "canonical.py").read_text(encoding="utf-8").splitlines()
+    import re
+    for n in (int(x) for x in re.findall(r"canonical\.py:(\d+)", reason)):
+        assert any(word in lines[n - 1] for word in ("__getattribute__", "object.__new__", "_paketklasse")), (
+            n, lines[n - 1])
+
+
+@pytest.mark.parametrize("bad", ["except E, ValueError:\n    pass\n", "x = = 1\n"], ids=["3.14 syntax", "no syntax"])
+def test_F9_a_module_outside_the_core_the_gate_cannot_parse_is_not_measurable(tmp_path, bad):
+    """F9 (P2): a module outside the core that did not parse was passed over with exit 0 and no trace in the report;
+    under another Python it may run and change the guard."""
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": bad}))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE"), report
+
+
+@pytest.mark.parametrize("spelling", ["Path('x').cwd()", "Path('x').home()"])
+def test_RED_F10_a_listed_directory_read_through_an_instance_is_seen(tmp_path, spelling):
+    """F10 (P2): `pathlib.Path.cwd` and `pathlib.Path.home` are listed, the same read through an instance was not."""
+    code = f"from pathlib import Path\nVALUE = {spelling}\n"
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE.is_absolute())") == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert any(rule == "environment" for rule, _ in found(report)), report["measured"]["findings"]
+
+
+@pytest.mark.parametrize("where", ["core.py", "demo.py"])
+def test_F11_a_module_too_deep_for_the_parser_is_not_measurable(tmp_path, where):
+    """F11 (P3): `ast.parse` raised RecursionError on a long expression, and the gate stopped with a traceback and
+    exit 1 instead of exit 2 with its report."""
+    files = {"core.py": _HONEST_CORE, where: "X = " + "+".join(["1"] * 100000) + "\n"}
+    rc, report = gate(build(tmp_path, files))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE"), report
+
+
+def test_RED_F12_a_long_alias_chain_in_reverse_order_is_followed(tmp_path):
+    """F12 (P3): the aliases were resolved for eight rounds and then left as they stood, so a chain of nine or more
+    assignments written last link first read the environment unseen. The loop runs the chain until it holds."""
+    k = 14
+    names = " = ".join(f"a{i}" for i in range(k))
+    chain = "".join(f"    a{i} = a{i - 1}\n" for i in range(k - 1, 0, -1))
+    code = f"import os\n{names} = None\nfor _ in range({k + 2}):\n{chain}    a0 = os\nVALUE = a{k - 1}.getenv('X')\n"
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE)") == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report)
+
+
+def test_F8_a_review_without_the_source_it_binds_is_not_measurable(tmp_path):
+    """F8: the source of each line is part of the review, as the reason is."""
+    entry = [{k: v for k, v in _review()[0].items() if k != "source"}]
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": _FILL}, reviewed=entry))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE")
