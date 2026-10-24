@@ -146,9 +146,13 @@ def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS)
     the sorted lines of two entries of one name are the same for both orders, while `git show` and a
     checkout read different contents. The listing carries the trees as well (``-t``), so a name that
     stands as a file and as a folder is seen, and the check runs before the exclusions; the digest is
-    taken over the same lines as before, the listing without its tree lines."""
-    r = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-t", "HEAD"],
-                       capture_output=True, text=True, timeout=10)
+    taken over the same lines as before, the listing without its tree lines.
+
+    `core.quotePath=true` is pinned, as `pre_tag_receipt_lib.subject_tree_digest` pins it: the digest
+    hashes the text of the listing, and under `core.quotePath=false` a name outside ASCII is printed
+    raw, so one tree had two digests (counter-reading of pull request 375, F7)."""
+    r = subprocess.run(["git", "-C", str(repo), "-c", "core.quotePath=true", "ls-tree", "-r", "-t",
+                        "HEAD"], capture_output=True, text=True, timeout=10)
     if r.returncode != 0:
         raise SystemExit(f"cannot read the tree in {repo}: {r.stderr.strip()}")
     alle = r.stdout.splitlines()
