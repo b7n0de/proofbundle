@@ -17,6 +17,7 @@ import datetime
 import http.server
 import json
 import pathlib
+import shutil
 import sys
 import threading
 
@@ -248,9 +249,12 @@ class _Server(http.server.BaseHTTPRequestHandler):
 def test_the_live_path_is_the_same_code_and_sends_no_credential_of_the_environment(env, tmp_path, monkeypatch):
     """The live transport against a local server that answers what the recorded folder holds: the same effects, the
     same outcomes but for the run's own names and times. A token in the environment is not sent: the observer reads a
-    token only from the operator's file."""
+    token only from the operator's file. Each path observes its own copy of the same records: in one folder the second
+    run would read the event the first took, and an event is one effect with one outcome (D121)."""
     start = now_plus(-60)
     records, sent, _decision = allowed_push(env, tmp_path)
+    copy = tmp_path / "records-live"
+    shutil.copytree(records, copy)
     folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, sent, now_plus(0))])
     run_observer(records, folder, start, now_plus(120), run="recorded")
     monkeypatch.setenv("GITHUB_TOKEN", "ghs_PLANTEDobserverZ405")
@@ -260,18 +264,18 @@ def test_the_live_path_is_the_same_code_and_sends_no_credential_of_the_environme
     thread.start()
     try:
         transport = observer.LiveTransport(base=f"http://127.0.0.1:{server.server_address[1]}")
-        observer.observe(pr.Records(records), "live", transport, [REPO], start, now_plus(120), observer_key())
+        observer.observe(pr.Records(copy), "live", transport, [REPO], start, now_plus(120), observer_key())
     finally:
         server.shutdown()
     assert [s["path"] for s in handler.seen] == [f"/repos/{REPO}/events?per_page=100&page={n}" for n in (1, 2)]
     assert all("Authorization" not in s["headers"] and "PLANTED" not in json.dumps(s["headers"]) for s in handler.seen)
     by_run = {}
-    for envelope, scope in outcomes(records):
+    for envelope, scope in outcomes(records) + outcomes(copy):
         pred = statement(envelope)["predicate"]
         by_run[pred["outcomeId"].split("-")[0]] = ({k: v for k, v in pred.items() if k not in ("outcomeId",
                                                                                                 "recordedAt")}, scope)
-    assert by_run["live"] == by_run["recorded"]
-    live = json.loads((records / "api" / "live" / "run.json").read_text(encoding="utf-8"))
+    assert sorted(by_run) == ["live", "recorded"] and by_run["live"] == by_run["recorded"]
+    live = json.loads((copy / "api" / "live" / "run.json").read_text(encoding="utf-8"))
     assert live["transport"] == "live" and all(r["status"] == 200 for r in live["requests"])
 
 

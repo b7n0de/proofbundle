@@ -17966,9 +17966,8 @@ def _releases(environ) -> list[dict]:
                 not _SESSION_ID.fullmatch(session) or not _SHA256_HEX.fullmatch(sha) or \
                 not _UTC_STAMP.fullmatch(answered):
             continue
-        try:
-            when = calendar.timegm(time.strptime(answered, "%Y-%m-%dT%H:%M:%SZ"))
-        except ValueError:
+        when = _ts_seconds(answered)
+        if when is None:
             continue
         found.append({"karte": card, "sitzung": session, "sha256": sha, "antwort": answered, "zeit": when})
     return found
@@ -18168,10 +18167,13 @@ def _asks_keep(event: object, outcome: "Outcome | None", environ: dict | None = 
 
 
 def _ts_seconds(ts: str) -> int | None:
+    """The seconds of a stamp of the form %Y-%m-%dT%H:%M:%SZ, or None. time.strptime refuses a day the month does not
+    have but takes the seconds 60 and 61, which calendar.timegm reads as the next minute; such a stamp is none (D122)."""
     try:
-        return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+        parsed = time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
     except (TypeError, ValueError):
         return None
+    return calendar.timegm(parsed) if parsed.tm_sec < 60 else None
 
 
 def _ask_answers(entries: list[dict]) -> dict:

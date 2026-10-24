@@ -140,14 +140,8 @@ def reconcile(records: pr.Records) -> dict:
         else:
             views[view["decisionId"]] = view
     runs = records.runs()
-    effects, seen = [], set()
-    for run in runs:
-        for effect in pr.effects_of_run(run, records.agent_of):
-            if effect["event"] not in seen:   # a later run that lists an event again reads no second effect of it
-                seen.add(effect["event"])
-                effects.append(effect)
-    window = {"start": min((r["window"]["start"] for r in runs), key=pr.instant_key, default=None),
-              "end": max((r["window"]["end"] for r in runs), key=pr.instant_key, default=None)}
+    effects = pr.effects_of_runs(runs, records.agent_of)   # a later run that lists an event again reads no second effect
+    window = pr.window_of_runs(runs)
     # Without a run nothing was observed: M5 and M6 are not measured, never 0 (contract, criterion 2).
     matched = pr.match(effects, list(views.values()), records.agent_of, window) if runs else \
         {"rows": [], "M5": NOT_MEASURED, "M6": NOT_MEASURED, "actions_of_window": []}
@@ -155,9 +149,7 @@ def reconcile(records: pr.Records) -> dict:
     ambiguous = {d for row in matched["rows"] for d in row["ambiguous_with"]}
     by_root = {}
     for outcome in records.outcomes():
-        statement = profile._statement(outcome["envelope"])
-        ref = ((statement.get("predicate") or {}).get("decisionRef") or {}).get("sha256")
-        by_root.setdefault(ref, []).append(outcome)
+        by_root.setdefault(pr.outcome_root(profile, outcome), []).append(outcome)
     actions = [v["action"] for v in views.values()]
     rows = []
     for entry in entries:

@@ -138,11 +138,15 @@ def _no_constant(name: str) -> object:
 
 
 def _instant_ns(text: object) -> int:
-    """The nanoseconds of an instant as the gate writes it (six fraction digits, UTC)."""
+    """The nanoseconds of an instant as the gate writes it (six fraction digits, UTC). A date the calendar does not have
+    is none (D122): calendar.timegm would read 2026-09-54 as 2026-10-24."""
     match = _INSTANT.fullmatch(text) if isinstance(text, str) else None
     if match is None:
         raise Refused("statement_malformed")
     year, month, day, hour, minute, second, micro = (int(g) for g in match.groups())
+    if not (year >= 1 and 1 <= month <= 12 and 1 <= day <= calendar.monthrange(year, month)[1] and hour < 24
+            and minute < 60 and second < 60):
+        raise Refused("statement_malformed")
     return (calendar.timegm((year, month, day, hour, minute, second)) * 1_000_000 + micro) * 1000
 
 

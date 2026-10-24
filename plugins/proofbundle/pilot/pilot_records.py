@@ -20,7 +20,8 @@ reconciliation from them alone (criterion 4). This module holds that folder:
     reconciliation/             written by the reconciliation
 
 It reads GitHub's events into effects, and it matches effects to decisions by the rule of the contract, section 5,
-which the observer applies to bind an outcome and the reconciliation applies again from the records.
+which the observer applies to bind an outcome and the reconciliation applies again from the records: both read each
+event once over every run the records keep and match over the window of every run (D121).
 
     pilot_records.py start --records DIR --contract F --profile F --agents F --closing-rules F --roster F
                            --gate-public HEX --observer-public HEX --verifier WHEEL --environment F --gate F
@@ -63,15 +64,18 @@ def sha256_hex(data: bytes) -> str:
 
 def instant_key(text: object) -> tuple[int, str] | None:
     """An RFC 3339 instant in UTC as (seconds, fraction digits without trailing zeros), the order the profile reads, or
-    None. The seconds are counted from the date by the proleptic calendar, without datetime, so year 0001 reads."""
+    None. The seconds are counted from the date by the proleptic calendar, without datetime, so year 0001 reads. A date
+    the calendar does not have is None, as the profile's datetime reads it (D122): 2026-04-31, 29 February outside a
+    leap year, the year 0000."""
     m = _INSTANT.match(text) if isinstance(text, str) else None
     if m is None:
         return None
     y, mo, d, h, mi, s = (int(m.group(i)) for i in range(1, 7))
-    if not (1 <= mo <= 12 and 1 <= d <= 31 and h < 24 and mi < 60 and s < 60):
+    leap = y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+    month_days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    if not (y >= 1 and 1 <= mo <= 12 and 1 <= d <= month_days[mo - 1] and h < 24 and mi < 60 and s < 60):
         return None
     days_before = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)[mo - 1]
-    leap = y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
     days = (y - 1) * 365 + (y - 1) // 4 - (y - 1) // 100 + (y - 1) // 400 + days_before + (1 if leap and mo > 2 else 0) \
         + d - 1
     return days * 86400 + h * 3600 + mi * 60 + s, (m.group(7) or "").rstrip("0")
@@ -209,7 +213,18 @@ class Records:
         return found
 
     def runs(self) -> list[dict]:
-        return [dict(read_json(p), folder=p.parent) for p in sorted((self.folder / "api").glob("*/run.json"))]
+        """The observer's runs in the order they ran (D121): by the time of a run's first request, its name breaking a
+        tie. The order of the names is not the order of the runs (run-10 sorts before run-2), and the match reads the
+        effects of the runs in this order. A run whose window or first request names no instant is refused."""
+        found = [dict(read_json(p), folder=p.parent) for p in sorted((self.folder / "api").glob("*/run.json"))]
+        for run in found:
+            window = run.get("window") if isinstance(run.get("window"), dict) else {}
+            requests = run.get("requests") if isinstance(run.get("requests"), list) else []
+            first = requests[0].get("requestedAt") if requests and isinstance(requests[0], dict) else None
+            if instant_key(window.get("start")) is None or instant_key(window.get("end")) is None or \
+                    instant_key(first) is None:
+                raise RecordsError(f"the run {run.get('run')} names a window or a first request that is no instant")
+        return sorted(found, key=lambda run: (instant_key(run["requests"][0]["requestedAt"]), str(run["run"])))
 
     def key_journal(self) -> tuple[list | None, str | None, str]:
         """The key signer's journal as its last export into the records keeps it (D65): (the lines, each a dict or None
@@ -350,6 +365,35 @@ def effects_of_run(run: dict, agent_of: dict) -> list[dict]:
             if start_key <= at <= end_key:
                 found.append(effect)
     return found
+
+
+def effects_of_runs(runs: list[dict], agent_of: dict) -> list[dict]:
+    """The effects of the runs, in the order the records keep the runs and the API returned the events, each GitHub
+    event once (D121): a second page, a repository named twice or a later run that lists an event again reads no second
+    effect of it. Each effect names the run that read it. The observer and the reconciliation read the effects so and
+    match them over window_of_runs, so that an outcome the observer signs is one the reconciliation reproduces."""
+    found, seen = [], set()
+    for run in runs:
+        for effect in effects_of_run(run, agent_of):
+            if effect["event"] not in seen:
+                seen.add(effect["event"])
+                found.append(dict(effect, run=run["run"]))
+    return found
+
+
+def window_of_runs(runs: list[dict]) -> dict:
+    """The window the match reads (D121): from the earliest start of a run to the latest end, None without a run."""
+    return {"start": min((r["window"]["start"] for r in runs), key=instant_key, default=None),
+            "end": max((r["window"]["end"] for r in runs), key=instant_key, default=None)}
+
+
+def outcome_root(profile, outcome: dict) -> str | None:
+    """The content root of the decision an outcome of the records is bound to, its decisionRef, as the profile reads
+    the outcome's statement."""
+    statement = profile._statement(outcome["envelope"])
+    predicate = statement.get("predicate") if isinstance(statement, dict) else None
+    ref = predicate.get("decisionRef") if isinstance(predicate, dict) else None
+    return ref.get("sha256") if isinstance(ref, dict) else None
 
 
 # --- the match of the contract, section 5 ------------------------------------------------------------------------

@@ -7,6 +7,11 @@ pilot_records.match), and signs an action-outcome/v0.1 for each effect that take
 its content root, with the scope descriptor {surface, target, objectId} beside it. The outcome is built and signed by
 the profile the records keep (github-write/1), so it is the outcome the profile reads.
 
+It matches as the reconciliation does (D121): over every run the records keep in the order they ran, its own included,
+each GitHub event once and over the window of every run, and it signs an outcome only for a decision no outcome is
+bound to yet. An event
+listed on two pages, for a repository named twice or again by a later run is one effect and gets one outcome.
+
     observer.py --records DIR --run NAME --repo OWNER/REPO [--repo ...] --start T --end T
                 (--recorded FOLDER | --live [--token-file F]) (--key-file PEM | --probe-label LABEL)
 
@@ -96,11 +101,16 @@ def observe(records: pr.Records, run: str, transport, repos: list[str], start: s
         raise ValueError("a run name holds letters, digits, - and _ only")
     if pr.instant_key(start) is None or pr.instant_key(end) is None or pr.instant_key(start) > pr.instant_key(end):
         raise ValueError("the window is two RFC 3339 instants in UTC, its start not after its end")
-    if any(not pr._SLUG.fullmatch(repo) for repo in repos):
-        raise ValueError("a repository is named owner/repo")
+    if not repos or any(not pr._SLUG.fullmatch(repo) for repo in repos):
+        raise ValueError("a run names at least one repository, each as owner/repo")
     folder = records.folder / "api" / run
     if folder.exists():
         raise ValueError(f"the run {run} exists already; a run is kept as it was")
+    # D121: the outcomes and the earlier runs are read before this run writes a byte, so records that do not read leave
+    # no half run behind
+    profile = records.profile()
+    bound = {pr.outcome_root(profile, outcome) for outcome in records.outcomes()}
+    pr.effects_of_runs(records.runs(), records.agent_of)
     (folder / "responses").mkdir(parents=True)
     requests = []
     for repo in repos:
@@ -117,21 +127,29 @@ def observe(records: pr.Records, run: str, transport, repos: list[str], start: s
     document = {"run": run, "window": {"start": start, "end": end}, "repos": repos, "requests": requests,
                 "observer": records.observer_id, "transport": transport.kind}
     pr.write_json(folder / "run.json", document)
-    profile = records.profile()
-    decisions = [v for v in (pr.decision_view(records, e) for e in records.decisions()) if v is not None]
-    by_id = {d["decisionId"]: d for d in decisions}
-    matched = pr.match(pr.effects_of_run(dict(document, folder=folder), records.agent_of), decisions, records.agent_of,
-                       document["window"])
+    # the decisions as the reconciliation reads them, one view per decisionId
+    by_id = {}
+    for entry in records.decisions():
+        view = pr.decision_view(records, entry)
+        if view is not None:
+            by_id[view["decisionId"]] = view
+    # D121: the match of the reconciliation, over every run the records keep in the order they ran, this one included;
+    # an effect the records match to a decision gets an outcome once, from the first run that finds it unbound
+    runs = records.runs()
+    matched = pr.match(pr.effects_of_runs(runs, records.agent_of), list(by_id.values()), records.agent_of,
+                       pr.window_of_runs(runs))
+    own = [row for row in matched["rows"] if row["effect"]["run"] == run]
     issued, skipped = [], []
-    for n, row in enumerate(matched["rows"], start=1):
+    for row in matched["rows"]:
         decision = by_id.get(row["decision"])
-        if decision is None:
+        if decision is None or decision["root"] in bound:
             continue
         effect = row["effect"]
         if decision["bytes_sha256"] is None:
             skipped.append({"decisionId": decision["decisionId"], "why": "the decision names no bytes"})
             continue
         scope = profile.scope_descriptor(effect["surface"], effect["target"], effect["objectId"])
+        n = len(issued) + 1
         predicate = {"schemaVersion": "0.1.0", "outcomeId": f"{run}-{n:04d}", "decisionRef": {"sha256": decision["root"]},
                      "executor": {"id": f"github:{effect['actor']}"},
                      "requestedActionDigest": {"sha256": decision["bytes_sha256"]}, "status": "executed",
@@ -144,8 +162,9 @@ def observe(records: pr.Records, run: str, transport, repos: list[str], start: s
         pr.write_json(records.folder / "outcomes" / f"{predicate['outcomeId']}.json", envelope)
         pr.write_json(records.folder / "outcomes" / f"{predicate['outcomeId']}.scope.json", scope)
         issued.append({"outcomeId": predicate["outcomeId"], "decisionId": decision["decisionId"]})
-    summary = {"run": run, "requests": len(requests), "effects": len(matched["rows"]), "outcomes": issued,
-               "not_issued": skipped, "M5": matched["M5"], "M6": matched["M6"]}
+    # the run's own effects: those it lists first in the order the records keep the runs
+    summary = {"run": run, "requests": len(requests), "effects": len(own), "outcomes": issued, "not_issued": skipped,
+               "M5": sum(row["unapproved"] for row in own), "M6": sum(row["refused"] for row in own)}
     pr.write_json(folder / "observer_summary.json", summary)
     return summary
 

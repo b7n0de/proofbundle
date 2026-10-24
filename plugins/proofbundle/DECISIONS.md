@@ -5822,3 +5822,85 @@ pattern and is a deny of H5 now, the ask of H4 in the log); tests/test_plugin_ga
 tests/test_plugin_ask_load_c_steps.py (`sudo gi* status` asked for the program the net could not read and is a deny of
 H5 now, that NOT MEASURED in the log; `nice gi* status` stands in its place and answers as sudo did before).
 Tests: tests/test_plugin_o49_1_own_doors_d120.py.
+
+## D121. One GitHub event is one effect, and the observer signs what the reconciliation matches (Codex thread on pull request 403, 2026-10-24)
+
+Codex thread on pull request 403 (P1, observer.py): where two response pages hold the same event id, effects_of_run
+returns both and the observer passes both to match, so one GitHub write can take two decisions, count twice under M5 or
+get two signed outcomes; a repository named twice and windows that overlap do the same, and the reconciliation, which
+read an event once over every run (D57, mutant A12), no longer reproduces the observer's outcomes. Measured at 2081257c
+on 2026-10-24: an event on two pages of one run gave two effects and M5 1; the two approvals of a retry both took it,
+each with an outcome; a second run that listed the event again signed a second outcome for it, whether its name sorted
+after the first run or before it. Neighbours of the class, found by a lens on the first form of this rule: the observer
+matched each run over its own window and the reconciliation over the window of every run, so an effect of a second run
+that took a decision of the first run's window got no outcome; and the records kept the runs in the order of their
+names, so a run that ran later but sorted first (run-10 before run-2) took the approvals in another order than the
+outcomes already signed.
+
+The rule:
+
+- Records.runs() keeps the runs in the order they ran, by the time of each run's first request, the name breaking a
+  tie. pilot_records.effects_of_runs reads the effects of the runs in that order, each event once by its id, and names
+  the run that read each; window_of_runs is the window from the earliest start of a run to the latest end. The
+  reconciliation reads its effects and its window through them.
+- The observer reads the outcomes of the records and the effects of the earlier runs before it writes a byte, so
+  records that do not read refuse the run and leave no half run behind. It then writes its run and matches as the
+  reconciliation does: over every run the records keep, its own included, and over the decisions read once per
+  decisionId. It signs an outcome for each effect the match binds to a decision that no outcome of the records is bound
+  to yet (outcome_root, which reads a statement that is no object as bound to nothing), also for an effect an earlier
+  run lists where the window of the runs binds it now. A decision with an outcome gets no second one; the number of an
+  outcome counts the outcomes its run signs.
+- The run's summary counts its own effects, those of the match it lists first, and M5 and M6 over them. A run names at
+  least one repository.
+
+Measured (tests/test_plugin_c403_1_one_event_one_effect_d121.py): 29 of 39 cases red at 2081257c; the ten that pass
+there are the two counter cases, five combinations of the generator and three cases that hold what the observer of
+2081257c did right (a statement that is no object binds nothing, a run's summary counts its own effects, the
+reconciliation runs here). The generator, 24 combinations of an event listed once or on two pages, its repository named
+once or twice, one run or a second run that sorts after or before the first, and one approval or a retry, asserts on the
+records and the reconciliation: one outcome, bound to the decision the reconciliation matches the push to, no row of the
+reconciliation that disagrees with an outcome, M5 and M6 0. Five of its combinations pass at 2081257c, those without a
+second run and without a retry or with an event listed once: there the reconciliation reads the event once and a single
+approval takes it, so the duplicate shows only in the observer's summary, which the first three cases measure.
+
+Changed test, as strict as before: tests/test_plugin_z405_observer.py, the live path. Each path observes its own copy
+of the same records; in one folder the second run read the event the first took and signed no outcome for it.
+
+Not changed: the match of the contract (pilot_records.match); every response is kept as returned, and a repository named
+twice is still asked twice. Changed for records whose run names do not sort in the order they ran: the reconciliation
+lists and reads their runs in the order they ran. Limits, named: an outcome is signed from the records as they stand at
+its run, so where a later run widens the window of the runs, or a decision is signed after an outcome was, the match can
+bind that effect to another decision now, and the reconciliation names the outcome as one that shows no effect, which is
+its job; a later run can then sign an outcome for an effect an earlier run lists while its own summary counts no effect
+of it; an event GitHub lists without an id is read as the same event as every other one without an id; the observer and
+the reconciliation read one view per decisionId, and the gate gives no two decisions one decisionId, so two that share
+it are not measured here.
+
+## D122. A date the calendar does not have is no instant (Codex thread on pull request 403, 2026-10-24)
+
+Codex thread on pull request 403 (P2, pilot_records.py): instant_key checked the form of an instant and the day only up
+to 31, so instant_key("2026-04-31T00:00:00Z") returned a value and the observer took an impossible --start or --end;
+the readers _instant_ns of the key signer and of the signer service handed the numbers to calendar.timegm, which
+normalises them. Measured at 2081257c on 2026-10-24: instant_key read 2026-04-31, 29 February 2026, 29 February 2100
+and the year 0000; the observer took such a window; calendar.timegm reads 2026-04-31 as 2026-05-01, and the key signer
+signed a statement of its gate whose decidedAt named the day of now counted on from the month before (2026-09-54 for
+2026-10-24). The profile github-write/1, which the reconciliation applies, reads an instant with datetime and took none
+of them. A neighbour, found by a lens on the first form of this rule: the two readers of the gate (_ts_seconds, and
+_releases for the time of a release) refused such a day through time.strptime but took the seconds 60 and 61, which
+calendar.timegm reads as the next minute.
+
+The rule: instant_key takes a day only within its month of the proleptic Gregorian calendar, 29 February only in a leap
+year, the year from 0001 on, and the hours, minutes and seconds as before; the observer's window reads it.
+_instant_ns of the key signer and of the signer service refuse such a decidedAt with statement_malformed before
+calendar.timegm reads it. The gate's _ts_seconds reads no second 60 or 61, and _releases reads the time of a release
+through it. Records.runs() refuses a run whose window or first request is no instant with a RecordsError that names the
+run, so records an observer of 2081257c kept with an impossible window are refused by name and not read.
+
+Measured (tests/test_plugin_c403_2_calendar_dates_d122.py): 16 of 29 cases red at 2081257c; the thirteen that pass there
+are the seven dates the calendar has, the four the range check refused already and the two cases of the microseconds.
+Over a generated set (each month of 2026, 2024, 1900, 2000, 0001 and 0000, the months 00 and 13, each day from 00 to 32,
+at the edges of the clock), instant_key takes exactly the texts the profile's reader takes and orders them as it does,
+and the two readers of decidedAt take exactly what datetime takes, with the same nanoseconds, the microseconds included.
+
+Not changed: the form of an instant (_INSTANT), the six fraction digits of decidedAt. Not covered, and named: a leap
+second (23:59:60), which RFC 3339 allows and which the profile, datetime and the readers here refuse alike.
