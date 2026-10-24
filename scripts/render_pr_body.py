@@ -72,11 +72,6 @@ FUSSBLOCK = "Assisted by little helpers."
 #: Above this many lines an output block goes into a collapsed `details`, so a body stays readable.
 DETAILS_AB = 16
 
-#: The outbound gate's required closing sentence, byte for byte as that gate names it. Only ever
-#: emitted behind `--tor-schlusssatz`; see the comment at that flag for why it is not the default.
-TOR_SCHLUSSSATZ = ("Written by the operating agent under a standing owner authorisation for Codex "
-                   "threads; measurements are its own, at the head named above.")
-
 #: The four columns of the measured table. All four are mandatory per entry: a value without a source
 #: is a number whose origin nobody can chase, and that is the defect class this repository keeps
 #: paying for.
@@ -317,9 +312,6 @@ def main(argv: List[str] | None = None) -> int:
     p.add_argument("--aus", type=Path, help="write here instead of stdout")
     p.add_argument("--ohne-hygiene", action="store_true",
                    help="skip the claim-hygiene scan; for a case that measures the renderer alone")
-    p.add_argument("--tor-schlusssatz", action="store_true",
-                   help="append the outbound gate's closing sentence below the marking block; a "
-                        "bridge for as long as that gate reads a pull request body as a thread reply")
     a = p.parse_args(argv)
 
     try:
@@ -335,16 +327,11 @@ def main(argv: List[str] | None = None) -> int:
         return 2
 
     text = rendere(daten, a.kind)
-    if a.tor_schlusssatz:
-        # A BRIDGE, AND IT IS NAMED AS ONE. Measured 2026-09-24: setting a body through
-        # `gh pr edit --body-file` is refused by the outbound gate unless the LAST line is the
-        # closing sentence of the autonomous way, which the gate requires because it classifies a
-        # pull request body as a reply on a Codex thread. A pull request body is not a thread reply,
-        # and that sentence names an authorisation for threads, so appending it describes the surface
-        # slightly wrongly. It is therefore off by default and switched on per call, until the order
-        # that gives the gate its own genre for pull request bodies has landed. Then this flag and
-        # this comment go away together.
-        text = text.rstrip("\n") + "\n\n" + TOR_SCHLUSSSATZ + "\n"
+    # THE BRIDGE IS GONE (2026-10-23). Until then a switch `--tor-schlusssatz` appended the closing
+    # sentence of the operating agent below the footer, for as long as the outbound gate required that
+    # sentence on a pull request body. The gate requires the footer now, and the form gate refuses the
+    # old sentence as retired, so the switch could only write a body that is refused. Its own comment
+    # said it would go once that was the case.
     if not a.ohne_hygiene:
         verletzungen = hygiene(text, str(a.quelle))
         if verletzungen:
