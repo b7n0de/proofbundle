@@ -3370,10 +3370,11 @@ The rule:
   inactive answer shows, as before. A SessionStart hook cannot know which repositories a session will touch, so the
   line comes at the first command there, not at the start of the session.
 - Every other answer shows the user one line of at most 160 characters: `Gate asks at <step> because <reason> (D<n>).`,
-  `Gate blocks …`, `Gate warns at …`, `Gate hands <step> over to the pre-push check (D35).`, `Gate is not active here
-  because …`, and at the Stop hook `Gate holds the end because …`. In German: `Tor fragt bei <Schritt>, weil <Grund>
-  (D<n>).`, `Tor sperrt …`, `Tor warnt bei …`, `Tor übergibt <Schritt> an die Prüfung beim Push (D35).`, `Tor ist hier
-  nicht aktiv, weil …`, `Tor hält das Ende auf, weil …`; real umlauts, no dash and no colon between clauses, no path.
+  `Gate blocks …`, `Gate warns at …`, `Gate hands <step> over to the pre-push check (D35).`,
+  `Gate is not active here because …`, and at the Stop hook `Gate holds the end because …`. In German:
+  `Tor fragt bei <Schritt>, weil <Grund> (D<n>).`, `Tor sperrt …`, `Tor warnt bei …`,
+  `Tor übergibt <Schritt> an die Prüfung beim Push (D35).`, `Tor ist hier nicht aktiv, weil …`,
+  `Tor hält das Ende auf, weil …`; real umlauts, no dash and no colon between clauses, no path.
   The step is `git <subcommand>` or the gh call of the step that has the decision (D46), `MCP <tool>`, or the file
   tool; the reason and the D number come from the reason id (_SHORT_REASONS); for the profiles of class a and b and
   the fetch of D45 the D number is the last one the long reason names.
@@ -5519,8 +5520,8 @@ hook-state.json, one entry per work tree the owner gives a session, a linked wor
 hooks/pin_state_schleuse.py, reads only the tree the owner names, through the gate's own `pin-state`, and pin-state.json;
 `zeigen` prints the entry and a release value, the sha256 over the gate directory, the bytes of pin-state.json now and
 the bytes to come, and writes nothing; `schreiben` writes only with that value (a changed tree or file changes it, and
-then nothing is written), under a lock, after a backup beside the file (pin-state.json.vor-<time>, or .keine where there
-was none), atomically, and reads the file back; `zurueck` restores a backup and backs up what it replaces; a file that
+then nothing is written), under a lock, after a backup beside the file (`pin-state.json.vor-<time>`, or `.keine` where
+there was none), atomically, and reads the file back; `zurueck` restores a backup and backs up what it replaces; a file that
 does not read whole for the gate is never written over. The gate denies every command that names the script and is not
 a command that only reads (write_to_gate_dir, _pin_script_verdict): the script takes the gate directory from the
 environment, a path the command need not name, so the write guard of D25 would not see it. The script also refuses in
@@ -5533,8 +5534,9 @@ tests/test_plugin_n51_pin_schleuse.py (the case book F1 to F17).
 Order of Nachtrag 46, Teil B, point 2: reading git without an ask under the condition of D114, for rev-parse, status,
 log, show, diff, ls-files, merge-base and cat-file, each only with switches that start no foreign program (no pager, no
 external diff, no textconv, no fsmonitor); what the condition cannot prove keeps asking. Reported by the owner from
-delta (2026-10-20): a read-only command with `git rev-parse` was blocked, line verbatim "Tor sperrt git rev-parse: kein
-freier Weg, es fragt nur bei Außenwirkung (D85). Weil git ein Programm starten kann, das das Tor nicht sieht (D3)."
+delta (2026-10-20): a read-only command with `git rev-parse` was blocked, line verbatim
+`Tor sperrt git rev-parse: kein freier Weg, es fragt nur bei Außenwirkung (D85).`
+`Weil git ein Programm starten kann, das das Tor nicht sieht (D3).`
 Measured at 70e98e91 (the probe of D114): with an unknown key of .git/config every read form of the probe is blocked
 under `--autonomous`, with core.pager every one, with fsmonitor 36 of 78.
 
@@ -5566,8 +5568,8 @@ ls-remote, the read forms under Codex and an unknown case have a clause of their
 reason ids already named the danger in their reason and keep it (_SHORT_DANGER_IN_REASON: the house rules H1 to H4, the
 forced, mirrored and deleting push, the literal backslash-n). A card names the danger of the step the line names (D72)
 where that is more than the gate's blind spot, else the first ask of the answer that is, else the step's own
-(_short_card_cause), then the card: "Tor sperrt <step>, weil <danger> (<D>); Karte an den Owner (D93)." A line that
-would be longer than 160 characters first takes the short form of the Codex sentence ("Codex kann nicht fragen."), then
+(_short_card_cause), then the card: `Tor sperrt <step>, weil <danger> (<D>); Karte an den Owner (D93).` A line that
+would be longer than 160 characters first takes the short form of the Codex sentence (`Codex kann nicht fragen.`), then
 a shorter step name, at least 12 characters, where that makes it fit; only then is it cut, so the danger and its D
 number stay whole (measured for the 95 reason ids, the forms ask, deny, warn, sperre, umweg, karte and the Codex deny,
 steps of 9, 20 and 40 characters, both languages, 3990 lines: none longer than 160 characters, none without its danger
@@ -5654,8 +5656,8 @@ The rule, under Claude Code, where D80 runs (claim_check):
 - Words, in addition to D80's closed list (_claim_status): green (grün, gruen, green), holds (hält, holds) and OK in
   capitals, each as the status of a clause of at most eight words without a test word (D80 judges those as the tests)
   or a script word (D80 judges those as a check script); OK not as the first word of its sentence; holds not where a
-  word after it in its clause makes another verb of it (an, auf, fest, zurück, für, back, up, …: "hält die Meldung an",
-  "holds back"). A word of _CLAIM_TAKEN_BACK among the four words before, or one of it or of wäre, sei, erst, only among
+  word after it in its clause makes another verb of it (`an`, `auf`, `fest`, `zurück`, `für`, `back`, `up`, …: as in
+  `hält die Meldung an` and `holds back`). A word of _CLAIM_TAKEN_BACK among the four words before, or one of it or of wäre, sei, erst, only among
   the three after, takes the status back, and so does a sentence that names red ones. A verdict word may carry a suffix
   of capitals and digits after an underscore.
 - Evidence for a status: the last test run or check-script run after the last change (a script run at the last change,

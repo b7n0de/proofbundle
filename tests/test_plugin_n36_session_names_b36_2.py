@@ -159,7 +159,7 @@ def test_B36_2_command_and_the_absolute_path_are_silent_past_an_alias_or_a_funct
 @pytest.mark.parametrize("command", [f"command ls -la; {SEARCH}", f"{{LS}} -la; {SEARCH}"])
 def test_B36_2_command_and_the_absolute_path_are_silent_where_the_session_is_not_measured(home, monkeypatch,
                                                                                          tmp_path, command):
-    """The order: "Sonst still nur `command <name>` oder der absolute Pfad"."""
+    """The order, translated: "otherwise silent only for `command <name>` or the absolute path"."""
     (tmp_path / "rc").write_text("true\n")
     monkeypatch.setenv("BASH_ENV", str(tmp_path / "rc"))
     assert decided(home, command) is None, command

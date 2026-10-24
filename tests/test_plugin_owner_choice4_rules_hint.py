@@ -114,6 +114,7 @@ def test_control_equal_rules_name_no_difference(shim, repo):  # noqa: F811
 
 
 def test_d20_states_the_hint():
-    decisions = (pathlib.Path(gate.__file__).resolve().parents[1] / "DECISIONS.md").read_text(encoding="utf-8")
+    decisions = (pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md").read_text(
+        encoding="utf-8")
     flat = " ".join(decisions.split())
     assert "Level 1 names a difference of the evidence rules against a local record as a hint, never as a verdict" in flat

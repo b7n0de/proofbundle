@@ -1,9 +1,9 @@
 """Nachtrag 48, point 1, with the owner answers of Nachtrag 51 (O48-1): stage M0 completed.
 
 Cowork's check of M0 against the decision of 2026-10-20 and the checklist of the same day found: M2 without the name
-Guard Preview, M3 Durchsetzung beim Empfänger and M4 Piloten außerhalb des Hauses missing; the triage in four questions
-missing in all three texts; the delivery receipt not an acceptance case of M1; checklist no. 10 without „dem der Wirt
-nicht vertraut“; the owner answers O45-1 to O45-3 not recorded as decided. The texts of the triage and of no. 10 are
+Guard Preview, M3 (enforcement at the receiver) and M4 (pilots outside the house) missing; the triage in four questions
+missing in all three texts; the delivery receipt not an acceptance case of M1; checklist no. 10 without "which the host does
+not trust"; the owner answers O45-1 to O45-3 not recorded as decided. The texts of the triage and of no. 10 are
 those the owner handed over in Nachtrag 51, word for word.
 
 RED at fd897f99, the head of PLUGIN_N51 (measured, 6 of 7): every case but the control.

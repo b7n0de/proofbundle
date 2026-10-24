@@ -80,6 +80,7 @@ is the owner's decision, and this text claims nothing more.
 The decision of 2026-10-20 (kraxo/00_standards_regeln/ENTSCHEIDUNG_plugin_verify_und_guard_getrennt_freigeben_20261020.md,
 section „Triage auf jeder Plugin-Karte“), word for word, as the owner handed it over in Nachtrag 51 (O48-1):
 
+<!-- proofbundle:verbatim-quote:begin -->
 > Jede Karte zu einem Fund am Plugin beantwortet vier Fragen.
 >
 > 1. Trifft der Fund eine zugesagte Eigenschaft von Verify? Dann hält er die Freigabe von Verify an.
@@ -88,6 +89,7 @@ section „Triage auf jeder Plugin-Karte“), word for word, as the owner handed
 > 3. Wirkt er über gemeinsamen Kern oder Paketierung auf Verify? Dann reicht die Trennung nicht, und der ganze betroffene
 >    Stand wird geprüft.
 > 4. Eine unbekannte Folge heißt NICHT GEMESSEN, keine Entwarnung.
+<!-- proofbundle:verbatim-quote:end -->
 
 Every finding in IMPLEMENTATION_GAP.md and every failed row of TEST_PLAN.md is triaged by these four questions before
 it is called a block of Verify, of the Guard, or of both.
@@ -123,4 +125,8 @@ No text of the plugin, its README, its manifests, its skills or its reports may 
 - That something is enforced where no protection at the receiving side is measured.
 - Any seal of the kind "agent secured".
 - That a Guard that is off, observing only, or not running, or that the host does not trust, protects anything
-  (checklist no. 10 of 2026-10-20, „Ein Guard, der aus ist, nicht läuft oder dem der Wirt nicht vertraut, als Schutz.“).
+  (checklist no. 10 of 2026-10-20, quoted below).
+
+<!-- proofbundle:verbatim-quote:begin -->
+„Ein Guard, der aus ist, nicht läuft oder dem der Wirt nicht vertraut, als Schutz.“
+<!-- proofbundle:verbatim-quote:end -->

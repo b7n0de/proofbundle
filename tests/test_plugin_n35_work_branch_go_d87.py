@@ -1,8 +1,8 @@
 """D87, Nachtrag 35, point 5: a push to the own work branch is free under the standing GO for work branches, once the
 gate measured it.
 
-The order: "ein Push auf einen eigenen Arbeitszweig unter dem stehenden GO für Arbeitszweige frei sein soll, sobald er
-gemessen ist". AGENTS.md names the work branches `<agent>/<topic>`; under Claude Code the own ones are claude/… (owner
+The order, translated: "a push to an own work branch is to be free under the standing GO for work branches, once it
+is measured". AGENTS.md names the work branches `<agent>/<topic>`; under Claude Code the own ones are claude/… (owner
 question O35-3).
 
 The rule (D87, in the autonomous answer of D85, under Claude Code): one `git push` call that decide() asked for only

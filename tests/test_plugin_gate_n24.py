@@ -19,7 +19,6 @@ it no longer shows what a rule does.
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import pathlib

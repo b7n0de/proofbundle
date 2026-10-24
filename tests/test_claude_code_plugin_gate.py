@@ -1602,7 +1602,7 @@ def test_a_rewritten_or_multiple_push_endpoint_is_not_measured(repo, tmp_path):
     than the remote-tracking ref records. Red against 3026924e, which checked only remote.<name>.pushurl."""
     url = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True,
                          text=True, check=True).stdout.strip()
-    _git(repo, "config", f"url.https://example.invalid/.pushInsteadOf", url)
+    _git(repo, "config", "url.https://example.invalid/.pushInsteadOf", url)
     assert not _resolve(repo, "origin", "main"), "pushInsteadOf rewrites the push endpoint"
     _git(repo, "config", "--unset-all", "url.https://example.invalid/.pushInsteadOf")
     assert _resolve(repo, "origin", "main"), "without a rewrite it resolves again, up to the destination check"

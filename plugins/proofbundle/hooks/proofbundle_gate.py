@@ -318,13 +318,25 @@ def _lex(command: str, spans: dict | None = None) -> list | None:
             i += 2
             continue
         if c == "\n":
-            toks.append(("op", ";")); i += 1; target_of = None; continue
+            toks.append(("op", ";"))
+            i += 1
+            target_of = None
+            continue
         if s.startswith("&&", i):
-            toks.append(("op", "&&")); i += 2; target_of = None; continue
+            toks.append(("op", "&&"))
+            i += 2
+            target_of = None
+            continue
         if s.startswith("||", i):
-            toks.append(("op", "||")); i += 2; target_of = None; continue
+            toks.append(("op", "||"))
+            i += 2
+            target_of = None
+            continue
         if s.startswith(";;", i):
-            toks.append(("op", ";")); i += 2; target_of = None; continue
+            toks.append(("op", ";"))
+            i += 2
+            target_of = None
+            continue
         m = _REDIR.match(s, i)
         if m:
             i = m.end()
@@ -336,9 +348,15 @@ def _lex(command: str, spans: dict | None = None) -> list | None:
                 target_of = len(toks) - 1
             continue
         if c in ";|&":
-            toks.append(("op", c)); i += 1; target_of = None; continue
+            toks.append(("op", c))
+            i += 1
+            target_of = None
+            continue
         if c in "()":
-            toks.append(("op", c)); i += 1; target_of = None; continue
+            toks.append(("op", c))
+            i += 1
+            target_of = None
+            continue
         start = i
         buf: list = []
         has_subst = False
@@ -350,7 +368,9 @@ def _lex(command: str, spans: dict | None = None) -> list | None:
                 j = s.find("'", i + 1)
                 if j < 0:
                     return None
-                buf.append(s[i + 1:j]); i = j + 1; continue
+                buf.append(s[i + 1:j])
+                i = j + 1
+                continue
             if c == '"':
                 i += 1
                 while i < n and s[i] != '"':
@@ -358,22 +378,30 @@ def _lex(command: str, spans: dict | None = None) -> list | None:
                     if d == "\\" and i + 1 < n and s[i + 1] in _DQ_ESCAPED:
                         if s[i + 1] != "\n":
                             buf.append(s[i + 1])
-                        i += 2; continue
+                        i += 2
+                        continue
                     if d == "$":
                         has_subst = True
                         e = _consume_subst(s, i)
                         if e is None:
                             return None
-                        buf.append(s[i:e]); i = e; continue
+                        buf.append(s[i:e])
+                        i = e
+                        continue
                     if d == "`":
                         j = s.find("`", i + 1)
                         if j < 0:
                             return None
-                        has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
-                    buf.append(d); i += 1
+                        has_subst = True
+                        buf.append(s[i:j + 1])
+                        i = j + 1
+                        continue
+                    buf.append(d)
+                    i += 1
                 if i >= n:
                     return None
-                i += 1; continue
+                i += 1
+                continue
             if c == "\\":
                 if i + 1 >= n:
                     return None  # bash keeps a backslash at the very end, zsh drops it (R3-1): not one word
@@ -386,13 +414,19 @@ def _lex(command: str, spans: dict | None = None) -> list | None:
                 e = _consume_subst(s, i)
                 if e is None:
                     return None
-                buf.append(s[i:e]); i = e; continue
+                buf.append(s[i:e])
+                i = e
+                continue
             if c == "`":
                 j = s.find("`", i + 1)
                 if j < 0:
                     return None
-                has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
-            buf.append(c); i += 1
+                has_subst = True
+                buf.append(s[i:j + 1])
+                i = j + 1
+                continue
+            buf.append(c)
+            i += 1
         raw = s[start:i]
         value = "".join(buf) if has_subst else "".join(ch for ch, _literal in _shell_characters(raw))
         if target_of is not None:
@@ -14148,7 +14182,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
     """The answer of _decide_judged, with one rule of D117 (Nachtrag 48): a word in data is no call, and so D117 takes
     away an ask, never a deny. Where D117 can change the answer (_d117_touches) and the answer is no deny, the gate
-    answers once more without D117; is that answer a deny, it stands (kein Fall, der heute sperrt, wird frei; the corpus
+    answers once more without D117; is that answer a deny, it stands (no case that denies today becomes free; the corpus
     counts a here-document that writes `git push --no-verify` into a file as harmful, S373). Both judgments read the
     state files of a folder once (D96): the memo holds for the whole command and no longer."""
     memo = _STATE_FILES_MEMO.set({})
@@ -14808,7 +14842,7 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     which reads the approval mode and the gate directory from it (D35); `plain_push` says whether the whole command is
     the plain push form (_codex_plain_push), the only form Level 1 hands over."""
     if detail and detail[0] == _HOOKS_DISABLE:
-        return Verdict("deny", f"the command would turn off the gate's check of the real push, so it is denied.",
+        return Verdict("deny", "the command would turn off the gate's check of the real push, so it is denied.",
                        "hooks_disabled",
                        evidence="none, the command would disable the pre-push verification",
                        failed=f"{name} would skip or redirect the hook that verifies the real push "
@@ -15268,8 +15302,9 @@ _SHORT_REASONS = {
                              "unter Codex nur das schlichte git push warnt"),
     "codex_context_unbound": ("D12", "the Codex hook does not carry the working directory",
                               "der Codex-Haken das Arbeitsverzeichnis nicht mitgibt"),
+    # D72: no cd needed
     "directory_unresolved": ("D33", "the gate cannot tell which repository it acts on",
-                             "das Tor nicht weiß, in welchem Repository der Schritt arbeitet"),   # D72: no cd needed
+                             "das Tor nicht weiß, in welchem Repository der Schritt arbeitet"),
     "done_order_change": ("D38", "the command changes a local done order",
                           "der Befehl einen lokalen Abschlussauftrag ändert"),
     "gh_form_not_free": (None, "a setting may make gh start a program or reach another host",
@@ -19804,7 +19839,8 @@ def _claim_status(clause: str, sentence: str, red: bool, versions: list, kinds: 
 def message_claims(message: str) -> list[dict]:
     """The claims of the closed list in the last message (D80): each {"kind", "words", "digests", "commits",
     "versions", "script"}. The message is cut into sentences (a full stop, question or exclamation mark before a
-    space, a line, a semicolon, a table cell) and those into clauses (a comma, und, and, aber, but, sowie, a dash). A
+    space, a line, a semicolon, a table cell) and those into clauses (a comma, a dash, or a conjunction of the list the
+    code splits at, in English and in German). A
     question claims nothing; a clause claims nothing where a word of _CLAIM_TAKEN_BACK stands among the four words
     before its claim. A claim that the work is done counts in a clause of at most eight words that does not name what
     was done; a claim that the tests pass names a test word before its green word, or a count of passed tests, in a

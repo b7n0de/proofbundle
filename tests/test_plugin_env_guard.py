@@ -46,9 +46,8 @@ EXCEPTIONS = (
 )
 #: Methods of os.environ that read, set or take out one name, clear it, or fill it.
 _ONE_NAME = {"get", "pop", "setdefault", "clear", "update", "keys", "__contains__"}
-#: Texts that name the plugin: a test file carrying one is a plugin test.
-_PLUGIN_MARKERS = ("plugins/proofbundle", '"plugins"', "proofbundle_gate", "import test_plugin_",
-                   "from test_plugin_", "import test_claude_code_plugin", "import test_codex_plugin")
+#: Texts that name the plugin: a test file carrying one is a plugin test (the one list, in tests/_plugin_env.py).
+_PLUGIN_MARKERS = _plugin_env.MARKERS
 
 
 def _is_environ(node: ast.AST, from_os: set[str]) -> bool:
@@ -177,10 +176,110 @@ def test_every_test_file_that_names_the_plugin_is_a_plugin_test():
         assert not any(m in text for m in _PLUGIN_MARKERS), stem
 
 
+def _touches_the_plugin(path: pathlib.Path) -> bool:
+    """Whether a test module touches the plugin, read from its syntax tree and not from the marker texts of
+    _plugin_env: a string constant that is the plugins directory, a path in it or one of its two manifest folders, or
+    an import of a plugin test module or of a module of the plugin. Quotes, implicit concatenation and line breaks do
+    not change a constant, so a spelling the marker list does not know is still read here."""
+    stems = {p.stem for p in (TESTS.parent / "plugins" / "proofbundle").rglob("*.py")}
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            value = node.value
+            if value == "plugins" or any(t in value for t in ("plugins/proofbundle", ".claude-plugin", ".codex-plugin")):
+                return True
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        else:
+            continue
+        if any(n.split(".")[0].startswith(_plugin_env.PLUGIN_PREFIXES) or n.split(".")[0] in stems for n in names):
+            return True
+    return False
+
+
+def test_every_test_module_that_touches_the_plugin_is_a_plugin_test():
+    """The lens on the cut of pull request 403 (finding 3): the selection reads texts, and a text is a spelling, so
+    it can only fail open, and this guard read the same list. Here the guard reads the syntax tree; measured over the
+    821 modules of the tree, 286 touch the plugin, each is selected, and none that touches it is left out."""
+    touching = [p for p in sorted(TESTS.glob("test_*.py")) if _touches_the_plugin(p)]
+    assert len(touching) >= 150, len(touching)
+    assert [p.name for p in touching if not is_plugin_test(p)] == []
+
+
+def test_the_guard_reads_a_spelling_the_marker_list_does_not_know(tmp_path):
+    """Gate meta test: a module the selection catches by a word of its name that names the plugins directory as two
+    implicitly joined strings carries no marker text, so the selection misses it; the syntax tree still reads the
+    directory, and so the guard above would be red for it. A module of the library stays untouched."""
+    hidden = tmp_path / "test_release_gate_planted.py"
+    hidden.write_text('import pathlib\nP = pathlib.Path("plug" "ins") / "proof" "bundle"\n', encoding="utf-8")
+    library = tmp_path / "test_core_layer_gate_planted.py"
+    library.write_text("import os\nENV = dict(os.environ)\nWORD = 'plugin'\n", encoding="utf-8")
+    hook = tmp_path / "test_codex_planted.py"
+    hook.write_text("import pin_state_schleuse\n", encoding="utf-8")
+    assert (is_plugin_test(hidden), _touches_the_plugin(hidden)) == (False, True)
+    assert (is_plugin_test(library), _touches_the_plugin(library)) == (False, False)
+    assert (is_plugin_test(hook), _touches_the_plugin(hook)) == (True, True)
+
+
+def test_a_test_of_the_library_named_after_one_of_its_gates_is_no_plugin_test(tmp_path):
+    """The cut of pull request 403, finding 3: the selection by name took main's tests named after one of the library's
+    own gates for plugin tests, so they ran without their caller's environment and this guard read their source;
+    test_core_layer_gate_judges_every_binding.py, which main added after the plugin branch, builds an environment from
+    os.environ and turned the guard red. A name the selection catches without a plugin prefix is a plugin test only
+    with a text that names the plugin."""
+    library = tmp_path / "test_core_layer_gate_planted.py"
+    library.write_text("import os\nENV = dict(os.environ)\n", encoding="utf-8")
+    naming = tmp_path / "test_release_gate_planted.py"
+    naming.write_text("import test_plugin_gate_n2c_push_done as n2c\n", encoding="utf-8")
+    prefixed = tmp_path / "test_plugin_planted.py"
+    prefixed.write_text("", encoding="utf-8")
+    assert (is_plugin_test(library), is_plugin_test(naming), is_plugin_test(prefixed)) == (False, True, True)
+    of_main = [TESTS / f"{stem}.py" for stem in ("test_core_layer_gate_judges_every_binding", "test_pr_form_gate")]
+    assert any(p.exists() for p in of_main)
+    assert [p.name for p in of_main if p.exists() and is_plugin_test(p)] == []
+
+
 def test_conftest_brings_the_fixture_to_every_module():
     tree = ast.parse((TESTS / "conftest.py").read_text(encoding="utf-8"))
-    imported = {(n.module, a.name) for n in tree.body if isinstance(n, ast.ImportFrom) for a in n.names}
+    # the import may stand in a try at the top whose one handler lets only the missing _plugin_env itself pass (finding
+    # 1 of the cut of pull request 403: tests of the library copy conftest.py alone into a throwaway tree)
+    tries = [n for n in tree.body if isinstance(n, ast.Try)]
+    top = tree.body + [b for t in tries for b in t.body]
+    imported = {(n.module, a.name) for n in top if isinstance(n, ast.ImportFrom) for a in n.names}
     assert ("_plugin_env", "withhold_caller_environment") in imported
+    for t in tries:
+        if any(isinstance(b, ast.ImportFrom) and b.module == "_plugin_env" for b in t.body):
+            (handler,) = t.handlers
+            assert ast.unparse(handler.type) == "ModuleNotFoundError", ast.unparse(handler)
+            assert "exc.name != '_plugin_env'" in ast.unparse(handler) and "raise" in ast.unparse(handler)
+
+
+@pytest.mark.parametrize("plugin_env_source, stops", [
+    (None, False),
+    ("import a_module_that_is_not_there_403\n", True),
+    ("from _plugin_env_twin_403 import withhold_caller_environment\n", True),
+])
+def test_conftest_lets_only_the_missing_plugin_env_itself_pass(tmp_path, plugin_env_source, stops):
+    """The lens on finding 1, run and not only read: conftest.py in a throwaway checkout without _plugin_env.py
+    collects and runs, and a _plugin_env.py whose own import fails still stops the collection, with that module named.
+    A handler that let every missing module pass would make the last two cases collect."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tmp_path / "SPEC.md").write_text("a checkout marker of conftest.py\n", encoding="utf-8")
+    shutil.copy(TESTS / "conftest.py", tests / "conftest.py")
+    if plugin_env_source is not None:
+        (tests / "_plugin_env.py").write_text(plugin_env_source, encoding="utf-8")
+    (tests / "test_one_planted.py").write_text("def test_one():\n    pass\n", encoding="utf-8")
+    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tmp_path),
+                           str(tests)], capture_output=True, text=True, timeout=300, check=False, cwd=tmp_path,
+                          env=plugin_env())
+    out = proc.stdout + proc.stderr
+    if stops:
+        assert proc.returncode not in (0, 1), out[-2000:]
+        assert plugin_env_source.split()[1] in out, out[-2000:]
+    else:
+        assert proc.returncode == 0 and "1 passed" in out, out[-2000:]
 
 
 # --- the run ---------------------------------------------------------------------------------------------------------

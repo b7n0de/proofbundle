@@ -84,6 +84,7 @@ def test_control_the_plain_tilde_still_resolves(value, expected):
 
 
 def test_the_decisions_no_longer_call_the_named_form_modelled():
-    text = (pathlib.Path(gate.__file__).resolve().parents[1] / "DECISIONS.md").read_text(encoding="utf-8")
+    text = (pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md").read_text(
+        encoding="utf-8")
     assert "keeps the plain `~` and `~name` the gate joins" not in text
     assert "`~name` is not modelled" in text

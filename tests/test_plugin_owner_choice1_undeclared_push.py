@@ -395,7 +395,9 @@ def _section(text: str, start: str, end: str) -> str:
 
 
 def test_d5_and_d20_name_the_price_of_owner_choice_1():
-    decisions = (pathlib.Path(gate.__file__).resolve().parents[1] / "DECISIONS.md").read_text(encoding="utf-8")
+    # the decision record by its path from the repository root, which the sdist's skip derivation reads (conftest.py)
+    decisions = (pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md").read_text(
+        encoding="utf-8")
     for start, end in (("## D5. ", "## D6. "), ("## D20. ", "## D21. ")):
         section = _section(decisions, start, end)
         assert ("a declaration that only the remote holds, standing neither in the checked source history nor in a "

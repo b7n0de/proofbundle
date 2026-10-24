@@ -42,19 +42,37 @@ NOT_PLUGIN = frozenset({
 #: strict decoding guard scans plugins/, and the docs defaults test classifies the plugin's README. They are plugin
 #: tests and run without their caller's names.
 ALSO_PLUGIN = frozenset({"test_strict_decoding_guard", "test_integration_docs_name_only_defaults_the_code_has"})
+#: The beginnings of a name that make a module a plugin test by its name alone.
+PLUGIN_PREFIXES = ("test_plugin_", "test_claude_code_plugin", "test_codex_plugin")
+#: Texts that name the plugin. A module the selection catches by a word of its name ("gate", "plugin", test_codex) and
+#: that has no plugin prefix is a plugin test only where it carries one of them: a test of the library named after one
+#: of its own gates is none, and main brings such names in (test_core_layer_gate_judges_every_binding,
+#: test_pr_form_gate). A text is a spelling, so the list fails open on one it does not know; the guard reads the syntax
+#: tree instead (tests/test_plugin_env_guard.py, _touches_the_plugin) and is red where this list misses a module.
+MARKERS = ("plugins/proofbundle", '"plugins"', "'plugins'", ".claude-plugin", ".codex-plugin", "proofbundle_gate",
+           "pin_state_schleuse", "proofbundle_answered", "proofbundle_secrets", "proofbundle_mcp",
+           "import test_plugin_", "from test_plugin_", "import test_claude_code_plugin", "import test_codex_plugin")
 
 _withheld = 0
 
 
 def is_plugin_test(path: os.PathLike | str) -> bool:
-    """A test module of the plugin: a name the selection catches and not one of NOT_PLUGIN, or one of ALSO_PLUGIN."""
+    """A test module of the plugin: one of ALSO_PLUGIN, a name with a plugin prefix, or a name the selection catches
+    that carries a text naming the plugin, and never one of NOT_PLUGIN. A module whose text does not read keeps the
+    stricter answer and counts as one."""
     p = pathlib.Path(path)
     if p.suffix != ".py" or not p.name.startswith("test_") or p.stem in NOT_PLUGIN:
         return False
-    if p.stem in ALSO_PLUGIN:
+    if p.stem in ALSO_PLUGIN or p.stem.startswith(PLUGIN_PREFIXES):
         return True
     rest = p.stem[len("test_"):]
-    return "plugin" in rest or "gate" in rest or p.stem.startswith("test_codex")
+    if not ("plugin" in rest or "gate" in rest or p.stem.startswith("test_codex")):
+        return False
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return True
+    return any(marker in text for marker in MARKERS)
 
 
 @pytest.fixture(scope="module", autouse=True)

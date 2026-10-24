@@ -10,9 +10,8 @@ from __future__ import annotations
 import pathlib
 import re
 
-import test_plugin_gate_n24 as n24
 
-DECISIONS = pathlib.Path(n24.gate.__file__).resolve().parents[1] / "DECISIONS.md"
+DECISIONS = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md"
 NEW = ("The PreToolUse gate frees the narrow git add and git commit -m forms after a repository state check (D3), so an "
        "unattended run can commit when that check passes. Other forms still ask under Claude Code or deny under Codex.")
 

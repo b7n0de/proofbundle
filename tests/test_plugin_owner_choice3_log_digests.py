@@ -91,7 +91,8 @@ def test_an_unresolved_source_logs_no_digest_of_a_candidate(shim, repo, tmp_path
 
 
 def test_d21_names_the_evidence_field():
-    decisions = (pathlib.Path(gate.__file__).resolve().parents[1] / "DECISIONS.md").read_text(encoding="utf-8")
+    decisions = (pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md").read_text(
+        encoding="utf-8")
     flat = " ".join(decisions.split())
     assert "The entry of a push whose source check ran carries, per repository, `evidence`" in flat
     assert "A digest alone attests no verification." in flat

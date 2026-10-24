@@ -126,7 +126,8 @@ def test_control_a_detached_head_names_its_own_source_reason(env, tmp_path):
 
 
 def test_d3_states_the_choice():
-    decisions = (pathlib.Path(gate.__file__).resolve().parents[1] / "DECISIONS.md").read_text(encoding="utf-8")
+    decisions = (pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "DECISIONS.md").read_text(
+        encoding="utf-8")
     flat = " ".join(decisions.split())
     assert ("Where neither the source nor the destination of a push is resolved, the answer names both reasons, the "
             "source's first, each found on its own (owner choice 2 A of 2026-10-11)") in flat

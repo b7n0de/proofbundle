@@ -1,6 +1,6 @@
 """D72, Nachtrag 30: the short line names the step that decides.
 
-Owner choice of 2026-10-18 ("die Zeile nennt die Gefahr"): an ask, a deny and a warning name the simple command whose
+Owner choice of 2026-10-18 ("the line names the danger", translated): an ask, a deny and a warning name the simple command whose
 answer decides and the word that carries it, the heaviest step where several do (deny before ask, then the weight of the
 step), never the first git or gh step by its place; the reason ids in the log stay, and the line gives the reason of
 that step. The repository and the environment here are also those of the test of the house rules of D73

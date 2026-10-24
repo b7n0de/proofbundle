@@ -1,6 +1,6 @@
 """D73, Nachtrag 30: house rules before every freedom, D71 included, under both hosts.
 
-Owner choice of 2026-10-18 ("Hausregeln ins Tor, die Zeile nennt die Gefahr"). H1: `--admin` on `gh pr merge`, and a
+Owner choice of 2026-10-18 ("house rules into the gate, the line names the danger", translated). H1: `--admin` on `gh pr merge`, and a
 `gh api` call that bypasses or changes a protection rule, deny. H2: a tag that goes out asks, its line naming the tag
 and the owner GO a release needs. H3: `gh pr create` asks, its line naming the limit of 8 open pull requests (owner
 question O30-1). H4: `pkill -f` and `killall` ask in a chain with further work or where their pattern can match their

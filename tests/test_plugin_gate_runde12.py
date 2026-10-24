@@ -22,7 +22,6 @@ import time
 
 import pytest
 
-import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
 from _plugin_env import plugin_env
 

@@ -1,7 +1,7 @@
 """D74, Nachtrag 31, R1: the filter block of `git lfs install` and core.fsmonitor set true in the person's own global or
 system file.
 
-Owner choice of 2026-10-18, 15:3x Berlin ("weniger Rückfragen aus der eigenen Konfiguration"): the four entries `git lfs
+Owner choice of 2026-10-18, 15:3x Berlin ("fewer questions from the own configuration", translated): the four entries `git lfs
 install` writes, with exactly its values, and core.fsmonitor set true count as known where the person's own global or
 system file holds them, never the local or worktree file, an include, GIT_CONFIG_* or `-c`; another value asks as
 before. Measured with git 2.43.0 and git-lfs 3.4.1 (truth_lfs_n31.py of the delivery): git-lfs started for no form where

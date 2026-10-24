@@ -1,43 +1,43 @@
 #!/usr/bin/env python3
-"""Pin des eigenen Klons über die Schleuse (Nachtrag 51, Punkt 4; Owner-Antworten O46-1 und O46-2; D114, D115).
+"""Pinning the own clone through the lock (follow-up note 51, point 4; owner answers O46-1 and O46-2; D114, D115).
 
-WOFÜR
-  Das Tor gibt git add, git commit und acht Leseformen im eigenen Baum auf dem eigenen claude/-Zweig frei, wo der Owner
-  den Stand gepinnt hat: Haken, Hakenordner und .git/config, festgehalten in pin-state.json im Tor-Verzeichnis (D114,
-  D115). Pinnen und Erneuern tut nur der Owner, nie eine Sitzung (O46-1). Dieses Skript ist der Weg dafür: es liest
-  den einen Baum, den der Owner nennt, druckt den Eintrag und schreibt erst, wenn der Owner ihn mit dem gedruckten
-  Freigabe-Wert bestätigt hat, atomar ins Tor-Verzeichnis.
+WHAT FOR
+  The gate frees git add, git commit and eight read forms in the own tree on the own claude/ branch where the owner
+  pinned the state: the hooks, the hooks folder and .git/config, kept in pin-state.json in the gate directory (D114,
+  D115). Only the owner pins and renews, never a session (O46-1). This script is the way to do it: it reads the one
+  tree the owner names, prints the entry and writes it atomically into the gate directory only once the owner has
+  confirmed it with the release value it printed.
 
-WAS ES LIEST
-  Nur den genannten Baum, über das Tor selbst (`proofbundle_gate.py pin-state <Baum>`, das nichts schreibt), und
-  pin-state.json im Tor-Verzeichnis. Keinen anderen Baum, kein Netz, keinen Schlüssel.
+WHAT IT READS
+  Only the named tree, through the gate itself (`proofbundle_gate.py pin-state <tree>`, which writes nothing), and
+  pin-state.json in the gate directory. No other tree, no network, no key.
 
-WAS ES SCHREIBT
-  Nur mit `schreiben` und dem Freigabe-Wert, den `zeigen` für genau diesen Stand gedruckt hat: pin-state.json im
-  Tor-Verzeichnis (neu, ersetzt atomar) und davor eine Sicherung daneben, pin-state.json.vor-<Zeit> (oder
-  pin-state.json.vor-<Zeit>.keine, wenn es vorher keine Datei gab). Ein Eintrag je Arbeitsbaum (O46-2); ein verknüpfter
-  Arbeitsbaum ist ein eigener Baum mit eigenem Eintrag. Hat sich der Baum oder die Datei seit dem Zeigen geändert,
-  passt der Wert nicht mehr, und es schreibt nichts.
+WHAT IT WRITES
+  Only with `schreiben` and the release value `zeigen` printed for exactly this state: pin-state.json in the gate
+  directory (new, replaced atomically) and before it a backup beside it, pin-state.json.vor-<time>, with the
+  suffix .keine added where there was no file before. One entry per working tree (O46-2); a linked
+  working tree is a tree of its own with an entry of its own. Where the tree or the file changed since `zeigen`, the
+  value no longer matches and it writes nothing.
 
-AUFRUF (als das Konto, dem das Tor-Verzeichnis gehört, Python 3.10 oder neuer)
-  Zeigen:     python3 -I pin_state_schleuse.py zeigen --baum <Arbeitsbaum> [--tor-verzeichnis <Ordner>]
-  Schreiben:  python3 -I pin_state_schleuse.py schreiben --baum <Arbeitsbaum> --freigabe <Wert aus zeigen>
-              [--tor-verzeichnis <Ordner>]
-  Liste:      python3 -I pin_state_schleuse.py liste [--tor-verzeichnis <Ordner>]
-  Rückweg:    python3 -I pin_state_schleuse.py zurueck [--sicherung <Dateiname>] [--tor-verzeichnis <Ordner>]
-  Ohne --tor-verzeichnis gilt die Regel des Tors: PROOFBUNDLE_GATE_DIR, sonst XDG_CONFIG_HOME/proofbundle, sonst
-  ~/.config/proofbundle. Rückgabe 0: getan oder nichts zu tun; 1: abgelehnt, der Grund steht auf stderr; 2: falscher
-  Aufruf; 3: der Freigabe-Wert passt nicht zum Stand, nichts geschrieben.
+CALL (as the account that owns the gate directory, Python 3.10 or newer)
+  Show:       python3 -I pin_state_schleuse.py zeigen --baum <working tree> [--tor-verzeichnis <folder>]
+  Write:      python3 -I pin_state_schleuse.py schreiben --baum <working tree> --freigabe <value from zeigen>
+              [--tor-verzeichnis <folder>]
+  List:       python3 -I pin_state_schleuse.py liste [--tor-verzeichnis <folder>]
+  Way back:   python3 -I pin_state_schleuse.py zurueck [--sicherung <file name>] [--tor-verzeichnis <folder>]
+  Without --tor-verzeichnis the gate's rule applies: PROOFBUNDLE_GATE_DIR, else XDG_CONFIG_HOME/proofbundle, else
+  ~/.config/proofbundle. Exit 0: done or nothing to do; 1: refused, the reason is on stderr; 2: a wrong call; 3: the
+  release value does not match the state, nothing written.
 
-RÜCKWEG
-  `zurueck` stellt die jüngste Sicherung wieder her (mit --sicherung eine bestimmte) und sichert vorher den Stand, den
-  es ersetzt; ein zweites `zurueck` ohne --sicherung nimmt das erste also zurück. Eine Sicherung .keine entfernt
-  pin-state.json. Ohne pin-state.json fragt das Tor wie vor Nachtrag 46.
+WAY BACK
+  `zurueck` restores the newest backup (with --sicherung a given one) and first backs up the state it replaces, so a
+  second `zurueck` without --sicherung undoes the first. A backup ending in .keine removes pin-state.json. Without
+  pin-state.json the gate asks as it did before follow-up note 46.
 
-NIE AUS EINER SITZUNG
-  Das Tor sperrt jeden Befehl einer Sitzung, der dieses Skript nennt und nicht nur liest (D114, Nachtrag 51). Das
-  Skript selbst lehnt ab, wenn seine Umgebung die eines Agenten ist (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT oder ein Name
-  CODEX_…); das ist eine Bremse, keine Grenze, denn eine Sitzung kann ihre Umgebung ändern. Die Grenze ist das Tor.
+NEVER FROM A SESSION
+  The gate denies every command of a session that names this script and does more than read it (D114, follow-up note
+  51). The script itself refuses where its environment is an agent's (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT or a name
+  CODEX_…); that is a brake, not a boundary, as a session can change its environment. The boundary is the gate.
 """
 from __future__ import annotations
 

@@ -364,7 +364,8 @@ def test_reports_failure_no_longer_matches_a_bare_failed():
 ORDER_CASES = ("review-receipt-injection", "review-valid-receipt", "verify-inspect-injection")
 
 
-V, I = "mcp__plugin_proofbundle_proofbundle__verify_receipt", "mcp__plugin_proofbundle_proofbundle__inspect_receipt"
+# V and I name the two tools of the verify path as the traces carry them; the short names keep the cases readable
+V, I = "mcp__plugin_proofbundle_proofbundle__verify_receipt", "mcp__plugin_proofbundle_proofbundle__inspect_receipt"  # noqa: E741
 
 
 def inspect_not_before_verify(names: list[str]) -> bool:

@@ -29,7 +29,6 @@ import time
 
 import pytest
 
-import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
 from _plugin_env import plugin_env
 
@@ -194,7 +193,6 @@ def test_k1_net_never_misses_a_git_bash_runs(command):
     """The strong safety property: if bash would run git or gh as the command word of ANY simple command in the
     text, the net sees at least one git/gh word (no miss). Overmatch the other way is allowed."""
     # what bash runs as command words, via a PATH of stubs that print their own name
-    bindir = pathlib.Path(os.environ.get("PYTEST_CURRENT_TEST", "")).parent  # unused; stubs made below
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         for name in ("git", "gh"):

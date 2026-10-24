@@ -1,8 +1,8 @@
 """D85, Nachtrag 35: the autonomous answer under Claude Code. The gate asks only for a closed list of external effects;
 every other ask of decide() becomes a deny that names a rewrite the gate checked free, or no way at all.
 
-Owner word of 2026-10-18, 20:40 Berlin: "ich muss sehr viel bestätigen das muss so aufhören" and "das plugin muss
-weitestgehend autonom funktionieren". delta measured 97 real asks (D3, D27, D33, D34 the most), four of them on the
+Owner word of 2026-10-18, 20:40 Berlin, translated: "I have to confirm very much, that has to stop" and "the plugin
+has to work as autonomously as possible". delta measured 97 real asks (D3, D27, D33, D34 the most), four of them on the
 owner's screens: `git status` in a chain, `git status --short | head`, a here-document with `git push` as text and
 `git rev-parse` in `$( )`.
 
