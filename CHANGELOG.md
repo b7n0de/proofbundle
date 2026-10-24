@@ -28,6 +28,43 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
 - **`site-data.json` links the audit folder of a patch release (Z392).** `scripts/render_site_data.py` derived the audit folder as major*100 + minor*10, so `audit_link` of 6.3.1 named `audit_artifacts/630/`, the folder of 6.3.0. It now uses the rule of the receipt tools, the version without its dots, and only for a release version X.Y.Z, with or without a suffix that starts with a letter, so 6.4.1rc1 finds `audit_artifacts/641rc1/` where its receipt is filed; any other string is a gap with its reason instead of a guess. A minor of two digits is refused as before, and a patch of two digits is refused now as well instead of naming the folder of its minor, each with the release it would collide with. A folder whose name is a non-ASCII digit no longer stops the generator.
 - Repository tools, outside the installed package. The pre-commit hook (`scripts/git-hooks/pre-commit`) asks whether every file under `scripts/` has a decision in `MANIFEST.in` before the commit, when a staged path lies under `scripts/`, deletions included. It runs the same test node CI runs, against the staged snapshot written out with `git checkout-index` and not against the working tree (`tests/test_the_hook_asks_before_the_long_job.py`). Without pytest it says so on stderr and lets the commit through; CI stays the gate.
 - Repository tools, outside the installed package. The mutation gate reads the abort banner of pytest only outside captured test output, and a captured block closes only at a separator of the width of the line that opened it, so a failing test that prints a line such as `! ordinary diagnostic !` no longer turns a finished run into NOT MEASURABLE (`scripts/mutation_check.py`). The text reader of the test-manifest gate reads the names of each import statement from the token stream, so it agrees with the syntax tree on `import os, unittest`, a trailing comment, an alias and a backslash continuation (`scripts/test_manifest_gate.py`, `tests/test_codex_199_banner_and_import_path.py`).
+- **Every tool that reads a path list from git reads it as git names the paths**
+  (`scripts/check_version_and_changelog.py`, `scripts/audit_output_aufloesbar.py`,
+  `scripts/verify_pre_tag_receipt.py`, `scripts/neue_zeilen_sind_englisch.py`). The mutant guard's
+  fix below was one instance of a class: without `-z`, git quotes a path that holds a byte outside
+  ASCII, and the quoted string opens no file. Measured in throwaway repositories, each against the
+  state before: the version gate's sweep for undeclared release claims skipped `docs/prüfung.md`;
+  the digest-resolvability check said `NICHT_AUFLOESBAR` for a tracked record under such a name and
+  did not count it; the third-party receipt verifier did not see a receipt under such a name; the
+  language gate reported a German line in `docs/prüfung.md` under the file before it, judged green
+  when no file came before it, and said NOT MEASURABLE for such an untracked file. The lists are
+  read with `-z` and as bytes now (one name that is not UTF-8 would otherwise empty the version
+  gate's list through its text decoder), and the language gate decodes a diff header with the
+  mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
+  to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
+  whose listing is hashed and never opened. No tracked path at this change needs quoting, so no
+  verdict on this repository changes. A name that is not UTF-8 decodes to a lone surrogate, and each of
+  the four tools raised on one while writing its report, with exit 1, the exit code of a finding
+  (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
+  is the escape of the same code point, so the name reads back as it was. When git does not list
+  the tracked files, the version gate's sweep for undeclared current-version claims no longer reads
+  that as a tree without files and prints OK over it: in a tree without git its summary names the
+  sweep as not measured, and in a checkout git cannot list it fails.
+- **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
+  path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
+  header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
+  that text as the path, it matched no security path, and a staged `if False:` in such a file was
+  reported clean with exit 0 (measured in a throwaway repository; plain names and names with a
+  space were caught). The header path is decoded now, the self-test plants a mutant under a
+  non-ASCII name, and the tests cover a non-ASCII name, a double quote and a backslash in both
+  modes. No file under `src/proofbundle` carries such a name today. A newline in a name is decoded
+  too, and the scope pattern now reads it with DOTALL between `\A` and `\Z`: before, its `.` stopped
+  at the decoded newline, and a staged or committed `if False:` in `src/proofbundle/a\nb.py` was
+  reported clean with exit 0. The tests plant that name in both modes, and against the guard
+  without this change the three new cases are red. The guard names the header prefixes of the diff
+  it reads, so `diff.mnemonicPrefix` in a developer's configuration no longer turns `b/` into `i/`
+  and leaves the staged form reporting clean over a staged `if False:`; the language gate's
+  working-tree form had the same gap with `w/`.
 
 ## [6.3.1] - 2026-10-21
 

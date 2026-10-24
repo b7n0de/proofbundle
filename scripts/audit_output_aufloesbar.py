@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -55,15 +56,20 @@ def _tracked_files(repo: Path) -> list[str] | None:
     """Tracked paths, or None if git cannot answer — None is the NICHT_MESSBAR signal, not [].
 
     The distinction is the whole point: an empty list would read as 'searched everything, found
-    nothing', which is a verdict. A broken git has no verdict to give."""
+    nothing', which is a verdict. A broken git has no verdict to give.
+
+    READ WITH -z AND AS BYTES (2026-09-26, measured in a throwaway repository). Without -z git
+    quotes a path that holds a byte outside ASCII (`"audit_artifacts/pr\\303\\274fung.md"`), that
+    name opens no file, and the file was skipped without being counted: its digest was never
+    compared, and a record under such a name read as NICHT_AUFLOESBAR."""
     try:
-        r = subprocess.run(["git", "-C", str(repo), "ls-files"],
-                           capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
+                           capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
         return None
-    return [z for z in r.stdout.splitlines() if z.strip()]
+    return [os.fsdecode(z) for z in r.stdout.split(b"\0") if z]
 
 
 def _digest_wie_das_receipt(p: Path) -> str | None:
@@ -110,6 +116,12 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--receipt", required=True, type=Path)
     ap.add_argument("--repo", type=Path, default=Path("."))
