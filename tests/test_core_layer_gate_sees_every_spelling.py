@@ -693,6 +693,10 @@ GETATTR_DEFAULTS = {
     # known `math` was the only result, and the file finding of main was lost.
     "an unknown receiver with a known default": (
         "import math\ndef read(holder):\n    return getattr(holder, 'stream', math).read()\n", ("file", ".read")),
+    # The sibling the same round names: the environment methods ask the same receiver question.
+    "an unknown receiver with a known default before an environment method": (
+        "import math\ndef where(holder):\n    return getattr(holder, 'path', math).resolve()\n",
+        ("environment", ".resolve")),
 }
 
 
