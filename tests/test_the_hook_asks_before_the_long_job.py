@@ -148,6 +148,57 @@ def test_a_correct_staged_snapshot_passes_beside_a_stale_working_tree(tmp_path):
     assert p.returncode == 0, f"a correct staged snapshot was refused.\nstdout: {p.stdout}\nstderr: {p.stderr}"
 
 
+def _real_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, dict, pathlib.Path]:
+    """A real git repository with the hook's inputs committed, so the staged set comes from git itself.
+
+    The fake `git` above cannot show what the counter-reading of pull request 368 found (F1, F2): how
+    git LISTS a rename and a path outside ASCII. Here git does, with no global or system configuration."""
+    root = tmp_path / "real"
+    mark = tmp_path / "node_ran"
+    _fill(root, mark, False, "decided\n")
+    (root / "scripts" / "b7_alt.py").write_text("print('old')\n", encoding="utf-8")
+    # HOME stays: the hook's `python3` may find pytest in the user site under HOME, and a moved HOME
+    # made the hook report pytest missing, which skipped the node for another reason than the one tested.
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+               GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
+        subprocess.run(["git", *args], cwd=root, env=env, check=True, capture_output=True, timeout=60)
+    return root, env, mark
+
+
+def _run_real(root: pathlib.Path, env: dict):
+    return subprocess.run(["sh", str(HOOK)], cwd=root, env=env, capture_output=True, text=True, timeout=300)
+
+
+def test_a_script_moved_out_of_scripts_triggers_the_node(tmp_path):
+    """Counter-reading of pull request 368, F1 (P2): `git diff --cached --name-only` lists a rename
+    under its new path only, so `git mv scripts/x.py tools/x.py` never reached the node, which refuses
+    the stale `include scripts/x.py` that move leaves behind."""
+    pytest.importorskip("pytest")
+    root, env, mark = _real_repo(tmp_path)
+    (root / "tools").mkdir()
+    subprocess.run(["git", "mv", "scripts/b7_alt.py", "tools/b7_alt.py"], cwd=root, env=env, check=True,
+                   capture_output=True, timeout=60)
+    p = _run_real(root, env)
+    assert mark.is_file(), (
+        f"a script moved out of scripts/ did not start the node.\nstdout: {p.stdout}\nstderr: {p.stderr}")
+    assert p.returncode == 0, p.stderr
+
+
+def test_a_path_outside_ascii_under_scripts_triggers_the_node(tmp_path):
+    """Counter-reading of pull request 368, F2 (P3): git lists a path with a byte outside ASCII in
+    quotes, `"scripts/gr\\303\\266..."`, which no longer starts with `scripts/`."""
+    pytest.importorskip("pytest")
+    root, env, mark = _real_repo(tmp_path)
+    (root / "scripts" / "größe.py").write_text("print('new')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, env=env, check=True, capture_output=True, timeout=60)
+    p = _run_real(root, env)
+    assert mark.is_file(), (
+        f"a staged path outside ASCII under scripts/ did not start the node.\nstdout: {p.stdout}\nstderr: {p.stderr}")
+    assert p.returncode == 0, p.stderr
+
+
 def test_the_hook_calls_exactly_the_node_that_ci_runs():
     """No second producer (OA-714de2fcdd): the hook must not REBUILD the question, it must call the
     same node. Measured on the hook's text AND on the existence of the node."""
