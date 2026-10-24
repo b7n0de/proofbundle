@@ -27,6 +27,7 @@ import ast
 import importlib.util
 import pathlib
 import re
+import time
 
 import pytest
 
@@ -156,8 +157,9 @@ def test_A_a_separator_the_test_prints_stays_inside_the_capture(tmp_path, separa
     """[COUNTS] Codex on pull request 371, round one, P2. The capture closed on ANY line that began
     with three of `-`, `=` or `_`, so a test printing `---` and then `! ordinary diagnostic !` put the
     second line back on the top level, and the run counted as NOT MEASURABLE. pytest draws every
-    separator of one run to the same full width, the width of the `Captured` line that opened the
-    block; a shorter line is the test's own text."""
+    separator whose title fits to the same full width of the run, the width of the `Captured` line
+    that opened the block; a shorter line is the test's own text. A title longer than the run makes
+    its separator wider (`TerminalWriter.sep`, counter-reading of pull request 371, F6)."""
     m = _load("scripts/mutation_check.py", "_mc_a6")
     report = _report_with_captured(f"{separator}\n! ordinary diagnostic !\n")
     assert "! ordinary diagnostic !" not in m._ohne_aufgefangene_ausgabe(report), separator
@@ -231,6 +233,73 @@ def test_A_ANTI_a_real_internalerror_stays_unmeasurable(tmp_path):
     assert m._rote_aus_lauf(_report(tmp_path), text) is None
 
 
+# ── FOLLOW-UP of the counter-reading of pull request 371: F3, F9 and probe J ─────────────────
+
+
+@pytest.mark.parametrize("fill", ["-", "=", "_"])
+def test_A_F3_an_untitled_line_of_the_runs_width_stays_inside_the_capture(tmp_path, fill):
+    """[COUNTS] Counter-reading of pull request 371, F3 (P3, named as a limit until now): a test that
+    printed a line of 80 `-`, `=` or `_` closed the block, because the line had the run's width, and a
+    `! ordinary diagnostic !` printed after it stood on the top level again. Every separator pytest
+    writes after a captured block carries a title (`TerminalWriter.sep(fill, title)`); a line without
+    one is the test's own text."""
+    m = _load("scripts/mutation_check.py", "_mc_f3")
+    report = _report_with_captured(f"{fill * 80}\n! ordinary diagnostic !\n")
+    assert "! ordinary diagnostic !" not in m._ohne_aufgefangene_ausgabe(report), fill
+    assert m._rote_aus_lauf(_report(tmp_path), report, rc=1) == 1, fill
+
+
+def test_A_F3_LIMIT_a_titled_line_of_the_runs_width_still_closes_the_capture():
+    """[COUNTS] The limit that stays, named in `_ohne_aufgefangene_ausgabe`: a line the test prints in
+    the shape of a titled separator AND in the run's width cannot be told apart from pytest's own. The
+    case pins that limit, so that a change of it is seen."""
+    m = _load("scripts/mutation_check.py", "_mc_f3l")
+    line = "=" * 29 + " printed by the tests " + "=" * 29
+    assert len(line) == 80, "the line must have the run's width, or this case pins nothing"
+    report = _report_with_captured(f"{line}\n! ordinary diagnostic !\n")
+    assert "! ordinary diagnostic !" in m._ohne_aufgefangene_ausgabe(report)
+
+
+def test_A_F9_a_long_run_of_dashes_after_Captured_is_read_in_linear_time():
+    r"""[COUNTS] Counter-reading of pull request 371, F9 (P3): in `^-+ Captured [^\n]*-+\s*$` the parts
+    `[^\n]*` and `-+` shared every dash of a line `- Captured ` + dashes + one other character, and the
+    failing match took quadratic time (measured at the head 4b4e83a0 under CPython 3.12.3: 0.57 s for
+    8000 dashes, 2.59 s for 16000). The lines below cost each pattern of the reader one pass."""
+    m = _load("scripts/mutation_check.py", "_mc_f9")
+    n = 30000
+    text = ("- Captured " + "-" * n + "x\n"
+            "= x" + " =" * n + "y\n"
+            "----------------------------- Captured stdout call -----------------------------\n"
+            "- x" + " -" * n + "y\n"
+            "_ x" + " _" * n + "y\n")
+    t0 = time.perf_counter()
+    m._ohne_aufgefangene_ausgabe(text)
+    assert time.perf_counter() - t0 < 1.0, "a line of dashes is read in more than linear time"
+
+
+def test_A_J_a_captured_abort_line_stays_a_measured_red_without_a_junit_file(tmp_path):
+    """[COUNTS] Counter-reading of pull request 371, P3 under F2 (probe J): without a JUnit file the
+    verdict falls back to `_rote_aus_text`, and that one still searched `^!+ Interrupted` and
+    `^INTERNALERROR` in the whole text, so `! Interrupted by the test !` printed by a failing test made
+    a measured red NOT MEASURABLE. It reads the top level now, as `_rote_aus_lauf` does."""
+    m = _load("scripts/mutation_check.py", "_mc_j")
+    for printed in ("! Interrupted by the test !", "INTERNALERROR> printed by the test"):
+        report = _report_with_captured(f"{printed}\n")
+        assert m._rote_aus_text(report) == 1, printed
+        assert m._rote_aus_lauf(tmp_path / "missing.xml", report, rc=1) == 1, printed
+
+
+def test_A_J_ANTI_a_real_interrupt_without_a_junit_file_stays_unmeasurable(tmp_path):
+    """[COUNTS] Anti-parity of the case above: pytest's own banner stands on the top level."""
+    m = _load("scripts/mutation_check.py", "_mc_j2")
+    text = ("=========================== short test summary info ============================\n"
+            "ERROR tests/test_x.py\n"
+            "!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n"
+            "1 error in 0.10s\n")
+    assert m._rote_aus_text(text) is None
+    assert m._rote_aus_lauf(tmp_path / "missing.xml", text, rc=1) is None
+
+
 def test_A_the_misleading_comment_is_gone():
     """[COUNTS] The text claimed a border of five exclamation marks that the form does not have.
 
@@ -263,6 +332,9 @@ SAMPLES_B = (
     ("a second import right after the first", "import os\nimport unittest\n", True),
     ("an import after a semicolon", "import os; import unittest\n", True),
     ("an import on the line of a compound statement", "if True: import unittest\n", True),
+    # Counter-reading of pull request 371, F4: Python reads a name after NFKC, and so does the tree.
+    ("a module name in full-width letters", "import \uff55nittest\n", True),
+    ("a from-import in full-width letters", "from \uff55nittest import mock\n", True),
 )
 
 
@@ -322,3 +394,18 @@ def test_B_the_two_readers_of_the_tool_are_two():
     import inspect
     text_reader = inspect.getsource(m._importiert_unittest_lexikalisch)
     assert "tokenize" in text_reader and "ast." not in text_reader
+
+
+def test_B_F5_a_source_with_a_NUL_byte_is_read_on_both_paths_without_a_crash(tmp_path):
+    """[COUNTS] Counter-reading of pull request 371, F5 (P3): `tokenize` of CPython 3.12 raises
+    `SystemError` for a NUL byte after an indented line (measured here on 3.12.3 and 3.12.13, in the
+    report on 3.12.15). The token reader did not catch it, and the gate stopped with a traceback.
+    3.11 tokenizes the same source, 3.13 and 3.14 refuse it. No Python compiles a source with a NUL
+    byte, so it counts as importing on every version now, and both paths leave it out."""
+    m = _load("scripts/test_manifest_gate.py", "_tmg_f5")
+    source = "def test_x():\n    assert True\n\x00"
+    assert m._importiert_unittest_lexikalisch(source) is True
+    d = tmp_path / "tests"
+    d.mkdir()
+    (d / "test_nul.py").write_text(source, encoding="utf-8")
+    assert m.pytest_only_modules(d) == m.pytest_only_modules_ast(d) == []
