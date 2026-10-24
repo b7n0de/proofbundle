@@ -18,8 +18,9 @@ is strict, and not counted, only when its ``object_pairs_hook=`` names a functio
 module defines and does not rebind; a name alone, a lambda or an imported hook is counted.
 
 WHAT IT REQUIRES. Every other reference is in ``EXCEPTIONS`` with the exact number per file and a reason outside a
-verify path. A new reference turns this red, and so does one that went away, so the list never outlives what it
-describes. Each function defined under a name in ``STRICT_HOOKS`` is run on duplicate member names, adjacent and not,
+verify path; the one entry on a verify path, the second reader of ``scitt_ccf`` (owner answer B on card
+OA-c2b4d6d3e3), carries the reason it may stand there. A new reference turns this red, and so does one that went
+away, so the list never outlives what it describes. Each function defined under a name in ``STRICT_HOOKS`` is run on duplicate member names, adjacent and not,
 and must refuse each, and an ``assert`` in its body does not count, because ``python -O`` removes it. Where those
 functions are defined is listed in ``STRICT_HOOK_SITES``, by the same rule.
 
@@ -199,11 +200,12 @@ NOT_DECODING = {
               "CBOREncodeValueError", "FrozenDict"},
 }
 
-#: path -> (number of lax decode references, reason they lie outside a verify path)
+#: path -> (number of lax decode references, reason they lie outside a verify path, or for the second reader of
+#: scitt_ccf the reason it may stand on one)
 EXCEPTIONS = {
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
     "src/proofbundle/_scitt_second_reader.py": (
-        3, "the second reader of scitt_ccf (ADR 0009, Decision 13): cbor2 reads only bytes the strict pre-scan of "
+        2, "the second reader of scitt_ccf (ADR 0009, Decision 13): cbor2 reads only bytes the strict pre-scan of "
            "_cbor_prescan has already accepted, and must read the same values; a refusal of cbor2 or another value "
            "is a refusal, and cbor2 decides nothing alone (owner answer B on card OA-c2b4d6d3e3)"),
     "src/proofbundle/trust_pack.py": (1, "reads back the RFC 8785 bytes it just wrote from an already parsed object"),
@@ -225,7 +227,9 @@ EXCEPTIONS = {
     "tools/scitt_ccf_datahash_vector/reader_matrix.py": (
         2, "measures cbor2 itself: what the library accepts is the result"),
     # The measurement harnesses of tools/scitt_ccf_external, named when the scitt-ccf reader joined the strict rule
-    # (owner answer B on card OA-c2b4d6d3e3). Each verdict they record comes from proofbundle.scitt_ccf.
+    # (owner answer B on card OA-c2b4d6d3e3). None is a verify path of the package: each reads its own run files,
+    # corpora, stored results or the output of a tool it runs, and records a measurement, for some a verdict of
+    # proofbundle.scitt_ccf, for others what a library or an independent transcription accepts.
     "tools/scitt_ccf_external/consistency_probe.py": (
         9, "measurement harness of consistency receipts: reads the output of the third-party Merkle oracle it runs, its "
            "own run files and stored result, the example bundle, and the service's receipts and proofs with cbor2 to "

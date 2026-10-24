@@ -1,8 +1,9 @@
 """The second reader of the ``scitt-ccf/v1`` profile: cbor2 reads bytes the strict pre-scan already accepted.
 
 WHY A MODULE OF ITS OWN (owner answer B on card OA-c2b4d6d3e3, after the pattern of owner answer A on card
-OA-f89b8d803d). The strict decoding rule of this repository (``tests/test_strict_decoding_guard.py``) allows a lax
-decode site on a verify path only under a named reason. ``scitt_ccf`` decides with ``_cbor_prescan.scan``, which
+OA-f89b8d803d). The strict decoding rule of this repository (``tests/test_strict_decoding_guard.py``) names every lax
+decode site with the reason it lies outside a verify path; this module is the one site that stands on a verify path,
+named there with the reason it may. ``scitt_ccf`` decides with ``_cbor_prescan.scan``, which
 refuses duplicate keys, bytes after the item, heads that are not in their shortest form, indefinite lengths and every
 tag its policy does not allow; cbor2 then reads the same bytes and must read the same values (ADR 0009, Decision 13).
 cbor2 decides nothing alone: a refusal of cbor2 or a value it reads otherwise is a refusal. The library is
@@ -27,8 +28,12 @@ class ScittUnavailable(UnsupportedError):
     status = "no_lib"
 
 
-def library():
-    """cbor2 with the strict options the profile needs, or ``ScittUnavailable``."""
+def library() -> None:
+    """Raise ``ScittUnavailable`` unless cbor2 with the strict options the profile needs is installed.
+
+    IT HANDS NO DECODER OUT (the counter-reading of ff47f8c7, F3): it returned the cbor2 module, and a caller that
+    decoded through ``library().loads(...)`` would have been a lax decode site the guard cannot see, since the guard
+    counts references to the library by name. cbor2 is referenced in this module and nowhere else in the reader."""
     try:
         import cbor2  # noqa: PLC0415 - optional extra
     except ImportError as exc:
@@ -38,7 +43,6 @@ def library():
     except TypeError as exc:
         raise ScittUnavailable("the installed cbor2 cannot reject duplicate keys and indefinite "
                                "lengths; the [scitt] extra pins the measured version") from exc
-    return cbor2
 
 
 def same(ours: Any, theirs: Any, tag_type: Any) -> bool:
@@ -76,7 +80,8 @@ def same(ours: Any, theirs: Any, tag_type: Any) -> bool:
 
 def disagreement(data: bytes, value: Any, *, max_depth: int) -> str | None:
     """None when cbor2 reads ``data`` as the pre-scan's ``value``, else why not. Raises ``ScittUnavailable``."""
-    cbor2 = library()
+    library()
+    import cbor2  # noqa: PLC0415 - optional extra, present and strict since library() returned
     try:
         theirs = cbor2.loads(bytes(data), allow_duplicate_keys=False, allow_indefinite=False, max_depth=max_depth)
     except Exception as exc:  # noqa: BLE001 - any cbor2 refusal of bytes the pre-scan accepted is a disagreement
