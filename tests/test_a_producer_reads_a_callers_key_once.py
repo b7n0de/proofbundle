@@ -684,6 +684,9 @@ _RULE_SITES = {
     ("src/proofbundle/adapters/agt_receipt.py", "_vertrauensliste"): (3, "verifier: the same copies"),
     ("src/proofbundle/adapters/agt_receipt.py", "_pruefe_mit_gelesener_liste"): (2, "verifier: plain text "
                                                                                     "read by _als_text"),
+    ("src/proofbundle/adapters/trace_record.py", "_parse_public_jwk"): (1, "verifier: the bytes it decoded "
+                                                                         "itself from a JWK member, judged "
+                                                                         "and then used; never written"),
     ("src/proofbundle/checkpoint.py", "_refuse_weak_ed25519_vkey"): (1, "the helper; its callers below"),
     ("src/proofbundle/checkpoint.py", "vkey"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/checkpoint.py", "cosign_vkey"): (1, "PRODUCER, ProducersOfRawKeys"),
