@@ -836,7 +836,8 @@ class _Names:
     and the gate resolved the earlier use against the later alias (CODEX-630-K6). A use is judged
     against each binding it may meet. A function does not see the scope of the class it is defined
     in; `global` sends a name to the module scope, `nonlocal` to the nearest enclosing function that binds
-    it, and an assignment expression in a comprehension binds in the scope around the comprehension
+    it, while the value bound is read where it stands (the second counter-reading, F-A), and an assignment
+    expression in a comprehension binds in the scope around the comprehension
     (PEP 572); the annotations of a function are read where they run, in the scope around it (the
     counter-reading of pull request 395, F1, F2 and F5). Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
@@ -853,6 +854,8 @@ class _Names:
         self.stars: list[str] = []
         #: Bindings under `nonlocal`, applied once the walk knows every binding of the enclosing functions.
         self._deferred: list[tuple[_Scope, str, object]] = []
+        #: What an expression resolves to in a scope, kept once the aliases are final (None while they grow).
+        self._memo: dict[tuple[int, int, bool], set[str]] | None = None
         self._visit(tree, self.module)
         for scope, name, apply in self._deferred:
             apply(self._nonlocal_owner(scope, name))
@@ -860,12 +863,17 @@ class _Names:
             changed = False
             for s in self._scopes:
                 for name, value in s.assigns:
-                    new = self._quals(value, s) - s.alias.get(name, set())
+                    # THE VALUE IS READ WHERE IT STANDS (second counter-reading of pull request 395, F-A, P1): under
+                    # `global` or `nonlocal` the binding belongs to another scope, and the value was read there, where
+                    # a name only the inner function binds is nothing. `global _os; import os; _os = os` read the
+                    # environment unseen.
+                    new = self._quals(value, self.scope_of.get(id(value), s)) - s.alias.get(name, set())
                     if new:
                         s.alias.setdefault(name, set()).update(new)
                         changed = True
             if not changed:
                 break
+        self._memo = {}
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
         s = _Scope(kind, parent)
@@ -1113,6 +1121,16 @@ class _Names:
         return ({f"builtins.{name}"} if name in _BUILTIN_NAMES else set()) | star
 
     def _quals(self, node: ast.expr, scope: _Scope, guesses: bool = True) -> set[str]:
+        """Every qualified name `node` may stand for in `scope`. Once the aliases are final each answer is kept: every
+        call of a chain asked for the chain below it again, and 1500 links took 63 s (F-E of the second reading)."""
+        if self._memo is None:
+            return self._resolve(node, scope, guesses)
+        key = (id(node), id(scope), guesses)
+        if key not in self._memo:
+            self._memo[key] = self._resolve(node, scope, guesses)
+        return self._memo[key]
+
+    def _resolve(self, node: ast.expr, scope: _Scope, guesses: bool) -> set[str]:
         if isinstance(node, ast.Name):
             return self._lookup(node.id, scope, guesses)
         if isinstance(node, ast.Attribute):
@@ -1134,7 +1152,10 @@ class _Names:
         if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
             return None
         f = node.func
+        # A `__getattribute__` is never getattr: resolving its receiver here as well as below doubled the work at every
+        # link of a chain (twenty links, 69 s; F-E of the second reading).
         if len(node.args) in (2, 3) and _literal(node.args[1]) is not None \
+                and not (isinstance(f, ast.Attribute) and f.attr == "__getattribute__") \
                 and "builtins.getattr" in self._quals(f, scope, guesses):
             return node.args[0], node.args[1].value
         if isinstance(f, ast.Attribute) and f.attr == "__getattribute__":

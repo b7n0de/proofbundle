@@ -617,6 +617,17 @@ BINDINGS_PYTHON_MAKES = {
     "F5 an annotation under a local alias": (
         "def outer():\n    import os as o\n    def inner(x: o.getenv('X')):\n        pass\n"
         "    return inner.__annotations__['x']\nVALUE = outer()\n", ("environment", "os.getenv")),
+    # The second reading, on 7046cbfb (F-A, P1): the binding went to the right scope, its value was read in that
+    # scope too, where a name only the inner function binds is nothing.
+    "F-A a lazy import under global": (
+        "_os = None\ndef _load():\n    global _os\n    import os\n    _os = os\ndef read():\n    _load()\n"
+        "    return _os.getenv('X')\nVALUE = read()\n", ("environment", "os.getenv")),
+    "F-A a local import under nonlocal": (
+        "def outer():\n    o = None\n    def inner():\n        nonlocal o\n        import os\n        o = os\n"
+        "    inner()\n    return o.getenv('X')\nVALUE = outer()\n", ("environment", "os.getenv")),
+    "F-A an alias chain through global": (
+        "import os\ndef outer():\n    global g\n    o = None\n    def inner():\n        nonlocal o\n        o = os\n"
+        "    inner()\n    g = o\nouter()\nVALUE = g.getenv('X')\n", ("environment", "os.getenv")),
 }
 
 
@@ -679,6 +690,21 @@ BINDINGS_THAT_READ_NOTHING = {
 def test_CONTROL_a_binding_python_makes_to_a_harmless_object_stays_green(tmp_path, code):
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + code}))
     assert (rc, report["verdict"], found(report)) == (0, "GREEN", set()), report["measured"]["findings"]
+
+
+@pytest.mark.parametrize("chain", [
+    "".join(["os"] + [".__getattribute__(os, 'a')"] * 20),
+    "".join(["os"] + [".__getattribute__('a')"] * 1500),
+], ids=["twenty two-argument __getattribute__ calls", "1500 one-argument __getattribute__ calls"])
+def test_CONTROL_a_chain_of_literal_attribute_reads_is_read_in_time(tmp_path, chain):
+    """F-E of the second reading: the literal attribute read of 7046cbfb resolved the receiver of a two-argument
+    `__getattribute__` twice, once as a possible getattr and once as the class, so each link doubled the work (twenty
+    links took 69 s), and every call of a chain resolved the chain below it again (1500 links, 63 s)."""
+    import time
+    start = time.monotonic()
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + f"import os\nx = {chain}\n"}))
+    assert time.monotonic() - start < 20
+    assert report["verdict"] in ("GREEN", "RED")
 
 
 def test_CONTROL_a_method_that_re_binds_self_keeps_the_guards(tmp_path):
