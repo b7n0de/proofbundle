@@ -49,7 +49,11 @@ def _repo_root() -> Path:
     return Path(proc.stdout.strip())
 
 
-_SECURITY_PATH = re.compile(r"^src/proofbundle/.*\.py$")
+# DOTALL and \A ... \Z, because a decoded path can hold a newline: git writes `src/proofbundle/a\nb.py`
+# as a quoted header with `\n`, `_git_path` turns that back into the newline, and `.` without DOTALL
+# stopped there, so a staged `if False:` under that name was reported clean with exit 0 (Codex on
+# pull request 375, 2026-10-17).
+_SECURITY_PATH = re.compile(r"\Asrc/proofbundle/.*\.py\Z", re.DOTALL)
 _ALLOW_MARKER = "mutant-guard: allow"
 
 # Class A — trivial-truth branch (word-boundary keeps `if Falsey_thing` out).
@@ -90,6 +94,40 @@ def _git(*args: str, cwd: Path) -> str:
     return proc.stdout
 
 
+#: The C escapes git writes inside a quoted path, besides octal `\ooo` for a byte.
+_C_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _git_path(field: str) -> str:
+    """A path as a diff header prints it, decoded to the path it names.
+
+    git quotes a path that holds a byte outside printable ASCII (core.quotePath is on by default), a
+    double quote, a backslash or a control character: it wraps it in double quotes and writes C
+    escapes, octal for each byte (`"b/src/proofbundle/pr\\303\\274fung.py"`). Read verbatim, such a
+    path matched no security path, and a staged `if False:` in it was reported clean with exit 0
+    (measured 2026-09-26 in a throwaway repository; plain names and names with a space were caught).
+    """
+    s = field.strip()
+    if len(s) < 2 or not (s.startswith('"') and s.endswith('"')):
+        return s
+    body, out, i = s[1:-1], bytearray(), 0
+    while i < len(body):
+        c = body[i]
+        if c != "\\":
+            out += c.encode("utf-8")
+            i += 1
+        elif body[i + 1:i + 2] in _C_ESCAPES:
+            out.append(_C_ESCAPES[body[i + 1]])
+            i += 2
+        elif len(body[i + 1:i + 4]) == 3 and all(d in "01234567" for d in body[i + 1:i + 4]):
+            out.append(int(body[i + 1:i + 4], 8))
+            i += 4
+        else:
+            out += c.encode("utf-8")      # an escape git does not write: kept as it stands
+            i += 1
+    return out.decode("utf-8", "surrogateescape")
+
+
 def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
     """Parse a -U0 unified diff into {new_path: [(new_lineno, added_line_text), ...]}."""
     out: dict[str, list[tuple[int, str]]] = {}
@@ -97,7 +135,7 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
     lineno = 0
     for raw in diff_text.splitlines():
         if raw.startswith("+++ "):
-            path = raw[4:].strip()
+            path = _git_path(raw[4:])
             current = None if path == "/dev/null" else path.removeprefix("b/")
         elif raw.startswith("@@"):
             # GEPRUEFT UND KEIN FUND (Klassen-Sweep 2026-09-07). Diese Suche sieht aus wie die
@@ -193,8 +231,17 @@ def _resolve_base(base: str, cwd: Path) -> str | None:
     return mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else None
 
 
+#: THE HEADER PREFIXES ARE NAMED, NOT TAKEN FROM THE CONFIGURATION (counter-reading of pull request
+#: 375, F10a, P2). With `diff.mnemonicPrefix` set, git writes `+++ i/src/...` for the staged diff,
+#: `removeprefix("b/")` left the `i/` on, no path matched the security scope, and a staged `if False:`
+#: was reported clean with exit 0. Prefixes given on the command line win over `diff.mnemonicPrefix`
+#: and `diff.noprefix` (measured with git 2.55.0).
+_HEADER_PREFIXES = ("--src-prefix=a/", "--dst-prefix=b/")
+
+
 def run_staged(cwd: Path) -> list[str]:
-    diff = _git("diff", "--cached", "-U0", "--no-color", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "--cached", "-U0", "--no-color", *_HEADER_PREFIXES, "--", "src/proofbundle",
+                cwd=cwd)
     return scan(diff, staged=True, cwd=cwd)
 
 
@@ -204,7 +251,8 @@ def run_base(base: str, cwd: Path) -> list[str]:
         print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
               "nothing to diff, scan skipped honestly")
         return []
-    diff = _git("diff", "-U0", "--no-color", resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "-U0", "--no-color", *_HEADER_PREFIXES, resolved, "HEAD", "--",
+                "src/proofbundle", cwd=cwd)
     return scan(diff, staged=False, cwd=cwd)
 
 
@@ -282,6 +330,15 @@ def self_test() -> int:
         print(f"  {'ok  ' if quiet else 'FAIL'} [negative: non-security path ignored] "
               f"{'quiet' if quiet else 'caught'} ({'expected' if quiet else 'UNEXPECTED'})")
         failures += 0 if quiet else 1
+        # a path git quotes in the diff header is read as the path it names (2026-09-26)
+        outside.write_text("x = 1\n", encoding="utf-8")
+        quoted = repo / "src" / "proofbundle" / "pr\u00fcfung.py"
+        quoted.write_text("if False:\n    pass\n", encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        caught = bool(run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [A: a security path git quotes (non-ASCII name)] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")
     return 0 if failures == 0 else 1
 

@@ -1279,9 +1279,12 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     ordner = f"audit_artifacts/{_version_token(version)}/"
     out["receipt_path"] = ordner
     out["receipt_read_from"] = f"git ls-tree/show {commit[:12]}:{ordner}"
-    rc, listing, err = _git(repo, "ls-tree", "--full-tree", "-r", "--name-only", commit, "--",
+    # READ WITH -z (2026-09-26, measured in a throwaway repository). Without it git quotes a name
+    # that holds a byte outside ASCII, the quoted line ends in `.json"` rather than `.json`, and a
+    # receipt the release gate reads from disk was not a candidate here at all.
+    rc, listing, err = _git(repo, "ls-tree", "--full-tree", "-r", "--name-only", "-z", commit, "--",
                             f":(literal){ordner}")
-    kandidaten = [ln for ln in listing.decode("utf-8", "replace").splitlines() if ln.endswith(".json")]
+    kandidaten = [n for n in (os.fsdecode(b) for b in listing.split(b"\0") if b) if n.endswith(".json")]
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"
         out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- this commit carries "
@@ -1374,6 +1377,12 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--repo", type=Path, default=Path("."), help="the clone (default: .)")
     p.add_argument("--commit", required=True, help="full 40-hex commit id named by the attestation")
