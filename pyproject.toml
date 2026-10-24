@@ -328,7 +328,15 @@ warn_unused_ignores = true
 # DIE LISTE IST GEMESSEN: `find` ueber ungetrackte `test_*.py` zaehlte 522 in `.venv*` und je 148
 # in `dist_pkgtest`…`dist_pkgtest5`. `build/` und `dist/` sind bereits pytest-Default; die
 # `dist_*`-Varianten sind es NICHT (der Default matcht `dist` exakt) — genau daran hing es.
+#
+# `drafts` came on 2026-10-18 as a named owner exception (card OA-021857522b, option B). The
+# Internet-Draft sources under `drafts/` bring their own checkers and three test files
+# (`drafts/map/examples/test_chain.py` and `test_check_mappings.py`,
+# `drafts/ser/pruefmenge/test_pruefmenge.py`) that are run by hand in their folder. Collected from
+# the root they made the CI line gather 9265 tests against 9217 under `tests/`, which
+# `tests/test_lauf11_l6_pflichtjobs_fahren_den_normativen_runner.py` holds equal. No other
+# directory of that name exists in the tree, so the pattern excludes these three files and no more.
 norecursedirs = [
     "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
-    "dist_*", ".venv*", "*.egg-info",
+    "dist_*", ".venv*", "*.egg-info", "drafts",
 ]
