@@ -148,6 +148,38 @@ def test_the_historical_titles_keep_their_verdict():
         assert plg.pruefe(neu, "")["sauber"], neu
 
 
+#: German titles in the house style with ONE list word each (counter-reading of pull request 377, F1).
+KURZE_DEUTSCHE_TITEL = (
+    "feat(riegel): Paketbau bricht ab, wenn Schluesselmaterial im sdist liegt",
+    "chore(identitaet): .mailmap statt Umschrift",
+    "feat: Tor ohne Ausnahme",
+    "fix: Pruefer meldet keine Fundstelle",
+)
+
+
+def test_a_german_title_with_one_list_word_is_red():
+    """Counter-reading of pull request 377, F1 (P2): a title is one line, and two list words per
+    line let these four German titles through. R1 counts one word, and so does the title now."""
+    for titel in KURZE_DEUTSCHE_TITEL:
+        assert not plg.pruefe(titel, "")["sauber"], titel
+        assert len(plg._WORT.findall(titel)) == 1, f"{titel!r} must carry one list word, or this case proves nothing"
+
+
+def test_an_acronym_in_a_title_stays_green():
+    """The other direction: the hits that set the threshold at two were the acronym DER, and a word
+    written in capitals is no list word in a title either."""
+    for titel in ("fix(cli): the statement key check reads the DER shape and builds no key",
+                  "docs: the vendored licence is MIT"):
+        assert plg.pruefe(titel, "")["sauber"], titel
+        assert plg.MARKER.findall(titel), "the raw list must hit the acronym, or this case proves nothing"
+
+
+def test_one_list_word_in_a_body_line_stays_green():
+    """The threshold of the title does not reach the body or a commit message."""
+    erg = plg.pruefe("docs: an English title", "Read the den of the parser.\n", ["fix: the worker may die"])
+    assert erg["sauber"], erg["befunde"]
+
+
 def test_the_threshold_is_the_one_of_the_new_lines_gate():
     """One number for one question. Read from the other tool's source, not imported, because that
     tool measures a git tree when it is imported."""

@@ -72,6 +72,15 @@ MARKER = re.compile(r"[äöüÄÖÜß]|" + _GRENZE_VOR + "(?:" + "|".join(_WOERT
 #: because English prose does not carry one.
 SCHWELLE = 2
 
+#: A TITLE IS ONE SHORT LINE (counter-reading of pull request 377, F1, P2). Two list words is the
+#: threshold measured for a line of a body or of a commit message, but four of six German titles in
+#: the house style carry only one (`feat: Tor ohne Ausnahme`), and R1 counts one. In the title one
+#: list word is enough, unless it is written in capitals: every hit that set the threshold at two was
+#: the acronym DER. MEASURED 2026-10-24 over the 151 titles that reached main since 2026-09-14: none
+#: is red under this rule, and the four German titles are. The limit: an English title that uses the
+#: verb "die" is red.
+SCHWELLE_TITEL = 1
+
 #: Typed house states. They contain German words by construction and are NOT prose.
 #: Measured need: `NICHT MESSBAR` in PR 189 made a naive scan call an English text German.
 TYPISIERTE_ZUSTAENDE = (
@@ -97,15 +106,18 @@ def entkernen(text: str) -> str:
     return _TYPISIERT.sub(" ", t)
 
 
-def treffer(text: str) -> list[str]:
+def treffer(text: str, *, titel: bool = False) -> list[str]:
     """The German markers of the prose lines of `text` that count as German. Empty list means clean.
 
-    A line counts when it carries an umlaut or an eszett, or at least SCHWELLE list words."""
+    A line counts when it carries an umlaut or an eszett, or at least SCHWELLE list words; a title
+    at SCHWELLE_TITEL list words, of which a word written in capitals is none."""
     aus: list[str] = []
     for zeile in entkernen(text or "").splitlines():
         umlaute = _UMLAUT.findall(zeile)
         woerter = _WORT.findall(zeile)
-        if umlaute or len(woerter) >= SCHWELLE:
+        if titel:
+            woerter = [w for w in woerter if not w.isupper()]
+        if umlaute or len(woerter) >= (SCHWELLE_TITEL if titel else SCHWELLE):
             aus += umlaute + woerter
     return aus
 
@@ -114,7 +126,7 @@ def pruefe(titel: str, text: str, commits: list[str] | None = None) -> dict:
     teile = {"title": titel or "", "body": text or ""}
     for i, c in enumerate(commits or [], 1):
         teile[f"commit {i}"] = c
-    befunde = {k: treffer(v) for k, v in teile.items()}
+    befunde = {k: treffer(v, titel=(k == "title")) for k, v in teile.items()}
     befunde = {k: v for k, v in befunde.items() if v}
     return {"sauber": not befunde, "befunde": befunde}
 
