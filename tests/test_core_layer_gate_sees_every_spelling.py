@@ -961,3 +961,125 @@ def test_F8_a_review_without_the_source_it_binds_is_not_measurable(tmp_path):
     entry = [{k: v for k, v in _review()[0].items() if k != "source"}]
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": _FILL}, reviewed=entry))
     assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE")
+
+
+# ── the follow-up of the second counter-reading of pull request 395 (report at 7046cbfb): F-B, F-C and F-D ───────────
+
+_RUNS_VALUE = "import probepkg.core as c; print(c.VALUE)"
+_C = "c = len('a') == 1\n"
+
+#: F-B (P2): the literal attribute read knew fewer spellings than `_attribute_call`, so these reads stood for nothing
+#: and the expansion of `$X` read the environment unseen. The first three are the lens's FB-1 to FB-3, the other four
+#: the same gap in the spellings `_attribute_call` reads under a name or through `__call__`.
+LITERAL_READS_OF_EVERY_SPELLING = {
+    "FB-1 getattr through __call__": "import os\nVALUE = getattr.__call__(os, 'path').expandvars('$X')\n",
+    "FB-2 the __getattribute__ of type(x)": "import os\nVALUE = type(os).__getattribute__(os, 'path').expandvars('$X')\n",
+    "FB-3 the __getattribute__ of ModuleType": (
+        "import os\nimport types\nVALUE = types.ModuleType.__getattribute__(os, 'path').expandvars('$X')\n"),
+    "a bound __getattribute__ through __call__": "import os\nVALUE = os.__getattribute__.__call__('path').expandvars('$X')\n",
+    "a bound __getattribute__ bound to a name": "import os\nga = os.__getattribute__\nVALUE = ga('path').expandvars('$X')\n",
+    "object.__getattribute__ bound to a name": (
+        "import os\nga = object.__getattribute__\nVALUE = ga(os, 'path').expandvars('$X')\n"),
+    "__getattribute__ imported from the module": (
+        "import os\nfrom os import __getattribute__ as ga\nVALUE = ga('path').expandvars('$X')\n"),
+}
+
+
+@pytest.mark.parametrize("code", list(LITERAL_READS_OF_EVERY_SPELLING.values()), ids=list(LITERAL_READS_OF_EVERY_SPELLING))
+def test_RED_FB_every_spelling_of_a_literal_read_carries_its_name_on(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_VALUE) == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.path.expandvars") in found(report), report["measured"]["findings"]
+
+
+def test_FB_a_module_as_the_default_of_a_getattr_is_the_clock_it_reads(tmp_path):
+    """FB-5 of the second reading: red at 7046cbfb, held since c3eb4c09 (Codex round three), kept here as the lens wrote it."""
+    args = build(tmp_path, {"core.py": "import time\nimport types\nVALUE = getattr(types, 'nonexistent_attr', time).time()\n"})
+    assert float(run_core(tmp_path, _RUNS_VALUE)) > 0
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("clock", "time.time") in found(report)
+
+
+#: F-C (P3): a conditional, a boolean and an assignment expression give one of their values, and a binding or a receiver
+#: written as one of them stood for nothing.
+VALUES_AN_EXPRESSION_GIVES = {
+    "FC-1 a conditional expression bound to a name": "import math\nimport os\n" + _C + "o = os if c else math\nVALUE = o.getenv('X')\n",
+    "FC-2 a boolean expression bound to a name": "import os\no = None or os\nVALUE = o.getenv('X')\n",
+    "FC-3 an assignment expression bound to a name": "import os\no = (p := os)\nVALUE = o.getenv('X')\n",
+    "FC-4 an assignment expression as the receiver": "import os\nVALUE = (p := os).getenv('X')\n",
+    "a conditional expression as the receiver": "import math\nimport os\n" + _C + "VALUE = (os if c else math).getenv('X')\n",
+    "a boolean and as the receiver": "import os\n" + _C + "VALUE = (c and os).getenv('X')\n",
+}
+
+
+@pytest.mark.parametrize("code", list(VALUES_AN_EXPRESSION_GIVES.values()), ids=list(VALUES_AN_EXPRESSION_GIVES))
+def test_RED_FC_a_value_an_expression_may_give_is_resolved(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_VALUE) == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+@pytest.mark.parametrize("code", [
+    "import math\nVALUE = (math if len('a') else None).floor(1.5)\n",
+    "import math\nVALUE = (None or math).floor(1.5)\n",
+    "import math\nVALUE = (m := math).floor(1.5)\n",
+], ids=["a conditional", "a boolean", "an assignment expression"])
+def test_CONTROL_FC_an_expression_of_harmless_objects_stays_green(tmp_path, code):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + code}))
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set()), report["measured"]["findings"]
+
+
+#: F-D (P3): a receiver the gate reads through a call counted as resolved once `_quals` read literal attribute calls, and
+#: the file finding main makes on a receiver it cannot resolve was lost (FD-1, FD-3). The same held through a binding,
+#: and would hold for the expressions F-C reads; each one reads a file object or names a method that opens one.
+RECEIVERS_MAIN_JUDGED_BY_THE_METHOD = {
+    "FD-1 getattr(sys, 'stdin').read": ("import sys\nVALUE = getattr(sys, 'stdin').read(0)\n", "repr(c.VALUE)", "''",
+                                        ("file", ".read")),
+    "FD-3 getattr(zipfile, 'ZipFile').open": ("import zipfile\nVALUE = getattr(zipfile, 'ZipFile').open\n",
+                                              "c.VALUE.__qualname__", "ZipFile.open", ("file", ".open")),
+    "the getattr result bound to a name": ("import sys\ns = getattr(sys, 'stdin')\nVALUE = s.read(0)\n", "repr(c.VALUE)",
+                                           "''", ("file", ".read")),
+    "a conditional expression as the receiver": (
+        "import sys\n" + _C + "s = sys.stdout if c else sys.stderr\nVALUE = s.write('')\n", "repr(c.VALUE)", "0",
+        ("file", ".write")),
+    "an assignment expression as the receiver": ("import sys\nVALUE = (s := sys.stdin).read(0)\n", "repr(c.VALUE)", "''",
+                                                 ("file", ".read")),
+}
+
+
+@pytest.mark.parametrize("case", list(RECEIVERS_MAIN_JUDGED_BY_THE_METHOD.values()), ids=list(RECEIVERS_MAIN_JUDGED_BY_THE_METHOD))
+def test_RED_FD_a_receiver_read_through_an_expression_keeps_the_finding_of_main(tmp_path, case):
+    code, show, shown, finding = case
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, f"import probepkg.core as c; print({show})") == shown
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert finding in found(report), report["measured"]["findings"]
+
+
+_ANNOTATED = ("import os\ndef outer():\n    o = os\n    def inner(x: o.getenv('X')) -> None:\n        return None\n"
+              "    return inner\nVALUE = outer()\n")
+_POSTPONED = "from __future__ import annotations\n"
+
+
+@pytest.mark.parametrize("code, shown, verdict", [
+    (_POSTPONED + _ANNOTATED, "o.getenv('X')", "GREEN"),
+    (_ANNOTATED, "TEST_ONLY", "RED"),
+    (_POSTPONED + "import os\ndef inner(x: os.getenv('X')) -> None:\n    return None\nVALUE = inner\n", "os.getenv('X')", "RED"),
+], ids=["postponed, a name of the enclosing function", "evaluated, where the def runs",
+        "postponed, a name of the module that get_type_hints reads"])
+def test_FD_an_annotation_under_postponed_evaluation_is_read_where_its_string_is_read(tmp_path, code, shown, verdict):
+    """FD-4 (P3): under `from __future__ import annotations` the annotation of a nested function stays a string, so the
+    alias of the enclosing function never meets it, and reading it there made a finding of code that never runs.
+    Evaluated, it runs where the def runs. Postponed, `typing.get_type_hints` reads the string in the globals of the
+    module, so a name of the module scope still counts."""
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE.__annotations__['x'])") == shown
+    rc, report = gate(args)
+    assert report["verdict"] == verdict, report["measured"]["findings"]
+    assert (("environment", "os.getenv") in found(report)) == (verdict == "RED")

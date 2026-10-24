@@ -136,6 +136,9 @@ _ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser", "cwd", "h
 _BUILTIN_NAMES = frozenset(dir(builtins))
 #: What an expression may stand for that the gate cannot name, beside the names it can (`getattr(os, "path", h)`
 #: is `os.path` or whatever `h` is). It matches no rule, and a receiver that may be it counts as unresolved.
+#: A call, a conditional, a boolean and an assignment expression carry it beside every name they are read as (second
+#: counter-reading of pull request 395, F-D, P3): the names serve the rules, and the receiver stays unresolved, as it
+#: was on main, so `getattr(sys, "stdin").read()` keeps the file finding main makes on it.
 _UNRESOLVED = "<unresolved>"
 
 
@@ -992,7 +995,9 @@ class _Names:
     (PEP 572); the annotations of a function are read where they run, in the scope around it (the
     counter-reading of pull request 395, F1, F2 and F5). Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
-    builtin that a rule names, because there the builtin is used whenever the binding has not run.
+    builtin that a rule names, because there the builtin is used whenever the binding has not run. A conditional,
+    a boolean and an assignment expression stand for every value they may give, as a value bound and as a
+    receiver (the second counter-reading, F-C).
 
     WHAT IS NOT FOLLOWED (counter-reading of pull request 395, F13, P3): a value that reaches a name through a loop
     or comprehension variable, a parameter, unpacking, `with ... as` or `except ... as`, a container written out
@@ -1013,6 +1018,10 @@ class _Names:
         self._deferred: list[tuple[_Scope, str, object]] = []
         #: What an expression resolves to in a scope, kept once the aliases are final (None while they grow).
         self._memo: dict[tuple[int, int, bool], set[str]] | None = None
+        #: `from __future__ import annotations`: the annotations of a function stay strings (PEP 563).
+        self._postponed = isinstance(tree, ast.Module) and any(
+            isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
+            for s in tree.body)
         self._visit(tree, self.module)
         for scope, name, apply in self._deferred:
             apply(self._nonlocal_owner(scope, name))
@@ -1034,6 +1043,11 @@ class _Names:
                         changed = True
             if not changed:
                 break
+        # The marker alone names nothing: a name it is all of stays a plain binding, not an alias (F-D of the second
+        # reading; `eigen = object.__getattribute__(x, "__dict__")` is a name its uses are read through).
+        for s in self._scopes:
+            for name in [n for n, held in s.alias.items() if held == {_UNRESOLVED}]:
+                del s.alias[name]
         self._memo = {}
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
@@ -1094,13 +1108,19 @@ class _Names:
 
     def _annotations(self, args: ast.arguments, returns: ast.expr | None, scope: _Scope) -> None:
         """The annotations of a function run where the def runs, in the scope around it (F5 of the counter-reading
-        of pull request 395: they were resolved in the module scope)."""
+        of pull request 395: they were resolved in the module scope).
+
+        POSTPONED, AN ANNOTATION IS A STRING (second counter-reading of pull request 395, F-D, P3): under
+        `from __future__ import annotations` nothing runs where the def runs, and `typing.get_type_hints` evaluates
+        the string in the globals of the module. Read in the scope around the function, an alias of the enclosing
+        function made a finding of code that never runs; it is read in the module scope."""
+        where = self.module if self._postponed else scope
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             if a.annotation is not None:
-                self._visit(a.annotation, scope)
+                self._visit(a.annotation, where)
         if returns is not None:
-            self._visit(returns, scope)
+            self._visit(returns, where)
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -1302,43 +1322,62 @@ class _Names:
             held = self._literal_attribute(node, scope, guesses)
             if held is not None:
                 receiver, attr = held
-                found = {base if base == _UNRESOLVED else f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                bases = receiver if isinstance(receiver, set) else self._quals(receiver, scope, guesses)
+                # The marker stands beside the names a call is read as (F-D of the second reading, see _UNRESOLVED).
+                found = {_UNRESOLVED} | {base if base == _UNRESOLVED else f"{base}.{attr}" for base in bases}
                 if len(node.args) == 3:
                     # THE DEFAULT IS A POSSIBLE RESULT (Codex on pull request 395, round three, P1): `getattr(math,
                     # "missing", handle)` returns `handle`, and reading it as `math.missing` made the receiver of
                     # `.read()` count as resolved, so the file finding of an unresolved receiver was lost. A default
                     # the gate cannot resolve stands beside the names it can as `_UNRESOLVED`: dropping those names
-                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1).
-                    default = self._quals(node.args[2], scope, guesses)
-                    # Either branch may be the one the gate cannot name: an unknown receiver with a known default
-                    # (`getattr(holder, "stream", math)`) keeps the marker as well (round five, P1).
-                    return (found or {_UNRESOLVED}) | (default or {_UNRESOLVED})
+                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1). Either branch may be the
+                    # one the gate cannot name: an unknown receiver with a known default (`getattr(holder, "stream",
+                    # math)`) keeps the marker as well (round five, P1).
+                    found |= self._quals(node.args[2], scope, guesses)
                 return found
+        # AN EXPRESSION THAT GIVES ONE OF ITS VALUES STANDS FOR EACH (second counter-reading of pull request 395, F-C,
+        # P3): `o = os if c else math`, `o = None or os` and `(p := os).getenv("X")` read the environment unseen.
+        if isinstance(node, ast.NamedExpr):
+            return {_UNRESOLVED} | self._quals(node.value, scope, guesses)
+        if isinstance(node, (ast.IfExp, ast.BoolOp)):
+            values = (node.body, node.orelse) if isinstance(node, ast.IfExp) else node.values
+            return {_UNRESOLVED}.union(*(self._quals(v, scope, guesses) for v in values))
         return set()
 
-    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr, str] | None:
-        """(receiver, name) when the call reads an attribute by a literal name: `getattr(x, "name")` with or without
-        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`, and
-        with a default for `x.name` or the default (`_resolve`).
+    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr | set[str], str] | None:
+        """(receiver, name) when the call reads an attribute by a literal name, in each spelling `_attribute_call`
+        reads: `getattr(x, "name")` with or without a default and under any name it is bound to,
+        `x.__getattribute__("name")`, `C.__getattribute__(x, "name")` for any class `C`, each of them through
+        `__call__`, and a `__getattribute__` taken from an object as a value (`ga = os.__getattribute__`), where the
+        receiver is the set of names it was taken from. It stands for `x.name`, and with a default for `x.name` or
+        the default (`_resolve`).
 
         A LITERAL GETATTR CARRIES ITS NAME ON (counter-reading of pull request 395, F3, P1): it was resolved one
         level, as the last attribute of a chain, so `getattr(os, "path").abspath(".")` read the working directory
-        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing."""
+        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing.
+
+        IN EVERY SPELLING `_attribute_call` READS (second counter-reading of pull request 395, F-B, P2): only getattr,
+        the bound method and the method of `object` and `type` were read, so `getattr.__call__(os, "path")`,
+        `type(os).__getattribute__(os, "path")` and `types.ModuleType.__getattribute__(os, "path")` stood for nothing,
+        and `.expandvars("$X")` on them read the environment unseen."""
         if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
             return None
-        f = node.func
-        # A `__getattribute__` is never getattr: resolving its receiver here as well as below doubled the work at every
-        # link of a chain (twenty links, 69 s; F-E of the second reading).
-        if len(node.args) in (2, 3) and _literal(node.args[1]) is not None \
-                and not (isinstance(f, ast.Attribute) and f.attr == "__getattribute__") \
-                and "builtins.getattr" in self._quals(f, scope, guesses):
-            return node.args[0], node.args[1].value
+        f, count = node.func, len(node.args)
+        while isinstance(f, ast.Attribute) and f.attr == "__call__":    # `getattr.__call__(x, n)` is the same call
+            f = f.value
+        name = _literal(node.args[1]) if count in (2, 3) else _literal(node.args[0]) if count == 1 else None
+        if name is None:
+            return None
         if isinstance(f, ast.Attribute) and f.attr == "__getattribute__":
-            if len(node.args) == 1 and _literal(node.args[0]) is not None:
-                return f.value, node.args[0].value
-            if len(node.args) == 2 and _literal(node.args[1]) is not None and any(
-                    q in ("builtins.object", "builtins.type") for q in self._quals(f.value, scope, guesses)):
-                return node.args[0], node.args[1].value
+            # A `__getattribute__` is never getattr: resolving its receiver as both doubled the work at every link of a
+            # chain (twenty links, 69 s; F-E of the second reading). On a class, any class, the object comes first.
+            return (f.value, name) if count == 1 else (node.args[0], name) if count == 2 else None
+        found = self._quals(f, scope, guesses)
+        if count in (2, 3) and "builtins.getattr" in found:
+            return node.args[0], name
+        taken = {q.rpartition(".")[0] for q in found if q.endswith(".__getattribute__")}
+        if taken and count in (1, 2):
+            return (taken, name) if count == 1 else (node.args[0], name)
         return None
 
     def quals(self, node: ast.expr, guesses: bool = True) -> list[str]:
