@@ -230,6 +230,21 @@ def test_the_language_gate_reads_an_untracked_file_git_quotes(repo):
     assert "neu_prüfung.py" in lines, sorted(lines)
 
 
+def test_the_language_gate_working_tree_form_reads_under_a_mnemonic_prefix(repo):
+    """Counter-reading of pull request 375, the neighbour of F10a: with `diff.mnemonicPrefix` the
+    working-tree form names the new side `w/`, the parser read only `b/`, and the German line was
+    dropped while the verdict stayed green."""
+    gate = _language_gate()
+    base = _commit(repo, {"docs/a.md": "An English line.\n"})
+    subprocess.run(["git", "-C", str(repo), "config", "diff.mnemonicPrefix", "true"], check=True,
+                   capture_output=True)
+    (repo / "docs" / "a.md").write_text("An English line.\n" + GERMAN, encoding="utf-8")
+    gate.REPO, gate.REPO_HERKUNFT = repo, "vorgabe"
+    result = gate.pruefe(base, arbeitsbaum=True)
+    assert result["urteil"] == "ROT", result
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("docs/a.md", 2)], result
+
+
 def test_the_language_gate_lists_untracked_names_as_bytes(repo):
     """A name that is not UTF-8 is a name, not a decoder error."""
     gate = _language_gate()
@@ -290,6 +305,48 @@ def test_the_version_gate_reports_a_name_that_is_not_utf8(repo):
     assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
     out = p.stdout.decode("utf-8")
     assert p.returncode == 1 and "docs/" + chr(92) + "udcff.md" in out, out
+
+
+def _archived_tree(repo: Path) -> tuple[Path, str]:
+    """This repository's HEAD unpacked beside the fixture, without git, and its source version."""
+    tree = repo.parent / "tree"
+    tree.mkdir()
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD"], capture_output=True)
+    if archive.returncode != 0:
+        pytest.skip("NOT MEASURABLE here: this tree is not a git checkout")
+    subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+    version = next(line.split("=", 1)[1].strip().strip('"') for line in
+                   (tree / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+                   if line.startswith("version"))
+    return tree, version
+
+
+def _version_gate(tree: Path) -> tuple[int, str]:
+    p = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "check_version_and_changelog.py"),
+                        "--repo", str(tree)], capture_output=True, cwd=str(tree))
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    return p.returncode, p.stdout.decode("utf-8")
+
+
+def test_the_version_gate_without_git_does_not_claim_the_sweep(repo):
+    """Counter-reading of pull request 375, F9 (P2): without a list from git the sweep for undeclared
+    current-version claims read no file, and the summary still said "no undeclared place claiming a
+    current version". The claim planted here would be a finding in a checkout (the case above)."""
+    tree, version = _archived_tree(repo)
+    (tree / "docs" / "plain_claim.md").write_text(f"current release: {version}\n", encoding="utf-8")
+    rc, out = _version_gate(tree)
+    assert rc == 0, out          # a tree without git is not measurable, which is not a failure
+    assert "no undeclared place claiming a current version" not in out, out
+    assert "NOT measured (NICHT MESSBAR): " in out and "check 6, undeclared places" in out, out
+
+
+def test_the_version_gate_fails_in_a_checkout_git_cannot_list(repo):
+    """The other half of F9: a tree that carries `.git` and still gets no list from git (here a `.git`
+    file that points nowhere) is a measurement that failed, not a tree without files."""
+    tree, _ = _archived_tree(repo)
+    (tree / ".git").write_text("gitdir: " + str(repo.parent / "nowhere") + "\n", encoding="utf-8")
+    rc, out = _version_gate(tree)
+    assert rc == 1 and "check 6 is NICHT MESSBAR" in out, out
 
 
 if __name__ == "__main__":

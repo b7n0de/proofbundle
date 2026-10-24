@@ -39,11 +39,14 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   gate's list through its text decoder), and the language gate decodes a diff header with the
   mutant guard's decoder. A sweep over `scripts/` and `tools/` holds every git call that lists paths
   to `-z` or to a named reason; six calls keep the quoted form, among them the two tree digests,
-  whose listing is hashed and never opened. 0 of the 2035 tracked paths at this change need quoting, so no
+  whose listing is hashed and never opened. No tracked path at this change needs quoting, so no
   verdict on this repository changes. A name that is not UTF-8 decodes to a lone surrogate, and each of
   the four tools raised on one while writing its report, with exit 1, the exit code of a finding
   (measured in every output form each tool has). The reports write such a name with backslash escapes now; in JSON that
-  is the escape of the same code point, so the name reads back as it was.
+  is the escape of the same code point, so the name reads back as it was. When git does not list
+  the tracked files, the version gate's sweep for undeclared current-version claims no longer reads
+  that as a tree without files and prints OK over it: in a tree without git its summary names the
+  sweep as not measured, and in a checkout git cannot list it fails.
 - **The mutant guard reads a path git quotes** (`scripts/mutant_signature_guard.py`). git writes a
   path with a byte outside ASCII, a double quote, a backslash or a control character in a diff
   header in double quotes with C escapes (`"b/src/proofbundle/pr\303\274fung.py"`). The guard read
@@ -55,7 +58,10 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   too, and the scope pattern now reads it with DOTALL between `\A` and `\Z`: before, its `.` stopped
   at the decoded newline, and a staged or committed `if False:` in `src/proofbundle/a\nb.py` was
   reported clean with exit 0. The tests plant that name in both modes, and against the guard
-  without this change the three new cases are red.
+  without this change the three new cases are red. The guard names the header prefixes of the diff
+  it reads, so `diff.mnemonicPrefix` in a developer's configuration no longer turns `b/` into `i/`
+  and leaves the staged form reporting clean over a staged `if False:`; the language gate's
+  working-tree form had the same gap with `w/`.
 
 ## [6.3.1] - 2026-10-21
 

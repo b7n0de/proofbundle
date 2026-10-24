@@ -101,6 +101,19 @@ class TestStagedMode(_RepoFixture):
                 _git(self.repo, "rm", "-q", "--cached", "--", f"src/proofbundle/{name}")
                 p.unlink()
 
+    def test_a_configured_header_prefix_does_not_blind_the_guard(self):
+        """Counter-reading of pull request 375, F10a (P2): with `diff.mnemonicPrefix` the staged diff
+        names its new side `i/`, the guard stripped only `b/`, and a staged `if False:` was reported
+        clean with exit 0. `diff.noprefix` is the other setting that moves the prefix."""
+        for key in ("diff.mnemonicPrefix", "diff.noprefix"):
+            with self.subTest(key=key):
+                _git(self.repo, "config", key, "true")
+                self._stage(BENIGN.replace("if not isinstance(data, dict):", "if False:"))
+                r = _guard(self.repo, "--staged")
+                _git(self.repo, "config", "--unset", key)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("src/proofbundle/guarded.py:3", r.stdout)
+
     def test_visible_allow_marker_suppresses(self):
         self._stage(BENIGN.replace("if not isinstance(data, dict):",
                                    "if True:  # mutant-guard: allow (fixture, reviewed)"))
@@ -132,6 +145,23 @@ class TestBaseMode(_RepoFixture):
                 r = _guard(self.repo, "--base", base)
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
                 self.assertIn(f"src/proofbundle/{name}:1", r.stdout)
+
+    def test_a_configured_header_prefix_does_not_blind_the_base_form(self):
+        """The same two settings in the CI form. A commit range keeps `a/` and `b/` under
+        `diff.mnemonicPrefix`, and `diff.noprefix` drops them; both are caught before and after the
+        fix of F10a, and this case holds that a repair of the staged form keeps it so."""
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),
+                               encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "mutant slips in")
+        for key in ("diff.mnemonicPrefix", "diff.noprefix"):
+            with self.subTest(key=key):
+                _git(self.repo, "config", key, "true")
+                r = _guard(self.repo, "--base", base)
+                _git(self.repo, "config", "--unset", key)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("src/proofbundle/guarded.py:3", r.stdout)
 
     def test_all_zero_base_falls_back_to_parent(self):
         self.target.write_text(BENIGN.replace("if not isinstance(data, dict):", "if False:"),

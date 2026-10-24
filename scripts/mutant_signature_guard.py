@@ -231,8 +231,17 @@ def _resolve_base(base: str, cwd: Path) -> str | None:
     return mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else None
 
 
+#: THE HEADER PREFIXES ARE NAMED, NOT TAKEN FROM THE CONFIGURATION (counter-reading of pull request
+#: 375, F10a, P2). With `diff.mnemonicPrefix` set, git writes `+++ i/src/...` for the staged diff,
+#: `removeprefix("b/")` left the `i/` on, no path matched the security scope, and a staged `if False:`
+#: was reported clean with exit 0. Prefixes given on the command line win over `diff.mnemonicPrefix`
+#: and `diff.noprefix` (measured with git 2.55.0).
+_HEADER_PREFIXES = ("--src-prefix=a/", "--dst-prefix=b/")
+
+
 def run_staged(cwd: Path) -> list[str]:
-    diff = _git("diff", "--cached", "-U0", "--no-color", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "--cached", "-U0", "--no-color", *_HEADER_PREFIXES, "--", "src/proofbundle",
+                cwd=cwd)
     return scan(diff, staged=True, cwd=cwd)
 
 
@@ -242,7 +251,8 @@ def run_base(base: str, cwd: Path) -> list[str]:
         print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
               "nothing to diff, scan skipped honestly")
         return []
-    diff = _git("diff", "-U0", "--no-color", resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
+    diff = _git("diff", "-U0", "--no-color", *_HEADER_PREFIXES, resolved, "HEAD", "--",
+                "src/proofbundle", cwd=cwd)
     return scan(diff, staged=False, cwd=cwd)
 
 

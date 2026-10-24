@@ -192,7 +192,11 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # 2026-09-18, run 35287424973). A range is `<base>...<target>` in one string; the working
     # tree form passes the base alone.
     bereich = f"{basis}...{ziel}" if ziel else basis
-    rc, aus = _git("diff", "--unified=0", bereich, "--", *_ENDUNGEN)
+    # THE HEADER PREFIXES ARE NAMED (counter-reading of pull request 375, the neighbour of F10a): with
+    # `diff.mnemonicPrefix` set, the working-tree form gets `+++ w/...`, which the parser below does
+    # not read, and every added line was dropped while the verdict stayed green.
+    rc, aus = _git("diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", bereich, "--",
+                   *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
     try:
