@@ -316,7 +316,7 @@ def pins(args, svc) -> dict:
                     "image_build_inputs_sha256": SHA(Path(args.build_inputs).read_bytes())
                     if args.build_inputs else None},
         "verifier": {"repository": "https://github.com/b7n0de/proofbundle", "commit": _git("rev-parse", "HEAD"),
-                     "tree_clean": _git("status", "--porcelain") == "", "package_version": version("proofbundle"),
+                     "tree_clean": _git("status", "--porcelain", "-z") == "", "package_version": version("proofbundle"),
                      "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)", "tool": "tools/scitt_ccf_external/differential_corpus.py",
                      "python": platform.python_version(), "cbor2": version("cbor2"),
                      "cryptography": cryptography.__version__},
