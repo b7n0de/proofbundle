@@ -1,0 +1,653 @@
+{
+ "tool": "tools/scitt_ccf_external/differential_corpus.py",
+ "measured_on": "2026-09-26",
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "9142fa4b7e167b03ebfd231e7de6df388b421672",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1"
+  }
+ },
+ "service_keyset": {
+  "file": "scitt-keys.hex",
+  "sha256": "dc691c467662826e34be101bdeda55b38fcb6c67989275a6994e48ece84fbf0d"
+ },
+ "signer": {
+  "did": "did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBdYI2w::subject:CN:proofbundle-scitt-probe",
+  "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004408f74243804d65e42ea3ba1d1d3b1a98ebb632634aba664c5f25edef8016c0c19a89cdcbeff8db18849bdbaeedf40ee2a87f506213dbac1b1a4efa3d9690d61",
+  "alg": "ES256",
+  "note": "made for this run, private key discarded"
+ },
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "vectors": [
+  {
+   "id": "control",
+   "class": "control",
+   "base": null,
+   "accepted": true,
+   "txid": "2.70",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "control-resubmitted",
+   "class": "control",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.72",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a01-label-99-text",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.74",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a02-label-99-other-text",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.76",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a03-label-99-bstr",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.78",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a04-label-99-int",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.80",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a05-text-label",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.82",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a06-negative-label",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.84",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a07-kid",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.86",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a08-receipts-label",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.88",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a09-x5chain-both-buckets",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.90",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a10-cwt-claims-unprotected",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.92",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a11-two-labels",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.94",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a12-int-and-text-labels",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.96",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "a13-negative-after-positive",
+   "class": "a",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.98",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "e01-two-labels-reversed",
+   "class": "e",
+   "base": "a11-two-labels",
+   "accepted": true,
+   "txid": "2.100",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "e02-text-label-first",
+   "class": "e",
+   "base": "a12-int-and-text-labels",
+   "accepted": true,
+   "txid": "2.102",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "e03-negative-first",
+   "class": "e",
+   "base": "a13-negative-after-positive",
+   "accepted": true,
+   "txid": "2.104",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "b01-width4",
+   "class": "b",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.106",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": false,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "b02-width8",
+   "class": "b",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.108",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": false,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "b03-indefinite1",
+   "class": "b",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "b04-indefinite2",
+   "class": "b",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "c01-width2",
+   "class": "c",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.110",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": false,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "c02-width4",
+   "class": "c",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.112",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": false,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "c03-width8",
+   "class": "c",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.114",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": false,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "c04-indefinite1",
+   "class": "c",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "c05-indefinite2",
+   "class": "c",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "d01-width2",
+   "class": "d",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.116",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": false
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "d02-width4",
+   "class": "d",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.118",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": false
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "d03-width8",
+   "class": "d",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.120",
+   "data_hash": "78a0fe4b22cbeea3678538aa357bd68b0212d3914f3c302b7760b4b930007ae4",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": false
+   },
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "d04-indefinite1",
+   "class": "d",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "d05-indefinite2",
+   "class": "d",
+   "base": "control",
+   "accepted": false,
+   "txid": null,
+   "data_hash": null,
+   "returned_elements_equal_submitted": null,
+   "v1_reader_on_submitted_bytes": "malformed",
+   "v1_reader_on_returned": null
+  },
+  {
+   "id": "f01-second-signature",
+   "class": "f",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.122",
+   "data_hash": "ba435c275a82e22f211095b483ff503156d690237ddbc32493178ce8bc4b967a",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "f02-third-signature",
+   "class": "f",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.124",
+   "data_hash": "f145c3e6e7bb459f14363ace70141e3fb3860db7bf3b2476d65448c3fc47dbac",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  },
+  {
+   "id": "f03-high-s-twin",
+   "class": "f",
+   "base": "control",
+   "accepted": true,
+   "txid": "2.126",
+   "data_hash": "aa4d75c7864e1d4aad1fd1b7dc0c507edb98b1351ad3abf49fb28c0fc77afa07",
+   "returned_elements_equal_submitted": {
+    "protected": true,
+    "payload": true,
+    "signature": true
+   },
+   "v1_reader_on_submitted_bytes": "read",
+   "v1_reader_on_returned": "confirmed"
+  }
+ ],
+ "what_the_data_hash_commits_to": {
+  "a": {
+   "about": "the unprotected map's labels and values",
+   "vectors": 13,
+   "accepted": 13,
+   "refused": 0,
+   "same_data_hash_as_base": [
+    "a01-label-99-text",
+    "a02-label-99-other-text",
+    "a03-label-99-bstr",
+    "a04-label-99-int",
+    "a05-text-label",
+    "a06-negative-label",
+    "a07-kid",
+    "a08-receipts-label",
+    "a09-x5chain-both-buckets",
+    "a10-cwt-claims-unprotected",
+    "a11-two-labels",
+    "a12-int-and-text-labels",
+    "a13-negative-after-positive"
+   ],
+   "other_data_hash_than_base": [],
+   "verdict": "does not commit to the unprotected map's labels and values, as far as the 13 accepted vectors go: each has its base's data-hash"
+  },
+  "b": {
+   "about": "the framing of the protected bstr",
+   "vectors": 4,
+   "accepted": 2,
+   "refused": 2,
+   "same_data_hash_as_base": [
+    "b01-width4",
+    "b02-width8"
+   ],
+   "other_data_hash_than_base": [],
+   "verdict": "does not commit to the framing of the protected bstr, as far as the 2 accepted vectors go: each has its base's data-hash"
+  },
+  "c": {
+   "about": "the framing of the payload bstr",
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2,
+   "same_data_hash_as_base": [
+    "c01-width2",
+    "c02-width4",
+    "c03-width8"
+   ],
+   "other_data_hash_than_base": [],
+   "verdict": "does not commit to the framing of the payload bstr, as far as the 3 accepted vectors go: each has its base's data-hash"
+  },
+  "d": {
+   "about": "the framing of the signature bstr",
+   "vectors": 5,
+   "accepted": 3,
+   "refused": 2,
+   "same_data_hash_as_base": [
+    "d01-width2",
+    "d02-width4",
+    "d03-width8"
+   ],
+   "other_data_hash_than_base": [],
+   "verdict": "does not commit to the framing of the signature bstr, as far as the 3 accepted vectors go: each has its base's data-hash"
+  },
+  "e": {
+   "about": "the order of the unprotected map",
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0,
+   "same_data_hash_as_base": [
+    "e01-two-labels-reversed",
+    "e02-text-label-first",
+    "e03-negative-first"
+   ],
+   "other_data_hash_than_base": [],
+   "verdict": "does not commit to the order of the unprotected map, as far as the 3 accepted vectors go: each has its base's data-hash"
+  },
+  "f": {
+   "about": "the signature bytes, the signed content unchanged",
+   "vectors": 3,
+   "accepted": 3,
+   "refused": 0,
+   "same_data_hash_as_base": [],
+   "other_data_hash_than_base": [
+    "f01-second-signature",
+    "f02-third-signature",
+    "f03-high-s-twin"
+   ],
+   "verdict": "commits to the signature bytes, the signed content unchanged: every accepted f-vector has a data-hash other than its base"
+  },
+  "control": {
+   "identical bytes twice": "same data-hash",
+   "txids": [
+    "2.70",
+    "2.72"
+   ]
+  },
+  "measured_rule_holds_for_every_accepted_vector": true
+ }
+}

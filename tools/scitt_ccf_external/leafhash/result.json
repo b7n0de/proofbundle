@@ -1,0 +1,153 @@
+{
+  "ccf_package": "7.0.17",
+  "ledger_files": {
+    "ledger_1-9.committed": {
+      "length": 81329,
+      "sha256": "125e047461e6422e273c61ae6a8657e15777b98eb76673146c1444eea51d151b"
+    },
+    "ledger_10": {
+      "length": 16548,
+      "sha256": "8a7653046acb4da0324ff4e67b0f9dfff84295d303140bac2a23300e520f0f4a"
+    }
+  },
+  "receipt_files": {
+    "older.receipt.cbor": {
+      "length": 472,
+      "sha256": "6427bd5fddee00e40e63e6b8c48dcc6a879eb9a0368f293ac52e42c738c203fe"
+    },
+    "middle.receipt.cbor": {
+      "length": 508,
+      "sha256": "ca5350165bf33fb5255a9b14d31210a772f3f54c457b3620a67dd4e2819542d9"
+    },
+    "newer.receipt.cbor": {
+      "length": 545,
+      "sha256": "a8e70390ed9a783ad70b5442fdba8d1f8f07856ae12b1e8d4f51e083232941d6"
+    }
+  },
+  "transactions": 24,
+  "leaves": 25,
+  "signatures_verified_by_the_ccf_validator": 9,
+  "signed_states": [
+    {
+      "seqno": 2,
+      "tree_size": 2,
+      "signed_root": "5f3d82b7f8d9e7af244b075fecfda976be6b242a1f5020411599d6bc4cd8f05e"
+    },
+    {
+      "seqno": 9,
+      "tree_size": 9,
+      "signed_root": "696fd6b0b10cae039f5aea0e6d9a65eb7e8071a548ce98aabcf65c318c5ff653"
+    },
+    {
+      "seqno": 11,
+      "tree_size": 11,
+      "signed_root": "22362c2ac07aafc14f4213c162c0a791d596e51942160a398ab89ce4132176a1"
+    },
+    {
+      "seqno": 13,
+      "tree_size": 13,
+      "signed_root": "9cec40b4279488a33d78a81fd9ab005f33e9ec12bf92c2a0590f6dff21a3d49b"
+    },
+    {
+      "seqno": 15,
+      "tree_size": 15,
+      "signed_root": "a4cb325ba4dd21cecd7e41724121cf3230db7cc976b0d60ccbf9d142a87df393"
+    },
+    {
+      "seqno": 17,
+      "tree_size": 17,
+      "signed_root": "4efd374fb4698013be585e35c6252930e9288383e5b30dd400896e7e3c860632"
+    },
+    {
+      "seqno": 19,
+      "tree_size": 19,
+      "signed_root": "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2"
+    },
+    {
+      "seqno": 22,
+      "tree_size": 22,
+      "signed_root": "5ca211b0c048e4a3eadc4ec67f196c8200dd3a77f087bebc85ae1250225dfb82"
+    },
+    {
+      "seqno": 24,
+      "tree_size": 24,
+      "signed_root": "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01"
+    }
+  ],
+  "signed_roots_reproduced": {
+    "ccf_as_found": "9 of 9",
+    "rfc9162_both_prefixes": "0 of 9",
+    "leaf_prefix_only": "0 of 9",
+    "node_prefix_only": "0 of 9",
+    "rfc9162_both_prefixes_leaf0_kept": "0 of 9"
+  },
+  "leaf_forms": {
+    "genesis constant, 32 zero bytes, no preimage": 1,
+    "ws || ce || claims, preimage 96 B": 24
+  },
+  "leaf_preimage_lengths": [
+    96
+  ],
+  "node_preimage_lengths_at_last_signed_state": {
+    "count": 23,
+    "lengths": [
+      64
+    ]
+  },
+  "example_leaf": {
+    "seqno": 1,
+    "ws": "d3247e3204fc5571e58069ff19b8fa2830cf0bda8fa5c92481f00af251cbd9cb",
+    "ce": "02aa1dbe12eff222ed5ad329ce0fdd1c97703cd73901f51a8731b57581d837e1",
+    "claims": "0000000000000000000000000000000000000000000000000000000000000000",
+    "preimage_length": 96,
+    "sha256(ws||ce||claims)": "9df0ce1dc5af7b504c809a113982aa52100235d7005217c219f55b936b78f2c3",
+    "ccf_get_tx_digest": "9df0ce1dc5af7b504c809a113982aa52100235d7005217c219f55b936b78f2c3",
+    "rfc9162_leaf_sha256(00||preimage)": "0f371ed0869b3b480e6391819711bb0463d393ffbcb67109ac28f7150a1ece26"
+  },
+  "example_interior_node": {
+    "children": [
+      "0000000000000000000000000000000000000000000000000000000000000000",
+      "9df0ce1dc5af7b504c809a113982aa52100235d7005217c219f55b936b78f2c3"
+    ],
+    "sha256(left||right)": "5f3d82b7f8d9e7af244b075fecfda976be6b242a1f5020411599d6bc4cd8f05e",
+    "ccf_package_level1_node0": "5f3d82b7f8d9e7af244b075fecfda976be6b242a1f5020411599d6bc4cd8f05e"
+  },
+  "receipts_05_against_ledger": [
+    {
+      "receipt": "older",
+      "evidence_utf8_length": 72,
+      "leaf_equals_ledger_leaf_at_seqno": 18,
+      "itx_is_ws": true,
+      "hash_evidence_is_ce": true,
+      "data_hash_is_claims": true
+    },
+    {
+      "receipt": "middle",
+      "evidence_utf8_length": 72,
+      "leaf_equals_ledger_leaf_at_seqno": 21,
+      "itx_is_ws": true,
+      "hash_evidence_is_ce": true,
+      "data_hash_is_claims": true
+    },
+    {
+      "receipt": "newer",
+      "evidence_utf8_length": 72,
+      "leaf_equals_ledger_leaf_at_seqno": 23,
+      "itx_is_ws": true,
+      "hash_evidence_is_ce": true,
+      "data_hash_is_claims": true
+    }
+  ],
+  "forgeries_at_last_signed_state": {
+    "interior_nodes": 23,
+    "A_node_as_05_leaf_itx_L_dh_R": 0,
+    "B_lax_itx_L_ev_rightpreimage_dh_empty": 23,
+    "B_right_child_preimage_known": 23,
+    "B_right_child_preimage_valid_utf8": 0
+  },
+  "leaves_64": {
+    "leaves_with_64_byte_preimage": 0,
+    "their_write_set_lengths": [],
+    "write_set_of_96_bytes": 0
+  }
+}
