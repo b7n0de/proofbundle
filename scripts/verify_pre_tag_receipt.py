@@ -1379,8 +1379,10 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
     # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead. The JSON form writes
+    # every character outside ASCII as its JSON escape (`ensure_ascii`), because a backslash escape of
+    # `ü` or of an emoji is no JSON escape, and under an output encoding that is not UTF-8 the output
+    # was no JSON, with exit 0 (counter-reading of pull request 375, F5).
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -1391,7 +1393,7 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     res = measure(a.repo.resolve(), a.commit, a.version)
     if a.json:
-        print(json.dumps(res, indent=2, ensure_ascii=False))
+        print(json.dumps(res, indent=2, ensure_ascii=True))
     else:
         print(f"[pre-tag-receipt] verdict={res['verdict']} commit={res['commit'][:12] if isinstance(res['commit'], str) else res['commit']} "
               f"version={res['version']} tree={(res['subject_tree_digest'] or '?')[:12]} "

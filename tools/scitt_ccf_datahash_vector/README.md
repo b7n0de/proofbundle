@@ -208,4 +208,4 @@ Whether COSE implementations beyond these two accept the indefinite form is **no
 
 ---
 
-Prepared with AI agent involvement, reviewed and submitted under human oversight.
+Assisted by little helpers.
