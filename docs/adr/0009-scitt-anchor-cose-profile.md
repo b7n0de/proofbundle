@@ -68,7 +68,12 @@ The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/
   commit `e729c2ec037ac763d0cf422bb58a219f8d6a02f4` (2026-09-23),
   https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/blob/e729c2ec037ac763d0cf422bb58a219f8d6a02f4/draft-ietf-scitt-receipts-ccf-profile.md
   (22426 B, sha256 `7efdb7aa934ab0cfc1093e99932f7d2efd39bb66f5bf43594806d7b282ca0077`, retrieved
-  2026-09-25);
+  2026-09-25). Since 2026-10-24 (finding B53-6 of the CCF_7021 interop delivery) the reader follows
+  **draft-ietf-scitt-receipts-ccf-profile-06** in sections 3 to 5, the text retrieved on 2026-10-24
+  from https://www.ietf.org/archive/id/draft-ietf-scitt-receipts-ccf-profile-06.txt (1064 lines,
+  sha256 `a61b704bcd39283d1e3f3a451c05987c9c845bae0009ee6bb50d1820ae398928`); Decision 15 and
+  `src/proofbundle/scitt_ccf.py` name its lines. The type string stays `scitt-ccf/v1`; whether -06
+  makes a new profile version is the owner's decision, not taken here;
 - inclusion proofs for the statement verdict. Consistency proofs (vdp key -2, new in -05) beside
   them are reported as present, parsed under the -05 CDDL (one or more), and must compute the
   inclusion root as their newer root (-05 section 5: all proofs in a receipt recompute the same
@@ -277,8 +282,9 @@ Section "Common COSE Header Parameters": `crit` MUST be in the protected bucket,
 array, and a listed label that is absent from the protected bucket is a fatal error.
 
 v1 turns the SHOULD into a MUST: a label in both buckets is `malformed`. `crit` in the unprotected
-bucket, an empty `crit`, a listed label absent from the protected bucket, or a listed label v1 does
-not process is `outside_profile`. No real receipt measured carries `crit`.
+bucket, a listed label absent from the protected bucket, or a listed label v1 does not process is
+`outside_profile`. An empty `crit`, a null one, or one that is no array of labels is `malformed`,
+because the CDDL pass refuses its type first (Decision 16). No real receipt measured carries `crit`.
 
 ### 8. Resource, tag and encoding limits
 
@@ -319,8 +325,8 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
-| `malformed` | the pre-scan or the COSE structure refused the bytes; a protected `x5chain` that is not `COSE_X509` or whose end-entity certificate is not DER X.509; a receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, a proof of either family that does not parse, more proofs than the limit, an empty array of the family the verifier does not check; an empty array of the family it checks keeps that family's status, as the -05 pseudo-code asserts `len(proofs) > 0`); also a statement with no receipt | False | False |
-| `outside_profile` | not scitt-ccf v1, and readable except where it is untagged: untagged (a statement or a receipt without tag 18, which Decision 10 never counts as readable), detached statement payload, not a hash envelope, 258 not SHA-256, 259 not uint / tstr or 260 not tstr (RFC 9995 CDDL), label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes, or the CDDL pass refused a shape (Decision 16): a header label of the wrong type (RFC 9052, RFC 9360 `x5chain`, RFC 9597 CWT claims, RFC 8392 issuer, subject and iat, RFC 9942 vds, RFC 9995 258, 259 and 260), a receipt that is not a byte string, a CCF receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, neither of them, an array that is empty or over the limit, a proof of either family that does not parse); an `x5chain` end-entity certificate that is not DER X.509; also a statement with no receipt under 394, or more than the limit | False | False |
+| `outside_profile` | not scitt-ccf v1, and readable except where it is untagged: untagged (a statement or a receipt without tag 18, which Decision 10 never counts as readable), detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
 | `root_mismatch` | the proofs of one receipt compute different roots: two inclusion proofs, or a consistency proof whose newer root is not the inclusion root | False | False |
@@ -343,7 +349,7 @@ answer Q5 a).
 
 | result | holds when | real example where it differs from the next |
 |---|---|---|
-| **readable** | the proof passes the pre-scan and parses as a tagged COSE_Sign1 with at least one receipt that parses under the -05 CDDL | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
+| **readable** | the CDDL pass (Decision 16) accepts the statement, label 394 and at least one receipt, that receipt is a CCF receipt whose inclusion proofs parsed under the -05 CDDL, and the statement and that receipt are each a tag 18 COSE_Sign1; readable is set there and nowhere else | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
 | **signature valid** | a receipt's ES256/ES384 signature verifies over its computed root with a key selected from the RP key set of its issuer | `payload-tampered.cose`: signature valid, profile not satisfied, because the receipt belongs to another statement |
 | **profile satisfied** | signature valid, and for that receipt: vds 2, payload detached, all proofs one root, leaf data-hash equals value 3, the statement is a v1 hash envelope whose value 1 equals `canonicalRoot`, crit and header rules hold, and an RP statement key verifies the statement | end to end, real: the local-ledger control in `tests/fixtures/scitt_ccf/local_ledger_control.json`. Receipt side, real: the test-service control and `uvm_0.2.10.cose` (production) |
 
@@ -452,57 +458,126 @@ non-shortest protected header, the legacy receipt, and two kid bindings not repo
 invalid signature). Verdicts differ by design and are recorded, not compared: scitt-verifier
 appraises a signer chain and a policy, v1 requires a hash envelope over a proofbundle root.
 
-### 15. Consistency receipts (-05 section 4), beside the anchor, not in it
+### 15. Consistency receipts (section 4 of -06, of -05 until 2026-10-24), beside the anchor, not in it
 
 A consistency receipt relates two roots of one ledger; it proves nothing about a statement, so it
 never enters the anchor verdict. `proofbundle.scitt_ccf.verify_consistency_receipt` checks one
 against an older root the caller already verified (typically `merkle_root` of a `confirmed`
 inclusion receipt) and that receipt's issuer, with its own closed status set,
-`CONSISTENCY_STATUS_ORDER`, the first that applies deciding:
+`CONSISTENCY_STATUS_ORDER`, the first that applies deciding (the lines are those of the -06 text
+named in the scope above):
 
 | status | rule |
 |---|---|
-| `consistency_proof_missing` | no `vdp`, no -2, or an empty -2 (4.1, 4.2) |
-| `consistency_payload_attached` | the newer root is not detached (4.1) |
-| `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
-| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given (4) |
-| `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -05 (G5) |
-| `consistency_path_not_canonical` | with both sizes: a proof's path describes no node of the tree of n leaves |
-| `consistency_anchor_position_mismatch` | with both sizes: a proof's tags are not those of RFC 9162 2.1.4.1 for m and n (for a proof that does not recompute the older root, for the m its anchor implies), so its anchor is not the root of T[m-2^t] .. T[m-1] (4) |
-| `consistency_left_siblings_mismatch` | with the older size alone: the proof that recomputes the older root has not popcount(m) - 1 left siblings, the complete subtrees left of the anchor section 4 requires (4) |
-| `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
-| `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
-| `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
-| `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
+| `consistency_proof_missing` | no `vdp`, or no -2 (4.1, lines 571-573; Figure 9, lines 634-638); an empty -2, or a `vdp` with neither -1 nor -2, is `malformed`, because the CDDL pass runs first (Decision 16) |
+| `consistency_payload_attached` | the newer root is not detached (4.1, line 575; line 639) |
+| `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, lines 575-578; section 5, lines 762-767; line 649) |
+| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given (4, lines 511-513 and 545-546) |
+| `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -06, which defines no source of sizes (7.3, line 859; G5) |
+| `consistency_anchor_not_canonical` | a proof starts with a left sibling (4, lines 541-546; line 646), so its anchor is not the one section 4 requires; this covers m = n |
+| `consistency_older_root_mismatch` | no proof recomputes the older root (lines 651-654; 7.3, lines 830-831) |
+| `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -06 (owner answer S1 a, until the working group answers G3); 7.3, lines 831-833, leaves the accepted key to the verifier's trust policy |
+| `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root (line 657) |
 
-`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that the implemented checks
-passed without both tree sizes being available. It does not establish strict growth or the full
-anchor rule. `confirmed` requires both sizes and the corresponding checks; both sizes are the
-caller's, bound to the roots under the caller's trust model. Draft -06, section "Consistency
-Receipts": a verifier that needs m or n MUST obtain them from a source it trusts independently of
-the receipt, so the reader takes neither from the receipt. The older size (`older_size`) is bound
+Until 2026-10-24 three more statuses stood between `consistency_newer_size_mismatch` and
+`consistency_anchor_not_canonical`, all from the -05 reading B14 of the section 4 vectors:
+`consistency_path_not_canonical` and `consistency_anchor_position_mismatch` with both sizes (the tags of
+RFC 9162 2.1.4.1 for m and n), and `consistency_left_siblings_mismatch` with the older size alone
+(popcount(m) - 1 left siblings). They refused S4-10, which Figure 9 of -06 (lines 633-658) accepts.
+-06 states no such verifier step: "verification does not establish m, n, or that the anchor is the
+node required above" (4, lines 548-549); the comparison with older_root confirms that the anchor is a
+node of that state, "but not that it is the anchor required in Section 4, which is not needed for the
+guarantee the receipt provides" (4.2, lines 681-683; 7.3, lines 845-851). They are removed, with the
+two flags `anchor_rule_checked` and `left_siblings_checked` that reported them (finding B53-6).
+
+`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that every check above passed
+without both tree sizes from the caller, so 0 < m < n was not checked. `confirmed` means the same with
+both sizes, and 0 < m < n holds for them. Neither establishes m, n or the anchor position: "The receipt
+carries no tree sizes and the signature covers only the newer root, so sizes cannot be authenticated"
+(7.3, lines 845-846). Both sizes are the caller's, bound to the roots under the caller's trust model:
+a verifier that needs m or n "MUST obtain them from a source it trusts independently of the receipt"
+(lines 857-858), so the reader takes neither from the receipt. The older size (`older_size`) is bound
 like `older_root` to the state it came from, typically the seqno of the txid of the inclusion
 receipt that verified it; the newer size (`newer_size`) likewise, typically from the inclusion
 receipt the caller verified for the newer state. Until 2026-10-23 the reader took the newer size
 from this receipt's own `ccf.v1` txid where the caller gave none; now that txid only has to agree
 with a newer size the caller gives (`consistency_newer_size_mismatch`). That a seqno is the tree size
 its signature covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a
-requirement of the draft (`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
-exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it
-does not establish canonical tags. Without sizes, an anchor that is no node of the newer tree,
-such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5
-and passes the first tag; with them it is `consistency_anchor_position_mismatch` (vector S4-10 in
-`tools/scitt_ccf_external/section4_vectors/`).
+requirement of the draft (`SECTION4_WGLC.md`, G5). An anchor that is no node of the newer tree, such as
+the root of 6 leaves under one right sibling (vector S4-10 in `tools/scitt_ccf_external/section4_vectors/`),
+has the form of a canonical proof from 4 to 5 and passes Figure 9, with the sizes 6 and 7 as without
+them: that the signed value is a Merkle Tree Hash is the Transparency Service's attestation, which -06
+verification does not establish (4.2, lines 685-688; 7.3, lines 853-857).
 
 `malformed` and `outside_profile` keep their meaning; the protected header rules are those of
-inclusion receipts, as 4.1 says. Two of these go further than the 4.2 pseudo-code. That code accepts
-a receipt with a corrupted second proof, and one whose anchor lies below the section 4 anchor. Both
-were measured on the local ledger and in every tree pair up to 257 leaves, and they are refused here
-because 4 and 4.1 say MUST. The measurement, the third-party RFC 9162 oracle
+inclusion receipts, as 4.1 says. Two of these went further than the 4.2 pseudo-code of -05. That code
+accepted a receipt with a corrupted second proof, and one whose anchor lies below the section 4
+anchor. Both were measured on the local ledger and in every tree pair up to 257 leaves, and they were
+refused here because 4 and 4.1 of -05 say MUST. Figure 9 of -06 refuses both itself (lines 649 and
+646). The measurement, the third-party RFC 9162 oracle
 (transparency-dev/merkle at `fbbcd741`) and the questions for the working group are in
 `tools/scitt_ccf_external/SECTION4_WGLC.md`. No service measured emits a consistency receipt, so the
 real vector (`tests/fixtures/scitt_ccf/local_ledger_consistency.json`) is the service's own
 signature over the newer root with a proof computed from the ledger's leaves.
+
+### 16. The CDDL pass: every shape before any status (Nachtrag 4, 2026-09-26)
+
+Five Codex rounds on pull request 278 found one place each of one class: an early return before the
+shape was checked in full (readable without a parsed proof, -2 unchecked beside -1, an empty -2, a
+status before the signature, the types of 259 and 260). The reader now runs one pass over the
+statement, label 394, every receipt and every proof family before any status logic runs, and sets
+readable there only.
+
+- The rule: a label or an array that is present must have its CDDL type, or the artifact is
+  `malformed`. Absence, and values v1 does not take, stay with the status logic: no 258 is not a
+  hash envelope (`outside_profile`), no -1 is no inclusion proof (`outside_profile`), no `vdp` or
+  no -2 is `consistency_proof_missing`.
+- What the pass checks: the types of the header labels the reader reads, in either header bucket
+  (RFC 9052 alg, crit, content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC
+  8392 issuer and subject of the statement and of a receipt and the iat of a receipt, in the claims
+  map of either bucket; RFC 9942 vds, and vdp as a
+  map, of every receipt), the RFC 9995 types of 258, 259 and 260, label 394 as one to
+  `MAX_RECEIPTS` receipts, and for a receipt with vds 2 the -05 CDDL: alg `int`, a `vdp` of -1 and
+  -2 only with at least one of them, each an array of one to eight proofs, every proof of either
+  family parsed with its path, leaf or anchor.
+- Every rule is one named entry of a table in `proofbundle.scitt_ccf` (`_STATEMENT_RULES`,
+  `_TRANSPARENT_RULES`, `_RECEIPT_BYTES_RULES`, `_RECEIPT_RULES`, `_CCF_RULES`, `_PROOF_RULES`,
+  `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 43
+  rules in turn: some regression case must then fail, its status, readable value or refusal no
+  longer the expected one, and a positive control shows that a rule no case holds would be named.
+- Codex on pull request 279, round four: vdp was typed only in the unprotected bucket of a vds 2
+  receipt, by the -05 rules. RFC 9942 registers vdp (396) with value type map, as it registers vds
+  with int, so the map type moved to the receipt rules, in either bucket of every receipt, and the -05
+  rule of the same content left `_CCF_RULES`; the count stays 40. Four cases were added, 60 in all,
+  measured against the reader at `a19885e`: a consistency receipt with a protected vdp of `5` was
+  `consistency_proof_missing`, an inclusion receipt with a protected vdp of `[1]` and no unprotected
+  vdp was `outside_profile`, and a receipt of vds 1 with an unprotected vdp of `[1]` was
+  `outside_profile`. All three are now `malformed`. A well-typed protected vdp keeps
+  `consistency_proof_missing` (the control).
+- The merge with pull request 406 (2026-10-25), which asks a receipt for a text iss and sub as it
+  asks a statement (RFC 9943 section 6): the counter-reading of the merge found the pass typing the
+  issuer of a receipt only, so a receipt's sub of `7` or `null`, and a statement's iss or sub that is
+  no text, ended `outside_profile` and readable, where a receipt's iss of `5` was `malformed`. Three
+  rules type the issuer and subject on both sides (43 in all), three cases were added (63), and those
+  inputs are `malformed` now. An absent or empty iss or sub stays with the status logic,
+  `outside_profile`.
+- Statuses this moves, measured with the 56 regression cases against the reader at `257b984`: 26
+  cases change, all to `malformed` and not readable. 19 were `outside_profile`: the wrong type of
+  258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT
+  claims, issuer or vds, a receipt's issuer or iat in CWT claims carried unprotected (three cases,
+  Codex on pull request 279), an empty crit on either side, an empty -1, and a `vdp` holding neither
+  -1 nor -2. 4 were `confirmed`, because the reader never read the label: a statement kid as text, a
+  statement's CWT claims as an array, a receipt content type as a byte string, a receipt iat as
+  text. 3 were a digest of `recompute_data_hash`, which read through the decoder alone (Codex on
+  pull request 279, round two): it now reads through the statement part of the pass, as
+  `verify_statement_signature` does. In the consistency verifier an empty -2 moves from
+  `consistency_proof_missing` to `malformed`. No stored measurement of real bytes changes status
+  (`recompute_result.json`, `rust_crosscheck.json`, the differential corpus);
+  `consistency_result.json` changes for its one empty -2 variant.
+- Not in the pass: the status logic itself (profile values, binding, trust, signatures), which the
+  class tests hold; and the COSE_Sign1 decoder and the pre-scan, which ran first already.
+  `decode_cose_sign1` stays public as the structural decoder under the pass and checks no header
+  type; every verdict surface, `recompute_data_hash` included, runs the pass on its result.
 
 ## Test classes
 
@@ -594,6 +669,7 @@ the separate consistency verifier of Decision 15 relates two roots only for a ca
 | N7 a statement without a protected `x5chain` (2026-09-26) | b | `outside_profile`, Decision 5 |
 | S1 the consistency issuer rule (2026-09-26) | a | kept, named in code and README as proofbundle's own rule, not a requirement of -05, until the working group answers G3; Decision 15 |
 | S2 the first-tag anchor check (2026-09-26) | a | kept: a proof starting with a left sibling is refused, because section 4 says MUST; Decision 15 |
+| Nachtrag 4, the reader checks the CDDL first (2026-09-26) | ordered | the CDDL pass before any status, readable set there only, a regression case per Codex finding and named sibling, every rule removable by a test; Decision 16 |
 | the scope of vdp -2 beside inclusion proofs (2026-09-26) | kept | the change of `c79fbe4` and `30a2856` stays: -2 is parsed under the -05 CDDL, one or more, and must compute the inclusion root; its older roots and anchors are not evaluated in the statement verdict; Decision 1 |
 
 ## New questions for the owner

@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import ast
 import io
+import os
 import re
 import subprocess
 import tokenize
@@ -147,6 +148,33 @@ def _git(*args: str) -> tuple[int, str]:
     return r.returncode, r.stdout
 
 
+def _git_namen(*args: str) -> tuple[int, list[str]]:
+    """The paths a git command lists with -z, each as git names it: bytes split on NUL and decoded
+    the way Python decodes a file name, so a name that is not UTF-8 is a name and not a crash."""
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True)
+    return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
+
+
+def _git_path_decoder():
+    """The decoder for a path in a diff header, taken from `scripts/mutant_signature_guard.py` in the
+    tool's own tree and loaded by path, like the word list: one decoder for one grammar, not a copy.
+
+    git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
+    character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
+    of such a file went to the file before it in the diff, or nowhere when it came first. Measured
+    2026-09-26 in throwaway repositories with one German line in `docs/prüfung.md`: after
+    `docs/a.md` it was reported as `docs/a.md:1`; before `docs/z.md` the verdict was green over one
+    added line."""
+    import importlib.util as ilu  # noqa: PLC0415
+    pfad = WERKZEUG_WURZEL / "scripts" / "mutant_signature_guard.py"
+    spec = ilu.spec_from_file_location("_neue_zeilen_git_path", pfad)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"no loader for {pfad}")
+    modul = ilu.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul._git_path
+
+
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         dict[str, list[tuple[int, str]]], str]:
     """Added lines per file. Returns ({} , reason) when the range cannot be read.
@@ -164,18 +192,48 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # 2026-09-18, run 35287424973). A range is `<base>...<target>` in one string; the working
     # tree form passes the base alone.
     bereich = f"{basis}...{ziel}" if ziel else basis
-    rc, aus = _git("diff", "--unified=0", bereich, "--", *_ENDUNGEN)
+    # THE HEADER PREFIXES ARE NAMED (counter-reading of pull request 375, the neighbour of F10a): with
+    # `diff.mnemonicPrefix` set, the working-tree form gets `+++ w/...`, which the parser below does
+    # not read, and every added line was dropped while the verdict stayed green.
+    rc, aus = _git("diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", bereich, "--",
+                   *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
+    try:
+        _git_path = _git_path_decoder()
+    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
+        return {}, f"NOT MEASURABLE: the diff-header decoder is not loadable ({type(fehler).__name__})"
     je_datei: dict[str, list[tuple[int, str]]] = {}
     datei, nr = None, 0
-    for zeile in aus.splitlines():
-        if zeile.startswith("+++ b/"):
-            datei = zeile[6:]
+    # A HEADER STANDS OUTSIDE A HUNK, AND THE DIFF IS SPLIT AT ITS LINE FEEDS ONLY, as in the mutant
+    # guard (counter-reading of pull request 375, the neighbour of F10b and F10c in this parser). An
+    # added line `++ b/x` stood in the diff as `+++ b/x` and moved every line after it to a file `x`,
+    # and a form feed cut an added line off its `+`; in both a German line was dropped and the verdict
+    # was green. The hunk header counts the lines of its hunk.
+    alt = neu = 0
+    for zeile in aus.split("\n"):
+        if alt > 0 or neu > 0:
+            if zeile.startswith("+"):
+                if datei:
+                    je_datei[datei].append((nr, zeile[1:]))
+                nr += 1
+                neu -= 1
+            elif zeile.startswith("-"):
+                alt -= 1
+            elif zeile.startswith(" "):
+                nr += 1
+                alt -= 1
+                neu -= 1
+            continue
+        if zeile.startswith(("+++ b/", '+++ "b/')):
+            datei = _git_path(zeile[4:])[2:]
             je_datei.setdefault(datei, [])
         elif zeile.startswith("@@"):
             m = re.search(r"\+(\d+)", zeile)
             nr = int(m.group(1)) if m else 0
+            k = re.match(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", zeile)
+            if k:
+                alt, neu = (int(g) if g is not None else 1 for g in k.groups())
         elif zeile.startswith("+") and not zeile.startswith("+++") and datei:
             je_datei[datei].append((nr, zeile[1:]))
             nr += 1
@@ -186,13 +244,12 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         # measures committed heads and is not affected; this form is for the person fixing the
         # findings, and it must not flatter the file they just created. Every line of an
         # untracked file is an added line.
-        rc2, neu = _git("ls-files", "--others", "--exclude-standard", "--", *_ENDUNGEN)
+        # With -z: a quoted name opens no file, and the run said NOT MEASURABLE about a file it
+        # could have read (2026-09-26, measured).
+        rc2, neu = _git_namen("ls-files", "--others", "--exclude-standard", "-z", "--", *_ENDUNGEN)
         if rc2 != 0:
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
-        for rel in neu.splitlines():
-            rel = rel.strip()
-            if not rel:
-                continue
+        for rel in neu:
             try:
                 text = (REPO / rel).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
@@ -372,6 +429,14 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
 
 
 def main(argv=None) -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead. The JSON form writes
+    # every character outside ASCII as its JSON escape (`ensure_ascii`), because a backslash escape of
+    # `ü` or of an emoji is no JSON escape, and under an output encoding that is not UTF-8 the output
+    # was no JSON, with exit 0 (counter-reading of pull request 375, F5).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--base", default="origin/main",
                    help="the base of the change range (default origin/main)")
@@ -386,7 +451,7 @@ def main(argv=None) -> int:
     d = pruefe(a.base, a.arbeitsbaum)
     if a.json:
         import json
-        print(json.dumps(d, ensure_ascii=False, indent=2))
+        print(json.dumps(d, ensure_ascii=True, indent=2))
     else:
         print(f"new-lines-english: {d['urteil']} · {d.get('geprueft', 0)} added lines in "
               f"{d.get('dateien', 0)} files · measured state: {d.get('gemessener_stand', '?')}"

@@ -29,9 +29,9 @@ Counted in the file: section 4 has 1 MUST, 4.1 has 4, 4.2 has none; no other BCP
 
 | row | section | sentence | proofbundle status when violated |
 |---|---|---|---|
-| M1 | 4 | "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`." | without sizes `consistency_anchor_not_canonical` (first tag); with m alone `consistency_left_siblings_mismatch`; with m and n `consistency_anchor_position_mismatch` or `consistency_path_not_canonical` (see G1) |
-| M2 | 4.1 | "Its unprotected header MUST include: `vdp` (label 396): map." | `consistency_proof_missing`; not a map: `malformed` |
-| M3 | 4.1 | "It MUST contain the `consistency-proof` (-2) key, whose value is an array of one or more `ccf-consistency-proof` values, each relating one older root to the newer root." | `consistency_proof_missing` |
+| M1 | 4 | "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`." | `consistency_anchor_not_canonical` (first tag), with and without sizes; until 2026-10-24 also, with m alone, `consistency_left_siblings_mismatch` and, with m and n, `consistency_anchor_position_mismatch` or `consistency_path_not_canonical`, removed with -06 (see G1) |
+| M2 | 4.1 | "Its unprotected header MUST include: `vdp` (label 396): map." | `consistency_proof_missing`; not a map, or a map with neither -1 nor -2: `malformed` |
+| M3 | 4.1 | "It MUST contain the `consistency-proof` (-2) key, whose value is an array of one or more `ccf-consistency-proof` values, each relating one older root to the newer root." | no -2: `consistency_proof_missing`; an empty array: `malformed` |
 | M4 | 4.1 | "The payload is the newer root `R_n`, and MUST be detached." | `consistency_payload_attached` |
 | M5 | 4.1 | "When the array contains more than one consistency proof, every proof MUST compute to the same newer root." | `consistency_newer_roots_differ` (see G2) |
 
@@ -48,7 +48,7 @@ Section 4.2 has no BCP 14 keyword. Its normative content is the pseudo-code; eac
 |---|---|---|
 | A1 | `assert(VDP_LABEL in consistency_receipt.unprotected_header)` | `consistency_proof_missing` |
 | A2 | `assert(CONSISTENCY_PROOF_LABEL in vdp)` | `consistency_proof_missing` |
-| A3 | `assert(len(proofs) > 0)` | `consistency_proof_missing` |
+| A3 | `assert(len(proofs) > 0)` | `malformed`: an empty array is outside the -05 CDDL, which the reader checks before any status (ADR 0009, Decision 16) |
 | A4 | `assert(consistency_receipt.payload == nil)` | `consistency_payload_attached` |
 | A5 | `assert(len(payloads) > 0)`, "At least one proof must start from older_root" | `consistency_older_root_mismatch` |
 | A6 | `assert(verify_cose(consistency_receipt, payload))` for each payload | `signature_invalid`; no key: `needs_rp_trust` |
@@ -123,7 +123,7 @@ DOES, AS BUILT):
 | multiple proofs: a valid one and a corrupted one | `consistency_newer_roots_differ` | **accepts** |
 | anchor deeper than M1 requires (22 to 24) | `consistency_anchor_not_canonical` | **accepts** |
 | detached payload missing: the newer root attached | `consistency_payload_attached` | A4 fails |
-| detached payload not recomputable: -2 an empty array | `consistency_proof_missing` | A3 fails |
+| detached payload not recomputable: -2 an empty array | `malformed` | A3 fails |
 | inclusion and consistency proofs in one receipt | `confirmed` | accepts |
 
 Two more, proofbundle only:
@@ -143,7 +143,8 @@ G1. Is the anchor rule M1 a rule for verifiers, or for generation only?
 - Measured, full acceptance, one case only: the constructed 22-to-24 receipt with a deeper anchor (the service's own COSE_Sign1 over `R_24`, the proof computed from the ledger's leaves) passes 4.2 as written, signature check included. The third-party RFC 9162 verifier rejects the same proof. No other deeper-anchor receipt was built.
 - Why the first tag decides: the M1 anchor is the largest complete subtree ending at T[m-1], so its sibling in the newer tree lies to its right; a smaller node on the same edge first meets its left sibling inside that subtree. This is the argument; the counts above are the measurement.
 - Measured, S4-10 of `section4_vectors/` (Tiago Pinto's N1 = HASH(R_6 || HASH(d[6])), path [right HASH(d[6])], signed with a test key as the root of 7 leaves): without sizes the proof has the form of a canonical proof from 4 to 5, anchor equal to the older root and one right sibling, and passes the first tag; no check without m and n can tell the two apart. m = 6 alone decides it (popcount(6) - 1 = 1 left sibling required, none present); n = 7 alone does not (the right sibling reads as the canonical anchor for m = 4).
-- Measured, the reader of today: with both sizes it requires the tags of RFC 9162 2.1.4.1 for m and n (S4-09 and S4-10: `consistency_anchor_position_mismatch`); with older_size alone, the proof that recomputes older_root must have exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n (N1 without a txid: `consistency_left_siblings_mismatch`); passing it does not establish canonical tags. Without m it keeps the first tag.
+- Measured, the reader until 2026-10-24: with both sizes it required the tags of RFC 9162 2.1.4.1 for m and n (S4-09 and S4-10: `consistency_anchor_position_mismatch`); with older_size alone, the proof that recomputes older_root had to have exactly popcount(m) - 1 left siblings (N1 without a txid: `consistency_left_siblings_mismatch`). Without m it kept the first tag.
+- Answered by -06 (text retrieved from ietf.org on 2026-10-24, lines 541-553 and 677-683): a proof whose first element is a left sibling MUST be rejected, and "verification does not establish m, n, or that the anchor is the node required above", "which is not needed for the guarantee the receipt provides". The reader follows that since finding B53-6: the first tag with and without sizes, the sizes only for 0 < m < n. S4-10 is `confirmed` with m = 6 and n = 7, S4-09 and S4-13 are `consistency_anchor_not_canonical` with and without them.
 - Question: should a verifier reject a proof whose first path element is a left sibling, and should 4.2 then say so and drop "cannot be checked without knowing m"? Or is the anchor MUST for generation only, so that a verifier accepts a deeper anchor, and the RFC 9162 sentence of section 4 then describes what a producer emits, not every proof a verifier accepts?
 
 G2. The multiple-proof rule M5 is not checked by 4.2.
@@ -199,13 +200,13 @@ G8. Does "the same digests" in section 4 mean the same nodes, or the same values
 
 - Function: `proofbundle.scitt_ccf.verify_consistency_receipt(consistency_receipt, *, older_root, older_issuer, rp_trust, older_size=None, newer_size=None)`
 - Tree sizes: both from the caller, `older_size` bound like `older_root` to the state it came from, `newer_size` likewise. Draft -06 requires a source trusted independently of the receipt, so the receipt's own `ccf.v1` txid is never the newer size; it only has to agree with a `newer_size` the caller gives (G5, proofbundle's own rule).
-- With both sizes: 0 < m < n, and every proof carries the tags of RFC 9162 2.1.4.1 (the proof that recomputes `older_root` for m and n, any other for the m its anchor implies). With older_size alone, the proof that recomputes older_root must have exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it does not establish canonical tags. Without m: the first tag (G1).
-- Status set: `CONSISTENCY_STATUS_ORDER`, separate from the statement statuses, first match decides: `no_lib`, `malformed`, `outside_profile`, `consistency_proof_missing`, `consistency_payload_attached`, `consistency_newer_roots_differ`, `consistency_tree_sizes_invalid`, `consistency_newer_size_mismatch` (proofbundle's own rule), `consistency_path_not_canonical`, `consistency_anchor_position_mismatch`, `consistency_left_siblings_mismatch`, `consistency_anchor_not_canonical`, `consistency_older_root_mismatch`, `consistency_issuer_mismatch` (proofbundle's own rule), `signature_invalid`, `needs_rp_trust`.
-- Two successes: confirmed_without_tree_sizes means that the implemented checks passed without both tree sizes being available. It does not establish strict growth or the full anchor rule. confirmed requires both sizes and the corresponding checks; both sizes are the caller's, bound to the roots under the caller's trust model.
+- With both sizes: 0 < m < n (-06 section 4, lines 511-513 and 545-546). With and without sizes: the first tag (-06 lines 541-546, G1). Since -06 (finding B53-6, 2026-10-24) the sizes decide no anchor: -06 says verification does not establish it (lines 548-549, 681-683); until then both sizes required the tags of RFC 9162 2.1.4.1 and m alone popcount(m) - 1 left siblings.
+- Status set: `CONSISTENCY_STATUS_ORDER`, separate from the statement statuses, first match decides: `no_lib`, `malformed`, `outside_profile`, `consistency_proof_missing`, `consistency_payload_attached`, `consistency_newer_roots_differ`, `consistency_tree_sizes_invalid`, `consistency_newer_size_mismatch` (proofbundle's own rule), `consistency_anchor_not_canonical`, `consistency_older_root_mismatch`, `consistency_issuer_mismatch` (proofbundle's own rule), `signature_invalid`, `needs_rp_trust`.
+- Two successes: confirmed_without_tree_sizes means that every check passed without both tree sizes from the caller, so 0 < m < n was not checked. confirmed means the same with both sizes and 0 < m < n for them. Neither establishes m, n or the anchor position (-06 7.3, lines 845-846); both sizes are the caller's, bound to the roots under the caller's trust model.
 - Vectors: `section4_vectors/`, fifteen receipts with readings A and B (size-free and size-aware) and the reader's status without and with the sizes, checked by an independent `check_vectors.py`.
 - Not an anchor type and not reachable from any verify path (AP5 comes after 6.3.0).
 - Rust parity: registered `PENDING` in `scripts/rust_parity_registry.json`.
-- Tests: `tests/test_scitt_ccf_consistency.py`, synthetic and on the committed run-2 vector; seven single-rule mutants of the verifier each failed at least one test when it was first built, fifteen single mutants of the size rules and four of the left-sibling rule since, each failing at least one test.
+- Tests: `tests/test_scitt_ccf_consistency.py`, synthetic and on the committed run-2 vector; seven single-rule mutants of the verifier each failed at least one test when it was first built, fifteen single mutants of the size rules and four of the left-sibling rule since, each failing at least one test. The removal of the anchor rules of the sizes with -06 was measured with mutants that put each back; each fails at least one test of `tests/test_scitt_ccf_06.py` or `tests/test_scitt_ccf_consistency.py`.
 
 ## NOT MEASURED
 

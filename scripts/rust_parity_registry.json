@@ -19,6 +19,12 @@
       "crosscheck_refs": [],
       "notes": "Chain verification over AGT receipts: every receipt plus every parent_receipt_hash link, with an empty sequence refused rather than read as a clean chain. Python-only. PENDING."
     },
+    "proofbundle.adapters.trace_record.verify_trace_record": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Offline verification of a TRACE v0.2 Trust Record (agentrust-io/trace-spec at a131c640): a compact JWS (ES256, ES384, EdDSA) or the embedded Ed25519 form, RFC 8785 canonical bytes, the cnf binding to a relying-party key, the schema re-derived, freshness and relying-party expectations. Python-only; no Rust implementation. PENDING. The comparison with the TRACE reference library lives in interop/trace and is a second reading of a different kind: it compares against a foreign implementation, not against our own Rust verifier."
+    },
     "proofbundle.agent_review.validate_agent_review_predicate": {
       "status": "PENDING",
       "rust_subcommands": [],
@@ -372,16 +378,24 @@
       "notes": "DSSE-signed Run Ledger: crypto + structure over the exact signed bytes. Shares the content-root primitive (covered) but its own predicateType/structure validation is not ported."
     },
     "proofbundle.scitt_ccf.verify_statement_signature": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Python-only; tools/pb_verify_rs has no COSE reader. PENDING. An independent Rust reader was run offline on the same bytes (microsoft/scitt-verifier at bd6fb8ba, tools/scitt_ccf_external/rust_crosscheck.json), but that is a foreign tool, not this repository's verifier, so it does not change this status."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-scitt-statement-signature"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-scitt-statement-signature\""
+      ],
+      "notes": "scitt-ccf/v1 (ADR 0009): the Sig_structure of a SCITT signed statement and its signature under relying-party statement keys, the algorithm bound to key type and curve. Rust: tools/pb_verify_rs/src/scitt.rs, its own CBOR reader, statement header types, x5chain walk and key checks; ES256, ES384, PS256 and PS384 through the RustCrypto crates p256, p384 and rsa, the certificate through x509-cert. COVERED on the shared vectors tests/fixtures/scitt_statement_signature/vectors.json (real statements of both differential-corpus rounds and synthetic ones for every rule on the path), each run through both verifiers by crosscheck.py and tests/test_scitt_statement_signature_parity.py against the status and verdict it is built to produce. A statement file above the Rust input budget is malformed in both, the Rust exit class 3 included, as for any statement above the 65536 bytes the profile reads (Codex, PR 290). The RSA public exponent domain is the one OpenSSL takes on the Python side: any odd e below n for a modulus of up to 3072 bits and an e of at most 64 bits above that (Codex, PR 290), held on keys made at run time by tests/test_scitt_statement_signature_parity.py."
     },
     "proofbundle.scitt_ccf.verify_transparent_statement": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "scitt-ccf/v1 (ADR 0009): a Transparent Statement with CCF receipts, value 1 against the canonical root, value 3 recomputed from the statement bytes, value 4 from each inclusion proof, receipt signatures under rp_trust. Not an anchor type yet and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING. Compared offline against microsoft/scitt-verifier at bd6fb8ba on the same bytes: 58 values agree, 0 differ (tools/scitt_ccf_external/rust_crosscheck.json)."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-scitt-transparent-statement"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-scitt-transparent-statement\""
+      ],
+      "notes": "scitt-ccf/v1 (ADR 0009): a Transparent Statement with CCF receipts, value 1 against the canonical root, value 3 recomputed from the statement bytes, value 4 from each inclusion proof, receipt signatures under rp_trust. Not an anchor type yet and not reachable from any verify path. Rust: tools/pb_verify_rs/src/scitt_transparent.rs over src/scitt.rs, which share no reading code with the Python module: the receipts under label 394, the CDDL pass of each receipt and of every -05 proof family, the roots, the receipt signature under the service keys of rp_trust, and the status order. COVERED on the shared vectors tests/fixtures/scitt_transparent_statement/vectors.json (every Transparent Statement a local scitt-ccf-ledger served in both differential-corpus rounds, under the keysets and signers of their round and phase, the local-ledger control, and synthetic ones for every rule), each run through both verifiers by crosscheck.py and tests/test_scitt_transparent_statement_parity.py: Python == Rust on every field of the result but the prose, both == the built verdict, the Rust exit class included; a file above the Rust input budget is malformed in both. NOT COVERED: the prose (detail, and the text of ignored_trust, whose count is compared); trust the JSON trust file cannot carry (a tuple or a bytearray, which Python reads as a list and bytes; a canonical root that is not bytes, which Python reads as unbound); an RSA public exponent above 2^33 - 1 in a statement key, as for verify_statement_signature. Compared offline against microsoft/scitt-verifier at bd6fb8ba on the same bytes: 58 values agree, 0 differ (tools/scitt_ccf_external/rust_crosscheck.json)."
     },
     "proofbundle.sdjwt.verify_sd_jwt": {
       "status": "PENDING",
@@ -406,6 +420,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "ES256/ECDSA P-256 (RFC 7518 3.4) issuer-signature primitive for SD-JWT VC (Finding 20, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
+    },
+    "proofbundle.signature.verify_ecdsa_p384": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "ES384/ECDSA P-384 (RFC 7518 3.4) verification primitive, the P-384 counterpart of verify_ecdsa_p256, added for the TRACE Trust Record verifier (adapters.trace_record). Verification only. No Rust implementation yet. PENDING."
     },
     "proofbundle.signature.verify_ed25519": {
       "status": "COVERED",
@@ -484,10 +504,14 @@
       "notes": "Fail-closed shape validation of the verifier block (P19, 6.1.0): closed field set, sha256 digests, selfDeclared assurance, testResult requires vectorSet. Python-only in 6.1.0; a Rust second reader is owed before the block is anything but selfDeclared. PENDING."
     },
     "proofbundle.scitt_ccf.verify_consistency_receipt": {
-      "status": "PENDING",
-      "rust_subcommands": [],
-      "crosscheck_refs": [],
-      "notes": "draft-ietf-scitt-receipts-ccf-profile-05 section 4: a CCF consistency receipt against an older root the caller already verified; its own closed status set (CONSISTENCY_STATUS_ORDER). Not an anchor type and not reachable from any verify path, so no verdict or exit code of pb_verify_rs can diverge from it today. Python-only. PENDING until AP5 (owner answer N5 a). The proofs were compared with a third-party RFC 9162 implementation (transparency-dev/merkle at fbbcd741, tools/scitt_ccf_external/consistency_result.json), which is not this repository's verifier and does not change this status."
+      "status": "COVERED",
+      "rust_subcommands": [
+        "verify-scitt-consistency-receipt"
+      ],
+      "crosscheck_refs": [
+        "_run(\"verify-scitt-consistency-receipt\""
+      ],
+      "notes": "draft-ietf-scitt-receipts-ccf-profile-05 section 4: a CCF consistency receipt against an older root the caller already verified and the issuer of the receipt it came from; its own closed status set (CONSISTENCY_STATUS_ORDER). Not an anchor type and not reachable from any verify path. Rust: tools/pb_verify_rs/src/scitt_consistency.rs over the receipt pass of src/scitt_transparent.rs (run for the -2 family) and src/scitt.rs, which share no reading code with the Python module: the older root, the newer root and the first tag of every consistency proof, the section 4 status logic in CONSISTENCY_STATUS_ORDER, and the receipt signature over the newer root under the service keys of rp_trust. COVERED on the shared vectors tests/fixtures/scitt_consistency_receipt/vectors.json (the three signed states of one local scitt-ccf-ledger in tests/fixtures/scitt_ccf/local_ledger_consistency.json with the served consistency receipt and its variants, and synthetic ones for every rule), each run through both verifiers by crosscheck.py and tests/test_scitt_consistency_receipt_parity.py: Python == Rust on every field of the result but the prose, both == the built verdict, the Rust exit class included; a file above the Rust input budget is malformed in both. NOT COVERED: the prose (detail); the tree sizes older_size and newer_size, which the command line does not take: Rust gives what Python gives for a call without them, confirmed_without_tree_sizes with exit 0 for a receipt that passes every other check, older_size null and newer_size from the receipt's ccf.v1 txid by Python's rule, and the checks Python runs with the sizes are Python's alone; inputs the command line cannot carry, which the Python API accepts: a receipt, an older root or an older issuer that is not bytes, bytes and text (Python reads a receipt that is not bytes as malformed, an older root that is not bytes as not matching, an older issuer that is not text as another issuer), an older issuer that is not valid UTF-8, and trust the JSON trust file cannot carry (a tuple or a bytearray). The proofs were also compared with a third-party RFC 9162 implementation (transparency-dev/merkle at fbbcd741, tools/scitt_ccf_external/consistency_result.json)."
     }
   }
 }

@@ -405,7 +405,8 @@ class Round6DsseAnchorPqsig(unittest.TestCase):
             load_payload(big)
 
     def test_receipt_canonical_root_non_jcs_number_is_bundleformat(self):
-        # a crypto-valid attacker bundle can carry a 2**53 int / NaN (loads_strict admits them) that rfc8785
+        # a crypto-valid attacker bundle could carry a 2**53 int / NaN (loads_strict admitted them until 2026-10-22,
+        # a caller's own dict still can) that rfc8785
         # rejects — the `verify --require-anchor` path reached this; now typed, not a raw IntegerDomainError.
         from proofbundle.anchors import receipt_canonical_root
         for bundle in ({"schema": "x", "merkle": {"tree_size": 2 ** 53}}, {"x": float("nan")}):

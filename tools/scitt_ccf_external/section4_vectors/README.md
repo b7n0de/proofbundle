@@ -62,10 +62,14 @@ The size-free result runs B1–B13 without tree sizes and reports passes_size_fr
 ## The reader's two successes
 
 The vectors record `proofbundle.scitt_ccf.verify_consistency_receipt` without and with the sizes, as
-information. `confirmed_without_tree_sizes` means that the implemented checks passed without both
-tree sizes being available. It does not establish strict growth or the full anchor rule. `confirmed`
-requires both sizes and the corresponding checks; the sizes must be bound to the roots under the
-caller's trust model and our local txid-to-size rule.
+information. Since finding B53-6 the reader follows draft -06 (Figure 9, lines 633-658 of the text
+retrieved from ietf.org on 2026-10-24). `confirmed_without_tree_sizes` means that its checks passed
+without both tree sizes, so 0 < m < n was not checked. `confirmed` means the same with both sizes and
+0 < m < n for them. Neither establishes the anchor position section 4 requires of the producer: -06
+verification does not establish it (lines 548-549, 681-683), while reading B14 above, from -05, does
+check it. So S4-10 is `confirmed` with its sizes, and S4-09 and S4-13 are refused for their first left
+sibling (lines 541-546) with and without them. The sizes must be bound to the roots under the caller's
+trust model and our local txid-to-size rule.
 
 ## Tree sizes
 

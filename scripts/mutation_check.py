@@ -1249,6 +1249,68 @@ _ABBRUCH_BANNER = re.compile(r"^!+ .* !+$", re.M)
 _RC_NICHT_MESSBAR = frozenset({2, 3, 4})
 
 
+#: The head of a section in which pytest reproduces a test's OWN output.
+_AUFGEFANGEN_AUF = re.compile(r"^-+ Captured [^\n]*-+\s*$")
+
+#: A line that opens a new top-level section and so closes the captured block. pytest draws its
+#: section separators from `=`, `_` and `-`.
+#:
+#: `!` IS DELIBERATELY NOT AMONG THEM, and the first version had it. With it, the captured
+#: diagnostic line `! ordinary diagnostic !` closed the block ITSELF, stayed in the text and was
+#: still read as a banner: the cut had no effect, and exactly the case it was built against got
+#: through. Found by its own property node, not while writing it.
+_ABSCHNITT_ZU = re.compile(r"^(?:={3,}|_{3,}|-{3,})")
+
+#: A separator pytest draws WITH a title on the top level (`=== FAILURES ===`). Its width is the
+#: run's full width, unless the title is longer than that.
+_TRENNZEILE_MIT_TITEL = re.compile(r"^=+ \S.* =+\s*$")
+
+
+def _ohne_aufgefangene_ausgabe(text: str) -> str:
+    """The report text WITHOUT the sections pytest labels as the test's output.
+
+    WHY THIS SURFACE AND NOT THE WHOLE TEXT. What a test writes to stdout is text of the TEST, not
+    of the runner. pytest says so itself by framing it under `Captured stdout call`. A guard that
+    looks for the form of a runner banner has no business there, and that is exactly where it
+    misfired on 2026-09-13 (Codex r3999288387).
+
+    HONEST LIMIT: the sections pytest labels are recognised. If a test prints its lines without
+    capture, for example with `-s`, they stand on the top level and cannot be told apart from a
+    banner. The mutation run of this gate captures.
+
+    THE BLOCK CLOSES ONLY AT A SEPARATOR OF PYTEST'S WIDTH (Codex on pull request 371, round one,
+    P2). The first version closed it at any line that began with three of `-`, `=` or `_`, so a test
+    that printed `---` and then `! ordinary diagnostic !` put the second line back on the top level
+    and the run counted as NOT MEASURABLE. pytest draws every separator whose title fits to the same
+    full width of the run (`TerminalWriter.sep` fills the line to `fullwidth`), and the `Captured`
+    line that opened the block has that width. A line the test prints in the same shape AND the same
+    width still closes the block; that is the limit of reading a text, and it is named here.
+
+    A HEADER INSIDE A BLOCK DOES NOT SET ITS WIDTH, AND A WIDE HEADER STILL CLOSES (counter-reading
+    of pull request 371, F1, P2). The width was taken from every `Captured` line, also from one the
+    test printed itself: a narrow `-- Captured x --` in its output reset it, no separator of the run
+    closed the block again, and a real abort banner after it was cut away with the test's output. A
+    header whose title is longer than the run's width is wider than every separator after it and kept
+    the block open the same way. Now a header opens a block only when none is open or when it has the
+    block's width, and a block also closes at the run's full width, read from the first titled `=`
+    separator on the top level (`=== FAILURES ===`).
+    """
+    raus, drin, breite, voll = [], False, 0, None
+    for zeile in text.splitlines(keepends=True):
+        roh = zeile.rstrip("\n")
+        w = len(roh.rstrip())
+        if drin and _ABSCHNITT_ZU.match(zeile) and w in (breite, voll):
+            drin = False
+        if not drin and _AUFGEFANGEN_AUF.match(roh):
+            drin, breite = True, w
+            continue
+        if not drin:
+            if voll is None and _TRENNZEILE_MIT_TITEL.match(roh):
+                voll = w
+            raus.append(zeile)
+    return "".join(raus)
+
+
 def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | None:
     """Das Urteil ueber einen Lauf: RUECKGABEWERT zuerst, dann die strukturierte Quelle, dann Text.
 
@@ -1271,9 +1333,37 @@ def _rote_aus_lauf(bericht: Path, text: str, rc: int | None = None) -> int | Non
     # Deshalb jetzt die FORM statt des Wortlauts. Eine Aufzaehlung von Abbruchgruenden waere beim
     # naechsten stillschweigend zu kurz — dieselbe Lehre wie beim Ersatzwert in
     # `pre_tag_receipt_lib.verify_receipt`, wo eine Blockliste durch eine Formpruefung ersetzt wurde.
-    # Die fuenf Ausrufezeichen halten die Grenze zu einem Test, der das Wort in einem Traceback
-    # ausgibt: pytest rahmt seine Banner, gewoehnlicher Text tut das nicht.
-    if _ABBRUCH_BANNER.search(text) or re.search(r"^INTERNALERROR", text, re.M):
+    # A SENTENCE STOOD HERE THAT THE FORM DID NOT CARRY: it said five exclamation marks hold the
+    # border to a test that prints the word in a traceback. Five do not occur in the pattern, which
+    # asks for ONE on each side. The text told the hardening from wording to form and then described
+    # a property the form does not have. The return code draws the border, see above; the pattern
+    # is the fallback for when there is none.
+    # DO NOT SEARCH THE TEST'S CAPTURED OUTPUT. Codex r3999288387, measured and confirmed:
+    # `^!+ .* !+$` asks for ONE exclamation mark on each side, not five, and so it matches the
+    # ordinary diagnostic line of a FAILED test (`! ordinary diagnostic !`). pytest copies such a
+    # line from the captured stdout into its failure report. With rc=1 and a valid report the run
+    # then counted as NOT MEASURABLE and the mandatory gate aborted, although pytest finished
+    # normally. A measured red became an abort.
+    #
+    # THE FIRST REMEDY OF THE REPORT WOULD HAVE BEEN WRONG, and that is the actual finding here. It
+    # reads "apply the heuristic only when there is no return code". Measured,
+    # `tests/test_mutationstor_sammler_sieht_die_freigabeflaeche.py` holds a real counter-case:
+    # `pytest.exit()` writes its banner AND returns rc=1, the summary says `1 failed, 1 passed`, and
+    # the test that should have killed the mutant never ran. Switching the form check off whenever
+    # a return code is present loses exactly this protection. A repair that trades one measured
+    # case for another is none.
+    #
+    # The difference lies neither in the return code nor in the wording but in the PLACE: pytest
+    # writes its banners on the top level of the report, and what a test prints itself stands in a
+    # section that pytest EXPLICITLY labels as the test's output (`----- Captured stdout call
+    # -----`). Those sections are taken out before the form check. The FORM is still what is asked,
+    # only on the right surface, and there is no list of abort reasons that would silently be one
+    # short next time.
+    # INTERNALERROR IS READ ON THE SAME SURFACE (counter-reading of pull request 371, F2, P2). It was
+    # still searched in the whole text, so a captured line of a test that began with the word made a
+    # measured red run NOT MEASURABLE: the consequence of Codex r3999288387 with another pattern.
+    oben = _ohne_aufgefangene_ausgabe(text)
+    if _ABBRUCH_BANNER.search(oben) or re.search(r"^INTERNALERROR", oben, re.M):
         return None
     aus_bericht = _rote_aus_bericht(bericht)
     return aus_bericht if aus_bericht is not None else _rote_aus_text(text)
@@ -1325,12 +1415,13 @@ def _rote_aus_text(text: str) -> int | None:
 
 def _tracked_files(repo: Path) -> list[str]:
     """Tracked paths (current working-tree bytes are copied, so uncommitted edits ARE tested)."""
-    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
-                          capture_output=True, text=True)
+    # AS BYTES, decoded as Python decodes a file name (counter-reading of pull request 375, F11): a
+    # strict text decoder raised on a name that is not UTF-8.
+    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True)
     if proc.returncode != 0:
         raise SystemExit("mutation_check: `git ls-files` failed; the isolated work tree needs "
                          "a git checkout (CI and dev clones both have one)")
-    return [rel for rel in proc.stdout.split("\0") if rel]
+    return [os.fsdecode(rel) for rel in proc.stdout.split(b"\0") if rel]
 
 
 def _prepare_workdir(repo: Path, work: Path) -> None:
@@ -1533,11 +1624,13 @@ def _dateien_des_baums(work: Path) -> list[str]:
         top = subprocess.run(["git", "-C", str(work), "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, errors="replace", timeout=60)
         if top.returncode == 0 and Path(top.stdout.strip()).resolve() == work.resolve():
+            # As bytes (counter-reading of pull request 375, F11): `errors="replace"` turned a name
+            # that is not UTF-8 into one that opens no file, and it fell out of the list.
             ls = subprocess.run(["git", "-C", str(work), "ls-files", "-z", "--cached", "--others",
-                                 "--exclude-standard"],
-                                capture_output=True, text=True, errors="replace", timeout=120)
+                                 "--exclude-standard"], capture_output=True, timeout=120)
             if ls.returncode == 0:
-                return sorted({r for r in ls.stdout.split("\0") if r and (work / r).is_file()})
+                namen = (os.fsdecode(n) for n in ls.stdout.split(b"\0") if n)
+                return sorted({r for r in namen if (work / r).is_file()})
     except (OSError, subprocess.SubprocessError):
         pass
     gefunden: list[str] = []

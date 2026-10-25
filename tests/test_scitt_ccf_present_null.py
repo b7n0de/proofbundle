@@ -123,13 +123,13 @@ def test_a_consistency_receipt_refuses_a_present_null_in_vdp(unprot, status):
 # crit in a protected header (_crit_ok), statement and receipt
 # ------------------------------------------------------------------------------------------------
 def test_a_statement_refuses_a_present_null_crit():
-    """Any change to the statement's protected header breaks its signature; the profile decides first,
-    so an unknown label that is not crit reads statement_signature_invalid and a null crit
-    outside_profile, as an empty crit already did."""
+    """Any change to the statement's protected header breaks its signature; the CDDL pass decides
+    first (pull request 407: crit is [+ label]), so an unknown label that is not crit reads
+    statement_signature_invalid and a null crit malformed, as an empty crit does."""
     v, rp = _fixture()
     assert _inclusion(v, rp, prot_extra={99: 1})[0] == "statement_signature_invalid"
-    assert _inclusion(v, rp, prot_extra={2: []})[0] == "outside_profile"
-    assert _inclusion(v, rp, prot_extra={2: None})[0] == "outside_profile"
+    assert _inclusion(v, rp, prot_extra={2: []})[0] == "malformed"
+    assert _inclusion(v, rp, prot_extra={2: None})[0] == "malformed"
 
 
 def test_a_receipt_refuses_a_present_null_crit():
@@ -138,8 +138,9 @@ def test_a_receipt_refuses_a_present_null_crit():
     prot = dict(cbor2.loads(cbor2.loads(decode_b64(v["newer_receipt_b64"])).value[0]))
     unprot = {396: {-2: [_p1924(v)]}}
     assert _consistency(v, rp, unprot, prot=prot, key=OTHER) == "confirmed"
-    assert _consistency(v, rp, unprot, prot={**prot, 2: None}, key=OTHER) == "outside_profile"
-    assert _consistency(v, rp, unprot, prot={**prot, 2: []}, key=OTHER) == "outside_profile"
+    # the CDDL pass of pull request 407 (crit is [+ label]) refuses both before the profile
+    assert _consistency(v, rp, unprot, prot={**prot, 2: None}, key=OTHER) == "malformed"
+    assert _consistency(v, rp, unprot, prot={**prot, 2: []}, key=OTHER) == "malformed"
 
 
 # ------------------------------------------------------------------------------------------------

@@ -58,6 +58,83 @@ def _letzter_treffer(rx: "re.Pattern[str]", text: str):
     return None
 
 
+def _importiert_unittest_lexikalisch(text: str) -> bool:
+    """Does the source import ``unittest``? Read from its TOKENS, not from the rest of a line.
+
+    Codex on pull request 371, round one, P2, measured: the pattern below took the rest of the line
+    after `import`, so `import os  # unittest is intentionally not used` and `import os as unittest`
+    counted as an import of unittest, and a backslash continuation `import os, \\` + `unittest` did
+    not. The syntax tree read all three the other way, and `evaluate()` refused valid modules.
+
+    STILL A SECOND READER, and that is the point of the owner order of 2026-09-07: this one reads the
+    token stream of `tokenize`, the other one the syntax tree of `ast`. A comment and a string are
+    their own tokens here, a continuation is no line break, and the names of the statement are read
+    as names, with `as` and its alias skipped. A source the tokenizer refuses counts as importing,
+    so it falls out of the pytest-only set on both paths, the way the syntax tree handles a file it
+    cannot parse.
+    """
+    import io  # noqa: PLC0415
+    import tokenize  # noqa: PLC0415
+    try:
+        toks = [t for t in tokenize.generate_tokens(io.StringIO(text).readline)
+                if t.type not in (tokenize.COMMENT, tokenize.NL)]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return True
+
+    def name_at(i: int) -> tuple[str, int]:
+        """A dotted name from position i: (its first part, the position after it)."""
+        erster = toks[i].string if i < len(toks) and toks[i].type == tokenize.NAME else ""
+        while i < len(toks) and toks[i].type == tokenize.NAME:
+            i += 1
+            if i < len(toks) and toks[i].type == tokenize.OP and toks[i].string == ".":
+                i += 1
+            else:
+                break
+        return erster, i
+
+    # A statement begins after a line, an indentation change, `;`, and after the `:` of a compound
+    # statement written on one line (`if x: import unittest`). After `:` an `import` or `from` can
+    # only be a statement: no expression holds either word in that place.
+    anfang = True
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t.type in (tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT) or (
+                t.type == tokenize.OP and t.string in (";", ":")):
+            anfang = True
+            i += 1
+            continue
+        if anfang and t.type == tokenize.NAME and t.string == "import":
+            i += 1
+            while True:
+                erster, i = name_at(i)
+                if erster == "unittest":
+                    return True
+                if i < len(toks) and toks[i].type == tokenize.NAME and toks[i].string == "as":
+                    i += 2
+                if i < len(toks) and toks[i].type == tokenize.OP and toks[i].string == ",":
+                    i += 1
+                    continue
+                break
+            # No step past the token the statement ended on: it may be the NEWLINE or `;` that
+            # opens the next statement.
+            anfang = False
+            continue
+        if anfang and t.type == tokenize.NAME and t.string == "from":
+            i += 1
+            while i < len(toks) and toks[i].type == tokenize.OP and toks[i].string in (".", "..."):
+                i += 1
+            # The relative level is ignored, as `pytest_only_modules_ast` ignores it.
+            erster, i = name_at(i)
+            if erster == "unittest":
+                return True
+            anfang = False
+            continue
+        anfang = False
+        i += 1
+    return False
+
+
 def pytest_only_modules(tests_dir: Path) -> list[str]:
     """Every ``tests/test_*.py`` whose SOURCE does not import ``unittest`` — the class the legacy
     unittest-discover runner cannot see. Re-derived fresh each run (no hand-maintained list)."""
@@ -67,7 +144,24 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if not re.search(r"^\s*(?:import\s+unittest|from\s+unittest\b)", text, re.MULTILINE):
+        # EVERY NAME OF THE STATEMENT, not only the first. Codex r3999288389, measured and
+        # confirmed: the old pattern required `unittest` DIRECTLY after `import` and did not see
+        # `import os, unittest`. The syntax tree saw it, the two derivations DISAGREED, and the
+        # equality check in `evaluate()` reported ok=False for a fully valid test module, so the
+        # gate refused a correct addition.
+        #
+        # NOT the other way, and this corrects an earlier answer of this house: REPLACING the text
+        # path with the AST path would have removed the second derivation, and that is no accident
+        # but the owner order of 2026-09-07 (guard sweep P1). Two readers with different failure
+        # geometry are the guard; whoever drops one keeps the count and loses the check. The right
+        # remedy is that both measure THE SAME property, so that their difference is again a
+        # statement about the subject instead of about the weaker reading.
+        #
+        # NAMES, NOT THE REST OF THE LINE (Codex on pull request 371, round one, P2). The pattern
+        # that stood here, `^\s*(?:import\s+[^\n]*\bunittest\b|from\s+unittest\b)`, read a comment
+        # and an alias as an import and missed a backslash continuation; the reader below takes the
+        # names of each import statement from the token stream.
+        if not _importiert_unittest_lexikalisch(text):
             out.append(path.name)
     return out
 

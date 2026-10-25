@@ -17,6 +17,12 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_jcs = "0.2"
 base64 = "0.22"
 hex = "0.4"
+# scitt-ccf/v1 statement signatures (ADR 0009): ES256, ES384, PS256, PS384 and the x5chain
+# end-entity certificate. RustCrypto crates; the COSE and CBOR reading is this crate's own.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+rsa = { version = "0.9", default-features = false, features = ["std"] }
+x509-cert = { version = "0.2", default-features = false }
 
 [profile.release]
 opt-level = 2

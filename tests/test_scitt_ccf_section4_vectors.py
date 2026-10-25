@@ -78,7 +78,11 @@ def test_the_reader_gives_the_status_each_vector_records_without_and_with_the_si
         assert got == {v["id"]: v["proofbundle_reader"][key] for v in _vectors()}, key
 
 
-def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_to_s4_10():
+def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_and_s4_10():
+    """Reading B is the -05 reading these vectors were built for, B14 included; the reader follows -06 since
+    finding B53-6. With the sizes it refuses S4-08 for 0 < m < n (-06 lines 511-513, 545-546) and confirms
+    S4-10, which Figure 9 of -06 accepts (lines 633-658, 548-549); S4-09 it refuses with and without them for
+    its first left sibling (lines 541-546), where B14 refuses it for its anchor position."""
     vs = {v["id"]: v for v in _vectors()}
     assert not [i for i, v in vs.items() if v["proofbundle_reader"]["status_without_sizes"] == "confirmed"]
     got = {i: (vs[i]["older_size"], vs[i]["newer_size"], vs[i]["proofbundle_reader"]["status_without_sizes"],
@@ -86,10 +90,9 @@ def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_to_s4_10(
                vs[i]["reading_b_size_aware"]["result"]) for i in ("S4-08", "S4-09", "S4-10")}
     assert got == {
         "S4-08": (24, 24, "consistency_anchor_not_canonical", "consistency_tree_sizes_invalid", "reject", "reject"),
-        "S4-09": (22, 24, "consistency_anchor_not_canonical", "consistency_anchor_position_mismatch", "reject",
+        "S4-09": (22, 24, "consistency_anchor_not_canonical", "consistency_anchor_not_canonical", "reject",
                   "reject"),
-        "S4-10": (6, 7, "confirmed_without_tree_sizes", "consistency_anchor_position_mismatch",
-                  "passes_size_free_checks", "reject"),
+        "S4-10": (6, 7, "confirmed_without_tree_sizes", "confirmed", "passes_size_free_checks", "reject"),
     }
 
 

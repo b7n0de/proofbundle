@@ -134,6 +134,10 @@ def _benign_fixtures() -> dict[str, object]:
         # the older root the caller already verified and that receipt's issuer. Context only; the
         # fuzzed primary is the consistency receipt's bytes.
         "older_root": _ZERO32, "older_issuer": "",
+        # The relying party's key list of the TRACE verifier (adapters.trace_record): one public
+        # Ed25519 JWK, so the call reaches the fuzzed record.
+        "trusted_keys": [{"kty": "OKP", "crv": "Ed25519",
+                          "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}],
     }
 
 
