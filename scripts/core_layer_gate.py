@@ -1044,18 +1044,6 @@ class _Scope:
 #: binding fell out of the set, and `x.getenv("X")` read the environment unseen where main reports it. The bound input
 #: of Codex thread 4370601942 stays bounded at 4096 (0.5 s under a limit of 256 MiB).
 _ALIAS_LIMIT = 4096
-#: The functions that evaluate a postponed annotation, under the names they resolve to, and the parameters by which a
-#: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`). `inspect.signature` and
-#: `Signature.from_callable` evaluate it with `eval_str=True`, `typing.evaluate_forward_ref` from 3.14 on (the
-#: counter-reading of pull request 420, F3, P2), `typing_extensions.get_annotations` where the library has it.
-_ANNOTATION_EVALUATORS = frozenset({"typing.get_type_hints", "typing_extensions.get_type_hints",
-                                    "inspect.get_annotations", "annotationlib.get_annotations",
-                                    "typing_extensions.get_annotations",
-                                    "inspect.signature", "inspect.Signature.from_callable",
-                                    "typing.evaluate_forward_ref", "typing_extensions.evaluate_forward_ref"})
-#: `eval` and `exec` evaluate a string in the namespaces handed in, and without them in the frame of their caller.
-_EVAL_FUNCTIONS = frozenset({"builtins.eval", "builtins.exec"})
-_NAMESPACE_KEYWORDS = frozenset({"globalns", "localns", "globals", "locals"})
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
@@ -1148,8 +1136,7 @@ class _Names:
         for s in self._scopes:
             for name in [n for n, held in s.alias.items() if held == {_UNRESOLVED}]:
                 del s.alias[name]
-        # The aliases are final here, so each answer is kept from now on, also for the reading of the module that
-        # looks for a namespace handed in (`_module_hands_a_namespace`).
+        # The aliases are final here, so each answer is kept from now on.
         self._memo = {}
         self._annotations_in_handed_namespaces(tree)
 
@@ -1215,8 +1202,8 @@ class _Names:
 
         POSTPONED, AN ANNOTATION IS A STRING (second counter-reading of pull request 395, F-D, P3): under
         `from __future__ import annotations` nothing runs where the def runs, and `typing.get_type_hints` evaluates
-        the string in the globals of the module. Read in the scope around the function, an alias of the enclosing
-        function made a finding of code that never runs; it is read in the module scope."""
+        the string in the globals of the module, so it is read in the module scope, and in the scope around the
+        function as well (`_annotations_in_handed_namespaces`), where a caller may hand an evaluator its names."""
         where = self.module if self._postponed else scope
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
@@ -1229,78 +1216,17 @@ class _Names:
             if where is not scope:
                 self._pending.append((returns, scope))
 
-    def _hands_a_namespace(self, call: ast.Call, scope: _Scope) -> bool:
-        """Whether a call may evaluate annotations in a namespace its caller hands in: `typing.get_type_hints(f, None,
-        {"o": o})`, `inspect.get_annotations(f, eval_str=True, locals={"o": o})`, `inspect.signature(f, eval_str=True,
-        locals=...)`, `ForwardRef(s).evaluate(locals=...)`, `eval(s, None, ns)`, or `**kwargs` the gate cannot read.
-
-        BY WHAT THE CALL HANDS, NOT BY THE NAME OF THE CALLEE (foxtrot's lens on 93c21dda, the class of F3): a list of
-        callees missed every evaluator spelled otherwise, a ForwardRef the gate cannot trace to its class
-        (`refs[0]._evaluate(None, ns, frozenset())`, `mk(s)._evaluate(...)`), `typing_extensions.get_annotations`
-        and `eval`, and main reports `os.getenv` there. A namespace handed by one of its keywords counts whatever the
-        callee; an `evaluate` or `_evaluate` counts with any argument, whatever the receiver; `eval` and `exec` count
-        always, since without a namespace they evaluate in the frame of their caller. Counting too many takes the GREEN
-        of FD-4 only from a module that may evaluate, where main reports RED as well."""
-        if any(k.arg in _NAMESPACE_KEYWORDS for k in call.keywords):
-            return True
-        unread = any(k.arg is None for k in call.keywords) or any(isinstance(a, ast.Starred) for a in call.args)
-        if isinstance(call.func, ast.Attribute) and call.func.attr in ("evaluate", "_evaluate"):
-            # `_evaluate(globalns, localns, ...)` takes the namespaces by position up to 3.13.
-            return unread or (call.func.attr == "_evaluate" and bool(call.args))
-        # A new set, never `&=`: `_quals` hands back the set it keeps in `_memo`, and changing it in place emptied the
-        # names of every call this looked at (`len` among them), so `len(sys.modules)` stopped being a read.
-        held = self._quals(call.func, self.scope_of.get(id(call.func), scope))
-        if held & _EVAL_FUNCTIONS:
-            return True
-        quals = held & _ANNOTATION_EVALUATORS
-        if not quals:
-            return False
-        positional = any(q.endswith(".get_type_hints") for q in quals)
-        return unread or (positional and len(call.args) >= 2)
-
-    def _module_hands_a_namespace(self, tree: ast.AST) -> bool:
-        """Whether anything in the module may hand an evaluator a namespace: a call that does (`_hands_a_namespace`), or
-        an evaluator taken as a value other than by a plain alias, whose arguments the gate does not see
-        (`functools.partial(typing.get_type_hints, localns=ns)`). Code under `if TYPE_CHECKING:` never runs and is not
-        read."""
-        parent: dict[int, ast.AST] = {}
-        for node in ast.walk(tree):
-            for child in ast.iter_child_nodes(node):
-                parent[id(child)] = node
-        for node in ast.walk(tree):
-            scope = self.scope_of.get(id(node))
-            if scope is None:
-                continue
-            if isinstance(node, ast.Call) and self._hands_a_namespace(node, scope):
-                return True
-            if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) \
-                    and self._quals(node, scope) & (_ANNOTATION_EVALUATORS | _EVAL_FUNCTIONS):
-                up = parent.get(id(node))
-                if isinstance(up, ast.Call) and up.func is node:
-                    continue
-                if isinstance(up, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and up.value is node:
-                    continue
-                return True
-        return False
-
     def _annotations_in_handed_namespaces(self, tree: ast.AST) -> None:
-        """A POSTPONED ANNOTATION IS READ WHERE A CALLER HANDS ITS NAMES IN (Codex thread 4370601943 on pull request
-        420, P2): read in the module scope only, `o = os` in a factory that calls `typing.get_type_hints(inner,
-        localns={"o": o})` read the environment while the gate reported nothing, and main reported it. Where the
-        module hands a namespace to a function that evaluates annotations, the annotation is read in the scope of the
-        function around its def as well. Read there always, an alias of the function made a finding of code that never
-        runs (FD-4 of the second counter-reading), and without such a call in the module it still is not.
-
-        ANYWHERE IN THE MODULE, IN ANY FORM (the counter-reading of pull request 420, F3, P2): only a call in the
-        function around the def counted, so `inspect.signature(inner, eval_str=True, locals=...)`, `functools.partial`
-        of an evaluator, a helper of the module that hands the namespace on, the caller of the factory, and on 3.14
-        `ForwardRef(...).evaluate(locals=...)` and `typing.evaluate_forward_ref` read the environment unseen where main
-        reports it. Which namespace reaches which def is data flow the gate does not follow, so one such call in the
-        module is enough. What stays out of reach: a namespace handed in from another module."""
-        # ONCE PER MODULE (counter-reading of pull request 420, F5, P3): the function around the def was searched again
-        # for every pending annotation, so a factory with 500 annotated inner functions took 42 s (main 0.4 s).
-        if not self._pending or not self._module_hands_a_namespace(tree):
-            return
+        """A POSTPONED ANNOTATION IS READ IN THE SCOPE AROUND ITS DEF AS WELL, ALWAYS, AS MAIN READS IT (owner card
+        OA-2d52c8b607, option A). Read in the module scope only, `o = os` in a factory that calls
+        `typing.get_type_hints(inner, localns={"o": o})` read the environment while the gate reported nothing (Codex
+        thread 4370601943 on pull request 420). Read there only where the module may hand an evaluator a namespace,
+        every way of telling that came out open three times on one day: F3 of the counter-reading of pull request 420
+        (seven forms), foxtrot's lens on 93c21dda (four) and on ec754b36 (three by position, `typing._eval_type`,
+        `getattr(ref, "_evaluate")`, `operator.methodcaller`), and a namespace that maps the name to the module's `os`
+        reads no alias at all. Which namespace reaches which def is data flow the gate does not follow, so it does not
+        guess. The cost is FD-4 of the second counter-reading of pull request 395: an alias of the enclosing function
+        in an annotation nobody evaluates is a finding again, as on main."""
         for annotation, scope in self._pending:
             for n in ast.walk(annotation):
                 self._also[id(n)] = scope

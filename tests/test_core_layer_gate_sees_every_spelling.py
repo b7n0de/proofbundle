@@ -1068,16 +1068,18 @@ _POSTPONED = "from __future__ import annotations\n"
 
 
 @pytest.mark.parametrize("code, shown, verdict", [
-    (_POSTPONED + _ANNOTATED, "o.getenv('X')", "GREEN"),
+    (_POSTPONED + _ANNOTATED, "o.getenv('X')", "RED"),
     (_ANNOTATED, "TEST_ONLY", "RED"),
     (_POSTPONED + "import os\ndef inner(x: os.getenv('X')) -> None:\n    return None\nVALUE = inner\n", "os.getenv('X')", "RED"),
 ], ids=["postponed, a name of the enclosing function", "evaluated, where the def runs",
         "postponed, a name of the module that get_type_hints reads"])
 def test_FD_an_annotation_under_postponed_evaluation_is_read_where_its_string_is_read(tmp_path, code, shown, verdict):
-    """FD-4 (P3): under `from __future__ import annotations` the annotation of a nested function stays a string, so the
-    alias of the enclosing function never meets it, and reading it there made a finding of code that never runs.
-    Evaluated, it runs where the def runs. Postponed, `typing.get_type_hints` reads the string in the globals of the
-    module, so a name of the module scope still counts."""
+    """FD-4 (P3) of the second counter-reading of pull request 395: under `from __future__ import annotations` the
+    annotation of a nested function stays a string, and nothing evaluates it here. It is a finding all the same, as on
+    main (owner card OA-2d52c8b607, option A): every way of telling that no caller hands its names to an evaluator came
+    out open, so the gate reads it in the scope around the def as well. Evaluated, it runs where the def runs.
+    Postponed, `typing.get_type_hints` reads the string in the globals of the module, so a name of the module scope
+    counts too."""
     args = build(tmp_path, {"core.py": code})
     assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE.__annotations__['x'])") == shown
     rc, report = gate(args)
@@ -1234,19 +1236,34 @@ HANDED_OUTSIDE_THE_LIST = {
         "", "    return eval(inner.__annotations__['x'])\n", "VALUE = factory()\n", True),
     "eval taken as a value": (
         "", "    return functools.partial(eval, inner.__annotations__['x'])({'o': o})\n", "VALUE = factory()\n", True),
-    # Held before the class fix as well; it keeps the branch for a namespace the gate cannot read.
     "get_type_hints with the namespace unpacked from a dict": (
         "", "    return typing.get_type_hints(inner, **{'localns': {'o': o}})\n", "VALUE = factory()\n", True),
+    # foxtrot's lens on ec754b36: a namespace by position to a callee no list names.
+    "typing._eval_type with the namespace by position": (
+        "", "    return typing._eval_type(typing.ForwardRef(inner.__annotations__['x']), None, {'o': o})\n",
+        "VALUE = factory()\n", sys.version_info < (3, 14)),
+    "getattr of _evaluate with the namespace by position": (
+        "", "    return getattr(typing.ForwardRef(inner.__annotations__['x']), '_evaluate')(None, {'o': o}, frozenset())\n",
+        "VALUE = factory()\n", sys.version_info < (3, 12)),
+    "operator.methodcaller of _evaluate": (
+        "import operator\n",
+        "    return operator.methodcaller('_evaluate', None, {'o': o}, frozenset())"
+        "(typing.ForwardRef(inner.__annotations__['x']))\n", "VALUE = factory()\n", sys.version_info < (3, 12)),
+    # A namespace that maps the name to the module's own `os`: the alias of the factory is never read.
+    "get_type_hints with the module's os under the name of the alias": (
+        "", "    return typing.get_type_hints(inner, localns={'o': os})\n", "VALUE = factory()\n", True),
 }
 
 
 @pytest.mark.parametrize("before, body, after, runs", list(HANDED_OUTSIDE_THE_LIST.values()),
                          ids=list(HANDED_OUTSIDE_THE_LIST))
 def test_RED_a_postponed_annotation_read_by_a_callee_the_list_did_not_name(tmp_path, before, body, after, runs):
-    """foxtrot's lens on 93c21dda, the class of F3: whether a namespace reaches an evaluator was decided by the spelling
-    of the callee. A ForwardRef the gate cannot trace to its class, `typing_extensions.get_annotations` and `eval`
-    read the environment where main reports `os.getenv`, and the gate said GREEN or lost the finding. `eval` without a
-    namespace evaluates in the frame of its caller, where the alias of the factory is bound."""
+    """foxtrot's lenses on 93c21dda and ec754b36, the class of F3: whether a namespace reaches an evaluator was decided
+    by the spelling of the callee, and then by what the call hands. A ForwardRef the gate cannot trace to its class,
+    `typing_extensions.get_annotations`, `eval`, a namespace by position to `typing._eval_type`, `getattr` or
+    `operator.methodcaller`, and a namespace that maps the name to the module's `os` read the environment where main
+    reports `os.getenv`, and the gate said GREEN or lost the finding. The gate now reads the annotation in the scope
+    around the def always (owner card OA-2d52c8b607, option A)."""
     args = build(tmp_path, {"core.py": _FACTORY.format(before=before, body=body, after=after)})
     if runs:
         assert run_core(tmp_path, _COUNTED) == "1"
@@ -1255,11 +1272,11 @@ def test_RED_a_postponed_annotation_read_by_a_callee_the_list_did_not_name(tmp_p
     assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
 
 
-def test_looking_for_a_handed_namespace_leaves_the_names_of_every_call_as_they_were():
-    """The class fix first narrowed the set `_quals` keeps in `_memo` in place (`quals &= ...`), so the names of every
-    call the module search looked at were gone afterwards: `len` stood for nothing, `len(sys.modules)` became a use of
-    a namespace other than by reading, and the gate was RED on this tree. The search reads names, it never changes
-    them."""
+def test_reading_postponed_annotations_leaves_the_names_of_every_call_as_they_were():
+    """A search over the module once narrowed the set `_quals` keeps in `_memo` in place (`quals &= ...`, at
+    3d3cd280), so afterwards `len` stood for nothing, `len(sys.modules)` became a use of a namespace other than by
+    reading, and the gate was RED on this tree. Whatever reads the postponed annotations reads names, it never
+    changes them."""
     import ast
     m = _gate_module()
     source = ("from __future__ import annotations\nimport sys\ndef outer():\n    def inner(x: int) -> None:\n"
@@ -1271,9 +1288,8 @@ def test_looking_for_a_handed_namespace_leaves_the_names_of_every_call_as_they_w
 
 
 def test_RED_a_namespace_handed_by_keyword_to_a_helper_of_another_module(tmp_path):
-    """The class itself: a namespace handed by its keyword counts whatever the callee, here a helper in another
-    module of the package that hands it on to `typing.get_type_hints`. Handed by position to such a helper, it stays
-    out of reach, as the docstring of the gate says."""
+    """The class itself: no callee needs to be recognised, here a helper in another module of the package that hands
+    the namespace on to `typing.get_type_hints`. The annotation is read in the scope around the def always."""
     helper = "import typing\ndef hints(f, localns):\n    return typing.get_type_hints(f, localns=localns)\n"
     core = _FACTORY.format(before="from .hints import hints\n", body="    return hints(inner, localns={'o': o})\n",
                            after="VALUE = factory()\n")
