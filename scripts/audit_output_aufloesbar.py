@@ -118,8 +118,10 @@ def aufloesbar(receipt: dict, repo: Path) -> dict:
 def main(argv: list[str] | None = None) -> int:
     # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
     # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
-    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
-    # the escape of the same code point, so the name reads back as it was.
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead. The JSON form writes
+    # every character outside ASCII as its JSON escape (`ensure_ascii`), because a backslash escape of
+    # `ü` or of an emoji is no JSON escape, and under an output encoding that is not UTF-8 the output
+    # was no JSON, with exit 0 (counter-reading of pull request 375, F5).
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -135,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         r = aufloesbar(rc, a.repo.resolve())
     if a.json:
-        print(json.dumps(r, indent=2, ensure_ascii=False))
+        print(json.dumps(r, indent=2, ensure_ascii=True))
     else:
         print(f"audit_output_digest: {r['zustand']} — {r['grund']}")
     return {"AUFLOESBAR": 0, "NICHT_AUFLOESBAR": 1}.get(r["zustand"], 2)
