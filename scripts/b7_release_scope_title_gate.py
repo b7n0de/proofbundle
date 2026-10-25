@@ -19,7 +19,8 @@ with the parent's own pull request, and the branch of a row does not carry the s
 
 WHAT THIS GATE DOES NOT DO, said plainly. It judges the BRANCH, not the diff. A pull request whose
 head branch is named in the scope file must carry that line's identifier; a branch the scope file
-does not name is not judged here at all, and is reported as such rather than as a pass. Deciding
+does not name is not judged here at all, unless its title is the follow-up of an In row (above),
+and is reported as such rather than as a pass. Deciding
 "does this diff touch scope content" from the changed files would be a second, weaker oracle over
 the same question, and a guess dressed as a measurement is worse than a stated limit.
 
@@ -91,6 +92,13 @@ _TITELFORM = re.compile(
 #: the current one, so a second bracket of a foreign version stayed invisible, which is exactly the
 #: ambiguity that "exactly one identifier" was written against.
 _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
+
+#: THE SAME BRACKET WITH THE SUFFIX (the lens on the follow-up branch, 2026-10-25, F1). `_JEDE_KLAMMER`
+#: reads no `-FOLGE`, so a second bracket in that form was no identifier to the count, in the title of a
+#: follow-up and in the title of a row's own branch alike: `[6.4.0 PR278-FOLGE] fix(x): see [6.4.0
+#: PR279-FOLGE]` was green inside the scope. The landing card reads `_JEDE_KLAMMER` and counts no
+#: follow-up, so the count of identifiers reads this one beside it instead of a wider `_JEDE_KLAMMER`.
+_FOLGE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG}-FOLGE *\]")
 
 #: Where the scope ends. Everything after that (Out, rationales, owner doors) is NOT the set
 #: against which a pull request is checked — those are lines that are explicitly not being built.
@@ -804,6 +812,14 @@ def pruefe(*, branch: str, title: str, version: str,
         gruende.append(f"Umfangsdatei {pfad} {zustand} — ohne sie ist nicht messbar, ob dieser "
                        "Pull Request eine Umfangszeile traegt; Unkenntnis sperrt")
         return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
+    # A BRANCH OR A TITLE THAT IS NOT TEXT IS RED WITH ITS REASON (the lens on the follow-up branch, F2). The
+    # title form is read before the branch decides anything, so a title that is not text ended in TypeError on
+    # a branch no row names, where an outside verdict stood before; a branch that is no text could end there as
+    # well. `main` hands text in, a caller in Python may not, and a verdict is never an exception.
+    if not isinstance(branch, str) or not isinstance(title, str):
+        gruende.append(f"branch and title are read as text, got {type(branch).__name__} and "
+                       f"{type(title).__name__}; a value that is no text is not judged, and not knowing blocks")
+        return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
 
     passend = sorted(zu_zweig.get(branch) or [])
     form = _TITELFORM.match(title)
@@ -847,6 +863,10 @@ def pruefe(*, branch: str, title: str, version: str,
     # at all, whatever their version. Then, does the title as a WHOLE match the contract form. Only
     # then, does it name the right identifier.
     alle_klammern = _JEDE_KLAMMER.findall(title)
+    # A BRACKET WITH THE SUFFIX IS AN IDENTIFIER TOO (F1). The leading bracket of a follow-up is its own
+    # identifier; every other bracket, with the suffix or without, is a second one.
+    folge_klammern = _FOLGE_KLAMMER.findall(title)
+    alle_klammern += folge_klammern[1:] if zugeordnet else folge_klammern
     if zugeordnet and alle_klammern:
         gruende.append(f"the follow-up title names {alle_klammern} beside [{version} {folge_von}-FOLGE]: "
                        "exactly one identifier per pull request")
@@ -874,7 +894,7 @@ def pruefe(*, branch: str, title: str, version: str,
                            f"gegen {version!r} — Titel und Umfangsdatei zeigen auf verschiedene "
                            "Releases")
         elif form.group("kennung") != kennung:
-            gruende.append(f"der Titel nennt [{version} {form.group('kennung')}], der Zweig "
+            gruende.append(f"der Titel nennt [{version} {form.group('kennung')}{form.group('folge') or ''}], der Zweig "
                            f"{branch!r} gehoert aber zu {kennung} — Titel und Zweig zeigen auf "
                            "verschiedene Zeilen")
         elif folge_von and not zugeordnet:
@@ -911,7 +931,9 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
         "urteil": "gruen" if gruen else "ROT",
         "gruende": gruende,
         "kennung_des_zweigs": kennung,
-        # The parent whose row a `-FOLGE` title names; None for any other title.
+        # The parent a `-FOLGE` title names on a branch of its own, judged against the parent's row or left
+        # outside with a parent that is no row. None for any other title, and for a `-FOLGE` title on a
+        # branch a row names or against a scope file that cannot be read.
         "folge_von": folge_von,
         "ausserhalb_des_umfangs": ausserhalb,
         "umfang_nicht_begonnen": nicht_begonnen,
