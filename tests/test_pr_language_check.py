@@ -426,6 +426,17 @@ def test_F7_a_quotation_wrapped_over_two_lines_is_a_quote():
     assert not plg.pruefe("docs: an English title", absatz)["sauber"], "a quote does not span an empty line"
 
 
+@pytest.mark.parametrize("bruch", ["\r\n", "\u2028", "\r"], ids=["crlf", "line-separator", "cr"])
+def test_a_quotation_does_not_span_an_empty_line_whatever_ends_the_line(bruch):
+    """Codex thread 4370565956 on pull request 419 (P3): the expressions knew only `\\n`, the line count knew
+    more. With `\\r\\n` a quotation ran over an empty line and took German prose with it, which main reports,
+    and a trailer ending in `\\r` was no trailer. Every line boundary that `splitlines` knows is `\\n` now."""
+    absatz = f'An English line with a stray " quote.{bruch}{bruch}Der Riegel bricht ab, wenn das nicht stimmt. "{bruch}'
+    assert not plg.pruefe("docs: an English title", absatz)["sauber"], "a quote does not span an empty line"
+    trailer = f"feat: an English subject{bruch}{bruch}Co-authored-by: Jürgen Müller <jm@example.invalid>{bruch}"
+    assert plg.pruefe("docs: an English title", "An English body.", [trailer])["sauber"], "a trailer stays a trailer"
+
+
 def test_F7_a_dependabot_blockquote_is_a_quote():
     """F7 (d): dependabot quotes the release notes in an HTML `<blockquote>`, and a name with an umlaut
     in them was German prose."""

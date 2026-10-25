@@ -118,8 +118,14 @@ _KENNUNG = re.compile(r"(?<![0-9A-Za-z_-])[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}(?![0-
 
 def _gelesen(text: str) -> str:
     """The text as it reads: after NFKC and without format characters (counter-reading of pull request
-    377, F6, P3). A zero-width space inside each list word and a decomposed umlaut hid German prose."""
-    return "".join(z for z in unicodedata.normalize("NFKC", text) if unicodedata.category(z) != "Cf")
+    377, F6, P3). A zero-width space inside each list word and a decomposed umlaut hid German prose.
+
+    Every line boundary that `splitlines` knows becomes `\n` (Codex thread 4370565956 on pull request
+    419): the expressions below know only `\n`, the line count in `treffer` knows more. With `\r\n` a
+    quotation ran over an empty line and took German prose with it, and a trailer ending in `\r` was
+    no trailer."""
+    t = "".join(z for z in unicodedata.normalize("NFKC", text) if unicodedata.category(z) != "Cf")
+    return "\n".join(t.splitlines())
 
 
 def entkernen(text: str) -> str:
