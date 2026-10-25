@@ -172,8 +172,8 @@ def _fold(anchor, path):
 # Section 4.1: what the receipt must carry
 # ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("kw, status", [
-    (dict(vdp={}), "consistency_proof_missing"),
-    (dict(vdp={-2: []}), "consistency_proof_missing"),
+    (dict(vdp={}), "malformed"),              # a vdp with neither -1 nor -2 is outside the CDDL
+    (dict(vdp={-2: []}), "malformed"),        # so is an empty -2; the CDDL pass refuses both first
     (dict(vdp={-1: []}), "malformed"),        # an empty -1 is outside the CDDL, and malformed comes first
     (dict(payload=TREE.root(24)), "consistency_payload_attached"),
     (dict(payload=b"\x00" * 32), "consistency_payload_attached"),
@@ -290,8 +290,9 @@ def test_42_the_signature_is_over_the_newer_root():
     # Codex on 406: RFC 9943 section 6 asks a Receipt for a text iss and sub as it asks a Signed Statement; at
     # 7fd40593 a consistency receipt without a text sub was confirmed.
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "outside_profile"),
+    # a sub that is no text breaks RFC 8392, which the CDDL pass refuses first (the merge with 406, F2)
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "malformed"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "malformed"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: ""}}, "outside_profile"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "confirmed"),
 ])
@@ -301,13 +302,14 @@ def test_profile_of_the_protected_header(prot, status):
 
 def test_an_empty_array_of_the_other_proof_family_is_malformed():
     """Codex, PR 278 round four, the mirror of the inclusion case: the -05 CDDL makes -1 and -2 arrays
-    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL; an empty -2,
-    the family this verifier checks, keeps its own status, because 4.2 asserts len(proofs) > 0."""
+    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL, and since
+    the CDDL pass (Nachtrag 4) so is an empty -2: a missing proof is only an absent one."""
     good = enc_proof(*TREE.proof(13, 24))
     assert check(receipt(vdp={-2: [good]})).status == "confirmed"
     c = check(receipt(vdp={-2: [good], -1: []}))
     assert (c.status, c.readable) == ("malformed", False)
-    assert check(receipt(vdp={-2: []})).status == "consistency_proof_missing"
+    assert check(receipt(vdp={-2: []})).status == "malformed"
+    assert check(receipt(vdp={-1: [b"junk"]})).status == "malformed"      # -1 alone, junk: the CDDL first
 
 
 def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
@@ -387,9 +389,10 @@ def test_a_null_proof_family_is_malformed(vdp):
 
 
 @pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
-def test_a_null_crit_in_the_protected_header_is_outside_the_profile(value):
+def test_a_null_crit_in_the_protected_header_is_malformed_not_absent(value):
+    # As `[]`, a null crit is a present label of the wrong shape, malformed under the CDDL pass.
     prot = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}, 2: value}
-    assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == "outside_profile"
+    assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == "malformed"
 
 
 # A fixed value, not os.urandom(64): a value drawn while collecting gives each xdist worker
