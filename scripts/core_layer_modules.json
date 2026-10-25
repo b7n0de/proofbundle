@@ -12,6 +12,14 @@
     "opentimestamps": "optional extra `[anchors]`: the OpenTimestamps proof library behind the OTS anchor verifier, imported only when an anchor is verified",
     "rfc3161_client": "optional extra `[anchors]`: the RFC 3161 token verifier behind the TSA anchor verifier, imported only when an anchor is verified"
   },
+  "type_checking_reviewed": [
+    {
+      "module": "proofbundle.canonical",
+      "form": "a namespace that may be a module's, used other than by reading",
+      "count": 1,
+      "reason": "canonical.py:739 fills the namespace of a copy through object.__getattribute__(ziel, '__dict__'). For the kind 'daten' every target in `kopie` is built at canonical.py:668 by object.__new__(typ), and typ is a dataclass of this package (canonical.py:287, _paketklasse). No module is ever such a target."
+    }
+  ],
   "modules": [
     "proofbundle",
     "proofbundle._membership",

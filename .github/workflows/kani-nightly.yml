@@ -1,0 +1,99 @@
+name: kani-nightly
+
+# Z381, owner decision O381-4 (2026-10-16): the Kani harnesses that decide within a job's budget
+# run every night and by hand, never on a pull request.
+#   - k5 (P1, the inclusion walk never panics) and k6 (P3, the inclusion walk answers the same
+#     twice), proof length 0 to 4, each must end VERIFIED;
+#   - their planted counter-checks, `kani_underflow` (P1) and `kani_walk_counter` (P3), each must
+#     BUILD and end FAILED: a harness that stays green under a planted defect proves nothing.
+# P2 (exactly one verdict) stays with the enumeration of decision-proof.yml and its five mutants.
+#
+# Kani is installed from a crate and a release bundle whose sha256 are pinned below, the values
+# recorded with the Z381 continuation (kani_herkunft.txt). A differing checksum stops the job
+# before anything of it runs. Not pinned here: the nightly Rust toolchain that `cargo kani setup`
+# installs through rustup (nightly-2025-11-21), which rustup checks against its own manifest.
+# Measured on the development machine: k5 and k6 together about 610 s, the counter-checks 12 s.
+
+on:
+  schedule:
+    - cron: "37 2 * * *"          # nightly, 02:37 UTC
+  workflow_dispatch:
+
+# A scheduled or hand-started run is never cancelled by a newer one (tests/test_der_ci_schnitt_haelt.py).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  kani:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      KANI_VERSION: "0.67.0"
+      KANI_CRATE_SHA256: d6225a7ec13037e984f6bebdda33d34390e643a1cd2a4522cb5d5e8e6ed85e2b
+      KANI_BUNDLE_SHA256: 3b5f7afd3b51603ee720db7bc1bc4fe46b5a4f5d36daad9939c4b4c658b51ac0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Fetch the Kani crate and bundle and check both sha256 (a mismatch stops the job)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kani"
+          cd "$RUNNER_TEMP/kani"
+          crate="kani-verifier-${KANI_VERSION}.crate"
+          bundle="kani-${KANI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL --retry 3 -o "$crate" "https://static.crates.io/crates/kani-verifier/$crate"
+          curl -fsSL --retry 3 -o "$bundle" "https://github.com/model-checking/kani/releases/download/kani-${KANI_VERSION}/$bundle"
+          printf '%s  %s\n%s  %s\n' "$KANI_CRATE_SHA256" "$crate" "$KANI_BUNDLE_SHA256" "$bundle" > kani.sha256
+          sha256sum --strict -c kani.sha256
+      - name: Install Kani from the checked crate and set it up from the checked bundle
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/kani"
+          mkdir src
+          tar -xzf "kani-verifier-${KANI_VERSION}.crate" -C src
+          # run from here, not from inside the crate: the crate's own rust-toolchain.toml is not
+          # read, exactly as for `cargo install kani-verifier` from crates.io
+          cargo install --locked --path "src/kani-verifier-${KANI_VERSION}"
+          cargo kani setup --use-local-bundle "$RUNNER_TEMP/kani/kani-${KANI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          cargo kani --version
+      - name: k5 and k6 VERIFIED, their counter-checks FAILED
+        run: |
+          set -euo pipefail
+          cd formal/z381_pruefentscheidung
+          printf '| harness | planted defect | expected | result | seconds |\n|---|---|---|---|---|\n' >> "$GITHUB_STEP_SUMMARY"
+          bad=0
+          # each line: harness, planted defect (- for none), expected verdict
+          while read -r h m want; do
+            [ "$m" = "-" ] && m=""
+            log="$RUNNER_TEMP/kani/$h${m:+__$m}.log"
+            start=$SECONDS
+            rc=0
+            PB_Z381_MUTANT="$m" cargo kani -Z stubbing --harness "verifier::z381_kani::$h" --exact --output-format terse < /dev/null > "$log" 2>&1 || rc=$?
+            if [ "$rc" -eq 0 ] && grep -q "VERIFICATION:- SUCCESSFUL" "$log"; then got=VERIFIED
+            elif [ "$rc" -ne 0 ] && grep -q "VERIFICATION:- FAILED" "$log"; then got=FAILED
+            else got="NOT DECIDED (rc=$rc)"; fi
+            echo "$h ${m:-none}: $got (expected $want), $((SECONDS - start)) s"
+            echo "| $h | ${m:-none} | $want | $got | $((SECONDS - start)) |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$got" != "$want" ]; then
+              bad=1
+              echo "::error::$h ${m:-none}: $got, expected $want"
+              tail -n 40 "$log"
+            fi
+          done <<'LIST'
+          k5_root_from_inclusion_total_len0 - VERIFIED
+          k5_root_from_inclusion_total_len1 - VERIFIED
+          k5_root_from_inclusion_total_len2 - VERIFIED
+          k5_root_from_inclusion_total_len3 - VERIFIED
+          k5_root_from_inclusion_total_len4 - VERIFIED
+          k6_root_from_inclusion_deterministic_len0 - VERIFIED
+          k6_root_from_inclusion_deterministic_len1 - VERIFIED
+          k6_root_from_inclusion_deterministic_len2 - VERIFIED
+          k6_root_from_inclusion_deterministic_len3 - VERIFIED
+          k6_root_from_inclusion_deterministic_len4 - VERIFIED
+          k5_root_from_inclusion_total_len4 kani_underflow FAILED
+          k6_root_from_inclusion_deterministic_len2 kani_walk_counter FAILED
+          LIST
+          exit "$bad"

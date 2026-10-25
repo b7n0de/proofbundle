@@ -1,0 +1,70 @@
+name: decision-proof
+
+# Z381, owner decision O381-5 (2026-10-16): the exhaustive decision proof of `pb_verify_rs
+# verify-bundle` runs on every pull request. formal/z381_pruefentscheidung builds its subject at
+# build time from the bytes of tools/pb_verify_rs/src/main.rs, so a change to the verifier is
+# proven on the pull request that makes it:
+#   - D1 to D6: every input of each domain gets exactly one verdict of the closed list (P1 no
+#     panic, P2 one verdict, P3 the same verdict twice);
+#   - real_binary: the proof subject and the shipped binary agree on samples of D1 to D6;
+#   - the five planted enumeration mutants: each must turn D3/D4 red, and each must build, so a
+#     planting that no longer applies is a red job, never a vacuous pass.
+# The job writes its own step times into the run summary; its runtime in CI is measured there.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+# A newer head makes the verdict over an older one moot; a run started by hand runs to its end.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  decision-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build the verifier (the binary real_binary compares with; pinned toolchain 1.95.0)
+        run: |
+          set -euo pipefail
+          printf '| step | seconds |\n|---|---|\n' >> "$GITHUB_STEP_SUMMARY"
+          start=$SECONDS
+          cd tools/pb_verify_rs
+          cargo build --release --locked
+          echo "| build pb_verify_rs | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
+      - name: D1 to D6, real_binary, closed list, lock parity
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          cd formal/z381_pruefentscheidung
+          cargo test --release --locked -- --nocapture
+          echo "| D1-D6, real_binary, closed list, lock parity (with build) | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
+      - name: The five enumeration mutants, each must build and turn D3/D4 red
+        run: |
+          set -euo pipefail
+          cd formal/z381_pruefentscheidung
+          for m in no_verdict two_verdicts foreign_reason panic nondeterministic; do
+            start=$SECONDS
+            log="$RUNNER_TEMP/mutant_$m.log"
+            # the planting must apply: a mutant that does not build is a red job, not a counter-check
+            PB_Z381_MUTANT="$m" CARGO_TARGET_DIR=target/mutant cargo test --release --locked --test decision --no-run
+            if PB_Z381_MUTANT="$m" CARGO_TARGET_DIR=target/mutant cargo test --release --locked --test decision -- d3_ d4_ > "$log" 2>&1; then
+              echo "::error::mutant $m stayed green on D3/D4: the proof does not see this defect"
+              exit 1
+            fi
+            if ! grep -q "Z381 VIOLATION" "$log"; then
+              echo "::error::mutant $m failed without a Z381 VIOLATION line"
+              tail -n 60 "$log"
+              exit 1
+            fi
+            n=$(grep -c "Z381 VIOLATION" "$log")
+            echo "mutant $m: red, $n violation lines"
+            echo "| mutant $m: red, $n violation lines | $((SECONDS - start)) s |" >> "$GITHUB_STEP_SUMMARY"
+          done

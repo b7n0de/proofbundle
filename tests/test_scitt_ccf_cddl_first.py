@@ -166,10 +166,11 @@ def _cases():
         ("R5 259 of []", lambda: _ts(st=_stmt(L259=[])), "malformed", False, "259"),
         ("R5 sibling: 260 of 0", lambda: _ts(st=_stmt(L260=0)), "malformed", False, "260"),
         # PR 279 round one, thread 4111060383: a claim type in the unprotected CWT claims too;
-        # siblings: iat, and the consistency verifier. The control keeps its placement status.
+        # siblings: iat, and the consistency verifier. The control keeps its placement status, in the
+        # words of the CWT Claims rule a receipt shares with a statement since pull request 406.
         ("PR 279 R1 control: well-typed CWT claims, unprotected",
          lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: _p().ISSUER, 6: 1790000000}})])),
-         "outside_profile", True, "no CWT issuer in its protected header"),
+         "outside_profile", True, "label 15 (CWT Claims) in the unprotected header"),
         ("PR 279 R1 receipt CWT issuer an int, unprotected",
          lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: 5}})])),
          "malformed", False, "CWT claim 1 in the unprotected"),
@@ -263,6 +264,14 @@ def _cases():
          lambda: _ts(proofs_override=[_proof(leaf=[hashlib.sha256(b"itx").digest(), "ce", b"\x00" * 31])]),
          "malformed", False, "data-hash"),
         ("an anchor of 31 bytes", lambda: _cons(proofs=[_anchor(b"\x00" * 31)]), "malformed", False, "the anchor"),
+        # the merge with pull request 406 (F2 of its counter-reading): the CWT issuer and subject are text on both
+        # sides, RFC 8392; before, a sub of 7 or a statement iss of 5 ended outside_profile and readable
+        ("statement CWT issuer an int", lambda: _ts(st=_stmt(L15={1: 5, 2: "s"})), "malformed", False,
+         "CWT claim 1 in the protected"),
+        ("statement CWT subject an int", lambda: _ts(st=_stmt(L15={1: "did:example:signer", 2: 7})), "malformed",
+         False, "CWT claim 2 in the protected"),
+        ("receipt CWT subject an int", lambda: _ts(extra_prot={15: {1: _p().ISSUER, 2: 7}}), "malformed", False,
+         "CWT claim 2"),
     ]
 
 
@@ -299,7 +308,7 @@ def _cons_prot_vdp(value):
     """The consistency control signed with this value under label 396 in its PROTECTED header, and an
     empty unprotected map (Codex, PR 279 round four)."""
     C = _c()
-    prot = {1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2, 15: {1: C.ISSUER, 6: 1790000000},
+    prot = {1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2, 15: {1: C.ISSUER, 2: C.SUBJECT, 6: 1790000000},
             "ccf.v1": {"txid": "2.24"}, 396: value}
     prot_b, sig = C.sign_over(C.TREE.root(24), prot=prot)
     return b"\xd2" + C._cbor2().dumps([prot_b, {}, None, sig])
@@ -378,7 +387,7 @@ def _all_rules():
 # ------------------------------------------------------------------------------------------------
 # Regression
 # ------------------------------------------------------------------------------------------------
-N_CASES = 60
+N_CASES = 63
 
 
 def _holds(case) -> tuple:
@@ -457,6 +466,18 @@ def test_every_rule_of_the_cddl_pass_breaks_a_regression_case(table, rule, monke
     assert _broken() == []                          # the unmutated pass holds every case
     monkeypatch.setattr(S, table, tuple(r for r in getattr(S, table) if r.name != rule))
     assert _broken(), f"removing {rule!r} from {table} breaks no regression case: no test holds this rule"
+
+
+def test_crit_ok_holds_the_null_rule_without_the_pass():
+    """F1 of the counter-reading of the merge with pull request 406: every verdict surface runs the pass before
+    `_crit_ok`, so its own check of crit's shape was held by no case, and a mutant reading `2: null` as no crit again
+    passed every test. Called alone, a present crit of another shape is refused, null included."""
+    S = _s()
+    assert S._crit_ok({}, (1,)) is None
+    for value in (None, [], 5, "x", {}):
+        assert S._crit_ok({2: value}, (1,)) == "crit is not a non-empty array", value
+    assert S._crit_ok({1: -7, 2: [1]}, (1,)) is None
+    assert "not in the protected header" in S._crit_ok({2: [1]}, (1,))
 
 
 def test_the_mutant_harness_flags_a_rule_no_case_holds(monkeypatch):

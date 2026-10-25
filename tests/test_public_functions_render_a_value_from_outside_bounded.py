@@ -21,9 +21,11 @@ functions again from the suite of main 570dd164 with the commits carried before 
 there): the smallest recorded call that returns, and the largest under 6,000 bytes. A function whose recorded calls all
 refuse borrows a returning call of a sibling in its module. Values JSON cannot hold are written as
 markers (`_decode`); a private key is written as the name of one of two fixed test keys, never as key
-material, because this file ships in the sdist and must not read a key from a file. One entry is
-written rather than recorded and says so in its `note`: the lineage value
-`evaluate_relations_policy` renders under `reject_superseded`, which no recorded call reaches. A
+material, because this file ships in the sdist and must not read a key from a file. Two entries are
+written rather than recorded and say so in their `note`: the lineage value
+`evaluate_relations_policy` renders under `reject_superseded`, which no recorded call reaches, and
+the second seed of `loads_strict`, whose recorded integer literal the parser refuses since
+2026-10-22 (I-JSON). A
 function that needs a file, a key object or a callable is seeded in `_HAND_SEEDS`.
 `test_every_family_member_is_seeded` is the forcing function: a new public function without a seed
 or a named reason turns it red.
@@ -106,10 +108,13 @@ _EXCLUDED_MODULES = {
 _SIBLING_BRANCH_FILES = frozenset({"intoto.py", "_verdict.py", "sdjwt_issue.py", "canonical.py",
                                    "evalclaim.py"})
 
-#: A module that documents a builtin exception as its refusal.
+#: A module, or one function of it, that documents a builtin exception as its refusal.
 _DOCUMENTED_BUILTIN = {
     "proofbundle._wire_b64": (binascii.Error,),       # module docstring, EXCEPTIONS
     "proofbundle.adapters._provenance": (ValueError,),  # _als_text, add_provenance, bind_reported_version
+    # One function, not the module: verify_trace_record never raises in its body, and a module-wide
+    # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
+    "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
 }
 
 #: Per-call time limit in seconds, and the functions with a shorter one because a planted number is
@@ -445,6 +450,104 @@ def _claim_of_the_test_key() -> dict:
     return claim
 
 
+_SCITT = REPO / "tests" / "fixtures" / "scitt_ccf"
+
+
+def _scitt_keyset(b64: str) -> list:
+    """The service key set of a vector. WITHOUT THE [scitt] EXTRA THE SEED IS NOT MEASURED, BY NAME (the second
+    counter-reading of pull request 406, F-A): the `[test]` extra carries no cbor2 on purpose, so the run of the
+    sdist shows the suite without it, and a seed that raised ScittUnavailable turned six cases red there."""
+    from proofbundle import scitt_ccf
+    try:
+        return scitt_ccf.load_cose_keyset(base64.b64decode(b64))
+    except scitt_ccf.ScittUnavailable as exc:
+        pytest.skip(f"NOT MEASURED: the scitt-ccf reader needs the [scitt] extra here ({exc})")
+
+
+def _scitt_control() -> tuple:
+    """(vector, rp_trust) of the local-ledger control: the bytes a CCF ledger wrote and the key set of
+    the service, as `tests/test_scitt_ccf_profile.py` reads them."""
+    v = json.loads((_SCITT / "local_ledger_control.json").read_text(encoding="utf-8"))
+    rp = {"scitt_ccf_services": {v["issuer"]: _scitt_keyset(v["service_keyset_b64"])},
+          "scitt_statement_keys": [base64.b64decode(v["statement_signer_spki_b64"])]}
+    return v, rp
+
+
+def _scitt_statement(tmp: Path):
+    v, rp = _scitt_control()
+    return [((base64.b64decode(v["transparent_statement_b64"]),),
+             {"canonical_root": bytes.fromhex(v["canonical_root_hex"]), "rp_trust": rp})]
+
+
+def _scitt_consistency(tmp: Path):
+    """The consistency receipt of the local ledger against the older state, whose root the caller has
+    verified from its inclusion receipt first, as `tests/test_scitt_ccf_consistency.py` does."""
+    from proofbundle import scitt_ccf
+    v = json.loads((_SCITT / "local_ledger_consistency.json").read_text(encoding="utf-8"))
+    rp = {"scitt_ccf_services": {v["issuer"]: _scitt_keyset(v["service_keyset_b64"])},
+          "scitt_statement_keys": [base64.b64decode(v["statement_signer_spki_b64"])]}
+    older = scitt_ccf.verify_transparent_statement(
+        base64.b64decode(v["states"]["older"]["transparent_statement_b64"]),
+        canonical_root=bytes.fromhex(v["canonical_root_hex"]), rp_trust=rp).receipts[0]
+    return [((base64.b64decode(v["consistency_receipt_b64"]),),
+             {"older_root": older.merkle_root, "older_issuer": older.issuer, "rp_trust": rp})]
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _trace_jwk() -> dict:
+    """The public JWK of the fixed test key "a", the key the TRACE seeds sign with."""
+    return {"kty": "OKP", "crv": "Ed25519", "x": _b64url(_test_key().public_key().public_bytes_raw())}
+
+
+_TRACE_NOW = 1792000000
+
+
+def _trace_record_call():
+    """A TRACE v0.2 record in the embedded form, signed by the fixed test key "a" over its RFC 8785 form,
+    and a call that supplies every expectation, so a seed reaches freshness and each expectation check."""
+    import rfc8785
+    from proofbundle.adapters.trace_record import TRACE_PROFILE_V0_2
+    body = {
+        "eat_profile": TRACE_PROFILE_V0_2, "iat": _TRACE_NOW - 60,
+        "subject": "spiffe://trust.example.org/agent/payments/prod",
+        "model": {"provider": "example-provider", "model_id": "example-model"},
+        "runtime": {"platform": "software-only", "measurement": "sha384:" + "c9" * 48, "nonce": "challenge-1"},
+        "policy": {"bundle_hash": "sha256:" + "b2" * 32, "enforcement_mode": "enforce"},
+        "data_class": "confidential",
+        "tool_transcript": {"hash": "sha256:" + "d4" * 32, "call_count": 3},
+        "build_provenance": {"slsa_level": 2, "digest": "sha256:" + "e5" * 32},
+        "appraisal": {"status": "none", "verifier": "https://verifier.example.org"},
+        "cnf": {"jwk": _trace_jwk()},
+    }
+    signed = dict(body, signature=_b64url(_test_key().sign(rfc8785.dumps(body))))
+    return (json.dumps(signed).encode("utf-8"),), dict(
+        trusted_keys=[_trace_jwk()], now=_TRACE_NOW, max_age_seconds=86400, max_future_skew_seconds=300,
+        expected_nonce="challenge-1", expected_policy_hashes=["sha256:" + "b2" * 32],
+        expected_subjects=["spiffe://trust.example.org/agent/payments/prod"],
+        expected_transcript_hash="sha256:" + "d4" * 32, accepted_profiles=[TRACE_PROFILE_V0_2])
+
+
+def _trace_verdict(tmp: Path):
+    from proofbundle.adapters.trace_record import verify_trace_record
+    a, k = _trace_record_call()
+    return [((verify_trace_record(*a, **k),), {})]
+
+
+def _p384_call(tmp: Path):
+    """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+    key = ec.derive_private_key(int.from_bytes(_FIXED_SEED_A, "big"), ec.SECP384R1())
+    nums = key.public_key().public_numbers()
+    r, s = decode_dss_signature(key.sign(b"message", ec.ECDSA(hashes.SHA384())))
+    return [((b"\x04" + nums.x.to_bytes(48, "big") + nums.y.to_bytes(48, "big"),
+              r.to_bytes(48, "big") + s.to_bytes(48, "big"), b"message"), {})]
+
+
 #: Seeds built at run time: a file, a key object or a callable, which the recording cannot hold.
 _HAND_SEEDS = {
     "proofbundle._integration.emit_claim_receipt": _emit_claim,
@@ -506,6 +609,33 @@ _HAND_SEEDS = {
         ("EdDSA", _test_key().public_key().public_bytes_raw()), {})],
     "proofbundle.sdjwt_issue.issue_sd_jwt": lambda tmp: [(
         (_claim_of_the_test_key(), _test_key()), {"root_b64": base64.b64encode(b"\x00" * 32).decode()})],
+    # The scitt-ccf/v1 reader of ADR 0009, its strict pre-scan and its second reader (2026-10-24, the
+    # r2 stack of pull request 406): no suite call was recorded for them. A reader of bytes from a
+    # Transparency Service gets the bytes a local CCF ledger wrote; the pre-scan and the second reader
+    # get the smallest call that returns.
+    "proofbundle._cbor_prescan.encode_head": lambda tmp: [((0, 5), {})],
+    "proofbundle._cbor_prescan.no_tags": lambda tmp: [(((), 1), {})],
+    "proofbundle._cbor_prescan.scan": lambda tmp: [((b"\xa1\x01\x82\x02\x03",), {"max_bytes": 64})],
+    "proofbundle._scitt_second_reader.disagreement": lambda tmp: [((b"\xa1\x01\x02", {1: 2}), {"max_depth": 4})],
+    "proofbundle._scitt_second_reader.same": lambda tmp: [(({1: [2, b"x"]}, {1: (2, b"x")}, type), {})],
+    "proofbundle.scitt_ccf.decode_cose_sign1": lambda tmp: [(
+        (base64.b64decode(_scitt_control()[0]["transparent_statement_b64"]),), {})],
+    "proofbundle.scitt_ccf.load_cose_keyset": lambda tmp: [(
+        (base64.b64decode(_scitt_control()[0]["service_keyset_b64"]),), {})],
+    "proofbundle.scitt_ccf.recompute_data_hash": lambda tmp: [(
+        (base64.b64decode(_scitt_control()[0]["transparent_statement_b64"]),), {})],
+    "proofbundle.scitt_ccf.verify_consistency_receipt": _scitt_consistency,
+    "proofbundle.scitt_ccf.verify_statement_signature": lambda tmp: [(
+        (base64.b64decode(_scitt_control()[0]["transparent_statement_b64"]),),
+        {"statement_keys": _scitt_control()[1]["scitt_statement_keys"]})],
+    "proofbundle.scitt_ccf.verify_transparent_statement": _scitt_statement,
+
+    # The TRACE v0.2 verifier and its ES384 primitive, public since they were cut from main before this
+    # file seeded every family member; a signed record and a P-384 signature need a key at run time.
+    "proofbundle.adapters.trace_record.exit_code": _trace_verdict,
+    "proofbundle.adapters.trace_record.jwk_thumbprint": lambda tmp: [((_trace_jwk(),), {})],
+    "proofbundle.adapters.trace_record.verify_trace_record": lambda tmp: [_trace_record_call()],
+    "proofbundle.signature.verify_ecdsa_p384": _p384_call,
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
@@ -585,7 +715,8 @@ def _class_escape(exc: BaseException) -> bool:
 def _typed(qual: str, exc: BaseException) -> bool:
     if type(exc).__module__.split(".")[0] == "proofbundle":
         return True
-    return isinstance(exc, _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ()))
+    erlaubt = _DOCUMENTED_BUILTIN.get(qual, ()) + _DOCUMENTED_BUILTIN.get(qual.rsplit(".", 1)[0], ())
+    return isinstance(exc, erlaubt)
 
 
 def _internal_error(antwort) -> bool:
@@ -824,6 +955,7 @@ _WRONG_TYPE_GAPS: dict = {
         "adapters/_provenance.py:bind_reported_version TypeError",
     },
     "adapters.agt_receipt.exit_code": {"adapters/agt_receipt.py:exit_code AttributeError"},
+    "adapters.trace_record.exit_code": {"adapters/trace_record.py:exit_code AttributeError"},
     "adapters.eee.from_eee_dataset": {
         "adapters/eee.py:_extract_score TypeError", "adapters/eee.py:_load TypeError",
         "adapters/eee.py:_pick_metric AttributeError", "adapters/eee.py:from_eee_dataset AttributeError",
@@ -1119,3 +1251,11 @@ def test_the_planted_values_do_what_they_stand_for():
             json.dumps(_VALUES[label]())
     with pytest.raises(_Rendered):
         f"{_Hostile()!r}"
+
+
+def test_a_builtin_documented_by_one_function_does_not_cover_its_module():
+    """The counter-reading of 2026-10-22 (F-1): a module-wide entry for `trace_record` let a ValueError planted
+    in `verify_trace_record`, whose body never raises, pass as typed. The entry names `jwk_thumbprint` alone."""
+    assert _typed("proofbundle.adapters.trace_record.jwk_thumbprint", ValueError("x"))
+    assert not _typed("proofbundle.adapters.trace_record.verify_trace_record", ValueError("x"))
+    assert _typed("proofbundle.adapters._provenance.add_provenance", ValueError("x"))   # a module entry still holds

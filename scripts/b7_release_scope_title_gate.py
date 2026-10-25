@@ -10,9 +10,17 @@ omission: it makes the item invisible to the count that is supposed to track it.
 Owner decision 2026-09-14: the title form is English, `[<version> <ID>] type(scope): subject`,
 exactly one identifier per pull request.
 
+A FOLLOW-UP OF A LINE carries `[<version> <ID>-FOLGE] type(scope): subject` on a branch of its own
+(Nachtrag 5 of CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01). It belongs to the In row of its parent and needs
+no row of its own: on a branch no row names, a title of that form is judged against the row of `<ID>`
+as the parent's own title would be. A parent that is no In row with a branch leaves its follow-up
+where it stands itself, outside the scope. The landing card never counts a follow-up: the line lands
+with the parent's own pull request, and the branch of a row does not carry the suffix.
+
 WHAT THIS GATE DOES NOT DO, said plainly. It judges the BRANCH, not the diff. A pull request whose
 head branch is named in the scope file must carry that line's identifier; a branch the scope file
-does not name is not judged here at all, and is reported as such rather than as a pass. Deciding
+does not name is not judged here at all, unless its title is the follow-up of an In row (above),
+and is reported as such rather than as a pass. Deciding
 "does this diff touch scope content" from the changed files would be a second, weaker oracle over
 the same question, and a guess dressed as a measurement is worse than a stated limit.
 
@@ -33,7 +41,7 @@ import json
 import pathlib
 import re
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO =pathlib.Path(__file__).resolve().parents[1]
 
 #: An identifier from the scope file: a letter, an optional dot or dash, an optional SECOND
 #: letter, digits, optionally a sub-part. Covers A1, A5.1, B-3, N1-1a, N2-3a, S65-5, Z.278, R-A1.
@@ -71,8 +79,13 @@ _KENNUNG = r"[A-Z]\.?-?[A-Z]?\d+(?:[.\-][0-9a-z]+)*"
 #: the form bound the first line and said nothing about the rest. A pull-request title is one
 #: line; whatever follows a line break was never judged, and a rule that stops at the first
 #: newline judges a prefix while claiming to judge a title.
+#:
+#: THE SUFFIX `-FOLGE` IS READ BESIDE THE IDENTIFIER, not as part of it (Nachtrag 5 of
+#: CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01). `_KENNUNG` takes a sub-part in lower case only, so
+#: `[6.4.0 PR371-FOLGE]` matched no form, and the gate was green on such a title only because the
+#: follow-up's branch stood outside the scope, without having read it.
 _TITELFORM = re.compile(
-    rf"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>{_KENNUNG}) *\]"
+    rf"^\[ *(?P<version>[0-9]+(?:\.[0-9]+)*) +(?P<kennung>{_KENNUNG})(?P<folge>-FOLGE)? *\]"
     r" +(?P<typ>[a-z][a-z0-9]*)(?:\([^()]+\))?: +\S[^\r\n]*\Z")
 
 #: EVERY identifier bracket in the title, whatever its version. The old expression counted only
@@ -80,9 +93,20 @@ _TITELFORM = re.compile(
 #: ambiguity that "exactly one identifier" was written against.
 _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 
+#: THE SAME BRACKET WITH THE SUFFIX (the lens on the follow-up branch, 2026-10-25, F1). `_JEDE_KLAMMER`
+#: reads no `-FOLGE`, so a second bracket in that form was no identifier to the count, in the title of a
+#: follow-up and in the title of a row's own branch alike: `[6.4.0 PR278-FOLGE] fix(x): see [6.4.0
+#: PR279-FOLGE]` was green inside the scope. The landing card reads `_JEDE_KLAMMER` and counts no
+#: follow-up, so the count of identifiers reads this one beside it instead of a wider `_JEDE_KLAMMER`.
+_FOLGE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG}-FOLGE *\]")
+
 #: Where the scope ends. Everything after that (Out, rationales, owner doors) is NOT the set
 #: against which a pull request is checked — those are lines that are explicitly not being built.
-_ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
+#:
+#: SPACES AND TABS, NOT `\s` (the third lens on pull request 328, 2026-10-19). `\s` matches a line
+#: break, so a heading `##` alone on its line and a paragraph below it that begins with `Out` ended
+#: the scope there, and every table between that line and the real `## Out` went unread.
+_ENDE_DES_UMFANGS = re.compile(r"^##[ \t]+Out\b", re.M)
 
 #: A scope file is named by the release it scopes: `docs/release_scope/<major>.<minor>.<patch>.md`.
 _UMFANGSDATEI = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)\.md$")
@@ -286,31 +310,18 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
                         "des Umfangs nicht bestimmbar, und die ganze Datei als Umfang zu lesen "
                         "waere eine Vergroesserung der Pruefmenge, keine Messung")
     im_umfang = text[: schnitt.start()]
-    zu_zweig: dict[str, list[str]] = {}
-    mitlaeufer: list[str] = []
-    for zeile in im_umfang.splitlines():
-        if not zeile.startswith("|") or zeile.count("|") < 3:
-            continue
-        spalten = [s.strip() for s in zeile.strip("|").split("|")]
-        if len(spalten) < 2:
-            continue
-        punkt, zweig = spalten[0], spalten[-1]
-        if set(zweig) <= set("-: ") or not punkt:
-            continue
-        m = re.match(rf"^\**({_KENNUNG})", punkt)
-        if not m:
-            continue
-        kennung = m.group(1)
-        if zweig.startswith("`") and zweig.endswith("`"):
-            # BRANCH -> IDENTIFIER, not the other way round. The reverse direction OVERWRITES
-            # silently as soon as two lines carry the same identifier, and the 6.1.0 scope does
-            # exactly that three times (A1, A2, A3). The first branch would lose its mapping in
-            # that case and would then count as "outside the scope" — a pull request on a real
-            # scope line would have run through unchecked. Found by the contract itself, not by
-            # reading the text.
-            zu_zweig.setdefault(zweig.strip("`"), []).append(kennung)
-        else:
-            mitlaeufer.append(kennung)
+    # ONE READING OF THE IN SECTION (`_lies_zweige` over `_tabellen_gfm`). The reader, the rule of
+    # an unstarted release, the line count and the guard against unreadable lines all read the same
+    # tables. The second round of the lens on pull request 328 (2026-10-18) refuted all five of its
+    # targets against the line-by-line reading, among them a decoy delimiter above the real header,
+    # a row wider or narrower than its header, a row with blank space after its last pipe, a
+    # decorated branch cell, and a backticked cell of a table without a branch column read as a
+    # branch. Every one of those is a question about the TABLE, and a line does not know its table.
+    # Since round 4 the reading is a list of the kinds of line the scope files carry, not an
+    # imitation of GitHub's renderer (owner card OA-0db4496c88, see `_tabellen_gfm`).
+    zu_zweig, mitlaeufer, unlesbar = _lies_zweige(im_umfang)
+    if unlesbar:
+        return {}, [], f"NICHT MESSBAR: {unlesbar}"
     if not zu_zweig:
         # A RELEASE THAT HAS NOT STARTED NAMES NO BRANCH, and that is a measurement, not a gap.
         # Measured on 2026-10-09 after the tag v6.2.0: the next scope file, 6.3.0, says "(not
@@ -330,22 +341,295 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
 _NICHT_BEGONNEN = "(not started)"
 
 
+#: The STEM by which a header cell names a branch column. A stem, not a word: `branch_name`,
+#: `Zweigname`, `HeadBranch`, `Branch1` and `Zweigen` name the same column as `Branch`, and the word
+#: boundaries of the first version let every one of them through (lens on pull request 328,
+#: 2026-10-18, case T1). A cell the stem matches by accident, such as `Branching`, turns a file NOT
+#: MEASURABLE rather than green, which is the only direction a guess may err in here.
+_ZWEIGSTAMM = re.compile(r"branch|zweig", re.IGNORECASE)
+#: A cell that is a branch name and nothing else, in the lower-case form the branches of this
+#: repository take (`fix/a1`, `claude/fix-631-teil2`). An upper-case pair such as `B1/B2` is a
+#: rider's reference to two lines, not a branch.
+_ZWEIGFORM = re.compile(r"^[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)+$")
+#: A delimiter cell of a GFM table: dashes, optionally a colon on either side.
+_TRENNZELLE = re.compile(r"^:?-+:?$")
+#: A branch cell that is exactly one code span whose content carries no backtick.
+_CODESPAN = re.compile(r"^(`+)([^`]+)\1$")
+#: THE RIDER, AS A POSITIVE GRAMMAR (asked for by round 2 of the lens on pull request 328). A rider
+#: cell names the line it rides with (`mit C1`, `with A0`, `= B1/B2`, `B1`), or says that there is
+#: none (empty, a dash, `n/a`, `none yet`). Everything else in a branch column is neither a branch
+#: nor a rider, and this reader refuses it instead of guessing: `` `fix/a1` (merged)``, a bold or
+#: linked branch, `main`, `hotfix-123`, `with fix/a1`. Measured on 2026-10-19 over every scope file
+#: on main d3652ba5: each branch cell of each table with a branch column is exactly one code span,
+#: so the grammar refuses nothing real.
+_MITLAEUFER = re.compile(rf"^(?:(?:(?:mit|with)\s+|=\s*)?{_KENNUNG}"
+                         rf"(?:\s*(?:/|,|\+|und|and)\s*{_KENNUNG})*"
+                         r"|[-–—]?|n/a|N/A|n\.a\.|(?i:none(?: yet)?))$")
+
+#: THE KINDS OF LINE THIS READER READS IN AN IN SECTION, AND NO OTHER (owner card OA-0db4496c88,
+#: option A, 2026-10-19). Three rounds of the lens on pull request 328 refuted a reader that tried
+#: to read the section the way GitHub renders it. The third, at a0ae5aab, let a branch pass outside
+#: the scope behind an indented fence, the comment `<!-->`, a line of inline HTML below a table, a
+#: fence whose info string holds a backtick, and inline HTML in a header cell; the reader before it
+#: had read most of those correctly. A reader built after a renderer meets the renderer's grammar
+#: one rule at a time, and the next rule is the one it misses.
+#:
+#: This reader reads only the kinds of line the scope files carry, measured on 2026-10-19 over every
+#: scope file of main efdc06d7 and of this branch: blank lines, headings, prose, list items and
+#: indented lines, none of them with a `|`; a fence of three backticks with an optional name, closed
+#: by three backticks alone; and tables with a `|` at both ends of every line, set off above by a
+#: blank line or a heading, ended by a blank line, a heading or a fence, every row as wide as its
+#: header, every header cell plain words. Every other line makes the section NOT MEASURABLE: HTML, a
+#: quote, a tilde fence, an indented fence, a line with a `|` outside a table, a row cut off from
+#: its table, an escaped pipe in a table. A form GitHub renders plainly that this list leaves out is
+#: a false alarm the scope file can avoid. A form it renders in a way this reader would not see is a
+#: branch outside the scope, and only the first may happen here.
+_UEBERSCHRIFT = re.compile(r"^#{1,6}(?:[ \t]|$)")
+_LISTENPUNKT = re.compile(r"^(?:[-*+]|[0-9]{1,9}[.)])(?:[ \t]+|$)")
+#: The opening fence: three backticks at the start of the line and an optional name of letters,
+#: digits and `_+.-`. The closing fence is three backticks alone. A line inside the block that
+#: starts with fence characters and is not that closing line is NOT MEASURABLE: whether it closes
+#: the block depends on its exact form, and this reader does not decide that.
+_ZAUN = re.compile(r"^```[A-Za-z0-9_+.-]*[ \t]*$")
+_ZAUNZEICHEN = ("```", "~~~")
+#: A line of a table: `|` at the start of the line and `|` as its last character but spaces and
+#: tabs.
+_TABELLENZEILE = re.compile(r"^\|.*\|[ \t]*$")
+#: A header cell: words of ASCII letters and digits, separated by a space, a hyphen or a comma and a
+#: space. Measured, every header cell of every In table on main and on this branch has that form,
+#: among them `Why it is patch-safe` and `Why it moved, and the state it moved in`. A header cell is
+#: not normalised any more: markup, an entity, inline HTML or any other character makes the section
+#: NOT MEASURABLE, because what GitHub shows of such a cell is not decided here.
+_KOPFZELLE = re.compile(r"^[A-Za-z0-9]+(?:(?:, | |-)[A-Za-z0-9]+)*$")
+
+
+def _zweigstellen(kopf: list[str]) -> list[int]:
+    """The cells of a header that name a branch column (`_ZWEIGSTAMM`)."""
+    return [i for i, z in enumerate(kopf) if _ZWEIGSTAMM.search(z)]
+
+
+def _zellen(zeile: str) -> list[str]:
+    """The cells of a table line: split at every pipe, the first and the last pipe dropped, each
+    cell trimmed of spaces and tabs only. A pipe inside a code span splits as well, as on GitHub
+    (GFM 4.10, example 200)."""
+    return [z.strip(" \t") for z in zeile.rstrip(" \t")[1:-1].split("|")]
+
+
+def _gezeigt(zeile: str) -> str:
+    """A line as a reason shows it: trimmed of spaces and tabs only, because a no-break space at
+    its end can be the reason it fails, and `strip()` would take that out of the line shown."""
+    return zeile.strip(" \t")[:60]
+
+
+def _ist_trenner(zeile: str) -> bool:
+    return bool(_TABELLENZEILE.match(zeile)) and all(_TRENNZELLE.match(z) for z in _zellen(zeile))
+
+
+def _art(zeile: str) -> str | None:
+    """The kind of a line outside a fence and outside a table, or None for a line of no kind of the
+    list above."""
+    if not zeile.strip(" \t"):
+        return "leer"
+    if zeile.startswith("|"):
+        return "tabellenzeile" if _TABELLENZEILE.match(zeile) else None
+    if "|" in zeile:
+        return None
+    rest = zeile.lstrip(" \t")
+    if rest.startswith(_ZAUNZEICHEN):
+        return "zaun" if _ZAUN.match(zeile) else None
+    if _UEBERSCHRIFT.match(zeile):
+        return "ueberschrift"
+    if rest != zeile:
+        return None if rest.startswith(("<", ">")) else "eingerueckt"
+    m = _LISTENPUNKT.match(zeile)
+    if m:
+        return None if zeile[m.end():].startswith(("<", ">", *_ZAUNZEICHEN)) else "liste"
+    return None if zeile.startswith(("<", ">")) else "prosa"
+
+
+def _tabellen_gfm(im_umfang: str) -> dict:
+    """Every table of the In section, read under the kinds of line above (`_art`).
+
+    Returns {"tabellen": [{kopf, zeilen: [(cells, line)]}], "unlesbar": why the section is not
+    measurable, or None}. A table is a header line, a delimiter line of the same width below it and
+    every table line after that up to a blank line, a heading or a fence. The section is not
+    measurable at the first line that breaks the list, and the reason names the line. The lines are
+    split as CommonMark splits them, a lone CR included."""
+    zeilen = re.split(r"\r\n|\r|\n", im_umfang)
+
+    def nicht(warum: str) -> dict:
+        return {"tabellen": [], "unlesbar": warum}
+
+    def ort(i: int) -> str:
+        return f"line {i + 1} of the In section, {_gezeigt(zeilen[i])!r},"
+
+    tabellen: list[dict] = []
+    zaun, i = None, 0
+    while i < len(zeilen):
+        z = zeilen[i]
+        if zaun is not None:
+            if z.rstrip(" \t") == "```":
+                zaun = None
+            elif z.lstrip(" \t").startswith(_ZAUNZEICHEN):
+                return nicht(f"{ort(i)} starts with fence characters inside the fenced block "
+                             f"opened at line {zaun + 1} and is not its closing ``` alone; whether "
+                             "it closes the block depends on its form, and this reader does not "
+                             "guess")
+            i += 1
+            continue
+        if z.startswith("|") and "\\|" in z:
+            return nicht(f"{ort(i)} carries an escaped pipe; whether it splits a cell differs "
+                         "between renderers, and this reader does not guess")
+        art = _art(z)
+        if art is None:
+            return nicht(f"{ort(i)} is of no kind this reader reads (a blank line, a heading, "
+                         "prose, a list item or an indented line, each without `|`, a fence ``` or "
+                         "```name, a table with `|` at both ends of its lines); a line of another "
+                         "kind is NOT MEASURABLE rather than read as GitHub might render it")
+        if art == "zaun":
+            zaun = i
+        if art != "tabellenzeile":
+            i += 1
+            continue
+        kopf = _zellen(z)
+        if (i + 1 == len(zeilen) or not _ist_trenner(zeilen[i + 1])
+                or len(_zellen(zeilen[i + 1])) != len(kopf)):
+            return nicht(f"{ort(i)} has the form of a table row and stands in no table (no "
+                         "delimiter line of its width below it); GitHub shows it as text or reads "
+                         "it into a table this reader does not see, and whether it is a scope line "
+                         "is not decided here")
+        if i and zeilen[i - 1].strip(" \t") and not _UEBERSCHRIFT.match(zeilen[i - 1]):
+            return nicht(f"the table at line {i + 1} of the In section follows "
+                         f"{_gezeigt(zeilen[i - 1])!r} without a blank line or a heading "
+                         "between; GitHub may read that line into the table or the table into it, "
+                         "and this reader does not guess which")
+        fremd = [c for c in kopf if not _KOPFZELLE.match(c)]
+        if fremd:
+            return nicht(f"the header cell {fremd[0]!r} of the table at line {i + 1} of the In "
+                         "section is not plain words (letters and digits, separated by a space, a "
+                         "hyphen or a comma); what GitHub shows of a cell in another form is not "
+                         "decided here")
+        tab = {"kopf": kopf, "zeilen": []}
+        j = i + 2
+        while (j < len(zeilen) and zeilen[j].strip(" \t") and not _UEBERSCHRIFT.match(zeilen[j])
+               and not _ZAUN.match(zeilen[j])):
+            zeile = zeilen[j]
+            if "\\|" in zeile:
+                return nicht(f"{ort(j)} carries an escaped pipe; whether it splits a cell differs "
+                             "between renderers, and this reader does not guess")
+            if not _TABELLENZEILE.match(zeile):
+                return nicht(f"{ort(j)} follows the table at line {i + 1} without a blank line "
+                             "and is no line of the table form (`|` at both ends); GitHub reads it "
+                             "as a row of that table or as a block that ends it, and this reader "
+                             "does not guess which")
+            zellen = _zellen(zeile)
+            if len(zellen) != len(kopf):
+                return nicht(f"the row {_gezeigt(zeile)!r} has {len(zellen)} cells under a "
+                             f"header of {len(kopf)}; GitHub pads or cuts such a row, so its cells "
+                             "are not the ones this reader reads")
+            tab["zeilen"].append((zellen, zeile))
+            j += 1
+        tabellen.append(tab)
+        i = j
+    if zaun is not None:
+        return nicht(f"the fenced block opened at line {zaun + 1} of the In section never closes, "
+                     "so every table after it is code on the page and its branches would go unread")
+    return {"tabellen": tabellen, "unlesbar": None}
+
+
+def _kennung_der_zeile(zellen: list[str]) -> str | None:
+    """The identifier that leads a row, read from its first cell as every reader here reads it,
+    or None."""
+    m = re.match(rf"^\**({_KENNUNG})", zellen[0]) if zellen else None
+    return m.group(1) if m else None
+
+
+def _lies_zweige(im_umfang: str) -> tuple[dict[str, list[str]], list[str], str | None]:
+    """(branch -> identifiers, riders, why not measurable or None) over `_tabellen_gfm`.
+
+    A TABLE WITHOUT A BRANCH COLUMN NAMES NO BRANCH. Its lines with an identifier ride along: they
+    have no branch of their own, whatever their last cell holds. The line-by-line reader took a
+    backticked last cell of ANY table for a branch, so `| P30 | `make release` |` under
+    `| Item | Why |` became the branch `make release` (lens round 2, T3).
+
+    A TABLE WITH A BRANCH COLUMN IS READ WHOLE OR NOT AT ALL. Not measurable, with the reason: a
+    branch column that is not the last header cell or that stands in more than one cell; a row
+    without a readable identifier (its branch would leave the count); a branch cell that is neither
+    exactly one code span nor a rider of `_MITLAEUFER`. What `_tabellen_gfm` refuses in every table
+    (a line of no listed kind, a row of another width than its header, a header cell that is not
+    plain words, a row that stands in no table) is refused before any of this.
+
+    A ROW CUT OFF FROM ITS TABLE RODE ALONG UNTIL ROUND 4 when it named no branch (lens round 2,
+    T2). It stands in no table, and that is NOT MEASURABLE now, whatever it names (owner card
+    OA-0db4496c88): no scope file carries one, and the rule that read it as text had to guess
+    which of its cells could be a branch."""
+    zu_zweig: dict[str, list[str]] = {}
+    mitlaeufer: list[str] = []
+    gelesen = _tabellen_gfm(im_umfang)
+    if gelesen["unlesbar"]:
+        return {}, [], gelesen["unlesbar"]
+    for tab in gelesen["tabellen"]:
+        kopf, stellen = tab["kopf"], _zweigstellen(tab["kopf"])
+        if not stellen:
+            mitlaeufer += [k for k in (_kennung_der_zeile(zellen) for zellen, _z in tab["zeilen"])
+                           if k]
+            continue
+        if stellen != [len(kopf) - 1]:
+            i = next(i for i in stellen if i != len(kopf) - 1)
+            return {}, [], (f"the table header {kopf} names a branch column in cell {i + 1} of "
+                            f"{len(kopf)}, and this reader reads the last cell only, so the "
+                            "branches of that column are not the ones it would read")
+        for zellen, z in tab["zeilen"]:
+            kennung = _kennung_der_zeile(zellen)
+            if not kennung:
+                return {}, [], (f"the row {_gezeigt(z)!r} of a table with a branch column "
+                                "carries no readable identifier in its first cell (ohne lesbare "
+                                "Kennung); its branch would leave the count unread")
+            zelle = zellen[stellen[0]]
+            span = _CODESPAN.match(zelle)
+            if span:
+                # BRANCH -> IDENTIFIER, not the other way round. The reverse direction OVERWRITES
+                # silently as soon as two lines carry the same identifier, and the 6.1.0 scope did
+                # exactly that three times (A1, A2, A3).
+                zu_zweig.setdefault(span.group(2).strip(" "), []).append(kennung)
+            elif _MITLAEUFER.match(zelle):
+                mitlaeufer.append(kennung)
+            elif _ZWEIGFORM.match(zelle.strip("*")):
+                return {}, [], (f"the branch cell {zelle!r} of {kennung} names a branch without "
+                                "backticks; this reader reads a branch in backticks only and would "
+                                "have read this line as a rider")
+            else:
+                return {}, [], (f"the branch cell {zelle!r} of {kennung} is neither one branch in "
+                                "a code span nor a rider (`mit X`, `with X`, `= X`, identifiers, a "
+                                "dash, n/a, or empty); this reader does not guess which")
+    return zu_zweig, mitlaeufer, None
+
+
 def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
     """True when the title of the file declares it not started AND no In table heads a branch column.
 
     The title is the first level-one heading. Both conditions are needed: the declaration alone
     would also cover a file whose branch column the reader cannot read, and that file must stay
-    NOT MEASURABLE."""
+    NOT MEASURABLE.
+
+    A BRANCH COLUMN IN ANY POSITION COUNTS (Codex on pull request 327, P2, measured at its head):
+    the first version looked only at the LAST header cell, the one `lies_umfang` reads, so a
+    declared file headed `| Item | Branch | Why |` counted as having no branch column and its
+    branch was judged outside the scope instead of NOT MEASURABLE.
+
+    ONE READING OF A HEADER FOR THE RULE AND FOR THE READER (lens on pull request 328, 2026-10-18).
+    The second version found headers by a word with boundaries, so `branch_name` and `Zweigname`
+    slipped; it asked every row above a delimiter-shaped row, so a data row over `| - | - |` turned a
+    real unstarted scope NOT MEASURABLE; it asked the last cell of EVERY row, so a data row ending in
+    `Branch` did the same; and it read only rows that start with `|`, so a table in any other form
+    was not seen. The third version took the first delimiter-shaped line of a block for the
+    delimiter, so a decoy above the real header hid it (lens round 2, T1-A). Headers come from the
+    tables of `_tabellen_gfm` now, the reader reads the same tables (`_lies_zweige`), and a file is
+    declared not started only where no header of them names a branch column."""
     titel = next((z for z in text.splitlines() if z.startswith("# ")), "")
     if _NICHT_BEGONNEN not in titel:
         return False
-    for zeile in im_umfang.splitlines():
-        if not zeile.startswith("|") or zeile.count("|") < 3:
-            continue
-        spalten = [s.strip() for s in zeile.strip("|").split("|")]
-        if spalten and spalten[-1].lower() in _ZWEIGSPALTE:
-            return False
-    return True
+    return not any(_zweigstellen(t["kopf"]) for t in _tabellen_gfm(im_umfang)["tabellen"])
 
 
 def umfang_nicht_begonnen(pfad: pathlib.Path) -> bool:
@@ -384,23 +668,20 @@ def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]],
     if schnitt is None:
         return [], ("NICHT MESSBAR: kein Abschnitt '## Out' gefunden — die Grenze des Umfangs ist "
                     "nicht bestimmbar")
-    im_umfang = text[: schnitt.start()]
+    # THE SAME TABLES AS THE BRANCH READER (`_tabellen_gfm`), and the same lines: every row with an
+    # identifier, of every table of the In section. The line-by-line count read rows the page does
+    # not show as rows and skipped rows it does, so the card could count a line the reader never
+    # saw, or miss one it did (lens on pull request 328, round 2, T1).
+    gelesen = _tabellen_gfm(text[: schnitt.start()])
+    if gelesen["unlesbar"]:
+        return [], f"NICHT MESSBAR: {gelesen['unlesbar']}"
     aus: list[tuple[str, str, str]] = []
-    for zeile in im_umfang.splitlines():
-        if not zeile.startswith("|") or zeile.count("|") < 3:
-            continue
-        spalten = [s.strip() for s in zeile.strip("|").split("|")]
-        if len(spalten) < 2 or set(spalten[-1]) <= set("-: ") or not spalten[0]:
-            continue
-        m = re.match(rf"^\**({_KENNUNG})", spalten[0])
-        if m:
-            aus.append((m.group(1), spalten[0], spalten[-1]))
+    for zellen, _z in (r for t in gelesen["tabellen"] for r in t["zeilen"]):
+        kennung = _kennung_der_zeile(zellen)
+        if kennung:
+            aus.append((kennung, zellen[0], zellen[-1]))
     return aus, ("gemessen" if aus else "NICHT MESSBAR: keine Zeile im In-Abschnitt gefunden")
 
-
-#: What the LAST column of a scope table is called. Two spellings because the file was translated
-#: and the guard was not; a third language costs one entry here instead of another silent blindness.
-_ZWEIGSPALTE = frozenset({"zweig", "branch"})
 
 #: How many scope rows the last call examined. An empty finding list over ZERO examined rows and one
 #: over forty are different facts, and this is where a caller can tell them apart.
@@ -446,35 +727,32 @@ def zeilen_ohne_kennung(pfad: pathlib.Path) -> tuple[list[str], str]:
     # nothing was unreadable, but because it never entered a table. A guard built against a line
     # that vanishes from a count had itself vanished, silently, at the translation.
     #
-    # Both spellings are recognised now, and ZERO examined rows is its own state instead of an
-    # empty finding list that reads like a clean one.
+    # ZERO examined rows is its own state instead of an empty finding list that reads like a clean
+    # one.
+    #
+    # THE SAME TABLES AS THE BRANCH READER, AND THE SAME HEADER WORD (lens on pull request 328,
+    # round 2). A table assigns branches when a header cell carries the stem of `_ZWEIGSTAMM`, read
+    # by `_zweigstellen` over the tables of `_tabellen_gfm`. The guard asked the last header cell
+    # for one of two exact words, the reader asked every header cell for the stem, so a header
+    # `Branch name` was a scope table to one and none to the other.
     global ZULETZT_GEPRUEFT
-    im_umfangstabelle = False
+    gelesen = _tabellen_gfm(text[: schnitt.start()])
+    if gelesen["unlesbar"]:
+        ZULETZT_GEPRUEFT = 0
+        return aus, f"NICHT MESSBAR: {gelesen['unlesbar']}"
     geprueft = 0
-    for zeile in text[: schnitt.start()].splitlines():
-        if not zeile.startswith("|") or zeile.count("|") < 3:
-            im_umfangstabelle = False
+    for tab in gelesen["tabellen"]:
+        if not _zweigstellen(tab["kopf"]):
             continue
-        spalten = [s.strip() for s in zeile.strip("|").split("|")]
-        if len(spalten) < 2 or not spalten[0]:
-            continue
-        if set(spalten[-1]) <= set("-: "):
-            continue          # separator row; the header above it already decided
-        if spalten[-1].lower() in _ZWEIGSPALTE:
-            im_umfangstabelle = True   # header of a scope table; not itself a scope line
-            continue
-        if any(s.lower() in ("karte", "punkt", "eintrag", "tuer") for s in spalten[:1]):
-            im_umfangstabelle = False  # header of a table WITHOUT a branch column
-            continue
-        if not im_umfangstabelle:
-            continue
-        geprueft += 1
-        if not re.match(rf"^\**({_KENNUNG})", spalten[0]):
-            aus.append(spalten[0][:60])
+        for zellen, _z in tab["zeilen"]:
+            geprueft += 1
+            if not _kennung_der_zeile(zellen):
+                aus.append((zellen[0] if zellen else "")[:60])
     ZULETZT_GEPRUEFT = geprueft
     if geprueft == 0:
         return aus, ("NICHT MESSBAR: keine Zeile einer Umfangstabelle erreicht — kein Tabellenkopf "
-                     f"nennt eine Spalte aus {sorted(_ZWEIGSPALTE)}, es wurde nichts geprueft")
+                     f"nennt eine Zweigspalte (Stamm {_ZWEIGSTAMM.pattern!r}), es wurde nichts "
+                     "geprueft")
     return aus, "gemessen"
 
 
@@ -534,8 +812,23 @@ def pruefe(*, branch: str, title: str, version: str,
         gruende.append(f"Umfangsdatei {pfad} {zustand} — ohne sie ist nicht messbar, ob dieser "
                        "Pull Request eine Umfangszeile traegt; Unkenntnis sperrt")
         return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
+    # A BRANCH OR A TITLE THAT IS NOT TEXT IS RED WITH ITS REASON (the lens on the follow-up branch, F2). The
+    # title form is read before the branch decides anything, so a title that is not text ended in TypeError on
+    # a branch no row names, where an outside verdict stood before; a branch that is no text could end there as
+    # well. `main` hands text in, a caller in Python may not, and a verdict is never an exception.
+    if not isinstance(branch, str) or not isinstance(title, str):
+        gruende.append(f"branch and title are read as text, got {type(branch).__name__} and "
+                       f"{type(title).__name__}; a value that is no text is not judged, and not knowing blocks")
+        return _urteil(branch, title, version, gruende, None, zu_zweig, mitlaeufer, zustand)
 
     passend = sorted(zu_zweig.get(branch) or [])
+    form = _TITELFORM.match(title)
+    folge_von = form.group("kennung") if form and form.group("folge") else None
+    # A FOLLOW-UP ON A BRANCH OF ITS OWN IS JUDGED AGAINST THE ROW OF ITS PARENT, which it needs no row
+    # of its own for. A parent that is no row with a branch leaves it outside, where the parent stands.
+    zugeordnet = not passend and folge_von in {k for ks in zu_zweig.values() for k in ks}
+    if zugeordnet:
+        passend = [folge_von]
     if not passend:
         # NOT A PASS, BUT A STATEMENT ABOUT REACH. The caller should see that nothing was checked
         # here, rather than reading a green checkmark as a statement about the content. A scope
@@ -543,7 +836,7 @@ def pruefe(*, branch: str, title: str, version: str,
         # scope forgot.
         return _urteil(branch, title, version, [], None, zu_zweig, mitlaeufer, zustand,
                        ausserhalb=True,
-                       nicht_begonnen=not zu_zweig and umfang_nicht_begonnen(pfad))
+                       nicht_begonnen=not zu_zweig and umfang_nicht_begonnen(pfad), folge_von=folge_von)
     if len(passend) > 1:
         gruende.append(f"der Zweig {branch!r} steht bei MEHREREN Umfangszeilen {passend} — "
                        "ein Zweig je Zeile, sonst zaehlt die Landekarte ihn doppelt oder gar nicht")
@@ -570,12 +863,18 @@ def pruefe(*, branch: str, title: str, version: str,
     # at all, whatever their version. Then, does the title as a WHOLE match the contract form. Only
     # then, does it name the right identifier.
     alle_klammern = _JEDE_KLAMMER.findall(title)
+    # A BRACKET WITH THE SUFFIX IS AN IDENTIFIER TOO (F1). The leading bracket of a follow-up is its own
+    # identifier; every other bracket, with the suffix or without, is a second one.
+    folge_klammern = _FOLGE_KLAMMER.findall(title)
+    alle_klammern += folge_klammern[1:] if zugeordnet else folge_klammern
+    if zugeordnet and alle_klammern:
+        gruende.append(f"the follow-up title names {alle_klammern} beside [{version} {folge_von}-FOLGE]: "
+                       "exactly one identifier per pull request")
     if len(alle_klammern) > 1:
         gruende.append(f"der Titel nennt {len(alle_klammern)} Kennungen {alle_klammern} — genau "
                        "eine je Pull Request, sonst ist die Zuordnung zur Umfangszeile mehrdeutig. "
                        "Gezaehlt werden ALLE Versionen, nicht nur die eigene: eine zweite Klammer "
                        "fremder Version macht den Titel genauso mehrdeutig")
-    form = _TITELFORM.match(title)
     if not form and not alle_klammern:
         # THE MOST COMMON CASE DESERVES ITS OWN SENTENCE. A title with no bracket at all and a
         # title with a bracket in the wrong place are two different jobs for whoever has to fix
@@ -595,9 +894,14 @@ def pruefe(*, branch: str, title: str, version: str,
                            f"gegen {version!r} — Titel und Umfangsdatei zeigen auf verschiedene "
                            "Releases")
         elif form.group("kennung") != kennung:
-            gruende.append(f"der Titel nennt [{version} {form.group('kennung')}], der Zweig "
+            gruende.append(f"der Titel nennt [{version} {form.group('kennung')}{form.group('folge') or ''}], der Zweig "
                            f"{branch!r} gehoert aber zu {kennung} — Titel und Zweig zeigen auf "
                            "verschiedene Zeilen")
+        elif folge_von and not zugeordnet:
+            gruende.append(f"the title names [{version} {kennung}-FOLGE] on {branch!r}, the own branch "
+                           f"of {kennung}: that branch lands the line, and the landing card counts it "
+                           f"only by [{version} {kennung}]; a follow-up carries the suffix on a branch "
+                           "of its own")
     if kollision:
         # RED, and the foreign model family talked me around here (2026-09-16). My first version
         # let a pull request like this through green, with a note: the author can, after all,
@@ -611,13 +915,15 @@ def pruefe(*, branch: str, title: str, version: str,
             f"die Kennung {kennung!r} fuehrt {len(zeilen)} Zeilen der Umfangsdatei an {zeilen} — "
             "ein Titel mit ihr ist nicht zuordenbar, und die Landekarte zaehlt zwei Zeilen als "
             "eine. Zu tun ist es in der Umfangsdatei, nicht im Titel: die Kennung aufteilen")
-    d = _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand)
+    d = _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand,
+                folge_von=folge_von if zugeordnet else None)
     d["kennung_mehrdeutig"] = kollision
     return d
 
 
 def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand,
-            *, ausserhalb: bool = False, nicht_begonnen: bool = False) -> dict:
+            *, ausserhalb: bool = False, nicht_begonnen: bool = False,
+            folge_von: str | None = None) -> dict:
     gruen = not gruende
     return {
         "schema": "b7n0de.release_scope_title_gate.v1",
@@ -625,6 +931,10 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
         "urteil": "gruen" if gruen else "ROT",
         "gruende": gruende,
         "kennung_des_zweigs": kennung,
+        # The parent a `-FOLGE` title names on a branch of its own, judged against the parent's row or left
+        # outside with a parent that is no row. None for any other title, and for a `-FOLGE` title on a
+        # branch a row names or against a scope file that cannot be read.
+        "folge_von": folge_von,
         "ausserhalb_des_umfangs": ausserhalb,
         "umfang_nicht_begonnen": nicht_begonnen,
         "umfang_zustand": zustand,
@@ -637,11 +947,20 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
     }
 
 
-def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[str | None, str]:
+def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str,
+                    title: str | None = None) -> tuple[str | None, str]:
     """Without a source tag this clone shows, the release is chosen by the branch: the one
     candidate whose scope file names it. A branch named by two candidates is ambiguous and not
     measurable; a branch named by none is outside every candidate, and the newest candidate
     reports that.
+
+    A FOLLOW-UP CHOOSES BY THE ROW OF ITS PARENT, as the parent's own branch would (Codex on pull
+    request 417, round one, P2). Its branch stands in no scope file, so the newest candidate was
+    chosen before `pruefe` looked the parent up, and a follow-up of a line of the older candidate
+    came back outside the scope with exit 0, where `--version` gave RED. When no candidate names the
+    branch and the title has the follow-up form, the candidate whose rows with a branch carry the
+    parent's identifier is chosen; two such candidates are not decided, as two for a branch. The
+    branch still decides first, as it does in `pruefe`.
 
     A CANDIDATE THIS GATE CANNOT READ DECIDES NOTHING (Codex on pull request 294, round five, P1).
     `lies_umfang` returns an empty mapping together with its NOT MEASURABLE, and this function kept
@@ -649,7 +968,9 @@ def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[
     readable 6.3.0 scope, judged `fix/a1` against 6.3.0, outside the scope, exit 0. Whether an
     unreadable scope names the branch is not known, so the release is not decided, whichever
     candidate it is and whichever branch is asked about."""
-    treffer = []
+    form = _TITELFORM.match(title) if isinstance(title, str) else None
+    folge_von = form.group("kennung") if form and form.group("folge") else None
+    treffer, eltern = [], []
     for v in kandidaten:
         zu_zweig, _mitlaeufer, zustand = lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")
         if zustand != "gemessen":
@@ -657,9 +978,19 @@ def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[
                           f"({zustand}), so whether it names the branch {branch!r} is not known")
         if branch in zu_zweig:
             treffer.append(v)
+        if folge_von in {k for ks in zu_zweig.values() for k in ks}:
+            eltern.append(v)
     if len(treffer) > 1:
         return None, (f"{herkunft}; the branch {branch!r} stands in the scope files of {treffer}, "
                       "so which release it belongs to is not decided")
+    if not treffer and len(eltern) > 1:
+        return None, (f"{herkunft}; the parent {folge_von} of the follow-up {branch!r} has a row with "
+                      f"a branch in the scope files of {eltern}, so which release it belongs to is "
+                      "not decided")
+    if not treffer and eltern:
+        return eltern[0], (f"{herkunft}; judged by the row of the parent: the parent {folge_von} of "
+                           f"the follow-up has a row with a branch in the scope file of {eltern[0]} "
+                           "only")
     gewaehlt = treffer[0] if treffer else kandidaten[-1]
     grund = (f"it stands in the scope file of {gewaehlt} only" if treffer
              else f"it stands in none of {kandidaten}")
@@ -680,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
         version, herkunft = naechste_umfangsversion()
         kandidaten = umfangskandidaten_ohne_tags() if version is None else []
         if kandidaten:
-            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft)
+            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft, a.title)
     else:
         version, herkunft = a.version, "argument --version"
     if version is None:
@@ -699,6 +1030,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         marke = "ausserhalb des Umfangs" if d["ausserhalb_des_umfangs"] else (
             d["kennung_des_zweigs"] or "—")
+        if d.get("folge_von"):
+            marke += f" · follow-up of {d['folge_von']}"
         print(f"release-scope-title: {d['urteil']} · {d['branch']} · {marke}")
         print(f"  version: {d['version']} ({herkunft})")
         if d.get("umfang_nicht_begonnen"):

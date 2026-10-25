@@ -1,9 +1,63 @@
 #!/bin/sh
-# proofbundle pre-commit hook: block mutation-mutant signatures on staged security paths
-# (incident 2026-07-23: a probe's `if False:` at the SD-JWT key-binding check survived into
-# the working tree). Install with: sh scripts/install_git_hooks.sh
+# proofbundle pre-commit hook. Two checks, both EARLY rather than thorough; the thorough version
+# runs in CI and stays the gate there.
 #
-# A legitimate exception needs a VISIBLE `# mutant-guard: allow` comment on (or directly
-# above) the flagged line. CI runs the same guard on the push/PR range, so skipping this
-# hook locally does not skip the check.
-exec python3 "$(git rev-parse --show-toplevel)/scripts/mutant_signature_guard.py" --staged
+# 1. Mutation signatures on staged security paths (incident 2026-07-23: a probe's `if False:` at
+#    the SD-JWT key-binding check survived into the working tree). A legitimate exception needs a
+#    VISIBLE `# mutant-guard: allow` comment on or directly above the flagged line.
+#
+# 2. The MANIFEST decision for new files under scripts/, new on 2026-09-14, and the reason is
+#    measured. Since the owner decision of 2026-09-06, MANIFEST.in requires a decision PER FILE,
+#    and the guard for it sat at the end of a full-suite job of 22 to 42 minutes. In one evening
+#    THREE branches failed on it, nine CI jobs together, to learn ONE line each. The guard was
+#    never wrong, it was too late. Here the same answer costs seconds.
+#
+#    NO SECOND PRODUCER (OA-714de2fcdd): the hook calls EXACTLY the node that CI runs. Two tools
+#    for one question drift apart; this is the same tool, asked earlier.
+#
+#    ONLY WHEN scripts/ IS TOUCHED, otherwise the hook costs every commit the pytest start-up time.
+#
+# Install with: sh scripts/install_git_hooks.sh
+# CI runs both checks over the push or PR range, so skipping this hook locally does not skip the
+# check.
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+python3 "$ROOT/scripts/mutant_signature_guard.py" --staged
+
+# EVERY CHANGE TYPE, DELETIONS INCLUDED (Codex on pull request 368, round one, P2): a script deleted
+# while MANIFEST.in still lists it is exactly what the node refuses, and `--diff-filter=ACMR` kept it
+# from ever being asked.
+#
+# THE PATHS AS GIT NAMES THEM, NOT AS IT SHOWS THEM (counter-reading of pull request 368, F1 and F2):
+# without `--no-renames` a script moved out of scripts/ is listed only under its new path, and without
+# `-z` a path with a byte outside ASCII is listed in quotes, so neither started the node. `tr` instead
+# of `grep -z` keeps the line portable to a grep without that option.
+if git diff --cached --name-only --no-renames -z | tr '\000' '\n' | grep -q '^scripts/'; then
+    # FAIL-OPEN ONLY WHEN THE TOOL IS MISSING, and visibly: a developer without pytest should not
+    # be kept from committing, but should not believe it was checked either. The gate stays CI;
+    # this hook is the early warning, not the decision.
+    if PYTHONPATH="$ROOT/src" python3 -c "import pytest" 2>/dev/null; then
+        # THE STAGED SNAPSHOT, NOT THE WORKING TREE (Codex on pull request 368, round one, P2). The
+        # node reads MANIFEST.in and scripts/ beside its own file, so it is run from a copy of the
+        # index: a decision that is only on disk passed here and failed in CI, and a stale working
+        # tree refused a correct commit.
+        #
+        # EVERY INDEX ENTRY (Codex on pull request 368, round four, P2): since git 2.36 `--all` leaves
+        # out the entries with the skip-worktree bit, which a sparse checkout sets, so a listed script
+        # there was missing from the copy and the node refused its MANIFEST line as stale. Before 2.36
+        # `--all` took every entry and the option did not exist, so it is passed only where git has it.
+        SKIPBITS=""
+        if git checkout-index -h 2>&1 | grep -q 'ignore-skip-worktree-bits'; then
+            SKIPBITS="--ignore-skip-worktree-bits"
+        fi
+        SNAP="$(mktemp -d)"
+        trap 'rm -rf "$SNAP"' EXIT
+        git checkout-index --all ${SKIPBITS:+"$SKIPBITS"} --prefix="$SNAP/"
+        PYTHONPATH="$SNAP/src" python3 -m pytest \
+            "$SNAP/tests/test_sdist_ohne_signierwerkzeug.py::test_jede_datei_unter_scripts_ist_in_manifest_entschieden" \
+            -q -p no:cacheprovider --no-header --rootdir "$SNAP"
+    else
+        echo "pre-commit: pytest is missing, the MANIFEST decision was NOT checked (CI checks it)" >&2
+    fi
+fi
