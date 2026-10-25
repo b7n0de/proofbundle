@@ -22,9 +22,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = Path(__file__).resolve().parents[1]
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "scitt_consistency_receipt" / "vectors.json"
-RUST = [REPO / "tools" / "pb_verify_rs" / "target" / build / "pb_verify_rs" for build in ("release", "debug")]
 HAS_CBOR2 = importlib.util.find_spec("cbor2") is not None
 STATUSES = {"confirmed", "malformed", "outside_profile", "consistency_proof_missing",
             "consistency_payload_attached", "consistency_newer_roots_differ", "consistency_anchor_not_canonical",
@@ -88,10 +92,9 @@ class PythonGivesEveryBuiltVerdict(unittest.TestCase):
                 self.assertEqual(g.mismatch(v["want"], g.python_result(doc, v)), {}, v["what"])
 
 
-@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class RustGivesEveryBuiltVerdictAndPythonsResult(unittest.TestCase):
     def test_rust(self):
-        binary = next(b for b in RUST if b.exists())
+        binary = _pb_verify_rs.binary_or_skip()
         g, doc = _generator(), _doc()
         with tempfile.TemporaryDirectory() as tmp:
             for v in doc["vectors"]:
@@ -106,13 +109,12 @@ class RustGivesEveryBuiltVerdictAndPythonsResult(unittest.TestCase):
                         self.assertEqual(got, g.python_result(doc, v), v["what"])
 
 
-@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class AFileOverTheRustInputBudget(unittest.TestCase):
     """The confirmed control receipt padded with zeros to the budget the binary reports and one byte past
     it, made at run time: `malformed` in both verifiers, Rust exit 3, never `fatal`."""
 
     def test_both_verifiers_read_it_as_malformed(self):
-        binary = next(b for b in RUST if b.exists())
+        binary = _pb_verify_rs.binary_or_skip()
         budget = json.loads(subprocess.run([str(binary), "budget"], capture_output=True, text=True,
                                            check=True).stdout)["input_bytes"]
         g, doc = _generator(), _doc()

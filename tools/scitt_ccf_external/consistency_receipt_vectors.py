@@ -45,11 +45,13 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(HERE))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import scan  # noqa: E402
+from proofbundle._strict_json import loads_strict  # noqa: E402
 from proofbundle._wire_b64 import decode_b64  # noqa: E402  (the one strict base64 decoder tools may use)
 from consistency_probe import Tree  # noqa: E402
 from statement_signature_vectors import bstr, uint  # noqa: E402
 from transparent_statement_vectors import (  # noqa: E402
-    FALSE, NIL, TRUE, Builder as TransparentBuilder, arr, assemble, cmap, dump, python_trust, resolve, text)
+    FALSE, NIL, RECEIPT_SUB, TRUE, Builder as TransparentBuilder, arr, assemble, cmap, dump, python_trust, resolve,
+    text)
 
 OUT = ROOT / "tests" / "fixtures" / "scitt_consistency_receipt" / "vectors.json"
 LEDGER = "tests/fixtures/scitt_ccf/local_ledger_consistency.json"
@@ -165,9 +167,9 @@ def malformed(**kw) -> dict:
 # Real vectors
 # ---------------------------------------------------------------------------------------------------
 def _cose(data: bytes) -> list:
-    """The four elements of a tagged COSE_Sign1, decoded."""
-    import cbor2  # noqa: PLC0415
-    return cbor2.loads(data).value
+    """The four elements of a tagged COSE_Sign1, decoded by the reader's strict pre-scan (the values the Python
+    verifier reads and has confirmed for these states before)."""
+    return scan(data, max_bytes=len(data), max_depth=16, tag_allowed=lambda path, n: n == 18).value.value
 
 
 def _parts_of(receipt: bytes) -> tuple:
@@ -178,7 +180,7 @@ def _parts_of(receipt: bytes) -> tuple:
 
 
 def real_vectors(b: Builder) -> None:
-    doc = json.loads((ROOT / LEDGER).read_text(encoding="utf-8"))
+    doc = loads_strict((ROOT / LEDGER).read_text(encoding="utf-8"))
     issuer = doc["issuer"]
     keys = C.load_cose_keyset(decode_b64(doc["service_keyset_b64"]))
     entries = []
@@ -322,7 +324,7 @@ def synthetic_vectors(b: Builder) -> None:
     b.add("m05-three-elements", "a COSE_Sign1 of three elements", b"\xd2\x83" + base[2:-66], r13, malformed())
     b.add("m06-a-text-receipt", "a text string", text("a receipt"), r13, malformed())
     prot_pairs = [(uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))),
-                  (uint(15), cmap([(uint(1), text(ISSUER)), (uint(6), uint(1790000000))])), (uint(395), b"\x02"),
+                  (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), uint(1790000000))])), (uint(395), b"\x02"),
                   (text("ccf.v1"), cmap([(text("txid"), text("2.24"))]))]
 
     def pp(**swap) -> list:
@@ -347,9 +349,9 @@ def synthetic_vectors(b: Builder) -> None:
         ("m11-kid-text", "kid is text", b.crec(prot_pairs=pp(kid=text(kid)))),
         ("m12-cwt-not-map", "the CWT claims are an array", b.crec(prot_pairs=pp(cwt=arr([])))),
         ("m13-issuer-int", "the CWT issuer is an integer",
-         b.crec(prot_pairs=pp(cwt=cmap([(uint(1), uint(7))])))),
+         b.crec(prot_pairs=pp(cwt=cmap([(uint(1), uint(7)), (uint(2), RECEIPT_SUB)])))),
         ("m14-iat-text", "the CWT iat is text",
-         b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(ISSUER)), (uint(6), text("1790000000"))])))),
+         b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), text("1790000000"))])))),
         ("m15-vds-text", "vds is text", b.crec(prot_pairs=pp(vds=text("2")))),
         ("m16-vds-bool", "vds is true", b.crec(prot_pairs=pp(vds=TRUE))),
         ("m17-vdp-not-map", "vdp is an array", b.crec(vdp=arr([uint(1)]))),
@@ -410,6 +412,9 @@ def synthetic_vectors(b: Builder) -> None:
         ("m57-leaf-four", "an inclusion leaf of four components beside -2",
          b.crec(inclusion=[cmap([(uint(1), arr([bstr(r13), text("ev"), bstr(r13), NIL])),
                                  (uint(2), arr([arr([FALSE, bstr(r13)])]))])])),
+        # the CWT subject is text, as the issuer (RFC 8392; the CDDL pass since pull request 407)
+        ("m58-subject-int", "the CWT subject is an integer", b.crec(sub=uint(7))),
+        ("m59-subject-null", "the CWT subject is null", b.crec(sub=NIL)),
     ):
         b.add(vid, what, rc, r13, malformed())
     b.zero_signatures = False
@@ -439,7 +444,7 @@ def synthetic_vectors(b: Builder) -> None:
          True),
         ("o04-alg-absent", "no alg", b.crec(prot_pairs=pp(alg=None)), True),
         ("o05-no-kid", "no kid", b.crec(prot_pairs=pp(kid=None)), True),
-        ("o06-no-issuer", "no CWT issuer", b.crec(prot_pairs=pp(cwt=cmap([(uint(6), uint(1790000000))]))), True),
+        ("o06-no-issuer", "no CWT issuer", b.crec(prot_pairs=pp(cwt=cmap([(uint(2), RECEIPT_SUB), (uint(6), uint(1790000000))]))), True),
         ("o07-no-cwt", "no CWT claims", b.crec(prot_pairs=pp(cwt=None)), True),
         ("o08-crit-unprotected", "crit in the unprotected header",
          b.crec(unprot=cmap([(uint(2), arr([uint(1)])), (uint(396), cmap([(uint(-2), arr([bstr(good)]))]))])), True),
@@ -453,6 +458,10 @@ def synthetic_vectors(b: Builder) -> None:
          b.crec([b"junk"], prot_pairs=pp(vds=uint(1))), False),
         ("o14-alg-text-vds-1", "a text alg outside CCF is typed, then outside",
          b.crec(prot_pairs=pp(alg=text("ES256"), vds=uint(1))), False),
+        # RFC 9943 section 6 asks a receipt for a CWT issuer and subject, as a statement (Codex on pull request 406)
+        ("o19-no-subject", "no CWT subject", b.crec(sub=None), True),
+        ("o20-issuer-empty", "an empty text CWT issuer", b.crec(iss=""), True),
+        ("o21-subject-empty", "an empty text CWT subject", b.crec(sub=text("")), True),
     ):
         b.add(vid, what, rc, r13, want("outside_profile", readable=readable, older_root_matches=None,
                                        signature_valid=None, newer_root=None))
@@ -466,7 +475,7 @@ def synthetic_vectors(b: Builder) -> None:
           b.crec(prot_pairs=pp(kid=None), unprot=cmap([(uint(4), bstr(b.kid("svc_p256"))), vdp_good])), r13,
           want("outside_profile", readable=True))
     b.add("o18-issuer-unprotected", "the CWT issuer in the unprotected bucket only",
-          b.crec(prot_pairs=pp(cwt=None), unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER))])), vdp_good])), r13,
+          b.crec(prot_pairs=pp(cwt=None), unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])), vdp_good])), r13,
           want("outside_profile", readable=True, issuer=None))
 
     # -- section 4.1 --------------------------------------------------------------------------------------
@@ -570,9 +579,9 @@ def synthetic_vectors(b: Builder) -> None:
     uni = "svc.exämple"
     b.trusts["unicode"] = {"scitt_ccf_services": {uni: [{"ref": "spki_svc_p256"}]}}
     b.add("i08-unicode-issuer", "a non-ASCII issuer in the receipt and on the command line",
-          b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(uni)), (uint(6), uint(1790000000))]))), r13,
+          b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(uni)), (uint(2), RECEIPT_SUB), (uint(6), uint(1790000000))]))), r13,
           confirmed(issuer=uni), issuer=uni, trust="unicode")
-    uni_receipt = b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(uni)), (uint(6), uint(1790000000))])))
+    uni_receipt = b.crec(prot_pairs=pp(cwt=cmap([(uint(1), text(uni)), (uint(2), RECEIPT_SUB), (uint(6), uint(1790000000))])))
     b.add("i09-decomposed", "the same issuer with a decomposed a-umlaut on the command line: not the same text",
           uni_receipt, r13, want("consistency_issuer_mismatch", issuer=uni), issuer="svc.exa\u0308mple",
           trust="unicode")
@@ -630,9 +639,9 @@ def synthetic_vectors(b: Builder) -> None:
 
     # -- the fields beside the status -----------------------------------------------------------------------
     for vid, what, cwt, iat in (
-        ("x01-iat-max", "iat 2^64 - 1", [(uint(1), text(ISSUER)), (uint(6), uint(2 ** 64 - 1))], 2 ** 64 - 1),
-        ("x02-iat-min", "iat -2^64", [(uint(1), text(ISSUER)), (uint(6), uint(-(2 ** 64)))], -(2 ** 64)),
-        ("x03-iat-absent", "no iat", [(uint(1), text(ISSUER))], None),
+        ("x01-iat-max", "iat 2^64 - 1", [(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), uint(2 ** 64 - 1))], 2 ** 64 - 1),
+        ("x02-iat-min", "iat -2^64", [(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), uint(-(2 ** 64)))], -(2 ** 64)),
+        ("x03-iat-absent", "no iat", [(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)], None),
     ):
         b.add(vid, what, b.crec(prot_pairs=pp(cwt=cmap(cwt))), r13, confirmed(receipt_iat=iat))
     b.add("x06-txid-unprotected", "the ccf.v1 header in the unprotected bucket: no txid",
@@ -675,6 +684,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="hold the stored vectors to the Python verifier")
     a = ap.parse_args(argv)
+    # The stored vectors hold CBOR integers past the I-JSON range (an iat of 2^64 - 1), which loads_strict
+    # refuses; the file is this generator's own output (EXCEPTIONS in test_strict_decoding_guard).
     doc = json.loads(OUT.read_text(encoding="utf-8")) if a.check else build()
     bad = check(doc)
     for line in bad:
