@@ -109,6 +109,13 @@ class Quarantine:
     def entry_for(self, nodeid: str) -> Entry | None:
         return next((e for e in self.entries if e.covers(nodeid)), None)
 
+    def pytest_collection_modifyitems(self, config, items):
+        for item in items:
+            e = self.entry_for(item.nodeid)
+            if e is not None and e.in_force(self.today):
+                item.add_marker(pytest.mark.xfail(
+                    reason=f"quarantined until {e.deadline} (owner {e.owner}): {e.reason}", strict=False, run=True))
+
     def pytest_runtest_logreport(self, report):
         e = self.entry_for(report.nodeid)
         if e is None or not (report.when == "call" or report.outcome != "passed"):

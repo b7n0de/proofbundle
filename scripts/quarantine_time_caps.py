@@ -142,6 +142,8 @@ def _caps_in(fn: ast.AST, mod: _Module) -> list[dict]:
                     for n in names:
                         secs.setdefault(n, set()).update(constants_in(node.value))
 
+    asserted = {id(x) for a in ast.walk(fn) if isinstance(a, ast.Assert) for x in ast.walk(a.test)}
+
     def number_of(sides: list[ast.AST]) -> str:
         return next(f"{v:g}" for v in (mod.value(s) for s in sides) if v is not None)
 
@@ -168,6 +170,13 @@ def _caps_in(fn: ast.AST, mod: _Module) -> list[dict]:
                     caps.append({"line": node.lineno, "kind": "clock against a number", "seconds": number_of(sides)})
                 elif any(reads_seconds(s) for s in sides):
                     caps.append({"line": node.lineno, "kind": "seconds constant", "seconds": constants_of(sides)})
+        elif (isinstance(node, ast.Compare) and id(node) in asserted
+              and any(isinstance(op, _ORDER) for op in node.ops)):
+            sides = [node.left, *node.comparators]
+            if any(reads_clock(s) for s in sides) and any(mod.value(s) is not None for s in sides):
+                caps.append({"line": node.lineno, "kind": "clock against a number", "seconds": number_of(sides)})
+            elif any(reads_seconds(s) for s in sides):
+                caps.append({"line": node.lineno, "kind": "seconds constant", "seconds": constants_of(sides)})
     for d in getattr(fn, "decorator_list", []):
         if (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == "timeout"
                 and "mark" in ast.unparse(d.func) and d.args and mod.value(d.args[0]) is not None):
@@ -218,10 +227,14 @@ def caps_of_module(path: Path, rel: str) -> dict[str, list[dict]]:
 
     result: dict[str, list[dict]] = {}
     for nodeid, (key, _) in tests.items():
-        stack, caps = [key], []
+        seen, stack, caps = {key}, [key], []
         while stack:
             k = stack.pop()
             caps += [dict(c, where=k.replace(".", "::")) for c in own[k] if dict(c, where=k.replace(".", "::")) not in caps]
+            for c in sorted(callees(k)):
+                if c not in seen:
+                    seen.add(c)
+                    stack.append(c)
         if caps:
             result[nodeid] = sorted(caps, key=lambda c: (c["where"] != key.replace(".", "::"), c["line"]))
     return result
