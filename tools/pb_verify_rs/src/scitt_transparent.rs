@@ -148,6 +148,7 @@ fn receipt_types_hold(rc: &Cose) -> bool {
         && in_either(rc, KID, |v| matches!(v, Item::Bytes(_)))
         && in_either(rc, CWT, |v| matches!(v, Item::Map(_)))
         && cwt_claim_in_either(rc, 1, |v| matches!(v, Item::Text(_)))
+        && cwt_claim_in_either(rc, 2, |v| matches!(v, Item::Text(_)))
         && cwt_claim_in_either(rc, 6, is_int)
         && in_either(rc, VDS, is_int)
         && in_either(rc, VDP, |v| matches!(v, Item::Map(_)))
@@ -400,7 +401,7 @@ fn receipt_outside(v: &ValidReceipt) -> bool {
         || !alg_ok
         || !is_ccf(rc)
         || v.kid.is_none()
-        || v.iss.is_none()
+        || !cwt_in_profile(rc)
         || rc.payload.is_some()
         || get(&rc.unprotected, CRIT).is_some()
         || !crit_ok(&rc.protected, &RECEIPT_CRIT_PROCESSED)
@@ -485,18 +486,20 @@ fn statement_in_profile(st: &Cose) -> bool {
         && get(uh, CTY).is_none()
         && crit_ok(ph, &STATEMENT_CRIT_PROCESSED)
         && get(uh, CRIT).is_none()
-        && statement_cwt_in_profile(st)
+        && cwt_in_profile(st)
         && get(ph, X5CHAIN).is_some()
         && st.payload.as_ref().is_some_and(|p| p.len() == 32)
 }
 
-/// RFC 9943 section 6, as `_statement_profile` reads it: CWT Claims (label 15) stand in the
-/// protected header only, and carry a non-empty text iss (1) and sub (2).
-fn statement_cwt_in_profile(st: &Cose) -> bool {
-    if get(&st.unprotected, CWT).is_some() {
+/// RFC 9943 section 6, as `_cwt_claims_outside` reads it for a statement and for a receipt alike: CWT
+/// Claims (label 15) stand in the protected header only, and carry a non-empty text iss (1) and sub
+/// (2). The receipt side asked for an iss alone until Codex on pull request 406 found that a receipt
+/// with no sub, or with an empty iss, confirmed.
+fn cwt_in_profile(c: &Cose) -> bool {
+    if get(&c.unprotected, CWT).is_some() {
         return false;
     }
-    let Some(Item::Map(cwt)) = get(&st.protected, CWT) else {
+    let Some(Item::Map(cwt)) = get(&c.protected, CWT) else {
         return false;
     };
     [1, 2]
