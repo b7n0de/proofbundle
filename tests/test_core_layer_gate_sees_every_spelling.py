@@ -1255,6 +1255,21 @@ def test_RED_a_postponed_annotation_read_by_a_callee_the_list_did_not_name(tmp_p
     assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
 
 
+def test_looking_for_a_handed_namespace_leaves_the_names_of_every_call_as_they_were():
+    """The class fix first narrowed the set `_quals` keeps in `_memo` in place (`quals &= ...`), so the names of every
+    call the module search looked at were gone afterwards: `len` stood for nothing, `len(sys.modules)` became a use of
+    a namespace other than by reading, and the gate was RED on this tree. The search reads names, it never changes
+    them."""
+    import ast
+    m = _gate_module()
+    source = ("from __future__ import annotations\nimport sys\ndef outer():\n    def inner(x: int) -> None:\n"
+              "        return None\n    return inner\nN = len(sys.modules)\n")
+    tree = ast.parse(source)
+    names = m._Names(tree, "probepkg.core", False, m._NO_GUARDS)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "len")
+    assert names.quals(call.func) == ["builtins.len"]
+
+
 def test_RED_a_namespace_handed_by_keyword_to_a_helper_of_another_module(tmp_path):
     """The class itself: a namespace handed by its keyword counts whatever the callee, here a helper in another
     module of the package that hands it on to `typing.get_type_hints`. Handed by position to such a helper, it stays

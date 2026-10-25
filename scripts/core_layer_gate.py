@@ -1247,10 +1247,12 @@ class _Names:
         if isinstance(call.func, ast.Attribute) and call.func.attr in ("evaluate", "_evaluate"):
             # `_evaluate(globalns, localns, ...)` takes the namespaces by position up to 3.13.
             return unread or (call.func.attr == "_evaluate" and bool(call.args))
-        quals = self._quals(call.func, self.scope_of.get(id(call.func), scope))
-        if quals & _EVAL_FUNCTIONS:
+        # A new set, never `&=`: `_quals` hands back the set it keeps in `_memo`, and changing it in place emptied the
+        # names of every call this looked at (`len` among them), so `len(sys.modules)` stopped being a read.
+        held = self._quals(call.func, self.scope_of.get(id(call.func), scope))
+        if held & _EVAL_FUNCTIONS:
             return True
-        quals &= _ANNOTATION_EVALUATORS
+        quals = held & _ANNOTATION_EVALUATORS
         if not quals:
             return False
         positional = any(q.endswith(".get_type_hints") for q in quals)
