@@ -409,3 +409,34 @@ def test_B_F5_a_source_with_a_NUL_byte_is_read_on_both_paths_without_a_crash(tmp
     d.mkdir()
     (d / "test_nul.py").write_text(source, encoding="utf-8")
     assert m.pytest_only_modules(d) == m.pytest_only_modules_ast(d) == []
+
+
+def test_B_F5_a_source_that_is_not_utf8_is_left_out_on_both_paths(tmp_path):
+    """[COUNTS] A neighbour of F5 in the same class, found while measuring F5 under Python 3.10: a test
+    source that is not UTF-8 stopped both readers with `UnicodeDecodeError`, on every version from 3.10 to
+    3.14 and on main as well. It cannot be parsed, so both paths leave it out, as they leave out a NUL byte."""
+    m = _load("scripts/test_manifest_gate.py", "_tmg_f5_utf8")
+    d = tmp_path / "tests"
+    d.mkdir()
+    (d / "test_latin1.py").write_bytes(b"def test_x():\n    assert True\n# \xff\n")
+    assert m.pytest_only_modules(d) == m.pytest_only_modules_ast(d) == []
+
+
+def test_B_F5_a_chain_the_parser_cannot_nest_stops_no_reader(tmp_path):
+    """[COUNTS] The third form of the class: from Python 3.11 on `ast.parse` answers a chain of 100000
+    additions with `RecursionError`, which the syntax tree did not catch. Python 3.10 parses the chain, so
+    what the tree reads depends on the interpreter; that it reads without a traceback does not. The token
+    reader reads the chain on every version, and a file only one reader keeps is the difference that
+    `evaluate()` reports."""
+    m = _load("scripts/test_manifest_gate.py", "_tmg_f5_chain")
+    source = "x = " + "1+" * 100000 + "1\n"
+    try:
+        ast.parse(source)
+        expected = ["test_chain.py"]
+    except RecursionError:
+        expected = []
+    d = tmp_path / "tests"
+    d.mkdir()
+    (d / "test_chain.py").write_text(source, encoding="utf-8")
+    assert m.pytest_only_modules_ast(d) == expected
+    assert m.pytest_only_modules(d) == ["test_chain.py"]

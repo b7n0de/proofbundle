@@ -154,7 +154,9 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
     for path in sorted(tests_dir.glob("test_*.py")):
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # A source that is not UTF-8 is left out here as in the syntax tree, which cannot parse it
+            # either; before, it stopped the gate with a traceback (measured on 3.10.12 to 3.14.8).
             continue
         # EVERY NAME OF THE STATEMENT, not only the first. Codex r3999288389, measured and
         # confirmed: the old pattern required `unittest` DIRECTLY after `import` and did not see
@@ -204,7 +206,12 @@ def pytest_only_modules_ast(tests_dir: Path) -> list[str]:
     for path in sorted(tests_dir.glob("test_*.py")):
         try:
             baum = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError, ValueError, RecursionError):
+            # Which error a source the parser refuses raises depends on the Python and the stage (measured
+            # on 3.10.12 to 3.14.8): a NUL byte is a ValueError under 3.10 and a SyntaxError from 3.11 on, a
+            # source that is not UTF-8 a UnicodeDecodeError, a ValueError, on every version, and a chain of
+            # 100000 additions a RecursionError from 3.11 on. Each counts as not parsed, as a SyntaxError
+            # always did; before, the first, second and third stopped the gate with a traceback.
             continue
         traegt_unittest = False
         for knoten in ast.walk(baum):
