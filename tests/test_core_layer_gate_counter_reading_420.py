@@ -140,6 +140,11 @@ NEW_FORMS = {
     "set by setattr after the class": ("    pass\n", f"setattr(E, '__new__', {_NEW})\n"),
     "set by setattr with a built name": ("    pass\n", f"setattr(E, '__ne' + 'w__', {_NEW})\n"),
     "set by setattr with a name bound to the string": ("    pass\n", f"N = '__new__'\nsetattr(E, N, {_NEW})\n"),
+    # The second counter-reading of pull request 420 (F1, P2): a match capture binds `__new__` as an assignment does,
+    # and an f-string builds the name as a concatenation does.
+    "a match capture in the body": (f"    match {_NEW}:\n        case __new__:\n            pass\n", ""),
+    "a match capture in a sequence": (f"    match ({_NEW},):\n        case (__new__,):\n            pass\n", ""),
+    "set by setattr with a name built by an f-string": ("    pass\n", f"setattr(E, f'__{{\"new\"}}__', {_NEW})\n"),
 }
 
 
@@ -156,6 +161,49 @@ def test_F4_a_class_with_a_new_in_any_form_may_build_a_module(body, after):
 def test_F4_CONTROL_a_plain_class_builds_no_module():
     code = _CLASS.format(body="    pass\n", after="")
     assert _load_gate().type_checking_changes(ast.parse(code)) == []
+
+
+_GETATTR = "import inspect, typing\nm = inspect.getmodule(typing.Any)\ngetattr(m, {name})('TYPE_CHECKING', True)\n"
+
+
+@pytest.mark.parametrize("name", ["'__setattr__'", "'__set' + 'attr__'", "f'__{\"setattr\"}__'"],
+                         ids=["the literal", "built by concatenation", "built by an f-string"])
+def test_second_F1_neighbour_a_getattr_of_setattr_on_a_module_is_seen_with_a_built_name(name):
+    """A neighbour of F1 in the same class, a name read only as a literal: `getattr(m, "__set" + "attr__")` on the
+    module `typing` set TYPE_CHECKING while the gate, on main as well, saw no change. The literal is the control."""
+    code = _GETATTR.format(name=name)
+    namespace: dict = {}
+    exec(compile(code.replace("('TYPE_CHECKING', True)", ""), "<probe>", "exec"), namespace)
+    assert namespace["m"] is namespace["typing"], "the receiver must be the module, or the case proves nothing"
+    assert _load_gate().type_checking_changes(ast.parse(code)), code
+
+
+# ── the second counter-reading, F2: no input ends the gate without its report ─────────────────────────────────────
+
+def _conditionals(n: int) -> str:
+    return "c = True\nx = 1" + " if c else 1" * n + "\n"
+
+
+def test_second_F2_a_chain_of_conditionals_near_the_limit_ends_with_the_report(tmp_path):
+    """`x = 1 if c else 1 if c else ...`: one or two lengths just below the limit of the first reading passed it and
+    ended in the closure with a traceback and exit 1 (3.10 at 1995, 3.12 at 1996 and 1997). Every length of the window
+    on every interpreter gives the JSON report, GREEN or NOT MEASURABLE, never exit 1."""
+    verdicts = {}
+    for n in range(1985, 2006):
+        folder = tmp_path / str(n)
+        folder.mkdir()
+        r = subprocess.run([sys.executable, "-B", str(GATE), *build(folder, {"core.py": _conditionals(n)}), "--json"],
+                           capture_output=True, text=True, timeout=120)
+        try:
+            verdicts[n] = (r.returncode, json.loads(r.stdout)["verdict"])
+        except ValueError:
+            verdicts[n] = (r.returncode, "NO REPORT")
+    assert set(verdicts.values()) <= {(0, "GREEN"), (2, "NOT_MEASURABLE")}, verdicts
+
+
+def test_second_F2_CONTROL_a_shorter_chain_is_green(tmp_path):
+    rc, report = gate(build(tmp_path, {"core.py": _conditionals(1900)}))
+    assert (rc, report["verdict"]) == (0, "GREEN"), report
 
 
 # ── F5: the function around a postponed annotation, searched once ───────────────────────────────────────────────

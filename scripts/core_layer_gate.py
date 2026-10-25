@@ -517,15 +517,16 @@ class _ChangeScan:
     def _plain_class(self, c: ast.ClassDef, seen: set[int]) -> bool:
         # `__new__` IN ANY FORM (counter-reading of pull request 420, F4, P2): only a def or a plain name target at the
         # top of the body counted, so a `__new__` under `if` or `try`, in a tuple or loop target, set as `C.__new__`
-        # after the class or by `setattr(C, "__new__", ...)` built a module while the class counted as plain. Now any
-        # binding of `__new__` anywhere in the body counts, and so does any write of an attribute `__new__` anywhere in
-        # the module: then no class of the module is plain.
+        # after the class or by `setattr(C, "__new__", ...)` built a module while the class counted as plain. Now a
+        # binding of `__new__` anywhere in the body counts, in every form `_binds` knows, and so does a write of an
+        # attribute `__new__` anywhere in the module that `_new_written` reads: then no class of the module is plain.
+        # THE BINDERS OF THE GATE, NOT A SHORTER LIST (second counter-reading of pull request 420, F1, P2): the body was
+        # read with a list of its own, so `case __new__:` in a match of the body built a module unseen; it reads every
+        # binder `_binds` knows now, a match capture, a starred capture and a mapping rest among them.
         if self._new_written():
             return False
         for n in (n for st in c.body for n in ast.walk(st)):
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == "__new__":
-                return False
-            if isinstance(n, ast.Name) and n.id == "__new__" and isinstance(n.ctx, (ast.Store, ast.Del)):
+            if "__new__" in _binds(n):
                 return False
             if isinstance(n, ast.alias) and (n.asname or n.name) == "__new__":
                 return False
@@ -833,7 +834,11 @@ class _ChangeScan:
                     if kind in ("set", "del") and attr is None and self.setter_reaches_a_module(receiver):
                         out.append((f"{label} with a name the gate cannot read, on an object that may be a module",
                                     line))
-                    elif kind == "get" and attr in ("__setattr__", "__delattr__", "__getattribute__") \
+                    # The name of a getattr is read as `string_of` reads it, built from constants too (a neighbour of
+                    # F1 of the second counter-reading of pull request 420: `getattr(m, "__set" + "attr__")` changed
+                    # the guard unseen, on main as well). A name computed from anything else stays out of reach.
+                    elif kind == "get" and (attr if attr is not None or name is None else self.string_of(name)) \
+                            in ("__setattr__", "__delattr__", "__getattribute__") \
                             and self.setter_reaches_a_module(receiver):
                         out.append((f"getattr of {attr}, on an object that may be a module", line))
                 if self.is_typing(node) and self.handed_on(node, up) and not self._judged_elsewhere(node, up):
@@ -1792,6 +1797,11 @@ def measure(root: Path, modules_file: Path) -> dict:
         # NO INPUT ENDS THE GATE WITHOUT ITS REPORT (Codex thread 4370601942 on pull request 420, P2): a reading that
         # ran out of memory stopped with a traceback and exit 1, the exit code of a red verdict, and no JSON.
         raise NotMeasurable(f"the reading ran out of memory: {exc}") from exc
+    except RecursionError as exc:
+        # The same for a reading nested deeper than the gate reads (second counter-reading of pull request 420, F2,
+        # P3): the closure ran the analysis again outside the catches of `_measure`, so a chain of 1995 conditionals
+        # ended with a traceback and exit 1 where main is GREEN.
+        raise NotMeasurable(f"nested deeper than the gate reads: {exc}") from exc
     finally:
         sys.setrecursionlimit(limit)
 
