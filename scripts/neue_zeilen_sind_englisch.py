@@ -373,15 +373,21 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
     Returns None when the file cannot be read, and the caller treats that as not-prose rather than
     as a pass.
 
-    SPLIT AT LF, LIKE GIT (counter-reading of d017cd6b, H2, P2): `splitlines()` also ends a line at
-    CR, FF, VT, FS, GS, RS, NEL, U+2028 and U+2029. One such character before a fence moved every
-    later line by one, and a German line after the closing fence was checked as the fence itself.
+    READ IN COMMONMARK'S LINES, ANSWERED IN GIT'S (counter-reading of d017cd6b, H2, P2, and Codex
+    on pull request 418). `splitlines()` also ended a line at FF, VT, FS, GS, RS, NEL, U+2028 and
+    U+2029; one such character before a fence moved every later line by one, and a German line after
+    the closing fence was checked as the fence itself. CommonMark ends a line at LF, CR LF and a lone
+    CR, the three line ends Python reads too, so a closing fence after a lone CR is a fence. The
+    fences and the quotation markers are found in those lines, and the prose lines go through the
+    guard's table into git's line space, as in the Python reader.
     """
     p = REPO / datei
     try:
-        zeilen = p.read_bytes().decode("utf-8", "replace").split("\n")
-    except OSError:
+        roh = p.read_bytes().decode("utf-8", "replace")
+        git_zeile = _diff_grammatik()._py2git(roh)
+    except (OSError, ImportError, AttributeError, SyntaxError):
         return None
+    zeilen = roh.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     # The quotation brackets first, because an unbalanced pair is a measurement failure and must
     # not be reported as a clean file.
     auf = [i for i, z in enumerate(zeilen, start=1) if z.strip() == _ZITAT_AUF]
@@ -407,7 +413,7 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
             if m and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen):
                 offen = None
             # inside the block, and the closing line too, stay out
-    return aus
+    return {git_zeile[n] for n in aus if n < len(git_zeile)}
 
 
 def _ist_prosa(datei: str, nr: int, text: str, cache: dict | None = None) -> bool:

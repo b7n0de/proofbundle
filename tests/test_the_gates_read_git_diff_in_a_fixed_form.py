@@ -569,3 +569,21 @@ def test_H10_the_language_gate_finds_its_tree_in_the_built_environment(tmp_path)
                        cwd=str(repo), timeout=120, env=dict(os.environ, GIT_TRACE="/dev/stdout"))
     result = json.loads(p.stdout[p.stdout.index("{"):])
     assert (p.returncode, result["urteil"]) == (1, "ROT"), result
+
+
+@pytest.mark.parametrize("content,line", [
+    (f"```\ncode\r```\n\n{GERMAN}\n", 4),
+    (f"<!-- proofbundle:verbatim-quote:begin -->\nein Zitat das so bleibt wie es ist\r"
+     f"<!-- proofbundle:verbatim-quote:end -->\n{GERMAN}\n", 3),
+], ids=["closing-fence-after-a-lone-cr", "quotation-end-after-a-lone-cr"])
+def test_H2_commonmark_ends_a_line_at_a_lone_cr(tmp_path, content, line):
+    """Codex on pull request 418 (P2): CommonMark ends a line at LF, CR LF and a lone CR. Split at LF only, a closing
+    fence or a quotation marker after a lone CR was not seen, and the German line after it was green."""
+    repo = _base_repo(tmp_path, {"docs/m.md": "Intro.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "docs" / "m.md").write_bytes(content.encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line after a CR-ended block")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("docs/m.md", line)], result
