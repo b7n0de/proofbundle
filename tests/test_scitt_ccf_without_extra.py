@@ -6,13 +6,16 @@ must import, and every entry point must refuse with ``no_lib`` or ``ScittUnavail
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from proofbundle import scitt_ccf as S
 
+REPO = Path(__file__).resolve().parents[1]
 CONTROL_LIKE = bytes.fromhex("d28443a10126a0582000000000000000000000000000000000000000000000000000000000000000"
                              "0040")
 
@@ -23,10 +26,18 @@ def no_cbor2(monkeypatch):
 
 
 def test_the_module_imports_without_cbor2():
-    code = "import sys; sys.modules['cbor2'] = None; import proofbundle.scitt_ccf as m; print(m.PROFILE)"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    # THE CHILD IMPORTS THIS TREE (witness at 2b2cf082, 25.10.2026): pytest's pythonpath reaches no child
+    # process, and the witness's interpreter carries an installed proofbundle without this module, so the
+    # child failed there and passed where PYTHONPATH was inherited. It sets the path itself and names the
+    # file it loaded, so an installed copy can neither fail nor pass this test in the tree's place.
+    code = ("import sys; sys.modules['cbor2'] = None; import proofbundle.scitt_ccf as m; "
+            "print(m.PROFILE); print(m.__file__)")
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src"), PYTHONDONTWRITEBYTECODE="1")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, env=env)
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "scitt-ccf/v1"
+    profile, loaded = out.stdout.strip().splitlines()
+    assert profile == "scitt-ccf/v1"
+    assert Path(loaded).resolve() == (REPO / "src" / "proofbundle" / "scitt_ccf.py").resolve()
 
 
 def test_verify_refuses_with_no_lib(no_cbor2):
