@@ -143,15 +143,18 @@ _ZITAT_AUF = "<!-- proofbundle:verbatim-quote:begin -->"
 _ZITAT_ZU = "<!-- proofbundle:verbatim-quote:end -->"
 
 
-def _git(*args: str) -> tuple[int, str]:
-    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
-    return r.returncode, r.stdout
+def _git(*args: str, env: dict | None = None) -> tuple[int, str]:
+    """git's answer as bytes, decoded with surrogateescape, as in the mutant guard (second counter-reading of the fixed
+    form, F1 and F3): under `--text` a binary file that is not UTF-8 ended the gate with a traceback and exit 1, the
+    code of ROT, and `text=True` turned a lone CR into a line feed. `env` is the guard's built environment."""
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, env=env)
+    return r.returncode, r.stdout.decode("utf-8", "surrogateescape")
 
 
-def _git_namen(*args: str) -> tuple[int, list[str]]:
+def _git_namen(*args: str, env: dict | None = None) -> tuple[int, list[str]]:
     """The paths a git command lists with -z, each as git names it: bytes split on NUL and decoded
     the way Python decodes a file name, so a name that is not UTF-8 is a name and not a crash."""
-    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True)
+    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, env=env)
     return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
 
 
@@ -203,13 +206,17 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # THE HEADER PREFIXES ARE NAMED (counter-reading of pull request 375, the neighbour of F10a): with
     # `diff.mnemonicPrefix` set, the working-tree form gets `+++ w/...`, which the parser below does
     # not read, and every added line was dropped while the verdict stayed green.
+    # AND THE ENVIRONMENT IS THE GUARD'S BUILT ONE (second counter-reading of the fixed form, F2): with
+    # `GIT_LITERAL_PATHSPECS`, `GIT_GLOB_PATHSPECS` or `GIT_NOGLOB_PATHSPECS` set, the `*.md` pathspec matched
+    # nothing, and the verdict was green over a German line.
     try:
         grammatik = _diff_grammatik()
         _git_path, form, schalter = grammatik._git_path, grammatik._DIFF_FORM, grammatik._DIFF_SWITCHES
+        umgebung = grammatik._git_environment()
     except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
         return {}, f"NOT MEASURABLE: the diff grammar is not loadable ({type(fehler).__name__})"
     rc, aus = _git(*form, "diff", "--unified=0", *schalter, "--src-prefix=a/", "--dst-prefix=b/",
-                   bereich, "--", *_ENDUNGEN)
+                   bereich, "--", *_ENDUNGEN, env=umgebung)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
     je_datei: dict[str, list[tuple[int, str]]] = {}
@@ -260,7 +267,8 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
         # untracked file is an added line.
         # With -z: a quoted name opens no file, and the run said NOT MEASURABLE about a file it
         # could have read (2026-09-26, measured).
-        rc2, neu = _git_namen("ls-files", "--others", "--exclude-standard", "-z", "--", *_ENDUNGEN)
+        rc2, neu = _git_namen("ls-files", "--others", "--exclude-standard", "-z", "--", *_ENDUNGEN,
+                              env=umgebung)
         if rc2 != 0:
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
         for rel in neu:

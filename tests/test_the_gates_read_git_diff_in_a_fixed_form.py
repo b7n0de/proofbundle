@@ -17,8 +17,14 @@ and the shape of that patch came from settings of the session that runs them.
   `color.ui=always` made it green over a German line. The guard had the switch.
 
 Each case below plants one of these settings beside a change the gate must see, and each setting
-was red in at least one of the two gates before they named their form. A line the hunk count cannot hold now ends the reading as NOT
-MEASURABLE, exit 2, instead of being passed over; the last cases hold that rule directly.
+was red in at least one of the two gates before they named their form. A line the hunk count cannot
+hold now ends the reading as NOT MEASURABLE, exit 2, instead of being passed over; the cases after
+the settings hold that rule directly.
+
+THE SECOND COUNTER-READING, of the fixed form itself (at ba2da31e), found the class one layer further
+out: what git writes was decoded as text, so a binary file under `--text` and a lone CR changed the
+reading, and the environment of the session, not only its configuration, changed what git printed.
+Its cases stand in the last section.
 """
 from __future__ import annotations
 
@@ -242,6 +248,157 @@ def test_the_guard_exits_2_on_a_diff_it_cannot_read(tmp_path, monkeypatch, capsy
 def test_the_language_gate_refuses_a_line_its_hunk_cannot_hold(tmp_path, monkeypatch):
     gate = _load(GATE, "_fixed_form_gate")
     monkeypatch.setattr(gate, "REPO", tmp_path)
-    monkeypatch.setattr(gate, "_git", lambda *args: (0, LOST_COUNT.replace("src/proofbundle", "docs")))
+    monkeypatch.setattr(gate, "_git", lambda *args, **kw: (0, LOST_COUNT.replace("src/proofbundle", "docs")))
     lines, state = gate._neue_zeilen("HEAD~1")
     assert (lines, state.split(":")[0]) == ({}, "NOT MEASURABLE"), state
+
+
+# -- the second counter-reading, of the fixed form at ba2da31e -----------------------------------
+
+#: A PNG header: bytes that are not UTF-8, a CR LF and a lone CR, the way a binary file starts.
+PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe\x80\x81"
+
+
+def _gate(repo: Path, base: str, env: dict | None = None) -> tuple[int, dict | None, str]:
+    p = subprocess.run([sys.executable, "-B", str(GATE), "--base", base, "--repo", str(repo), "--json"],
+                       capture_output=True, text=True, cwd=str(repo), timeout=120,
+                       env=dict(os.environ, **(env or {})))
+    try:
+        return p.returncode, json.loads(p.stdout), p.stderr
+    except ValueError:
+        return p.returncode, None, p.stderr
+
+
+def test_F1_a_binary_file_under_text_is_read_not_a_crash(tmp_path):
+    """F1 (P2, new with the fixed form): under `--text` a binary file is a hunk, and bytes that are not UTF-8 ended both
+    gates with a traceback and exit 1, the code of a finding. Both read past it now, to the change behind it."""
+    repo = _guard_repo(tmp_path)
+    (repo / "src" / "proofbundle" / "data.bin").write_bytes(PNG)
+    _change_for_the_guard(repo)
+    _git(repo, "add", "-A")
+    r = _guard(repo, {}, "--staged")
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 1 and "src/proofbundle/z.py:2: trivial-truth branch" in r.stdout, r.stdout + r.stderr
+    (tmp_path / "g").mkdir()
+    gate_repo = _base_repo(tmp_path / "g", {"docs/z.md": "An English line.\n"})
+    base = _git(gate_repo, "rev-parse", "HEAD").strip()
+    (gate_repo / "docs" / "pic.md").write_bytes(PNG)
+    _write(gate_repo, "docs/z.md", f"An English line.\n{GERMAN}\n")
+    _git(gate_repo, "add", "-A")
+    _git(gate_repo, "commit", "-q", "-m", "a picture and a German line")
+    rc, result, err = _gate(gate_repo, base)
+    assert "Traceback" not in err, err
+    assert (rc, result["urteil"]) == (1, "ROT") and ("docs/z.md", 2) in [(b["datei"], b["zeile"]) for b in result["befunde"]], result
+
+
+@pytest.mark.parametrize("name", ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS"])
+def test_F2_a_pathspec_switch_of_the_environment_does_not_blind_the_language_gate(tmp_path, name):
+    """F2 (P2): each of the three made the `*.md` pathspec match nothing, and the gate was green over a German line."""
+    repo = _base_repo(tmp_path, {"docs/z.md": "An English line.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    _write(repo, "docs/z.md", f"An English line.\n{GERMAN}\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line")
+    rc, result, err = _gate(repo, base, {name: "1"})
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
+
+
+@pytest.mark.parametrize("content,line", [(b"1\rif False:\r    pass\r", 1), (b"y = 1\n\rif False: pass\n", 2)],
+                         ids=["one-line-for-git", "cr-before-the-statement"])
+def test_F3_a_lone_cr_does_not_hide_a_mutant(tmp_path, content, line):
+    """F3 (P2): Python ends a line at a lone CR, git does not; the statement after it was clean in both gates."""
+    repo = _guard_repo(tmp_path)
+    (repo / "src" / "proofbundle" / "z.py").write_bytes(content)
+    _git(repo, "add", "-A")
+    r = _guard(repo, {}, "--staged")
+    assert r.returncode == 1 and f"src/proofbundle/z.py:{line}: trivial-truth branch" in r.stdout, r.stdout + r.stderr
+
+
+def test_F3_a_lone_cr_does_not_hide_a_german_line(tmp_path):
+    repo = _base_repo(tmp_path, {"docs/z.md": "Intro.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "docs" / "z.md").write_bytes(f"Intro.\nAn English line.\r{GERMAN}\n".encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line after a CR")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
+
+
+def _committed_mutant(tmp_path: Path) -> tuple[Path, str]:
+    repo = _guard_repo(tmp_path)
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    _change_for_the_guard(repo)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a mutant slips in")
+    return repo, base
+
+
+def test_F4_a_trace_on_stdout_does_not_skip_the_range(tmp_path):
+    """F4 (P3): `GIT_TRACE=/dev/stdout` wrote into the answer of `rev-parse`, and the range mode said "scan skipped
+    honestly" with exit 0 over a mutant in the range."""
+    repo, base = _committed_mutant(tmp_path)
+    r = _guard(repo, {"GIT_TRACE": "/dev/stdout"}, "--base", base)
+    assert r.returncode == 1 and "src/proofbundle/z.py:2: trivial-truth branch" in r.stdout, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("use_replace_refs", [None, "true"], ids=["default", "core.useReplaceRefs-true"])
+def test_F5_a_replacement_ref_does_not_hide_the_change(tmp_path, use_replace_refs):
+    """F5 (P3): a local `refs/replace` pointed the mutant's blob at its predecessor, and the range was clean. The second
+    form sets `core.useReplaceRefs=true` in the repository, which the receipt chain records winning over the
+    environment name and the switch; with git 2.55.0 each of the guard's three settings wins alone."""
+    repo, base = _committed_mutant(tmp_path)
+    if use_replace_refs:
+        _git(repo, "config", "core.useReplaceRefs", use_replace_refs)
+    _git(repo, "replace", _git(repo, "rev-parse", "HEAD:src/proofbundle/z.py").strip(),
+         _git(repo, "rev-parse", f"{base}:src/proofbundle/z.py").strip())
+    assert "+if False:" not in _git(repo, "diff", "-U0", base, "HEAD", "--", "src/proofbundle/z.py"), "premise"
+    r = _guard(repo, {}, "--base", base)
+    assert r.returncode == 1 and "src/proofbundle/z.py:2: trivial-truth branch" in r.stdout, r.stdout + r.stderr
+
+
+def test_F6_a_failed_git_call_exits_2_as_the_header_says(tmp_path):
+    """F6 (P3): the header promises exit 2 for an internal error; a failed git call ended with exit 1, a finding's."""
+    repo = _guard_repo(tmp_path)
+    (repo / ".git" / "index").write_bytes(b"not an index")
+    r = _guard(repo, {}, "--staged")
+    assert r.returncode == 2 and "fail closed" in r.stderr, r.stdout + r.stderr
+
+
+def test_F1b_a_security_file_that_is_not_utf8_is_not_measurable(tmp_path):
+    """F1b (P3): a Latin-1 file on a security path ended the guard with a traceback and exit 1."""
+    repo = _guard_repo(tmp_path)
+    (repo / "src" / "proofbundle" / "z.py").write_bytes(b"# -*- coding: latin-1 -*-\ny = 'caf\xe9'\nif False:\n    pass\n")
+    _git(repo, "add", "-A")
+    r = _guard(repo, {}, "--staged")
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == 2 and "is not UTF-8" in r.stdout, r.stdout + r.stderr
+
+
+def test_the_index_the_hook_names_is_the_index_the_guard_reads(tmp_path):
+    """The built environment keeps `GIT_INDEX_FILE`: inside the pre-commit hook of a commit of named paths git names a
+    temporary index there, and a guard that dropped it read the default index and let the mutant through."""
+    repo = _guard_repo(tmp_path)
+    _change_for_the_guard(repo)
+    other = tmp_path / "other-index"
+    subprocess.run(["git", "-C", str(repo), "read-tree", "HEAD"], check=True, capture_output=True,
+                   env=dict(os.environ, GIT_INDEX_FILE=str(other)))
+    subprocess.run(["git", "-C", str(repo), "add", "src/proofbundle/z.py"], check=True, capture_output=True,
+                   env=dict(os.environ, GIT_INDEX_FILE=str(other)))
+    assert _guard(repo, {}, "--staged").returncode == 0, "premise: the default index carries no change"
+    r = _guard(repo, {"GIT_INDEX_FILE": str(other)}, "--staged")
+    assert r.returncode == 1 and "src/proofbundle/z.py:2: trivial-truth branch" in r.stdout, r.stdout + r.stderr
+
+
+def test_each_layer_holds_alone_the_pinned_settings_without_the_built_environment(tmp_path, monkeypatch):
+    """Defence in depth, measured one layer at a time. With the built environment the context lines of `GIT_DIFF_OPTS`
+    never reach the guard, so the pin of `diff.suppressBlankEmpty` had no case of its own. Here the environment lets
+    `GIT_DIFF_OPTS` through, and the pinned setting alone must keep the hunk count."""
+    guard = _load(GUARD, "_fixed_form_guard_layers")
+    repo = _guard_repo(tmp_path)
+    _plant(repo, {"diff.suppressBlankEmpty": "true"}, None, "*")
+    _change_for_the_guard(repo)
+    _git(repo, "add", "-A")
+    monkeypatch.setattr(guard, "_GIT_INHERITED", guard._GIT_INHERITED + ("GIT_DIFF_OPTS",))
+    monkeypatch.setenv("GIT_DIFF_OPTS", "--unified=3")
+    findings = guard.run_staged(repo)
+    assert any(f.startswith("src/proofbundle/z.py:2: trivial-truth branch") for f in findings), findings

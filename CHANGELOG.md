@@ -86,14 +86,21 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   gate ask git for their diff in a fixed form: `diff.interHunkContext=0` and
   `diff.suppressBlankEmpty=false` on the command line, and `--no-color`, `--no-ext-diff`,
   `--no-textconv` and `--text`. With the two settings in a session's configuration, an empty context
-  line between two changes lost the hunk count, and the guard reported clean over a staged `if
-  False:`, the language gate green over a German line. An external diff program, the text conversion
-  of a diff driver or a `-diff` attribute, which a tracked `.gitattributes` can set, made git print
-  no hunk, and both reported clean over a diff they had not read, and `color.ui=always` did the same
-  to the language gate, which asked without `--no-color`. A line an open hunk cannot hold now makes
-  the guard exit 2 and the language gate report NOT MEASURABLE, instead of being passed over
+  line between two changes lost the hunk count, and the guard reported clean over a staged mutant,
+  the language gate green over a German line. An external diff program, the text conversion of a
+  diff driver or a `-diff` attribute, which a tracked `.gitattributes` can set, made git print no
+  hunk, and both reported clean over a diff they had not read, and `color.ui=always` did the same to
+  the language gate, which asked without `--no-color`. A line an open hunk cannot hold now makes the
+  guard exit 2 and the language gate report NOT MEASURABLE, instead of being passed over
   (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). The guard's
-  self-test plants a `-diff` attribute, and its error message names the git subcommand again.
+  self-test plants a `-diff` attribute, and its error message names the git subcommand again. Both
+  read what git writes as bytes, so a binary file under `--text` and a lone CR no longer end them in
+  a traceback or move a line out of its hunk, and the guard checks every piece of an added line that
+  Python reads as a statement of its own. Every git call of both runs in a built environment that
+  passes the names git needs to find the repository and its index and pins the rest, so
+  `GIT_LITERAL_PATHSPECS` and its two neighbours no longer make the language gate green and
+  `GIT_TRACE=/dev/stdout` no longer makes the guard skip its range; replacement refs are switched
+  off. A failed git call and a file on a security path that is not UTF-8 make the guard exit 2.
 
 ## [6.3.1] - 2026-10-21
 
