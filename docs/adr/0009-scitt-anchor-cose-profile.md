@@ -275,8 +275,9 @@ Section "Common COSE Header Parameters": `crit` MUST be in the protected bucket,
 array, and a listed label that is absent from the protected bucket is a fatal error.
 
 v1 turns the SHOULD into a MUST: a label in both buckets is `malformed`. `crit` in the unprotected
-bucket, an empty `crit`, a listed label absent from the protected bucket, or a listed label v1 does
-not process is `outside_profile`. No real receipt measured carries `crit`.
+bucket, a listed label absent from the protected bucket, or a listed label v1 does not process is
+`outside_profile`. An empty `crit`, a null one, or one that is no array of labels is `malformed`,
+because the CDDL pass refuses its type first (Decision 16). No real receipt measured carries `crit`.
 
 ### 8. Resource, tag and encoding limits
 
@@ -317,7 +318,7 @@ the statement side and its receipts (`STATUS_ORDER` in `proofbundle.scitt_ccf`):
 | status | meaning | `ok` | `warn` |
 |---|---|---|---|
 | `no_lib` | the `[scitt]` extra is not installed, or its cbor2 lacks the strict options | False | False |
-| `malformed` | the pre-scan or the COSE structure refused the bytes, or the CDDL pass refused a shape (Decision 16): a header label of the wrong type (RFC 9052, RFC 9360 `x5chain`, RFC 9597 CWT claims, RFC 8392 issuer and iat, RFC 9942 vds, RFC 9995 258, 259 and 260), a receipt that is not a byte string, a CCF receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, neither of them, an array that is empty or over the limit, a proof of either family that does not parse); an `x5chain` end-entity certificate that is not DER X.509; also a statement with no receipt under 394, or more than the limit | False | False |
+| `malformed` | the pre-scan or the COSE structure refused the bytes, or the CDDL pass refused a shape (Decision 16): a header label of the wrong type (RFC 9052, RFC 9360 `x5chain`, RFC 9597 CWT claims, RFC 8392 issuer, subject and iat, RFC 9942 vds, RFC 9995 258, 259 and 260), a receipt that is not a byte string, a CCF receipt whose vdp does not parse under the -05 CDDL (a key other than -1 and -2, neither of them, an array that is empty or over the limit, a proof of either family that does not parse); an `x5chain` end-entity certificate that is not DER X.509; also a statement with no receipt under 394, or more than the limit | False | False |
 | `outside_profile` | not scitt-ccf v1, and readable except where it is untagged: untagged (a statement or a receipt without tag 18, which Decision 10 never counts as readable), detached statement payload, not a hash envelope, 258 not SHA-256, label 3 present, unprocessed crit, no protected `x5chain`, vds not 2, attached receipt payload, no inclusion proof, unsupported algorithm) | False | False |
 | `unbound` | value 1 differs from `canonicalRoot` | False | False |
 | `statement_signature_invalid` | the statement signature fails with every RP statement key tried: the one the protected `x5chain` selects, or all of them when there is none | False | False |
@@ -341,7 +342,7 @@ answer Q5 a).
 
 | result | holds when | real example where it differs from the next |
 |---|---|---|
-| **readable** | the CDDL pass (Decision 16) accepts the statement, label 394 and at least one receipt, and that receipt is a CCF receipt whose inclusion proofs parsed under the -05 CDDL; readable is set there and nowhere else | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
+| **readable** | the CDDL pass (Decision 16) accepts the statement, label 394 and at least one receipt, that receipt is a CCF receipt whose inclusion proofs parsed under the -05 CDDL, and the statement and that receipt are each a tag 18 COSE_Sign1; readable is set there and nowhere else | `tampered-statement.cose`: readable, signature not valid. Not readable, real: `cts-hashv-cwtclaims-b64url.cose`, whose receipt is the legacy two-element form |
 | **signature valid** | a receipt's ES256/ES384 signature verifies over its computed root with a key selected from the RP key set of its issuer | `payload-tampered.cose`: signature valid, profile not satisfied, because the receipt belongs to another statement |
 | **profile satisfied** | signature valid, and for that receipt: vds 2, payload detached, all proofs one root, leaf data-hash equals value 3, the statement is a v1 hash envelope whose value 1 equals `canonicalRoot`, crit and header rules hold, and an RP statement key verifies the statement | end to end, real: the local-ledger control in `tests/fixtures/scitt_ccf/local_ledger_control.json`. Receipt side, real: the test-service control and `uvm_0.2.10.cose` (production) |
 
@@ -492,14 +493,15 @@ readable there only.
   no -2 is `consistency_proof_missing`.
 - What the pass checks: the types of the header labels the reader reads, in either header bucket
   (RFC 9052 alg, crit, content type and kid; RFC 9360 `x5chain`; RFC 9597 CWT claims with the RFC
-  8392 issuer and iat of a receipt, in the claims map of either bucket; RFC 9942 vds, and vdp as a
+  8392 issuer and subject of the statement and of a receipt and the iat of a receipt, in the claims
+  map of either bucket; RFC 9942 vds, and vdp as a
   map, of every receipt), the RFC 9995 types of 258, 259 and 260, label 394 as one to
   `MAX_RECEIPTS` receipts, and for a receipt with vds 2 the -05 CDDL: alg `int`, a `vdp` of -1 and
   -2 only with at least one of them, each an array of one to eight proofs, every proof of either
   family parsed with its path, leaf or anchor.
 - Every rule is one named entry of a table in `proofbundle.scitt_ccf` (`_STATEMENT_RULES`,
   `_TRANSPARENT_RULES`, `_RECEIPT_BYTES_RULES`, `_RECEIPT_RULES`, `_CCF_RULES`, `_PROOF_RULES`,
-  `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 40
+  `_LEAF_RULES`, `_ANCHOR_RULES`). `tests/test_scitt_ccf_cddl_first.py` removes each of the 43
   rules in turn: some regression case must then fail, its status, readable value or refusal no
   longer the expected one, and a positive control shows that a rule no case holds would be named.
 - Codex on pull request 279, round four: vdp was typed only in the unprotected bucket of a vds 2
@@ -511,6 +513,13 @@ readable there only.
   vdp was `outside_profile`, and a receipt of vds 1 with an unprotected vdp of `[1]` was
   `outside_profile`. All three are now `malformed`. A well-typed protected vdp keeps
   `consistency_proof_missing` (the control).
+- The merge with pull request 406 (2026-10-25), which asks a receipt for a text iss and sub as it
+  asks a statement (RFC 9943 section 6): the counter-reading of the merge found the pass typing the
+  issuer of a receipt only, so a receipt's sub of `7` or `null`, and a statement's iss or sub that is
+  no text, ended `outside_profile` and readable, where a receipt's iss of `5` was `malformed`. Three
+  rules type the issuer and subject on both sides (43 in all), three cases were added (63), and those
+  inputs are `malformed` now. An absent or empty iss or sub stays with the status logic,
+  `outside_profile`.
 - Statuses this moves, measured with the 56 regression cases against the reader at `257b984`: 26
   cases change, all to `malformed` and not readable. 19 were `outside_profile`: the wrong type of
   258, 259, 260, the statement's alg, content type or `x5chain`, of a receipt's alg, kid, CWT

@@ -11,8 +11,8 @@ name: pr-form
 # subscribes to restarts the whole suite. A changed description or milestone needs this one short
 # job, not the suite, so the three events below start this workflow and nothing else.
 #
-# NO CONDITION ON THE JOB. GitHub reports a job skipped by an `if:` as success, and a skipped check
-# at the same head could hide a red one. The job runs on every event it subscribes to.
+# NO CONDITION ON A JOB. GitHub reports a job skipped by an `if:` as success, and a skipped check
+# at the same head could hide a red one. Each job runs on every event the file subscribes to.
 #
 # EVERY BASE BRANCH. A stacked pull request carries a milestone and a footer as well; there is no
 # `branches` filter.
@@ -21,8 +21,16 @@ name: pr-form
 # on a pull request, and the gate has no rule about labels, so `labeled` and `unlabeled` start
 # nothing here.
 #
-# ADVISORY. The job is not a required context of the ruleset protect-main, so a red form shows and
-# blocks nothing until the owner makes it required.
+# THE LANGUAGE CHECK, the second job (owner decision 2026-10-18, card OA-cb01830123, option A): the
+# title, the body and the commit messages of the pull request are English,
+# scripts/pr_language_check.py. It came here from ci.yml for the reason the form gate did: an edited
+# title or body needs this short job, not the suite, and in ci.yml it judged an edited text never
+# (Codex threads 4303690781 and 4303690782 on pull request 377). It is its own job and not a step
+# after the form gate, because a red step skips the steps after it and this file carries no `if:`,
+# so each red stays visible on its own.
+#
+# ADVISORY. Neither job is a required context of the ruleset protect-main, so a red form or a red
+# language shows and blocks nothing until the owner makes it required.
 #
 # Actions are pinned to full commit SHAs, matching the other workflows.
 
@@ -57,3 +65,18 @@ jobs:
       # anyone who opens a pull request writes; no expression splices it into this line.
       - name: Pull-request form gate
         run: python scripts/b7_pr_form_gate.py --event "$GITHUB_EVENT_PATH"
+
+  pr-language:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The whole history, because the commit messages are read with git log base..head.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      # Title, body, base and head come from the payload file, as for the form gate above.
+      - name: On GitHub we always write English
+        run: python scripts/pr_language_check.py --event "$GITHUB_EVENT_PATH"

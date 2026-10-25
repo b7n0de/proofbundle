@@ -1621,7 +1621,9 @@ those on a verify, emit or release path:
   `tests/test_an_option_given_an_empty_value_is_not_dropped.py` reads the options whose value reaches one of eight
   file readers in `cli.py`; a file read through another function is outside it.
 
-## Open — a caller's own Python objects can make a never-raise surface raise
+## Closed in 6.3.1, within the measurement named here — a caller's own Python objects can make a never-raise surface raise
+
+Closed in 6.3.1 by owner decision O631-2 of 2026-10-18, within the measurement of this paragraph and no further. This paragraph is an edit to a frozen record, made by that decision; the text after it is the record as it stood at 6.2.0. Measured at the release candidate of 6.3.1, `56eb5a6f`, on 2026-10-20. The contract sweep over the 43 arguments of never-raise surfaces that a contract hands on or a reader reads, with five inputs each, lets no caller's exception escape, where four escaped at `22aa954e`, the base of the fixes of 6.3.1 (NR1, `tests/test_never_raise_contract_arguments_nr1.py`). The family property, the population guard and the gate of run 7 hold at the same head (`tests/test_never_raise_surface_family_property.py`, `tests/test_never_raise_population_guard.py`, `tests/test_no_object_of_the_caller_reaches_a_body.py`, 31 passed with 289 subtests). The two neighbours below answer as their lines ask. `plain_json` gives its typed refusal for a value whose metaclass raises on `__name__`, alone, in a list, as a key and as an `int` subclass, and an empty `list` subclass under `policy_warnings` gives no blocker while a list with a warning still does. This does not say the class is gone. An input outside the sweep, a `__fspath__` that raises an exception outside the `Exception` family and the limits named in [the 6.3.1 record](RESTRISIKO_631.md) stay outside it.
 
 Owner decision of 2026-09-27 (the line for this class in 6.2.0): where a caller's object makes a verifier answer ok, PASS
 or a signed property it should not, or makes a written byte differ from the judged one, the release blocks and the

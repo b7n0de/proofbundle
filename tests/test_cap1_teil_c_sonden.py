@@ -13,6 +13,7 @@ Ohne die Kontrollen misst der Lauf nichts (lauf.py sagt es woertlich), deshalb s
 """
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -66,11 +67,26 @@ def test_die_negativkontrolle_faellt_an_genau_r1(sonden):
     assert gefeuert == ["R1-no-silent-remainder"], gefeuert
 
 
+#: Owner decision O381-3 (Z381, 2026-10-16): the Rust implementation reads argv with `args_os` and
+#: keeps the path a `Path`, so a file under a name that is not UTF-8 gets a verdict instead of a
+#: panic (exit 101). Exactly these files differ from 8b581d7, each pinned by the sha256 of its
+#: bytes; every other byte of the tool stays as it was, measured over git as before.
+_O381_3 = {
+    "tools/cap1_unabhaengige_umsetzung/rs/src/main.rs":
+        "81ba45aa01036fdcabb5232a941e07b6fca2a1c08371690e16f3b6e25760e739",
+    "tools/cap1_unabhaengige_umsetzung/rs/tests/argv.rs":
+        "f4288704053027003c02f152e7adfd12aa567cf0b7f4c773d41bda7c27372bed",
+}
+
+
 def test_das_werkzeug_wurde_nicht_veraendert():
     """Der Auftrag verbietet Aenderungen an tools/cap1_unabhaengige_umsetzung; die Fassung im
     Zweig ist byte-gleich mit der auf der Basis 8b581d7 (gemessen ueber git, nicht behauptet)."""
+    for pfad, sha in _O381_3.items():
+        assert hashlib.sha256((REPO / pfad).read_bytes()).hexdigest() == sha, pfad
     r = subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "8b581d7", "--",
-                        "tools/cap1_unabhaengige_umsetzung"], capture_output=True, text=True)
+                        "tools/cap1_unabhaengige_umsetzung",
+                        *[f":(exclude){pfad}" for pfad in _O381_3]], capture_output=True, text=True)
     if r.returncode not in (0, 1):
         pytest.skip(f"git nicht messbar: {r.stderr.strip()[:120]}")
     assert r.returncode == 0, "tools/cap1_unabhaengige_umsetzung weicht von der Basis ab"

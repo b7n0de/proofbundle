@@ -50,10 +50,12 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from . import _scitt_second_reader as _second
 from ._cbor_prescan import CborRefused, Tag, encode_head, scan
 from ._membership import is_member
+from ._scitt_second_reader import ScittUnavailable
 from .canonical import _abbild_stand, _ein_stand
-from .errors import BundleFormatError, UnsupportedError
+from .errors import BundleFormatError
 
 PROFILE = "scitt-ccf/v1"
 
@@ -122,77 +124,27 @@ class ScittFormatError(BundleFormatError):
         super().__init__(f"{status}: {detail}")
 
 
-class ScittUnavailable(UnsupportedError):
-    """The ``[scitt]`` extra is not installed, or its cbor2 lacks an option the profile needs."""
-
-    status = "no_lib"
+# ``ScittUnavailable`` lives in ``_scitt_second_reader`` and is imported above, so ``scitt_ccf.ScittUnavailable`` stays
+# the one class every caller catches.
 
 
 # ------------------------------------------------------------------------------------------------
 # The reader: our pre-scan decides, cbor2 must read the same values
 # ------------------------------------------------------------------------------------------------
-def _cbor2():
-    try:
-        import cbor2  # noqa: PLC0415 - optional extra
-    except ImportError as exc:
-        raise ScittUnavailable("scitt-ccf needs the [scitt] extra: pip install 'proofbundle[scitt]'") from exc
-    try:
-        cbor2.loads(b"\xa0", allow_duplicate_keys=False, allow_indefinite=False)
-    except TypeError as exc:
-        raise ScittUnavailable("the installed cbor2 cannot reject duplicate keys and indefinite "
-                               "lengths; the [scitt] extra pins the measured version") from exc
-    return cbor2
-
-
-def _same(ours: Any, theirs: Any, cbor2) -> bool:
-    """Do the pre-scan and cbor2 read the same value? Container types differ by cbor2 version
-    (list or tuple, dict or frozendict), so the comparison is by content, never by type name."""
-    if isinstance(ours, bool) or ours is None:
-        return theirs is ours
-    if isinstance(ours, int):
-        return isinstance(theirs, int) and not isinstance(theirs, bool) and theirs == ours
-    if isinstance(ours, (bytes, str)):
-        return type(theirs) is type(ours) and theirs == ours
-    if isinstance(ours, list):
-        return (isinstance(theirs, (list, tuple)) and len(theirs) == len(ours)
-                and all(_same(a, b, cbor2) for a, b in zip(ours, theirs)))
-    if isinstance(ours, dict):
-        try:
-            keys = list(theirs.keys())
-        except AttributeError:
-            return False
-        if len(keys) != len(ours) or any(k not in ours for k in keys if isinstance(k, (int, str))):
-            return False
-        return all(isinstance(k, (int, str)) and not isinstance(k, bool) and _same(ours[k], theirs[k], cbor2)
-                   for k in keys)
-    if isinstance(ours, Tag):
-        if ours.number == 1:
-            # cbor2 turns tag 1 into a datetime (measured, 5.9.0 and 6.1.4); that is the one mapped position
-            import datetime  # noqa: PLC0415
-            if isinstance(ours.value, bool) or not isinstance(ours.value, int):
-                return False
-            return (isinstance(theirs, datetime.datetime) and theirs.tzinfo is not None
-                    and theirs == datetime.datetime.fromtimestamp(ours.value, datetime.timezone.utc))
-        return (isinstance(theirs, cbor2.CBORTag) and theirs.tag == ours.number
-                and _same(ours.value, theirs.value, cbor2))
-    return False
-
-
+# THE SECOND READER IS A MODULE OF ITS OWN (owner answer B on card OA-c2b4d6d3e3): `_scitt_second_reader` holds every
+# reference to cbor2, so this module, which judges only the values of the strict pre-scan, imports no decoding library
+# (tests/test_strict_decoding_guard.py). The order is unchanged: without the extra the reader refuses with no_lib
+# before it reads a byte.
 def _read(data: bytes, *, tag_allowed, max_bytes: int = MAX_STATEMENT_BYTES):
     """Pre-scan, then cbor2 with its strict options; both must read the same value."""
-    cbor2 = _cbor2()
+    _second.library()
     try:
         sc = scan(data, max_bytes=max_bytes, max_depth=MAX_DEPTH, tag_allowed=tag_allowed)
     except CborRefused as exc:
         raise ScittFormatError("malformed", str(exc)) from exc
-    try:
-        theirs = cbor2.loads(bytes(data), allow_duplicate_keys=False, allow_indefinite=False,
-                             max_depth=MAX_DEPTH + 2)
-    except Exception as exc:  # noqa: BLE001 - any cbor2 refusal of bytes the pre-scan accepted is a disagreement
-        raise ScittFormatError("malformed", f"cbor2 refused what the pre-scan accepted: "
-                                            f"{type(exc).__name__}") from exc
-    if not _same(sc.value, theirs, cbor2):
-        raise ScittFormatError("malformed", "the pre-scan and cbor2 read different values")
+    why = _second.disagreement(data, sc.value, max_depth=MAX_DEPTH + 2)
+    if why:
+        raise ScittFormatError("malformed", why)
     return sc
 
 
@@ -299,15 +251,35 @@ def recompute_data_hash(data: bytes) -> bytes:
 # Keys and signatures (cryptography), algorithm bound to key type and curve
 # ------------------------------------------------------------------------------------------------
 def _crit_ok(headers: dict, processed: tuple) -> Optional[str]:
-    """The crit rules that are not shape: its shape, [+ label], is a rule of the CDDL pass."""
-    crit = headers.get(_CRIT)
-    if not isinstance(crit, list):
+    """The crit rules that are not shape: its shape, [+ label], is a rule of the CDDL pass.
+
+    A LABEL WITH THE VALUE NULL IS THERE (Codex on pull request 406, thread PRRT_kwDOTKah0M6vyo0G, P2): `2: null`
+    read as no crit. Only a label that is not in the header is no crit, here as in the pass. Every verdict surface
+    runs the pass first, so there the pass refuses a crit of another shape before this is called; the check here
+    keeps the rule for a caller of this function alone, and tests/test_scitt_ccf_cddl_first.py holds it directly."""
+    if _CRIT not in headers:
         return None
+    crit = headers[_CRIT]
+    if not isinstance(crit, list) or not crit:
+        return "crit is not a non-empty array"
     for label in crit:
         if label not in headers:
             return f"crit lists {label!r}, which is not in the protected header"
         if label not in processed:
             return f"crit lists {label!r}, which scitt-ccf/v1 does not process"
+    return None
+
+
+def _cwt_claims_outside(ph: dict, uh: dict) -> Optional[str]:
+    # ONE RULE FOR BOTH SIDES (Codex on pull request 406, thread PRRT_kwDOTKah0M6v36Lg, P2): RFC 9943
+    # section 6 asks the protected header of a Signed Statement and of a Receipt for CWT Claims with the
+    # Issuer and the Subject Claim. The receipt side asked for a text iss alone, so a receipt with no sub,
+    # a null or a number as the sub, or an empty iss confirmed.
+    if _CWT in uh:
+        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
+    cwt = ph.get(_CWT)
+    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
+        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
     return None
 
 
@@ -700,6 +672,11 @@ _STATEMENT_RULES: tuple = _header_rules("statement") + (
     _Rule("259 is uint / tstr", _typed(_PREIMAGE_CTY, lambda v: _uint(v) or isinstance(v, str),
                                        "uint / tstr (RFC 9995)")),
     _Rule("260 is tstr", _typed(_PAYLOAD_LOCATION, lambda v: isinstance(v, str), "tstr (RFC 9995)")),
+    # THE CWT ISSUER AND SUBJECT ARE TEXT ON BOTH SIDES (counter-reading of the merge with pull request 406, F2).
+    # RFC 8392 gives iss and sub as StringOrURI; 406 asks both of a statement and a receipt, and the pass typed the
+    # issuer of a receipt only, so a sub of 7 ended outside_profile and readable where an iss of 5 was malformed.
+    _Rule("statement CWT issuer is tstr", _cwt_claim(1, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
+    _Rule("statement CWT subject is tstr", _cwt_claim(2, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
 )
 
 
@@ -724,6 +701,7 @@ _RECEIPT_BYTES_RULES: tuple = (
 )
 _RECEIPT_RULES: tuple = _header_rules("receipt") + (
     _Rule("receipt CWT issuer is tstr", _cwt_claim(1, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
+    _Rule("receipt CWT subject is tstr", _cwt_claim(2, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
     _Rule("receipt CWT iat is int", _cwt_claim(6, _int, "an integer NumericDate (RFC 8392)")),
     _Rule("receipt vds is int", _typed(_VDS, _int, "int (RFC 9942)")),
     # Codex, PR 279 round four: vdp was typed in the unprotected bucket of a CCF receipt only, so a
@@ -958,12 +936,7 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
     # RFC 9943 section 6: the protected header of a Signed Statement carries CWT Claims with iss and sub.
     # Round 3 of the policy-boundary matrix measured the service refusing M-u15 (CWT Claims moved to the
     # unprotected header) while this profile confirmed it: a required protected label it did not check.
-    if _CWT in uh:
-        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
-    cwt = ph.get(_CWT)
-    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
-        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
-    why = _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
+    why = _cwt_claims_outside(ph, uh) or _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
     if why:
         return why
     if _CRIT in uh:
@@ -1111,7 +1084,7 @@ def _receipt_head(rc: CoseSign1) -> tuple:
             raw_txid if isinstance(raw_txid, str) else None)
 
 
-def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) -> Optional[str]:
+def _receipt_outside(rc: CoseSign1, kid: Optional[bytes]) -> Optional[str]:
     """The protected-header rules every -05 receipt shares, inclusion or consistency (3.1, 4.1)."""
     ph = rc.protected
     alg = ph.get(_ALG)
@@ -1123,9 +1096,7 @@ def _receipt_outside(rc: CoseSign1, kid: Optional[bytes], iss: Optional[str]) ->
         return f"vds is {ph.get(_VDS)!r}, not {_CCF_LEDGER_SHA256} (CCF_LEDGER_SHA256)"
     if kid is None:
         return "the receipt has no kid"
-    if iss is None:
-        return "the receipt has no CWT issuer in its protected header"
-    return None
+    return _cwt_claims_outside(ph, rc.unprotected)
 
 
 def _is_ccf(rc: CoseSign1) -> bool:
@@ -1160,7 +1131,7 @@ def _receipt_status(index: int, v: _ValidReceipt, data_hash: bytes, services: An
         return ReceiptCheck(status=status, **{**base, **kw})
 
     rc = v.rc
-    why = _receipt_outside(rc, v.kid, v.iss)
+    why = _receipt_outside(rc, v.kid)
     if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
     if why is None:
@@ -1361,7 +1332,7 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
     # THE STATUS LOGIC, on what the pass accepted
     kid, iss, computed = v.kid, v.iss, v.consistency
     inclusion_roots = [root for root, _dh in v.inclusion]
-    why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
+    why = _receipt_outside(rc, kid) or _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)
     if not v.vdp_present:

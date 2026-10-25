@@ -78,6 +78,10 @@ _MODULES = [
     # BundleFormatError) or ScittUnavailable without the [scitt] extra; the two verify_ surfaces
     # return a status for every input and never raise.
     "scitt_ccf",
+    # 2026-10-16: the TRACE v0.2 Trust Record verifier, a second FOREIGN format. The population guard
+    # reported `verify_trace_record` outside the property, and it belongs inside for the reason above:
+    # the record bytes arrive from a producer we do not control.
+    "adapters.trace_record",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -412,6 +416,13 @@ _OUT_OF_SCOPE = frozenset({
     #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
     #       unmet).
     "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
+    # 2026-10-16, `proofbundle.adapters.trace_record`. `exit_code` is covered by the entry above (it maps
+    # OUR TraceVerdict). `jwk_thumbprint` is the STRICT key reader: it raises ValueError on a JWK that
+    # is not a usable public Ed25519, P-256 or P-384 key, because a thumbprint of a half-read key would
+    # name a key nobody holds. `verify_trace_record` reaches it only inside the `cnf-binding` check,
+    # which turns that ValueError into a failing check. Measured beforehand: no other scanned module
+    # exports the name.
+    "jwk_thumbprint",
     # 2026-09-28, eval-result v0.2 (the revised #575 draft). Four PRODUCERS beside their v0.1 siblings
     # above, for the same reason: they take the caller's own claim, key and descriptors and refuse a
     # bad one with BundleFormatError, which is the producer contract. The one function of the family
