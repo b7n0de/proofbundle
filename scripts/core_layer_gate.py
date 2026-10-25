@@ -137,8 +137,9 @@ _BUILTIN_NAMES = frozenset(dir(builtins))
 #: What an expression may stand for that the gate cannot name, beside the names it can (`getattr(os, "path", h)`
 #: is `os.path` or whatever `h` is). It matches no rule, and a receiver that may be it counts as unresolved.
 #: A call, a conditional, a boolean and an assignment expression carry it beside every name they are read as (second
-#: counter-reading of pull request 395, F-D, P3): the names serve the rules, and the receiver stays unresolved, as it
-#: was on main, so `getattr(sys, "stdin").read()` keeps the file finding main makes on it.
+#: counter-reading of pull request 395, F-D, P3): the names serve the rules, and the receiver stays unresolved, so
+#: `getattr(sys, "stdin").read()` is a file finding. That is stricter than main, which reports none there (the
+#: counter-reading of pull request 420, F8).
 _UNRESOLVED = "<unresolved>"
 
 
@@ -423,6 +424,10 @@ class _ChangeScan:
         self._shown: dict[int, bool] = {}
         #: Whether calling a class of the module builds an object of that class, once per class (`_builds_its_own`).
         self._built: dict[int, bool] = {}
+        #: The string a name always is, once per scope, name and depth (`_one_string`).
+        self._strings: dict[tuple[int, str, int], str | None] = {}
+        #: Whether the module writes an attribute `__new__` anywhere (`_new_written`), None until asked.
+        self._new: bool | None = None
         self._loads: dict[tuple[int, str], list[ast.Name]] = {}
         for n in ast.walk(tree):
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
@@ -489,7 +494,8 @@ class _ChangeScan:
         inspect.getmodule(typing.Any)` made `C()` a module, and `setattr(C(), name, True)` changed the guard unseen;
         a metaclass with its own `__call__`, a base with `__new__` and a decorator that returns a function did the
         same. The class counts only when it is bound once, has no decorator and no keyword in its bases (a
-        metaclass among them), defines no `__new__`, and every base is `object` or such a class of the module.
+        metaclass among them), binds no `__new__` anywhere in its body while the module sets no attribute `__new__`
+        (`_plain_class`), and every base is `object` or such a class of the module.
 
         A SHARED BASE IS NO CYCLE (Codex thread 4370601946 on pull request 420, P2): one set for all bases made the
         second edge to a shared base a cycle, so in `E(C, D)` with `C(B)` and `D(B)` the class `D` built a possible
@@ -509,12 +515,19 @@ class _ChangeScan:
         return verdict
 
     def _plain_class(self, c: ast.ClassDef, seen: set[int]) -> bool:
-        for st in c.body:
-            if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)) and st.name == "__new__":
+        # `__new__` IN ANY FORM (counter-reading of pull request 420, F4, P2): only a def or a plain name target at the
+        # top of the body counted, so a `__new__` under `if` or `try`, in a tuple or loop target, set as `C.__new__`
+        # after the class or by `setattr(C, "__new__", ...)` built a module while the class counted as plain. Now any
+        # binding of `__new__` anywhere in the body counts, and so does any write of an attribute `__new__` anywhere in
+        # the module: then no class of the module is plain.
+        if self._new_written():
+            return False
+        for n in (n for st in c.body for n in ast.walk(st)):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == "__new__":
                 return False
-            targets = st.targets if isinstance(st, ast.Assign) else [st.target] \
-                if isinstance(st, (ast.AnnAssign, ast.AugAssign)) else []
-            if any(isinstance(t, ast.Name) and t.id == "__new__" for t in targets):
+            if isinstance(n, ast.Name) and n.id == "__new__" and isinstance(n.ctx, (ast.Store, ast.Del)):
+                return False
+            if isinstance(n, ast.alias) and (n.asname or n.name) == "__new__":
                 return False
         for base in c.bases:
             if isinstance(base, ast.Name):
@@ -524,6 +537,17 @@ class _ChangeScan:
             if self.names.quals(base) != ["builtins.object"]:
                 return False
         return True
+
+    def _new_written(self) -> bool:
+        """Whether the module writes an attribute `__new__` anywhere: `C.__new__ = f`, `del C.__new__`, or a setattr or
+        delattr in any spelling `_attribute_call` reads, with the literal name `__new__`. Asked once."""
+        if self._new is None:
+            self._new = any(
+                (isinstance(n, ast.Attribute) and n.attr == "__new__" and isinstance(n.ctx, (ast.Store, ast.Del)))
+                or (isinstance(n, ast.Call) and (call := _attribute_call(n, self.names.quals)) is not None
+                    and call[0] in ("set", "del") and _literal(call[3]) == "__new__")
+                for n in ast.walk(self.tree))
+        return self._new
 
     def may_be_module(self, expr: ast.expr | None) -> bool:
         return not self.no_module(expr)
@@ -690,11 +714,22 @@ class _ChangeScan:
         return None
 
     def _one_string(self, scope: _Scope, name: str, names: "_Names", depth: int) -> str | None:
+        """The string every binding of `name` in `scope` is. ONCE PER SCOPE, NAME AND DEPTH (counter-reading of pull
+        request 420, F1, P1): each binding was read again at every use, so `i = 0` followed by eight `i = i + 1` and
+        `code[i]` took 66 s, and `idlelib/pyparse.py` 203 s, where main takes 0.1 s. The depth is part of the key, so
+        an answer the depth limit cut short at one depth is never handed to a shallower one, and each answer is the one
+        the reading without the record gives. The depth grows on every step, so no path meets its own key again."""
+        key = (id(scope), name, depth)
+        if key in self._strings:
+            return self._strings[key]
+        self._strings[key] = None
         values = [v for n, v in scope.assigns if n == name]
         if not values or len(values) != scope.stores.get(name, 0):
             return None
         texts = {self.string_of(v, names, depth + 1) for v in values}
-        return texts.pop() if len(texts) == 1 and None not in texts else None
+        text = texts.pop() if len(texts) == 1 and None not in texts else None
+        self._strings[key] = text
+        return text
 
     def _bound_elsewhere(self, quals: set[str], depth: int) -> str | None:
         texts = set()
@@ -993,7 +1028,10 @@ class _Scope:
 
 
 #: How many qualified names one binding of a name may stand for before it stands for an unresolved value (`_Names`).
-_ALIAS_LIMIT = 64
+#: 4096, not 64 (counter-reading of pull request 420, F2, P2): at 64 an `os` bound after 64 other names of the same
+#: binding fell out of the set, and `x.getenv("X")` read the environment unseen where main reports it. The bound input
+#: of Codex thread 4370601942 stays bounded at 4096 (0.5 s under a limit of 256 MiB).
+_ALIAS_LIMIT = 4096
 #: The functions that evaluate a postponed annotation, under the names they resolve to, and the parameters by which a
 #: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`).
 _ANNOTATION_EVALUATORS = frozenset({"typing.get_type_hints", "typing_extensions.get_type_hints",
@@ -1073,8 +1111,10 @@ class _Names:
                     # A NAME STANDS FOR AT MOST _ALIAS_LIMIT NAMES (Codex thread 4370601942 on pull request 420, P2):
                     # `p = os; p = p.path; p = p.os` doubles the names of `p` in every round, and the rounds count
                     # every name the module binds, so twelve unrelated assignments ran the gate out of memory without
-                    # its report. Past the limit the name stands for what the gate cannot name as well, and grows no
-                    # further; a chain that binds each name once holds one name per link and is not touched.
+                    # its report. Past the limit the names the binding holds stay, the new names of this assignment
+                    # are dropped, and the name stands for what the gate cannot name as well; a name that comes only
+                    # after the limit is not seen (the limit of the counter-reading of pull request 420, F2). A chain
+                    # that binds each name once holds one name per link and is not touched.
                     if len(held) + len(new) > _ALIAS_LIMIT:
                         if _UNRESOLVED not in held:
                             held.add(_UNRESOLVED)
@@ -1187,10 +1227,17 @@ class _Names:
         the scope of that function as well. Read there always, an alias of the function made a finding of code that
         never runs (FD-4 of the second counter-reading). What stays out of reach: a namespace handed in from outside
         the function around the def, or built by a call the gate does not name here."""
+        # ONCE PER FUNCTION (counter-reading of pull request 420, F5, P3): the function around the def was searched
+        # again for every pending annotation, so a factory with 500 annotated inner functions took 42 s (main 0.4 s).
+        hands: dict[int, bool] = {}
         for annotation, scope in self._pending:
             owner = self._def_of.get(id(scope))
-            if owner is not None and any(isinstance(n, ast.Call) and self._hands_a_namespace(n, scope)
-                                         for n in ast.walk(owner)):
+            if owner is None:
+                continue
+            if id(owner) not in hands:
+                hands[id(owner)] = any(isinstance(n, ast.Call) and self._hands_a_namespace(n, scope)
+                                       for n in ast.walk(owner))
+            if hands[id(owner)]:
                 for n in ast.walk(annotation):
                     self._also[id(n)] = scope
 
@@ -1680,9 +1727,11 @@ def external_and_edges(edges: dict[str, list[int]], core: set[str], package: str
 
 # ── the verdict ────────────────────────────────────────────────────────────────────────────────
 def _read_json(path: Path) -> dict:
+    # RecursionError as well (counter-reading of pull request 420, F7, P3): a file nested deeper than the decoder reads
+    # stopped the gate with a traceback and exit 1, the exit code of a red verdict, and no report.
     try:
         data = json.loads(path.read_bytes())
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise NotMeasurable(f"{path}: {exc}") from exc
     if not isinstance(data, dict):
         raise NotMeasurable(f"{path}: not a JSON object")
@@ -1784,7 +1833,10 @@ def _measure(root: Path, modules_file: Path) -> dict:
         for form, line in found:
             per_form.setdefault(form, []).append(line)
         unreviewed = False
-        text = mods[m][0].read_text(encoding="utf-8", errors="replace").splitlines()
+        # THE LINES `ast` COUNTS (counter-reading of pull request 420, F6, P3): `splitlines` also cuts at a form feed
+        # and at FS, GS, RS, NEL and the two Unicode separators, so a form feed before the reviewed line moved the line
+        # read, and an edited write stayed approved. `read_text` turns CRLF and CR into a line feed, as `ast` counts.
+        text = mods[m][0].read_text(encoding="utf-8", errors="replace").split("\n")
         for form, lines in sorted(per_form.items()):
             source = [text[n - 1].strip() if 0 < n <= len(text) else "" for n in sorted(lines)]
             seen_reviews[(m, form)] = (len(lines), source)

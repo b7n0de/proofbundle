@@ -1105,7 +1105,9 @@ def test_a_name_that_grows_around_a_cycle_stays_bounded():
     source = "import os\np = os\np = p.path\np = p.os\n" + "".join(f"a{i} = {i}\n" for i in range(12))
     names = m._Names(ast.parse(source), "probepkg.helper", False, m._NO_GUARDS)
     held = names.module.alias["p"]
-    assert len(held) <= 65, len(held)
+    # The bound is the limit and the marker, not a number of its own (the counter-reading of pull request 420, F2,
+    # raised the limit from 64 to 4096).
+    assert len(held) <= m._ALIAS_LIMIT + 1, len(held)
     assert m._UNRESOLVED in held
     assert {"os", "os.path"} <= held, "the names the gate can follow are kept"
 
