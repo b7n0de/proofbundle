@@ -31,8 +31,20 @@ Two escapes, both narrow and both declared:
                  the other house markers are removed before scanning. They are states, not language.
 
   QUOTED GERMAN  R3 requires that an English text quoting a German sentence stays green. A quote is
-                 recognised as such: fenced code, inline backticks, or a blockquote line. Everything
-                 else is prose and is scanned.
+                 recognised as such: fenced code, inline backticks, a blockquote line, an HTML
+                 `<blockquote>` and text in straight double quotes. Everything else is prose and is
+                 scanned.
+
+Three more forms are no prose (counter-reading of pull request 377, F7): a finding identifier in
+capitals (`DREI-VERBRAUCHER-...-EINER-01`), a trailer that names a person (`Co-authored-by: Name
+<address>`), and a word counted twice, because a line needs two DIFFERENT list words.
+
+THE CHECK RUNS THE COPY OF THE PULL REQUEST (counter-reading of pull request 377, F8, an
+observation). `actions/checkout` on `pull_request` checks out the merge of the pull request, so this
+script and the word list in `tests/_deutsche_prosa.py` are the ones the pull request carries, and a
+pull request can change them and turn itself green, as it can with `scripts/b7_pr_form_gate.py`.
+While the check is advisory that has no consequence; when the owner makes it required, the copy of
+the base has to run.
 """
 from __future__ import annotations
 
@@ -41,6 +53,7 @@ import json
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 #: The TOOL's own root. The shared word list is part of the tool, so it is looked up here, the same
@@ -59,9 +72,9 @@ _STOPWOERTER = ("und", "nicht", "wird", "der", "die", "das", "wenn", "statt", "o
 _WOERTER = tuple(sorted(set(_STOPWOERTER) | set(DP.FUNKTIONSWOERTER)))
 _GRENZE_VOR, _GRENZE_NACH = r"(?<![0-9a-zA-Z_])", r"(?![0-9a-zA-Z_])"
 _WORT = re.compile(_GRENZE_VOR + "(" + "|".join(_WOERTER) + ")" + _GRENZE_NACH, re.IGNORECASE)
-_UMLAUT = re.compile(r"[äöüÄÖÜß]")
+_UMLAUT = re.compile("[äöüÄÖÜß\u1e9e]")
 #: Every raw marker, words and umlauts, before any threshold. Kept for the retraction probe.
-MARKER = re.compile(r"[äöüÄÖÜß]|" + _GRENZE_VOR + "(?:" + "|".join(_WOERTER) + ")" + _GRENZE_NACH,
+MARKER = re.compile("[äöüÄÖÜß\u1e9e]|" + _GRENZE_VOR + "(?:" + "|".join(_WOERTER) + ")" + _GRENZE_NACH,
                     re.IGNORECASE)
 
 #: How many list words one line of prose needs before it counts as German, the same threshold as
@@ -92,7 +105,33 @@ _TYPISIERT = re.compile(
 
 _ZAUN = re.compile(r"```.*?```|~~~.*?~~~", re.S)
 _INLINE = re.compile(r"`[^`\n]*`")
-_ZITATZEILE = re.compile(r"^\s*>.*$", re.M)
+#: `[ \t]*`, not `\s*` (counter-reading of pull request 377, F9, P3): `\s*` ran over the line breaks
+#: that follow, and a body of empty lines took quadratic time (65536 lines 4.28 s at e8748354).
+_ZITATZEILE = re.compile(r"^[ \t]*>.*$", re.M)
+_HTML_ZITAT = re.compile(r"<blockquote\b.*?</blockquote\s*>", re.S | re.I)
+#: A quotation in straight double quotes, also over a line break, never over an empty line: a commit
+#: message wraps a quoted sentence like any other.
+_ANFUEHRUNG = re.compile(r'"(?:[^"\n]|\n(?![ \t]*\n))*"')
+#: No `@` in the two parts of the address (counter-reading of pull request 419, F4): with `@` in both
+#: classes, `Co-authored-by: x <` and `a@` repeated took quadratic time (65536 characters 10.96 s).
+_PERSON = re.compile(r"^[ \t]*[A-Za-z][A-Za-z-]*-by:[ \t]+[^<>\n]+<[^<>\s@]+@[^<>\s@]+>[ \t]*$", re.M)
+_KENNUNG = re.compile(r"(?<![0-9A-Za-z_-])[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}(?![0-9A-Za-z_-])")
+
+
+def _gelesen(text: str) -> str:
+    r"""The text as it reads: after NFKC and without format characters (counter-reading of pull request
+    377, F6, P3). A zero-width space inside each list word and a decomposed umlaut hid German prose.
+
+    Every line boundary that `splitlines` knows becomes `\n` (Codex thread 4370565956 on pull request
+    419): the expressions below know only `\n`, the line count in `treffer` knows more. With `\r\n` a
+    quotation ran over an empty line and took German prose with it, and a trailer ending in `\r` was
+    no trailer.
+
+    The boundaries first, the format characters after (counter-reading of pull request 419, F1): a
+    format character between `\r` and `\n` left a `\r\n` when it was removed, one boundary where the
+    text has two, and the quotation ran over the empty line again. NFKC makes no boundary of its own."""
+    t = "\n".join(text.splitlines())
+    return "".join(z for z in unicodedata.normalize("NFKC", t) if unicodedata.category(z) != "Cf")
 
 
 def entkernen(text: str) -> str:
@@ -100,24 +139,29 @@ def entkernen(text: str) -> str:
 
     Order matters. Fences first, because a fence may contain backticks.
     """
-    t = _ZAUN.sub(" ", text)
+    t = _ZAUN.sub(" ", _gelesen(text))
+    t = _HTML_ZITAT.sub(" ", t)
     t = _ZITATZEILE.sub(" ", t)
     t = _INLINE.sub(" ", t)
+    t = _ANFUEHRUNG.sub(" ", t)
+    t = _PERSON.sub(" ", t)
+    t = _KENNUNG.sub(" ", t)
     return _TYPISIERT.sub(" ", t)
 
 
 def treffer(text: str, *, titel: bool = False) -> list[str]:
     """The German markers of the prose lines of `text` that count as German. Empty list means clean.
 
-    A line counts when it carries an umlaut or an eszett, or at least SCHWELLE list words; a title
-    at SCHWELLE_TITEL list words, of which a word written in capitals is none."""
+    A line counts when it carries an umlaut or an eszett, or at least SCHWELLE different list words; a
+    title at SCHWELLE_TITEL list words, of which a word written in capitals is none. Different: one
+    acronym twice on a line, `DER ... DER`, made it German (counter-reading of pull request 377, F7)."""
     aus: list[str] = []
     for zeile in entkernen(text or "").splitlines():
         umlaute = _UMLAUT.findall(zeile)
         woerter = _WORT.findall(zeile)
         if titel:
             woerter = [w for w in woerter if not w.isupper()]
-        if umlaute or len(woerter) >= (SCHWELLE_TITEL if titel else SCHWELLE):
+        if umlaute or len({w.lower() for w in woerter}) >= (SCHWELLE_TITEL if titel else SCHWELLE):
             aus += umlaute + woerter
     return aus
 
@@ -138,31 +182,65 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 
 def aus_ereignis(pfad: str) -> tuple[str, str, str, str]:
     """Title, body, base commit and head commit of the pull request in the runner's event payload.
-    GitHub writes `null` for an empty body, which reads as the empty text."""
+    GitHub writes `null` for an empty body, which reads as the empty text. A payload of another
+    shape raises ValueError (counter-reading of pull request 377, F5)."""
     with open(pfad, encoding="utf-8") as f:
-        pr = (json.load(f) or {}).get("pull_request") or {}
-    return (pr.get("title") or "", pr.get("body") or "",
-            (pr.get("base") or {}).get("sha") or "", (pr.get("head") or {}).get("sha") or "")
+        daten = json.load(f) or {}
+
+    def objekt(wert: object, name: str) -> dict:
+        if not isinstance(wert, dict):
+            raise ValueError(f"{name} is no JSON object")
+        return wert
+
+    def text(wert: object, name: str) -> str:
+        if wert is not None and not isinstance(wert, str):
+            raise ValueError(f"{name} is no string")
+        return wert or ""
+
+    pr = objekt(objekt(daten, "the payload").get("pull_request") or {}, "pull_request")
+    return (text(pr.get("title"), "title"), text(pr.get("body"), "body"),
+            text(objekt(pr.get("base") or {}, "base").get("sha"), "base.sha"),
+            text(objekt(pr.get("head") or {}, "head").get("sha"), "head.sha"))
 
 
 def commit_nachrichten(basis: str, kopf: str, repo: str = ".") -> list[str]:
-    """The messages of the commits basis..kopf, read with git in `repo`."""
-    r = subprocess.run(["git", "-C", repo, "log", "--format=%B%x00", f"{basis}..{kopf}"],
-                       capture_output=True, text=True, check=True)
-    return [c for c in r.stdout.split("\0") if c.strip()]
+    """The messages of the commits basis..kopf, each read whole from its object, in its encoding.
+
+    `git log --format=%B` writes a message only up to its first NUL byte, so German text after one
+    was never read (counter-reading of pull request 377, F2, P3). A message that is not in the
+    encoding its commit declares, UTF-8 when it declares none, raises ValueError (F5)."""
+    liste = subprocess.run(["git", "-C", repo, "rev-list", f"{basis}..{kopf}"],
+                           capture_output=True, text=True, check=True)
+    nachrichten = []
+    for sha in liste.stdout.split():
+        roh = subprocess.run(["git", "-C", repo, "cat-file", "commit", sha],
+                             capture_output=True, check=True).stdout
+        kopfteil, _, nachricht = roh.partition(b"\n\n")
+        kodierung = next((z[len(b"encoding "):].decode("ascii").strip() for z in kopfteil.split(b"\n")
+                          if z.startswith(b"encoding ")), "utf-8")
+        nachrichten.append(nachricht.decode(kodierung))
+    return nachrichten
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="on GitHub we always write English")
     p.add_argument("--event", help="the runner's event payload; title, body and base..head come from it")
-    p.add_argument("--title", default="")
+    p.add_argument("--title")
     p.add_argument("--body-file")
     p.add_argument("--commits-file")
     a = p.parse_args(argv)
-    if a.event:
-        if a.title or a.body_file or a.commits_file:
+    # NO SOURCE IS NO MEASUREMENT, and a crash is no finding (counter-reading of pull request 377, F4
+    # and F5): an empty `--event` read as no event, no source at all measured nothing and said clean,
+    # and an unreadable payload stopped with exit 1, the exit code of German prose found.
+    if a.event is not None:
+        if a.title is not None or a.body_file or a.commits_file:
             p.error("--event reads the title, the body and the commits itself")
-        titel, body, basis, kopf = aus_ereignis(a.event)
+        try:
+            titel, body, basis, kopf = aus_ereignis(a.event)
+        except (OSError, ValueError) as e:
+            print(f"pr-language-check: NOT MEASURABLE, the event payload is not readable: "
+                  f"{type(e).__name__}: {str(e)[:200]}")
+            return 2
         if not (_SHA.fullmatch(basis) and _SHA.fullmatch(kopf)):
             # A check that reads no commits and reports clean would be green without a measurement.
             print("pr-language-check: NOT MEASURABLE, the event payload names no base and head commit")
@@ -170,14 +248,32 @@ def main(argv: list[str] | None = None) -> int:
         try:
             commits = commit_nachrichten(basis, kopf)
         except subprocess.CalledProcessError as e:
+            fehler = e.stderr.decode("utf-8", "replace") if isinstance(e.stderr, bytes) else e.stderr
             print(f"pr-language-check: NOT MEASURABLE, git log {basis[:12]}..{kopf[:12]} failed: "
-                  f"{(e.stderr or '').strip()[:200]}")
+                  f"{(fehler or '').strip()[:200]}")
             return 2
+        except (OSError, ValueError, LookupError) as e:
+            print(f"pr-language-check: NOT MEASURABLE, a commit of {basis[:12]}..{kopf[:12]} is not "
+                  f"readable: {type(e).__name__}: {str(e)[:200]}")
+            return 2
+        # The form the payload check above forbids, for the range (counter-reading of pull request
+        # 377, F3): a head equal to the base, or behind it, reads no commit.
+        if not commits:
+            print(f"pr-language-check: NOT MEASURABLE, {basis[:12]}..{kopf[:12]} holds no commit")
+            return 2
+    elif a.title is None and not a.body_file and not a.commits_file:
+        print("pr-language-check: NOT MEASURABLE, no source: name --event, or --title, --body-file "
+              "or --commits-file")
+        return 2
     else:
-        titel = a.title
-        body = open(a.body_file, encoding="utf-8").read() if a.body_file else ""
-        commits = (open(a.commits_file, encoding="utf-8").read().split("\0")
-                   if a.commits_file else [])
+        titel = a.title or ""
+        try:
+            body = open(a.body_file, encoding="utf-8").read() if a.body_file else ""
+            commits = (open(a.commits_file, encoding="utf-8").read().split("\0")
+                       if a.commits_file else [])
+        except (OSError, ValueError) as e:
+            print(f"pr-language-check: NOT MEASURABLE, {type(e).__name__}: {str(e)[:200]}")
+            return 2
     erg = pruefe(titel, body, [c for c in commits if c.strip()])
     if erg["sauber"]:
         print("pr-language-check: clean, no German prose in title, body or commit messages")
