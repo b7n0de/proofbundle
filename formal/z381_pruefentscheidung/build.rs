@@ -163,6 +163,73 @@ fn main() {
         }
     }
 
+    // The verifier's own modules (`mod scitt;` and its neighbours) belong to the proof subject as
+    // they ship. Each is read from tools/pb_verify_rs/src, its unit tests are cut as those of
+    // main.rs are, and it must carry no boundary of its own: the boundary of main.rs stays the only
+    // one, so a module that read a file, printed or exited would stop the build here. A module's
+    // `crate::` names the verifier's root, which in this crate is `crate::verifier`; that path is
+    // the one token rewritten.
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let modules: Vec<String> = s
+        .lines()
+        .filter_map(|l| l.strip_prefix("mod ")?.strip_suffix(';'))
+        .map(str::to_string)
+        .collect();
+    for m in &modules {
+        if m.is_empty() || !m.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+            panic!("z381 build: module line `mod {m};` is not a plain module name");
+        }
+        let path = format!("../../tools/pb_verify_rs/src/{m}.rs");
+        println!("cargo:rerun-if-changed={path}");
+        let src = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("z381 build: module `{m}` not readable at {path}: {e}"));
+        let body = match src.find("\n#[cfg(test)]\nmod tests {\n") {
+            Some(cut) => {
+                if src[cut + 1..].matches("#[cfg(test)]").count() != 1 || !src.ends_with("}\n") {
+                    panic!("z381 build: the test module of `{m}` is not its last item");
+                }
+                &src[..cut + 1]
+            }
+            None => &src[..],
+        };
+        for needle in [
+            "#[cfg(test)]",
+            "std::process::",
+            "std::env::",
+            "std::io::",
+            "std::fs::",
+            "print!(",
+            "println!(",
+            "eprint!(",
+            "eprintln!(",
+            "write!(",
+            "writeln!(",
+            "include!(",
+            "#[path",
+        ] {
+            let n = body.matches(needle).count();
+            if n != 0 {
+                panic!("z381 build: module `{m}` carries `{needle}` {n} time(s); expected none");
+            }
+        }
+        if body
+            .lines()
+            .any(|l| l.trim_start().starts_with("mod ") || l.trim_start().starts_with("pub mod "))
+        {
+            panic!("z381 build: module `{m}` declares a module of its own");
+        }
+        let copy = out_dir.join(format!("{m}.rs"));
+        fs::write(&copy, body.replace("crate::", "crate::verifier::"))
+            .expect("z381 build: cannot write a module of the proof subject");
+        s = replace_exact(
+            &s,
+            &format!("\nmod {m};\n"),
+            &format!("\n#[path = {:?}]\nmod {m};\n", copy.display().to_string()),
+            1,
+            "module",
+        );
+    }
+
     s = replace_exact(
         &s,
         "use std::process::exit;\n",
