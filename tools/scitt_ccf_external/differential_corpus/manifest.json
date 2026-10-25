@@ -1,0 +1,101 @@
+{
+ "tool": "tools/scitt_ccf_external/differential_corpus.py",
+ "measured_on": "2026-09-26",
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "9142fa4b7e167b03ebfd231e7de6df388b421672",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1"
+  }
+ },
+ "image_build_inputs": {
+  "ccf_version": "7.0.17",
+  "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+  "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+  "tdnf_snapshottime": "1790165199"
+ },
+ "service_keyset": {
+  "file": "scitt-keys.hex",
+  "sha256": "dc691c467662826e34be101bdeda55b38fcb6c67989275a6994e48ece84fbf0d"
+ },
+ "signer": {
+  "did": "did:x509:0:sha256:5tQDcbUIzLMtuL2bSU_zYsSOzW1dfa_O2LKJpBdYI2w::subject:CN:proofbundle-scitt-probe",
+  "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004408f74243804d65e42ea3ba1d1d3b1a98ebb632634aba664c5f25edef8016c0c19a89cdcbeff8db18849bdbaeedf40ee2a87f506213dbac1b1a4efa3d9690d61",
+  "alg": "ES256",
+  "note": "made for this run, private key discarded"
+ },
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "vectors": [
+  "control",
+  "control-resubmitted",
+  "a01-label-99-text",
+  "a02-label-99-other-text",
+  "a03-label-99-bstr",
+  "a04-label-99-int",
+  "a05-text-label",
+  "a06-negative-label",
+  "a07-kid",
+  "a08-receipts-label",
+  "a09-x5chain-both-buckets",
+  "a10-cwt-claims-unprotected",
+  "a11-two-labels",
+  "a12-int-and-text-labels",
+  "a13-negative-after-positive",
+  "e01-two-labels-reversed",
+  "e02-text-label-first",
+  "e03-negative-first",
+  "b01-width4",
+  "b02-width8",
+  "b03-indefinite1",
+  "b04-indefinite2",
+  "c01-width2",
+  "c02-width4",
+  "c03-width8",
+  "c04-indefinite1",
+  "c05-indefinite2",
+  "d01-width2",
+  "d02-width4",
+  "d03-width8",
+  "d04-indefinite1",
+  "d05-indefinite2",
+  "f01-second-signature",
+  "f02-third-signature",
+  "f03-high-s-twin"
+ ],
+ "stored_form": {
+  "since": "owner answer C1 b",
+  "converted_from_commit": "56ac85678f83cce7c742fc093b596eb1a420db03",
+  "conversion": "the base64 fields of the JSON records at that commit, each held against its recorded SHA-256 before it was written as hex; no byte re-registered"
+ }
+}

@@ -1,0 +1,59 @@
+{
+ "id": "i07-crit-registered-not-listed",
+ "class": "i",
+ "base": "control",
+ "mutation": "crit [259], a registered label the service does not list; signed again",
+ "phase": {
+  "name": "initial",
+  "keyset": "scitt-keys.initial.hex",
+  "note": "a fresh single-node network on the image, opened with scitt governance local_development"
+ },
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "43a89623f371902f78e29e9290181841566f34c2",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1",
+   "tree_clean_excludes": "tools/scitt_ccf_external/differential_corpus_round2/, this run's own output"
+  }
+ },
+ "service": {
+  "post_status": 400,
+  "accepted": false,
+  "txid": null,
+  "error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}"
+ },
+ "files": {
+  "request.hex": {
+   "sha256": "1db441b65715bedc20b4dd81651451a48b5be39f92ba0b6400eeb1d87f669880",
+   "length": 1155
+  }
+ }
+}

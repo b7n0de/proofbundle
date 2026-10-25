@@ -226,3 +226,142 @@ def test_the_verifier_sees_a_receipt_under_a_quoted_name(tmp_path):
     result = vp.measure(repo, commit, "9.9.9")
     assert result["verdict"] == "NOT_VERIFIED", result
     assert [r["path"] for r in result["rejected"]] == [f"audit_artifacts/999/{QUOTED}.json"], result
+
+
+# -- the counter-reading of pull request 375 at b493f939: F5, F7, F8 and F11 ---------------------
+
+#: A name with a letter outside ASCII and one outside Latin-1, so that both output encodings below
+#: meet a character they cannot write.
+WIDE = "prüfung\U0001f600"
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "latin-1"])
+def test_F5_the_json_form_of_the_resolver_stays_json_under_any_output_encoding(tmp_path, encoding):
+    """F5 (P3): `errors="backslashreplace"` wrote `\\xfc` for `ü` and `\\U0001f600` for an emoji into the
+    JSON form when stdout was not UTF-8. Neither is a JSON escape, so the output was no JSON, with
+    exit 0. The JSON form writes every character outside ASCII as its JSON escape now."""
+    ao = _load("scripts/audit_output_aufloesbar.py", "_gp_resolvable_f5")
+    rel = f"audit_artifacts/{WIDE}.md"
+    repo = _repo(tmp_path, {"README.md": "# r\n", rel: "the record\n"})
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps({"audit_output_digest": ao.sha256_text("the record\n")}),
+                       encoding="utf-8")
+    p = subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "audit_output_aufloesbar.py"),
+                        "--receipt", str(receipt), "--repo", str(repo), "--json"],
+                       capture_output=True, cwd=str(repo), env=dict(os.environ, PYTHONIOENCODING=encoding))
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads(p.stdout.decode(encoding))["treffer"] == [rel], p.stdout
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "latin-1"])
+def test_F5_the_json_form_of_the_language_gate_stays_json_under_any_output_encoding(tmp_path, encoding):
+    """F5 for the language gate: its finding names the file, and the name went into the JSON form
+    with a backslash escape that JSON does not know."""
+    repo = _repo(tmp_path, {"m.py": "x = 1\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "docs").mkdir()
+    (repo / "docs" / f"{WIDE}.md").write_text("Diese Zeile ist deutsch und die Pruefung muss sie sehen.\n",
+                                              encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line under a wide name")
+    p = subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "neue_zeilen_sind_englisch.py"),
+                        "--base", base, "--repo", str(repo), "--json"], capture_output=True,
+                       cwd=str(repo), env=dict(os.environ, PYTHONIOENCODING=encoding))
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert json.loads(p.stdout.decode(encoding))["befunde"][0]["datei"] == f"docs/{WIDE}.md", p.stdout
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "latin-1"])
+def test_F5_the_json_form_of_the_verifier_stays_json_under_any_output_encoding(tmp_path, encoding):
+    """F5 for the receipt verifier, built as in `test_the_verifier_reports_a_name_that_is_not_utf8`."""
+    repo = _repo(tmp_path, {f"audit_artifacts/999/{WIDE}.json": "not json",
+                            ".gitignore": "__pycache__/\n"})
+    (repo / "scripts").mkdir()
+    for script in ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
+                   "sign_readiness_artifact.py", "verify_pre_tag_receipt.py"):
+        shutil.copy(REPO / "scripts" / script, repo / "scripts" / script)
+    shutil.copytree(REPO / "src" / "proofbundle", repo / "src" / "proofbundle",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a receipt under a wide name")
+    commit = _git(repo, "rev-parse", "HEAD").strip()
+    env = dict(os.environ, PYTHONPATH=f"{repo}/src:{repo}/scripts", PYTHONIOENCODING=encoding)
+    p = subprocess.run([sys.executable, "-B", "scripts/verify_pre_tag_receipt.py", "--repo", ".",
+                        "--commit", commit, "--version", "9.9.9", "--json"], capture_output=True,
+                       cwd=str(repo), env=env)
+    assert p.returncode == 1, p.stdout + p.stderr
+    rejected = json.loads(p.stdout.decode(encoding))["rejected"]
+    assert [r["path"] for r in rejected] == [f"audit_artifacts/999/{WIDE}.json"], p.stdout
+
+
+def test_F7_the_readiness_tree_digest_does_not_follow_core_quotepath(tmp_path, monkeypatch):
+    """F7 (P3): the sweep lets `sign_readiness_artifact.tree_digest` read the quoted form because it is
+    "the same digest as pre_tag_receipt_lib.subject_tree_digest". That one pins `core.quotePath=true`,
+    this one did not, and under `core.quotePath=false` it hashed another text for the same tree
+    (87bbdcd3 against ddd9bad7 in the report). It pins the setting now."""
+    sra = _load("scripts/sign_readiness_artifact.py", "_gp_sra_f7")
+    repo = _repo(tmp_path, {f"docs/{QUOTED}.md": "x\n", "README.md": "# r\n"})
+    default = sra.tree_digest(repo)
+    cfg = tmp_path / "quotepath-false"
+    cfg.write_text("[core]\n\tquotePath = false\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    assert _git(repo, "ls-tree", "-r", "HEAD").count('"') == 0, "the setting must reach git here"
+    assert sra.tree_digest(repo) == default
+    lib = _load("scripts/pre_tag_receipt_lib.py", "_gp_lib_f7")
+    assert lib.subject_tree_digest(repo) == default, "the reason of the sweep names this digest"
+
+
+@pytest.mark.parametrize("edge", ["{} ", " {}"], ids=["trailing", "leading"])
+def test_F8_a_name_with_a_space_at_its_edge_is_no_evidence_path(tmp_path, edge):
+    """F8 (P3): the matrix read `diff --name-only` line by line with `strip()`, so a later commit that
+    added `audit_artifacts/360/fuzz_soak_latest.json ` (git does not quote a space) counted as a commit
+    of the evidence file itself. The tree digest after it still refused, so this was a second bar
+    that held, not a pass; the list is read with -z now and no name is trimmed."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    try:
+        acm = _load("scripts/audit_candidate_matrix.py", "_gp_acm_f8")
+        evidence = _load("scripts/sign_readiness_artifact.py", "sign_readiness_artifact").MUTABLE_EVIDENCE_RELS[0]
+    finally:
+        sys.path.remove(str(REPO / "scripts"))
+    repo = _repo(tmp_path, {"README.md": "# r\n"})
+    bound = _git(repo, "rev-parse", "HEAD").strip()
+    lookalike = repo / edge.format(evidence)
+    lookalike.parent.mkdir(parents=True, exist_ok=True)
+    lookalike.write_text("{}\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a lookalike of the evidence file")
+    live = _git(repo, "rev-parse", "HEAD").strip()
+    allowed, reason = acm._evidenz_relation_erlaubt(repo, bound, live)
+    assert allowed is False, reason
+
+
+def test_F11_the_mutation_gate_lists_a_name_that_is_not_utf8(tmp_path):
+    """F11 (P3): `mutation_check._tracked_files` read `ls-files -z` with a strict text decoder and
+    raised on a name that is not UTF-8, and `_dateien_des_baums` decoded with `errors="replace"`, so
+    such a name opened no file and fell out of the list that feeds the test selection. Both decode
+    the way Python decodes a file name now."""
+    mc = _load("scripts/mutation_check.py", "_gp_mc_f11")
+    repo = _repo(tmp_path, {"README.md": "# r\n"})
+    name = _write_bytes_name(repo, b"t\xff.py", b"x = 1\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a name that is not UTF-8")
+    assert name in mc._tracked_files(repo)
+    assert name in mc._dateien_des_baums(repo)
+
+
+def test_F11_the_release_renderer_reads_a_change_under_a_name_that_is_not_utf8(tmp_path):
+    """F11 for `render_release.liefert_dasselbe_paket`: `diff --name-only -z` through a strict text
+    decoder raised `UnicodeDecodeError`, which `except (OSError, SubprocessError)` does not catch. The
+    path is named in the refusal now, and a name under `release_notes/` still ships the same package."""
+    rr = _load("scripts/render_release.py", "_gp_rr_f11")
+    repo = _repo(tmp_path, {"README.md": "# r\n", "release_notes/keep.md": "x\n"})
+    described = _git(repo, "rev-parse", "HEAD").strip()
+    _write_bytes_name(repo, b"release_notes/\xff.md", b"notes\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "notes under a name that is not UTF-8")
+    assert rr.liefert_dasselbe_paket(repo, described, _git(repo, "rev-parse", "HEAD").strip()) is None
+    name = _write_bytes_name(repo, b"src\xff.py", b"x = 1\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a shipped change under a name that is not UTF-8")
+    reason = rr.liefert_dasselbe_paket(repo, described, _git(repo, "rev-parse", "HEAD").strip())
+    assert reason is not None and name in reason, reason

@@ -1,0 +1,17 @@
+{
+ "19->24": {
+  "digests": 5,
+  "equal_under_05_hashing": 5,
+  "equal_under_rfc9162_hashing": 0
+ },
+ "22->24": {
+  "digests": 4,
+  "equal_under_05_hashing": 4,
+  "equal_under_rfc9162_hashing": 0
+ },
+ "19->22": {
+  "digests": 5,
+  "equal_under_05_hashing": 5,
+  "equal_under_rfc9162_hashing": 0
+ }
+}
