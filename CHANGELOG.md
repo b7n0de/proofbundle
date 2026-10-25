@@ -24,6 +24,7 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
 
 ### Fixed
 
+- **The `scitt-ccf/v1` reader checks the CDDL first, then the status (PR279, pull request 407).** One pass validates the statement, its receipts and every vdp proof family completely against the CDDL of the CCF profile and the RFC 9995 parameter types before any status logic runs, and only that pass sets `readable`. A label or an array that is present must have its CDDL type, or the artifact is `malformed`; absence, and values v1 does not take, stay with the status logic. `verify_transparent_statement`, `verify_consistency_receipt`, `verify_statement_signature` and `recompute_data_hash` all enter through the pass (ADR 0009, Decision 16). Each check is one named rule, and a test takes each away in turn and must fail. The CWT issuer and subject are text on a statement and on each receipt, as RFC 8392 gives them, and another type is `malformed`; before, a subject of 7 on a receipt ended `outside_profile` with `readable` true. Before, a status could come before the shape was checked in full: `verify_statement_signature` confirmed a statement whose unprotected header carried a kid as text, an empty crit, CWT Claims as an array or a content type of -1.
 - **`pb_verify_rs` reads its command line as the Python CLI does under CPython 3.13 (Z381).** It reads argv with `args_os`, so a path that is not UTF-8 reaches the file read and a text argument that is not UTF-8 is a usage error (exit 2) instead of a panic (exit 101). `verify-bundle` requires `schema` `proofbundle/v0.1`, `signature.alg` `ed25519` and `merkle.hash_alg` `sha256-rfc6962` before the cryptography, refuses `--allow-pending` without an anchor requirement, takes only `receipt`, `preRegistration` or `statement` for `--anchor-target`, and reads `--expected-tree-size` as Python's `int()` reads it. `verify-bundle` and `verify-relation` read their argument values before the signature, an option takes the next word only when argparse takes it as an argument, and `verify-bundle`, `verify-relation` and `verify-relation-statement` read the words after the subcommand with argparse's rules, `--pub` included. These readings follow CPython 3.13 (Unicode 15.1), and 3.12 reads the measured digits the same way. Under Python 3.10 and 3.11 a digit that Unicode added later, such as a Kawi digit in `--expected-tree-size`, is a usage error for the Python CLI and a number for `pb_verify_rs`; under Python 3.14 a digit of Unicode 16.0, such as a Garay digit, is a number for the Python CLI and a usage error for `pb_verify_rs`. A help word and an option that only Python carries out stay different on purpose; `CROSS_IMPLEMENTATION_REPORT.md` states both as a contract, and names the earlier relation form without `--pub`, which `pb_verify_rs` still reads and the Python CLI refuses, as a residual.
 - The independent cap1 verifier `cap1_verify_rs` reads argv with `args_os`, so a file under a name that is not UTF-8 gets a verdict instead of a panic (Z381).
 - **`verify_bundle` no longer reads a payload the strict reader refuses as a payload without a claim.** With an `sd_jwt_vc` whose issuer signature verifies, such a payload skipped the `sd-jwt-bundle-binding` check, so an eval-claim payload with a duplicate member verified, and with the stricter reader so would one with `NaN` or an integer outside I-JSON. The binding is now demanded and fails, as the holder-binding check and `hf_evals` already treat the same refusal. A payload that is not JSON at all stays out of scope for that binding.
@@ -85,6 +86,33 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   (`scripts/audit_candidate_matrix.py`), and the mutation gate and the release renderer decode a
   name that is not UTF-8 as Python decodes a file name (`scripts/mutation_check.py`,
   `scripts/render_release.py`).
+- Repository tools, after the counter-reading of pull request 415. The mutant guard and the language
+  gate ask git for their diff in a fixed form: `diff.interHunkContext=0` and
+  `diff.suppressBlankEmpty=false` on the command line, and `--no-color`, `--no-ext-diff`,
+  `--no-textconv` and `--text`. With the two settings in a session's configuration, an empty context
+  line between two changes lost the hunk count, and the guard reported clean over a staged mutant,
+  the language gate green over a German line. An external diff program, the text conversion of a
+  diff driver or a `-diff` attribute, which a tracked `.gitattributes` can set, made git print no
+  hunk, and both reported clean over a diff they had not read, and `color.ui=always` did the same to
+  the language gate, which asked without `--no-color`. A line an open hunk cannot hold now makes the
+  guard exit 2 and the language gate report NOT MEASURABLE, instead of being passed over
+  (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). The guard's
+  self-test plants a `-diff` attribute, and its error message names the git subcommand again. Both
+  read what git writes as bytes, so a binary file under `--text` and a lone CR no longer end them in
+  a traceback or move a line out of its hunk, and the guard checks every piece of an added line that
+  Python reads as a statement of its own. Every git call of both runs in a built environment that
+  passes the names git needs to find the repository and its index and pins the rest, so
+  `GIT_LITERAL_PATHSPECS` and its two neighbours no longer make the language gate green and
+  `GIT_TRACE=/dev/stdout` no longer makes the guard skip its range; replacement refs are switched
+  off. A failed git call and a file on a security path that is not UTF-8 make the guard exit 2.
+  Both answer in git's line space, at line feeds: a lone CR, a form feed, U+2028 and the other
+  characters `splitlines()` ends a line at no longer move a `return True` out of the change, a
+  German line after a fence onto the fence, or an allow marker off its line. Markdown is read in
+  CommonMark's lines, so a closing fence or a quotation marker after a lone CR still counts, and of
+  a git line that holds code and prose only the prose is read. A byte
+  order mark no longer hides a mutant, a NUL and a damaged base object make the guard exit 2, a
+  file system monitor no longer hides a change from the working-tree form, and the text report of
+  the language gate escapes a CR or LF in a name or a line.
 
 ## [6.3.1] - 2026-10-21
 

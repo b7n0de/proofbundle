@@ -66,6 +66,11 @@ of the 3.2 pseudo-code that checks no sizes accepted 23 of 23.
 - A production CCF service, other CCF versions, a ledger with 64-byte or write-set-only leaves: NOT MEASURED.
 - Whether RFC 9162 prefixes would change the 4.2 acceptance of deeper anchors (G1 of `../SECTION4_WGLC.md`): NOT MEASURED.
 - The CCF C++ was read, not built; its behaviour is measured through the ledger it wrote.
+- `reader_result.json` keeps the refusal texts of the reader it was measured on. Since the CDDL pass
+  (ADR 0009, Decision 16, pull request 407) the same inputs give the same counts, and the texts read
+  `malformed: data-hash is not bstr .size 32` (22, for B) and `malformed: a path has 1 to 64
+  elements` (1, for A, B and B32); measured on 2026-10-25 from `forgery_inputs.json` without the
+  ledger run, which a new `reader_result.json` would need.
 - The ledger and the receipts are not stored here: the ledger files are binary (AGENTS.md line 21). They are pinned above by length and SHA-256, and a rerun needs a ledger produced the same way.
 
 ## RUNNING IT
