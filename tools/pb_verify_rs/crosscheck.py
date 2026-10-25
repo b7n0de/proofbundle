@@ -825,12 +825,14 @@ def main() -> int:
     # shared vector through BOTH verifiers. tests/fixtures/scitt_consistency_receipt/vectors.json carries
     # the verdict each vector is built to produce (for the local ledger's states, the roots the fixture
     # recorded from the ledger). Python and Rust must both give it, the Rust exit class included (0
-    # confirmed, 1 a check over the evidence failed, 3 no verdict), and each other's result on every field
-    # but the prose. The file is read by the generator's own functions, as the parity test reads it.
+    # confirmed or confirmed_without_tree_sizes, 1 a check over the evidence failed, 3 no verdict), and each
+    # other's result on every field but the prose. Rust takes no tree sizes, so each vector is the Python
+    # call without them. The file is read by the generator's own functions, as the parity test reads it.
     import consistency_receipt_vectors as crv  # noqa: PLC0415
     from proofbundle.scitt_ccf import verify_consistency_receipt  # noqa: PLC0415
     cr_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_consistency_receipt" / "vectors.json")
                         .read_text(encoding="utf-8"))
+    cr_confirmed = {"confirmed", "confirmed_without_tree_sizes"}
     cr_failed = {"consistency_newer_roots_differ", "consistency_anchor_not_canonical",
                  "consistency_older_root_mismatch", "consistency_issuer_mismatch", "signature_invalid"}
     cr_n = 0
@@ -849,7 +851,7 @@ def main() -> int:
         except ValueError:
             rs = None
         want = v["want"]["status"]
-        want_code = 0 if want == "confirmed" else 1 if want in cr_failed else 3
+        want_code = 0 if want in cr_confirmed else 1 if want in cr_failed else 3
         if rs != py or crv.mismatch(v["want"], py) or code != want_code:
             failures.append(f"scitt consistency receipt {v['id']}: built for {v['want']}, Python "
                             f"{crv.observed(py)}, Rust {crv.observed(rs) if rs else out}/exit{code}")

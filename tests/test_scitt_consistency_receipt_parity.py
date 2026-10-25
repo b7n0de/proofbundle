@@ -11,6 +11,9 @@ one local scitt-ccf-ledger, and synthetic ones for every rule of the receipt pas
 draft-ietf-scitt-receipts-ccf-profile-05 section 4. Each vector carries the verdict it is built to
 produce (the oracle). Both verifiers are held to it, and to each other on every field of the result but
 its prose.
+
+The Rust command line takes no tree sizes, so each vector is the Python call without `older_size` and
+`newer_size`: its success is `confirmed_without_tree_sizes`, which Rust exits 0 for as for `confirmed`.
 """
 from __future__ import annotations
 
@@ -30,10 +33,12 @@ except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root
 REPO = Path(__file__).resolve().parents[1]
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "scitt_consistency_receipt" / "vectors.json"
 HAS_CBOR2 = importlib.util.find_spec("cbor2") is not None
-STATUSES = {"confirmed", "malformed", "outside_profile", "consistency_proof_missing",
+STATUSES = {"confirmed_without_tree_sizes", "malformed", "outside_profile", "consistency_proof_missing",
             "consistency_payload_attached", "consistency_newer_roots_differ", "consistency_anchor_not_canonical",
             "consistency_older_root_mismatch", "consistency_issuer_mismatch", "signature_invalid", "needs_rp_trust"}
-#: The exit class of the Rust subcommand, by status: 0 confirmed, 1 a check over the evidence failed.
+#: The exit class of the Rust subcommand, by status: 0 confirmed or confirmed_without_tree_sizes, 1 a check
+#: over the evidence failed, 3 any other.
+CONFIRMED = {"confirmed", "confirmed_without_tree_sizes"}
 FAILED = {"consistency_newer_roots_differ", "consistency_anchor_not_canonical", "consistency_older_root_mismatch",
           "consistency_issuer_mismatch", "signature_invalid"}
 
@@ -58,7 +63,7 @@ def _doc() -> dict:
 
 
 def exit_class(status: str) -> int:
-    return 0 if status == "confirmed" else 1 if status in FAILED else 3
+    return 0 if status in CONFIRMED else 1 if status in FAILED else 3
 
 
 def run_rust(binary: Path, tmp: Path, receipt: bytes, older_root: bytes, older_issuer: str, trust) -> tuple:
@@ -80,7 +85,7 @@ class TheVectors(unittest.TestCase):
     def test_the_local_ledger_is_in(self):
         real = [v for v in _doc()["vectors"] if v["origin"].startswith("scitt-ccf-ledger")]
         self.assertGreaterEqual(len(real), 10)
-        self.assertIn("confirmed", {v["want"]["status"] for v in real})
+        self.assertIn("confirmed_without_tree_sizes", {v["want"]["status"] for v in real})
 
 
 @unittest.skipUnless(HAS_CBOR2, "the [scitt] extra is not installed")
