@@ -1153,6 +1153,52 @@ def test_RED_a_postponed_annotation_read_in_a_namespace_the_function_hands_in(tm
     assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
 
 
+#: Counts the calls of `os.getenv` while the package is imported, without a read of its own in the module.
+_COUNTED = ("import os; calls = []; real = os.getenv; os.getenv = lambda *a: (calls.append(a), real(*a))[1]; "
+            "import probepkg.core; print(len(calls))")
+_FACTORY = ("from __future__ import annotations\nimport functools, inspect, os, typing\n{before}def factory():\n"
+            "    o = os\n    def inner(x: type(o.getenv('X'))):\n        return x\n{body}{after}")
+#: (lines before the factory, the end of the factory, lines after it, the first Python that runs the form).
+HANDED_ELSEWHERE = {
+    "inspect.signature with locals": (
+        "", "    return inspect.signature(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n", (3, 10)),
+    "inspect.Signature.from_callable with locals": (
+        "", "    return inspect.Signature.from_callable(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n",
+        (3, 10)),
+    "functools.partial of get_type_hints": (
+        "", "    return functools.partial(typing.get_type_hints, localns={'o': o})(inner)\n", "VALUE = factory()\n",
+        (3, 10)),
+    "a helper of the module hands the namespace": (
+        "def hints(f, ns):\n    return typing.get_type_hints(f, localns=ns)\n", "    return hints(inner, {'o': o})\n",
+        "VALUE = factory()\n", (3, 10)),
+    "the caller of the factory hands it": (
+        "", "    return inner, {'o': o}\n", "f, ns = factory()\nVALUE = typing.get_type_hints(f, localns=ns)\n", (3, 10)),
+    "annotationlib.ForwardRef.evaluate with locals": (
+        "import annotationlib\n",
+        "    return annotationlib.ForwardRef(inner.__annotations__['x']).evaluate(locals={'o': o})\n",
+        "VALUE = factory()\n", (3, 14)),
+    "typing.evaluate_forward_ref with locals": (
+        "", "    return typing.evaluate_forward_ref(typing.ForwardRef(inner.__annotations__['x']), locals={'o': o})\n",
+        "VALUE = factory()\n", (3, 14)),
+}
+
+
+@pytest.mark.parametrize("before, body, after, since", list(HANDED_ELSEWHERE.values()), ids=list(HANDED_ELSEWHERE))
+def test_RED_a_postponed_annotation_read_in_a_namespace_handed_in_any_way(tmp_path, before, body, after, since):
+    """The counter-reading of pull request 420, F3 (P2): the namespace was seen only where the function around the def
+    calls `get_type_hints`, `inspect.get_annotations` or `annotationlib.get_annotations` with it. Seven more ways read
+    the environment where the gate reported GREEN and main reports `os.getenv`: `inspect.signature` and
+    `inspect.Signature.from_callable`, `functools.partial` of an evaluator, a helper of the module, the caller of the
+    factory, and on 3.14 `ForwardRef.evaluate` and `typing.evaluate_forward_ref`. The gate reads the source only, so
+    each form is judged under every Python; it runs where the Python has the function."""
+    args = build(tmp_path, {"core.py": _FACTORY.format(before=before, body=body, after=after)})
+    if sys.version_info >= since:
+        assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
 _DIAMOND_CORE = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
 
 

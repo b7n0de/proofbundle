@@ -1044,9 +1044,15 @@ class _Scope:
 #: of Codex thread 4370601942 stays bounded at 4096 (0.5 s under a limit of 256 MiB).
 _ALIAS_LIMIT = 4096
 #: The functions that evaluate a postponed annotation, under the names they resolve to, and the parameters by which a
-#: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`).
+#: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`). `inspect.signature` and
+#: `Signature.from_callable` evaluate it with `eval_str=True`, `typing.evaluate_forward_ref` from 3.14 on (the
+#: counter-reading of pull request 420, F3, P2).
 _ANNOTATION_EVALUATORS = frozenset({"typing.get_type_hints", "typing_extensions.get_type_hints",
-                                    "inspect.get_annotations", "annotationlib.get_annotations"})
+                                    "inspect.get_annotations", "annotationlib.get_annotations",
+                                    "inspect.signature", "inspect.Signature.from_callable",
+                                    "typing.evaluate_forward_ref", "typing_extensions.evaluate_forward_ref"})
+#: The classes of a forward reference, whose `evaluate` (3.14) or `_evaluate` reads a string in the namespaces handed in.
+_FORWARD_REFS = frozenset({"annotationlib.ForwardRef", "typing.ForwardRef", "typing_extensions.ForwardRef"})
 _NAMESPACE_KEYWORDS = frozenset({"globalns", "localns", "globals", "locals"})
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -1140,8 +1146,10 @@ class _Names:
         for s in self._scopes:
             for name in [n for n, held in s.alias.items() if held == {_UNRESOLVED}]:
                 del s.alias[name]
-        self._annotations_in_handed_namespaces()
+        # The aliases are final here, so each answer is kept from now on, also for the reading of the module that
+        # looks for a namespace handed in (`_module_hands_a_namespace`).
         self._memo = {}
+        self._annotations_in_handed_namespaces(tree)
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
         s = _Scope(kind, parent)
@@ -1221,36 +1229,75 @@ class _Names:
 
     def _hands_a_namespace(self, call: ast.Call, scope: _Scope) -> bool:
         """Whether a call evaluates annotations in a namespace its caller hands in: `typing.get_type_hints(f, None,
-        {"o": o})`, `inspect.get_annotations(f, eval_str=True, locals={"o": o})`, or `**kwargs` the gate cannot read."""
+        {"o": o})`, `inspect.get_annotations(f, eval_str=True, locals={"o": o})`, `inspect.signature(f, eval_str=True,
+        locals=...)`, `ForwardRef(s).evaluate(locals=...)`, or `**kwargs` the gate cannot read."""
+        handed = any(k.arg is None or k.arg in _NAMESPACE_KEYWORDS for k in call.keywords) \
+            or any(isinstance(a, ast.Starred) for a in call.args)
+        if isinstance(call.func, ast.Attribute) and call.func.attr in ("evaluate", "_evaluate") \
+                and self._is_forward_ref(call.func.value, scope):
+            # `_evaluate(globalns, localns, ...)` takes the namespaces by position up to 3.13.
+            return handed or (call.func.attr == "_evaluate" and bool(call.args))
         quals = self._quals(call.func, self.scope_of.get(id(call.func), scope)) & _ANNOTATION_EVALUATORS
         if not quals:
             return False
-        if any(k.arg is None or k.arg in _NAMESPACE_KEYWORDS for k in call.keywords):
-            return True
         positional = any(q.endswith(".get_type_hints") for q in quals)
-        return any(isinstance(a, ast.Starred) for a in call.args) or (positional and len(call.args) >= 2)
+        return handed or (positional and len(call.args) >= 2)
 
-    def _annotations_in_handed_namespaces(self) -> None:
+    def _is_forward_ref(self, node: ast.expr, scope: _Scope) -> bool:
+        """Whether `node` is a forward reference built here: a call of a ForwardRef class, or a name bound to one."""
+        values = [node]
+        if isinstance(node, ast.Name):
+            s = self._binding_scope(node.id, self.scope_of.get(id(node), scope))
+            values = [v for n, v in s.assigns if n == node.id] if s is not None else []
+        return any(isinstance(v, ast.Call) and self._quals(v.func, self.scope_of.get(id(v.func), scope)) & _FORWARD_REFS
+                   for v in values)
+
+    def _module_hands_a_namespace(self, tree: ast.AST) -> bool:
+        """Whether anything in the module may hand an evaluator a namespace: a call that does (`_hands_a_namespace`), or
+        an evaluator taken as a value other than by a plain alias, whose arguments the gate does not see
+        (`functools.partial(typing.get_type_hints, localns=ns)`). Code under `if TYPE_CHECKING:` never runs and is not
+        read."""
+        parent: dict[int, ast.AST] = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parent[id(child)] = node
+        for node in ast.walk(tree):
+            scope = self.scope_of.get(id(node))
+            if scope is None:
+                continue
+            if isinstance(node, ast.Call) and self._hands_a_namespace(node, scope):
+                return True
+            if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) \
+                    and self._quals(node, scope) & _ANNOTATION_EVALUATORS:
+                up = parent.get(id(node))
+                if isinstance(up, ast.Call) and up.func is node:
+                    continue
+                if isinstance(up, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and up.value is node:
+                    continue
+                return True
+        return False
+
+    def _annotations_in_handed_namespaces(self, tree: ast.AST) -> None:
         """A POSTPONED ANNOTATION IS READ WHERE A CALLER HANDS ITS NAMES IN (Codex thread 4370601943 on pull request
         420, P2): read in the module scope only, `o = os` in a factory that calls `typing.get_type_hints(inner,
         localns={"o": o})` read the environment while the gate reported nothing, and main reported it. Where the
-        function around the def hands a namespace to a function that evaluates annotations, the annotation is read in
-        the scope of that function as well. Read there always, an alias of the function made a finding of code that
-        never runs (FD-4 of the second counter-reading). What stays out of reach: a namespace handed in from outside
-        the function around the def, or built by a call the gate does not name here."""
-        # ONCE PER FUNCTION (counter-reading of pull request 420, F5, P3): the function around the def was searched
-        # again for every pending annotation, so a factory with 500 annotated inner functions took 42 s (main 0.4 s).
-        hands: dict[int, bool] = {}
+        module hands a namespace to a function that evaluates annotations, the annotation is read in the scope of the
+        function around its def as well. Read there always, an alias of the function made a finding of code that never
+        runs (FD-4 of the second counter-reading), and without such a call in the module it still is not.
+
+        ANYWHERE IN THE MODULE, IN ANY FORM (the counter-reading of pull request 420, F3, P2): only a call in the
+        function around the def counted, so `inspect.signature(inner, eval_str=True, locals=...)`, `functools.partial`
+        of an evaluator, a helper of the module that hands the namespace on, the caller of the factory, and on 3.14
+        `ForwardRef(...).evaluate(locals=...)` and `typing.evaluate_forward_ref` read the environment unseen where main
+        reports it. Which namespace reaches which def is data flow the gate does not follow, so one such call in the
+        module is enough. What stays out of reach: a namespace handed in from another module."""
+        # ONCE PER MODULE (counter-reading of pull request 420, F5, P3): the function around the def was searched again
+        # for every pending annotation, so a factory with 500 annotated inner functions took 42 s (main 0.4 s).
+        if not self._pending or not self._module_hands_a_namespace(tree):
+            return
         for annotation, scope in self._pending:
-            owner = self._def_of.get(id(scope))
-            if owner is None:
-                continue
-            if id(owner) not in hands:
-                hands[id(owner)] = any(isinstance(n, ast.Call) and self._hands_a_namespace(n, scope)
-                                       for n in ast.walk(owner))
-            if hands[id(owner)]:
-                for n in ast.walk(annotation):
-                    self._also[id(n)] = scope
+            for n in ast.walk(annotation):
+                self._also[id(n)] = scope
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
