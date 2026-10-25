@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import encode_head  # noqa: E402
+from proofbundle._strict_json import loads_strict  # noqa: E402
 
 OUT = ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json"
 HERE = Path(__file__).resolve().parent
@@ -174,8 +175,8 @@ class Builder:
 
 
 def real_vectors(b: Builder) -> None:
-    s1 = json.loads((ROUND1 / "summary.json").read_text(encoding="utf-8"))["signer"]
-    s2 = json.loads((ROUND2 / "summary.json").read_text(encoding="utf-8"))["signer"]
+    s1 = loads_strict((ROUND1 / "summary.json").read_text(encoding="utf-8"))["signer"]
+    s2 = loads_strict((ROUND2 / "summary.json").read_text(encoding="utf-8"))["signer"]
     b.refs["spki_round1_signer"] = s1["spki_hex"]
     b.refs["spki_round2_signer"] = s2["spki_hex"]
     real = (
@@ -462,7 +463,7 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="hold the stored vectors to the Python verifier")
     a = ap.parse_args(argv)
     if a.check:
-        doc = json.loads(OUT.read_text(encoding="utf-8"))
+        doc = loads_strict(OUT.read_text(encoding="utf-8"))
     else:
         doc = build()
     bad = check(doc)
