@@ -947,11 +947,20 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
     }
 
 
-def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[str | None, str]:
+def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str,
+                    title: str | None = None) -> tuple[str | None, str]:
     """Without a source tag this clone shows, the release is chosen by the branch: the one
     candidate whose scope file names it. A branch named by two candidates is ambiguous and not
     measurable; a branch named by none is outside every candidate, and the newest candidate
     reports that.
+
+    A FOLLOW-UP CHOOSES BY THE ROW OF ITS PARENT, as the parent's own branch would (Codex on pull
+    request 417, round one, P2). Its branch stands in no scope file, so the newest candidate was
+    chosen before `pruefe` looked the parent up, and a follow-up of a line of the older candidate
+    came back outside the scope with exit 0, where `--version` gave RED. When no candidate names the
+    branch and the title has the follow-up form, the candidate whose rows with a branch carry the
+    parent's identifier is chosen; two such candidates are not decided, as two for a branch. The
+    branch still decides first, as it does in `pruefe`.
 
     A CANDIDATE THIS GATE CANNOT READ DECIDES NOTHING (Codex on pull request 294, round five, P1).
     `lies_umfang` returns an empty mapping together with its NOT MEASURABLE, and this function kept
@@ -959,7 +968,9 @@ def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[
     readable 6.3.0 scope, judged `fix/a1` against 6.3.0, outside the scope, exit 0. Whether an
     unreadable scope names the branch is not known, so the release is not decided, whichever
     candidate it is and whichever branch is asked about."""
-    treffer = []
+    form = _TITELFORM.match(title) if isinstance(title, str) else None
+    folge_von = form.group("kennung") if form and form.group("folge") else None
+    treffer, eltern = [], []
     for v in kandidaten:
         zu_zweig, _mitlaeufer, zustand = lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")
         if zustand != "gemessen":
@@ -967,9 +978,19 @@ def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[
                           f"({zustand}), so whether it names the branch {branch!r} is not known")
         if branch in zu_zweig:
             treffer.append(v)
+        if folge_von in {k for ks in zu_zweig.values() for k in ks}:
+            eltern.append(v)
     if len(treffer) > 1:
         return None, (f"{herkunft}; the branch {branch!r} stands in the scope files of {treffer}, "
                       "so which release it belongs to is not decided")
+    if not treffer and len(eltern) > 1:
+        return None, (f"{herkunft}; the parent {folge_von} of the follow-up {branch!r} has a row with "
+                      f"a branch in the scope files of {eltern}, so which release it belongs to is "
+                      "not decided")
+    if not treffer and eltern:
+        return eltern[0], (f"{herkunft}; judged by the row of the parent: the parent {folge_von} of "
+                           f"the follow-up has a row with a branch in the scope file of {eltern[0]} "
+                           "only")
     gewaehlt = treffer[0] if treffer else kandidaten[-1]
     grund = (f"it stands in the scope file of {gewaehlt} only" if treffer
              else f"it stands in none of {kandidaten}")
@@ -990,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
         version, herkunft = naechste_umfangsversion()
         kandidaten = umfangskandidaten_ohne_tags() if version is None else []
         if kandidaten:
-            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft)
+            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft, a.title)
     else:
         version, herkunft = a.version, "argument --version"
     if version is None:
