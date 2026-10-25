@@ -414,7 +414,8 @@ def test_B_F5_a_source_with_a_NUL_byte_is_read_on_both_paths_without_a_crash(tmp
 def test_B_F5_a_source_that_is_not_utf8_is_left_out_on_both_paths(tmp_path):
     """[COUNTS] A neighbour of F5 in the same class, found while measuring F5 under Python 3.10: a test
     source that is not UTF-8 stopped both readers with `UnicodeDecodeError`, on every version from 3.10 to
-    3.14 and on main as well. It cannot be parsed, so both paths leave it out, as they leave out a NUL byte."""
+    3.14 and on main as well. Both read it as UTF-8 and leave it out, as they leave out a NUL byte. Python
+    reads the bytes and compiles this one up to 3.13; that limit is named at the token reader (lens 371b, F2)."""
     m = _load("scripts/test_manifest_gate.py", "_tmg_f5_utf8")
     d = tmp_path / "tests"
     d.mkdir()
@@ -423,13 +424,14 @@ def test_B_F5_a_source_that_is_not_utf8_is_left_out_on_both_paths(tmp_path):
 
 
 def test_B_F5_a_chain_the_parser_cannot_nest_stops_no_reader(tmp_path):
-    """[COUNTS] The third form of the class: from Python 3.11 on `ast.parse` answers a chain of 100000
+    """[COUNTS] The third form of the class: from Python 3.11 on `ast.parse` answers a chain of 65000
     additions with `RecursionError`, which the syntax tree did not catch. Python 3.10 parses the chain, so
     what the tree reads depends on the interpreter; that it reads without a traceback does not. The token
     reader reads the chain on every version, and a file only one reader keeps is the difference that
-    `evaluate()` reports."""
+    `evaluate()` reports. 65000, not 100000 (lens 371b on pull request 422, F3): 3.10 parses on the C stack,
+    and with the default 8192 KiB it crashes at about 105000 links, a dead worker and not a red case."""
     m = _load("scripts/test_manifest_gate.py", "_tmg_f5_chain")
-    source = "x = " + "1+" * 100000 + "1\n"
+    source = "x = " + "1+" * 65000 + "1\n"
     try:
         ast.parse(source)
         expected = ["test_chain.py"]
@@ -440,3 +442,23 @@ def test_B_F5_a_chain_the_parser_cannot_nest_stops_no_reader(tmp_path):
     (d / "test_chain.py").write_text(source, encoding="utf-8")
     assert m.pytest_only_modules_ast(d) == expected
     assert m.pytest_only_modules(d) == ["test_chain.py"]
+
+
+def test_B_F1_a_source_that_overflows_the_parser_stops_no_reader(tmp_path):
+    """[COUNTS] The fourth form (lens 371b on pull request 422, F1, P2): a chain of 20000 unary minus signs
+    overflows the parser's stack, and `ast.parse` raises `MemoryError` on every version from 3.10 to 3.14
+    ("Parser stack overflowed - Python source too complex to parse" from 3.12 on). The syntax tree did not
+    catch it, and the gate stopped with a traceback, as it did for the three forms above. The token reader
+    reads the source on every version."""
+    m = _load("scripts/test_manifest_gate.py", "_tmg_f1_memory")
+    source = "x = " + "-" * 20000 + "1\n"
+    try:
+        ast.parse(source)
+        expected = ["test_unary.py"]
+    except MemoryError:
+        expected = []
+    d = tmp_path / "tests"
+    d.mkdir()
+    (d / "test_unary.py").write_text(source, encoding="utf-8")
+    assert m.pytest_only_modules_ast(d) == expected
+    assert m.pytest_only_modules(d) == ["test_unary.py"]
