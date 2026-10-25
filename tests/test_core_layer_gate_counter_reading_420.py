@@ -138,6 +138,8 @@ NEW_FORMS = {
     "a loop target in the body": (f"    for __new__ in [{_NEW}]:\n        pass\n", ""),
     "set after the class": ("    pass\n", f"E.__new__ = {_NEW}\n"),
     "set by setattr after the class": ("    pass\n", f"setattr(E, '__new__', {_NEW})\n"),
+    "set by setattr with a built name": ("    pass\n", f"setattr(E, '__ne' + 'w__', {_NEW})\n"),
+    "set by setattr with a name bound to the string": ("    pass\n", f"N = '__new__'\nsetattr(E, N, {_NEW})\n"),
 }
 
 

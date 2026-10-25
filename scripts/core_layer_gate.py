@@ -540,12 +540,18 @@ class _ChangeScan:
 
     def _new_written(self) -> bool:
         """Whether the module writes an attribute `__new__` anywhere: `C.__new__ = f`, `del C.__new__`, or a setattr or
-        delattr in any spelling `_attribute_call` reads, with the literal name `__new__`. Asked once."""
+        delattr in any spelling `_attribute_call` reads, with the name `__new__` as `string_of` reads it, or with
+        arguments the gate cannot assign. Asked once.
+
+        A BUILT NAME AS WELL (a sibling of the counter-reading of pull request 420, F4): only the literal counted, so
+        `setattr(C, "__ne" + "w__", f)` and `N = "__new__"; setattr(C, N, f)` built a module while the class counted as
+        plain. What stays out of reach: a name the gate cannot read, such as a parameter of a helper."""
         if self._new is None:
             self._new = any(
                 (isinstance(n, ast.Attribute) and n.attr == "__new__" and isinstance(n.ctx, (ast.Store, ast.Del)))
                 or (isinstance(n, ast.Call) and (call := _attribute_call(n, self.names.quals)) is not None
-                    and call[0] in ("set", "del") and _literal(call[3]) == "__new__")
+                    and call[0] in ("set", "del") and (call[4] or (call[3] is not None
+                                                                   and self.string_of(call[3]) == "__new__")))
                 for n in ast.walk(self.tree))
         return self._new
 
