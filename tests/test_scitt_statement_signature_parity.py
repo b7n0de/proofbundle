@@ -21,9 +21,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = Path(__file__).resolve().parents[1]
 VECTORS = Path(__file__).resolve().parent / "fixtures" / "scitt_statement_signature" / "vectors.json"
-RUST = [REPO / "tools" / "pb_verify_rs" / "target" / build / "pb_verify_rs" for build in ("release", "debug")]
 HAS_CBOR2 = importlib.util.find_spec("cbor2") is not None
 
 #: The exit class of the Rust subcommand, by status.
@@ -70,10 +74,9 @@ class PythonGivesEveryBuiltVerdict(unittest.TestCase):
                 self.assertEqual(got, (v["want"]["status"], v["want"]["valid"]), v["what"])
 
 
-@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class RustGivesEveryBuiltVerdict(unittest.TestCase):
     def test_rust(self):
-        binary = next(b for b in RUST if b.exists())
+        binary = _pb_verify_rs.binary_or_skip()
         doc = _doc()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "statement.cbor"
@@ -102,7 +105,6 @@ def _confirmed_statement() -> tuple[bytes, list]:
     return _assemble(v["statement"], doc["refs"]), [_assemble(k, doc["refs"]) for k in v["keys"]]
 
 
-@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class AStatementFileOverTheRustInputBudget(unittest.TestCase):
     """Codex on PR 290 (head f0a15203): a statement file over the Rust input budget ended in `fatal`,
     exit 2, where Python reads the same bytes as `malformed`, which the Rust subcommand maps to exit 3.
@@ -111,7 +113,7 @@ class AStatementFileOverTheRustInputBudget(unittest.TestCase):
     reads at most 65536 bytes."""
 
     def test_both_verifiers_read_it_as_malformed(self):
-        binary = next(b for b in RUST if b.exists())
+        binary = _pb_verify_rs.binary_or_skip()
         budget = _rust_input_budget(binary)
         statement, keys = _confirmed_statement()
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,7 +159,7 @@ def _with_exponent(base, e_min: int):
                                  rsa.RSAPublicNumbers(e, p * q)).private_key(), e
 
 
-@unittest.skipUnless(HAS_CBOR2 and any(b.exists() for b in RUST), "the [scitt] extra or pb_verify_rs is missing")
+@unittest.skipUnless(HAS_CBOR2, "the [scitt] extra is not installed")
 class TheRsaPublicExponentsOpenSslTakes(unittest.TestCase):
     """Codex on PR 290 (head 84f65117): the checked constructors of the rsa crate refuse a public exponent
     above 2^33 - 1, where OpenSSL, which verifies on the Python side, takes any odd e below n for a modulus of
@@ -175,8 +177,8 @@ class TheRsaPublicExponentsOpenSslTakes(unittest.TestCase):
         from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: PLC0415
 
         from proofbundle.scitt_ccf import _sig_structure, verify_statement_signature  # noqa: PLC0415
+        binary = _pb_verify_rs.binary_or_skip()
         gen = _generator()
-        binary = next(b for b in RUST if b.exists())
         bases = {bits: rsa.generate_private_key(public_exponent=65537, key_size=bits) for bits in (2048, 3072, 4096)}
         payload = b"\x11" * 32
         with tempfile.TemporaryDirectory() as tmp:

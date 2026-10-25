@@ -71,6 +71,12 @@ its own protected bytes. A vector that changes only the unprotected map keeps th
 | j01-after-configuration-change | the control's bytes registered again, after-configuration-change: the policy script replaced through a governance proposal by one that also refuses the issuer did:example:blocked | accepted | same as the control | read / confirmed |
 | j02-after-restart | the control's bytes registered again, after-restart: the node stopped; a plain restart of the node refused (PID file my_node.pid already exists, exit 103); the service recovered from its ledger in a new node (command Recover, transition_service_to_open, one recovery share), with a new service identity | accepted | same as the control | read / confirmed |
 
+The column "v1 reader" reads the submitted request with `decode_cose_sign1` alone
+(`../differential_corpus.py`, `v1_reader`), the structural decoder, and runs
+`verify_transparent_statement` on the statement the service returned. Since the CDDL pass (ADR 0009,
+Decision 16, pull request 407) the verdict surfaces run that pass on the decoder's result, so a request
+the column reads can still be `malformed` there: `i08-crit-empty`, whose empty crit the pass refuses.
+
 ## WHAT THE MEASUREMENT SHOWS
 
 - g: the service accepted 8 of 9 and returned each protected header byte for byte.

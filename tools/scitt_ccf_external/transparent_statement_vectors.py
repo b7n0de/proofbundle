@@ -48,6 +48,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(HERE))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import encode_head  # noqa: E402
+from proofbundle._strict_json import loads_strict  # noqa: E402
 from proofbundle._wire_b64 import decode_b64  # noqa: E402  (the one strict base64 decoder tools may use)
 from statement_signature_vectors import Builder as StatementBuilder, bstr, spki, uint  # noqa: E402
 
@@ -76,7 +77,7 @@ def assemble(parts: list, refs: dict) -> bytes:
         elif "hexfile" in p:
             out += bytes.fromhex("".join((ROOT / p["hexfile"]).read_text(encoding="ascii").split()))
         else:
-            doc = json.loads((ROOT / p["fixture"]).read_text(encoding="utf-8"))
+            doc = loads_strict((ROOT / p["fixture"]).read_text(encoding="utf-8"))
             out += decode_b64(doc[p["field"]])
     return out
 
@@ -180,6 +181,13 @@ def h(*parts: bytes) -> bytes:
 #: sub, which the reader's statement profile asks for (base 56061d8d). Every statement here carries them
 #: unless a vector says it takes them away.
 STATEMENT_ISSUER, STATEMENT_SUBJECT = "https://issuer.example", "pkg:proofbundle/vectors"
+#: The same section asks a receipt's protected header for CWT Claims with an issuer and a subject (Codex on
+#: pull request 406): every receipt here carries the subject a scitt-ccf-ledger writes, unless a vector says
+#: it takes it away or gives it another value.
+RECEIPT_SUBJECT = "scitt.ccf.signature.v1"
+
+
+RECEIPT_SUB = text(RECEIPT_SUBJECT)
 
 
 def statement_cwt(iss: str | None = STATEMENT_ISSUER, sub: bytes | None = None) -> tuple:
@@ -272,20 +280,21 @@ class Builder(StatementBuilder):
         return proof, newer
 
     def receipt(self, dh: bytes, *, key: str = "svc_p256", alg: int = -7, kid: bytes | None = None,
-                iss: str | None = ISSUER, iat: int = 1790000000, vds: bytes | None = b"\x02",
+                iss: str | None = ISSUER, sub: bytes | None = RECEIPT_SUB, iat: int = 1790000000,
+                vds: bytes | None = b"\x02",
                 txid: bytes | None = None, prot_pairs: list | None = None, extra_prot: list = (),
                 vdp: bytes | None = None, inclusion: list | None = None, consistency: list | None = None,
                 unprot: bytes | None = None, payload: bytes = NIL, tag: bytes = b"\xd2", sig: bytes | None = None,
                 sign_root: bytes | None = None) -> bytes:
         """A CCF receipt over `dh`. Every element can be replaced to break one rule at a time. The plain
         receipt over one data hash is made once: an ECDSA signature differs on every call."""
-        plain = (key, alg, kid, iss, iat, vds, txid, prot_pairs, tuple(extra_prot), vdp, inclusion, consistency,
-                 unprot, payload, tag, sig, sign_root, self.zero_signatures) == (
-            "svc_p256", -7, None, ISSUER, 1790000000, b"\x02", None, None, (), None, None, None, None, NIL,
-            b"\xd2", None, None, False)
+        plain = (key, alg, kid, iss, sub, iat, vds, txid, prot_pairs, tuple(extra_prot), vdp, inclusion,
+                 consistency, unprot, payload, tag, sig, sign_root, self.zero_signatures) == (
+            "svc_p256", -7, None, ISSUER, RECEIPT_SUB, 1790000000, b"\x02", None, None, (), None, None, None, None,
+            NIL, b"\xd2", None, None, False)
         if plain and dh in self.plain_receipts:
             return self.plain_receipts[dh]
-        made = self._receipt(dh, key=key, alg=alg, kid=kid, iss=iss, iat=iat, vds=vds, txid=txid,
+        made = self._receipt(dh, key=key, alg=alg, kid=kid, iss=iss, sub=sub, iat=iat, vds=vds, txid=txid,
                              prot_pairs=prot_pairs, extra_prot=extra_prot, vdp=vdp, inclusion=inclusion,
                              consistency=consistency, unprot=unprot, payload=payload, tag=tag, sig=sig,
                              sign_root=sign_root)
@@ -293,7 +302,7 @@ class Builder(StatementBuilder):
             self.plain_receipts[dh] = made
         return made
 
-    def _receipt(self, dh: bytes, *, key, alg, kid, iss, iat, vds, txid, prot_pairs, extra_prot, vdp, inclusion,
+    def _receipt(self, dh: bytes, *, key, alg, kid, iss, sub, iat, vds, txid, prot_pairs, extra_prot, vdp, inclusion,
                  consistency, unprot, payload, tag, sig, sign_root) -> bytes:
         roots = []
         if inclusion is None:
@@ -304,6 +313,8 @@ class Builder(StatementBuilder):
             cwt = []
             if iss is not None:
                 cwt.append((uint(1), text(iss)))
+            if sub is not None:
+                cwt.append((uint(2), sub))
             cwt.append((uint(6), uint(iat)))
             prot_pairs = [(uint(1), uint(alg)), (uint(4), bstr(self.kid(key) if kid is None else kid)),
                           (uint(15), cmap(cwt))]
@@ -419,18 +430,18 @@ def keyset_trust(b: Builder, name: str, keyset_hex: Path) -> list:
 
 
 def real_vectors(b: Builder) -> None:
-    s1 = json.loads((ROUND1 / "summary.json").read_text(encoding="utf-8"))
-    s2 = json.loads((ROUND2 / "summary.json").read_text(encoding="utf-8"))
+    s1 = loads_strict((ROUND1 / "summary.json").read_text(encoding="utf-8"))
+    s2 = loads_strict((ROUND2 / "summary.json").read_text(encoding="utf-8"))
     b.refs["spki_round1_signer"] = s1["signer"]["spki_hex"]
     b.refs["spki_round2_signer"] = s2["signer"]["spki_hex"]
-    root = bytes.fromhex(json.loads((ROUND1 / "manifest.json").read_text(encoding="utf-8"))
+    root = bytes.fromhex(loads_strict((ROUND1 / "manifest.json").read_text(encoding="utf-8"))
                          ["target"]["receipt_canonical_root"])
-    assert root.hex() == json.loads((ROUND2 / "manifest.json").read_text(encoding="utf-8"))[
+    assert root.hex() == loads_strict((ROUND2 / "manifest.json").read_text(encoding="utf-8"))[
         "target"]["receipt_canonical_root"]
     issuer = "127.0.0.1:8000"
     b.trusts["round1"] = {"scitt_statement_keys": [{"ref": "spki_round1_signer"}],
                           "scitt_ccf_services": {issuer: keyset_trust(b, "round1", ROUND1 / "scitt-keys.hex")}}
-    for ph in json.loads((ROUND2 / "manifest.json").read_text(encoding="utf-8"))["phases"]:
+    for ph in loads_strict((ROUND2 / "manifest.json").read_text(encoding="utf-8"))["phases"]:
         b.trusts[f"round2-{ph['name']}"] = {
             "scitt_statement_keys": [{"ref": "spki_round2_signer"}],
             "scitt_ccf_services": {issuer: keyset_trust(b, f"round2_{ph['name'].replace('-', '_')}",
@@ -440,7 +451,7 @@ def real_vectors(b: Builder) -> None:
             if not row["accepted"]:
                 continue
             vid = row["id"]
-            rec = json.loads((corpus / "vectors" / vid / "record.json").read_text(encoding="utf-8"))
+            rec = loads_strict((corpus / "vectors" / vid / "record.json").read_text(encoding="utf-8"))
             trust = label if label == "round1" else f"round2-{rec['phase']['name']}"
             want = {"status": row["v1_reader_on_returned"]}
             if row["v1_reader_on_returned"] == "confirmed":
@@ -473,7 +484,7 @@ def real_vectors(b: Builder) -> None:
     for vid, what, parts, trust, r, want in cross:
         b.add_ts(vid, what, parts, want, trust=trust, root=r, origin="differential corpus, rebuilt trust")
     fixture = "tests/fixtures/scitt_ccf/local_ledger_control.json"
-    doc = json.loads((ROOT / fixture).read_text(encoding="utf-8"))
+    doc = loads_strict((ROOT / fixture).read_text(encoding="utf-8"))
     b.refs["spki_local_ledger_signer"] = decode_b64(doc["statement_signer_spki_b64"]).hex()
     services = []
     for i, k in enumerate(C.load_cose_keyset(decode_b64(doc["service_keyset_b64"]))):
@@ -641,6 +652,14 @@ def synthetic_vectors(b: Builder) -> None:
     b.add_ts("t26-cwt-unprotected-only", "CWT Claims in the unprotected header only",
              ts(p26, [], unprot=cmap([(uint(394), arr([bstr(rc(d26))])), statement_cwt()])),
              status("outside_profile", "outside_profile", ["confirmed"]))
+    # the statement's CWT issuer and subject are text (the CDDL pass since 407): another type is malformed
+    for vid, what, cwt in (
+            ("t27-cwt-iss-int", "a statement CWT issuer that is an integer",
+             (uint(15), cmap([(uint(1), uint(5)), (uint(2), text(STATEMENT_SUBJECT))]))),
+            ("t28-cwt-sub-int", "a statement CWT subject that is an integer", statement_cwt(sub=uint(7)))):
+        p = b.statement_parts(prot=b.protected(b"\x26", cert, cwt=[cwt]))
+        d, _ = b.data_hash(parts=p)
+        b.add_ts(vid, what, ts(p, [rc(d)]), status("malformed", "malformed", []))
     detached = b.statement_parts(payload=None)
     b.add_ts("t20-detached-payload", "the statement payload is detached", ts(detached, [rc(dh)]),
              status("outside_profile", "outside_profile", ["receipt_not_bound"], payload_digest=None))
@@ -677,16 +696,16 @@ def synthetic_vectors(b: Builder) -> None:
     refused("v01-receipt-not-bytes", "a receipt that is an integer", _Raw(uint(5)))
     refused("v02-receipt-not-cbor", "a receipt that is not CBOR", b"\xff")
     refused("v03-receipt-kid-text", "receipt kid is text", rc(dh, prot_pairs=[
-        (uint(1), uint(-7)), (uint(4), text("k")), (uint(15), cmap([(uint(1), text(ISSUER))])), (uint(395), b"\x02")]))
+        (uint(1), uint(-7)), (uint(4), text("k")), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])), (uint(395), b"\x02")]))
     refused("v04-cwt-iss-int", "the CWT issuer is an integer", rc(dh, prot_pairs=[
-        (uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), uint(5))])),
+        (uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), uint(5)), (uint(2), RECEIPT_SUB)])),
         (uint(395), b"\x02")]))
     refused("v05-cwt-iat-text", "the CWT iat is text", rc(dh, prot_pairs=[
         (uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))),
-        (uint(15), cmap([(uint(1), text(ISSUER)), (uint(6), text("now"))])), (uint(395), b"\x02")]))
+        (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), text("now"))])), (uint(395), b"\x02")]))
     refused("v06-unprotected-cwt-iat-text", "the CWT iat in the unprotected header is text",
             rc(dh, prot_pairs=[(uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(395), b"\x02")],
-               unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER)), (uint(6), text("now"))])),
+               unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB), (uint(6), text("now"))])),
                             (uint(396), cmap([(uint(-1), arr([bstr(b.inclusion(dh)[0])]))]))])))
     refused("v07-vds-text", "vds is text", rc(dh, vds=text("2")))
     refused("v08-vdp-protected-bytes", "a protected vdp that is not a map, none unprotected",
@@ -701,7 +720,7 @@ def synthetic_vectors(b: Builder) -> None:
     refused("v14-consistency-nine", "nine consistency proofs",
             rc(dh, consistency=[b.consistency(b"\x04" * 32, [(True, b"\x05" * 32)])[0]] * 9))
     refused("v15-ccf-alg-text", "a CCF receipt whose alg is text", rc(dh, prot_pairs=[
-        (uint(1), text("ES256")), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER))])),
+        (uint(1), text("ES256")), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])),
         (uint(395), b"\x02")]))
     refused("v16-proof-not-bytes", "a proof that is an integer", rc(dh, vdp=cmap([(uint(-1), arr([uint(1)]))])))
     refused("v17-proof-not-cbor", "a proof that is not CBOR", rc(dh, vdp=cmap([(uint(-1), arr([bstr(b"\xff")]))])))
@@ -741,8 +760,14 @@ def synthetic_vectors(b: Builder) -> None:
     refused("v39-leaf-four", "a leaf of four components",
             rc(dh, inclusion=[b.inclusion(dh, leaf=arr([bstr(b"\x01" * 32), text("e"), bstr(dh), uint(0)]))[0]]))
     refused("v37-receipt-alg-bytes-not-ccf", "alg is a byte string in a receipt that is not CCF", rc(dh, prot_pairs=[
-        (uint(1), bstr(b"\x26")), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER))])),
+        (uint(1), bstr(b"\x26")), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])),
         (uint(395), uint(3))]))
+    refused("v40-receipt-cwt-sub-int", "the CWT subject is an integer", rc(dh, sub=uint(7)))
+    refused("v41-receipt-cwt-sub-null", "the CWT subject is null", rc(dh, sub=NIL))
+    refused("v42-receipt-cwt-sub-int-unprotected", "the CWT subject is an integer, in the unprotected header",
+            rc(dh, prot_pairs=[(uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(395), b"\x02")],
+               unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), uint(7))])),
+                            (uint(396), cmap([(uint(-1), arr([bstr(b.inclusion(dh)[0])]))]))])))
     b.zero_signatures = False
     b.add_ts("v35-evidence-1024-bytes", "internal-evidence of 1024 bytes in 512 characters",
              ts(parts, [rc(dh, inclusion=[b.inclusion(dh, ev="é" * 512)[0]], sign_root=b.inclusion(dh, ev="é" * 512)[1])]),
@@ -760,8 +785,11 @@ def synthetic_vectors(b: Builder) -> None:
         readable=False)
     one("w04-receipt-vds-3", "vds 3", rc(dh, vds=uint(3)), "outside_profile", readable=False)
     one("w05-receipt-kid-absent", "no kid", rc(dh, prot_pairs=[
-        (uint(1), uint(-7)), (uint(15), cmap([(uint(1), text(ISSUER))])), (uint(395), b"\x02")]), "outside_profile")
+        (uint(1), uint(-7)), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])), (uint(395), b"\x02")]), "outside_profile")
     one("w06-receipt-iss-absent", "no CWT issuer", rc(dh, iss=None), "outside_profile")
+    one("w30-receipt-sub-absent", "no CWT subject", rc(dh, sub=None), "outside_profile")
+    one("w31-receipt-iss-empty", "an empty text CWT issuer", rc(dh, iss=""), "outside_profile")
+    one("w32-receipt-sub-empty", "an empty text CWT subject", rc(dh, sub=text("")), "outside_profile")
     one("w07-receipt-payload-attached", "the receipt payload attached", rc(dh, payload=bstr(b.inclusion(dh)[1])),
         "outside_profile")
     one("w08-receipt-crit-unprotected", "crit in the receipt's unprotected header",
@@ -807,7 +835,7 @@ def synthetic_vectors(b: Builder) -> None:
         receipt_iats=[-(2 ** 64)])
     one("w23-txid-int", "a txid that is not text", rc(dh, txid=uint(7)), "confirmed", receipt_txids=[None])
     one("w24-ccf-header-not-map", "a ccf.v1 header that is text", rc(dh, prot_pairs=[
-        (uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER))])),
+        (uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])),
         (uint(395), b"\x02"), (text("ccf.v1"), text("2.70"))]), "confirmed", receipt_txids=[None], receipt_iats=[None])
 
     one("w25-consistency-not-ccf", "vds 3 with a consistency family: outside, the family reported",
@@ -816,7 +844,7 @@ def synthetic_vectors(b: Builder) -> None:
     one("w26-vdp-protected-only", "a CCF receipt whose vdp is in the protected header: no inclusion proof read",
         rc(dh, extra_prot=[(uint(396), cmap([(uint(-1), arr([bstr(proof)]))]))], unprot=cmap([])),
         "outside_profile", readable=False)
-    base = [(uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER))])),
+    base = [(uint(1), uint(-7)), (uint(4), bstr(b.kid("svc_p256"))), (uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])),
             (uint(395), b"\x02")]
     vdp_only = (uint(396), cmap([(uint(-1), arr([bstr(proof)]))]))
     one("w27-txid-unprotected", "the ccf.v1 header in the unprotected bucket: no txid",
@@ -826,7 +854,7 @@ def synthetic_vectors(b: Builder) -> None:
         unprot=cmap([(uint(4), bstr(b.kid("svc_p256"))), vdp_only])), "outside_profile")
     one("w29-issuer-unprotected", "the CWT issuer in the unprotected bucket only",
         rc(dh, prot_pairs=[base[0], base[1], base[3]],
-           unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER))])), vdp_only])), "outside_profile")
+           unprot=cmap([(uint(15), cmap([(uint(1), text(ISSUER)), (uint(2), RECEIPT_SUB)])), vdp_only])), "outside_profile")
 
     # -- two receipts: the best one, or the first status in the order --------------------------------
     b.add_ts("y01-invalid-and-untrusted", "a signature_invalid and a needs_rp_trust receipt",
@@ -898,6 +926,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="hold the stored vectors to the Python verifier")
     a = ap.parse_args(argv)
+    # The stored vectors hold CBOR integers past the I-JSON range (a receipt iat of 2^64 - 1), which
+    # loads_strict refuses; the file is this generator's own output (EXCEPTIONS in test_strict_decoding_guard).
     doc = json.loads(OUT.read_text(encoding="utf-8")) if a.check else build()
     bad = check(doc)
     for line in bad:

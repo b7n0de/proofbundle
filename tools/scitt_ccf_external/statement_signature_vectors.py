@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import encode_head  # noqa: E402
+from proofbundle._strict_json import loads_strict  # noqa: E402
 
 OUT = ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json"
 HERE = Path(__file__).resolve().parent
@@ -174,8 +175,8 @@ class Builder:
 
 
 def real_vectors(b: Builder) -> None:
-    s1 = json.loads((ROUND1 / "summary.json").read_text(encoding="utf-8"))["signer"]
-    s2 = json.loads((ROUND2 / "summary.json").read_text(encoding="utf-8"))["signer"]
+    s1 = loads_strict((ROUND1 / "summary.json").read_text(encoding="utf-8"))["signer"]
+    s2 = loads_strict((ROUND2 / "summary.json").read_text(encoding="utf-8"))["signer"]
     b.refs["spki_round1_signer"] = s1["spki_hex"]
     b.refs["spki_round2_signer"] = s2["spki_hex"]
     real = (
@@ -407,6 +408,21 @@ def reader_vectors(b: Builder) -> None:
             ("h09-alg-bytes", "alg as a byte string", b"\x01\x41\x01")):
         prot = es256 if not vid.startswith("h09") else b.protected(None, b.leaf("p256"))
         add(vid, what, b.statement(prot, unprot=b"\xa1" + pair), keys, "malformed", None)
+    # The CWT issuer and subject are text on both sides (RFC 8392 StringOrURI; the counter-reading of the merge of
+    # pull request 406 into 407, F2): a claim of another type is malformed in either bucket, text claims are not.
+    for vid, what, cwt, where, status, valid in (
+            ("h10-cwt-iss-int", "a CWT issuer that is an integer", b"\xa1\x01\x05", "protected", "malformed", None),
+            ("h11-cwt-sub-int", "a CWT subject that is an integer", b"\xa1\x02\x07", "protected", "malformed", None),
+            ("h12-cwt-sub-null", "a CWT subject that is null", b"\xa1\x02\xf6", "protected", "malformed", None),
+            ("h13-cwt-sub-int-unprotected", "a CWT subject that is an integer, in the unprotected header",
+             b"\xa1\x02\x07", "unprotected", "malformed", None),
+            ("h14-cwt-text-claims", "a text CWT issuer and subject", b"\xa2\x01\x61a\x02\x61b", "protected",
+             "confirmed", True)):
+        if where == "protected":
+            st = b.statement(b.protected(b"\x26", b.leaf("p256"), [(b"\x0f", cwt)]))
+        else:
+            st = b.statement(es256, unprot=b"\xa1\x0f" + cwt)
+        add(vid, what, st, keys, status, valid)
     # tag 1 around a CWT time claim of the protected header (owner decision Q8 a)
     for vid, what, claim, value, status, valid in (
             ("t01-tag1-iat", "tag 1 around the CWT iat", 6, 1790000000, "confirmed", True),
@@ -462,7 +478,7 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="hold the stored vectors to the Python verifier")
     a = ap.parse_args(argv)
     if a.check:
-        doc = json.loads(OUT.read_text(encoding="utf-8"))
+        doc = loads_strict(OUT.read_text(encoding="utf-8"))
     else:
         doc = build()
     bad = check(doc)

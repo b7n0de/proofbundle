@@ -15,9 +15,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::scitt::{
-    self, get, is_int, is_label, is_uint, Cose, Item, Key, PubKey, Selector, ALG, CONFIRMED, CRIT,
-    CTY, CWT, INVALID, KID, MALFORMED, MAX_TRUSTED_KEYS, NEEDS_RP_TRUST, OUTSIDE, PAYLOAD_HASH_ALG,
-    PAYLOAD_LOCATION, PREIMAGE_CTY, X5CHAIN,
+    self, cwt_claim_in_either, get, is_int, is_label, is_uint, Cose, Item, Key, PubKey, Selector,
+    ALG, CONFIRMED, CRIT, CTY, CWT, INVALID, KID, MALFORMED, MAX_TRUSTED_KEYS, NEEDS_RP_TRUST,
+    OUTSIDE, PAYLOAD_HASH_ALG, PAYLOAD_LOCATION, PREIMAGE_CTY, X5CHAIN,
 };
 
 const RECEIPTS: i128 = 394;
@@ -136,16 +136,6 @@ fn in_either(c: &Cose, label: i128, ok: fn(&Item) -> bool) -> bool {
         .all(|bucket| get(bucket, label).is_none_or(ok))
 }
 
-/// A CWT claim, where present, has its type, in the CWT claims map of either bucket.
-fn cwt_claim_in_either(c: &Cose, claim: i128, ok: fn(&Item) -> bool) -> bool {
-    [&c.protected, &c.unprotected]
-        .iter()
-        .all(|bucket| match get(bucket, CWT) {
-            Some(Item::Map(cwt)) => get(cwt, claim).is_none_or(ok),
-            _ => true,
-        })
-}
-
 /// `_RECEIPT_RULES`: the header types every receipt carries, RFC 9052, RFC 9597, RFC 8392, RFC 9942.
 fn receipt_types_hold(rc: &Cose) -> bool {
     in_either(rc, ALG, |v| is_int(v) || matches!(v, Item::Text(_)))
@@ -158,6 +148,7 @@ fn receipt_types_hold(rc: &Cose) -> bool {
         && in_either(rc, KID, |v| matches!(v, Item::Bytes(_)))
         && in_either(rc, CWT, |v| matches!(v, Item::Map(_)))
         && cwt_claim_in_either(rc, 1, |v| matches!(v, Item::Text(_)))
+        && cwt_claim_in_either(rc, 2, |v| matches!(v, Item::Text(_)))
         && cwt_claim_in_either(rc, 6, is_int)
         && in_either(rc, VDS, is_int)
         && in_either(rc, VDP, |v| matches!(v, Item::Map(_)))
@@ -426,7 +417,7 @@ pub(crate) fn receipt_rules_outside(v: &ValidReceipt) -> bool {
         || !alg_ok
         || !is_ccf(rc)
         || v.kid.is_none()
-        || v.iss.is_none()
+        || !cwt_in_profile(rc)
         || get(&rc.unprotected, CRIT).is_some()
         || !crit_ok(&rc.protected, &RECEIPT_CRIT_PROCESSED)
 }
@@ -521,18 +512,20 @@ fn statement_in_profile(st: &Cose) -> bool {
         && get(uh, CTY).is_none()
         && crit_ok(ph, &STATEMENT_CRIT_PROCESSED)
         && get(uh, CRIT).is_none()
-        && statement_cwt_in_profile(st)
+        && cwt_in_profile(st)
         && get(ph, X5CHAIN).is_some()
         && st.payload.as_ref().is_some_and(|p| p.len() == 32)
 }
 
-/// RFC 9943 section 6, as `_statement_profile` reads it: CWT Claims (label 15) stand in the
-/// protected header only, and carry a non-empty text iss (1) and sub (2).
-fn statement_cwt_in_profile(st: &Cose) -> bool {
-    if get(&st.unprotected, CWT).is_some() {
+/// RFC 9943 section 6, as `_cwt_claims_outside` reads it for a statement and for a receipt alike: CWT
+/// Claims (label 15) stand in the protected header only, and carry a non-empty text iss (1) and sub
+/// (2). The receipt side asked for an iss alone until Codex on pull request 406 found that a receipt
+/// with no sub, or with an empty iss, confirmed.
+fn cwt_in_profile(c: &Cose) -> bool {
+    if get(&c.unprotected, CWT).is_some() {
         return false;
     }
-    let Some(Item::Map(cwt)) = get(&st.protected, CWT) else {
+    let Some(Item::Map(cwt)) = get(&c.protected, CWT) else {
         return false;
     };
     [1, 2]

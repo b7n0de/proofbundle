@@ -18,8 +18,9 @@ is strict, and not counted, only when its ``object_pairs_hook=`` names a functio
 module defines and does not rebind; a name alone, a lambda or an imported hook is counted.
 
 WHAT IT REQUIRES. Every other reference is in ``EXCEPTIONS`` with the exact number per file and a reason outside a
-verify path. A new reference turns this red, and so does one that went away, so the list never outlives what it
-describes. Each function defined under a name in ``STRICT_HOOKS`` is run on duplicate member names, adjacent and not,
+verify path; the one entry on a verify path, the second reader of ``scitt_ccf`` (owner answer B on card
+OA-c2b4d6d3e3), carries the reason it may stand there. A new reference turns this red, and so does one that went
+away, so the list never outlives what it describes. Each function defined under a name in ``STRICT_HOOKS`` is run on duplicate member names, adjacent and not,
 and must refuse each, and an ``assert`` in its body does not count, because ``python -O`` removes it. Where those
 functions are defined is listed in ``STRICT_HOOK_SITES``, by the same rule.
 
@@ -199,9 +200,14 @@ NOT_DECODING = {
               "CBOREncodeValueError", "FrozenDict"},
 }
 
-#: path -> (number of lax decode references, reason they lie outside a verify path)
+#: path -> (number of lax decode references, reason they lie outside a verify path, or for the second reader of
+#: scitt_ccf the reason it may stand on one)
 EXCEPTIONS = {
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
+    "src/proofbundle/_scitt_second_reader.py": (
+        2, "the second reader of scitt_ccf (ADR 0009, Decision 13): cbor2 reads only bytes the strict pre-scan of "
+           "_cbor_prescan has already accepted, and must read the same values; a refusal of cbor2 or another value "
+           "is a refusal, and cbor2 decides nothing alone (owner answer B on card OA-c2b4d6d3e3)"),
     "src/proofbundle/trust_pack.py": (1, "reads back the RFC 8785 bytes it just wrote from an already parsed object"),
     "tools/cap1_unabhaengige_umsetzung/lauf.py": (
         2, "measures the last-wins and first-wins readings of CAP-1 on purpose; the verdict table is the result"),
@@ -216,10 +222,53 @@ EXCEPTIONS = {
         1, "reads back the canonical bytes of a state whose signature was verified one line before"),
     "tools/merkle_accumulator/render_runs.py": (1, "renders recorded run summaries for reading, decides nothing"),
     "tools/pb_verify_rs/crosscheck.py": (
-        16, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
-            "under the alias _json build its own test inputs"),
+        18, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
+            "under the alias _json build its own test inputs; two read the shared Transparent Statement vectors and "
+            "the Rust verifier's JSON result over them, which hold CBOR integers past the I-JSON range (a receipt iat "
+            "of 2^64 - 1) that loads_strict refuses"),
     "tools/scitt_ccf_datahash_vector/reader_matrix.py": (
         2, "measures cbor2 itself: what the library accepts is the result"),
+    # The measurement harnesses of tools/scitt_ccf_external, named when the scitt-ccf reader joined the strict rule
+    # (owner answer B on card OA-c2b4d6d3e3). None is a verify path of the package: each reads its own run files,
+    # corpora, stored results or the output of a tool it runs, and records a measurement, for some a verdict of
+    # proofbundle.scitt_ccf, for others what a library or an independent transcription accepts.
+    "tools/scitt_ccf_external/consistency_probe.py": (
+        9, "measurement harness of consistency receipts: reads the output of the third-party Merkle oracle it runs, its "
+           "own run files and stored result, the example bundle, and the service's receipts and proofs with cbor2 to "
+           "rebuild them for its probes"),
+    "tools/scitt_ccf_external/differential_corpus.py": (
+        8, "builds and re-derives the differential corpus: reads the local ledger's configuration, version and quote "
+           "responses, its own manifest and records, the example bundle and the build inputs, and the first receipt of "
+           "a returned statement with cbor2 to store it"),
+    "tools/scitt_ccf_external/differential_corpus_round2.py": (
+        5, "round two of the differential corpus: reads its own manifest and records, the example bundle and the "
+           "build inputs"),
+    "tools/scitt_ccf_external/leafhash/measure.py": (
+        2, "measures the leaf hash of a local ledger: reads the receipts its run wrote with cbor2 to take their proofs "
+           "apart, and judges nothing"),
+    "tools/scitt_ccf_external/leafhash/reader_forgery.py": (
+        2, "builds forgery inputs for readers: reads its own input file and a receipt its run wrote; what the readers "
+           "accept is the result"),
+    "tools/scitt_ccf_external/leafhash/same_digests.py": (
+        1, "reads the stored consistency result of its directory to compare digests"),
+    "tools/scitt_ccf_external/local_ledger_probe.py": (
+        2, "registers the example bundle on a local ledger: reads the example bundle and the build inputs it is given"),
+    "tools/scitt_ccf_external/preimage_candidates.py": (
+        6, "computes candidate preimages of the data-hash: reads stored receipts and requests with cbor2 to re-encode "
+           "them, and its own manifest and records"),
+    "tools/scitt_ccf_external/reader_crosscheck.py": (
+        27, "measures cbor2 and pycose themselves against real statements: what each library accepts is the result"),
+    "tools/scitt_ccf_external/recompute.py": (
+        1, "reads its trust-store document strictly with its own hook `_no_duplicate_keys`, a name STRICT_HOOKS does "
+           "not list"),
+    "tools/scitt_ccf_external/rust_crosscheck.py": (
+        2, "differential harness: reads the stored vector and the JSON output of the Rust verifier it compares"),
+    "tools/scitt_ccf_external/transparent_statement_vectors.py": (
+        1, "writes the shared Transparent Statement vectors and reads them back for --check; they hold CBOR integers "
+           "past the I-JSON range (a receipt iat of 2^64 - 1) that loads_strict refuses, and every other file it "
+           "reads goes through loads_strict"),
+    "tools/scitt_ccf_external/vendored_encoder_probe.py": (
+        3, "reads its own manifest, records and stored result to hold them to the corpus, offline"),
     "docs/scitt/statement_identification/package/build.py": (
         3, "producer of the package: reads back the statements it has just built"),
     "docs/scitt/statement_identification/package/verify.py": (

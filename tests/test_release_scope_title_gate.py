@@ -15,6 +15,8 @@ import pathlib
 import re
 import unittest
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "scope_title_gate", REPO / "scripts" / "b7_release_scope_title_gate.py")
@@ -981,3 +983,988 @@ def test_ein_ausgewiesener_umfang_mit_zweig_wird_wie_jeder_andere_gelesen(tmp_pa
     assert GATE.umfang_nicht_begonnen(p) is False
     d = GATE.pruefe(branch="fix/a1", title="docs: no identifier", version="9.9.9", scope_pfad=p)
     assert d["urteil"] == "ROT" and d["kennung_des_zweigs"] == "A1", d
+
+
+def test_ROT_eine_zweigspalte_an_anderer_stelle_ist_keine_fehlende(tmp_path):
+    """Codex on pull request 327, P2: the declaration check looked at the LAST header cell only, so
+    `| Item | Branch | Why |` counted as no branch column, and a branch the file names was judged
+    outside the scope, green, where the parent said NOT MEASURABLE. The reader reads the last
+    column, so a branch column anywhere else is one it cannot read, and the gate stays RED."""
+    p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                           "| Item | Branch | Why |\n|---|---|---|\n"
+                           "| A1 | fix/a1 | planned |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    _zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert zustand.startswith("NICHT MESSBAR"), zustand
+    d = GATE.pruefe(branch="fix/a1", title="docs: ordinary", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT", d
+
+
+def test_ROT_auch_eine_anders_geschriebene_zweigspalte_zaehlt(tmp_path):
+    """The siblings the finding names: a reordered or differently written branch header."""
+    for kopf in ("| Branches | Item |", "| Item | `Branch` |", "| Item | Git branch | Note |",
+                 "| Item | Zweige | Grund |"):
+        spalten = kopf.count("|") - 1
+        trenner = "|" + "---|" * spalten
+        zeile = "| A1 |" + " x |" * (spalten - 1)
+        p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                               f"{kopf}\n{trenner}\n{zeile}\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is False, kopf
+
+
+def test_GRUEN_das_wort_branch_in_einer_zeile_ist_keine_zweigspalte(tmp_path):
+    """THE COUNTER-DIRECTION: only header rows are asked. The rows of the real 6.3.0 scope say
+    "no frozen branch" in their prose, and that must not turn it NOT MEASURABLE again."""
+    p = _schreib(tmp_path, _NICHT_BEGONNEN.replace("| P30 | something for later |",
+                                                   "| P30 | Not on `main`, no frozen branch. |"))
+    assert GATE.umfang_nicht_begonnen(p) is True
+    zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert (zu_zweig, zustand) == ({}, "gemessen")
+
+
+# ---------------------------------------------------------------------------------------------
+# THE LENS ON PULL REQUEST 328, 2026-10-18. Three targets were refuted with executed cases, and
+# each case below is one of them, run against the rule and the reader together. The rule and the
+# reader read a header in ONE way now (the tables of `_tabellen_gfm`, since round 2 below), and the
+# reader refuses every branch column it cannot read before it reads a row.
+# ---------------------------------------------------------------------------------------------
+
+_ERKLAERT = "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+
+
+def _tabelle(kopf, zeile):
+    """A table whose header is `kopf` (cells), with one data row `zeile` (cells)."""
+    return ("| " + " | ".join(kopf) + " |\n|" + "---|" * len(kopf) + "\n"
+            "| " + " | ".join(zeile) + " |\n")
+
+
+def _urteil_fuer(tmp_path, text, branch="fix/a1"):
+    p = _schreib(tmp_path, text)
+    d = GATE.pruefe(branch=branch, title="docs: ordinary, no identifier", version="9.9.9",
+                    scope_pfad=p)
+    return GATE.umfang_nicht_begonnen(p), GATE.lies_umfang(p)[2], d
+
+
+def test_ROT_T1_jede_schreibweise_des_stamms_an_jeder_stelle(tmp_path):
+    """Case T1 of the lens: `branch_name`, `Zweigname` and `HeadBranch` left a declared file not
+    started and its branch outside the scope, green. A word boundary in front of or behind the stem
+    let every compound through. Each spelling, in the first, the middle and the last cell, must keep
+    the file from reading as not started, and the branch from passing."""
+    schreibweisen = ("Branch name", "branch_name", "`branch_name`", "Zweigname", "HeadBranch",
+                     "Branchname", "feature_branch", "GitBranch", "Zweiges", "Zweigen", "Branch1",
+                     "Bra​nch", "**Branch**", "<code>Branch</code>", "BRANCH", "Branches")
+    for wort in schreibweisen:
+        for kopf in ([wort, "Item", "Why"], ["Item", wort, "Why"], ["Item", "Why", wort]):
+            zeile = ["fix/a1" if k == wort else ("A1" if k == "Item" else "planned") for k in kopf]
+            nb, zustand, d = _urteil_fuer(tmp_path, _ERKLAERT + _tabelle(kopf, zeile) + "\n## Out\n")
+            assert nb is False, (kopf, zustand)
+            assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (kopf, d)
+
+
+def test_ROT_T1_jede_tabellenform_die_der_leser_ueberspringt(tmp_path):
+    """Case T1, the table forms: without a leading pipe, indented, inside a list or a quote, two
+    columns without the trailing pipe. The reader skips every row of these, so the rule asked them
+    nothing either and the declared file read as not started. Declared or not, they are NOT
+    MEASURABLE now, because their branches are branches the reader never reads. Since round 4 each
+    of their lines is of no kind the reader reads, and the reason names the line (owner card
+    OA-0db4496c88)."""
+    formen = {
+        "no leading pipe": "Item | Branch\n--- | ---\nA1 | `fix/a1`\n",
+        "indented": "   | Item | Branch |\n   |---|---|\n   | A1 | `fix/a1` |\n",
+        "in a list": "- | Item | Branch |\n  |---|---|\n  | A1 | `fix/a1` |\n",
+        "in a quote": "> | Item | Branch |\n> |---|---|\n> | A1 | `fix/a1` |\n",
+        "no trailing pipe": "| Item | Branch\n|---|---\n| A1 | `fix/a1`\n",
+    }
+    for name, tabelle in formen.items():
+        for titel in (_ERKLAERT, _ERKLAERT.replace(" (not started)", "")):
+            nb, zustand, d = _urteil_fuer(tmp_path, titel + tabelle + "\n## Out\n")
+            assert nb is False and zustand.startswith("NICHT MESSBAR"), (name, titel, zustand)
+            assert "is of no kind this reader reads" in zustand, (name, zustand)
+            assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (name, d)
+
+
+def test_ROT_T1_eine_ueberlesene_tabelle_neben_einer_gelesenen(tmp_path):
+    """The same blind spot where nothing is declared: a readable table names one branch, an
+    indented one names another. The first is read, so the file used to count as measured, and the
+    second branch passed outside the scope."""
+    text = ("# Release scope — 9.9.9\n\n## In\n\n"
+            "| Identifier | Subject | Branch |\n|---|---|---|\n| A1 | read | `fix/a1` |\n\n"
+            "  | Identifier | Subject | Branch |\n  |---|---|---|\n  | B1 | skipped | `fix/b1` |\n"
+            "\n## Out\n")
+    nb, zustand, d = _urteil_fuer(tmp_path, text, branch="fix/b1")
+    assert zustand.startswith("NICHT MESSBAR") and d["urteil"] == "ROT", (zustand, d)
+    gelesen = text.replace("  |", "|")
+    _nb, zustand, d = _urteil_fuer(tmp_path, gelesen, branch="fix/b1")
+    assert zustand == "gemessen" and d["kennung_des_zweigs"] == "B1", (zustand, d)
+
+
+def test_GRUEN_T2_eine_datenzeile_ist_kein_kopf(tmp_path):
+    """Case T2 of the lens, fail closed but wrong: a real unstarted scope turned NOT MEASURABLE when
+    a prose row stood above a row of dashes, or when a data row ended in the word `Branch`. A row
+    below the first delimiter of its table is data, whatever it looks like."""
+    for name, daten in (("dash row", "| P30 | no frozen branch. |\n| - | - |\n"),
+                        ("dash row with colons", "| P30 | no frozen branch. |\n| :-- | --: |\n"),
+                        ("last cell Branch", "| P40 | Branch |\n"),
+                        ("last cell Zweig", "| P40 | Zweig |\n")):
+        p = _schreib(tmp_path, _ERKLAERT + "| Item | Why |\n|---|---|\n" + daten + "\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is True, name
+        d = GATE.pruefe(branch="docs/x", title="docs: x", version="9.9.9", scope_pfad=p)
+        assert d["urteil"] == "gruen" and d["umfang_nicht_begonnen"], (name, d)
+
+
+def test_ROT_T2_jede_zeile_ueber_dem_ersten_trenner_ist_kopf(tmp_path):
+    """The other side of the same structure, and the case that binds the delimiter expression and
+    the line prefix: a row glued above the real header belongs to the header rows. With a delimiter
+    of colons or of spaced dashes, or a table inside a quote or an indent, a narrower reading would
+    miss the delimiter, take the glued row alone for the header, and read the declared file as not
+    started. The data cell is no branch name on purpose, so that the rule decides and not the
+    reader's refusal of an unquoted branch."""
+    for vorsatz in ("", "> ", "  "):
+        for trenner in ("| :--- | :---: |", "| --- | --- |", "|:-|-:|"):
+            tabelle = "".join(vorsatz + z + "\n" for z in ("| Note | x |", "| Item | Branch |",
+                                                           trenner, "| A1 | planned |"))
+            p = _schreib(tmp_path, _ERKLAERT + tabelle + "\n## Out\n")
+            assert GATE.umfang_nicht_begonnen(p) is False, (vorsatz, trenner)
+            d = GATE.pruefe(branch="fix/a1", title="docs: x", version="9.9.9", scope_pfad=p)
+            assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (vorsatz, trenner, d)
+
+
+def test_ROT_T3_der_leser_liest_keine_spalte_die_der_kopf_nicht_als_zweig_nennt(tmp_path):
+    """Case T3 of the lens: `| Item | Branch | Notes |` over `| A1 | fix/a1 | `main` |` read `main`
+    as the branch of A1, the rule was never asked, and `fix/a1` passed outside the scope. It held
+    without the declaration as well, because the reader reads the last cell whatever the header
+    says. Declared or not, a branch column in another cell is NOT MEASURABLE, and the reason names
+    the cell."""
+    tabelle = "| Item | Branch | Notes |\n|---|---|---|\n| A1 | fix/a1 | `main` |\n"
+    for titel in (_ERKLAERT, _ERKLAERT.replace(" (not started)", "")):
+        nb, zustand, d = _urteil_fuer(tmp_path, titel + tabelle + "\n## Out\n")
+        assert zustand.startswith("NICHT MESSBAR") and "cell 2 of 3" in zustand, (titel, zustand)
+        assert nb is False and d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+
+
+def test_ROT_ein_zweigname_ohne_backticks_ist_kein_mitlaeufer(tmp_path):
+    """The sweep for T3 found the third reading of the same class: the reader took a branch name
+    written without backticks for a rider, so a pull request from that branch passed outside the
+    scope. A rider says `with X`, `= X`, or names no branch; this cell names one."""
+    for zelle in ("fix/a1", "**fix/a1**", "claude/fix-631-teil2"):
+        text = ("# Release scope — 9.9.9\n\n## In\n\n| Identifier | Subject | Branch |\n|---|---|---|\n"
+                f"| A0 | read | `fix/a0` |\n| A1 | unquoted | {zelle} |\n\n## Out\n")
+        _nb, zustand, d = _urteil_fuer(tmp_path, text, branch=zelle.strip("*"))
+        assert zustand.startswith("NICHT MESSBAR") and "without backticks" in zustand, (zelle, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zelle, d)
+    for reiter in ("with A0", "mit A0", "= B1/B2", "B1"):
+        text = ("# Release scope — 9.9.9\n\n## In\n\n| Identifier | Subject | Branch |\n|---|---|---|\n"
+                f"| A0 | read | `fix/a0` |\n| A1 | a rider | {reiter} |\n\n## Out\n")
+        zu_zweig, mitlaeufer, zustand = GATE.lies_umfang(_schreib(tmp_path, text))
+        assert (zustand, mitlaeufer) == ("gemessen", ["A1"]), (reiter, zustand)
+
+
+def test_die_grenze_ein_zufallstreffer_des_stamms_irrt_zu_nicht_messbar(tmp_path):
+    """RECORDED AS A LIMIT, not as an assurance. The stem has no word boundary, so a header that
+    names something else with it, `Branching factor` or `Zweigstelle`, turns a declared file NOT
+    MEASURABLE. That is the direction a guess may err in here, and the reason names the cell, so
+    the file can be written without it. A synonym such as `Head ref` names no stem and is not seen,
+    which the house treats the same way elsewhere (a column headed `Head` is no branch column)."""
+    for kopf in ("Branching factor", "Zweigstelle"):
+        p = _schreib(tmp_path, _ERKLAERT + f"| Item | {kopf} |\n|---|---|\n| P30 | x |\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is False, kopf
+    p = _schreib(tmp_path, _ERKLAERT + "| Item | Head ref |\n|---|---|\n| P30 | x |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is True
+
+
+#: The state of each real scope file, pinned by name (lens round 2, section 4: per-file states
+#: instead of a disjunction that let any file flip between them). Measured on 2026-10-19 with this
+#: reader, with the reader of 1b581e36 and with that of main d3652ba5, over the files of main and of
+#: this branch: the same branches, riders, lines, guard counts and file verdicts in all three. The
+#: numbers are not pinned, because a scope file grows with its release; the state of a file and the
+#: counting identity in the case below are. 6.4.0.md reached main after this reader was written (with
+#: Z381 on 2026-10-23); measured with this reader on main 69e0790f: state measured, 33 lines, branch
+#: lines plus riders equal to them, and the same verdict, lines and identifiers as main's reader.
+_ZUSTAND_DER_ECHTEN = {"3.7.1.md": "kein einziger Zweig", "4.0.0.md": "kein einziger Zweig",
+                       "5.0.0.md": "kein einziger Zweig", "6.0.0.md": "kein einziger Zweig",
+                       "6.1.0.md": "gemessen", "6.2.0.md": "gemessen", "6.2.1.md": "gemessen",
+                       "6.3.0.md": "gemessen", "6.3.1.md": "gemessen", "6.4.0.md": "gemessen"}
+
+
+def test_GRUEN_die_echten_umfangsdateien_lesen_sich_wie_vorher():
+    """THE CONTROL ON THE REAL FILES, per file. Every real scope file has its pinned state, and a
+    file without a pin fails until one is measured and written. In every file the line count is the
+    branch lines plus the rider lines, and the guard examines exactly the rows of the tables that
+    assign branches: the readers that once disagreed in silence have to agree here."""
+    gesehen = []
+    for p in sorted((REPO / "docs" / "release_scope").glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        schnitt = GATE._ENDE_DES_UMFANGS.search(text)
+        if schnitt is None:
+            continue
+        gesehen.append(p.name)
+        assert p.name in _ZUSTAND_DER_ECHTEN, f"{p.name} has no pinned state: measure it, pin it"
+        zu_zweig, mitlaeufer, zustand = GATE.lies_umfang(p)
+        soll = _ZUSTAND_DER_ECHTEN[p.name]
+        assert (zustand == soll) if soll == "gemessen" else (soll in zustand), (p.name, zustand)
+        zeilen, _lage = GATE.fuehrende_kennungen(p)
+        assert len(zeilen) == sum(len(v) for v in zu_zweig.values()) + len(mitlaeufer), p.name
+        GATE.zeilen_ohne_kennung(p)
+        tabellen = GATE._tabellen_gfm(text[: schnitt.start()])["tabellen"]
+        assert GATE.ZULETZT_GEPRUEFT == sum(len(t["zeilen"]) for t in tabellen
+                                            if GATE._zweigstellen(t["kopf"])), p.name
+    assert len(gesehen) >= 7, gesehen
+
+
+# ---------------------------------------------------------------------------------------------
+# THE LENS ON PULL REQUEST 328, ROUND 2, 2026-10-18. It refuted all five of its targets at
+# 1b581e36 with executed cases, verdict REJECT, and each case below is one of them or one of the
+# mutants that survived its cases. The answer is one reading of the In section, the tables GitHub
+# renders (`_tabellen_gfm`), read by the branch reader, the rule of an unstarted release, the line
+# count and the guard alike. Where GitHub's reading is not known here (a no-break space after the
+# last pipe, an indented code block, a header word the stem meets by accident), the reader errs
+# towards NOT MEASURABLE, never towards a branch outside the scope.
+# ---------------------------------------------------------------------------------------------
+
+_UNERKLAERT = _ERKLAERT.replace(" (not started)", "")
+_ZWEIGKOPF = "| Identifier | Subject | Branch |\n|---|---|---|\n| A0 | read | `fix/a0` |\n"
+
+
+def _nicht_messbar(zustand, *teile):
+    return zustand.startswith("NICHT MESSBAR") and all(t in zustand for t in teile)
+
+
+def test_ROT_T1A_ein_koeder_trenner_entscheidet_nichts(tmp_path):
+    """Case T1-A of the lens, a regression of round 2 against its parent: a delimiter-shaped line
+    of another cell count above the real header was taken for the delimiter, the real header became
+    a data row, and the declared file read as not started, `fix/a1` green outside the scope. GFM
+    opens a table only where the delimiter has the cell count of the row above it (T1-B is the
+    decoy without pipes). Round 3 read the real table under the decoy. Since round 4 the decoy is a
+    row that stands in no table, or a line of no kind the reader reads, and the section is NOT
+    MEASURABLE before any table is read (owner card OA-0db4496c88); the control is the real table
+    without the decoy."""
+    for koeder, warum in (("| x |\n|---|---|\n", "stands in no table"),
+                          ("a | b\n|---|---|---|\n", "is of no kind this reader reads")):
+        for unten in ("| Item | Branch | Why |\n|---|---|---|\n| A1 | fix/a1 | planned |\n",
+                      "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n"):
+            for titel in (_ERKLAERT, _UNERKLAERT):
+                nb, zustand, d = _urteil_fuer(tmp_path, titel + koeder + unten + "\n## Out\n")
+                assert nb is False and _nicht_messbar(zustand, warum), (koeder, zustand)
+                assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (koeder, d)
+    text = _UNERKLAERT + "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n\n## Out\n"
+    _nb, zustand, d = _urteil_fuer(tmp_path, text)
+    assert zustand == "gemessen" and d["kennung_des_zweigs"] == "A1", (zustand, d)
+
+
+def test_ROT_T1_ein_unsichtbares_oder_gerendertes_zeichen_im_kopf(tmp_path):
+    """Case T1, the header forms: taking out category Cf alone let 268 default-ignorable code points
+    through (U+034F, the Hangul fillers, the variation selectors), and an entity, a soft hyphen,
+    inline HTML, emphasis or full-width letters as well. Each one reads `Branch` on the page, so the
+    declared file must not read as not started, and a pull request from `fix/a1` stays RED.
+
+    ROUND 3 NORMALISED THE HEADER, and the third lens found the normaliser one rule short each
+    time: inline HTML stripped up to the first `>` (`Bra<!-- > -->nch`, `Br<a href='x>y'>an</a>ch`),
+    a link (`[Bra](u)nch`), and ranges of the ignorable code points its own cases did not cover
+    (U+17B4, U+180B, U+FFF0, U+E0000). Since round 4 a header cell is plain words or the section is
+    NOT MEASURABLE (owner card OA-0db4496c88), under a branch cell that is a branch as well."""
+    formen = ["Bra" + chr(c) + "nch" for c in (0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0, 0xFE00,
+                                                0xFE0F, 0xE0100, 0xE01EF, 0x200B, 0x00AD, 0x2060,
+                                                0xFEFF, 0x17B4, 0x17B5, 0x180B, 0x180F, 0xFFF0,
+                                                0xFFF8, 0xE0000, 0xE0FFF)]
+    formen += ["&#66;ranch", "Bra&shy;nch", "Bra<span></span>nch", "**B**ranch",
+               "".join(chr(0xFEE0 + ord(c)) for c in "branch"), "Bra<!-- > -->nch",
+               "Br<a href='x>y'>an</a>ch", "[Bra](u)nch", "Branch ", "Branch_name", "Zwäig"]
+    for wort in formen:
+        for zelle in ("planned", "`fix/a1`"):
+            for titel in (_ERKLAERT, _UNERKLAERT):
+                text = titel + f"| Item | {wort} |\n|---|---|\n| A1 | {zelle} |\n\n## Out\n"
+                nb, zustand, d = _urteil_fuer(tmp_path, text)
+                assert nb is False and _nicht_messbar(zustand, "is not plain words"), (
+                    ascii(wort), zustand)
+                assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (ascii(wort), d)
+
+
+def test_GRUEN_eine_kopfzelle_aus_woertern_wird_gelesen(tmp_path):
+    """The other side of the header rule, with every header cell the scope files carry measured on
+    2026-10-19, among them a hyphen and a comma. A comma without the space after it, or a cell that
+    starts or ends with a separator, is no longer plain words."""
+    tabelle = "| Identifier | {} | Branch |\n|---|---|---|\n| A1 | x | `fix/a1` |\n\n## Out\n"
+    for wort in ("Branch", "Zweig", "Branch name", "Why it is patch-safe",
+                 "Why it moved, and the state it moved in", "Merge commit", "PR", "Item 2"):
+        _nb, zustand, d = _urteil_fuer(tmp_path, _UNERKLAERT + tabelle.format(wort))
+        if "ranch" in wort or "Zweig" in wort:
+            assert _nicht_messbar(zustand, "cell 2 of 3"), (wort, zustand)
+        else:
+            assert zustand == "gemessen" and d["kennung_des_zweigs"] == "A1", (wort, zustand)
+    for wort in ("Why,it", "-Why", "Why-", "Why  it", "Why ,it", ""):
+        _nb, zustand, _d = _urteil_fuer(tmp_path, _UNERKLAERT + tabelle.format(wort))
+        assert _nicht_messbar(zustand, "is not plain words"), (wort, zustand)
+
+
+def test_ROT_T1_ein_zweig_ohne_codespanne_ist_weder_zweig_noch_mitlaeufer(tmp_path):
+    """Case T1, second clause: `hotfix-123`, `main`, `Fix/A1` and the rest are no lower-case name
+    with a slash, so the reader of round 2 took each for a rider, and the pull request from that
+    branch passed outside the scope. A rider has a grammar of its own now (`_MITLAEUFER`), and a
+    branch cell that is neither one code span nor a rider is NOT MEASURABLE. The survivors L01
+    (`dependabot/pip/foo`) and L03 (`fix/v1.2`) are among the cells."""
+    for zelle in ("hotfix-123", "main", "develop", "Fix/A1", "feat/N16-composite-action",
+                  "fix/R-A1", "dependabot/pip/PyYAML-6.0.2", "dependabot/pip/foo", "fix/v1.2",
+                  "fix/a1+b", "fix/a1#2", "with fix/a1"):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| A1 | the line | {zelle} |\n\n## Out\n"
+        _nb, zustand, d = _urteil_fuer(tmp_path, text, branch=zelle.removeprefix("with "))
+        assert _nicht_messbar(zustand, repr(zelle)), (zelle, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zelle, d)
+
+
+def test_ROT_T1_ein_geschmueckter_zweig_ist_nicht_messbar(tmp_path):
+    """Case T1: a branch with a note, in a link, in bold or with a mark was read as a rider, and the
+    pull request from it passed outside the scope."""
+    for zelle in ("`fix/a1` (merged)", "[`fix/a1`](https://example.invalid/pr/1)", "**`fix/a1`**",
+                  "`fix/a1` " + chr(0x2705)):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| A1 | the line | {zelle} |\n\n## Out\n"
+        _nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert _nicht_messbar(zustand, "neither one branch"), (ascii(zelle), zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (ascii(zelle), d)
+
+
+def test_ROT_T1_T3_eine_zeile_breiter_oder_schmaler_als_ihr_kopf(tmp_path):
+    """Cases T3a and the wide row of T1: GitHub drops the cells beyond the header and pads a short
+    row, so the cell the reader of round 2 took for the branch, the last one, was another: `main`, a
+    note, the subject. A row with another cell count than its header is NOT MEASURABLE."""
+    zwei = "| Identifier | Branch |\n|---|---|\n"
+    drei = "| Identifier | Subject | Branch |\n|---|---|---|\n"
+    for kopf, zeile in ((zwei, "| A1 | `fix/a1` | planned for the second week |"),
+                        (zwei, "| A1 | fix/a1 | `main` |"), (drei, "| A1 | `fix/a1` |")):
+        for titel in (_ERKLAERT, _UNERKLAERT):
+            nb, zustand, d = _urteil_fuer(tmp_path, titel + kopf + zeile + "\n\n## Out\n")
+            assert nb is False and _nicht_messbar(zustand, "cells under a header"), (zeile, zustand)
+            assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zeile, d)
+
+
+def test_T1_leerraum_nach_dem_letzten_strich(tmp_path):
+    """Case T1, blank space after the last pipe: one space, a tab or a no-break space made the
+    reader of round 2 take the row for a delimiter and drop it, so `fix/a1` passed outside the scope.
+    GFM trims spaces and tabs at the ends of a row, and so does this reader: the row is read, and so
+    is a header with blank space after it (survivor L08). A no-break space is no blank space to this
+    reader, whatever a renderer makes of it: the row does not end with `|`, so it is not in the form
+    this reader reads, and NOT MEASURABLE, the direction a guess may err in."""
+    for ende in (" ", "\t", "  \t "):
+        text = (_UNERKLAERT + "| Identifier | Subject | Branch |" + ende + "\n|---|---|---|\n"
+                "| A0 | read | `fix/a0` |\n| A1 | the line | `fix/a1` |" + ende + "\n\n## Out\n")
+        _nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert zustand == "gemessen" and d["kennung_des_zweigs"] == "A1", (repr(ende), zustand)
+    text = _UNERKLAERT + _ZWEIGKOPF + "| A1 | the line | `fix/a1` |" + chr(0xA0) + "\n\n## Out\n"
+    _nb, zustand, d = _urteil_fuer(tmp_path, text)
+    assert _nicht_messbar(zustand, "is no line of the table form", "\\xa0"), zustand
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+
+
+def test_ROT_T1_eine_kennungszelle_die_der_leser_nicht_liest(tmp_path):
+    """Case T1: rows whose identifier cell the reader cannot read (a code span, a link, a strike,
+    emphasis, lower case, nothing) fell out in silence, and their branches with them. In a table
+    that assigns branches each is NOT MEASURABLE now, with the row named."""
+    for zelle in ("`A1`", "[A1](https://example.invalid)", "~~A1~~", "_A1_", "a1", ""):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| {zelle} | the line | `fix/a1` |\n\n## Out\n"
+        _nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert _nicht_messbar(zustand, "ohne lesbare Kennung"), (zelle, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zelle, d)
+
+
+def test_ROT_T2_ein_blockschnitt_ist_seit_runde_4_nicht_messbar(tmp_path):
+    """Case T2 of the lens, a regression of round 2: a blank line cut a row off its table, the rows
+    after the cut formed a block without a delimiter, its first row was read as a header, and a real
+    unstarted scope turned NOT MEASURABLE. Round 3 read the cut-off row as text that rides along, so
+    the file stayed not started, and it had to guess which of its cells could be a branch (the third
+    lens refuted that guess with `n/a` and a backticked path).
+
+    SINCE ROUND 4 A ROW THAT STANDS IN NO TABLE IS NOT MEASURABLE, whatever it names (owner card
+    OA-0db4496c88). The answer turns red here on purpose and against main, which reads this file as
+    not started: no scope file carries such a row, measured on 2026-10-19, and the fix in a scope
+    file is one blank line less. The reason names the row, and the line count says the same."""
+    for zeile in ("| P40 | Not on `main`, no frozen branch. |", "| P31 | n/a |",
+                  "| P31 | see `docs/plan.md` |"):
+        text = _ERKLAERT + "| Item | Why |\n|---|---|\n| P30 | later |\n\n" + zeile + "\n\n## Out\n"
+        p = _schreib(tmp_path, text)
+        assert GATE.umfang_nicht_begonnen(p) is False, zeile
+        assert _nicht_messbar(GATE.lies_umfang(p)[2], "stands in no table", zeile[:20]), zeile
+        d = GATE.pruefe(branch="docs/x", title="docs: x", version="9.9.9", scope_pfad=p)
+        assert d["urteil"] == "ROT" and not d["umfang_nicht_begonnen"], d
+        assert _nicht_messbar(GATE.fuehrende_kennungen(p)[1], "stands in no table"), zeile
+
+
+def test_ROT_eine_abgeschnittene_zeile_mit_zweig_ist_nicht_messbar(tmp_path):
+    """The other side of the same cut: a row cut off from its table that names a branch, in a code
+    span or as a cell, stands in no table GitHub renders. Read as a rider its branch would pass
+    outside the scope, so it is NOT MEASURABLE."""
+    for zelle in ("`fix/a1`", "fix/a1"):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"\n| A1 | cut off | {zelle} |\n\n## Out\n"
+        _nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert _nicht_messbar(zustand, "stands in no table"), (zelle, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zelle, d)
+
+
+def test_GRUEN_T2_T3_eine_zelle_einer_tabelle_ohne_zweigspalte_ist_kein_zweig(tmp_path):
+    """Case T2-6, the false alarms of T5 and case T3c: round 2 refused `n/a` in a table headed
+    `Outcome` as a branch without backticks, which turned a real unstarted scope NOT MEASURABLE, and
+    took `make release` under `Why` for a branch. A table without a branch column names no branch,
+    whatever its cells hold."""
+    for zelle in ("n/a", "w/o", "yes/no", "1/2", "2026/10/18", "docs/plan.md", "pull/328",
+                  "`make release`", "`fix/a1`"):
+        p = _schreib(tmp_path, _ERKLAERT + f"| Item | Outcome |\n|---|---|\n| P30 | {zelle} |\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is True, zelle
+        assert GATE.lies_umfang(p) == ({}, ["P30"], "gemessen"), zelle
+
+
+def test_GRUEN_T3_eine_spalte_ohne_zweigkopf_nennt_keinen_zweig(tmp_path):
+    """Case T3c of the lens: the reader of round 2 took the backticked last cell of a table headed
+    `Follows` for a branch, so `fix/a1` stood at two lines and its pull request went RED with
+    MEHREREN. Only a branch column names a branch."""
+    text = (_UNERKLAERT + "| Identifier | Subject | Follows |\n|---|---|---|\n| A2 | x | `fix/a1` |\n\n"
+            "| Identifier | Subject | Branch |\n|---|---|---|\n| A1 | y | `fix/a1` |\n\n## Out\n")
+    p = _schreib(tmp_path, text)
+    assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, ["A2"], "gemessen")
+    d = GATE.pruefe(branch="fix/a1", title="[9.9.9 A1] fix(x): y", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "gruen", d
+
+
+def test_T5_die_grammatik_der_mitlaeufer(tmp_path):
+    """Case T5: which cells of a branch column ride along, and which are refused. A rider names the
+    line it rides with, or says there is none; survivor L02 is the bare `B1/B2`. A cell that could
+    be a branch as well as a word is refused in a branch column, where a guess would let a branch
+    pass."""
+    for zelle in ("mit A0", "with A0", "= B1/B2", "B1/B2", "B1", "L1", "C1, N15", "", "-",
+                  chr(0x2014), "n/a", "N/A", "none yet", "None"):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| A1 | rides | {zelle} |\n\n## Out\n"
+        assert GATE.lies_umfang(_schreib(tmp_path, text)) == (
+            {"fix/a0": ["A0"]}, ["A1"], "gemessen"), ascii(zelle)
+    for zelle in ("w/o", "yes/no", "and/or", "tbd/later", "b1/b2", "c1/n15", "1/2", "2026/10/18",
+                  "docs/plan.md", "pull/328", "with fix/a1"):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| A1 | rides | {zelle} |\n\n## Out\n"
+        assert _nicht_messbar(GATE.lies_umfang(_schreib(tmp_path, text))[2], repr(zelle)), zelle
+
+
+def test_GRUEN_T2_eine_tabelle_im_zaun_ist_kein_umfang(tmp_path):
+    """Case T2, a block GitHub renders as code: a table inside a fence of three backticks, with or
+    without a name, is no scope table, so a declared file stays not started, whatever the table
+    names. The control is the same table outside the fence, which keeps the file from reading as
+    not started."""
+    tabelle = "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n"
+    for vor in ("```\n", "```text\n", "```console  \n"):
+        p = _schreib(tmp_path, _ERKLAERT + vor + tabelle + "```\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is True, vor
+        d = GATE.pruefe(branch="fix/a1", title="docs: x", version="9.9.9", scope_pfad=p)
+        assert d["urteil"] == "gruen" and d["ausserhalb_des_umfangs"], (vor, d)
+    assert GATE.umfang_nicht_begonnen(_schreib(tmp_path, _ERKLAERT + tabelle + "\n## Out\n")) is False
+
+
+def test_ROT_ein_anderer_zaun_oder_ein_kommentar_ist_nicht_messbar(tmp_path):
+    """Round 3 masked a tilde fence, a fence of four backticks and an HTML comment block, and the
+    third lens found each rule of that masking one short: `<!-->` closes on its own line, a fence
+    whose name holds a backtick is no fence, a fence of four backticks is closed by three only when
+    the counts are compared, and an indented fence is code. Since round 4 none of these is a line
+    the reader reads, and the section is NOT MEASURABLE, declared or not, whatever the block holds
+    (owner card OA-0db4496c88). The line inside a fence that starts like a fence and is not its
+    closing ``` alone is refused too, because whether it closes the block depends on its form."""
+    tabelle = "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n"
+    keine_art, im_zaun = "is of no kind", "starts with fence characters inside"
+    for vor, nach, warum in (("~~~~\n", "~~~~\n", keine_art), ("~~~\n", "~~~\n", keine_art),
+                             ("````\n", "````\n", keine_art), ("<!--\n", "-->\n", keine_art),
+                             ("<!-- a note\n", "end -->\n", keine_art),
+                             ("<!-->\n", "<!-- end -->\n", keine_art),
+                             ("```x`y\n", "```\n", keine_art), ("  ```\n", "  ```\n", keine_art),
+                             ("    ```\n\n", "\n    ```\n", keine_art),
+                             ("```\n````\n", "```\n", im_zaun), ("```\n  ```\n", "```\n", im_zaun),
+                             ("```\n~~~\n", "```\n", im_zaun)):
+        for titel in (_ERKLAERT, _UNERKLAERT):
+            nb, zustand, d = _urteil_fuer(tmp_path, titel + vor + tabelle + nach + "\n## Out\n")
+            assert nb is False and _nicht_messbar(zustand, warum), (vor, zustand)
+            assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (vor, d)
+
+
+def test_ROT_ein_zaun_der_nie_schliesst(tmp_path):
+    """A fence that never closes runs to the end of the page and takes every table after it along.
+    In a scope file that is a mistake, and the branches after it would go unread, so the In section
+    is NOT MEASURABLE, with the line it opened on. An HTML comment that never closes is no line the
+    reader reads at all since round 4."""
+    for vor, warum in (("```\n", "never closes"), ("<!--\n", "is of no kind")):
+        text = (_UNERKLAERT + _ZWEIGKOPF + "\n" + vor + "| Identifier | Subject | Branch |\n"
+                "|---|---|---|\n| A1 | x | `fix/a1` |\n\n## Out\n")
+        _nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert _nicht_messbar(zustand, warum), (vor, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (vor, d)
+
+
+def test_eine_bemerkung_mitten_in_der_zeile_verschluckt_die_zeile_nicht(tmp_path):
+    """Found while round 3 was built, before any lens: its first draft hid every line that carried
+    `<!--`, so a row with a comment in a cell would have vanished with its branch. A comment in the
+    middle of a line is inline and starts no block; the row is read."""
+    text = _UNERKLAERT + _ZWEIGKOPF + "| A1 | the line <!-- note --> | `fix/a1` |\n\n## Out\n"
+    _nb, zustand, d = _urteil_fuer(tmp_path, text)
+    assert zustand == "gemessen" and d["kennung_des_zweigs"] == "A1", (zustand, d)
+
+
+def test_die_grenze_eine_eingerueckte_tabelle_irrt_zu_nicht_messbar(tmp_path):
+    """RECORDED AS A LIMIT. Four spaces after a blank line are code at the top level and a
+    continuation inside a list item. This reader does not tell the two apart: an indented line with
+    a `|` is of no kind it reads, and the section is NOT MEASURABLE, with a branch column or without
+    one. Round 3 let an indented table without a branch column ride along (survivor L16); since
+    round 4 that is NOT MEASURABLE too (owner card OA-0db4496c88), and so is the indented code block
+    of the third lens directly above a real table (R1-d), which round 3 read as a decoy header."""
+    eingerueckt = "    | Item | Branch |\n    |---|---|\n    | A1 | `fix/a1` |\n"
+    for titel in (_ERKLAERT, _UNERKLAERT):
+        nb, zustand, d = _urteil_fuer(tmp_path, titel + _ZWEIGKOPF + "\n" + eingerueckt + "\n## Out\n")
+        assert nb is False and _nicht_messbar(zustand, "is of no kind"), (titel, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    p = _schreib(tmp_path, _ERKLAERT + "    | Item | Why |\n    |---|---|\n    | P30 | later |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "is of no kind")
+    for koeder in ("    | a | b |\n    |---|---|\n", "| x | y |\n    |---|---|\n"):
+        text = _ERKLAERT + koeder + "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n\n## Out\n"
+        nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert nb is False and zustand.startswith("NICHT MESSBAR"), (koeder, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (koeder, d)
+
+
+def test_der_waechter_liest_dieselben_koepfe_wie_der_leser(tmp_path):
+    """The guard against rows without an identifier asked the last header cell for one of two exact
+    words, the reader asks every header cell for the stem, so a header `Branch name` was a scope
+    table to one and none to the other: the guard said it did not run, over a row the reader
+    refuses. Both read the same header now, and the guard names the row."""
+    p = _schreib(tmp_path, _UNERKLAERT + "| Identifier | Branch name |\n|---|---|\n| A0 | `fix/a0` |\n"
+                                         "| nameless | `fix/x` |\n\n## Out\n")
+    ohne, lage = GATE.zeilen_ohne_kennung(p)
+    assert (ohne, lage, GATE.ZULETZT_GEPRUEFT) == (["nameless"], "gemessen", 2), (ohne, lage)
+    assert GATE.pruefe_umfangsdatei(p)["zeilen_ohne_kennung"] == ["nameless"]
+
+
+def test_ROT_eine_entwertete_pipe_ist_nicht_messbar(tmp_path):
+    """GFM splits a row at every pipe a backslash does not escape, and round 3 read `\\|` that way.
+    The third lens found that markdown-it reads `\\\\|` the other way, an escaped backslash and then
+    a pipe that splits. No scope file carries an escaped pipe in a table, measured on 2026-10-19, so
+    since round 4 a table line with one is NOT MEASURABLE (owner card OA-0db4496c88), in the header
+    and in a row."""
+    for zeile in ("| A1 | a \\| b | `fix/a1` |", "| A1 | a \\\\| b | `fix/a1` |"):
+        _nb, zustand, d = _urteil_fuer(tmp_path, _UNERKLAERT + _ZWEIGKOPF + zeile + "\n\n## Out\n")
+        assert _nicht_messbar(zustand, "escaped pipe"), (zeile, zustand)
+        assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (zeile, d)
+    text = (_UNERKLAERT + "| Identifier | Sub\\|ject | Branch |\n|---|---|---|\n"
+            "| A1 | x | `fix/a1` |\n\n## Out\n")
+    assert _nicht_messbar(_urteil_fuer(tmp_path, text)[1], "escaped pipe")
+
+
+def test_ein_neuer_block_beendet_die_tabelle(tmp_path):
+    """A table ends at a blank line and at the start of another block (GFM 4.10): a heading or a
+    fence, the two this reader lets end it. A table that ran on through a heading would swallow the
+    branch table below it, and a declared file would read as not started, its branch outside the
+    scope. The real 6.1.0 scope ends a table with a heading. A table directly below a closing fence
+    is not set off by a blank line or a heading, and since round 4 that is NOT MEASURABLE."""
+    unten = "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n\n## Out\n"
+    for zwischen in ("### Next\n", "```\nquoted\n```\n\n", "```\n| a | b |\n```\n\n"):
+        text = _ERKLAERT + "| Item | Why |\n|---|---|\n| P30 | later |\n" + zwischen + unten
+        nb, zustand, d = _urteil_fuer(tmp_path, text)
+        assert nb is False and zustand == "gemessen" and d["kennung_des_zweigs"] == "A1", (
+            zwischen, zustand, d)
+    text = _ERKLAERT + "| Item | Why |\n|---|---|\n| P30 | later |\n```\nquoted\n```\n" + unten
+    nb, zustand, d = _urteil_fuer(tmp_path, text)
+    assert nb is False and _nicht_messbar(zustand, "without a blank line or a heading"), zustand
+
+
+def test_die_ueberlebenden_mutanten_der_linse_2(tmp_path):
+    """The mutants of round 2 that its cases did not kill, each pinned by the input on which the
+    lens told it apart from the code (L01, L02, L03, L08 and L16 are pinned in the cases above)."""
+    def zustand_von(text):
+        return GATE.lies_umfang(_schreib(tmp_path, text))[2]
+
+    # L04: a row of empty cells above the header decides nothing; since round 4 it is a row that
+    # stands in no table, and the section is NOT MEASURABLE before the header below it is read.
+    assert _nicht_messbar(zustand_von(_UNERKLAERT + "| |\n| Item | Branch | Notes |\n|---|---|---|\n"
+                                      "| A1 | fix/a1 | `main` |\n\n## Out\n"), "stands in no table")
+    # L06: a table two quote levels deep, with a row glued above its header.
+    p = _schreib(tmp_path, _ERKLAERT + "> > | Note | x |\n> > | Item | Branch |\n> > |---|---|\n"
+                                       "> > | A1 | planned |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "is of no kind")
+    # L09: a table directly before `## Out`, with no blank line between.
+    assert _nicht_messbar(zustand_von(_UNERKLAERT + _ZWEIGKOPF + "| A1 | x | `fix/a1` (merged) |\n## Out\n"),
+                          "neither one branch")
+    p = _schreib(tmp_path, _UNERKLAERT + _ZWEIGKOPF + "| A1 | x | `fix/a1` |\n## Out\n")
+    assert GATE.lies_umfang(p) == ({"fix/a0": ["A0"], "fix/a1": ["A1"]}, [], "gemessen")
+    # L10: a line of prose glued below a table is a row of that table on the page (GFM 4.10), and
+    # one without pipes, which this reader does not read.
+    assert _nicht_messbar(zustand_von(_UNERKLAERT + _ZWEIGKOPF + "a line of prose\n\n## Out\n"),
+                          "is no line of the table form")
+    # L12, L13: two cells of one header name a branch column.
+    assert _nicht_messbar(zustand_von(_UNERKLAERT + "| Branch | Subject | Zweig |\n|---|---|---|\n"
+                                      "| A1 | x | `fix/a1` |\n\n## Out\n"), "cell 1 of 3")
+    # L17, L18: a table of the Out section decides nothing about the In section.
+    p = _schreib(tmp_path, _ERKLAERT + "| Item | Why |\n|---|---|\n| P30 | later |\n\n## Out\n\n"
+                                       "| Item | Branch | Notes |\n|---|---|---|\n| X1 | fix/x1 | `main` |\n")
+    assert GATE.umfang_nicht_begonnen(p) is True and GATE.lies_umfang(p) == ({}, ["P30"], "gemessen")
+    # L19: the declaration counts in the title only, not in prose.
+    p = _schreib(tmp_path, _UNERKLAERT + "This release has (not started) yet.\n\n| Item | Why |\n"
+                                         "|---|---|\n| P30 | later |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "kein einziger Zweig")
+    # L24: a row glued above the header names the branch column; GitHub shows that row as text.
+    # Since round 4 it is a row that stands in no table, whatever its cells say.
+    for oben in ("| Item | Branch |", "| Item | Why |"):
+        p = _schreib(tmp_path, _ERKLAERT + oben + "\n| Note | Why |\n|---|---|\n"
+                                           "| A1 | `fix/a1` |\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is False
+        assert _nicht_messbar(GATE.lies_umfang(p)[2], "stands in no table"), oben
+
+
+# ---------------------------------------------------------------------------------------------
+# THE LENS ON PULL REQUEST 328, ROUND 3, 2026-10-19. It refuted three of its five targets at
+# a0ae5aab, verdict REJECT: a branch passed outside the scope in eight executed cases, most of which
+# the reader before it read correctly; a line of inline code read as an unclosed fence; and mutants
+# of the new code survived the cases. The owner chose a list of the kinds of line the scope files
+# carry over a better imitation of the renderer (card OA-0db4496c88, option A). Each case below is
+# one of the lens's executed cases or the input on which it told a surviving mutant apart from the
+# code; where the mutated code no longer exists, the input is pinned to the answer of the list.
+# ---------------------------------------------------------------------------------------------
+
+_T = "| Item | Branch |\n|---|---|\n| A1 | `fix/a1` |\n"
+_A0 = "| Item | Branch |\n|---|---|\n| A0 | `fix/a0` |\n"
+
+
+def _rot_und_nicht_messbar(tmp_path, text, branch, *teile):
+    p = _schreib(tmp_path, text)
+    zustand = GATE.lies_umfang(p)[2]
+    assert _nicht_messbar(zustand, *teile), (branch, zustand)
+    d = GATE.pruefe(branch=branch, title="docs: x", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], (branch, d)
+    assert not d["umfang_nicht_begonnen"] and GATE.umfang_nicht_begonnen(p) is False, d
+    rc = GATE.main(["--branch", branch, "--title", "docs: x", "--version", "9.9.9",
+                    "--scope", str(p)])
+    assert rc == 1, (branch, text)
+
+
+def test_ROT_R1_der_dritten_linse_kein_zweig_geht_ausserhalb_durch(tmp_path, capsys):
+    """Target R1 of the third lens, its eight executed cases with their variants. In each the page
+    shows the branch in a table and round 3 judged it green, outside the scope. Each is NOT
+    MEASURABLE now, because a line of the case is of no kind the reader reads, and the pull request
+    from the branch is RED."""
+    zaun, kommentar = "    ```\n", "    <!--\n"
+    faelle = {
+        "R1-a indented fence": (_ERKLAERT + zaun + "\n" + _T + "\n" + zaun, "fix/a1"),
+        "R1-a' indented fence": (_UNERKLAERT + _A0 + "\n" + zaun + "\n" + _T + "\n" + zaun,
+                                 "fix/a1"),
+        "R1-a' indented comment": (_UNERKLAERT + _A0 + "\n" + kommentar + "\n" + _T
+                                   + "\n    -->\n", "fix/a1"),
+        "R1-b <!-->": (_UNERKLAERT + _A0 + "\n<!-->\n\n" + _T + "\n<!-- end -->\n", "fix/a1"),
+        "R1-c comment": (_ERKLAERT + "| Item | Bra<!-- > -->nch |\n|---|---|\n"
+                         "| A1 | `fix/a1` |\n", "fix/a1"),
+        "R1-c link": (_ERKLAERT + "| Item | Br<a href='x>y'>an</a>ch |\n|---|---|\n"
+                      "| A1 | `fix/a1` |\n", "fix/a1"),
+        "R1-c markdown link": (_ERKLAERT + "| Item | [Bra](u)nch |\n|---|---|\n"
+                               "| A1 | `fix/a1` |\n", "fix/a1"),
+        "R1-d indented decoy": (_ERKLAERT + "    | a | b |\n    |---|---|\n" + _T, "fix/a1"),
+        "R1-d indented delimiter": (_ERKLAERT + "| x | y |\n    |---|---|\n" + _T, "fix/a1"),
+        "R1-e span": (_UNERKLAERT + _T + "<span>x</span>\n| A2 | `Feature/Foo` |\n",
+                      "Feature/Foo"),
+        "R1-f pipeless row": (_UNERKLAERT + _T + "<b>A2</b> | `fix/a2`\n", "fix/a2"),
+        "R1-g backtick in the name": (_ERKLAERT + "```x`y\n" + _T + "```\n", "fix/a1"),
+    }
+    for name, (text, branch) in faelle.items():
+        _rot_und_nicht_messbar(tmp_path, text + "\n## Out\n", branch)
+        capsys.readouterr()
+
+
+def test_ROT_die_grenze_des_umfangs_ueberquert_keine_zeile(tmp_path):
+    """Recorded by the third lens as older than round 3 and not counted: `^##\\s+Out\\b` let `\\s`
+    cross a line break, so `##` alone on its line and a paragraph below it that begins with `Out`
+    ended the scope there, in all three readers, and the table after it went unread. In a file
+    declared not started that made the branch green, outside the scope. The boundary reads spaces
+    and tabs only now, and the branch below is read."""
+    for titel in (_ERKLAERT, _UNERKLAERT):
+        p = _schreib(tmp_path, titel + "##\n\nOut of the box.\n\n" + _T + "\n## Out\n")
+        assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, [], "gemessen"), titel
+        d = GATE.pruefe(branch="fix/a1", title="docs: x", version="9.9.9", scope_pfad=p)
+        assert d["urteil"] == "ROT" and d["kennung_des_zweigs"] == "A1", d
+    for grenze in ("## Out\n", "##\tOut, and why\n", "## Out — the reasons\n"):
+        p = _schreib(tmp_path, _UNERKLAERT + _T + "\n" + grenze + "\n" + _A0)
+        assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, [], "gemessen"), grenze
+
+
+def test_R2_der_dritten_linse_eine_form_ausserhalb_der_liste(tmp_path):
+    """Target R2 of the third lens: a real unstarted scope must not turn NOT MEASURABLE. R2-a, a
+    line that starts with three backticks of inline code, read as an unclosed fence in round 3.
+    Under the list it is NOT MEASURABLE still, for another reason: a line that starts with three
+    backticks and is no fence of the listed form is of no kind the reader reads (owner card
+    OA-0db4496c88). No scope file carries one, and one or two backticks at the start of a line are
+    prose, which the scope files do carry (survivor `_ZAUN` with two backticks). R2-b and R2-c are
+    the cut-off rows of `test_ROT_T2_ein_blockschnitt_ist_seit_runde_4_nicht_messbar`."""
+    unten = "\n\n| Item | Why |\n|---|---|\n| P30 | later |\n\n## Out\n"
+    p = _schreib(tmp_path, _ERKLAERT + "```make release``` builds it." + unten)
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "is of no kind")
+    for prosa in ("``make release`` builds it.", "`make release` builds it.",
+                  "#296 stood at `abc1234`."):
+        p = _schreib(tmp_path, _ERKLAERT + prosa + unten)
+        assert GATE.umfang_nicht_begonnen(p) is True, prosa
+        assert GATE.lies_umfang(p) == ({}, ["P30"], "gemessen"), prosa
+
+
+def test_die_ueberlebenden_mutanten_der_linse_3(tmp_path):
+    """The mutants of round 3 that its cases did not kill, each pinned by the input on which the
+    third lens told it apart from the code (`p/separate.py`, `p/separate2.py`). The default-
+    ignorable ranges are pinned in `test_ROT_T1_ein_unsichtbares_oder_gerendertes_zeichen_im_kopf`.
+    """
+    def zustand_von(text):
+        return GATE.lies_umfang(_schreib(tmp_path, text))[2]
+
+    # A padded code span is the branch it pads: GitHub shows `fix/a1`.
+    p = _schreib(tmp_path, _UNERKLAERT + "| Item | Branch |\n|---|---|\n| A1 | ` fix/a1 ` |\n"
+                                         "\n## Out\n")
+    assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, [], "gemessen")
+    d = GATE.pruefe(branch="fix/a1", title="docs: x", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT" and d["kennung_des_zweigs"] == "A1", d
+    # The rule of an unstarted release asks every table, not the first.
+    p = _schreib(tmp_path, _ERKLAERT + "| Item | Why |\n|---|---|\n| P30 | later |\n\n"
+                                       "| Item | Branch |\n|---|---|\n| A1 | - |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "kein einziger Zweig")
+    # The title is a heading of level one, `# ` with the space.
+    p = _schreib(tmp_path, "#Release scope 9.9.9 (not started)\n\n## In\n\n| Item | Why |\n"
+                           "|---|---|\n| P30 | later |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    assert _nicht_messbar(GATE.lies_umfang(p)[2], "kein einziger Zweig")
+    # The block starts that ended a table in round 3 end the reading now.
+    zweite = "| B2 | `Feature/Foo` |\n"
+    for nach in ("<div>\n" + zweite, "---\n\n| Item | Branch |\n|---|---|\n" + zweite,
+                 "- " + zweite, "> " + zweite):
+        _rot_und_nicht_messbar(tmp_path, _UNERKLAERT + _T + nach + "\n## Out\n", "Feature/Foo",
+                               "is no line of the table form")
+    leer = _UNERKLAERT + "| Item | Branch |\n|---|---|\n### Next\n\n## Out\n"
+    assert _nicht_messbar(zustand_von(leer), "kein einziger Zweig")
+    # Fence and comment closing, and an opener inside a list item.
+    for vor in ("````\n```\n", "<!--\ntext --> more\n"):
+        _rot_und_nicht_messbar(tmp_path, _ERKLAERT + vor + _T + "\n## Out\n", "fix/a1",
+                               "is of no kind")
+    in_der_liste = "- ```\n  | Item | Branch |\n  |---|---|\n  | A1 | `fix/a1` |\n  ```\n"
+    _rot_und_nicht_messbar(tmp_path, _ERKLAERT + in_der_liste + "\n## Out\n", "fix/a1",
+                           "is of no kind")
+    # The grammar of the cells.
+    for zelle in ("`a` `b`", "`fix/a1`" + chr(0xA0)):
+        text = _UNERKLAERT + _ZWEIGKOPF + f"| A1 | x | {zelle}|\n\n## Out\n"
+        assert _nicht_messbar(zustand_von(text), "neither one branch"), ascii(zelle)
+    for reiter in ("B1 und B2", "B1 and B2", "B1 + B2", "C1, N15"):
+        p = _schreib(tmp_path, _UNERKLAERT + _ZWEIGKOPF + f"| A1 | x | {reiter} |\n\n## Out\n")
+        assert GATE.lies_umfang(p) == ({"fix/a0": ["A0"]}, ["A1"], "gemessen"), reiter
+    for trenner in ("| | |", "|---|---", "|---|---|---|", "| --- | x |"):
+        text = _UNERKLAERT + f"| Item | Branch |\n{trenner}\n| A1 | `fix/a1` |\n\n## Out\n"
+        _rot_und_nicht_messbar(tmp_path, text, "fix/a1", "stands in no table")
+    _rot_und_nicht_messbar(tmp_path, _UNERKLAERT + _ZWEIGKOPF + "\nA1 | `fix/a1`\n\n## Out\n",
+                           "fix/a1", "is of no kind")
+
+
+def test_GRUEN_jede_art_der_liste_wird_gelesen(tmp_path):
+    """The counterweight to every refusal above: a file with each kind of line the list names, in
+    the forms the scope files carry, is read, and the table inside the fence is not. A list that
+    refused a listed kind would turn a real scope NOT MEASURABLE, which `_ZUSTAND_DER_ECHTEN` would
+    catch only for the forms the real files happen to hold today."""
+    text = ("# Release scope — 9.9.9\n\n"
+            "`docs/x.md` begins this paragraph, and it goes on.\n"
+            "#296 is prose, not a heading, and **bold** and [a link](u) are prose too.\n\n"
+            "## In\n\n"
+            "- a list item\n  an indented continuation\n1. a numbered item\n"
+            "    a deeper continuation\n\t- a tab-indented item\n* a starred item\n"
+            "+ a plus item\n---\n\n"
+            "```text\n| Item | Branch |\n|---|---|\n| Z9 | `fix/hidden` |\n```\n\n"
+            "### Lines\n"
+            "| Identifier | Subject | Branch |\n|---|---|---|\n| A1 | the line | `fix/a1` |\n"
+            "| **A2** | rides | with A1 |\n"
+            "### A heading ends the table\n\n"
+            "| Item | Why it is patch-safe |\n|:--|--:|\n| P30 | later |   \n\n"
+            "| Identifier | Why it moved, and the state it moved in | Branch |\n"
+            "| --- | :---: | --- |\n| B1 | moved | `fix/b1` |\n"
+            "```\nquoted after a table\n```\n\n")
+    p = _schreib(tmp_path, text + "## Out\n\n| Item | Branch |\n|---|---|\n| X1 | `fix/x1` |\n")
+    assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"], "fix/b1": ["B1"]}, ["A2", "P30"],
+                                   "gemessen")
+    zeilen, lage = GATE.fuehrende_kennungen(p)
+    assert lage == "gemessen" and [k for k, _, _ in zeilen] == ["A1", "A2", "P30", "B1"], zeilen
+    assert GATE.zeilen_ohne_kennung(p) == ([], "gemessen") and GATE.ZULETZT_GEPRUEFT == 3
+    assert GATE.pruefe_umfangsdatei(p)["urteil"] == "gruen"
+
+
+# ---------------------------------------------------------------------------------------------
+# THE MUTANTS OF ROUND 4 THAT THE CASES ABOVE DID NOT KILL, from the own counter-check of this
+# round (no lens). Each case pins the edge of one rule of the list: a tab where a space is allowed,
+# a block start behind a list marker or an indent, a no-break space where a blank line is required,
+# fence characters inside a fence, and the line a reason names.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_die_raender_der_liste(tmp_path):
+    """Each line below decides the In section on its own: above a blank line and a real table it is
+    either read, and the table with it, or NOT MEASURABLE. The forms that are read are prose or a
+    heading as CommonMark reads them; the forms refused are a block start this reader does not read
+    (behind a list marker, an indent or a tab), or fence characters it does not close on."""
+    gelesen = ("##\tLines", "- <b>x</b> is prose", ". <b>x</b> is prose",
+               "1234567890. <b>x</b> is prose", "-<b>x</b> is prose", "####### seven is prose",
+               "```text\t\nquoted\n```",
+               "```\n\tcode, not a closing fence\n```")
+    for zeile in gelesen:
+        p = _schreib(tmp_path, _UNERKLAERT + zeile + "\n\n" + _T + "\n## Out\n")
+        assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, [], "gemessen"), ascii(zeile)
+    verweigert = ("1. <div>", "0. ```", "-\t<div>", "10. > quote", "- ```", "- ~~~", "- <div>",
+                  "- > quote", "\t<div>", "\t```", "  > quote", "  <div>", "> quote",
+                  "```\n``` ", "```\n~~~ x\n```", "```\n\t```x\n```")
+    for zeile in verweigert:
+        _rot_und_nicht_messbar(tmp_path, _UNERKLAERT + zeile + "\n\n" + _T + "\n## Out\n", "fix/a1")
+
+
+def test_ROT_was_direkt_an_einer_tabelle_steht(tmp_path):
+    """The line directly above a header and directly below the last row. Above it, only a blank
+    line or a heading of one to six `#` and a space or a tab sets a table off; a no-break space is
+    no blank line, and `#296` or seven `#` is prose. Below it, only a blank line, a heading or a
+    fence ends a table."""
+    for oben in ("#296 is prose", "####### seven", " ", "- item", "    indented"):
+        text = _UNERKLAERT + oben + "\n" + _T + "\n## Out\n"
+        _rot_und_nicht_messbar(tmp_path, text, "fix/a1", "without a blank line or a heading")
+    for unten in ("#x is prose", " ", "####### seven", "- item", "    indented"):
+        text = _UNERKLAERT + _T + unten + "\n\n## Out\n"
+        _rot_und_nicht_messbar(tmp_path, text, "fix/a1", "is no line of the table form")
+    for oben in ("#### Four", "######\tSix"):
+        p = _schreib(tmp_path, _UNERKLAERT + oben + "\n" + _T + "\n## Out\n")
+        assert GATE.lies_umfang(p) == ({"fix/a1": ["A1"]}, [], "gemessen"), oben
+
+
+def test_die_begruendung_nennt_die_zeile(tmp_path):
+    """A reason names the line it refuses, counted from the first line of the file, which is the
+    first line of the In section. A reason that names another line sends whoever fixes the file to
+    the wrong place."""
+    kopf = _UNERKLAERT  # four lines, so the fifth line of the file is the first line after it
+    faelle = (("<div>\n", "line 5 of the In section"),
+              ("| x |\n|---|---|\n", "line 5 of the In section"),
+              ("x\n" + _T, "the table at line 6 of the In section"),
+              ("| Item | B&r |\n|---|---|\n", "the table at line 5 of the In section"),
+              (_T + "x\n", "line 8 of the In section, 'x', follows the table at line 5"),
+              ("```\n", "the fenced block opened at line 5 of the In section"),
+              ("```\n````\n```\n", "line 6 of the In section, '````', starts with fence characters "
+                                   "inside the fenced block opened at line 5"),
+              ("| A1 | a \\| b\n", "line 5 of the In section"))
+    for teil, nennt in faelle:
+        zustand = GATE.lies_umfang(_schreib(tmp_path, kopf + teil + "\n## Out\n"))[2]
+        assert _nicht_messbar(zustand, nennt), (teil, zustand)
+    entwertet = _schreib(tmp_path, kopf + "| A1 | a \\| b\n\n## Out\n")
+    assert _nicht_messbar(GATE.lies_umfang(entwertet)[2], "escaped pipe")
+    # Called on a text whose last line is a header, the reader refuses it instead of reading
+    # past the end of the section.
+    assert "stands in no table" in GATE._tabellen_gfm("| Item | Branch |")["unlesbar"]
+
+
+def test_die_zeilen_der_zaehlung_tragen_kennung_punkt_und_zweigzelle(tmp_path):
+    """The line count returns (identifier, first cell, last cell) per row; the file check names a
+    collision by the first cell, so the cells have to be the row's own."""
+    zeile = "| A1 the line | rides | with A0 |\n"
+    p = _schreib(tmp_path, _UNERKLAERT + _ZWEIGKOPF + zeile + "\n## Out\n")
+    zeilen, lage = GATE.fuehrende_kennungen(p)
+    assert lage == "gemessen" and zeilen == [("A0", "A0", "`fix/a0`"),
+                                             ("A1", "A1 the line", "with A0")], zeilen
+
+
+# ── A follow-up of a scope line, `[<version> <ID>-FOLGE]` (Nachtrag 5 of CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) ──
+# The title form did not read the suffix, and a follow-up branch, which no row names, was outside the scope, so the
+# gate was green on such a title without having read it. A follow-up belongs to the In row of its parent and needs
+# no row of its own; the landing card counts the parent's line by the parent's own pull request only.
+
+_FOLGE_UMFANG = ("| Item | Branch |\n|---|---|\n"
+                 "| PR371 the banner and the import name | `fix/codex-199` |\n"
+                 "| PR375 the paths git quotes | `fix/mutant-guard` |\n\n"
+                 "## Out\n\n| Item | Branch |\n|---|---|\n| PR377 a language check | `feat/pr-language` |\n")
+
+
+def _folge(tmp_path, branch, title, version="6.4.0"):
+    pfad = tmp_path / "6.4.0.md"
+    pfad.write_text(_FOLGE_UMFANG, encoding="utf-8")
+    return GATE.pruefe(branch=branch, title=title, version=version, scope_pfad=pfad)
+
+
+def test_ROT_the_title_form_reads_the_follow_up_of_an_identifier():
+    form = GATE._TITELFORM.match("[6.4.0 PR371-FOLGE] fix(gates): a captured block closes at a titled separator")
+    assert form is not None
+    assert (form.group("version"), form.group("kennung"), form.group("folge")) == ("6.4.0", "PR371", "-FOLGE")
+
+
+def test_ROT_a_follow_up_on_a_branch_of_its_own_belongs_to_the_in_row_of_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371-FOLGE] fix(gates): a captured block closes")
+    assert d["urteil"] == "gruen", d["gruende"]
+    assert (d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"], d.get("folge_von")) == (False, "PR371", "PR371"), d
+
+
+@pytest.mark.parametrize("title, reason", [
+    ("[6.3.0 PR371-FOLGE] fix(gates): another release", "6.3.0"),
+    ("[6.4.0 PR371-FOLGE] fix(gates): carries [6.4.0 PR375] along", "PR375"),
+], ids=["another version", "a second identifier"])
+def test_ROT_a_follow_up_is_held_to_the_form_of_its_parents_row(tmp_path, title, reason):
+    d = _folge(tmp_path, "claude/640-folge-371", title)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    assert any(reason in g for g in d["gruende"]), d["gruende"]
+
+
+def test_ROT_the_branch_of_a_row_does_not_land_it_as_a_follow_up(tmp_path):
+    """The parent's own branch lands its line, and the landing card counts it only by the plain identifier."""
+    d = _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371-FOLGE] fix(gates): the parent itself")
+    assert d["urteil"] == "ROT", d
+    assert any("-FOLGE" in g and "own branch" in g for g in d["gruende"]), d["gruende"]
+
+
+def test_a_follow_up_of_a_line_outside_the_in_section_stays_outside_with_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-377", "[6.4.0 PR377-FOLGE] fix(ci): the language check reads every commit")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"]) == ("gruen", True, None), d
+    assert d.get("folge_von") == "PR377", d
+
+
+def test_CONTROL_the_plain_identifier_keeps_its_verdicts(tmp_path):
+    assert _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371] fix(gates): the parent")["urteil"] == "gruen"
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371] fix(gates): no suffix")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"]) == ("gruen", True), d
+
+
+# ── The lens on the follow-up branch, 2026-10-25 (F1, F2, F5, F6) ──
+# No P0 or P1; the six P3 are closed here. Each case falls at 9094bb5d, or kills a mutant of the follow-up
+# reading that its cases let live (M5 a collision ignored, M9 `-folge` read as the suffix, M10 the suffix twice).
+
+@pytest.mark.parametrize("branch, title, reason", [
+    ("claude/640-folge-371", "[6.4.0 PR371-FOLGE] fix(gates): see [6.4.0 PR375-FOLGE]", "PR375-FOLGE"),
+    ("fix/codex-199", "[6.4.0 PR371] fix(gates): see [6.4.0 PR375-FOLGE]", "genau eine je"),
+], ids=["beside a follow-up", "beside the parent on its own branch"])
+def test_ROT_a_second_bracket_with_the_suffix_is_a_second_identifier(tmp_path, branch, title, reason):
+    """F1: `_JEDE_KLAMMER` reads no `-FOLGE`, so both titles were green inside the scope."""
+    d = _folge(tmp_path, branch, title)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    assert any(reason in g for g in d["gruende"]), d["gruende"]
+
+
+@pytest.mark.parametrize("branch, title", [
+    ("claude/640-folge-x", None), ("claude/640-folge-x", b"[6.4.0 PR371-FOLGE] fix(x): y"),
+    ("claude/640-folge-x", 5), (None, "[6.4.0 PR371] fix(x): y"), (["fix/codex-199"], "[6.4.0 PR371] fix(x): y"),
+], ids=["title None", "title bytes", "title int", "branch None", "branch list"])
+def test_ROT_a_title_or_a_branch_that_is_not_text_is_red_and_no_exception(tmp_path, branch, title):
+    """F2: the title form is read before the branch decides, so a title that is no text ended in TypeError on a
+    branch no row names, where an outside verdict stood before."""
+    d = _folge(tmp_path, branch, title)
+    assert d["urteil"] == "ROT" and any("read as text" in g for g in d["gruende"]), d
+
+
+def test_ROT_the_reason_names_the_bracket_the_title_carries(tmp_path):
+    """F5: on the branch of another row the reason named `[6.4.0 PR371]`, the title carries the suffix."""
+    d = _folge(tmp_path, "fix/mutant-guard", "[6.4.0 PR371-FOLGE] fix(x): on the branch of PR375")
+    assert d["urteil"] == "ROT", d
+    assert any("[6.4.0 PR371-FOLGE]" in g and "verschiedene Zeilen" in g for g in d["gruende"]), d["gruende"]
+
+
+def test_ROT_a_follow_up_of_an_identifier_that_leads_two_rows_is_red(tmp_path):
+    """M5: the follow-up is judged as the parent's own title would be, a collision of the identifier included."""
+    pfad = tmp_path / "6.4.0.md"
+    pfad.write_text("| Item | Branch |\n|---|---|\n| PR371 the banner | `fix/codex-199` |\n"
+                    "| PR371 another line | `fix/codex-200` |\n\n## Out\n", encoding="utf-8")
+    d = GATE.pruefe(branch="claude/640-folge-371", title="[6.4.0 PR371-FOLGE] fix(gates): y", version="6.4.0",
+                    scope_pfad=pfad)
+    assert d["urteil"] == "ROT" and d["kennung_mehrdeutig"], d
+    assert any("die Kennung aufteilen" in g for g in d["gruende"]), d["gruende"]
+
+
+@pytest.mark.parametrize("suffix", ["-folge", "-Folge", "-FOLGE2", "-FOLGE-FOLGE"])
+def test_another_spelling_of_the_suffix_is_no_follow_up(tmp_path, suffix):
+    """M9 and M10: only `-FOLGE`, once, beside the identifier is the suffix; any other spelling is no form, the
+    branch stays outside the scope, and no parent is named."""
+    d = _folge(tmp_path, "claude/640-folge-371", f"[6.4.0 PR371{suffix}] fix(gates): y")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"], d["folge_von"]) == ("gruen", True, None), d

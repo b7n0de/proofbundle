@@ -725,9 +725,10 @@ def main() -> int:
     # tests/fixtures/scitt_statement_signature/vectors.json carries the status and verdict each vector
     # is built to produce (the oracle); Python and Rust must both give exactly that, the Rust exit
     # class included (0 confirmed, 1 statement_signature_invalid, 3 a status that is no verdict).
+    from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
     from proofbundle.scitt_ccf import verify_statement_signature, verify_transparent_statement  # noqa: PLC0415
-    scitt_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json")
-                           .read_text(encoding="utf-8"))
+    scitt_doc = _loads_strict((ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json")
+                              .read_text(encoding="utf-8"))
 
     def _scitt_bytes(parts: list) -> bytes:
         out = b""
@@ -758,8 +759,8 @@ def main() -> int:
     # A statement file over the Rust input budget (Codex, PR 290): Python reads the bytes as malformed,
     # and Rust must too, exit 3, where it used to end in `fatal`, exit 2. A confirmed real statement,
     # padded with zeros at run time to one byte past the budget the binary reports; never checked in.
-    scitt_budget = json.loads(subprocess.run([str(BIN), "budget"], capture_output=True, text=True,
-                                             check=True).stdout)["input_bytes"]
+    scitt_budget = _loads_strict(subprocess.run([str(BIN), "budget"], capture_output=True, text=True,
+                                                check=True).stdout)["input_bytes"]
     scitt_real = next(v for v in scitt_doc["vectors"]
                       if v["origin"] != "synthetic" and v["want"]["status"] == "confirmed")
     scitt_keys = [_scitt_bytes(k) for k in scitt_real["keys"]]

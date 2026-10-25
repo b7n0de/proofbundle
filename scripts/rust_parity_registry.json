@@ -19,6 +19,12 @@
       "crosscheck_refs": [],
       "notes": "Chain verification over AGT receipts: every receipt plus every parent_receipt_hash link, with an empty sequence refused rather than read as a clean chain. Python-only. PENDING."
     },
+    "proofbundle.adapters.trace_record.verify_trace_record": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "Offline verification of a TRACE v0.2 Trust Record (agentrust-io/trace-spec at a131c640): a compact JWS (ES256, ES384, EdDSA) or the embedded Ed25519 form, RFC 8785 canonical bytes, the cnf binding to a relying-party key, the schema re-derived, freshness and relying-party expectations. Python-only; no Rust implementation. PENDING. The comparison with the TRACE reference library lives in interop/trace and is a second reading of a different kind: it compares against a foreign implementation, not against our own Rust verifier."
+    },
     "proofbundle.agent_review.validate_agent_review_predicate": {
       "status": "PENDING",
       "rust_subcommands": [],
@@ -414,6 +420,12 @@
       "rust_subcommands": [],
       "crosscheck_refs": [],
       "notes": "ES256/ECDSA P-256 (RFC 7518 3.4) issuer-signature primitive for SD-JWT VC (Finding 20, new in v3.2.3). No Rust implementation yet — parity decision: PENDING."
+    },
+    "proofbundle.signature.verify_ecdsa_p384": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "ES384/ECDSA P-384 (RFC 7518 3.4) verification primitive, the P-384 counterpart of verify_ecdsa_p256, added for the TRACE Trust Record verifier (adapters.trace_record). Verification only. No Rust implementation yet. PENDING."
     },
     "proofbundle.signature.verify_ed25519": {
       "status": "COVERED",

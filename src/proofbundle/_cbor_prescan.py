@@ -167,6 +167,12 @@ def scan(data: bytes, *, max_bytes: int, max_depth: int = 16,
     """
     if not isinstance(data, (bytes, bytearray)):
         raise CborRefused(f"input is {type(data).__name__}, not bytes", 0)
+    # A limit is checked before it is compared or written into a refusal: a value that is no
+    # non-negative int would raise a raw TypeError there, or a ValueError when the refusal renders an
+    # int past CPython's digit cap. The refusal names the limit, never its value.
+    for name, limit in (("max_bytes", max_bytes), ("max_depth", max_depth)):
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise CborRefused(f"{name} is not a non-negative integer", 0)
     data = bytes(data)
     if len(data) > max_bytes:
         raise CborRefused(f"input of {len(data)} bytes exceeds {max_bytes}", 0)
@@ -193,6 +199,9 @@ def scan(data: bytes, *, max_bytes: int, max_depth: int = 16,
 
 def encode_head(major: int, argument: int) -> bytes:
     """The shortest head for ``argument`` under ``major`` (RFC 8949 section 4.2.1)."""
+    if (isinstance(major, bool) or not isinstance(major, int) or not 0 <= major <= 7
+            or isinstance(argument, bool) or not isinstance(argument, int) or argument < 0):
+        raise BundleFormatError("a CBOR head takes a major type from 0 to 7 and a non-negative integer argument")
     if argument < 24:
         return bytes([(major << 5) | argument])
     for ai, width in ((24, 1), (25, 2), (26, 4), (27, 8)):
