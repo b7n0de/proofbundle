@@ -21,7 +21,7 @@ checkout, where `.github/` is not shipped) nothing is quarantined.
 
 LIMITS, named. `unittest discover` (the crypto-floor job) does not read the list, so there a listed test blocks as it
 always did. The mutation gate counts an expected failure as no kill. A subtest that fails inside a listed test is
-reported by pytest on its own line and is not covered by the mark.
+covered too: pytest 9.1.1 reports it as SUBXFAIL and the run passes (measured 2026-10-25 in a planted session).
 """
 from __future__ import annotations
 

@@ -1391,9 +1391,16 @@ def pb_verify_rs():
 #
 # A test named in .github/test_quarantine.json keeps running and reports, but does not block, through its
 # deadline, and blocks again from the next day. A malformed list stops the run. Outside a checkout the list is
-# not shipped, and nothing is quarantined.
+# not shipped, and nothing is quarantined. A tree that carries this file without tests/_quarantine.py (several
+# tests copy this conftest into a planted tree) runs without the quarantine: there a listed test blocks, as it
+# did before the list existed. In this repository tests/test_quarantine.py holds the plugin registered.
 
 
 def pytest_configure(config):
-    import _quarantine  # noqa: PLC0415 - tests/ is on sys.path under both runners
+    try:
+        import _quarantine  # noqa: PLC0415 - tests/ is on sys.path under both runners
+    except ModuleNotFoundError as exc:
+        if exc.name != "_quarantine":
+            raise
+        return
     _quarantine.register(config)
