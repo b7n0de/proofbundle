@@ -249,14 +249,46 @@ def _allowlisted(file_lines: list[str], lineno: int) -> bool:
     return False
 
 
+def _py2git(content: str) -> list[int]:
+    """The git line of each line Python reads: index = Python's line number, value = git's.
+
+    ONE LINE SPACE, NOT TWO (counter-reading of d017cd6b, H1 and H2, P2). Python ends a line at LF, CR LF
+    and a lone CR; git counts LF only. The syntax tree gave its line numbers in Python's space and the
+    added lines came in git's, so two lone CR in a comment above a `return True` moved both the def
+    and the return out of the change, and a verification function that accepts everything was clean.
+    Every number from the syntax tree or the tokenizer goes through this table before it is compared."""
+    out, git, i = [0, 1], 1, 0
+    while i < len(content):
+        c = content[i]
+        if c == "\r" and content[i + 1:i + 2] == "\n":
+            i += 1
+            c = "\n"
+        if c == "\n":
+            git += 1
+            out.append(git)
+        elif c == "\r":
+            out.append(git)
+        i += 1
+    return out
+
+
 def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
     """`return True` as first non-docstring statement of a verify-ish function, if the def or
-    the return line is part of the change (pre-existing code is out of scope for a diff guard)."""
+    the return line is part of the change (pre-existing code is out of scope for a diff guard).
+
+    A BYTE ORDER MARK AND A NUL ARE NO REASON TO STAY QUIET (counter-reading of d017cd6b, H8, P3). The
+    parser refuses a string that begins with U+FEFF, CPython imports the file, and the SyntaxError
+    below turned that into "nothing found" over a live mutant; the mark is stripped before parsing.
+    A NUL is a ValueError on Python 3.10 and a SyntaxError from 3.11 on, so it is named before either
+    can happen: NOT MEASURABLE, exit 2."""
     findings: list[tuple[int, str]] = []
+    if "\x00" in content:
+        raise DiffNotReadable("a NUL byte in the source, so its syntax tree is not read here")
     try:
-        tree = ast.parse(content)
+        tree = ast.parse(content.removeprefix("\ufeff"))
     except SyntaxError:
         return []  # unparseable staged state: the test/lint gates own that failure
+    git_line = _py2git(content)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -270,8 +302,8 @@ def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
             continue
         val = body[0].value
         if isinstance(val, ast.Constant) and val.value is True:
-            if node.lineno in added or body[0].lineno in added:
-                findings.append((body[0].lineno,
+            if git_line[node.lineno] in added or git_line[body[0].lineno] in added:
+                findings.append((git_line[body[0].lineno],
                                  f"`return True` opens verification function `{node.name}`"))
     return findings
 
@@ -315,13 +347,17 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
         except UnicodeEncodeError:
             raise DiffNotReadable(f"{_shown(path)} is not UTF-8, so its lines and its syntax tree are not "
                                   "read here") from None
-        file_lines = content.splitlines()
+        # git's lines, so the allow marker is looked up where git puts the flagged line: `splitlines()` also split at
+        # a form feed, VT, U+2028 or a lone CR, and a reviewed line after one was reported (counter-reading of
+        # d017cd6b, H9).
+        file_lines = content.split("\n")
         added_nums = {n for n, _ in added}
         for lineno, text in added:
             reason = None
             # A LONE CR ENDS A LINE FOR PYTHON (second counter-reading, F3): git counts lines at line feeds, so
-            # `x = 1\rif False:` is one added line to git and two statements to Python. Every piece is checked.
-            for piece in text.split("\r"):
+            # `x = 1\rif False:` is one added line to git and two statements to Python. Every piece is checked,
+            # and a byte order mark in front of the first one is not part of the statement (H8).
+            for piece in text.lstrip("\ufeff").split("\r"):
                 if _TRIVIAL_TRUTH.match(piece):
                     reason = "trivial-truth branch (`if/elif False|True` / `while False`) at a check"
                 elif _COMMENTED_VERIFY.match(piece) and _commented_content_parses(piece):
@@ -344,6 +380,13 @@ def _resolve_base(base: str, cwd: Path) -> str | None:
     probe = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--verify", f"{base}^{{commit}}"],
                            capture_output=True, text=True, env=_git_environment())
     if probe.returncode != 0:
+        # ONLY A REVISION GIT DOES NOT KNOW IS THE FALLBACK (counter-reading of d017cd6b, H7, P3): a damaged base
+        # object gave the same "nothing to diff" with exit 0 over a mutant in the range. git's message is English
+        # here, because the built environment pins LC_ALL=C.
+        if "Needed a single revision" not in probe.stderr:
+            print(f"mutant_signature_guard: git rev-parse {base} failed (fail closed): {probe.stderr.strip()[:200]}",
+                  file=sys.stderr)
+            raise SystemExit(2)
         return None
     mb = subprocess.run(["git", "-C", str(cwd), "merge-base", base, "HEAD"],
                         capture_output=True, text=True, env=_git_environment())
@@ -378,7 +421,10 @@ _QUOTED = ("-c", "core.quotePath=true")
 #: git 2.55.0, the environment name of `_GIT_PINNED_ENV`, `--no-replace-objects` and the `-c` pair each win alone over
 #: `core.useReplaceRefs=true` in the repository; `scripts/pre_tag_receipt_lib.py` records a measurement in which the
 #: first two lost to it, so all three stand.
-_DIFF_FORM = ("--no-replace-objects", "-c", "core.useReplaceRefs=false",
+#: `core.fsmonitor` is pinned off as in the receipt chain (counter-reading of d017cd6b, H6, P3): a monitor from the
+#: global configuration that answered "nothing changed" made the working-tree form of the language gate green over a
+#: German line it never read.
+_DIFF_FORM = ("--no-replace-objects", "-c", "core.useReplaceRefs=false", "-c", "core.fsmonitor=",
               "-c", "diff.interHunkContext=0", "-c", "diff.suppressBlankEmpty=false")
 _DIFF_SWITCHES = ("--no-color", "--no-ext-diff", "--no-textconv", "--text")
 

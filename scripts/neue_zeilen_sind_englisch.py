@@ -51,6 +51,34 @@ sys.path.insert(0, str(WERKZEUG_WURZEL))
 from tests import _deutsche_prosa as DP  # noqa: E402
 
 
+def _diff_grammatik():
+    """The decoder for a path in a diff header and the fixed form of the diff, taken from
+    `scripts/mutant_signature_guard.py` in the tool's own tree and loaded by path, like the word list:
+    one decoder and one form for one grammar, not a copy.
+
+    THE FORM (counter-reading of pull request 415, F1 and F2, P2): with `diff.interHunkContext` and
+    `diff.suppressBlankEmpty` set together, a German line after a joined hunk went to the file before
+    it or nowhere, and the verdict was green; an external diff program, a text conversion or a `-diff`
+    attribute gave "0 added lines in 0 files", green, and so did `color.ui=always`, because this gate
+    asked without `--no-color`. The guard names the settings and switches that fix the form, and
+    this gate asks git with the same ones.
+
+    git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
+    character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
+    of such a file went to the file before it in the diff, or nowhere when it came first. Measured
+    2026-09-26 in throwaway repositories with one German line in `docs/prüfung.md`: after
+    `docs/a.md` it was reported as `docs/a.md:1`; before `docs/z.md` the verdict was green over one
+    added line."""
+    import importlib.util as ilu  # noqa: PLC0415
+    pfad = WERKZEUG_WURZEL / "scripts" / "mutant_signature_guard.py"
+    spec = ilu.spec_from_file_location("_neue_zeilen_git_path", pfad)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"no loader for {pfad}")
+    modul = ilu.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
 def _gemessener_baum(vorgabe: str | None = None) -> Path:
     """The tree this run JUDGES: the working directory's repository, not the tool's own.
 
@@ -71,9 +99,16 @@ def _gemessener_baum(vorgabe: str | None = None) -> Path:
     # answer, and exit 1 -- the SAME exit code this tool uses for a genuine ROT verdict. A caller
     # that only reads the exit code cannot tell a crash from a finding. So the exception is caught
     # and becomes the same typed refusal as a non-zero return.
+    # THIS CALL RUNS IN THE GUARD'S BUILT ENVIRONMENT TOO (counter-reading of d017cd6b, H10): it was the one git call
+    # of the gate that inherited the session's, and `GIT_TRACE=/dev/stdout` wrote into the path it answers. A grammar
+    # that does not load leaves the inherited environment here; the diff below then says NOT MEASURABLE.
+    try:
+        umgebung = _diff_grammatik()._git_environment()
+    except (OSError, ImportError, AttributeError, SyntaxError):
+        umgebung = None
     try:
         r = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=umgebung)
     except OSError as fehler:
         return WERKZEUG_WURZEL, f"rueckfall: git is not runnable here ({fehler.strerror})"
     if r.returncode == 0 and r.stdout.strip():
@@ -156,34 +191,6 @@ def _git_namen(*args: str, env: dict | None = None) -> tuple[int, list[str]]:
     the way Python decodes a file name, so a name that is not UTF-8 is a name and not a crash."""
     r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, env=env)
     return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
-
-
-def _diff_grammatik():
-    """The decoder for a path in a diff header and the fixed form of the diff, taken from
-    `scripts/mutant_signature_guard.py` in the tool's own tree and loaded by path, like the word list:
-    one decoder and one form for one grammar, not a copy.
-
-    THE FORM (counter-reading of pull request 415, F1 and F2, P2): with `diff.interHunkContext` and
-    `diff.suppressBlankEmpty` set together, a German line after a joined hunk went to the file before
-    it or nowhere, and the verdict was green; an external diff program, a text conversion or a `-diff`
-    attribute gave "0 added lines in 0 files", green, and so did `color.ui=always`, because this gate
-    asked without `--no-color`. The guard names the settings and switches that fix the form, and
-    this gate asks git with the same ones.
-
-    git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
-    character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
-    of such a file went to the file before it in the diff, or nowhere when it came first. Measured
-    2026-09-26 in throwaway repositories with one German line in `docs/prüfung.md`: after
-    `docs/a.md` it was reported as `docs/a.md:1`; before `docs/z.md` the verdict was green over one
-    added line."""
-    import importlib.util as ilu  # noqa: PLC0415
-    pfad = WERKZEUG_WURZEL / "scripts" / "mutant_signature_guard.py"
-    spec = ilu.spec_from_file_location("_neue_zeilen_git_path", pfad)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"no loader for {pfad}")
-    modul = ilu.module_from_spec(spec)
-    spec.loader.exec_module(modul)
-    return modul
 
 
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
@@ -273,11 +280,16 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
             return {}, "NOT MEASURABLE: git ls-files for untracked files failed"
         for rel in neu:
             try:
-                text = (REPO / rel).read_text(encoding="utf-8")
+                text = (REPO / rel).read_bytes().decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 return {}, f"NOT MEASURABLE: untracked file {rel!r} is not readable"
+            # In git's line space, as the file readers below count (counter-reading of d017cd6b, H2): lines end
+            # at LF only; `read_text` turned a CR into one and `splitlines()` split at a form feed, U+2028 and more.
+            zeilen = text.split("\n")
+            if zeilen and zeilen[-1] == "":
+                zeilen.pop()
             je_datei.setdefault(rel, [])
-            je_datei[rel].extend((i, z) for i, z in enumerate(text.splitlines(), start=1))
+            je_datei[rel].extend((i, z) for i, z in enumerate(zeilen, start=1))
     return je_datei, "measured"
 
 
@@ -297,12 +309,20 @@ def _prosazeilen(datei: str) -> set[int] | None:
     The tokenizer already answers exactly this question, so the shape of the fix is to stop
     re-deriving it. Returns None when the file cannot be read or does not tokenize, and the
     caller treats that as not-prose rather than as a pass.
+
+    THE LINES ARE GIT'S (counter-reading of d017cd6b, H2, P2). The number to compare comes from the
+    diff, which counts LF only; `read_text` turned a lone CR into a line feed, so a German docstring
+    after `a = 1<CR>b = 2` was checked as the line two below it, and a comment after a CR in the
+    same git line was never seen. The file is read as bytes, and every line Python reports goes
+    through the guard's table into git's line space.
     """
     p = REPO / datei
     try:
-        quelle = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        roh = p.read_bytes().decode("utf-8", "replace")
+        git_zeile = _diff_grammatik()._py2git(roh)
+    except (OSError, ImportError, AttributeError, SyntaxError):
         return None
+    quelle = roh.replace("\r\n", "\n").replace("\r", "\n")
     aus: set[int] = set()
     try:
         for tok in tokenize.generate_tokens(io.StringIO(quelle).readline):
@@ -334,7 +354,7 @@ def _prosazeilen(datei: str) -> set[int] | None:
             continue
         for n in range(erstes.lineno, (erstes.end_lineno or erstes.lineno) + 1):
             aus.add(n)
-    return aus
+    return {git_zeile[n] for n in aus if n < len(git_zeile)}
 
 
 def _md_prosazeilen(datei: str) -> set[int] | None:
@@ -352,10 +372,14 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
 
     Returns None when the file cannot be read, and the caller treats that as not-prose rather than
     as a pass.
+
+    SPLIT AT LF, LIKE GIT (counter-reading of d017cd6b, H2, P2): `splitlines()` also ends a line at
+    CR, FF, VT, FS, GS, RS, NEL, U+2028 and U+2029. One such character before a fence moved every
+    later line by one, and a German line after the closing fence was checked as the fence itself.
     """
     p = REPO / datei
     try:
-        zeilen = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        zeilen = p.read_bytes().decode("utf-8", "replace").split("\n")
     except OSError:
         return None
     # The quotation brackets first, because an unbalanced pair is a measurement failure and must
@@ -450,6 +474,11 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
             "rc": 1 if befunde else 0}
 
 
+def _gezeigt(text: str) -> str:
+    """A name or a line as the text report shows it: backslash, CR and LF escaped, so neither begins a line."""
+    return text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
 def main(argv=None) -> int:
     # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
     # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
@@ -480,8 +509,11 @@ def main(argv=None) -> int:
               f" · measured tree: {d.get('gemessener_baum', '?')}"
               f" ({d.get('baum_herkunft', '?')})"
               f" · word list from: {d.get('wortlisten_baum', '?')}")
+        # A CR or LF in a name or a line would begin a line of the report, and `::error::` at the start of one is a
+        # workflow command in a GitHub Actions log; the guard masks them, and so does this (counter-reading of
+        # d017cd6b, H3).
         for b in d["befunde"][:20]:
-            print(f"  {b['datei']}:{b['zeile']}  {b['woerter']}  {b['text']}")
+            print(f"  {_gezeigt(b['datei'])}:{b['zeile']}  {b['woerter']}  {_gezeigt(b['text'])}")
         if len(d["befunde"]) > 20:
             print(f"  ... and {len(d['befunde']) - 20} more, not listed here (--json shows all)")
         if d.get("grund"):

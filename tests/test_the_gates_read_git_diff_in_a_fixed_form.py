@@ -402,3 +402,170 @@ def test_each_layer_holds_alone_the_pinned_settings_without_the_built_environmen
     monkeypatch.setenv("GIT_DIFF_OPTS", "--unified=3")
     findings = guard.run_staged(repo)
     assert any(f.startswith("src/proofbundle/z.py:2: trivial-truth branch") for f in findings), findings
+
+
+# -- the counter-reading of d017cd6b: git counts lines at LF, Python and str.splitlines() at more ---------------------
+
+#: Characters that end a line for `str.splitlines()` and not for git. CR also ends one for Python.
+SPLITLINES_ONLY = ["\r", "\x0c", "\x0b", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
+SPLITLINES_IDS = ["CR", "FF", "VT", "FS", "GS", "RS", "NEL", "LS", "PS"]
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--base"])
+def test_H1_class_c_holds_under_two_lone_crs_above_the_function(tmp_path, mode):
+    """H1 (P2): the syntax tree counted the two CR in the comment as line ends, git did not, and both the def and the
+    `return True` fell outside the added lines; a verification function that accepts everything was clean."""
+    repo = _guard_repo(tmp_path)
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "src" / "proofbundle" / "z.py").write_bytes(b"# a\r# b\r# c\ndef verify_thing(data):\n    return True\n")
+    _git(repo, "add", "-A")
+    if mode == "--base":
+        _git(repo, "commit", "-q", "-m", "a live mutant under a comment with CR")
+    r = _guard(repo, {}, *([mode] if mode == "--staged" else [mode, base]))
+    assert r.returncode == 1 and "src/proofbundle/z.py:3: `return True` opens verification function" in r.stdout, \
+        r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("sep", SPLITLINES_ONLY, ids=SPLITLINES_IDS)
+def test_H2_a_german_line_after_a_fence_is_read_on_its_git_line(tmp_path, sep):
+    """H2 (P2): one such character before a fence moved every later line by one, and the German line after the
+    closing fence was checked as the fence itself: green."""
+    repo = _base_repo(tmp_path, {"docs/m.md": "Intro.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "docs" / "m.md").write_bytes(f"Intro{sep}more\n```\ncode\n```\n{GERMAN}\n".encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line after a fence")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("docs/m.md", 5)], result
+
+
+@pytest.mark.parametrize("content,line", [
+    (f'a = 1\rb = 2\rc = 3\ndef f():\n    """{GERMAN}"""\n', 3),
+    (f"x = 1\r# {GERMAN}\n", 1),
+], ids=["docstring-after-cr", "comment-after-cr-in-the-same-git-line"])
+def test_H2_python_prose_is_read_on_its_git_line(tmp_path, content, line):
+    repo = _base_repo(tmp_path, {"src/m.py": "y = 0\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "src" / "m.py").write_bytes(content.encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "German prose after a CR")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
+    assert ("src/m.py", line) in [(b["datei"], b["zeile"]) for b in result["befunde"]], result
+
+
+def test_H2_an_untracked_file_is_numbered_like_git(tmp_path):
+    """The neighbour in the working-tree form: an untracked file was numbered by `splitlines()`. With the readers in
+    git's line space it has to be numbered there too, or the fence moves again."""
+    repo = _base_repo(tmp_path, {"docs/base.md": "Base.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "docs" / "new.md").write_bytes(f"Intro\x0cmore\n```\ncode\n```\n{GERMAN}\n".encode())
+    p = subprocess.run([sys.executable, "-B", str(GATE), "--base", base, "--repo", str(repo), "--json",
+                        "--arbeitsbaum"], capture_output=True, text=True, cwd=str(repo), timeout=120)
+    result = json.loads(p.stdout)
+    assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("docs/new.md", 5)], result
+
+
+def _report_lines(stdout: bytes) -> list[bytes]:
+    """The report split the way a log viewer splits it: at CR, LF and CR LF."""
+    return stdout.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
+
+
+@pytest.mark.parametrize("name,line", [
+    ("docs/z.md", f"An English line.\r{GERMAN}\r::error::injected"),
+    ("docs/x\n::error::pwn.md", GERMAN),
+], ids=["cr-in-the-line", "lf-in-the-name"])
+def test_H3_the_text_report_begins_no_line_with_a_workflow_command(tmp_path, name, line):
+    """H3 (P3): the text form printed a CR of the line and an LF of the name as they stood, and a log line began with
+    `::error::`. The guard masked its report; the language gate did not."""
+    repo = _base_repo(tmp_path, {"docs/base.md": "Base.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    target = repo / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(f"{line}\n".encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line with a command in it")
+    p = subprocess.run([sys.executable, "-B", str(GATE), "--base", base, "--repo", str(repo)],
+                       capture_output=True, cwd=str(repo), timeout=120)
+    assert p.returncode == 1, p.stdout
+    assert not [z for z in _report_lines(p.stdout) if z.lstrip().startswith(b"::")], p.stdout
+
+
+def test_H6_a_file_system_monitor_does_not_hide_a_change_from_the_working_tree_form(tmp_path):
+    """H6 (P3): a monitor from the global configuration that answered "nothing changed since my token" made the
+    working-tree form green over a German line it never read. The receipt chain pins it off, and so does the form."""
+    hook = tmp_path / "monitor.sh"
+    hook.write_text("#!/bin/sh\nprintf 'tok1\\0'\n", encoding="utf-8")
+    hook.chmod(0o755)
+    config = tmp_path / "monitor.gitconfig"
+    config.write_text(f"[core]\n\tfsmonitor = {hook}\n", encoding="utf-8")
+    env = {"GIT_CONFIG_GLOBAL": str(config)}
+    repo = _base_repo(tmp_path, {"docs/z.md": "An English line.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    for args in (["update-index", "--refresh"], ["status", "--porcelain"]):
+        subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=dict(os.environ, **env))
+    _write(repo, "docs/z.md", f"An English line.\n{GERMAN}\n")
+    plain = subprocess.run(["git", "-C", str(repo), "diff", "--name-only"], capture_output=True, text=True,
+                           env=dict(os.environ, **env)).stdout
+    assert "docs/z.md" not in plain, "premise: the monitor hides the change from a plain diff"
+    p = subprocess.run([sys.executable, "-B", str(GATE), "--base", base, "--repo", str(repo), "--json",
+                        "--arbeitsbaum"], capture_output=True, text=True, cwd=str(repo), timeout=120,
+                       env=dict(os.environ, **env))
+    result = json.loads(p.stdout)
+    assert (p.returncode, result["urteil"]) == (1, "ROT"), result
+
+
+def test_H7_a_damaged_base_object_exits_2_and_an_unknown_one_still_falls_back(tmp_path):
+    """H7 (P3): every failure of the base lookup read as "unknown revision", so a damaged base object meant "nothing to
+    diff" with exit 0 over a mutant in the range. Only a revision git does not know is the honest fallback."""
+    repo, base = _committed_mutant(tmp_path)
+    unknown = _guard(repo, {}, "--base", "1" * 40)
+    assert unknown.returncode == 0 and "no usable base commit" in unknown.stdout, unknown.stdout + unknown.stderr
+    obj = repo / ".git" / "objects" / base[:2] / base[2:]
+    obj.chmod(0o644)
+    obj.write_bytes(b"garbage")
+    r = _guard(repo, {}, "--base", base)
+    assert r.returncode == 2 and "fail closed" in r.stderr, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("content,expected", [
+    (b"\xef\xbb\xbfdef verify_x(a):\n    return True\n", 1),
+    (b"\xef\xbb\xbfif False:\n    pass\n", 1),
+    (b"# \x00\ndef verify_x(a):\n    return True\n", 2),
+], ids=["bom-class-c", "bom-class-a", "nul"])
+def test_H8_a_byte_order_mark_or_a_nul_is_no_reason_to_stay_quiet(tmp_path, content, expected):
+    """H8 (P3): with a byte order mark the parser refused the text CPython imports, and the guard reported clean over
+    a live mutant; a NUL was a traceback on Python 3.10 and clean from 3.11 on. Now a finding and NOT MEASURABLE."""
+    repo = _guard_repo(tmp_path)
+    (repo / "src" / "proofbundle" / "z.py").write_bytes(content)
+    _git(repo, "add", "-A")
+    r = _guard(repo, {}, "--staged")
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.returncode == expected, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("sep", SPLITLINES_ONLY, ids=SPLITLINES_IDS)
+def test_H9_the_allow_marker_is_found_on_the_line_git_flags(tmp_path, sep):
+    """H9 (P3): the file's lines came from `splitlines()`, the flagged line from git, and a reviewed line after one
+    such character was reported although it carries the marker."""
+    repo = _guard_repo(tmp_path)
+    (repo / "src" / "proofbundle" / "z.py").write_bytes(
+        f"# head{sep}more\nif True:  # mutant-guard: allow (reviewed fixture)\n    pass\n".encode())
+    _git(repo, "add", "-A")
+    r = _guard(repo, {}, "--staged")
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_H10_the_language_gate_finds_its_tree_in_the_built_environment(tmp_path):
+    """H10 (P3): the gate's `rev-parse --show-toplevel` was its one git call in the inherited environment, and
+    `GIT_TRACE=/dev/stdout` wrote into the path it answers: NOT MEASURABLE instead of the verdict."""
+    repo = _base_repo(tmp_path, {"docs/z.md": "An English line.\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    _write(repo, "docs/z.md", f"An English line.\n{GERMAN}\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a German line")
+    p = subprocess.run([sys.executable, "-B", str(GATE), "--base", base, "--json"], capture_output=True, text=True,
+                       cwd=str(repo), timeout=120, env=dict(os.environ, GIT_TRACE="/dev/stdout"))
+    result = json.loads(p.stdout[p.stdout.index("{"):])
+    assert (p.returncode, result["urteil"]) == (1, "ROT"), result
