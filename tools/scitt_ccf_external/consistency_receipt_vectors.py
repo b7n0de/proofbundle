@@ -27,9 +27,10 @@ to the same, and to Python on every other field.
 
 THE TREE SIZES. `pb_verify_rs` takes no `older_size` and no `newer_size`, so every vector is a call
 without them, in both verifiers: the success it is built for is `confirmed_without_tree_sizes`, exit
-class 0 as for `confirmed`; `older_size` is None, `newer_size` the seqno of the receipt's `ccf.v1`
-txid by Python's rule once the newer roots agree, and neither anchor rule of the sizes runs. The
-vectors x07 to x17 hold both verifiers to that rule on txids it reads and refuses.
+class 0 as for `confirmed`, and `older_size`, `newer_size` and `newer_size_source` are None. Draft
+-06, 7.3, lines 857-858: a verifier that needs m or n "MUST obtain them from a source it trusts
+independently of the receipt", so no size is taken from the receipt's `ccf.v1` txid, whatever it
+says; the vectors x07 to x17 hold both verifiers to that on txids of every form.
 
 FORM. As in transparent_statement_vectors.py, whose reading of parts, refs and trust this file uses:
 a byte string is a list of parts, a trust document is in the form `pb_verify_rs` reads, and named
@@ -65,9 +66,7 @@ ISSUER = "svc.example"
 H = lambda b: hashlib.sha256(b).digest()  # noqa: E731
 FIELDS = ("status", "readable", "signature_valid", "older_root_matches", "newer_root", "proofs", "issuer",
           "kid", "kid_bound_to_key", "receipt_iat", "ccf_txid", "inclusion_proofs_present", "older_size",
-          "newer_size", "newer_size_source", "anchor_rule_checked", "left_siblings_checked")
-#: Python's `_SIZE_FROM_HEADER`: where a newer size the caller did not give comes from.
-FROM_HEADER = "protected header ccf.v1 txid"
+          "newer_size", "newer_size_source")
 
 
 # -- the shared reading of the file (the parity test and crosscheck.py carry the same few lines) --------
@@ -169,9 +168,9 @@ def want(status: str, **kw) -> dict:
 
 
 def confirmed(**kw) -> dict:
-    """The success of a call without tree sizes, which every vector is: neither anchor rule of the sizes ran."""
+    """The success of a call without tree sizes, which every vector is: no size, none from the receipt either."""
     return want("confirmed_without_tree_sizes", readable=True, signature_valid=True, older_root_matches=True,
-                older_size=None, anchor_rule_checked=False, left_siblings_checked=False, **kw)
+                **{"older_size": None, "newer_size": None, "newer_size_source": None, **kw})
 
 
 def malformed(**kw) -> dict:
@@ -670,26 +669,25 @@ def synthetic_vectors(b: Builder) -> None:
           b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), uint(24))]))), r13,
           confirmed(ccf_txid=None, newer_size=None, newer_size_source=None))
 
-    # -- the newer size of a call without sizes: the seqno of the txid, by Python's rule ---------------------
-    # "view.seqno", each part 0 or one to twenty ASCII digits without a leading zero. Python takes the seqno
-    # as it is when the caller gives no size, 0 and past 2^64 included; no other rule reads it then.
+    # -- no newer size from the receipt (-06 7.3, lines 857-858), whatever its txid says ----------------------
+    # The seqno of a "view.seqno" txid only cross-checks a newer size the caller gives (proofbundle's rule G5),
+    # which the Rust command line does not take; each txid is reported as ccf_txid, as it is.
     nines = "9" * 20
-    for vid, what, txid, size in (
-        ("x07-txid-seqno-2-64", "the seqno 2^64", "2.18446744073709551616", 2 ** 64),
-        ("x08-txid-twenty-digits", "a seqno of twenty digits, past 2^64", f"{nines}.{nines}", int(nines)),
-        ("x09-txid-seqno-zero", "the seqno 0", "2.0", 0),
-        ("x10-txid-21-digits", "a seqno of twenty-one digits", f"2.1{nines}", None),
-        ("x11-txid-leading-zero", "a seqno with a leading zero", "2.024", None),
-        ("x12-txid-view-leading-zero", "a view with a leading zero", "02.24", None),
-        ("x13-txid-no-dot", "no dot", "224", None),
-        ("x14-txid-three-parts", "three parts", "2.24.1", None),
-        ("x15-txid-newline", "a newline after the seqno", "2.24\n", None),
-        ("x16-txid-arabic-indic-digit", "an Arabic-Indic digit four in the seqno", "2.2\u0664", None),
-        ("x17-txid-empty-view", "no view", ".24", None),
+    for vid, what, txid in (
+        ("x07-txid-seqno-2-64", "the seqno 2^64", "2.18446744073709551616"),
+        ("x08-txid-twenty-digits", "a seqno of twenty digits, past 2^64", f"{nines}.{nines}"),
+        ("x09-txid-seqno-zero", "the seqno 0", "2.0"),
+        ("x10-txid-21-digits", "a seqno of twenty-one digits", f"2.1{nines}"),
+        ("x11-txid-leading-zero", "a seqno with a leading zero", "2.024"),
+        ("x12-txid-view-leading-zero", "a view with a leading zero", "02.24"),
+        ("x13-txid-no-dot", "no dot", "224"),
+        ("x14-txid-three-parts", "three parts", "2.24.1"),
+        ("x15-txid-newline", "a newline after the seqno", "2.24\n"),
+        ("x16-txid-arabic-indic-digit", "an Arabic-Indic digit four in the seqno", "2.2\u0664"),
+        ("x17-txid-empty-view", "no view", ".24"),
     ):
-        b.add(vid, f"the txid {what}: newer_size {size}",
-              b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), text(txid))]))), r13,
-              confirmed(ccf_txid=txid, newer_size=size, newer_size_source=None if size is None else FROM_HEADER))
+        b.add(vid, f"the txid {what}: ccf_txid as it is, no newer size from the receipt",
+              b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), text(txid))]))), r13, confirmed(ccf_txid=txid))
 
 
 def build() -> dict:
