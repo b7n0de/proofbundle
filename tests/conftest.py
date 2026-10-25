@@ -1385,3 +1385,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 def pb_verify_rs():
     import _pb_verify_rs  # noqa: PLC0415 - tests/ is on sys.path under both runners
     return _pb_verify_rs.binary_or_skip()
+
+
+# ── The quarantine list (tests/_quarantine.py) ──────────────────────────────────────────────────────────
+#
+# A test named in .github/test_quarantine.json keeps running and reports, but does not block, through its
+# deadline, and blocks again from the next day. A malformed list stops the run. Outside a checkout the list is
+# not shipped, and nothing is quarantined.
+
+
+def pytest_configure(config):
+    import _quarantine  # noqa: PLC0415 - tests/ is on sys.path under both runners
+    _quarantine.register(config)

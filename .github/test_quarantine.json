@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "THE QUARANTINE LIST, read by tests/_quarantine.py on every pytest run of this repository and reported against by",
+    "scripts/quarantine_time_caps.py. A listed test keeps running and reports, but does not block, through its deadline",
+    "(UTC); from the next day it blocks again. No test is skipped and none is deleted.",
+    "Each entry: test (a pytest node id; without a parameter id it covers every parameter), reason, deadline",
+    "(YYYY-MM-DD), owner. A missing field, another field, a malformed date or a test listed twice stops the run.",
+    "The first entries, 2026-10-25: the two time caps the owner named in Nachtrag 7 of card",
+    "CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01, as long as their fixes on other branches are open."
+  ],
+  "quarantine": [
+    {
+      "test": "tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::test_ausserhalb_eines_pull_request_haengt_c12_1_an_der_GUELTIGKEIT",
+      "reason": "`_lauf` runs scripts/audit_candidate_matrix.py with timeout=300 (seconds). The owner named this cap on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) as one that fails under 3.14; another session fixes it on branches of its own, and the entry stays while that fix is open. Measured on 3.12 in a container: 168.6 to 181.1 s per case (delivery 19).",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    },
+    {
+      "test": "tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::test_auf_einem_pull_request_ist_sie_nicht_anwendbar_statt_gebrochen",
+      "reason": "`_lauf` runs scripts/audit_candidate_matrix.py with timeout=300 (seconds). The owner named this cap on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) as one that fails under 3.14; another session fixes it on branches of its own, and the entry stays while that fix is open. Measured on 3.12 in a container: 168.6 to 181.1 s per case (delivery 19).",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    },
+    {
+      "test": "tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::test_die_wahrheit_im_bericht_bleibt_unveraendert",
+      "reason": "`_lauf` runs scripts/audit_candidate_matrix.py with timeout=300 (seconds). The owner named this cap on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) as one that fails under 3.14; another session fixes it on branches of its own, and the entry stays while that fix is open. Measured on 3.12 in a container: 168.6 to 181.1 s per case (delivery 19).",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    },
+    {
+      "test": "tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::test_jede_zeile_traegt_einen_namen_vor_ihrem_kuerzel",
+      "reason": "`_lauf` runs scripts/audit_candidate_matrix.py with timeout=300 (seconds). The owner named this cap on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) as one that fails under 3.14; another session fixes it on branches of its own, and the entry stays while that fix is open. Measured on 3.12 in a container: 168.6 to 181.1 s per case (delivery 19).",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    },
+    {
+      "test": "tests/test_budget_kostenkurve.py::TestObergrenzeAmGroesstenZugelassenenWert::test_kosten_am_limit_unter_der_obergrenze[renewal_work]",
+      "reason": "The cost at the limit is asserted against achsen x GRENZE_S (1.0 s) x the machine factor (`assert k <= latte`). The owner named the cost curve of renewal_work under 3.14 on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01); another session fixes it on branches of its own, and the entry stays while that fix is open.",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    }
+  ]
+}

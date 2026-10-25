@@ -410,6 +410,9 @@ AUSGESCHLOSSEN = {
     # 2026-09-28: asks the GitHub API for the ci.yml runs and jobs of one pull request head, and
     # landung.yml runs it before the mutation layer. Same reasoning as the sibling one line up.
     "landung_waits_for_ci.py": "asks the GitHub API for the ci.yml jobs of one pull request head; no pull request inside a package",
+    # 2026-10-25: reports the tests with a fixed time cap against .github/test_quarantine.json, which the
+    # package does not carry.
+    "quarantine_time_caps.py": "reports time caps against the quarantine list in .github/; no list inside a package",
     # 2026-10-17: checks the language of the title, the body and the commit messages of one pull
     # request, and pr-form.yml runs it on every pull request. An installed package has no pull request.
     # Same reasoning as `b7_pr_form_gate.py` above.
