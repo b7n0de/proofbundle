@@ -6,9 +6,9 @@ and at the head of pull request 395 alike (measured in the follow-up of 395, del
 CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01, where it was named and left for its own change).
 
 The counter-cases are annotations that do run: at module level and in a class body, where they are evaluated when the
-statement runs, and the annotations of a function's parameters, which run where the def runs or, postponed, when
-`typing.get_type_hints` or `inspect.get_annotations` reads the string. Each one runs first and shows the read; the gate
-keeps reporting it.
+statement runs (from Python 3.14 on, when they are read), and the annotations of a function's parameters, which run
+where the def runs or, postponed, when `typing.get_type_hints` or `inspect.get_annotations` reads the string. Each one
+runs first and shows the read; the gate keeps reporting it.
 """
 from __future__ import annotations
 
@@ -89,7 +89,8 @@ def test_RED_the_annotation_of_a_local_variable_is_not_read_as_code(tmp_path, co
 
 #: Annotations that run: each one reads the environment, and the gate keeps reporting it.
 STILL_RUN = {
-    "at module level": ("import os\nx: os.getenv('X') = 1\nVALUE = __annotations__['x']\n", "print(c.VALUE)", "TEST_ONLY"),
+    "at module level": ("import os\nx: os.getenv('X') = 1\n", "import inspect; print(inspect.get_annotations(c)['x'])",
+                        "TEST_ONLY"),
     "in a class body": ("import os\nclass C:\n    x: os.getenv('X') = 1\nVALUE = C.__annotations__['x']\n",
                         "print(c.VALUE)", "TEST_ONLY"),
     "a class body in a function": (
