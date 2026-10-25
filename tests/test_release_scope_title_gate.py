@@ -15,6 +15,8 @@ import pathlib
 import re
 import unittest
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "scope_title_gate", REPO / "scripts" / "b7_release_scope_title_gate.py")
@@ -1856,3 +1858,113 @@ def test_die_zeilen_der_zaehlung_tragen_kennung_punkt_und_zweigzelle(tmp_path):
     zeilen, lage = GATE.fuehrende_kennungen(p)
     assert lage == "gemessen" and zeilen == [("A0", "A0", "`fix/a0`"),
                                              ("A1", "A1 the line", "with A0")], zeilen
+
+
+# ── A follow-up of a scope line, `[<version> <ID>-FOLGE]` (Nachtrag 5 of CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01) ──
+# The title form did not read the suffix, and a follow-up branch, which no row names, was outside the scope, so the
+# gate was green on such a title without having read it. A follow-up belongs to the In row of its parent and needs
+# no row of its own; the landing card counts the parent's line by the parent's own pull request only.
+
+_FOLGE_UMFANG = ("| Item | Branch |\n|---|---|\n"
+                 "| PR371 the banner and the import name | `fix/codex-199` |\n"
+                 "| PR375 the paths git quotes | `fix/mutant-guard` |\n\n"
+                 "## Out\n\n| Item | Branch |\n|---|---|\n| PR377 a language check | `feat/pr-language` |\n")
+
+
+def _folge(tmp_path, branch, title, version="6.4.0"):
+    pfad = tmp_path / "6.4.0.md"
+    pfad.write_text(_FOLGE_UMFANG, encoding="utf-8")
+    return GATE.pruefe(branch=branch, title=title, version=version, scope_pfad=pfad)
+
+
+def test_ROT_the_title_form_reads_the_follow_up_of_an_identifier():
+    form = GATE._TITELFORM.match("[6.4.0 PR371-FOLGE] fix(gates): a captured block closes at a titled separator")
+    assert form is not None
+    assert (form.group("version"), form.group("kennung"), form.group("folge")) == ("6.4.0", "PR371", "-FOLGE")
+
+
+def test_ROT_a_follow_up_on_a_branch_of_its_own_belongs_to_the_in_row_of_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371-FOLGE] fix(gates): a captured block closes")
+    assert d["urteil"] == "gruen", d["gruende"]
+    assert (d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"], d.get("folge_von")) == (False, "PR371", "PR371"), d
+
+
+@pytest.mark.parametrize("title, reason", [
+    ("[6.3.0 PR371-FOLGE] fix(gates): another release", "6.3.0"),
+    ("[6.4.0 PR371-FOLGE] fix(gates): carries [6.4.0 PR375] along", "PR375"),
+], ids=["another version", "a second identifier"])
+def test_ROT_a_follow_up_is_held_to_the_form_of_its_parents_row(tmp_path, title, reason):
+    d = _folge(tmp_path, "claude/640-folge-371", title)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    assert any(reason in g for g in d["gruende"]), d["gruende"]
+
+
+def test_ROT_the_branch_of_a_row_does_not_land_it_as_a_follow_up(tmp_path):
+    """The parent's own branch lands its line, and the landing card counts it only by the plain identifier."""
+    d = _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371-FOLGE] fix(gates): the parent itself")
+    assert d["urteil"] == "ROT", d
+    assert any("-FOLGE" in g and "own branch" in g for g in d["gruende"]), d["gruende"]
+
+
+def test_a_follow_up_of_a_line_outside_the_in_section_stays_outside_with_its_parent(tmp_path):
+    d = _folge(tmp_path, "claude/640-folge-377", "[6.4.0 PR377-FOLGE] fix(ci): the language check reads every commit")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"], d["kennung_des_zweigs"]) == ("gruen", True, None), d
+    assert d.get("folge_von") == "PR377", d
+
+
+def test_CONTROL_the_plain_identifier_keeps_its_verdicts(tmp_path):
+    assert _folge(tmp_path, "fix/codex-199", "[6.4.0 PR371] fix(gates): the parent")["urteil"] == "gruen"
+    d = _folge(tmp_path, "claude/640-folge-371", "[6.4.0 PR371] fix(gates): no suffix")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"]) == ("gruen", True), d
+
+
+# ── The lens on the follow-up branch, 2026-10-25 (F1, F2, F5, F6) ──
+# No P0 or P1; the six P3 are closed here. Each case falls at 9094bb5d, or kills a mutant of the follow-up
+# reading that its cases let live (M5 a collision ignored, M9 `-folge` read as the suffix, M10 the suffix twice).
+
+@pytest.mark.parametrize("branch, title, reason", [
+    ("claude/640-folge-371", "[6.4.0 PR371-FOLGE] fix(gates): see [6.4.0 PR375-FOLGE]", "PR375-FOLGE"),
+    ("fix/codex-199", "[6.4.0 PR371] fix(gates): see [6.4.0 PR375-FOLGE]", "genau eine je"),
+], ids=["beside a follow-up", "beside the parent on its own branch"])
+def test_ROT_a_second_bracket_with_the_suffix_is_a_second_identifier(tmp_path, branch, title, reason):
+    """F1: `_JEDE_KLAMMER` reads no `-FOLGE`, so both titles were green inside the scope."""
+    d = _folge(tmp_path, branch, title)
+    assert d["urteil"] == "ROT" and not d["ausserhalb_des_umfangs"], d
+    assert any(reason in g for g in d["gruende"]), d["gruende"]
+
+
+@pytest.mark.parametrize("branch, title", [
+    ("claude/640-folge-x", None), ("claude/640-folge-x", b"[6.4.0 PR371-FOLGE] fix(x): y"),
+    ("claude/640-folge-x", 5), (None, "[6.4.0 PR371] fix(x): y"), (["fix/codex-199"], "[6.4.0 PR371] fix(x): y"),
+], ids=["title None", "title bytes", "title int", "branch None", "branch list"])
+def test_ROT_a_title_or_a_branch_that_is_not_text_is_red_and_no_exception(tmp_path, branch, title):
+    """F2: the title form is read before the branch decides, so a title that is no text ended in TypeError on a
+    branch no row names, where an outside verdict stood before."""
+    d = _folge(tmp_path, branch, title)
+    assert d["urteil"] == "ROT" and any("read as text" in g for g in d["gruende"]), d
+
+
+def test_ROT_the_reason_names_the_bracket_the_title_carries(tmp_path):
+    """F5: on the branch of another row the reason named `[6.4.0 PR371]`, the title carries the suffix."""
+    d = _folge(tmp_path, "fix/mutant-guard", "[6.4.0 PR371-FOLGE] fix(x): on the branch of PR375")
+    assert d["urteil"] == "ROT", d
+    assert any("[6.4.0 PR371-FOLGE]" in g and "verschiedene Zeilen" in g for g in d["gruende"]), d["gruende"]
+
+
+def test_ROT_a_follow_up_of_an_identifier_that_leads_two_rows_is_red(tmp_path):
+    """M5: the follow-up is judged as the parent's own title would be, a collision of the identifier included."""
+    pfad = tmp_path / "6.4.0.md"
+    pfad.write_text("| Item | Branch |\n|---|---|\n| PR371 the banner | `fix/codex-199` |\n"
+                    "| PR371 another line | `fix/codex-200` |\n\n## Out\n", encoding="utf-8")
+    d = GATE.pruefe(branch="claude/640-folge-371", title="[6.4.0 PR371-FOLGE] fix(gates): y", version="6.4.0",
+                    scope_pfad=pfad)
+    assert d["urteil"] == "ROT" and d["kennung_mehrdeutig"], d
+    assert any("die Kennung aufteilen" in g for g in d["gruende"]), d["gruende"]
+
+
+@pytest.mark.parametrize("suffix", ["-folge", "-Folge", "-FOLGE2", "-FOLGE-FOLGE"])
+def test_another_spelling_of_the_suffix_is_no_follow_up(tmp_path, suffix):
+    """M9 and M10: only `-FOLGE`, once, beside the identifier is the suffix; any other spelling is no form, the
+    branch stays outside the scope, and no parent is named."""
+    d = _folge(tmp_path, "claude/640-folge-371", f"[6.4.0 PR371{suffix}] fix(gates): y")
+    assert (d["urteil"], d["ausserhalb_des_umfangs"], d["folge_von"]) == ("gruen", True, None), d

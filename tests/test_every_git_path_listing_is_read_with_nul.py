@@ -52,10 +52,9 @@ QUOTED_FORM_ALLOWED = {
         "cannot bind itself: a refusal, never a pass. The grammar is a signed quantity shared with "
         "sign_readiness_artifact.tree_digest; changing it is a change of the receipt format.",
     ("scripts/sign_readiness_artifact.py", "tree_digest", "ls-tree"):
-        "the same digest as pre_tag_receipt_lib.subject_tree_digest, recomputed by the gate; see there.",
-    ("scripts/audit_candidate_matrix.py", "_evidenz_relation_erlaubt", "diff"):
-        "compares the names against the mutable evidence set, which is quote-free (bound below); a "
-        "quoted name can only fall outside that set, and outside is a refusal, never a pass.",
+        "the same digest as pre_tag_receipt_lib.subject_tree_digest, recomputed by the gate, with "
+        "core.quotePath=true pinned as there (bound in tests/test_git_paths_are_read_as_git_names_them.py); "
+        "see there.",
     ("scripts/mutation_check.py", "_worktree_status", "status"):
         "the output is compared as a whole, before against after; no name is read from it.",
     ("scripts/render_site_data.py", "_source_time", "status"):
@@ -157,7 +156,8 @@ def test_every_patch_header_reader_decodes_the_path():
 
 
 def test_the_evidence_set_the_exceptions_rest_on_is_quote_free():
-    """Three reasons above rest on this: a path git never quotes matches in either form."""
+    """The reasons of the two digests above rest on this: a path git never quotes matches in either
+    form."""
     tree = ast.parse((ROOT / "scripts" / "sign_readiness_artifact.py").read_text(encoding="utf-8"))
     value = next(n.value for n in tree.body if isinstance(n, ast.Assign)
                  and any(isinstance(t, ast.Name) and t.id == "MUTABLE_EVIDENCE_RELS" for t in n.targets))
@@ -351,3 +351,20 @@ def test_the_version_gate_fails_in_a_checkout_git_cannot_list(repo):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.parametrize("first", ['++ "b/\\777"\n', "++ b/docs/x.md\n", "Plain line.\n\x0c"],
+                         ids=["octal-above-a-byte", "plus-plus-line", "form-feed"])
+def test_the_language_gate_reads_an_added_line_as_a_line_of_its_hunk(repo, first):
+    """Counter-reading of pull request 375. F2 (P3): an added line `++ "b/\\777"` stood in the diff as
+    `+++ "b/\\777"`, the shared decoder raised ValueError on `\\777`, and the gate stopped with exit 1,
+    the exit code of a red verdict. Its neighbours in this parser, the class of F10b and F10c: the same
+    line with an escape git writes moved the German line after it to another file, and a form feed
+    cut it off its `+`; both runs were green."""
+    base = _commit(repo, {"docs/keep.md": f"{first}{GERMAN}"})
+    p = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "neue_zeilen_sind_englisch.py"),
+                        "--base", base, "--repo", str(repo), "--json"], capture_output=True, cwd=str(repo))
+    assert b"Traceback" not in p.stderr, p.stderr.decode("utf-8", "replace")
+    result = json.loads(p.stdout)
+    assert (p.returncode, result["urteil"]) == (1, "ROT"), result
+    assert [b["datei"] for b in result["befunde"]] == ["docs/keep.md"], result

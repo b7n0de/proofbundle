@@ -34,6 +34,7 @@ import argparse
 import ast
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -106,6 +107,11 @@ def _git_path(field: str) -> str:
     escapes, octal for each byte (`"b/src/proofbundle/pr\\303\\274fung.py"`). Read verbatim, such a
     path matched no security path, and a staged `if False:` in it was reported clean with exit 0
     (measured 2026-09-26 in a throwaway repository; plain names and names with a space were caught).
+
+    An octal escape is a byte, so git writes at most `\\377`. A larger one (`\\400` to `\\777`) is no
+    byte and is kept as it stands, like every escape git does not write; `bytearray.append` raised
+    ValueError on it, in the language gate with exit 1, the exit code of a red verdict
+    (counter-reading of pull request 375, F2).
     """
     s = field.strip()
     if len(s) < 2 or not (s.startswith('"') and s.endswith('"')):
@@ -119,7 +125,8 @@ def _git_path(field: str) -> str:
         elif body[i + 1:i + 2] in _C_ESCAPES:
             out.append(_C_ESCAPES[body[i + 1]])
             i += 2
-        elif len(body[i + 1:i + 4]) == 3 and all(d in "01234567" for d in body[i + 1:i + 4]):
+        elif (len(body[i + 1:i + 4]) == 3 and body[i + 1] in "0123"
+              and all(d in "01234567" for d in body[i + 1:i + 4])):
             out.append(int(body[i + 1:i + 4], 8))
             i += 4
         else:
@@ -129,11 +136,33 @@ def _git_path(field: str) -> str:
 
 
 def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
-    """Parse a -U0 unified diff into {new_path: [(new_lineno, added_line_text), ...]}."""
+    """Parse a -U0 unified diff into {new_path: [(new_lineno, added_line_text), ...]}.
+
+    A HEADER STANDS OUTSIDE A HUNK, AND THE DIFF IS SPLIT AT ITS LINE FEEDS ONLY (counter-reading of
+    pull request 375, F10b and F10c, P3, also on main). An added line `++ 1` stands in the diff as
+    `+++ 1` and was read as the header of a file `1`, so every added line after it fell outside the
+    scope. `splitlines()` also split at a form feed, and an added `\x0cif False:`, which Python reads
+    as `if False:`, reached the parser as `+` and an unmarked `if False:`. The hunk header counts the
+    lines of its hunk; inside them a line is a line of the hunk, whatever it begins with.
+    """
     out: dict[str, list[tuple[int, str]]] = {}
     current: str | None = None
     lineno = 0
-    for raw in diff_text.splitlines():
+    alt = neu = 0  # lines of the open hunk still to come, on the old side and on the new side
+    for raw in diff_text.split("\n"):
+        if alt > 0 or neu > 0:
+            if raw.startswith("+"):
+                if current is not None:
+                    out.setdefault(current, []).append((lineno, raw[1:]))
+                lineno += 1
+                neu -= 1
+            elif raw.startswith("-"):
+                alt -= 1
+            elif raw.startswith(" "):
+                lineno += 1
+                alt -= 1
+                neu -= 1
+            continue  # `\ No newline at end of file` counts on neither side
         if raw.startswith("+++ "):
             path = _git_path(raw[4:])
             current = None if path == "/dev/null" else path.removeprefix("b/")
@@ -146,6 +175,9 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
             # Haertung, sondern eine Behauptung ueber eine Gefahr, die es hier nicht gibt.
             m = re.search(r"\+(\d+)", raw)
             lineno = int(m.group(1)) if m else 0
+            n = re.match(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", raw)
+            if n:
+                alt, neu = (int(g) if g is not None else 1 for g in n.groups())
         elif raw.startswith("+") and not raw.startswith("+++"):
             if current is not None:
                 out.setdefault(current, []).append((lineno, raw[1:]))
@@ -196,6 +228,25 @@ def _file_content(path: str, *, staged: bool, cwd: Path) -> str:
     return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
+def _shown(path: str) -> str:
+    """The path as a report line shows it: as it stands when every character is printable, else in
+    git's quoted form (counter-reading of pull request 375, F4, P3). Printed as decoded, a newline in
+    a name began a line of its own, and `::warning::` at the start of a line is a workflow command in
+    a GitHub Actions log; a byte that is not UTF-8 reached stdout as a lone surrogate (F3)."""
+    if path.isprintable():
+        return path
+    letters = {v: k for k, v in _C_ESCAPES.items()}
+    out = []
+    for byte in path.encode("utf-8", "surrogateescape"):
+        if byte in letters:
+            out.append("\\" + letters[byte])
+        elif byte < 0x20 or byte >= 0x7F:
+            out.append(f"\\{byte:03o}")
+        else:
+            out.append(chr(byte))
+    return '"' + "".join(out) + '"'
+
+
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
     findings: list[str] = []
     for path, added in _added_lines_by_file(diff_text).items():
@@ -211,10 +262,10 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
             elif _COMMENTED_VERIFY.match(text) and _commented_content_parses(text):
                 reason = "commented-out verification call"
             if reason and not _allowlisted(file_lines, lineno):
-                findings.append(f"{path}:{lineno}: {reason}\n    {text.strip()}")
+                findings.append(f"{_shown(path)}:{lineno}: {reason}\n    {text.strip()}")
         for lineno, reason in _class_c_findings(content, added_nums):
             if not _allowlisted(file_lines, lineno):
-                findings.append(f"{path}:{lineno}: {reason}")
+                findings.append(f"{_shown(path)}:{lineno}: {reason}")
     return findings
 
 
@@ -238,10 +289,16 @@ def _resolve_base(base: str, cwd: Path) -> str | None:
 #: and `diff.noprefix` (measured with git 2.55.0).
 _HEADER_PREFIXES = ("--src-prefix=a/", "--dst-prefix=b/")
 
+#: THE HEADER IS ASKED FOR IN GIT'S QUOTED FORM (counter-reading of pull request 375, F1b and F10d,
+#: P3). With `core.quotePath=false` git writes a name outside ASCII as it is: the self-test then said
+#: OK without its decoder case reaching the decoder, and a name with U+2028 or U+0085 was cut by the
+#: line split. The guard reads the form its tests prove, whatever the configuration says.
+_QUOTED = ("-c", "core.quotePath=true")
+
 
 def run_staged(cwd: Path) -> list[str]:
-    diff = _git("diff", "--cached", "-U0", "--no-color", *_HEADER_PREFIXES, "--", "src/proofbundle",
-                cwd=cwd)
+    diff = _git(*_QUOTED, "diff", "--cached", "-U0", "--no-color", *_HEADER_PREFIXES, "--",
+                "src/proofbundle", cwd=cwd)
     return scan(diff, staged=True, cwd=cwd)
 
 
@@ -251,7 +308,7 @@ def run_base(base: str, cwd: Path) -> list[str]:
         print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
               "nothing to diff, scan skipped honestly")
         return []
-    diff = _git("diff", "-U0", "--no-color", *_HEADER_PREFIXES, resolved, "HEAD", "--",
+    diff = _git(*_QUOTED, "diff", "-U0", "--no-color", *_HEADER_PREFIXES, resolved, "HEAD", "--",
                 "src/proofbundle", cwd=cwd)
     return scan(diff, staged=False, cwd=cwd)
 
@@ -350,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--base", metavar="SHA", help="scan merge-base(SHA, HEAD)..HEAD (CI)")
     mode.add_argument("--self-test", action="store_true", help="prove the guard catches each class")
     a = p.parse_args(argv)
+    # The fifth reader of the class of the four tools below (counter-reading of pull request 375,
+    # F3): a printable name outside ASCII still meets an output encoding that lacks its letter.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     if a.self_test:
         return self_test()
     repo = _repo_root()
