@@ -175,7 +175,10 @@ def test_second_F1_neighbour_a_getattr_of_setattr_on_a_module_is_seen_with_a_bui
     namespace: dict = {}
     exec(compile(code.replace("('TYPE_CHECKING', True)", ""), "<probe>", "exec"), namespace)
     assert namespace["m"] is namespace["typing"], "the receiver must be the module, or the case proves nothing"
-    assert _load_gate().type_checking_changes(ast.parse(code)), code
+    # The finding names the attribute it read, also where the name is built (foxtrot's lens on 93c21dda, P3: it named
+    # None).
+    changes = _load_gate().type_checking_changes(ast.parse(code))
+    assert ("getattr of __setattr__, on an object that may be a module", 3) in changes, changes
 
 
 # ── the second counter-reading, F2: no input ends the gate without its report ─────────────────────────────────────

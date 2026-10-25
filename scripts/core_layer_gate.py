@@ -837,10 +837,11 @@ class _ChangeScan:
                     # The name of a getattr is read as `string_of` reads it, built from constants too (a neighbour of
                     # F1 of the second counter-reading of pull request 420: `getattr(m, "__set" + "attr__")` changed
                     # the guard unseen, on main as well). A name computed from anything else stays out of reach.
-                    elif kind == "get" and (attr if attr is not None or name is None else self.string_of(name)) \
+                    elif kind == "get" and (read := attr if attr is not None or name is None else self.string_of(name)) \
                             in ("__setattr__", "__delattr__", "__getattribute__") \
                             and self.setter_reaches_a_module(receiver):
-                        out.append((f"getattr of {attr}, on an object that may be a module", line))
+                        # The finding names the name as read (foxtrot's lens on 93c21dda, P3: it named None).
+                        out.append((f"getattr of {read}, on an object that may be a module", line))
                 if self.is_typing(node) and self.handed_on(node, up) and not self._judged_elsewhere(node, up):
                     out.append(("the typing module handed on", line))
             elif isinstance(node, (ast.Name, ast.Attribute, ast.Subscript)) and isinstance(node.ctx, ast.Load):
@@ -1046,13 +1047,14 @@ _ALIAS_LIMIT = 4096
 #: The functions that evaluate a postponed annotation, under the names they resolve to, and the parameters by which a
 #: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`). `inspect.signature` and
 #: `Signature.from_callable` evaluate it with `eval_str=True`, `typing.evaluate_forward_ref` from 3.14 on (the
-#: counter-reading of pull request 420, F3, P2).
+#: counter-reading of pull request 420, F3, P2), `typing_extensions.get_annotations` where the library has it.
 _ANNOTATION_EVALUATORS = frozenset({"typing.get_type_hints", "typing_extensions.get_type_hints",
                                     "inspect.get_annotations", "annotationlib.get_annotations",
+                                    "typing_extensions.get_annotations",
                                     "inspect.signature", "inspect.Signature.from_callable",
                                     "typing.evaluate_forward_ref", "typing_extensions.evaluate_forward_ref"})
-#: The classes of a forward reference, whose `evaluate` (3.14) or `_evaluate` reads a string in the namespaces handed in.
-_FORWARD_REFS = frozenset({"annotationlib.ForwardRef", "typing.ForwardRef", "typing_extensions.ForwardRef"})
+#: `eval` and `exec` evaluate a string in the namespaces handed in, and without them in the frame of their caller.
+_EVAL_FUNCTIONS = frozenset({"builtins.eval", "builtins.exec"})
 _NAMESPACE_KEYWORDS = frozenset({"globalns", "localns", "globals", "locals"})
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -1228,29 +1230,31 @@ class _Names:
                 self._pending.append((returns, scope))
 
     def _hands_a_namespace(self, call: ast.Call, scope: _Scope) -> bool:
-        """Whether a call evaluates annotations in a namespace its caller hands in: `typing.get_type_hints(f, None,
+        """Whether a call may evaluate annotations in a namespace its caller hands in: `typing.get_type_hints(f, None,
         {"o": o})`, `inspect.get_annotations(f, eval_str=True, locals={"o": o})`, `inspect.signature(f, eval_str=True,
-        locals=...)`, `ForwardRef(s).evaluate(locals=...)`, or `**kwargs` the gate cannot read."""
-        handed = any(k.arg is None or k.arg in _NAMESPACE_KEYWORDS for k in call.keywords) \
-            or any(isinstance(a, ast.Starred) for a in call.args)
-        if isinstance(call.func, ast.Attribute) and call.func.attr in ("evaluate", "_evaluate") \
-                and self._is_forward_ref(call.func.value, scope):
+        locals=...)`, `ForwardRef(s).evaluate(locals=...)`, `eval(s, None, ns)`, or `**kwargs` the gate cannot read.
+
+        BY WHAT THE CALL HANDS, NOT BY THE NAME OF THE CALLEE (foxtrot's lens on 93c21dda, the class of F3): a list of
+        callees missed every evaluator spelled otherwise, a ForwardRef the gate cannot trace to its class
+        (`refs[0]._evaluate(None, ns, frozenset())`, `mk(s)._evaluate(...)`), `typing_extensions.get_annotations`
+        and `eval`, and main reports `os.getenv` there. A namespace handed by one of its keywords counts whatever the
+        callee; an `evaluate` or `_evaluate` counts with any argument, whatever the receiver; `eval` and `exec` count
+        always, since without a namespace they evaluate in the frame of their caller. Counting too many takes the GREEN
+        of FD-4 only from a module that may evaluate, where main reports RED as well."""
+        if any(k.arg in _NAMESPACE_KEYWORDS for k in call.keywords):
+            return True
+        unread = any(k.arg is None for k in call.keywords) or any(isinstance(a, ast.Starred) for a in call.args)
+        if isinstance(call.func, ast.Attribute) and call.func.attr in ("evaluate", "_evaluate"):
             # `_evaluate(globalns, localns, ...)` takes the namespaces by position up to 3.13.
-            return handed or (call.func.attr == "_evaluate" and bool(call.args))
-        quals = self._quals(call.func, self.scope_of.get(id(call.func), scope)) & _ANNOTATION_EVALUATORS
+            return unread or (call.func.attr == "_evaluate" and bool(call.args))
+        quals = self._quals(call.func, self.scope_of.get(id(call.func), scope))
+        if quals & _EVAL_FUNCTIONS:
+            return True
+        quals &= _ANNOTATION_EVALUATORS
         if not quals:
             return False
         positional = any(q.endswith(".get_type_hints") for q in quals)
-        return handed or (positional and len(call.args) >= 2)
-
-    def _is_forward_ref(self, node: ast.expr, scope: _Scope) -> bool:
-        """Whether `node` is a forward reference built here: a call of a ForwardRef class, or a name bound to one."""
-        values = [node]
-        if isinstance(node, ast.Name):
-            s = self._binding_scope(node.id, self.scope_of.get(id(node), scope))
-            values = [v for n, v in s.assigns if n == node.id] if s is not None else []
-        return any(isinstance(v, ast.Call) and self._quals(v.func, self.scope_of.get(id(v.func), scope)) & _FORWARD_REFS
-                   for v in values)
+        return unread or (positional and len(call.args) >= 2)
 
     def _module_hands_a_namespace(self, tree: ast.AST) -> bool:
         """Whether anything in the module may hand an evaluator a namespace: a call that does (`_hands_a_namespace`), or
@@ -1268,7 +1272,7 @@ class _Names:
             if isinstance(node, ast.Call) and self._hands_a_namespace(node, scope):
                 return True
             if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) \
-                    and self._quals(node, scope) & _ANNOTATION_EVALUATORS:
+                    and self._quals(node, scope) & (_ANNOTATION_EVALUATORS | _EVAL_FUNCTIONS):
                 up = parent.get(id(node))
                 if isinstance(up, ast.Call) and up.func is node:
                     continue

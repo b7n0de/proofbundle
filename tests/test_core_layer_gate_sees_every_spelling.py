@@ -1199,7 +1199,77 @@ def test_RED_a_postponed_annotation_read_in_a_namespace_handed_in_any_way(tmp_pa
     assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
 
 
-_DIAMOND_CORE = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
+def _has_typing_extensions_get_annotations() -> bool:
+    import importlib.util
+    if importlib.util.find_spec("typing_extensions") is None:
+        return False
+    import typing_extensions
+    return hasattr(typing_extensions, "get_annotations")
+
+
+#: foxtrot's lens on 93c21dda: forms outside the list of the gate, each (lines before the factory, the end of the
+#: factory, lines after it, whether this Python runs the form). The evaluation in the frame of the factory is a
+#: neighbour of the same class.
+HANDED_OUTSIDE_THE_LIST = {
+    "a ForwardRef in a list, evaluated by position": (
+        "", "    refs = [typing.ForwardRef(inner.__annotations__['x'])]\n"
+            "    return refs[0]._evaluate(None, {'o': o}, frozenset())\n", "VALUE = factory()\n",
+        sys.version_info < (3, 12)),
+    "a ForwardRef from a helper of the module, evaluated by position": (
+        "def mk(s):\n    return typing.ForwardRef(s)\n",
+        "    return mk(inner.__annotations__['x'])._evaluate(None, {'o': o}, frozenset())\n", "VALUE = factory()\n",
+        sys.version_info < (3, 12)),
+    "typing_extensions.get_annotations with locals": (
+        "import typing_extensions\n",
+        "    return typing_extensions.get_annotations(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n",
+        _has_typing_extensions_get_annotations()),
+    # Unpacked from a dict, the namespace has no keyword the gate reads; only the name of the evaluator counts.
+    "typing_extensions.get_annotations with the namespace unpacked from a dict": (
+        "import typing_extensions\n",
+        "    return typing_extensions.get_annotations(inner, **{'eval_str': True, 'locals': {'o': o}})\n",
+        "VALUE = factory()\n", _has_typing_extensions_get_annotations()),
+    "eval of the annotation with a namespace": (
+        "", "    return eval(inner.__annotations__['x'], None, {'o': o})\n", "VALUE = factory()\n", True),
+    "eval of the annotation in the frame of the factory": (
+        "", "    return eval(inner.__annotations__['x'])\n", "VALUE = factory()\n", True),
+    "eval taken as a value": (
+        "", "    return functools.partial(eval, inner.__annotations__['x'])({'o': o})\n", "VALUE = factory()\n", True),
+    # Held before the class fix as well; it keeps the branch for a namespace the gate cannot read.
+    "get_type_hints with the namespace unpacked from a dict": (
+        "", "    return typing.get_type_hints(inner, **{'localns': {'o': o}})\n", "VALUE = factory()\n", True),
+}
+
+
+@pytest.mark.parametrize("before, body, after, runs", list(HANDED_OUTSIDE_THE_LIST.values()),
+                         ids=list(HANDED_OUTSIDE_THE_LIST))
+def test_RED_a_postponed_annotation_read_by_a_callee_the_list_did_not_name(tmp_path, before, body, after, runs):
+    """foxtrot's lens on 93c21dda, the class of F3: whether a namespace reaches an evaluator was decided by the spelling
+    of the callee. A ForwardRef the gate cannot trace to its class, `typing_extensions.get_annotations` and `eval`
+    read the environment where main reports `os.getenv`, and the gate said GREEN or lost the finding. `eval` without a
+    namespace evaluates in the frame of its caller, where the alias of the factory is bound."""
+    args = build(tmp_path, {"core.py": _FACTORY.format(before=before, body=body, after=after)})
+    if runs:
+        assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+def test_RED_a_namespace_handed_by_keyword_to_a_helper_of_another_module(tmp_path):
+    """The class itself: a namespace handed by its keyword counts whatever the callee, here a helper in another
+    module of the package that hands it on to `typing.get_type_hints`. Handed by position to such a helper, it stays
+    out of reach, as the docstring of the gate says."""
+    helper = "import typing\ndef hints(f, localns):\n    return typing.get_type_hints(f, localns=localns)\n"
+    core = _FACTORY.format(before="from .hints import hints\n", body="    return hints(inner, localns={'o': o})\n",
+                           after="VALUE = factory()\n")
+    args = build(tmp_path, {"core.py": core, "hints.py": helper})
+    assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+_DIAMOND_CORE ="from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
 
 
 @pytest.mark.parametrize("helper, verdict", [
