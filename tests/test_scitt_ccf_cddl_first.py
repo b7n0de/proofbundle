@@ -166,10 +166,11 @@ def _cases():
         ("R5 259 of []", lambda: _ts(st=_stmt(L259=[])), "malformed", False, "259"),
         ("R5 sibling: 260 of 0", lambda: _ts(st=_stmt(L260=0)), "malformed", False, "260"),
         # PR 279 round one, thread 4111060383: a claim type in the unprotected CWT claims too;
-        # siblings: iat, and the consistency verifier. The control keeps its placement status.
+        # siblings: iat, and the consistency verifier. The control keeps its placement status, in the
+        # words of the CWT Claims rule a receipt shares with a statement since pull request 406.
         ("PR 279 R1 control: well-typed CWT claims, unprotected",
          lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: _p().ISSUER, 6: 1790000000}})])),
-         "outside_profile", True, "no CWT issuer in its protected header"),
+         "outside_profile", True, "label 15 (CWT Claims) in the unprotected header"),
         ("PR 279 R1 receipt CWT issuer an int, unprotected",
          lambda: ("transparent", _p().transparent(st, [_receipt_unprot({15: {1: 5}})])),
          "malformed", False, "CWT claim 1 in the unprotected"),
@@ -299,7 +300,7 @@ def _cons_prot_vdp(value):
     """The consistency control signed with this value under label 396 in its PROTECTED header, and an
     empty unprotected map (Codex, PR 279 round four)."""
     C = _c()
-    prot = {1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2, 15: {1: C.ISSUER, 6: 1790000000},
+    prot = {1: -35, 4: C.kid_of(C.SERVICE_KEY), 395: 2, 15: {1: C.ISSUER, 2: C.SUBJECT, 6: 1790000000},
             "ccf.v1": {"txid": "2.24"}, 396: value}
     prot_b, sig = C.sign_over(C.TREE.root(24), prot=prot)
     return b"\xd2" + C._cbor2().dumps([prot_b, {}, None, sig])

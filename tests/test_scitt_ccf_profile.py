@@ -160,6 +160,7 @@ class Rcpt:
     tagged: bool = True
     consistency: object = None         # -2 beside -1: "same_root", "other_root", or the value as given
     vdp_extra: dict = field(default_factory=dict)
+    extra_unprot: dict = field(default_factory=dict)
 
     def build(self) -> bytes:
         key = self.key or SERVICE_KEY
@@ -195,7 +196,7 @@ class Rcpt:
         elif self.consistency is not None:
             vdp[-2] = self.consistency
         vdp.update(self.vdp_extra)
-        body = [prot_b, {396: vdp}, self.payload, sig]
+        body = [prot_b, {396: vdp, **self.extra_unprot}, self.payload, sig]
         return (b"\xd2" if self.tagged else b"") + enc(body)
 
 
@@ -425,6 +426,57 @@ def test_crit_receipt():
     assert verify(transparent(st, [ok])).status == "confirmed"
     bad = Rcpt(data_hash=dh_of(st), extra_prot={2: ["ccf.v1"]}).build()
     assert verify(transparent(st, [bad])).receipts[0].status == "outside_profile"
+
+
+# ------------------------------------------------------------------------------------------------
+# Class: a label with the value null is there, not absent (Codex on pull request 406)
+# Each case names the status of the same label with a value of the wrong type, `[]` or `{}`: a null
+# must read like that, never like the label left out. Since the CDDL pass of pull request 407 a
+# present label of the wrong shape, `[]` and `{}` included, is malformed, so a null is malformed too.
+# ------------------------------------------------------------------------------------------------
+_STMT_BASE = {1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"}}
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_the_statement_is_malformed_not_absent(value):
+    """Thread PRRT_kwDOTKah0M6vyo0G (P2): `2: null` read as no crit, and the statement confirmed;
+    ADR 0009, Decision 7, asks for a non-empty array."""
+    st = Stmt(prot_map={**_STMT_BASE, 2: value})
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()]))
+    assert (r.status, r.statement_status, r.profile_satisfied) == ("malformed", "malformed", False)
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_a_receipt_is_malformed_not_absent(value):
+    """The same rule reads the receipt's protected header."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), extra_prot={2: value}).build()]))
+    assert (r.receipts[0].status, r.profile_satisfied) == ("malformed", False)
+
+
+@pytest.mark.parametrize("vdp_extra", [{-2: None}, {-1: None}, {-2: b"junk"}],
+                         ids=["null-consistency-beside", "null-inclusion", "junk-consistency-beside"])
+def test_a_null_proof_family_is_malformed_not_absent(vdp_extra):
+    """Thread PRRT_kwDOTKah0M6vyo0E (P2): `-2: null` beside valid inclusion proofs read as no
+    consistency proof, and the receipt confirmed. A null `-1` read as no inclusion proof. Both are a
+    family that is not an array, as the junk byte string beside them is."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), vdp_extra=vdp_extra).build()]))
+    assert (r.receipts[0].status, r.receipts[0].readable, r.profile_satisfied) == ("malformed", False, False)
+
+
+def test_a_null_vdp_is_malformed_not_absent():
+    """vdp itself: `396: null` read as no vdp. A map that is empty holds neither -1 nor -2, which the
+    -05 CDDL asks for, so it is malformed under the CDDL pass as well."""
+    st = Stmt()
+    rc = S.decode_cose_sign1(Rcpt(data_hash=dh_of(st)).build(), role="receipt")
+
+    def status(vdp):
+        raw = b"\xd2" + enc([rc.protected_raw, {396: vdp}, None, rc.signature])
+        return verify(transparent(st, [raw])).receipts[0].status
+    assert status([1]) == "malformed"            # the control: a vdp that is not a map
+    assert status(None) == "malformed"
+    assert status({}) == "malformed"             # an empty map holds neither -1 nor -2
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1098,3 +1150,41 @@ def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_c
 
 def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():
     assert _statement_side(_without_cwt({1: "did:example:signer", 2: "s"}), spki(STMT_KEY), ROOT) == "confirmed"
+
+
+#: Codex on 406, the receipt side of the same rule: RFC 9943 section 6 names a Receipt beside a Signed Statement. At
+#: 7fd40593 an inclusion receipt whose CWT Claims carried no text sub, or an empty iss, was confirmed. Every readable
+#: receipt of the local ledger and of the two third-party fixtures carries a text iss and sub in its protected header
+#: and no label 15 in its unprotected one.
+_SUB = "scitt.ccf.signature.v1"
+RECEIPT_CWT_OUTSIDE = {
+    "no sub": (dict(extra_prot={15: {1: ISSUER, 6: 1790000000}}), ISSUER),
+    "a null sub": (dict(extra_prot={15: {1: ISSUER, 2: None, 6: 1790000000}}), ISSUER),
+    "a number as the sub": (dict(extra_prot={15: {1: ISSUER, 2: 7, 6: 1790000000}}), ISSUER),
+    "an empty sub": (dict(extra_prot={15: {1: ISSUER, 2: "", 6: 1790000000}}), ISSUER),
+    "an empty iss": (dict(issuer=""), ""),
+}
+
+
+def _receipt_side(trusted_issuer: str, /, **rcpt_kw) -> str:
+    st = Stmt()
+    rp = {"scitt_ccf_services": {trusted_issuer: [spki(SERVICE_KEY)]}, "scitt_statement_keys": [spki(STMT_KEY)]}
+    return verify(transparent(st, [Rcpt(data_hash=dh_of(st), **rcpt_kw).build()]), rp=rp).receipts[0].status
+
+
+@pytest.mark.parametrize("case", list(RECEIPT_CWT_OUTSIDE.values()), ids=list(RECEIPT_CWT_OUTSIDE))
+def test_a_receipt_carries_a_text_iss_and_sub_in_its_protected_header(case):
+    rcpt_kw, issuer = case
+    assert _receipt_side(issuer, **rcpt_kw) == "outside_profile"
+
+
+def test_CONTROL_the_same_receipt_with_a_text_iss_and_sub_is_confirmed():
+    assert _receipt_side(ISSUER, extra_prot={15: {1: ISSUER, 2: _SUB, 6: 1790000000}}) == "confirmed"
+
+
+def test_CONTROL_cwt_claims_outside_the_protected_header_of_a_receipt_stay_refused():
+    """These two held at 7fd40593 as well, and the shared rule keeps them: CWT Claims only in the unprotected header,
+    and a second CWT map there beside the protected one, which the reader refuses as a label in both buckets."""
+    moved = {15: {1: ISSUER, 2: _SUB}}
+    assert _receipt_side(ISSUER, drop_prot=(15,), extra_unprot=moved) == "outside_profile"
+    assert _receipt_side(ISSUER, extra_unprot=moved) == "malformed"
