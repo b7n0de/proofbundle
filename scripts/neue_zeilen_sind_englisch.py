@@ -155,9 +155,17 @@ def _git_namen(*args: str) -> tuple[int, list[str]]:
     return r.returncode, [os.fsdecode(n) for n in r.stdout.split(b"\0") if n]
 
 
-def _git_path_decoder():
-    """The decoder for a path in a diff header, taken from `scripts/mutant_signature_guard.py` in the
-    tool's own tree and loaded by path, like the word list: one decoder for one grammar, not a copy.
+def _diff_grammatik():
+    """The decoder for a path in a diff header and the fixed form of the diff, taken from
+    `scripts/mutant_signature_guard.py` in the tool's own tree and loaded by path, like the word list:
+    one decoder and one form for one grammar, not a copy.
+
+    THE FORM (counter-reading of pull request 415, F1 and F2, P2): with `diff.interHunkContext` and
+    `diff.suppressBlankEmpty` set together, a German line after a joined hunk went to the file before
+    it or nowhere, and the verdict was green; an external diff program, a text conversion or a `-diff`
+    attribute gave "0 added lines in 0 files", green, and so did `color.ui=always`, because this gate
+    asked without `--no-color`. The guard names the settings and switches that fix the form, and
+    this gate asks git with the same ones.
 
     git quotes a path that holds a byte outside ASCII, a double quote, a backslash or a control
     character (`+++ "b/docs/pr\\303\\274fung.md"`). This parser knew only `+++ b/`, so the added lines
@@ -172,7 +180,7 @@ def _git_path_decoder():
         raise ImportError(f"no loader for {pfad}")
     modul = ilu.module_from_spec(spec)
     spec.loader.exec_module(modul)
-    return modul._git_path
+    return modul
 
 
 def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
@@ -195,21 +203,24 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     # THE HEADER PREFIXES ARE NAMED (counter-reading of pull request 375, the neighbour of F10a): with
     # `diff.mnemonicPrefix` set, the working-tree form gets `+++ w/...`, which the parser below does
     # not read, and every added line was dropped while the verdict stayed green.
-    rc, aus = _git("diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", bereich, "--",
-                   *_ENDUNGEN)
+    try:
+        grammatik = _diff_grammatik()
+        _git_path, form, schalter = grammatik._git_path, grammatik._DIFF_FORM, grammatik._DIFF_SWITCHES
+    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
+        return {}, f"NOT MEASURABLE: the diff grammar is not loadable ({type(fehler).__name__})"
+    rc, aus = _git(*form, "diff", "--unified=0", *schalter, "--src-prefix=a/", "--dst-prefix=b/",
+                   bereich, "--", *_ENDUNGEN)
     if rc != 0:
         return {}, f"NOT MEASURABLE: git diff against {basis!r} failed"
-    try:
-        _git_path = _git_path_decoder()
-    except (OSError, ImportError, AttributeError, SyntaxError) as fehler:
-        return {}, f"NOT MEASURABLE: the diff-header decoder is not loadable ({type(fehler).__name__})"
     je_datei: dict[str, list[tuple[int, str]]] = {}
     datei, nr = None, 0
     # A HEADER STANDS OUTSIDE A HUNK, AND THE DIFF IS SPLIT AT ITS LINE FEEDS ONLY, as in the mutant
     # guard (counter-reading of pull request 375, the neighbour of F10b and F10c in this parser). An
     # added line `++ b/x` stood in the diff as `+++ b/x` and moved every line after it to a file `x`,
     # and a form feed cut an added line off its `+`; in both a German line was dropped and the verdict
-    # was green. The hunk header counts the lines of its hunk.
+    # was green. The hunk header counts the lines of its hunk, and a line the open hunk cannot hold,
+    # or a diff that ends inside a hunk, makes the range NOT MEASURABLE (415, F1): passed over, it
+    # was the empty context line of `diff.suppressBlankEmpty`, and the count never closed again.
     alt = neu = 0
     for zeile in aus.split("\n"):
         if alt > 0 or neu > 0:
@@ -224,6 +235,9 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
                 nr += 1
                 alt -= 1
                 neu -= 1
+            elif not zeile.startswith("\\"):
+                return {}, ("NOT MEASURABLE: the diff lost the count of a hunk, a line in an open "
+                            "hunk is no line of it")
             continue
         if zeile.startswith(("+++ b/", '+++ "b/')):
             datei = _git_path(zeile[4:])[2:]

@@ -90,9 +90,23 @@ def _git(*args: str, cwd: Path) -> str:
     proc = subprocess.run(["git", "-C", str(cwd), *args],
                           capture_output=True, text=True)
     if proc.returncode != 0:
-        raise SystemExit(f"mutant_signature_guard: git {' '.join(args[:2])} failed (fail closed): "
+        raise SystemExit(f"mutant_signature_guard: git {' '.join(_subcommand(args))} failed (fail closed): "
                          f"{proc.stderr.strip()[:200]}")
     return proc.stdout
+
+
+def _subcommand(args: tuple[str, ...]) -> tuple[str, ...]:
+    """The subcommand and its first argument, past the `-c key=value` pairs before it: with the pairs
+    in front the message named `-c core.quotePath=true` instead of the command (counter-reading of
+    pull request 415, F8)."""
+    i = 0
+    while i + 1 < len(args) and args[i] == "-c":
+        i += 2
+    return args[i:i + 2]
+
+
+class DiffNotReadable(Exception):
+    """The diff lost the count of a hunk: a line in an open hunk is no line of it. Fail closed, exit 2."""
 
 
 #: The C escapes git writes inside a quoted path, besides octal `\ooo` for a byte.
@@ -144,12 +158,19 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
     scope. `splitlines()` also split at a form feed, and an added `\x0cif False:`, which Python reads
     as `if False:`, reached the parser as `+` and an unmarked `if False:`. The hunk header counts the
     lines of its hunk; inside them a line is a line of the hunk, whatever it begins with.
+
+    A LINE THE HUNK CANNOT HOLD ENDS THE READING (counter-reading of pull request 415, F1, P2). With
+    `diff.suppressBlankEmpty` git writes an empty context line as an empty line; it counted on neither
+    side, the hunk stayed open, the next file's header was taken as hunk content, and a staged
+    `if False:` under it was reported clean with exit 0. The guard asks for its diff in a fixed form
+    now (`_DIFF_FORM`), and a line in an open hunk that begins with none of `+`, `-`, ` ` and `\\`, or
+    a diff that ends inside a hunk, raises DiffNotReadable instead of being passed over.
     """
     out: dict[str, list[tuple[int, str]]] = {}
     current: str | None = None
     lineno = 0
     alt = neu = 0  # lines of the open hunk still to come, on the old side and on the new side
-    for raw in diff_text.split("\n"):
+    for nr, raw in enumerate(diff_text.split("\n"), start=1):
         if alt > 0 or neu > 0:
             if raw.startswith("+"):
                 if current is not None:
@@ -162,7 +183,10 @@ def _added_lines_by_file(diff_text: str) -> dict[str, list[tuple[int, str]]]:
                 lineno += 1
                 alt -= 1
                 neu -= 1
-            continue  # `\ No newline at end of file` counts on neither side
+            elif not raw.startswith("\\"):  # `\ No newline at end of file` counts on neither side
+                raise DiffNotReadable(f"line {nr} of the diff stands in an open hunk and is no line of it "
+                                      f"({alt} old and {neu} new lines of the hunk still to come)")
+            continue
         if raw.startswith("+++ "):
             path = _git_path(raw[4:])
             current = None if path == "/dev/null" else path.removeprefix("b/")
@@ -295,10 +319,23 @@ _HEADER_PREFIXES = ("--src-prefix=a/", "--dst-prefix=b/")
 #: line split. The guard reads the form its tests prove, whatever the configuration says.
 _QUOTED = ("-c", "core.quotePath=true")
 
+#: THE FORM OF THE HUNKS IS NAMED TOO, NOT TAKEN FROM THE CONFIGURATION OR THE ATTRIBUTES
+#: (counter-reading of pull request 415, F1 and F2, P2). `diff.interHunkContext` joins two changes into
+#: one hunk across a context line, and `diff.suppressBlankEmpty` writes that line empty when it is
+#: empty, which lost the hunk count (see `_added_lines_by_file`). An external diff program
+#: (`GIT_EXTERNAL_DIFF`, `diff.external`, the command of a diff driver), the text conversion of a
+#: driver, or a `-diff` attribute made git print no hunk at all, so the guard reported clean over a
+#: diff it had not read; a `-diff` line in a tracked `.gitattributes` was enough. `--no-color` stood
+#: here alone and not in the language gate, which `color.ui=always` blinded the same way. The language
+#: gate asks for its diff with the same two tuples. Measured with git 2.55.0, each setting against
+#: both; a setting from `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS` does not win over `-c`.
+_DIFF_FORM = ("-c", "diff.interHunkContext=0", "-c", "diff.suppressBlankEmpty=false")
+_DIFF_SWITCHES = ("--no-color", "--no-ext-diff", "--no-textconv", "--text")
+
 
 def run_staged(cwd: Path) -> list[str]:
-    diff = _git(*_QUOTED, "diff", "--cached", "-U0", "--no-color", *_HEADER_PREFIXES, "--",
-                "src/proofbundle", cwd=cwd)
+    diff = _git(*_QUOTED, *_DIFF_FORM, "diff", "--cached", "-U0", *_DIFF_SWITCHES,
+                *_HEADER_PREFIXES, "--", "src/proofbundle", cwd=cwd)
     return scan(diff, staged=True, cwd=cwd)
 
 
@@ -308,8 +345,8 @@ def run_base(base: str, cwd: Path) -> list[str]:
         print("mutant_signature_guard: no usable base commit (root commit / unknown sha) — "
               "nothing to diff, scan skipped honestly")
         return []
-    diff = _git(*_QUOTED, "diff", "-U0", "--no-color", *_HEADER_PREFIXES, resolved, "HEAD", "--",
-                "src/proofbundle", cwd=cwd)
+    diff = _git(*_QUOTED, *_DIFF_FORM, "diff", "-U0", *_DIFF_SWITCHES, *_HEADER_PREFIXES,
+                resolved, "HEAD", "--", "src/proofbundle", cwd=cwd)
     return scan(diff, staged=False, cwd=cwd)
 
 
@@ -396,6 +433,15 @@ def self_test() -> int:
         print(f"  {'ok  ' if caught else 'FAIL'} [A: a security path git quotes (non-ASCII name)] "
               f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
         failures += 0 if caught else 1
+        # a `-diff` attribute makes git print no hunk; the guard asks for text (415 counter-reading, F2)
+        quoted.unlink()
+        (repo / ".gitattributes").write_text("*.py -diff\n", encoding="utf-8")
+        target.write_text(_CASES[0][1], encoding="utf-8")
+        _git("add", "-A", cwd=repo)
+        caught = bool(run_staged(repo))
+        print(f"  {'ok  ' if caught else 'FAIL'} [A: a `-diff` attribute does not hide the change] "
+              f"{'caught' if caught else 'quiet'} ({'expected' if caught else 'UNEXPECTED'})")
+        failures += 0 if caught else 1
     print(f"self-test: {'OK' if failures == 0 else f'FAILED ({failures})'}")
     return 0 if failures == 0 else 1
 
@@ -414,7 +460,11 @@ def main(argv: list[str] | None = None) -> int:
     if a.self_test:
         return self_test()
     repo = _repo_root()
-    findings = run_staged(repo) if a.staged else run_base(a.base, repo)
+    try:
+        findings = run_staged(repo) if a.staged else run_base(a.base, repo)
+    except DiffNotReadable as exc:
+        print(f"mutant_signature_guard: NOT MEASURABLE (fail closed): {exc}")
+        return 2
     if findings:
         print("mutant_signature_guard: BLOCKED: mutation-mutant signature(s) on security paths:")
         for f in findings:

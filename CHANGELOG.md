@@ -82,6 +82,18 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   (`scripts/audit_candidate_matrix.py`), and the mutation gate and the release renderer decode a
   name that is not UTF-8 as Python decodes a file name (`scripts/mutation_check.py`,
   `scripts/render_release.py`).
+- Repository tools, after the counter-reading of pull request 415. The mutant guard and the language
+  gate ask git for their diff in a fixed form: `diff.interHunkContext=0` and
+  `diff.suppressBlankEmpty=false` on the command line, and `--no-color`, `--no-ext-diff`,
+  `--no-textconv` and `--text`. With the two settings in a session's configuration, an empty context
+  line between two changes lost the hunk count, and the guard reported clean over a staged `if
+  False:`, the language gate green over a German line. An external diff program, the text conversion
+  of a diff driver or a `-diff` attribute, which a tracked `.gitattributes` can set, made git print
+  no hunk, and both reported clean over a diff they had not read, and `color.ui=always` did the same
+  to the language gate, which asked without `--no-color`. A line an open hunk cannot hold now makes
+  the guard exit 2 and the language gate report NOT MEASURABLE, instead of being passed over
+  (`scripts/mutant_signature_guard.py`, `scripts/neue_zeilen_sind_englisch.py`). The guard's
+  self-test plants a `-diff` attribute, and its error message names the git subcommand again.
 
 ## [6.3.1] - 2026-10-21
 
