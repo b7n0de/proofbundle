@@ -1179,14 +1179,17 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
             return None, f"git merge-base failed here (exit {vorfahr.returncode})"
         if vorfahr.returncode == 1:
             return False, "the bound commit is not an ancestor of HEAD"
+        # -z AND AS BYTES (counter-reading of pull request 375, F8, P3): read line by line with
+        # `strip()`, a name with a space at its edge, which git does not quote, matched the evidence
+        # set, and a lookalike counted as a commit of the evidence file itself.
         geaendert = subprocess.run(
-            ["git", "-C", str(repo), "diff", "--name-only", gebunden, live],
-            capture_output=True, text=True, timeout=10)
+            ["git", "-C", str(repo), "diff", "--name-only", "-z", gebunden, live],
+            capture_output=True, timeout=10)
         if geaendert.returncode != 0:
             return None, f"git diff --name-only failed here (exit {geaendert.returncode})"
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"git is not usable here ({type(exc).__name__})"
-    pfade = {ln.strip() for ln in geaendert.stdout.splitlines() if ln.strip()}
+    pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
