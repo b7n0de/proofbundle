@@ -71,7 +71,13 @@ SETTINGS = [
 
 @pytest.fixture(autouse=True)
 def _git_defaults(tmp_path, monkeypatch):
-    """git as it ships: no global or system configuration, so each case sets only what it plants."""
+    """git as it ships: no global or system configuration, so each case sets only what it plants.
+
+    And no git name that something earlier in the same process left behind. `scripts/pre_tag_receipt.py` clears every
+    `GIT_` name and sets `GIT_NO_REPLACE_OBJECTS=1` when it is imported, and a test of another file imports it; after
+    that the premise of F5 failed in the same pytest worker, because plain git no longer read the replacement ref."""
+    for key in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key)
     empty = tmp_path / "empty-gitconfig"
     empty.write_text("", encoding="utf-8")
     for key, value in {"GIT_CONFIG_GLOBAL": str(empty), "GIT_CONFIG_NOSYSTEM": "1",
