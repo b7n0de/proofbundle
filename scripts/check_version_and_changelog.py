@@ -46,8 +46,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -552,7 +554,9 @@ def _semver_tuple(v: str) -> tuple:
     return haupt + vorab_key + (post_key, dev_key)
 
 
-def check(repo: Path) -> list[str]:
+def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> list[str]:
+    """The problems of checks 1 to 4 and 6. `nicht_gemessen`, when given, receives (check, reason)
+    for each check that could not look, so the summary line names it instead of claiming it."""
     problems: list[str] = []
     pv, iv, cv = _pyproject_version(repo), _init_version(repo), _citation_version(repo)
 
@@ -576,6 +580,8 @@ def check(repo: Path) -> list[str]:
     last_tag_raw, tag_note = _last_release_tag(repo)
     if not last_tag_raw:
         print(f"check_version_and_changelog: NOTE post-tag-drift check skipped ({tag_note})")
+        if nicht_gemessen is not None:
+            nicht_gemessen.append((3, f"post-tag drift ({tag_note})"))
     else:
         last_tag = last_tag_raw.lstrip("v")
         rc2, log = _git(repo, "log", "--format=%s", f"{last_tag_raw}..HEAD")
@@ -592,15 +598,34 @@ def check(repo: Path) -> list[str]:
     # 6. Places that state a current version without being declared
     if version:
         problems.extend(check_tracked_places(repo, version, herkunft))
-        problems.extend(check_undeclared_places(repo))
+        problems.extend(check_undeclared_places(repo, nicht_gemessen=nicht_gemessen))
     return problems
 
 
-def _tracked_files(repo: Path) -> list[str]:
+def _tracked_files(repo: Path) -> list[str] | None:
     """Tracked files only. An untracked scratch file is not a claim this repo makes — reading one as
-    a repo statement is the same defect this gate reports about numbers."""
-    rc, out = _git(repo, "ls-files")
-    return out.splitlines() if rc == 0 else []
+    a repo statement is the same defect this gate reports about numbers.
+
+    READ WITH -z (2026-09-26, measured in a throwaway repository). Without it git quotes a path
+    that holds a byte outside ASCII (`"docs/pr\\303\\274fung.md"`), that name opens no file, and
+    the file was skipped as unreadable: a current-release claim in `docs/plain.md` was reported,
+    the same claim in `docs/prüfung.md` was not. With -z git writes every path as it is.
+
+    AND AS BYTES, decoded the way Python decodes a file name. Through `_git`, which decodes as text,
+    a name that is not UTF-8 raised in the decoder, `_git` turned that into an empty answer, and the
+    sweep read no file at all; the quoted form had kept that from happening, because it is ASCII.
+
+    NONE WHEN GIT DOES NOT LIST, NOT AN EMPTY LIST (counter-reading of pull request 375, F9, P2).
+    An empty answer read as "no tracked file", Check 6 swept nothing, and the run printed OK with
+    "no undeclared place claiming a current version" over a tree it never read. None is the
+    NICHT MESSBAR signal, as in the sibling `audit_output_aufloesbar._tracked_files`."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, timeout=15)
+    except Exception:  # noqa: BLE001
+        return None
+    if r.returncode != 0:
+        return None
+    return [os.fsdecode(pfad) for pfad in r.stdout.split(b"\0") if pfad]
 
 
 #: Line-continuation markers of the shells an install instruction is written for: POSIX shells
@@ -749,7 +774,8 @@ def _versionsgebundene_stellen(repo: Path, version: str | None) -> list:
              "every `proofbundle==X.Y.Z` pin in the release notes of the source version")]
 
 
-def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
+def check_undeclared_places(repo: Path, version: str | None = None,
+                            nicht_gemessen: list[tuple[int, str]] | None = None) -> list[str]:
     """Find "this is the current release" claims outside _TRACKED_PLACES.
 
     Check 4 watches the places somebody declared. This one watches for places nobody did: a sentence
@@ -787,7 +813,21 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
     for rel_d, pattern_d, _ in _TRACKED_PLACES + _versionsgebundene_stellen(repo, version):
         declared_patterns.setdefault(rel_d, []).append(pattern_d)
     problems: list[str] = []
-    for rel in _tracked_files(repo):
+    dateien = _tracked_files(repo)
+    if dateien is None:
+        # A TREE WITHOUT GIT IS NOT MEASURABLE, A CHECKOUT GIT CANNOT LIST IS A FAILURE (counter-
+        # reading of pull request 375, F9). An unpacked tree has no tracked files to ask about, and
+        # this gate says so as it does for Check 3. A checkout that carries `.git` and still gets no
+        # list (a refused ownership, a broken index) is a measurement that failed, and it fails.
+        if (repo / ".git").exists():
+            return [f"{repo}: check 6 is {NICHT_MESSBAR}: `git ls-files` did not list the tracked "
+                    f"files of this checkout, so no file was swept for an undeclared current-version "
+                    f"claim"]
+        print("check_version_and_changelog: NOTE undeclared-places check skipped (no git repository)")
+        if nicht_gemessen is not None:
+            nicht_gemessen.append((6, "undeclared places (no git repository)"))
+        return problems
+    for rel in dateien:
         if rel.startswith(_SWEEP_EXCLUDE_PREFIXES):
             continue
         angemeldet = declared_patterns.get(rel, [])
@@ -904,6 +944,12 @@ def check_external(version: str, timeout: float = 15.0,
 
 
 def main() -> int:
+    # A path is read as git names it (-z, os.fsdecode), so a name that is not UTF-8 carries
+    # surrogates, and a strict stdout raised on one with exit 1, the exit code of a finding
+    # (measured 2026-09-26 on all four path readers). Backslash escapes instead: in JSON they are
+    # the escape of the same code point, so the name reads back as it was.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description="proofbundle release-integrity gate")
     ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
     ap.add_argument("--external", action="store_true",
@@ -913,7 +959,8 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=15.0, help="per-request timeout for --external")
     a = ap.parse_args()
     repo = Path(a.repo).resolve()
-    problems = check(repo)
+    intern_offen: list[tuple[int, str]] = []
+    problems = check(repo, intern_offen)
 
     version, herkunft = _source_version(repo)
 
@@ -941,9 +988,19 @@ def main() -> int:
     # The number names its object and its source, here too: an OK line that does not say WHICH
     # version was verified leaves the reader to assume one.
     quelle = f"source version {version}, read from {herkunft}"
-    geprueft = ("single-sourced across pyproject.toml/__init__.py/CITATION.cff, tracked places "
-                "current, changelog carries the section, no undelivered post-tag drift, "
-                "no undeclared place claiming a current version")
+    # ONLY WHAT WAS LOOKED AT (counter-reading of pull request 375, F9): the line named Checks 3 and
+    # 6 as passed when they had been skipped, and a reader of the summary takes it as the verdict.
+    offen_nr = {nr for nr, _ in intern_offen}
+    teile = ["single-sourced across pyproject.toml/__init__.py/CITATION.cff",
+             "tracked places current", "changelog carries the section"]
+    if 3 not in offen_nr:
+        teile.append("no undelivered post-tag drift")
+    if 6 not in offen_nr:
+        teile.append("no undeclared place claiming a current version")
+    geprueft = ", ".join(teile)
+    if intern_offen:
+        geprueft += (f". NOT measured ({NICHT_MESSBAR}): "
+                     + "; ".join(f"check {nr}, {grund}" for nr, grund in intern_offen))
     if not aussen:
         print(f"check_version_and_changelog: OK — {quelle}; {geprueft}. "
               f"External surfaces NOT checked (neither --external nor --require-external given).")

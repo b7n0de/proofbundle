@@ -452,3 +452,21 @@ def test_an_unreadable_exception_file_is_not_measurable(tmp_path, broken):
     rc = gate.main(["--root", str(root), "--modules-file", str(modules_file),
                     "--exceptions-file", str(exceptions_file)])
     assert rc == 2
+
+
+def test_measure_leaves_the_recursion_limit_as_it_found_it(tmp_path):
+    """The gate raises the recursion limit while it reads deeply nested source, and a caller in the same process
+    gets its own limit back. Measured on 2026-10-22 at 1491a073: after this file had run in a pytest worker, the
+    limit stayed at 6000, and 15 subtests of tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py and
+    tests/test_every_validator_refuses_what_its_schema_refuses.py that expect a RecursionError failed in that
+    worker. The value 1500 is set first so that a limit some earlier caller left behind cannot pass the case."""
+    before = sys.getrecursionlimit()
+    sys.setrecursionlimit(1500)
+    try:
+        run(tmp_path, {"core.py": "X = 1\n"})
+        main_root, main_modules, main_exceptions = build(tmp_path / "main", {"core.py": "X = 1\n"})
+        gate.main(["--root", str(main_root), "--modules-file", str(main_modules),
+                   "--exceptions-file", str(main_exceptions)])
+        assert sys.getrecursionlimit() == 1500
+    finally:
+        sys.setrecursionlimit(before)

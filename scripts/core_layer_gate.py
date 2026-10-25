@@ -19,10 +19,14 @@ WHAT IT MEASURES, at the tree it runs in:
    eval and exec, dynamic import, and dynamic access that cannot be resolved statically. Every name is
    resolved in its own lexical scope, as Python resolves it, and alias forms are resolved before the
    check: `import os as o`, `from os import getenv as g`, `import builtins`,
-   `reader = open`, and `getattr(x, "read_bytes")` with a literal name. A `getattr`, `setattr`,
-   `delattr` or `hasattr` with a computed name is a finding of its own, because the gate cannot say
-   what it reaches. A method whose name is a file method (`read_bytes`, `open`, `read`, ...) on a
-   receiver the gate cannot resolve is a file finding: the gate cannot prove the receiver is no file.
+   `reader = open`, and `getattr(x, "read_bytes")` with a literal name. A name that another module of
+   the package binds is followed there, so a re-export (`from .other import os`) and a star import
+   resolve to what the other module bound. A `getattr`, `setattr`, `delattr` or `hasattr` with a
+   computed name is a finding of its own, because the gate cannot say what it reaches. The same holds
+   for the methods `__getattribute__`, `__setattr__` and `__delattr__` that every object has, and for
+   any of these handed on as a value instead of called. A method whose name is a file method
+   (`read_bytes`, `open`, `read`, ...) on a receiver the gate cannot resolve is a file finding: the
+   gate cannot prove the receiver is no file.
    The same holds for the path methods that read the working or the home directory (`resolve`,
    `absolute`, `expanduser`): on such a receiver they are an environment finding.
 
@@ -50,6 +54,7 @@ import argparse
 import ast
 import builtins
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -123,9 +128,15 @@ _FILE_METHODS = frozenset((
 # Path methods that read the working directory or the home directory, judged the same way on a receiver
 # the gate cannot resolve: `Path("x").resolve()` names no qualified receiver.
 _ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser"))
-_DYNAMIC_ATTRIBUTE_CALLS = ("builtins.getattr", "builtins.setattr", "builtins.delattr",
-                            "builtins.hasattr")
 _BUILTIN_NAMES = frozenset(dir(builtins))
+#: What an expression may stand for that the gate cannot name, beside the names it can (`getattr(os, "path", h)`
+#: is `os.path` or whatever `h` is). It matches no rule, and a receiver that may be it counts as unresolved.
+_UNRESOLVED = "<unresolved>"
+
+
+def _resolved(quals) -> bool:
+    """Whether every name an expression may stand for is known: at least one, and no unresolved alternative."""
+    return bool(quals) and _UNRESOLVED not in quals
 
 
 def _is_ruled_builtin(name: str) -> bool:
@@ -209,16 +220,37 @@ def parse(path: Path) -> ast.Module:
 _TYPING_MODULES = ("typing", "typing_extensions")
 
 
-def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
+def _binds(node: ast.AST) -> list[str]:
+    """The names a node binds that are no import: an assignment or deletion, a parameter, a def or a class, an
+    exception name, a match capture and a type parameter."""
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return [node.id]
+    if isinstance(node, ast.arg):
+        return [node.arg]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return [node.name]
+    if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+        return [node.name]
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return [node.rest]
+    name = getattr(node, "name", None) if type(node).__name__ in ("TypeVar", "ParamSpec", "TypeVarTuple") else None
+    return [name] if isinstance(name, str) else []
+
+
+def type_checking_guards(tree: ast.AST, modname: str = "", is_pkg: bool = False,
+                         package: "_Package | None" = None) -> tuple[frozenset[str], frozenset[str]]:
     """The names that really are `typing.TYPE_CHECKING` in this module: (bare names, module aliases).
 
     A bare name counts only when `from typing import TYPE_CHECKING [as X]` binds it and nothing else
     in the module binds it; a module alias counts only when `import typing [as t]` binds it and nothing
-    else does. Anything else that merely ends in TYPE_CHECKING is ordinary code and runs.
+    else does. Anything else that merely ends in TYPE_CHECKING is ordinary code and runs. Every binding
+    counts, an exception name and a match capture as well (`case typing:` binds the subject), and a star
+    import from any module but typing may bind any name, so after one no guard of the module counts.
     """
     names: set[str] = set()
     modules: set[str] = set()
     other: dict[str, int] = {}
+    star = False
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in _TYPING_MODULES:
             for a in node.names:
@@ -228,6 +260,7 @@ def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]
                     other[a.asname or a.name] = 1
         elif isinstance(node, ast.ImportFrom):
             for a in node.names:
+                star = star or a.name == "*"
                 other[a.asname or a.name] = 1
         elif isinstance(node, ast.Import):
             for a in node.names:
@@ -236,89 +269,447 @@ def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]
                     modules.add(bound)
                 else:
                     other[bound] = 1
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            other[node.id] = 1
-        elif isinstance(node, ast.arg):
-            other[node.arg] = 1
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            other[node.name] = 1
-    if type_checking_may_change(tree):
+        else:
+            for bound in _binds(node):
+                other[bound] = 1
+    # THE MODULE IS JUDGED IN ITS PACKAGE (Codex on pull request 395, round three, P2): asked without its name and
+    # its package, a reader the module imports from another module of the package was no reader, so a dotted name
+    # handed to it counted as a write here although the package-wide check of `measure` had found none.
+    if star or type_checking_may_change(tree, modname, is_pkg, package):
         return frozenset(), frozenset()
     return frozenset(names - set(other)), frozenset(modules - set(other))
 
 
-_ATTRIBUTE_WRITERS = ("setattr", "delattr")
-#: The calls that hand out a namespace mapping, whose entries are a module's names (`vars`, `globals`, `locals`).
-_NAMESPACE_CALLS = ("vars", "globals", "locals")
 #: The methods of a namespace mapping that only read it. A positive list on purpose: the writing methods are
 #: many (update, setdefault, `__setitem__`, pop, clear and more), and a list of them would hold only the ones
 #: somebody thought of.
 _NAMESPACE_READS = frozenset({"get", "keys", "items", "values", "copy", "__contains__", "__getitem__", "__len__",
                               "__iter__"})
-#: Builtins that read a namespace they are handed and keep no reference to it.
-_NAMESPACE_READING_CALLS = ("len", "list", "tuple", "sorted", "set", "frozenset", "dict", "iter")
+#: Methods of a string: a string handed to one is read, whatever it says.
+_STRING_READS = frozenset({"startswith", "endswith", "find", "rfind", "index", "rindex", "count", "split", "rsplit",
+                           "partition", "rpartition", "strip", "lstrip", "rstrip", "removeprefix", "removesuffix"})
+#: Callables, by the name they resolve to, that read what they are handed and keep no reference that can write it.
+#: Resolved, not matched by spelling: a module's own `def sorted(m): m[...] = True` is no reader.
+_READING_CALLS = frozenset(
+    {f"builtins.{n}" for n in ("len", "list", "tuple", "sorted", "set", "frozenset", "dict", "iter", "bool", "repr",
+                               "str", "ascii", "print", "isinstance", "id", "type", "hash", "format", "any", "all",
+                               "min", "max", "sum", "enumerate", "zip", "reversed", "callable", "dir")}
+    | {f"builtins.dict.{m}" for m in _NAMESPACE_READS}
+    | {"json.dumps", "pprint.pformat", "pprint.pprint", "copy.copy", "copy.deepcopy", "reprlib.repr",
+       "inspect.getmembers", "inspect.ismodule", "inspect.isclass", "types.MappingProxyType"})
+#: Builtin types: an object one of them builds is no module.
+_BUILTIN_TYPES = frozenset(f"builtins.{n}" for n in (
+    "dict", "list", "set", "frozenset", "tuple", "str", "bytes", "bytearray", "int", "float", "complex", "bool",
+    "object", "type", "super", "range", "slice", "memoryview"))
+#: The functions that read, test, set or delete an attribute by its name, under the name they resolve to.
+_ATTRIBUTE_FUNCTIONS = {"builtins.getattr": "get", "builtins.hasattr": "has", "builtins.setattr": "set",
+                        "builtins.delattr": "del"}
+#: The same as methods every object has: kind, and the number of arguments when the method is bound.
+_ATTRIBUTE_METHODS = {"__getattribute__": ("get", 1), "__setattr__": ("set", 2), "__delattr__": ("del", 1)}
+_NAMESPACE_FUNCTIONS = ("builtins.vars", "builtins.globals", "builtins.locals")
+#: Attributes that hand out the namespace of a module: a function's globals, a frame's globals and locals.
+_MODULE_NAMESPACE_ATTRIBUTES = ("__globals__", "f_globals", "f_locals")
+#: Every attribute that hands out a namespace; in the core each one is dynamic access as `x.__dict__` is.
+_NAMESPACE_ATTRIBUTES = ("__dict__", *_MODULE_NAMESPACE_ATTRIBUTES)
+#: Calls whose result is a module chosen by name.
+_MODULE_CALLS = ("importlib.import_module", "importlib.__import__", "builtins.__import__", "sys.modules.get",
+                 "importlib.reload", "inspect.getmodule", "pkgutil.resolve_name")
+#: Methods that write the mapping they are called on.
+_MAPPING_WRITES = frozenset({"update", "setdefault", "__setitem__", "__delitem__", "pop", "popitem", "__ior__",
+                             "__init__"})
+#: The flag by its own name, or as the last part of a dotted name: `"typing.TYPE_CHECKING"`, `"typing:TYPE_CHECKING"`.
+_FLAG = re.compile(r"(?:[\w.]*[.:])?TYPE_CHECKING")
+#: Callables, by the name they resolve to, that format a string they are handed as text and never take it for the
+#: name of something to set (Codex on PR 395, round two, P2). Only for that string: they keep their arguments.
+_TEXT_SINKS = frozenset({f"logging.{n}" for n in ("debug", "info", "warning", "error", "critical", "exception", "log")}
+                        | {"warnings.warn"})
 
 
-def _is_namespace(node: ast.AST) -> bool:
-    """A read of `<expr>.__dict__`, or a call of `vars`, `globals` or `locals`."""
-    if isinstance(node, ast.Attribute):
-        return node.attr == "__dict__" and isinstance(node.ctx, ast.Load)
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _NAMESPACE_CALLS
+def _attribute_call(node: ast.Call, quals) -> tuple[str, str, ast.expr | None, ast.expr | None, bool] | None:
+    """(kind, label, receiver, name, unknown) of a call that reads, tests, sets or deletes an attribute by name:
+    getattr, hasattr, setattr and delattr under any name they are bound to, and `__getattribute__`, `__setattr__`
+    and `__delattr__` called on the object (`typing.__setattr__(n, v)`), on a class with the object first
+    (`object.__setattr__(typing, n, v)`), through `__call__`, or under a name taken from the object
+    (`from typing import __setattr__ as put`, where the receiver is None because the gate holds no expression for
+    it). `unknown` says the gate cannot tell which argument is the receiver or the name (a starred argument, another
+    number of arguments); None for any other call."""
+    f = node.func
+    while isinstance(f, ast.Attribute) and f.attr == "__call__":    # `getattr.__call__(x, n)` is the same call
+        f = f.value
+    starred = any(isinstance(a, ast.Starred) for a in node.args)
+    found = quals(f)
+    for q in found:
+        kind = _ATTRIBUTE_FUNCTIONS.get(q)
+        if kind:
+            label = q.rpartition(".")[2]
+            if starred:
+                return kind, label, None, None, True
+            return kind, label, (node.args[0] if node.args else None), \
+                (node.args[1] if len(node.args) > 1 else None), False
+    if isinstance(f, ast.Attribute) and f.attr in _ATTRIBUTE_METHODS:
+        kind, bound = _ATTRIBUTE_METHODS[f.attr]
+        if not starred and not node.keywords:
+            if len(node.args) == bound:
+                return kind, f.attr, f.value, node.args[0], False
+            if len(node.args) == bound + 1:
+                return kind, f.attr, node.args[0], node.args[1], False
+        return kind, f.attr, None, None, True
+    for q in found:
+        method = q.rpartition(".")[2]
+        if "." in q and method in _ATTRIBUTE_METHODS:
+            kind, bound = _ATTRIBUTE_METHODS[method]
+            name = None if starred or node.keywords else node.args[0] if len(node.args) == bound \
+                else node.args[1] if len(node.args) == bound + 1 else None
+            return kind, method, None, name, name is None
+    return None
 
 
-def _namespace_only_read(node: ast.AST, parent: ast.AST | None) -> bool:
-    """Whether this use of a namespace mapping can only read it: an item read, a method of _NAMESPACE_READS, an
-    `in` test, the iterable of a loop, or an argument of a reading builtin. Every other use, a writing method, a
-    method taken as a value or the mapping bound to a name or handed to a call, may write TYPE_CHECKING."""
-    if isinstance(parent, ast.Subscript) and parent.value is node:
-        return isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        return parent.attr in _NAMESPACE_READS
-    if isinstance(parent, ast.Compare):
-        return any(c is node for c in parent.comparators)
-    if isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)):
-        return parent.iter is node
-    if isinstance(parent, ast.Call) and any(a is node for a in parent.args):
-        return isinstance(parent.func, ast.Name) and parent.func.id in _NAMESPACE_READING_CALLS
-    return False
+def _literal(node: ast.AST | None) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
-def type_checking_may_change(tree: ast.AST) -> bool:
+def _mapping_value(subject: ast.expr | None, key: ast.expr) -> ast.expr | None:
+    """The value the key of a mapping pattern matches in a subject that is a dict written out, looked up as Python
+    looks it up: equal keys are one key (`1`, `1.0` and `True`), and the last of them wins. None when the gate cannot
+    read it: the subject is no dict display, a key is not a literal, or `**other` may bring the key in."""
+    if not isinstance(subject, ast.Dict):
+        return None
+    try:
+        wanted = ast.literal_eval(key)
+        found = None
+        for k, v in zip(subject.keys, subject.values):
+            if k is None:
+                return None
+            have = ast.literal_eval(k)
+            if hash(have) == hash(wanted) and have == wanted:
+                found = v
+        return found
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+
+
+class _ChangeScan:
+    """The forms by which one module may change `typing.TYPE_CHECKING`, as (form, line).
+
+    TYPE_CHECKING lives in a module: in typing, or as a module global where `from typing import TYPE_CHECKING`
+    bound it. So a write is a change in two cases. It NAMES the flag where it writes: an attribute TYPE_CHECKING set
+    or deleted, the flag as the key of an item set or deleted or as the name of an attribute set, as a key or a
+    keyword handed to a method that writes a mapping, or a dotted name that ends in it handed to any call
+    (`"typing.TYPE_CHECKING"` for a patch helper). The same string as data writes nothing. Or its name or key is one
+    the gate cannot read and the object written MAY BE A MODULE. An object may be a module unless the gate shows it
+    is none (`no_module`): the first try was a list of module spellings, and the lens on it reached a module through
+    `os.sys.modules`, `inspect.getmodule` and a class attribute. A namespace of such an object, the module's own
+    `globals()`, a function's `__globals__`, a frame's `f_globals` and `sys.modules` are judged from the read side:
+    every use that is not a read counts, and a namespace bound to a name is judged by every use of that name. A
+    setter, a getter or a namespace function handed on as a value, and the typing module itself handed on, count
+    too, because the gate does not see where they go.
+    """
+
+    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool, package: "_Package | None") -> None:
+        self.names = _Names(tree, modname, is_pkg, _NO_GUARDS, package)
+        self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        self.tree = tree
+        self._shown: dict[int, bool] = {}
+        self._loads: dict[tuple[int, str], list[ast.Name]] = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+                s = self.names.binding_scope_of(n)
+                if s is not None:
+                    self._loads.setdefault((id(s), n.id), []).append(n)
+
+    def no_module(self, expr: ast.expr | None, _open: set[int] | None = None) -> bool:
+        """Whether the object `expr` evaluates to is shown to be no module: a literal or a display, a lambda, an
+        object a builtin type or a class of this module builds, the first parameter of a method (`self`, `cls`), a
+        def or a class, or a name every binding of which is one of these. Everything else may be a module. A cycle
+        of assignments shows nothing; each expression is judged once."""
+        if expr is None:
+            return False
+        key = id(expr)
+        if key in self._shown:
+            return self._shown[key]
+        opened = set() if _open is None else _open
+        if key in opened:
+            return False
+        opened.add(key)
+        verdict = self._no_module(expr, opened)
+        self._shown[key] = verdict
+        return verdict
+
+    def _no_module(self, expr: ast.expr, opened: set[int]) -> bool:
+        if isinstance(expr, (ast.Constant, ast.JoinedStr, ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp,
+                             ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.Lambda)):
+            return True
+        if isinstance(expr, ast.Call):
+            quals = self.names.quals(expr.func)
+            if quals and all(q in _BUILTIN_TYPES for q in quals):
+                return True
+            if isinstance(expr.func, ast.Name):
+                s = self.names.binding_scope_of(expr.func)
+                return s is not None and expr.func.id in s.classes and s.stores.get(expr.func.id, 0) == 1 \
+                    and expr.func.id not in s.alias
+            return False
+        if isinstance(expr, ast.Name):
+            s = self.names.binding_scope_of(expr)
+            if s is None:
+                return expr.id in _BUILTIN_NAMES and expr.id != "__builtins__"
+            if expr.id in s.alias:
+                return False
+            # A PARAMETER HOLDS WHAT THE CALLER HANDED IN (counter-reading of pull request 395, F4, P1): it was no
+            # binding in this count, so `if m is None: m = {}` made a parameter "no module", and `setattr(m, n, True)`
+            # on the module a caller passed went unseen. Only the first parameter of a method stays no module.
+            if expr.id in s.params and expr.id != s.self_name:
+                return False
+            stores = s.stores.get(expr.id, 0)
+            if s.self_name == expr.id and stores == 0:
+                return True
+            if expr.id in s.defs and stores == 1:
+                return True
+            values = [v for n, v in s.assigns if n == expr.id]
+            return bool(values) and len(values) == stores and all(self.no_module(v, opened) for v in values)
+        return False
+
+    def may_be_module(self, expr: ast.expr | None) -> bool:
+        return not self.no_module(expr)
+
+    def is_typing(self, expr: ast.AST) -> bool:
+        if isinstance(expr, (ast.Name, ast.Attribute)):
+            return any(q in _TYPING_MODULES for q in self.names.quals(expr))
+        if isinstance(expr, ast.Subscript):
+            return "sys.modules" in self.names.quals(expr.value) and _literal(expr.slice) in _TYPING_MODULES
+        if isinstance(expr, ast.Call) and expr.args:
+            return any(q in _MODULE_CALLS for q in self.names.quals(expr.func)) \
+                and _literal(expr.args[0]) in _TYPING_MODULES
+        return False
+
+    def namespace_owner(self, node: ast.AST) -> tuple[bool, ast.expr | None] | None:
+        """(own, receiver) when the node hands out a namespace mapping, None otherwise. `own` means the namespace is
+        a module's for certain: the module's own, a function's globals, a frame's, or `sys.modules`."""
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            if node.attr == "__dict__":
+                return False, node.value
+            if node.attr in _MODULE_NAMESPACE_ATTRIBUTES:
+                return True, None
+        if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
+            quals = self.names.quals(node)
+            if "sys.modules" in quals or any(
+                    "." in q and q.rpartition(".")[2] in ("__dict__", *_MODULE_NAMESPACE_ATTRIBUTES) for q in quals):
+                return True, None
+        if isinstance(node, ast.Call):
+            quals = self.names.quals(node.func)
+            if "builtins.vars" in quals:
+                return (False, node.args[0]) if node.args else (True, None)
+            if "builtins.globals" in quals or "builtins.locals" in quals:
+                return True, None
+            call = _attribute_call(node, self.names.quals)
+            if call is not None and call[0] == "get" and _literal(call[3]) in ("__dict__", *_MODULE_NAMESPACE_ATTRIBUTES):
+                return False, call[2]
+        return None
+
+    def reads_only(self, node: ast.AST, _seen: set[int] | None = None) -> bool:
+        """Whether this use of a namespace mapping, or of a module, can only read it."""
+        up = self.parents.get(node)
+        if isinstance(up, ast.Subscript) and up.value is node:
+            return isinstance(up.ctx, ast.Load)
+        if isinstance(up, ast.Attribute) and up.value is node:
+            return up.attr in _NAMESPACE_READS
+        # An operator builds a new value from its operands (`vars(m) | extra`, `"%s" % vars(m)`), `yield from`
+        # hands on the keys, not the mapping.
+        if isinstance(up, (ast.Compare, ast.UnaryOp, ast.FormattedValue, ast.Expr, ast.Starred, ast.BinOp,
+                           ast.YieldFrom)):
+            return True
+        if isinstance(up, (ast.If, ast.While, ast.Assert)):
+            return up.test is node
+        if isinstance(up, ast.IfExp):
+            return up.test is node or self.reads_only(up, _seen)
+        if isinstance(up, ast.BoolOp):       # `ns or {}` hands the operand on as its value
+            return self.reads_only(up, _seen)
+        if isinstance(up, ast.comprehension):
+            return up.iter is node or any(c is node for c in up.ifs)
+        if isinstance(up, (ast.For, ast.AsyncFor)):
+            return up.iter is node
+        if isinstance(up, ast.Dict):
+            return any(k is None and v is node for k, v in zip(up.keys, up.values))
+        if isinstance(up, ast.keyword):
+            call = self.parents.get(up)
+            return up.arg is None or (isinstance(call, ast.Call) and self.calls_a_reader(call))
+        if isinstance(up, ast.Call) and up.func is not node:
+            return self.calls_a_reader(up)
+        if isinstance(up, (ast.Assign, ast.AnnAssign)) and up.value is node:
+            targets = up.targets if isinstance(up, ast.Assign) else [up.target]
+            if len(targets) == 1 and isinstance(targets[0], ast.Name):
+                return self._alias_reads_only(targets[0], _seen)
+        return False
+
+    def _alias_reads_only(self, target: ast.Name, _seen: set[int] | None) -> bool:
+        """A mapping bound to a name is read only when that is the name's one binding in its scope and every use of
+        the name reads it (`eigen = object.__getattribute__(x, "__dict__")` followed by `dict.items(eigen)`)."""
+        seen = set() if _seen is None else _seen
+        if id(target) in seen:
+            return False
+        seen.add(id(target))
+        s = self.names.binding_scope_of(target)
+        if s is None or s.stores.get(target.id, 0) != 1 or target.id in s.alias:
+            return False
+        return all(self.reads_only(use, seen) for use in self._loads.get((id(s), target.id), []))
+
+    def calls_a_reader(self, call: ast.Call) -> bool:
+        f = call.func
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Constant) and isinstance(f.value.value, str):
+            return f.attr in _STRING_READS or f.attr in ("join", "format")    # `",".join(...)` of a literal
+        quals = self.names.quals(f)
+        return bool(quals) and all(q in _READING_CALLS for q in quals)
+
+    def _writes_a_mapping(self, call: ast.AST | None) -> bool:
+        """A call of a method that writes the mapping it is called on: `m.update(...)`, `m.setdefault(...)`."""
+        return isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr in _MAPPING_WRITES
+
+    def writes_the_flag(self, node: ast.Constant) -> bool:
+        """Whether a string that names the flag stands where it is written: the key of an item set or deleted, the
+        name of an attribute set or deleted, a key handed to a method that writes a mapping (`m.update({...})`), or
+        a dotted name handed to any call (`patch("typing.TYPE_CHECKING", True)`). The same string as data, in a
+        list, a dict that stays where it is or a call that only reads, writes nothing (Codex on PR 395, P2). A
+        mapping that carries it into a module's namespace is judged where that namespace is used. A dotted name handed
+        to a callable that resolves to a reader (`print`, `json.dumps`) or to a text sink (`logging.info`,
+        `warnings.warn`) is text as well (round two, P2); any other callable, a parameter's method among them
+        (`monkeypatch.setattr("typing.TYPE_CHECKING", True)`), may set what it names."""
+        up = self.parents.get(node)
+        if isinstance(up, ast.Subscript) and up.slice is node:
+            return isinstance(up.ctx, (ast.Store, ast.Del))
+        if isinstance(up, ast.Call) and any(a is node for a in up.args):
+            call = _attribute_call(up, self.names.quals)
+            if call is not None and call[0] in ("set", "del"):
+                return call[3] is node or call[3] is None
+            # A callable that resolves to a reader or a text sink takes a dotted name as text (round two, P2).
+            quals = self.names.quals(up.func)
+            if self.calls_a_reader(up) or (bool(quals) and all(q in _TEXT_SINKS for q in quals)):
+                return False
+            return "." in node.value or ":" in node.value or self._writes_a_mapping(up)
+        if isinstance(up, ast.Dict) and any(k is node for k in up.keys):
+            holder = self.parents.get(up)
+            return self._writes_a_mapping(holder)
+        if isinstance(up, ast.Tuple):
+            pair, holder = self.parents.get(up), None
+            if isinstance(pair, (ast.List, ast.Tuple)):
+                holder = self.parents.get(pair)
+            return self._writes_a_mapping(holder)
+        return False
+
+    def setter_reaches_a_module(self, receiver: ast.expr | None) -> bool:
+        """A setter or getter bound to an object that may be a module, or one taken from a class that works on any
+        object it is handed (`object.__setattr__`, `type(x).__setattr__`)."""
+        if receiver is None or self.may_be_module(receiver):
+            return True
+        if isinstance(receiver, ast.Call):
+            return "builtins.type" in self.names.quals(receiver.func)
+        return any(q in ("builtins.object", "builtins.type") for q in self.names.quals(receiver))
+
+    def handed_on(self, node: ast.AST, up: ast.AST | None) -> bool:
+        """Whether a reference is handed on: not called, not read as an attribute holder, not only read, not re-bound
+        as a plain alias (the alias is resolved where it is used)."""
+        if isinstance(up, ast.Call) and up.func is node:
+            return False
+        if isinstance(up, ast.Attribute) and up.value is node:
+            return False
+        if isinstance(up, ast.Assign) and up.value is node and all(isinstance(t, ast.Name) for t in up.targets):
+            return False
+        return not self.reads_only(node)
+
+    def changes(self) -> list[tuple[str, int]]:
+        out: list[tuple[str, int]] = []
+        names = self.names
+        for node in ast.walk(self.tree):
+            line = getattr(node, "lineno", 0)
+            up = self.parents.get(node)
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                if node.attr == "TYPE_CHECKING":
+                    out.append(("TYPE_CHECKING set as an attribute", line))
+                elif node.attr == "__dict__" and self.may_be_module(node.value):
+                    out.append(("the namespace of an object that may be a module replaced", line))
+            elif isinstance(node, ast.keyword) and node.arg == "TYPE_CHECKING" and self._writes_a_mapping(up):
+                out.append(("TYPE_CHECKING as a keyword of a write", line))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and _FLAG.fullmatch(node.value) \
+                    and self.writes_the_flag(node):
+                out.append(("TYPE_CHECKING named by a write", line))
+            owner = self.namespace_owner(node)
+            if owner is not None and (owner[0] or self.may_be_module(owner[1])) and not self.reads_only(node) \
+                    and not (not owner[0] and self._handed_back(node, up, owner[1])):
+                out.append(("a namespace that may be a module's, used other than by reading", line))
+            if isinstance(node, ast.Call):
+                call = _attribute_call(node, names.quals)
+                if call is not None:
+                    kind, label, receiver, name, unknown = call
+                    attr = _literal(name)
+                    if kind in ("set", "del") and attr is None and self.setter_reaches_a_module(receiver):
+                        out.append((f"{label} with a name the gate cannot read, on an object that may be a module",
+                                    line))
+                    elif kind == "get" and attr in ("__setattr__", "__delattr__", "__getattribute__") \
+                            and self.setter_reaches_a_module(receiver):
+                        out.append((f"getattr of {attr}, on an object that may be a module", line))
+                if self.is_typing(node) and self.handed_on(node, up) and not self._judged_elsewhere(node, up):
+                    out.append(("the typing module handed on", line))
+            elif isinstance(node, (ast.Name, ast.Attribute, ast.Subscript)) and isinstance(node.ctx, ast.Load):
+                if isinstance(node, (ast.Name, ast.Attribute)) and self.handed_on(node, up):
+                    quals = names.quals(node)
+                    if any(q in ("builtins.setattr", "builtins.delattr", "builtins.getattr", *_NAMESPACE_FUNCTIONS)
+                           for q in quals):
+                        out.append(("an attribute or namespace function handed on as a value", line))
+                    elif isinstance(node, ast.Attribute) and node.attr in _ATTRIBUTE_METHODS \
+                            and self.setter_reaches_a_module(node.value):
+                        out.append((f"{node.attr} of an object that may be a module, handed on as a value", line))
+                if isinstance(node, ast.Attribute) and node.attr in _ATTRIBUTE_METHODS \
+                        and isinstance(up, ast.Assign) and up.value is node and self.setter_reaches_a_module(node.value):
+                    out.append((f"{node.attr} of an object that may be a module, bound to a name", line))
+                if self.is_typing(node) and self.handed_on(node, up) and not self._judged_elsewhere(node, up):
+                    out.append(("the typing module handed on", line))
+        return out
+
+    def _handed_back(self, node: ast.AST, up: ast.AST | None, receiver: ast.expr | None) -> bool:
+        """The namespace of a parameter returned or yielded to the caller, `return vars(x)`: the caller handed `x`
+        in and could take its namespace itself, so it gains nothing it did not hold. A namespace of any other
+        object, a module named by an import among them, is no such case."""
+        if not isinstance(up, (ast.Return, ast.Yield, ast.YieldFrom)) or not isinstance(receiver, ast.Name):
+            return False
+        s = self.names.binding_scope_of(receiver)
+        return s is not None and s.kind == "function" and receiver.id in s.local \
+            and s.stores.get(receiver.id, 0) == 0 and receiver.id not in s.alias and receiver.id not in s.defs
+
+    def _judged_elsewhere(self, node: ast.AST, up: ast.AST | None) -> bool:
+        """The module as the receiver of a namespace function or an attribute function: judged there."""
+        if not isinstance(up, ast.Call):
+            return False
+        if self.namespace_owner(up) is not None:
+            return True
+        call = _attribute_call(up, self.names.quals)
+        return call is not None and call[2] is node
+
+
+def type_checking_changes(tree: ast.AST, modname: str = "", is_pkg: bool = False,
+                          package: "_Package | None" = None) -> list[tuple[str, int]]:
+    """Every form by which this module may change `typing.TYPE_CHECKING`, as (form, line); see _ChangeScan."""
+    return _ChangeScan(tree, modname, is_pkg, package).changes()
+
+
+def type_checking_may_change(tree: ast.AST, modname: str = "", is_pkg: bool = False,
+                             package: "_Package | None" = None) -> bool:
     """Whether this module can change `typing.TYPE_CHECKING` at run time, so that no guard in it, or in any
     module run after it, is evidence of a body that never runs (CODEX-630-K6, sibling).
 
     `typing.TYPE_CHECKING = True` before `if typing.TYPE_CHECKING:` made the body run while the gate skipped it
-    as a type-checking block. Changes the gate sees: an assignment or deletion of any attribute named
-    TYPE_CHECKING, a `setattr` or `delattr` whose name is TYPE_CHECKING or not a literal, and every use of a
-    namespace mapping (`<expr>.__dict__`, `vars()`, `globals()`, `locals()`) that is not a read
-    (_namespace_only_read). The last part is judged from the read side (Codex on PR 393, P1): a write through a
-    method of the mapping, such as `typing.__dict__.update({...})`, made the guarded body run while the gate
-    still skipped it, and so did the same write through an alias of the mapping or through `globals()` for a
-    bare TYPE_CHECKING. What stays out of reach is a mapping reached without one of these spellings, such as
-    `object.__getattribute__(typing, "__dict__")`, and code the gate does not parse, such as a string run by exec.
+    as a type-checking block. Codex on PR 393 (P1) found the same through a method of the namespace,
+    `typing.__dict__.update({...})`. The lens on PR 393 (three P2, 6.3.1) found that the check knew one spelling
+    of each operation: `getattr(typing, "__dict__")`, `typing.__setattr__`, `object.__setattr__` and a renamed
+    `setattr` made the body run unseen, and a read such as `print(vars(x))` in any module of the package turned
+    every guard off. The lens on the first fix found more spellings it did not read, and a check whether an object
+    may be a module that was a list of module spellings. The forms are resolved as Python resolves the names, and
+    an object counts as a possible module unless it is shown to be none (_ChangeScan). A module whose form is
+    reviewed by name in the core list file (`type_checking_reviewed`, see measure) changes no guard.
+
+    What stays out of reach: an attribute read by a computed name from a module, `getattr(module, name)`, which
+    may hand out its namespace or its setter (the lazy table of proofbundle/__init__.py reads a module attribute
+    this way); a method called through its class with a module as its first argument (`C.f(typing)`, where `self`
+    counts as no module); and code the gate does not parse, such as a string run by exec.
     """
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
-    for node in ast.walk(tree):
-        if _is_namespace(node) and not _namespace_only_read(node, parents.get(node)):
-            return True
-        if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)) \
-                and node.attr in ("TYPE_CHECKING", "__dict__"):
-            return True
-        if isinstance(node, ast.Subscript) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            holder = node.value
-            if isinstance(holder, ast.Attribute) and holder.attr == "__dict__":
-                return True
-            if isinstance(holder, ast.Call) and isinstance(holder.func, ast.Name) and holder.func.id in _NAMESPACE_CALLS:
-                return True
-        if isinstance(node, ast.Call):
-            f = node.func
-            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
-            if name in _ATTRIBUTE_WRITERS:
-                arg = node.args[1] if len(node.args) >= 2 else None
-                if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)) \
-                        or arg.value == "TYPE_CHECKING":
-                    return True
-    return False
+    return bool(type_checking_changes(tree, modname, is_pkg, package))
 
 
 _NO_GUARDS: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
@@ -359,9 +750,12 @@ def _absolute(modname: str, is_pkg: bool, level: int, module: str | None) -> str
 
 
 def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str],
-               guards: tuple[frozenset[str], frozenset[str]] | None = None) -> list[tuple[str, int]]:
+               guards: tuple[frozenset[str], frozenset[str]] | None = None,
+               package: "_Package | None" = None) -> list[tuple[str, int]]:
     """(imported module, line) for every runtime import; parents of a dotted name come along."""
     found: list[tuple[str, int]] = []
+    if guards is None:
+        guards = type_checking_guards(tree, modname, is_pkg, package)
 
     def add(name: str, line: int) -> None:
         parts = name.split(".")
@@ -385,6 +779,7 @@ def imports_of(tree: ast.AST, modname: str, is_pkg: bool, known: set[str],
 
 def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
             trees: dict[str, ast.Module], guards: tuple[frozenset[str], frozenset[str]] | None = None,
+            whole: "_Package | None" = None,
             ) -> tuple[dict[str, set[str]], dict[str, dict[str, list[int]]]]:
     """The static closure: member -> roots reaching it, and per member its imports with lines."""
     reached: dict[str, set[str]] = {}
@@ -409,7 +804,7 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
                     queue.append(parent)
             if m not in trees:
                 trees[m] = parse(mods[m][0])
-            imp = imports_of(trees[m], m, mods[m][1], known, guards)
+            imp = imports_of(trees[m], m, mods[m][1], known, guards, whole)
             per = edges.setdefault(m, {})
             for target, line in imp:
                 per.setdefault(target, []).append(line)
@@ -420,7 +815,8 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
 
 # ── names and their resolution ─────────────────────────────────────────────────────────────────
 class _Scope:
-    __slots__ = ("kind", "parent", "alias", "local", "globals", "nonlocals", "assigns")
+    __slots__ = ("kind", "parent", "alias", "local", "globals", "nonlocals", "assigns", "stores", "defs",
+                 "classes", "self_name", "params", "comprehension")
 
     def __init__(self, kind: str, parent: "_Scope | None") -> None:
         self.kind = kind
@@ -430,6 +826,16 @@ class _Scope:
         self.globals: set[str] = set()
         self.nonlocals: set[str] = set()
         self.assigns: list[tuple[str, ast.expr]] = []
+        #: How often each name is bound here by a statement (not as a parameter), and which are a def or a class.
+        self.stores: dict[str, int] = {}
+        self.defs: set[str] = set()
+        self.classes: set[str] = set()
+        #: The first parameter of a method defined directly in a class body (`self`, `cls`), None elsewhere.
+        self.self_name: str | None = None
+        #: The parameters of a function scope: each holds what the caller handed in.
+        self.params: set[str] = set()
+        #: A comprehension: a function scope of its own, except for an assignment expression (PEP 572).
+        self.comprehension = False
 
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -445,42 +851,111 @@ class _Names:
     `import os; VALUE = os.getenv("X"); import math as os` read the environment before the re-binding,
     and the gate resolved the earlier use against the later alias (CODEX-630-K6). A use is judged
     against each binding it may meet. A function does not see the scope of the class it is defined
-    in; `global` sends a name to the module scope. Where a scope binds a name both ways, the alias wins,
+    in; `global` sends a name to the module scope, `nonlocal` to the nearest enclosing function that binds
+    it, while the value bound is read where it stands (the second counter-reading, F-A), and an assignment
+    expression in a comprehension binds in the scope around the comprehension
+    (PEP 572); the annotations of a function are read where they run, in the scope around it (the
+    counter-reading of pull request 395, F1, F2 and F5). Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
     builtin that a rule names, because there the builtin is used whenever the binding has not run.
     """
 
     def __init__(self, tree: ast.AST, modname: str, is_pkg: bool,
-                 guards: tuple[frozenset[str], frozenset[str]]) -> None:
-        self._modname, self._is_pkg, self._guards = modname, is_pkg, guards
+                 guards: tuple[frozenset[str], frozenset[str]], package: "_Package | None" = None) -> None:
+        self._modname, self._is_pkg, self._guards, self._package = modname, is_pkg, guards, package
         self.module = _Scope("module", None)
         self.scope_of: dict[int, _Scope] = {}
         self._scopes: list[_Scope] = [self.module]
+        #: The modules a star import of this module reads, absolute: each may bind any name it exports here.
+        self.stars: list[str] = []
+        #: Bindings under `nonlocal`, applied once the walk knows every binding of the enclosing functions.
+        self._deferred: list[tuple[_Scope, str, object]] = []
+        #: What an expression resolves to in a scope, kept once the aliases are final (None while they grow).
+        self._memo: dict[tuple[int, int, bool], set[str]] | None = None
         self._visit(tree, self.module)
+        for scope, name, apply in self._deferred:
+            apply(self._nonlocal_owner(scope, name))
         for _ in range(8):
             changed = False
             for s in self._scopes:
                 for name, value in s.assigns:
-                    new = self._quals(value, s) - s.alias.get(name, set())
+                    # THE VALUE IS READ WHERE IT STANDS (second counter-reading of pull request 395, F-A, P1): under
+                    # `global` or `nonlocal` the binding belongs to another scope, and the value was read there, where
+                    # a name only the inner function binds is nothing. `global _os; import os; _os = os` read the
+                    # environment unseen.
+                    new = self._quals(value, self.scope_of.get(id(value), s)) - s.alias.get(name, set())
                     if new:
                         s.alias.setdefault(name, set()).update(new)
                         changed = True
             if not changed:
                 break
+        self._memo = {}
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
         s = _Scope(kind, parent)
         self._scopes.append(s)
         return s
 
+    def _on(self, scope: _Scope, name: str, apply) -> None:
+        """Apply a binding of `name` made in `scope` to the scope that owns it: the module for `global`, the nearest
+        enclosing function that binds the name for `nonlocal`, the scope itself otherwise.
+
+        `nonlocal` WAS READ ON THE USE ONLY (counter-reading of pull request 395, F1, P1): the lookup followed it, the
+        binding stayed in the inner scope, so `nonlocal o; o = os` and then `o.getenv("X")` in the outer function read
+        the environment while the gate saw nothing. The owner is found after the walk, when every binding of the
+        enclosing functions is known, because the outer binding may stand after the inner function."""
+        if name in scope.globals:
+            apply(self.module)
+        elif name in scope.nonlocals:
+            self._deferred.append((scope, name, apply))
+        else:
+            apply(scope)
+
+    def _nonlocal_owner(self, scope: _Scope, name: str) -> _Scope:
+        s = scope.parent
+        while s is not None and s is not self.module:
+            if s.kind == "function" and name not in s.nonlocals and (name in s.local or name in s.alias):
+                return s
+            s = s.parent
+        # Python refuses a `nonlocal` no enclosing function binds; read it as the nearest enclosing function.
+        s = scope.parent
+        while s is not None and s is not self.module and s.kind != "function":
+            s = s.parent
+        return s if s is not None and s is not self.module else scope
+
     def _bind(self, scope: _Scope, name: str) -> None:
-        (self.module if name in scope.globals else scope).local.add(name)
+        def apply(target: _Scope, name: str = name) -> None:
+            target.local.add(name)
+            target.stores[name] = target.stores.get(name, 0) + 1
+        self._on(scope, name, apply)
+
+    def _assign(self, scope: _Scope, name: str, value: ast.expr) -> None:
+        self._on(scope, name, lambda t, n=name, v=value: t.assigns.append((n, v)))
+
+    def _walrus_home(self, scope: _Scope) -> _Scope:
+        """The scope an assignment expression binds in: out of every comprehension around it (PEP 572; the
+        counter-reading of pull request 395, F2, P1: `[(o := os) for _ in [0]]` bound `o` in the comprehension, and
+        `o.getenv("X")` after it read the environment unseen)."""
+        while scope.comprehension and scope.parent is not None:
+            scope = scope.parent
+        return scope
 
     def _args(self, args: ast.arguments, scope: _Scope) -> None:
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             self.scope_of[id(a)] = scope
             scope.local.add(a.arg)
+            scope.params.add(a.arg)
+
+    def _annotations(self, args: ast.arguments, returns: ast.expr | None, scope: _Scope) -> None:
+        """The annotations of a function run where the def runs, in the scope around it (F5 of the counter-reading
+        of pull request 395: they were resolved in the module scope)."""
+        for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
+                  *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
+            if a.annotation is not None:
+                self._visit(a.annotation, scope)
+        if returns is not None:
+            self._visit(returns, scope)
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -490,12 +965,18 @@ class _Names:
             return
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             self._bind(scope, node.name)
+            self._on(scope, node.name, lambda t, n=node.name: t.defs.add(n))
             for d in node.decorator_list:
                 self._visit(d, scope)
             for d in (*node.args.defaults, *[k for k in node.args.kw_defaults if k is not None]):
                 self._visit(d, scope)
+            self._annotations(node.args, node.returns, scope)
             inner = self._new("function", scope)
             self._args(node.args, inner)
+            positional = (*node.args.posonlyargs, *node.args.args)
+            static = any(isinstance(d, ast.Name) and d.id == "staticmethod" for d in node.decorator_list)
+            if scope.kind == "class" and positional and not static:
+                inner.self_name = positional[0].arg
             for stmt in node.body:
                 self._visit(stmt, inner)
             return
@@ -508,14 +989,23 @@ class _Names:
             return
         if isinstance(node, ast.ClassDef):
             self._bind(scope, node.name)
+            self._on(scope, node.name, lambda t, n=node.name: (t.defs.add(n), t.classes.add(n)))
             for d in (*node.decorator_list, *node.bases, *[k.value for k in node.keywords]):
                 self._visit(d, scope)
             inner = self._new("class", scope)
             for stmt in node.body:
                 self._visit(stmt, inner)
             return
+        if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            home = self._walrus_home(scope)
+            self.scope_of[id(node.target)] = home
+            self._bind(home, node.target.id)
+            self._assign(home, node.target.id, node.value)
+            self._visit(node.value, scope)
+            return
         if isinstance(node, _COMPREHENSIONS):
             inner = self._new("function", scope)
+            inner.comprehension = True
             for i, gen in enumerate(node.generators):
                 self._visit(gen.iter, scope if i == 0 else inner)
                 self._visit(gen.target, inner)
@@ -530,34 +1020,94 @@ class _Names:
             scope.nonlocals.update(node.names)
         elif isinstance(node, ast.Import):
             for a in node.names:
-                target = self.module if (a.asname or a.name.split(".")[0]) in scope.globals else scope
-                if a.asname:
-                    target.alias.setdefault(a.asname, set()).add(a.name)
-                else:
-                    top = a.name.split(".")[0]
-                    target.alias.setdefault(top, set()).add(top)
+                bound = a.asname or a.name.split(".")[0]
+                qual = a.name if a.asname else bound
+                self._on(scope, bound, lambda t, b=bound, q=qual: t.alias.setdefault(b, set()).add(q))
         elif isinstance(node, ast.ImportFrom):
             base = _absolute(self._modname, self._is_pkg, node.level, node.module)
             for a in node.names:
-                if a.name != "*":
-                    # `global` sends a from-import to the module scope as it does a plain import
+                if a.name == "*":
+                    # Python allows a star import only at module level; it binds what the module exports.
+                    if base:
+                        self.stars.append(base)
+                else:
+                    # `global` sends a from-import to the module scope as it does a plain import, `nonlocal` to the
+                    # enclosing function that binds the name
                     bound = a.asname or a.name
-                    target = self.module if bound in scope.globals else scope
-                    target.alias.setdefault(bound, set()).add(f"{base}.{a.name}" if base else a.name)
+                    qual = f"{base}.{a.name}" if base else a.name
+                    self._on(scope, bound, lambda t, b=bound, q=qual: t.alias.setdefault(b, set()).add(q))
         elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
             self._bind(scope, node.id)
         elif isinstance(node, ast.ExceptHandler) and node.name:
             self._bind(scope, node.name)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            self._bind(scope, node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            self._bind(scope, node.rest)
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for tg in targets:
                 if isinstance(tg, ast.Name) and node.value is not None:
-                    owner = self.module if tg.id in scope.globals else scope
-                    owner.assigns.append((tg.id, node.value))
+                    self._assign(scope, tg.id, node.value)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                self._match_binds(case.pattern, node.subject, scope)
         for child in ast.iter_child_nodes(node):
             self._visit(child, scope)
 
-    def _lookup(self, name: str, scope: _Scope) -> set[str]:
+    def _match_binds(self, pattern: ast.AST, value: ast.expr | None, scope: _Scope) -> None:
+        """What a match capture binds, as far as the gate can read it (Codex on PR 395, P1). `case name:` and
+        `case <pattern> as name:` bind the value matched there, every alternative of `case a | b:` matches the
+        same value, an element of `case [a, b]:` is the element at its place when the subject is a list or a
+        tuple written out, and the value of `case {"k": a}:` is the value of that key when the subject is a dict
+        written out with literal keys (round two, P1). Any other capture binds a value the gate cannot read; the
+        generic walk binds its name. That includes a capture in a class pattern, `case C(a):`, which binds an
+        attribute of the subject: the gate reads no attribute of an object, as it reads none in `a = C(x).item`."""
+        if isinstance(pattern, ast.MatchAs):
+            if pattern.name and value is not None:
+                self._assign(scope, pattern.name, value)
+            if pattern.pattern is not None:
+                self._match_binds(pattern.pattern, value, scope)
+        elif isinstance(pattern, ast.MatchOr):
+            for alternative in pattern.patterns:
+                self._match_binds(alternative, value, scope)
+        elif isinstance(pattern, ast.MatchSequence):
+            fits = isinstance(value, (ast.List, ast.Tuple)) and len(value.elts) == len(pattern.patterns) \
+                and not any(isinstance(e, ast.Starred) for e in value.elts) \
+                and not any(isinstance(sub, ast.MatchStar) for sub in pattern.patterns)
+            for i, sub in enumerate(pattern.patterns):
+                self._match_binds(sub, value.elts[i] if fits else None, scope)
+        elif isinstance(pattern, ast.MatchMapping):
+            # `**rest` binds a new dict, never a module; the generic walk binds its name.
+            for key, sub in zip(pattern.keys, pattern.patterns):
+                self._match_binds(sub, _mapping_value(value, key), scope)
+        else:
+            for sub in ast.iter_child_nodes(pattern):
+                if isinstance(sub, ast.pattern):
+                    self._match_binds(sub, None, scope)
+
+    def _star_bound(self, name: str, guesses: bool = True) -> set[str]:
+        """What a star import of this module may bind `name` to: the name in each module it reads, when that module
+        exports it (the names of a literal `__all__`, else every name that does not start with an underscore).
+
+        A module of the package is asked whether it binds the name at all. A module outside the package cannot be
+        asked, so its name is a GUESS: a guess serves the rules (`from os import *` makes `getenv` the environment
+        read it is), but it does not make a receiver resolved (the lens on the class fix, G-2: a guessed qualified
+        name on `handle.read()` hid the file finding the unresolved receiver gives)."""
+        out = set()
+        for src in self.stars:
+            exported = self._package.exports(src) if self._package is not None else None
+            if not ((name in exported) if exported is not None else not name.startswith("_")):
+                continue
+            inside = self._package is not None and self._package.knows(src)
+            if inside and not self._package.binds(src, name):
+                continue
+            if inside or guesses:
+                out.add(f"{src}.{name}")
+        return out
+
+    def _binding_scope(self, name: str, scope: _Scope) -> _Scope | None:
+        """The scope whose binding of `name` a use in `scope` meets, the walk of _lookup; None for a builtin."""
         s: _Scope | None = scope
         first = True
         while s is not None:
@@ -567,38 +1117,208 @@ class _Names:
             if name in s.nonlocals:
                 s, first = s.parent, False
                 continue
-            # A class scope is seen only by code directly in its body, never by a function in it.
-            if first or s.kind != "class":
-                if name in s.alias or name in s.local:
-                    # A function binds a name for its whole body. A module or a class body looks a
-                    # name up when the line runs, its own binding first and the builtin after it, and
-                    # a binding there may never run (under `if`, in `try`, through `global` in a
-                    # function nobody calls). There a builtin with a rule is not hidden by any binding.
-                    if s.kind != "function" and _is_ruled_builtin(name):
-                        return {f"builtins.{name}"} | s.alias.get(name, set())
-                    return set(s.alias.get(name, ()))
+            if (first or s.kind != "class") and (name in s.alias or name in s.local):
+                return s
             s, first = s.parent, False
-        return {f"builtins.{name}"} if name in _BUILTIN_NAMES else set()
+        return None
 
-    def _quals(self, node: ast.expr, scope: _Scope) -> set[str]:
+    def _lookup(self, name: str, scope: _Scope, guesses: bool = True) -> set[str]:
+        s = self._binding_scope(name, scope)
+        # A star import binds at module level when its line runs, so a use that reaches the module scope may meet it.
+        star = self._star_bound(name, guesses) if s is None or s is self.module else set()
+        if s is not None:
+            # A function binds a name for its whole body. A module or a class body looks a
+            # name up when the line runs, its own binding first and the builtin after it, and
+            # a binding there may never run (under `if`, in `try`, through `global` in a
+            # function nobody calls). There a builtin with a rule is not hidden by any binding.
+            if s.kind != "function" and _is_ruled_builtin(name):
+                return {f"builtins.{name}"} | s.alias.get(name, set()) | star
+            return set(s.alias.get(name, ())) | star
+        return ({f"builtins.{name}"} if name in _BUILTIN_NAMES else set()) | star
+
+    def _quals(self, node: ast.expr, scope: _Scope, guesses: bool = True) -> set[str]:
+        """Every qualified name `node` may stand for in `scope`. Once the aliases are final each answer is kept: every
+        call of a chain asked for the chain below it again, and 1500 links took 63 s (F-E of the second reading)."""
+        if self._memo is None:
+            return self._resolve(node, scope, guesses)
+        key = (id(node), id(scope), guesses)
+        if key not in self._memo:
+            self._memo[key] = self._resolve(node, scope, guesses)
+        return self._memo[key]
+
+    def _resolve(self, node: ast.expr, scope: _Scope, guesses: bool) -> set[str]:
         if isinstance(node, ast.Name):
-            return self._lookup(node.id, scope)
+            return self._lookup(node.id, scope, guesses)
         if isinstance(node, ast.Attribute):
-            return {f"{base}.{node.attr}" for base in self._quals(node.value, scope)}
+            return {base if base == _UNRESOLVED else f"{base}.{node.attr}"
+                    for base in self._quals(node.value, scope, guesses)}
+        if isinstance(node, ast.Call):
+            held = self._literal_attribute(node, scope, guesses)
+            if held is not None:
+                receiver, attr = held
+                found = {base if base == _UNRESOLVED else f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                if len(node.args) == 3:
+                    # THE DEFAULT IS A POSSIBLE RESULT (Codex on pull request 395, round three, P1): `getattr(math,
+                    # "missing", handle)` returns `handle`, and reading it as `math.missing` made the receiver of
+                    # `.read()` count as resolved, so the file finding of an unresolved receiver was lost. A default
+                    # the gate cannot resolve stands beside the names it can as `_UNRESOLVED`: dropping those names
+                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1).
+                    default = self._quals(node.args[2], scope, guesses)
+                    # Either branch may be the one the gate cannot name: an unknown receiver with a known default
+                    # (`getattr(holder, "stream", math)`) keeps the marker as well (round five, P1).
+                    return (found or {_UNRESOLVED}) | (default or {_UNRESOLVED})
+                return found
         return set()
 
-    def quals(self, node: ast.expr) -> list[str]:
-        """Every qualified name the expression may stand for, sorted; empty when the gate cannot resolve it."""
-        return sorted(self._quals(node, self.scope_of.get(id(node), self.module)))
+    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr, str] | None:
+        """(receiver, name) when the call reads an attribute by a literal name: `getattr(x, "name")` with or without
+        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`, and
+        with a default for `x.name` or the default (`_resolve`).
+
+        A LITERAL GETATTR CARRIES ITS NAME ON (counter-reading of pull request 395, F3, P1): it was resolved one
+        level, as the last attribute of a chain, so `getattr(os, "path").abspath(".")` read the working directory
+        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing."""
+        if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
+            return None
+        f = node.func
+        # A `__getattribute__` is never getattr: resolving its receiver here as well as below doubled the work at every
+        # link of a chain (twenty links, 69 s; F-E of the second reading).
+        if len(node.args) in (2, 3) and _literal(node.args[1]) is not None \
+                and not (isinstance(f, ast.Attribute) and f.attr == "__getattribute__") \
+                and "builtins.getattr" in self._quals(f, scope, guesses):
+            return node.args[0], node.args[1].value
+        if isinstance(f, ast.Attribute) and f.attr == "__getattribute__":
+            if len(node.args) == 1 and _literal(node.args[0]) is not None:
+                return f.value, node.args[0].value
+            if len(node.args) == 2 and _literal(node.args[1]) is not None and any(
+                    q in ("builtins.object", "builtins.type") for q in self._quals(f.value, scope, guesses)):
+                return node.args[0], node.args[1].value
+        return None
+
+    def quals(self, node: ast.expr, guesses: bool = True) -> list[str]:
+        """Every qualified name the expression may stand for, sorted; empty when the gate cannot resolve it. A name
+        that another module of the package binds is followed there (_Package.expand). Without `guesses`, a name a
+        star import from outside the package might bind does not count (see _star_bound)."""
+        found = self._quals(node, self.scope_of.get(id(node), self.module), guesses)
+        if self._package is not None:
+            found = set().union(*(self._package.expand(q) for q in found)) if found else found
+        return sorted(found)
+
+    def binding_scope_of(self, node: ast.Name) -> _Scope | None:
+        """The scope whose binding this use of a name meets; None for a builtin or an unbound name."""
+        return self._binding_scope(node.id, self.scope_of.get(id(node), self.module))
+
+    def assigned_values(self, node: ast.Name) -> list[ast.expr]:
+        """The expressions assigned to the name in the scope whose binding this use meets."""
+        s = self.binding_scope_of(node)
+        return [v for n, v in s.assigns if n == node.id] if s is not None else []
+
+    def module_binding(self, name: str) -> set[str]:
+        """What this module binds `name` to at module level, as another module that imports it meets it."""
+        return set(self.module.alias.get(name, ())) | self._star_bound(name)
+
+    def binds_at_module(self, name: str, _seen: set[str] | None = None) -> bool:
+        """Whether this module binds `name` at module level, itself or through a star import of the package."""
+        return name in self.module.alias or name in self.module.local or bool(self._star_bound(name, guesses=False))
+
+
+class _Package:
+    """The module-level bindings of every module of the package, so a name one module imports from another is
+    resolved where it was bound: `from .other import os`, `from .other import getenv` where other imported it,
+    and a star import (CODEX-630-K6, the binding half of the lens on PR 393)."""
+
+    def __init__(self, mods: dict[str, tuple[Path, bool]], trees: dict[str, ast.Module]) -> None:
+        self._mods, self._trees = mods, trees
+        self._names: dict[str, _Names | None] = {}
+        self._exports: dict[str, frozenset[str] | None] = {}
+        self._memo: dict[str, set[str]] = {}
+        self._asked: dict[str, bool] = {}
+
+    def _names_of(self, module: str) -> _Names | None:
+        if module not in self._names:
+            self._names[module] = None
+            tree = self._trees.get(module)
+            if tree is None:
+                try:
+                    tree = self._trees[module] = parse(self._mods[module][0])
+                except NotMeasurable:
+                    tree = None
+            if tree is not None:
+                self._names[module] = _Names(tree, module, self._mods[module][1], _NO_GUARDS, self)
+        return self._names[module]
+
+    def knows(self, module: str) -> bool:
+        return module in self._mods
+
+    def binds(self, module: str, name: str) -> bool:
+        """Whether a module of the package binds `name` at module level. A star cycle between modules ends at the
+        first module asked twice, which then counts as binding the name (the gate cannot say it does not)."""
+        key = f"{module}\0{name}"
+        if key in self._asked:
+            return self._asked[key]
+        self._asked[key] = True
+        names = self._names_of(module)
+        self._asked[key] = names is None or names.binds_at_module(name)
+        return self._asked[key]
+
+    def exports(self, module: str) -> frozenset[str] | None:
+        """The names of a literal `__all__` that the module binds once and never changes; None otherwise."""
+        if module not in self._exports:
+            self._exports[module] = None
+            tree = self._trees.get(module)
+            if tree is None and module in self._mods:
+                try:
+                    tree = self._trees[module] = parse(self._mods[module][0])
+                except NotMeasurable:
+                    tree = None
+            if tree is not None:
+                writes = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "__all__"
+                          and not isinstance(n.ctx, ast.Load)]
+                uses = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "__all__"]
+                assign = [s for s in tree.body if isinstance(s, ast.Assign)
+                          and any(isinstance(t, ast.Name) and t.id == "__all__" for t in s.targets)]
+                if len(writes) == 1 and len(uses) == 1 and len(assign) == 1 \
+                        and isinstance(assign[0].value, (ast.List, ast.Tuple)) \
+                        and all(_literal(e) is not None for e in assign[0].value.elts):
+                    self._exports[module] = frozenset(_literal(e) for e in assign[0].value.elts)
+        return self._exports[module]
+
+    def expand(self, qual: str, _seen: set[str] | None = None) -> set[str]:
+        """The qualified name and every name it stands for where a module of the package binds its first part."""
+        if _seen is None and qual in self._memo:
+            return self._memo[qual]
+        seen = set() if _seen is None else _seen
+        out = {qual}
+        if qual not in seen and len(seen) < 4096:
+            seen.add(qual)
+            parts = qual.split(".")
+            for i in range(len(parts) - 1, 0, -1):
+                module = ".".join(parts[:i])
+                if module in self._mods:
+                    names = self._names_of(module)
+                    bound = names.module_binding(parts[i]) if names is not None else set()
+                    for b in bound:
+                        out |= self.expand(".".join([b, *parts[i + 1:]]), seen)
+                    # A NAME A MODULE ONLY IMPORTS NAMES WHERE IT CAME FROM, NOT ANOTHER OBJECT (Codex on pull request
+                    # 395, round three, P2): `from builtins import print` in `other` made `probepkg.other.print` stand
+                    # beside `builtins.print`, and a check that every name be a reader refused the known one. The
+                    # package name stays where the module also binds the name itself.
+                    if bound and names is not None and parts[i] not in names.module.local:
+                        out.discard(qual)
+                    break
+        if _seen is None:
+            self._memo[qual] = out
+        return out
 
 
 # ── findings ───────────────────────────────────────────────────────────────────────────────────
 def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
-                guards: tuple[frozenset[str], frozenset[str]] | None = None) -> list[tuple[str, str, int]]:
+                guards: tuple[frozenset[str], frozenset[str]] | None = None,
+                package: _Package | None = None) -> list[tuple[str, str, int]]:
     """(rule, operation, line) for one core module."""
     if guards is None:
-        guards = type_checking_guards(tree)
-    names = _Names(tree, modname, is_pkg, guards)
+        guards = type_checking_guards(tree, modname, is_pkg, package)
+    names = _Names(tree, modname, is_pkg, guards, package)
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
     for node in ast.walk(tree):
@@ -621,41 +1341,63 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
                 if rule and not _rule_of_module(node.module):
                     out.append((rule, f"{node.module}.{a.name}", line))
         elif isinstance(node, ast.Call):
+            # Every spelling of an attribute function: getattr and its kin under any name they are bound to, and
+            # `__getattribute__`, `__setattr__`, `__delattr__` on the object or on a class (the lens on PR 393).
+            call = _attribute_call(node, names.quals)
+            if call is not None:
+                kind, label, receiver, name_arg, unknown = call
+                attr = _literal(name_arg)
+                if attr is not None:
+                    targets = names.quals(receiver) if receiver is not None else []
+                    # A receiver counts as resolved only by a binding the gate knows, not by a guess from a star
+                    # import of a module outside the package (the lens on the class fix, G-2).
+                    known = names.quals(receiver, guesses=False) if receiver is not None else []
+                    ruled = [(rule, f"{t}.{attr}") for t in targets if (rule := _rule_of_name(f"{t}.{attr}"))]
+                    if ruled:
+                        out.extend((rule, full, line) for rule, full in ruled)
+                    elif attr in _NAMESPACE_ATTRIBUTES and kind != "has":
+                        out.append(("dynamic_access", f".{attr}", line))
+                    elif not _resolved(known) and attr in _FILE_METHODS:
+                        out.append(("file", f".{attr}", line))
+                    elif not _resolved(known) and attr in _ENVIRONMENT_METHODS:
+                        out.append(("environment", f".{attr}", line))
+                elif name_arg is not None or unknown:
+                    out.append(("dynamic_access", f"{label}(computed name)", line))
             for q in names.quals(node.func):
-                if q in _DYNAMIC_ATTRIBUTE_CALLS and len(node.args) >= 2:
-                    name_arg = node.args[1]
-                    if isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str):
-                        targets = names.quals(node.args[0])
-                        attr = name_arg.value
-                        ruled = [(rule, f"{t}.{attr}") for t in targets if (rule := _rule_of_name(f"{t}.{attr}"))]
-                        if ruled:
-                            out.extend((rule, full, line) for rule, full in ruled)
-                        elif not targets and attr in _FILE_METHODS:
-                            out.append(("file", f".{attr}", line))
-                        elif not targets and attr in _ENVIRONMENT_METHODS:
-                            out.append(("environment", f".{attr}", line))
-                    else:
-                        out.append(("dynamic_access", f"{q.split('.')[-1]}(computed name)", line))
                 if q in _CLOCK_WITHOUT_ARGUMENT and len(node.args) <= _CLOCK_WITHOUT_ARGUMENT[q] \
                         and not node.keywords:
                     out.append(("clock", f"{q}()", line))
+        elif isinstance(node, ast.Attribute) and node.attr in _NAMESPACE_ATTRIBUTES \
+                and isinstance(node.ctx, (ast.Store, ast.Del)):
+            out.append(("dynamic_access", f".{node.attr}", line))
         elif isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
             up = parent.get(id(node))
             if isinstance(up, ast.Attribute) and up.value is node:
-                continue        # only the longest chain is judged, once
+                # Only the longest chain is judged, once. A namespace in the middle of it is dynamic access of its
+                # own: `x.__dict__.get(...)` reaches the mapping as `x.__dict__[...]` does.
+                if isinstance(node, ast.Attribute) and node.attr in _NAMESPACE_ATTRIBUTES:
+                    out.append(("dynamic_access", f".{node.attr}", line))
+                continue
             if isinstance(node, ast.Name) and node.id == "__builtins__":
                 out.append(("dynamic_access", "__builtins__", line))
                 continue
-            ruled = [(rule, q) for q in names.quals(node) if (rule := _rule_of_name(q))]
+            quals = names.quals(node)
+            ruled = [(rule, q) for q in quals if (rule := _rule_of_name(q))]
             if ruled:
                 out.extend((rule, q, line) for rule, q in ruled)
                 continue
+            # An attribute function handed on as a value: the gate does not see the call it ends up in.
+            called = isinstance(up, ast.Call) and up.func is node
+            handed = [q.rpartition(".")[2] for q in quals if q in _ATTRIBUTE_FUNCTIONS]
+            if not called and (handed or (isinstance(node, ast.Attribute) and node.attr in _ATTRIBUTE_METHODS)):
+                out.append(("dynamic_access", f"{handed[0] if handed else node.attr}(as a value)", line))
+                continue
             if isinstance(node, ast.Attribute):
-                if node.attr == "__dict__":
-                    out.append(("dynamic_access", ".__dict__", line))
-                elif node.attr in _FILE_METHODS and not names.quals(node.value):
+                if node.attr in _NAMESPACE_ATTRIBUTES:
+                    out.append(("dynamic_access", f".{node.attr}", line))
+                elif node.attr in _FILE_METHODS and not _resolved(names.quals(node.value, guesses=False)):
                     out.append(("file", f".{node.attr}", line))
-                elif node.attr in _ENVIRONMENT_METHODS and not names.quals(node.value):
+                elif node.attr in _ENVIRONMENT_METHODS and not _resolved(names.quals(node.value, guesses=False)):
                     out.append(("environment", f".{node.attr}", line))
     return out
 
@@ -686,8 +1428,47 @@ def _read_json(path: Path) -> dict:
     return data
 
 
+_RECURSION_LIMIT = 6000
+
+
+def _reviewed_changes(spec: dict, modules_file: Path) -> dict[tuple[str, str], tuple[int, str]]:
+    """The reviewed changes of the guard: (module, form) -> (count, reason).
+
+    The gate cannot show of every object that it is no module, so a write with a computed name into an object it
+    cannot place counts as a possible change of TYPE_CHECKING, and one such module turns every guard off. A reviewer
+    who has read the write and knows its object is no module names it here, bound to its module, its form and the
+    number of times the form occurs, with the reason. One more occurrence, one fewer, or a form that is gone, is
+    red until the entry is edited, as the exceptions file works. An entry without a reason is not measurable."""
+    entries = spec.get("type_checking_reviewed", [])
+    if not isinstance(entries, list):
+        raise NotMeasurable(f"{modules_file}: type_checking_reviewed must be a list")
+    out: dict[tuple[str, str], tuple[int, str]] = {}
+    for e in entries:
+        ok = isinstance(e, dict) and all(isinstance(e.get(k), str) and e[k].strip() for k in ("module", "form", "reason"))
+        n = e.get("count") if isinstance(e, dict) else None
+        if not ok or not (isinstance(n, int) and not isinstance(n, bool) and n >= 1):
+            raise NotMeasurable(f"{modules_file}: every reviewed guard change needs module, form, a count of at "
+                                f"least 1 and a reason")
+        key = (e["module"], e["form"])
+        if key in out:
+            raise NotMeasurable(f"{modules_file}: reviewed guard change named twice: {key}")
+        out[key] = (n, e["reason"])
+    return out
+
+
 def measure(root: Path, modules_file: Path) -> dict:
-    """Closure and findings at `root`, without comparing them to anything."""
+    """Closure and findings at `root`, without comparing them to anything.
+
+    The reading raises the recursion limit of the process; the caller gets its own limit back, since a test run in
+    the same process (pytest) would otherwise run every later case under the gate's limit."""
+    limit = sys.getrecursionlimit()
+    try:
+        return _measure(root, modules_file)
+    finally:
+        sys.setrecursionlimit(limit)
+
+
+def _measure(root: Path, modules_file: Path) -> dict:
     spec = _read_json(modules_file)
     package = spec.get("package")
     roots = spec.get("roots")
@@ -705,24 +1486,55 @@ def measure(root: Path, modules_file: Path) -> dict:
     # typing is one module for the whole process: a module of the package that changes TYPE_CHECKING
     # changes it for every core module run after it, so then no guard anywhere skips a body (CODEX-630-K6).
     # A module that does not parse cannot run and changes nothing.
-    changers = []
+    reviewed = _reviewed_changes(spec, modules_file)
+    # The reading of names recurses with the nesting of the source; a module nested deeper than the gate can
+    # read is not measurable, never a crash and never a pass (the lens on the class fix, G-3).
+    sys.setrecursionlimit(max(sys.getrecursionlimit(), _RECURSION_LIMIT))
+    changes: dict[str, list[list]] = {}
+    changers: list[str] = []
+    approved: list[dict] = []
+    seen_reviews: dict[tuple[str, str], int] = {}
     for m in sorted(mods):
         try:
             trees.setdefault(m, parse(mods[m][0]))
         except NotMeasurable:
             continue
-        if type_checking_may_change(trees[m]):
+    whole = _Package(mods, trees)
+    for m in sorted(trees):
+        try:
+            found = type_checking_changes(trees[m], m, mods[m][1], whole)
+        except RecursionError as exc:
+            raise NotMeasurable(f"{mods[m][0]}: nested deeper than the gate reads") from exc
+        if not found:
+            continue
+        changes[m] = [[form, line] for form, line in found[:10]]
+        per_form: dict[str, list[int]] = {}
+        for form, line in found:
+            per_form.setdefault(form, []).append(line)
+        unreviewed = False
+        for form, lines in sorted(per_form.items()):
+            seen_reviews[(m, form)] = len(lines)
+            if (m, form) in reviewed and reviewed[(m, form)][0] == len(lines):
+                approved.append({"module": m, "form": form, "count": len(lines), "lines": lines[:10]})
+            else:
+                unreviewed = True
+        if unreviewed:
             changers.append(m)
+    stale_reviews = [{"module": m, "form": f, "count": n, "found": seen_reviews.get((m, f), 0)}
+                     for (m, f), (n, _) in sorted(reviewed.items()) if seen_reviews.get((m, f), 0) != n]
     guards = _NO_GUARDS if changers else None
-    reached, edges = closure(sorted(roots), mods, package, trees, guards)
+    reached, edges = closure(sorted(roots), mods, package, trees, guards, whole)
     listed = spec.get("modules")
     if not isinstance(listed, list) or not all(isinstance(m, str) for m in listed):
         raise NotMeasurable(f"{modules_file}: modules must be a list of module names")
     core = set(listed)
     raw: dict[tuple[str, str, str], list[int]] = {}
     for m in sorted(reached):
-        for rule, op, line in findings_of(trees[m], m, mods[m][1], guards):
-            raw.setdefault((rule, m, op), []).append(line)
+        try:
+            for rule, op, line in findings_of(trees[m], m, mods[m][1], guards, whole):
+                raw.setdefault((rule, m, op), []).append(line)
+        except RecursionError as exc:
+            raise NotMeasurable(f"{mods[m][0]}: nested deeper than the gate reads") from exc
         for rule, op, line in external_and_edges(edges.get(m, {}), core, package, boundaries):
             raw.setdefault((rule, m, op), []).append(line)
     return {
@@ -732,6 +1544,9 @@ def measure(root: Path, modules_file: Path) -> dict:
         "listed": sorted(core),
         "trust_boundaries": dict(sorted(boundaries.items())),
         "type_checking_changed_by": changers,
+        "type_checking_changes": changes,
+        "type_checking_reviewed": approved,
+        "type_checking_reviewed_stale": stale_reviews,
         "findings": [{"rule": r, "module": m, "operation": op, "count": len(ls),
                       "lines": sorted(set(ls))[:10]}
                      for (r, m, op), ls in sorted(raw.items())],
@@ -778,7 +1593,8 @@ def judge(measured: dict, exceptions_file: Path) -> dict:
     found_by_rule = {r: 0 for r in RULES}
     for r, _, _ in found:
         found_by_rule[r] += 1
-    green = not (new or stale or grown or shrunk or core_new or core_stale)
+    stale_reviews = measured.get("type_checking_reviewed_stale", [])
+    green = not (new or stale or grown or shrunk or core_new or core_stale or stale_reviews)
     return {
         "schema": SCHEMA_REPORT,
         "verdict": "GREEN" if green else "RED",
@@ -798,6 +1614,7 @@ def judge(measured: dict, exceptions_file: Path) -> dict:
                                "baseline": baseline[k], "found": found[k]} for k in shrunk],
         "core_list_new": core_new,
         "core_list_stale": core_stale,
+        "stale_reviewed_changes": stale_reviews,
         "measured": measured,
     }
 
@@ -871,6 +1688,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  NEW core member, the closure gained an edge: {m}")
         for m in report["core_list_stale"]:
             print(f"  STALE core member, no longer reached (remove it): {m}")
+        for r in report["stale_reviewed_changes"]:
+            print(f"  STALE reviewed guard change ({r['count']} reviewed, {r['found']} found): {r['module']} · "
+                  f"{r['form']}")
     return 0 if report["verdict"] == "GREEN" else 1
 
 
