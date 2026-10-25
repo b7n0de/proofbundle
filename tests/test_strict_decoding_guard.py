@@ -222,8 +222,10 @@ EXCEPTIONS = {
         1, "reads back the canonical bytes of a state whose signature was verified one line before"),
     "tools/merkle_accumulator/render_runs.py": (1, "renders recorded run summaries for reading, decides nothing"),
     "tools/pb_verify_rs/crosscheck.py": (
-        16, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
-            "under the alias _json build its own test inputs"),
+        18, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
+            "under the alias _json build its own test inputs; two read the shared Transparent Statement vectors and "
+            "the Rust verifier's JSON result over them, which hold CBOR integers past the I-JSON range (a receipt iat "
+            "of 2^64 - 1) that loads_strict refuses"),
     "tools/scitt_ccf_datahash_vector/reader_matrix.py": (
         2, "measures cbor2 itself: what the library accepts is the result"),
     # The measurement harnesses of tools/scitt_ccf_external, named when the scitt-ccf reader joined the strict rule
@@ -261,6 +263,10 @@ EXCEPTIONS = {
            "not list"),
     "tools/scitt_ccf_external/rust_crosscheck.py": (
         2, "differential harness: reads the stored vector and the JSON output of the Rust verifier it compares"),
+    "tools/scitt_ccf_external/transparent_statement_vectors.py": (
+        1, "writes the shared Transparent Statement vectors and reads them back for --check; they hold CBOR integers "
+           "past the I-JSON range (a receipt iat of 2^64 - 1) that loads_strict refuses, and every other file it "
+           "reads goes through loads_strict"),
     "tools/scitt_ccf_external/vendored_encoder_probe.py": (
         3, "reads its own manifest, records and stored result to hold them to the corpus, offline"),
     "docs/scitt/statement_identification/package/build.py": (

@@ -48,6 +48,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(HERE))
 from proofbundle import scitt_ccf as C  # noqa: E402
 from proofbundle._cbor_prescan import encode_head  # noqa: E402
+from proofbundle._strict_json import loads_strict  # noqa: E402
 from proofbundle._wire_b64 import decode_b64  # noqa: E402  (the one strict base64 decoder tools may use)
 from statement_signature_vectors import Builder as StatementBuilder, bstr, spki, uint  # noqa: E402
 
@@ -76,7 +77,7 @@ def assemble(parts: list, refs: dict) -> bytes:
         elif "hexfile" in p:
             out += bytes.fromhex("".join((ROOT / p["hexfile"]).read_text(encoding="ascii").split()))
         else:
-            doc = json.loads((ROOT / p["fixture"]).read_text(encoding="utf-8"))
+            doc = loads_strict((ROOT / p["fixture"]).read_text(encoding="utf-8"))
             out += decode_b64(doc[p["field"]])
     return out
 
@@ -419,18 +420,18 @@ def keyset_trust(b: Builder, name: str, keyset_hex: Path) -> list:
 
 
 def real_vectors(b: Builder) -> None:
-    s1 = json.loads((ROUND1 / "summary.json").read_text(encoding="utf-8"))
-    s2 = json.loads((ROUND2 / "summary.json").read_text(encoding="utf-8"))
+    s1 = loads_strict((ROUND1 / "summary.json").read_text(encoding="utf-8"))
+    s2 = loads_strict((ROUND2 / "summary.json").read_text(encoding="utf-8"))
     b.refs["spki_round1_signer"] = s1["signer"]["spki_hex"]
     b.refs["spki_round2_signer"] = s2["signer"]["spki_hex"]
-    root = bytes.fromhex(json.loads((ROUND1 / "manifest.json").read_text(encoding="utf-8"))
+    root = bytes.fromhex(loads_strict((ROUND1 / "manifest.json").read_text(encoding="utf-8"))
                          ["target"]["receipt_canonical_root"])
-    assert root.hex() == json.loads((ROUND2 / "manifest.json").read_text(encoding="utf-8"))[
+    assert root.hex() == loads_strict((ROUND2 / "manifest.json").read_text(encoding="utf-8"))[
         "target"]["receipt_canonical_root"]
     issuer = "127.0.0.1:8000"
     b.trusts["round1"] = {"scitt_statement_keys": [{"ref": "spki_round1_signer"}],
                           "scitt_ccf_services": {issuer: keyset_trust(b, "round1", ROUND1 / "scitt-keys.hex")}}
-    for ph in json.loads((ROUND2 / "manifest.json").read_text(encoding="utf-8"))["phases"]:
+    for ph in loads_strict((ROUND2 / "manifest.json").read_text(encoding="utf-8"))["phases"]:
         b.trusts[f"round2-{ph['name']}"] = {
             "scitt_statement_keys": [{"ref": "spki_round2_signer"}],
             "scitt_ccf_services": {issuer: keyset_trust(b, f"round2_{ph['name'].replace('-', '_')}",
@@ -440,7 +441,7 @@ def real_vectors(b: Builder) -> None:
             if not row["accepted"]:
                 continue
             vid = row["id"]
-            rec = json.loads((corpus / "vectors" / vid / "record.json").read_text(encoding="utf-8"))
+            rec = loads_strict((corpus / "vectors" / vid / "record.json").read_text(encoding="utf-8"))
             trust = label if label == "round1" else f"round2-{rec['phase']['name']}"
             want = {"status": row["v1_reader_on_returned"]}
             if row["v1_reader_on_returned"] == "confirmed":
@@ -473,7 +474,7 @@ def real_vectors(b: Builder) -> None:
     for vid, what, parts, trust, r, want in cross:
         b.add_ts(vid, what, parts, want, trust=trust, root=r, origin="differential corpus, rebuilt trust")
     fixture = "tests/fixtures/scitt_ccf/local_ledger_control.json"
-    doc = json.loads((ROOT / fixture).read_text(encoding="utf-8"))
+    doc = loads_strict((ROOT / fixture).read_text(encoding="utf-8"))
     b.refs["spki_local_ledger_signer"] = decode_b64(doc["statement_signer_spki_b64"]).hex()
     services = []
     for i, k in enumerate(C.load_cose_keyset(decode_b64(doc["service_keyset_b64"]))):
@@ -898,6 +899,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="hold the stored vectors to the Python verifier")
     a = ap.parse_args(argv)
+    # The stored vectors hold CBOR integers past the I-JSON range (a receipt iat of 2^64 - 1), which
+    # loads_strict refuses; the file is this generator's own output (EXCEPTIONS in test_strict_decoding_guard).
     doc = json.loads(OUT.read_text(encoding="utf-8")) if a.check else build()
     bad = check(doc)
     for line in bad:
