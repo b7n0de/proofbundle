@@ -1083,3 +1083,90 @@ def test_FD_an_annotation_under_postponed_evaluation_is_read_where_its_string_is
     rc, report = gate(args)
     assert report["verdict"] == verdict, report["measured"]["findings"]
     assert (("environment", "os.getenv") in found(report)) == (verdict == "RED")
+
+
+# ── Codex, round one on pull request 420: three places where this branch judged an input weaker than main ──────────
+
+
+def _gate_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_clg_420", GATE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_name_that_grows_around_a_cycle_stays_bounded():
+    """Codex thread 4370601942 (P2): `p = os; p = p.path; p = p.os` doubled the names of `p` in every round, and the
+    rounds count every name the module binds, so twelve unrelated assignments ran the gate out of memory without its
+    report, where main reports GREEN. The names stay bounded, and past the bound `p` stands for an unresolved value."""
+    import ast
+    m = _gate_module()
+    source = "import os\np = os\np = p.path\np = p.os\n" + "".join(f"a{i} = {i}\n" for i in range(12))
+    names = m._Names(ast.parse(source), "probepkg.helper", False, m._NO_GUARDS)
+    held = names.module.alias["p"]
+    assert len(held) <= 65, len(held)
+    assert m._UNRESOLVED in held
+    assert {"os", "os.path"} <= held, "the names the gate can follow are kept"
+
+
+def test_a_reading_that_runs_out_of_memory_is_not_measurable(monkeypatch, tmp_path):
+    """The same thread, the class: no input ends the gate without its report. A MemoryError of the reading is NOT
+    MEASURABLE, exit 2 with the JSON verdict, as every other unreadable input is."""
+    import contextlib
+    import io
+    m = _gate_module()
+
+    def _out_of_memory(*_a, **_k):
+        raise MemoryError("planted")
+    monkeypatch.setattr(m, "_measure", _out_of_memory)
+    args = build(tmp_path, {"core.py": ""})
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        rc = m.main([*args, "--json"])
+    assert rc == 2
+    assert json.loads(out.getvalue())["verdict"] == "NOT_MEASURABLE"
+
+
+_HANDED = ("from __future__ import annotations\nimport inspect\nimport os\nimport typing\n"
+           "def factory():\n    o = os\n    def inner(x: o.getenv('X')):\n        return x\n    return {}\n"
+           "VALUE = factory()\n")
+
+
+@pytest.mark.parametrize("call", [
+    "inspect.get_annotations(inner, eval_str=True, locals={'o': o})",
+    "typing.get_type_hints(inner, localns={'o': o})",
+    "typing.get_type_hints(inner, None, {'o': o})",
+], ids=["inspect, locals", "get_type_hints, localns", "get_type_hints, positional"])
+def test_RED_a_postponed_annotation_read_in_a_namespace_the_function_hands_in(tmp_path, call):
+    """Codex thread 4370601943 (P2): read in the module scope only, a postponed annotation that the function around
+    the def evaluates in a namespace of its own read the environment while the gate reported nothing, and main
+    reported it. FD-4 above keeps its verdict: without such a call the alias of the function is never met."""
+    code = _HANDED.replace("    return {}\n", f"    return {call}\n")
+    args = build(tmp_path, {"core.py": code})
+    if call.startswith("inspect"):
+        assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE['x'])") == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+_DIAMOND_CORE = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
+
+
+@pytest.mark.parametrize("helper, verdict", [
+    ("class B:\n    pass\nclass C(B):\n    pass\nclass D(B):\n    pass\nclass E(C, D):\n    pass\n"
+     "def f(k, v):\n    setattr(E(), k, v)\n", "GREEN"),
+    ("class B:\n    pass\nclass C(B):\n    pass\nclass D(B):\n    def __new__(cls):\n        return object.__new__(cls)\n"
+     "class E(C, D):\n    pass\ndef f(k, v):\n    setattr(E(), k, v)\n", "RED"),
+], ids=["a diamond of plain classes", "the same diamond, one side with __new__"])
+def test_a_shared_base_is_no_cycle(tmp_path, helper, verdict):
+    """Codex thread 4370601946 (P2): one set for all bases made the second edge to a shared base a cycle, so a diamond
+    of plain classes built a possible module, a setattr on it turned every guard of the package off, and the guarded
+    import that never runs was red, where main is GREEN. The other direction: a side with its own `__new__` keeps the
+    class a possible module."""
+    args = build(tmp_path, {"core.py": _DIAMOND_CORE, "helper.py": helper})
+    shown = run_core(tmp_path, "import probepkg.core as c, probepkg.helper as h; print(hasattr(c, 'subprocess'))")
+    assert shown == "False"
+    rc, report = gate(args)
+    assert report["verdict"] == verdict, report["measured"]

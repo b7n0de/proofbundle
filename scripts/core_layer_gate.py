@@ -421,6 +421,8 @@ class _ChangeScan:
         self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         self.tree = tree
         self._shown: dict[int, bool] = {}
+        #: Whether calling a class of the module builds an object of that class, once per class (`_builds_its_own`).
+        self._built: dict[int, bool] = {}
         self._loads: dict[tuple[int, str], list[ast.Name]] = {}
         for n in ast.walk(tree):
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
@@ -487,12 +489,26 @@ class _ChangeScan:
         inspect.getmodule(typing.Any)` made `C()` a module, and `setattr(C(), name, True)` changed the guard unseen;
         a metaclass with its own `__call__`, a base with `__new__` and a decorator that returns a function did the
         same. The class counts only when it is bound once, has no decorator and no keyword in its bases (a
-        metaclass among them), defines no `__new__`, and every base is `object` or such a class of the module."""
+        metaclass among them), defines no `__new__`, and every base is `object` or such a class of the module.
+
+        A SHARED BASE IS NO CYCLE (Codex thread 4370601946 on pull request 420, P2): one set for all bases made the
+        second edge to a shared base a cycle, so in `E(C, D)` with `C(B)` and `D(B)` the class `D` built a possible
+        module, and a setattr on `E()` turned every guard of the package off. Each class is judged once and its verdict
+        kept (`_built`), so a base reached a second time gives the verdict it got the first time; `seen` then holds only
+        the classes whose verdict is still being made, and meeting one of them is a cycle, which builds no object."""
         c = scope.class_defs.get(name)
-        if c is None or id(c) in seen or scope.stores.get(name, 0) != 1 or name in scope.alias \
-                or c.decorator_list or c.keywords:
+        if c is None or scope.stores.get(name, 0) != 1 or name in scope.alias or c.decorator_list or c.keywords:
+            return False
+        if id(c) in self._built:
+            return self._built[id(c)]
+        if id(c) in seen:
             return False
         seen.add(id(c))
+        # A class in or above a cycle builds no object of its own on any way, so its verdict is the same on every way.
+        verdict = self._built[id(c)] = self._plain_class(c, seen)
+        return verdict
+
+    def _plain_class(self, c: ast.ClassDef, seen: set[int]) -> bool:
         for st in c.body:
             if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)) and st.name == "__new__":
                 return False
@@ -976,6 +992,14 @@ class _Scope:
         self.comprehension = False
 
 
+#: How many qualified names one binding of a name may stand for before it stands for an unresolved value (`_Names`).
+_ALIAS_LIMIT = 64
+#: The functions that evaluate a postponed annotation, under the names they resolve to, and the parameters by which a
+#: caller hands them the namespaces to evaluate it in (`_Names._hands_a_namespace`).
+_ANNOTATION_EVALUATORS = frozenset({"typing.get_type_hints", "typing_extensions.get_type_hints",
+                                    "inspect.get_annotations", "annotationlib.get_annotations"})
+_NAMESPACE_KEYWORDS = frozenset({"globalns", "localns", "globals", "locals"})
+
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
 
@@ -1022,6 +1046,11 @@ class _Names:
         self._postponed = isinstance(tree, ast.Module) and any(
             isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
             for s in tree.body)
+        #: Postponed annotations with the scope around their def, the def that opens each function scope, and the
+        #: scope a node of a postponed annotation is read in as well (`_annotations_in_handed_namespaces`).
+        self._pending: list[tuple[ast.expr, _Scope]] = []
+        self._def_of: dict[int, ast.AST] = {}
+        self._also: dict[int, _Scope] = {}
         self._visit(tree, self.module)
         for scope, name, apply in self._deferred:
             apply(self._nonlocal_owner(scope, name))
@@ -1038,9 +1067,21 @@ class _Names:
                     # a name only the inner function binds is nothing. `global _os; import os; _os = os` read the
                     # environment unseen.
                     new = self._quals(value, self.scope_of.get(id(value), s)) - s.alias.get(name, set())
-                    if new:
-                        s.alias.setdefault(name, set()).update(new)
-                        changed = True
+                    if not new:
+                        continue
+                    held = s.alias.setdefault(name, set())
+                    # A NAME STANDS FOR AT MOST _ALIAS_LIMIT NAMES (Codex thread 4370601942 on pull request 420, P2):
+                    # `p = os; p = p.path; p = p.os` doubles the names of `p` in every round, and the rounds count
+                    # every name the module binds, so twelve unrelated assignments ran the gate out of memory without
+                    # its report. Past the limit the name stands for what the gate cannot name as well, and grows no
+                    # further; a chain that binds each name once holds one name per link and is not touched.
+                    if len(held) + len(new) > _ALIAS_LIMIT:
+                        if _UNRESOLVED not in held:
+                            held.add(_UNRESOLVED)
+                            changed = True
+                        continue
+                    held.update(new)
+                    changed = True
             if not changed:
                 break
         # The marker alone names nothing: a name it is all of stays a plain binding, not an alias (F-D of the second
@@ -1048,6 +1089,7 @@ class _Names:
         for s in self._scopes:
             for name in [n for n, held in s.alias.items() if held == {_UNRESOLVED}]:
                 del s.alias[name]
+        self._annotations_in_handed_namespaces()
         self._memo = {}
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
@@ -1119,8 +1161,38 @@ class _Names:
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             if a.annotation is not None:
                 self._visit(a.annotation, where)
+                if where is not scope:
+                    self._pending.append((a.annotation, scope))
         if returns is not None:
             self._visit(returns, where)
+            if where is not scope:
+                self._pending.append((returns, scope))
+
+    def _hands_a_namespace(self, call: ast.Call, scope: _Scope) -> bool:
+        """Whether a call evaluates annotations in a namespace its caller hands in: `typing.get_type_hints(f, None,
+        {"o": o})`, `inspect.get_annotations(f, eval_str=True, locals={"o": o})`, or `**kwargs` the gate cannot read."""
+        quals = self._quals(call.func, self.scope_of.get(id(call.func), scope)) & _ANNOTATION_EVALUATORS
+        if not quals:
+            return False
+        if any(k.arg is None or k.arg in _NAMESPACE_KEYWORDS for k in call.keywords):
+            return True
+        positional = any(q.endswith(".get_type_hints") for q in quals)
+        return any(isinstance(a, ast.Starred) for a in call.args) or (positional and len(call.args) >= 2)
+
+    def _annotations_in_handed_namespaces(self) -> None:
+        """A POSTPONED ANNOTATION IS READ WHERE A CALLER HANDS ITS NAMES IN (Codex thread 4370601943 on pull request
+        420, P2): read in the module scope only, `o = os` in a factory that calls `typing.get_type_hints(inner,
+        localns={"o": o})` read the environment while the gate reported nothing, and main reported it. Where the
+        function around the def hands a namespace to a function that evaluates annotations, the annotation is read in
+        the scope of that function as well. Read there always, an alias of the function made a finding of code that
+        never runs (FD-4 of the second counter-reading). What stays out of reach: a namespace handed in from outside
+        the function around the def, or built by a call the gate does not name here."""
+        for annotation, scope in self._pending:
+            owner = self._def_of.get(id(scope))
+            if owner is not None and any(isinstance(n, ast.Call) and self._hands_a_namespace(n, scope)
+                                         for n in ast.walk(owner)):
+                for n in ast.walk(annotation):
+                    self._also[id(n)] = scope
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -1137,6 +1209,7 @@ class _Names:
                 self._visit(d, scope)
             self._annotations(node.args, node.returns, scope)
             inner = self._new("function", scope)
+            self._def_of[id(inner)] = node
             self._args(node.args, inner)
             positional = (*node.args.posonlyargs, *node.args.args)
             static = any(isinstance(d, ast.Name) and d.id == "staticmethod" for d in node.decorator_list)
@@ -1385,6 +1458,9 @@ class _Names:
         that another module of the package binds is followed there (_Package.expand). Without `guesses`, a name a
         star import from outside the package might bind does not count (see _star_bound)."""
         found = self._quals(node, self.scope_of.get(id(node), self.module), guesses)
+        also = self._also.get(id(node))
+        if also is not None:
+            found = found | self._quals(node, also, guesses)
         if self._package is not None:
             found = set().union(*(self._package.expand(q) for q in found)) if found else found
         return sorted(found)
@@ -1657,6 +1733,10 @@ def measure(root: Path, modules_file: Path) -> dict:
     limit = sys.getrecursionlimit()
     try:
         return _measure(root, modules_file)
+    except MemoryError as exc:
+        # NO INPUT ENDS THE GATE WITHOUT ITS REPORT (Codex thread 4370601942 on pull request 420, P2): a reading that
+        # ran out of memory stopped with a traceback and exit 1, the exit code of a red verdict, and no JSON.
+        raise NotMeasurable(f"the reading ran out of memory: {exc}") from exc
     finally:
         sys.setrecursionlimit(limit)
 
