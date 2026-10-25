@@ -2671,52 +2671,62 @@ fn read_file(path: impl AsRef<Path>) -> Vec<u8> {
 /// Z381 (F1): the path is a `Path`, not a `&str`. A Unix file name may carry any byte but `/` and
 /// NUL, and Python reads such a file. Messages name it through `Path::display`, which for a UTF-8
 /// path is the path itself, as before.
-fn read_input(path: &Path) -> Result<Vec<u8>, ReadRefusal> {
+fn read_file_begrenzt(path: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let name = path.display();
-    let unreadable =
-        |e: std::io::Error| ReadRefusal::Unreadable(format!("cannot read {name}: {e}"));
-    let md = std::fs::metadata(path).map_err(unreadable)?;
+    let md = std::fs::metadata(path).map_err(|e| format!("cannot read {name}: {e}"))?;
     if !md.is_file() {
-        return Err(ReadRefusal::Unreadable(format!(
+        return Err(format!(
             "cannot read {name}: not a regular file (a FIFO, device or directory is refused before \
              any byte is read)"
-        )));
+        ));
     }
     if md.len() as usize > BUDGET_INPUT_BYTES {
-        return Err(ReadRefusal::OverBudget(budget_ueberschritten(
+        return Err(budget_ueberschritten(
             "input_bytes",
             md.len() as usize,
             BUDGET_INPUT_BYTES,
-        )));
+        ));
     }
-    let f = std::fs::File::open(path).map_err(unreadable)?;
+    let f = std::fs::File::open(path).map_err(|e| format!("cannot read {name}: {e}"))?;
     let mut buf: Vec<u8> = Vec::new();
     f.take(BUDGET_INPUT_BYTES as u64 + 1)
         .read_to_end(&mut buf)
-        .map_err(unreadable)?;
+        .map_err(|e| format!("cannot read {name}: {e}"))?;
     if buf.len() > BUDGET_INPUT_BYTES {
-        return Err(ReadRefusal::OverBudget(budget_ueberschritten(
+        return Err(budget_ueberschritten(
             "input_bytes",
             buf.len(),
             BUDGET_INPUT_BYTES,
-        )));
+        ));
     }
     Ok(buf)
 }
+
+/// The start of the refusal `read_file_begrenzt` gives past the input budget, as
+/// `budget_ueberschritten` writes it for `input_bytes`. Every other refusal of the read starts with
+/// "cannot read ", so the two never meet; a test holds this text to `budget_ueberschritten`.
+const INPUT_BUDGET_REFUSAL: &str = "verification budget exceeded: input_bytes = ";
 
 /// Why `read_input` read nothing. Past the input budget is a case of its own: a verdict surface whose
 /// Python counterpart takes the bytes themselves, of any length, gives the verdict that counterpart
 /// gives for bytes that long (Codex, PR 290), where a file that cannot be read at all stays `fatal`.
 enum ReadRefusal {
-    OverBudget(String),
+    OverBudget,
     Unreadable(String),
 }
 
-/// `read_input` with the reason as text, for every caller that ends in `fatal` either way.
-fn read_file_begrenzt(path: &Path) -> Result<Vec<u8>, String> {
-    read_input(path).map_err(|refusal| match refusal {
-        ReadRefusal::OverBudget(m) | ReadRefusal::Unreadable(m) => m,
+/// `read_file_begrenzt` with the refusal past the input budget told apart. The read stays in
+/// `read_file_begrenzt`, the one file read of the verifier, which the decision proof of Z381
+/// replaces by its boundary (`formal/z381_pruefentscheidung/build.rs`); a second read here would
+/// pass that boundary by.
+fn read_input(path: &Path) -> Result<Vec<u8>, ReadRefusal> {
+    read_file_begrenzt(path).map_err(|m| {
+        if m.starts_with(INPUT_BUDGET_REFUSAL) {
+            ReadRefusal::OverBudget
+        } else {
+            ReadRefusal::Unreadable(m)
+        }
     })
 }
 
@@ -4114,7 +4124,7 @@ coverage-report> ..."
             // MAX_STATEMENT_BYTES); so does this subcommand, where it used to end in `fatal`, exit 2.
             let (status, valid) = match read_input(Path::new(path)) {
                 Ok(data) => scitt::verify_statement_signature(&data, &keys),
-                Err(ReadRefusal::OverBudget(_)) => (scitt::MALFORMED, None),
+                Err(ReadRefusal::OverBudget) => (scitt::MALFORMED, None),
                 Err(ReadRefusal::Unreadable(m)) => fatal(&m),
             };
             let shown = match valid {
@@ -4493,6 +4503,12 @@ mod tests {
         std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
         let e = read_file_begrenzt(&gross).expect_err("ueber der Schranke gelesen");
         assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
+        // read_input tells the budget apart by the text budget_ueberschritten writes, and a file
+        // that cannot be read stays unreadable.
+        assert!(budget_ueberschritten("input_bytes", 2, 1).starts_with(INPUT_BUDGET_REFUSAL));
+        assert!(matches!(read_input(&gross), Err(ReadRefusal::OverBudget)));
+        assert!(matches!(read_input(&d.join("fehlt.json")),
+            Err(ReadRefusal::Unreadable(m)) if m.starts_with("cannot read ")));
         let klein = d.join("klein.json");
         std::fs::write(&klein, b"{\"a\":1}").expect("write");
         assert_eq!(read_file_begrenzt(&klein).expect("klein"), b"{\"a\":1}");
