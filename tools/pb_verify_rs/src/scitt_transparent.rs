@@ -15,9 +15,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::scitt::{
-    self, get, is_int, is_label, is_uint, Cose, Item, Key, PubKey, Selector, ALG, CONFIRMED, CRIT,
-    CTY, CWT, INVALID, KID, MALFORMED, MAX_TRUSTED_KEYS, NEEDS_RP_TRUST, OUTSIDE, PAYLOAD_HASH_ALG,
-    PAYLOAD_LOCATION, PREIMAGE_CTY, X5CHAIN,
+    self, cwt_claim_in_either, get, is_int, is_label, is_uint, Cose, Item, Key, PubKey, Selector,
+    ALG, CONFIRMED, CRIT, CTY, CWT, INVALID, KID, MALFORMED, MAX_TRUSTED_KEYS, NEEDS_RP_TRUST,
+    OUTSIDE, PAYLOAD_HASH_ALG, PAYLOAD_LOCATION, PREIMAGE_CTY, X5CHAIN,
 };
 
 const RECEIPTS: i128 = 394;
@@ -134,16 +134,6 @@ fn in_either(c: &Cose, label: i128, ok: fn(&Item) -> bool) -> bool {
     [&c.protected, &c.unprotected]
         .iter()
         .all(|bucket| get(bucket, label).is_none_or(ok))
-}
-
-/// A CWT claim, where present, has its type, in the CWT claims map of either bucket.
-fn cwt_claim_in_either(c: &Cose, claim: i128, ok: fn(&Item) -> bool) -> bool {
-    [&c.protected, &c.unprotected]
-        .iter()
-        .all(|bucket| match get(bucket, CWT) {
-            Some(Item::Map(cwt)) => get(cwt, claim).is_none_or(ok),
-            _ => true,
-        })
 }
 
 /// `_RECEIPT_RULES`: the header types every receipt carries, RFC 9052, RFC 9597, RFC 8392, RFC 9942.

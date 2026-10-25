@@ -408,6 +408,21 @@ def reader_vectors(b: Builder) -> None:
             ("h09-alg-bytes", "alg as a byte string", b"\x01\x41\x01")):
         prot = es256 if not vid.startswith("h09") else b.protected(None, b.leaf("p256"))
         add(vid, what, b.statement(prot, unprot=b"\xa1" + pair), keys, "malformed", None)
+    # The CWT issuer and subject are text on both sides (RFC 8392 StringOrURI; the counter-reading of the merge of
+    # pull request 406 into 407, F2): a claim of another type is malformed in either bucket, text claims are not.
+    for vid, what, cwt, where, status, valid in (
+            ("h10-cwt-iss-int", "a CWT issuer that is an integer", b"\xa1\x01\x05", "protected", "malformed", None),
+            ("h11-cwt-sub-int", "a CWT subject that is an integer", b"\xa1\x02\x07", "protected", "malformed", None),
+            ("h12-cwt-sub-null", "a CWT subject that is null", b"\xa1\x02\xf6", "protected", "malformed", None),
+            ("h13-cwt-sub-int-unprotected", "a CWT subject that is an integer, in the unprotected header",
+             b"\xa1\x02\x07", "unprotected", "malformed", None),
+            ("h14-cwt-text-claims", "a text CWT issuer and subject", b"\xa2\x01\x61a\x02\x61b", "protected",
+             "confirmed", True)):
+        if where == "protected":
+            st = b.statement(b.protected(b"\x26", b.leaf("p256"), [(b"\x0f", cwt)]))
+        else:
+            st = b.statement(es256, unprot=b"\xa1\x0f" + cwt)
+        add(vid, what, st, keys, status, valid)
     # tag 1 around a CWT time claim of the protected header (owner decision Q8 a)
     for vid, what, claim, value, status, valid in (
             ("t01-tag1-iat", "tag 1 around the CWT iat", 6, 1790000000, "confirmed", True),

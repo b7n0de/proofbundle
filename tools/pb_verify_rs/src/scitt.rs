@@ -374,7 +374,21 @@ fn statement_types_hold(st: &Cose) -> bool {
         [&st.protected, &st.unprotected]
             .iter()
             .all(|bucket| get(bucket, *label).is_none_or(ok))
-    })
+    }) && [1, 2]
+        .iter()
+        .all(|claim| cwt_claim_in_either(st, *claim, |v| matches!(v, Item::Text(_))))
+}
+
+/// A CWT claim, where present, has its type, in the CWT claims map of either bucket. The issuer (1)
+/// and the subject (2) are text on both sides, RFC 8392 StringOrURI, as `_STATEMENT_RULES` and
+/// `_RECEIPT_RULES` read them since the counter-reading of the merge of pull request 406 into 407 (F2).
+pub(crate) fn cwt_claim_in_either(c: &Cose, claim: i128, ok: fn(&Item) -> bool) -> bool {
+    [&c.protected, &c.unprotected]
+        .iter()
+        .all(|bucket| match get(bucket, CWT) {
+            Some(Item::Map(cwt)) => get(cwt, claim).is_none_or(ok),
+            _ => true,
+        })
 }
 
 // ---------------------------------------------------------------------------------------------------
