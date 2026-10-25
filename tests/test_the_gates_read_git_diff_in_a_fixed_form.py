@@ -593,3 +593,30 @@ def test_H2_commonmark_ends_a_line_at_a_lone_cr(tmp_path, content, line):
     rc, result, err = _gate(repo, base)
     assert (rc, result["urteil"]) == (1, "ROT"), (result, err)
     assert [(b["datei"], b["zeile"]) for b in result["befunde"]] == [("docs/m.md", line)], result
+
+
+@pytest.mark.parametrize("rel,content", [
+    ("src/m.py", 'x = "die und der"\r# An English comment.\r'),
+    ("docs/m.md", "An English line.\r~~~\r die und der Code\r~~~\n"),
+], ids=["python-code-and-comment", "markdown-prose-and-fence"])
+def test_only_the_prose_pieces_of_a_git_line_are_read(tmp_path, rel, content):
+    """Codex on pull request 418, round three (P2): when a lone CR puts code and a comment, or prose and a fence, into
+    one git line, the whole line was read as prose, and German words in the code made the gate red over English prose."""
+    repo = _base_repo(tmp_path, {rel: "Intro.\n" if rel.endswith(".md") else "y = 0\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / rel).write_bytes(content.encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "English prose beside code in one git line")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (0, "gruen"), (result, err)
+
+
+def test_a_german_comment_beside_code_in_one_git_line_is_still_read(tmp_path):
+    """The other direction of the same case: the prose piece is read, so German in the comment stays red."""
+    repo = _base_repo(tmp_path, {"src/m.py": "y = 0\n"})
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "src" / "m.py").write_bytes(f'x = "an English string"\r# {GERMAN}\r'.encode())
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "German prose beside code in one git line")
+    rc, result, err = _gate(repo, base)
+    assert (rc, result["urteil"]) == (1, "ROT"), (result, err)

@@ -293,6 +293,29 @@ def _neue_zeilen(basis: str, arbeitsbaum: bool = False) -> tuple[
     return je_datei, "measured"
 
 
+class _GitZeilen(set):
+    """The prose lines of one file in git's line space, and, for each git line that carries more than one line of
+    the file's reader, which of its pieces are prose.
+
+    A PIECE IS WHAT STANDS BETWEEN TWO LONE CR (Codex on pull request 418, round three, P2). Python and CommonMark end
+    a line at a lone CR, git does not, so one git line can hold code and a comment, or a fence and prose. Marking the
+    whole git line as prose had the word list read the code too: `x = "die und"<CR># English comment` was red. The
+    set keeps the git lines, as every caller reads it; `stuecke` names the prose pieces of the lines that need them.
+    """
+
+    def __init__(self, leser: set[int], git_zeile: list[int]):
+        super().__init__(git_zeile[n] for n in leser if n < len(git_zeile))
+        erste: dict[int, int] = {}
+        anzahl: dict[int, int] = {}
+        for n in range(1, len(git_zeile)):
+            erste.setdefault(git_zeile[n], n)
+            anzahl[git_zeile[n]] = anzahl.get(git_zeile[n], 0) + 1
+        self.stuecke: dict[int, set[int]] = {}
+        for n in leser:
+            if n < len(git_zeile) and anzahl[git_zeile[n]] > 1:
+                self.stuecke.setdefault(git_zeile[n], set()).add(n - erste[git_zeile[n]])
+
+
 def _prosazeilen(datei: str) -> set[int] | None:
     """Every line of the file that is a comment or part of a string literal, by TOKEN.
 
@@ -354,7 +377,7 @@ def _prosazeilen(datei: str) -> set[int] | None:
             continue
         for n in range(erstes.lineno, (erstes.end_lineno or erstes.lineno) + 1):
             aus.add(n)
-    return {git_zeile[n] for n in aus if n < len(git_zeile)}
+    return _GitZeilen(aus, git_zeile)
 
 
 def _md_prosazeilen(datei: str) -> set[int] | None:
@@ -413,7 +436,7 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
             if m and m.group(1)[0] == offen[0] and len(m.group(1)) >= len(offen):
                 offen = None
             # inside the block, and the closing line too, stay out
-    return {git_zeile[n] for n in aus if n < len(git_zeile)}
+    return _GitZeilen(aus, git_zeile)
 
 
 def _ist_prosa(datei: str, nr: int, text: str, cache: dict | None = None) -> bool:
@@ -422,13 +445,24 @@ def _ist_prosa(datei: str, nr: int, text: str, cache: dict | None = None) -> boo
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file at HEAD does say.
     """
-    if datei.endswith(".md"):
-        zeilen = _gelesen(_md_prosazeilen, datei, cache)
-        return bool(zeilen and nr in zeilen)
-    if _KOMMENTAR.search(text):
-        return True
-    zeilen = _gelesen(_prosazeilen, datei, cache)
-    return bool(zeilen and nr in zeilen)
+    return _prosa_text(datei, nr, text, cache) is not None
+
+
+def _prosa_text(datei: str, nr: int, text: str, cache: dict | None = None) -> str | None:
+    """The prose of one added git line: the whole line, the prose pieces of a line that holds more than one line
+    of the file's reader, or None when no part of it is prose."""
+    md = datei.endswith(".md")
+    if not md and "\r" not in text and _KOMMENTAR.search(text):
+        return text                       # a comment line is recognisable without the file
+    zeilen = _gelesen(_md_prosazeilen if md else _prosazeilen, datei, cache)
+    stuecke = getattr(zeilen, "stuecke", {}) if zeilen else {}
+    if nr in stuecke:
+        teile = [t for i, t in enumerate(text.split("\r"))
+                 if i in stuecke[nr] or (not md and _KOMMENTAR.search(t))]
+        return " ".join(teile) if teile else None
+    if not md and _KOMMENTAR.search(text):
+        return text
+    return text if (zeilen and nr in zeilen) else None
 
 
 def _gelesen(fn, datei: str, cache: dict | None):
@@ -456,13 +490,14 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
     gelesen: dict = {}
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
-            if not _ist_prosa(datei, nr, text, gelesen):
+            prosa = _prosa_text(datei, nr, text, gelesen)
+            if prosa is None:
                 continue
-            w = DP.treffer(text)
+            w = DP.treffer(prosa)
             if len(w) >= SCHWELLE:
                 befunde.append({"datei": datei, "zeile": nr,
                                 "woerter": sorted(set(x.lower() for x in w)),
-                                "text": text.strip()[:110]})
+                                "text": prosa.strip()[:110]})
     return {"urteil": "ROT" if befunde else "gruen", "befunde": befunde,
             "gemessener_stand": "working tree" if arbeitsbaum else "HEAD",
             "gemessener_baum": str(REPO),

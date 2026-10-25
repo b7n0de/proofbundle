@@ -104,7 +104,8 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   Both answer in git's line space, at line feeds: a lone CR, a form feed, U+2028 and the other
   characters `splitlines()` ends a line at no longer move a `return True` out of the change, a
   German line after a fence onto the fence, or an allow marker off its line. Markdown is read in
-  CommonMark's lines, so a closing fence or a quotation marker after a lone CR still counts. A byte
+  CommonMark's lines, so a closing fence or a quotation marker after a lone CR still counts, and of
+  a git line that holds code and prose only the prose is read. A byte
   order mark no longer hides a mutant, a NUL and a damaged base object make the guard exit 2, a
   file system monitor no longer hides a change from the working-tree form, and the text report of
   the language gate escapes a CR or LF in a name or a line.
