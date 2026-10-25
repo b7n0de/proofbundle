@@ -46,6 +46,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "scitt_ccf" / "local_ledger_consistency.
 LEAVES = REPO / "tools" / "scitt_ccf_external" / "consistency_result.json"
 TEST_KEY = HERE / "TEST_ONLY_es384_private_key.pem"
 TEST_ISSUER = "test-only.section4-vectors.invalid"
+TEST_SUBJECT = "scitt.ccf.signature.v1"
 READER_COMMIT = "ad11dba39b7323f15685a81122d6cd16ada9bc4f"
 DRAFT = {"name": "draft-ietf-scitt-receipts-ccf-profile-05",
          "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
@@ -202,7 +203,10 @@ def main() -> int:
         return b"\xd2" + cbor2.dumps([prot_raw, {396: vdp}, payload, sig])
 
     def test_signed(vdp: dict, root: bytes, txid: str) -> bytes:
-        prot = cbor2.dumps({1: -35, 4: test_kid, 15: {1: TEST_ISSUER}, 395: 2, "ccf.v1": {"txid": txid}})
+        # CWT Claims with a text iss and sub, as RFC 9943 section 6 asks of a Receipt and as the service's own
+        # receipts carry them: without the sub the reader holds the receipt outside the profile before section 4.
+        prot = cbor2.dumps({1: -35, 4: test_kid, 15: {1: TEST_ISSUER, 2: TEST_SUBJECT}, 395: 2,
+                            "ccf.v1": {"txid": txid}})
         tbs = cbor2.dumps(["Signature1", prot, b"", root])
         r, s = utils.decode_dss_signature(key.sign(tbs, ec.ECDSA(hashes.SHA384(), deterministic_signing=True)))
         return b"\xd2" + cbor2.dumps([prot, {396: vdp}, None, r.to_bytes(48, "big") + s.to_bytes(48, "big")])

@@ -85,7 +85,7 @@
   "status_without_sizes": "consistency_newer_roots_differ",
   "status_with_sizes": "consistency_newer_roots_differ",
   "commit": "ad11dba39b7323f15685a81122d6cd16ada9bc4f",
-  "scitt_ccf_py_sha256": "867f00f50be7528e1fbdc88745665aeba710f2fb7a5a79c6bda31c0d77fa5941",
+  "scitt_ccf_py_sha256": "8f5b7e16be7d85e0fdb1573343bbbaca728a113d8f9d4dfc72d4fc9e216cf8b3",
   "older_issuer": "127.0.0.1:8000"
  }
 }

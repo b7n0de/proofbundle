@@ -48,7 +48,13 @@
       "rule": "dynamic_access",
       "module": "proofbundle.canonical",
       "operation": ".__dict__",
-      "count": 4
+      "count": 6
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": ".f_globals",
+      "count": 1
     },
     {
       "rule": "dynamic_access",

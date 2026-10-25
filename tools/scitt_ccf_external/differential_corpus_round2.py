@@ -167,7 +167,7 @@ def _pins(args, svc) -> dict:
     which the run writes into before its first registration."""
     pinned = D.pins(args, svc)
     own = str(args.out.resolve().relative_to(D.REPO))
-    dirty = D._git("status", "--porcelain", "--", ".", f":(exclude){own}")
+    dirty = D._git("status", "--porcelain", "-z", "--", ".", f":(exclude){own}")
     pinned["verifier"]["tree_clean"] = dirty == ""
     pinned["verifier"]["tree_clean_excludes"] = own + "/, this run's own output"
     return pinned

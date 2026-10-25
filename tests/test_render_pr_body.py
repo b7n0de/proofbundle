@@ -52,6 +52,7 @@ sys.modules["_pr_form_gate_for_the_footer"] = _gate
 _gate_spec.loader.exec_module(_gate)
 PR_TEMPLATE = REPO / ".github" / "PULL_REQUEST_TEMPLATE" / "house.md"
 ISSUE_TEMPLATE = REPO / ".github" / "ISSUE_TEMPLATE" / "house_finding.yml"
+AGENTS = REPO / "AGENTS.md"
 
 
 def _modul():
@@ -178,12 +179,6 @@ class TestDerFussblockIstEineKonstante(unittest.TestCase):
         self.assertEqual(m.FUSSBLOCK, erwartet)
         self.assertTrue(m.rendere(_quelle(), "pr").rstrip("\n").endswith(erwartet))
 
-    def test_der_torschlusssatz_ist_nicht_der_vorgabewert(self):
-        """The bridge is off unless asked for. A body that carries a thread-reply provenance line by
-        default would describe its own surface wrongly."""
-        m = _modul()
-        self.assertNotIn(m.TOR_SCHLUSSSATZ, m.rendere(_quelle(), "pr"))
-
 
 class TestDieQuelleWirdGeprueft(unittest.TestCase):
     def test_eine_issue_quelle_wird_nicht_als_pr_gerendert(self):
@@ -278,9 +273,13 @@ _OLD_LINES = ("Written by an AI session of b7n0de under owner review.", "Measure
 
 
 def _footer_findings(text: str, *, ends_with_footer: bool) -> list[str]:
-    """What the guard below finds in the text of one surface: the old lines anywhere, and for a template an end that is
-    not the gate's footer. The tests and the planted counter-probe call this one function."""
+    """What the guard below finds in the text of one surface: the old lines anywhere, every closing sentence the gate
+    names as retired, read as the gate reads it (folded, as prose, so a line break or backticks inside the sentence
+    do not hide it), and for a template an end that is not the gate's footer. The tests and the planted counter-probe
+    call this one function."""
     found = [f"carries the old line {zeile[:24]!r}" for zeile in _OLD_LINES if zeile in text]
+    prosa = _gate._as_prose(_gate._folded(text))
+    found += [f"carries {name}" for name, muster in _gate._RETIRED if muster.search(prosa)]
     if ends_with_footer and _last_text_line(text) != _gate.FOOTER:
         found.append("does not end with the footer the gate requires")
     return found
@@ -310,6 +309,22 @@ class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
     def test_the_renderer_carries_no_old_line(self):
         self.assertEqual(_footer_findings(SKRIPT.read_text(encoding="utf-8"), ends_with_footer=False), [])
 
+    def test_agents_md_prescribes_the_gates_footer_and_no_retired_sentence(self):
+        """AGENTS.md is the fifth place: every agent session that loads it writes the closing line it prescribes, so a
+        retired sentence there is rebuilt in every report (found 2026-10-23 in a delivery whose reports ended with the
+        sentence of human oversight). Its point 5 names the gate's footer, and nothing in the file is a retired one."""
+        text = AGENTS.read_text(encoding="utf-8")
+        self.assertIn(f"Last line, the attribution: `{_gate.FOOTER}`", text)
+        self.assertEqual(_footer_findings(text, ends_with_footer=False), [])
+
+    def test_the_renderer_offers_no_switch_that_appends_a_retired_sentence(self):
+        """The renderer carried a bridge, `--tor-schlusssatz`, that appended the retired sentence of the operating
+        agent below the footer for as long as the outbound gate required it on a pull request body. The gate requires
+        the footer now, the bridge would write a body the form gate refuses, and the switch is gone."""
+        with self.assertRaises(SystemExit) as ende:
+            _rp.main(["--quelle", str(QUELLE_260), "--tor-schlusssatz"])
+        self.assertEqual(ende.exception.code, 2)
+
     def test_meta_a_surface_left_on_the_old_lines_is_caught(self):
         """The planted counter-probes, through the same function the tests above call: each template as it stood before
         2026-10-17, and the renderer with its old constant, is found with every finding it carries."""
@@ -320,3 +335,17 @@ class TestEverySurfaceWritesTheFooterTheGateRequires(unittest.TestCase):
                 self.assertEqual(len(_footer_findings(text, ends_with_footer=True)), 3)
         skript = SKRIPT.read_text(encoding="utf-8").replace(f'"{_gate.FOOTER}"', f'"{alt}"')
         self.assertEqual(len(_footer_findings(skript, ends_with_footer=False)), 2)
+
+    def test_meta_a_retired_sentence_is_caught_wrapped_and_in_backticks(self):
+        """The planted counter-probes for the retired sentences, through the same function: AGENTS.md with point 5 as it
+        stood until 2026-10-23, wrapped and in backticks, and the renderer with the bridge constant it carried."""
+        agents = AGENTS.read_text(encoding="utf-8").replace(
+            f"`{_gate.FOOTER}`",
+            "`Prepared with AI agent involvement, reviewed and submitted under\n   human oversight.`")
+        self.assertEqual(_footer_findings(agents, ends_with_footer=False),
+                         ["carries the retired closing sentence of human oversight"])
+        skript = SKRIPT.read_text(encoding="utf-8") + (
+            '\nTOR_SCHLUSSSATZ = ("Written by the operating agent under a standing owner authorisation for Codex "\n'
+            '                   "threads; measurements are its own, at the head named above.")\n')
+        self.assertEqual(_footer_findings(skript, ends_with_footer=False),
+                         ["carries the retired closing sentence of the operating agent"])

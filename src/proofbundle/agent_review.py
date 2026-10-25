@@ -163,11 +163,12 @@ class AgentReviewError(ProofBundleError):
 
 
 class _NotCanonicalizable(AgentReviewError):
-    """A value the strict parser reads and RFC 8785 (JCS) cannot represent, or a structure over the
-    canonicalizer's budget: either way there is no canonical form.
+    """A value RFC 8785 (JCS) cannot represent, or a structure over the canonicalizer's budget:
+    either way there is no canonical form.
 
-    `loads_strict` admits an integer outside +-(2**53 - 1), NaN and Infinity; the canonicalizer
-    refuses each with a ValueError of its own (IntegerDomainError, FloatDomainError). As an
+    `loads_strict` admitted an integer outside +-(2**53 - 1), NaN and Infinity until 2026-10-22 and
+    refuses each since, so only a caller's own dict still carries one; the canonicalizer refuses
+    each with a ValueError of its own (IntegerDomainError, FloatDomainError). As an
     AgentReviewError it reaches the typed handling every caller already has, and the verifiers
     tell it apart from a payload that has a canonical form and does not match it."""
 

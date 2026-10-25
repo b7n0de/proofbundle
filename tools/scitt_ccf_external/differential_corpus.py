@@ -55,6 +55,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -209,9 +210,12 @@ def cose_structure(raw: bytes) -> dict:
 
 
 def _strip(v):
-    if isinstance(v, dict):
+    # Mapping and tuple beside dict and list: the strict decoding guard asks every container check behind
+    # cbor2 to hold under cbor2 6, which returns a frozendict and a tuple under a tag (owner answer B on card
+    # OA-c2b4d6d3e3). The records stripped here are JSON, so the reading is unchanged.
+    if isinstance(v, (dict, Mapping)):
         return {k: _strip(x) for k, x in v.items() if not k.startswith("_")}
-    if isinstance(v, list):
+    if isinstance(v, (list, tuple)):
         return [_strip(x) for x in v]
     return v
 
@@ -312,7 +316,7 @@ def pins(args, svc) -> dict:
                     "image_build_inputs_sha256": SHA(Path(args.build_inputs).read_bytes())
                     if args.build_inputs else None},
         "verifier": {"repository": "https://github.com/b7n0de/proofbundle", "commit": _git("rev-parse", "HEAD"),
-                     "tree_clean": _git("status", "--porcelain") == "", "package_version": version("proofbundle"),
+                     "tree_clean": _git("status", "--porcelain", "-z") == "", "package_version": version("proofbundle"),
                      "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)", "tool": "tools/scitt_ccf_external/differential_corpus.py",
                      "python": platform.python_version(), "cbor2": version("cbor2"),
                      "cryptography": cryptography.__version__},

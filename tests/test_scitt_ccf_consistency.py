@@ -28,6 +28,7 @@ from proofbundle._wire_b64 import decode_b64  # noqa: E402
 
 VECTOR = Path(__file__).resolve().parent / "fixtures" / "scitt_ccf" / "local_ledger_consistency.json"
 ISSUER = "service.example"
+SUBJECT = "scitt.ccf.signature.v1"
 SERVICE_KEY = ec.generate_private_key(ec.SECP384R1())
 OTHER_KEY = ec.generate_private_key(ec.SECP384R1())
 H = lambda b: hashlib.sha256(b).digest()  # noqa: E731
@@ -102,7 +103,7 @@ def enc_proof(anchor, path) -> bytes:
 
 def sign_over(newer_root: bytes, *, key=SERVICE_KEY, prot=None, txid="2.24") -> tuple:
     prot = prot if prot is not None else {1: -35, 4: kid_of(SERVICE_KEY), 395: 2,
-                                          15: {1: ISSUER, 6: 1790000000}, "ccf.v1": {"txid": txid}}
+                                          15: {1: ISSUER, 2: SUBJECT, 6: 1790000000}, "ccf.v1": {"txid": txid}}
     prot_b = _cbor2().dumps(prot)
     tbs = _cbor2().dumps(["Signature1", prot_b, b"", newer_root])
     r, s = utils.decode_dss_signature(key.sign(tbs, ec.ECDSA(hashes.SHA384())))
@@ -176,8 +177,8 @@ def _fold(anchor, path):
 # Section 4.1: what the receipt must carry
 # ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("kw, status", [
-    (dict(vdp={}), "consistency_proof_missing"),
-    (dict(vdp={-2: []}), "consistency_proof_missing"),
+    (dict(vdp={}), "malformed"),              # a vdp with neither -1 nor -2 is outside the CDDL
+    (dict(vdp={-2: []}), "malformed"),        # so is an empty -2; the CDDL pass refuses both first
     (dict(vdp={-1: []}), "malformed"),        # an empty -1 is outside the CDDL, and malformed comes first
     (dict(payload=TREE.root(24)), "consistency_payload_attached"),
     (dict(payload=b"\x00" * 32), "consistency_payload_attached"),
@@ -286,12 +287,20 @@ def test_42_the_signature_is_over_the_newer_root():
 # Profile and CDDL
 # ------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("prot, status", [
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -35, 395: 2, 15: {1: ISSUER}}, "outside_profile"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
+    ({1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
+    ({1: -35, 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "outside_profile"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}, 2: [99], 99: 1}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, UNSIZED),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}, 2: [99], 99: 1}, "outside_profile"),
+    # Codex on 406: RFC 9943 section 6 asks a Receipt for a text iss and sub as it asks a Signed Statement; at
+    # 7fd40593 a consistency receipt without a text sub was confirmed.
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
+    # a sub that is no text breaks RFC 8392, which the CDDL pass refuses first (the merge with 406, F2)
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "malformed"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "malformed"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: ""}}, "outside_profile"),
+    # without older_size the anchor rule is not complete: confirmed_without_tree_sizes (pull request 355)
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, UNSIZED),
 ])
 def test_profile_of_the_protected_header(prot, status):
     assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == status
@@ -299,24 +308,25 @@ def test_profile_of_the_protected_header(prot, status):
 
 def test_an_empty_array_of_the_other_proof_family_is_malformed():
     """Codex, PR 278 round four, the mirror of the inclusion case: the -05 CDDL makes -1 and -2 arrays
-    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL; an empty -2,
-    the family this verifier checks, keeps its own status, because 4.2 asserts len(proofs) > 0."""
+    of one or more proofs. An empty -1 beside the consistency proofs is outside that CDDL, and since
+    the CDDL pass (Nachtrag 4) so is an empty -2: a missing proof is only an absent one."""
     good = enc_proof(*TREE.proof(13, 24))
     assert check(receipt(vdp={-2: [good]})).status == UNSIZED
     c = check(receipt(vdp={-2: [good], -1: []}))
     assert (c.status, c.readable) == ("malformed", False)
-    assert check(receipt(vdp={-2: []})).status == "consistency_proof_missing"
+    assert check(receipt(vdp={-2: []})).status == "malformed"
+    assert check(receipt(vdp={-1: [b"junk"]})).status == "malformed"      # -1 alone, junk: the CDDL first
 
 
 def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
     """Codex, PR 278, the sibling of the inclusion case: proofs are parsed before the profile."""
     assert (c := check(receipt())).status == UNSIZED and c.readable
-    alg8 = {1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}
+    alg8 = {1: -8, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}
     good = check(receipt(signed=sign_over(TREE.root(24), prot=alg8)))
     assert (good.status, good.readable) == ("outside_profile", True)
     junk = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=alg8)))
     assert (junk.status, junk.readable) == ("malformed", False)
-    vds1 = {1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER}}
+    vds1 = {1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER, 2: SUBJECT}}
     not_ccf = check(receipt([b"junk"], signed=sign_over(TREE.root(24), prot=vds1)))
     assert (not_ccf.status, not_ccf.readable) == ("outside_profile", False)
     assert check(receipt(vdp={})).readable is False                 # nothing parsed
@@ -364,6 +374,31 @@ def test_vdp_not_a_map_is_malformed():
     prot_b, sig = _SIGNED.setdefault(24, sign_over(TREE.root(24)))
     raw = b"\xd2" + _cbor2().dumps([prot_b, {396: [1]}, None, sig])
     assert check(raw).status == "malformed"
+
+
+# A label with the value null is there, not absent (Codex on pull request 406, threads
+# PRRT_kwDOTKah0M6vyo0E and PRRT_kwDOTKah0M6vyo0G): each null reads like the same label with a value
+# of the wrong type, never like the label left out.
+def test_a_null_vdp_is_malformed_not_a_missing_proof():
+    prot_b, sig = _SIGNED.setdefault(24, sign_over(TREE.root(24)))
+    raw = b"\xd2" + _cbor2().dumps([prot_b, {396: None}, None, sig])
+    assert check(raw).status == "malformed"
+
+
+@pytest.mark.parametrize("vdp", [
+    lambda: {-2: [enc_proof(*TREE.proof(13, 24))], -1: None},
+    lambda: {-2: None},
+], ids=["null-inclusion-beside", "null-consistency"])
+def test_a_null_proof_family_is_malformed(vdp):
+    c = check(receipt(vdp=vdp()))
+    assert (c.status, c.readable) == ("malformed", False)
+
+
+@pytest.mark.parametrize("value", [None, []], ids=["null", "empty"])
+def test_a_null_crit_in_the_protected_header_is_malformed_not_absent(value):
+    # As `[]`, a null crit is a present label of the wrong shape, malformed under the CDDL pass.
+    prot = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}, 2: value}
+    assert check(receipt(signed=sign_over(TREE.root(24), prot=prot))).status == "malformed"
 
 
 # A fixed value, not os.urandom(64): a value drawn while collecting gives each xdist worker
@@ -575,7 +610,7 @@ def test_the_newer_size_the_header_yields(txid, size):
 
 
 def test_without_both_sizes_the_success_says_the_anchor_rule_was_not_checked():
-    no_txid = sign_over(TREE.root(24), prot={1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}})
+    no_txid = sign_over(TREE.root(24), prot={1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}})
     for c in (check(receipt()),                                           # no size at all
               S.verify_consistency_receipt(receipt(), older_root=TREE.root(13), older_issuer=ISSUER,
                                            rp_trust=trust(), newer_size=24)):      # n, and no m
@@ -671,7 +706,7 @@ def test_another_proof_whose_anchor_ends_at_the_last_leaf_implies_no_smaller_old
 # ------------------------------------------------------------------------------------------------
 # With the older size alone (Nachtrag 2 to Z332): popcount(m) - 1 left siblings
 # ------------------------------------------------------------------------------------------------
-NO_TXID = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}
+NO_TXID = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}
 
 
 def _no_txid(proofs, newer_root):

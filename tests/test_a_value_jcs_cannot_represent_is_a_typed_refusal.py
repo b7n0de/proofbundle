@@ -1,8 +1,11 @@
 """A value RFC 8785 cannot represent is a typed refusal, never a defect of the verifier.
 
 THE CLASS, stated as the violated assumption: *what the strict parser admits, the canonicalizer can
-represent.* It cannot. `loads_strict` reads an integer outside +-(2**53 - 1), NaN and Infinity, and
-`rfc8785.dumps` refuses each with IntegerDomainError or FloatDomainError, both ValueError. The
+represent.* It could not. Until 2026-10-22 `loads_strict` read an integer outside +-(2**53 - 1), NaN
+and Infinity, and `rfc8785.dumps` refuses each with IntegerDomainError or FloatDomainError, both
+ValueError. Since then the strict parser refuses all four (DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01,
+owner choice A for the integers), so in signed bytes they are refused at the reader; the typed
+refusal below stays for the producers and wrappers, which take a caller's own dict. The
 in-toto verifiers and `anchors.receipt_canonical_root` already mapped that refusal to their own
 typed answer; the agent-review module and seven other wrappers of the canonicalizer did not.
 
@@ -38,7 +41,6 @@ from __future__ import annotations
 import ast
 import copy
 import json
-import math
 from pathlib import Path
 
 import pytest
@@ -54,7 +56,8 @@ SRC = REPO / "src" / "proofbundle"
 SK = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 PK = SK.public_key().public_bytes_raw()
 
-#: What the strict parser admits and RFC 8785 refuses.
+#: What RFC 8785 refuses. A producer can hold each in its own dict, so every producer and wrapper
+#: below is asked all four.
 OUTSIDE_JCS = [2**53, -(2**53) - 5, float("nan"), float("inf")]
 
 
@@ -125,24 +128,35 @@ def _no_internal_error(r: dict) -> None:
 @pytest.mark.parametrize("through_any", [False, True], ids=["direct", "any"])
 @pytest.mark.parametrize("pfad", PATHS, ids=lambda p: ".".join(map(str, p)))
 @pytest.mark.parametrize("wert", OUTSIDE_JCS, ids=repr)
-def test_a_signed_receipt_with_such_a_value_is_refused_by_type(version, through_any, pfad, wert):
-    """The signature verifies, the receipt is refused, and the reason is a code about the receipt:
-    STATEMENT_NOT_CANONICALIZABLE. At 8ecb6edf all 96 of these calls answered `internal_error`."""
+def test_a_signed_receipt_with_such_a_value_is_refused_by_the_reader(version, through_any, pfad, wert):
+    """None of these values is JSON the strict parser reads (NaN and Infinity are no JSON numbers,
+    the integers are outside I-JSON), so the payload is not read at all: the answer a duplicate key
+    gets, never `internal_error`. Directly that is a structure refusal with no reason code, as for a
+    duplicate key; through `verify_agent_review_any` it is AGENT_REVIEW_ENVELOPE_UNREADABLE.
+    At 8ecb6edf all 96 of these calls answered `internal_error`; until 2026-10-22 they were read and
+    answered STATEMENT_NOT_CANONICALIZABLE (NaN and Infinity until the first commit of that day,
+    the integers until owner choice A)."""
     bauen, typ, verify = VERSIONS[version]
     env = _signed_as_sent(_set(bauen(), pfad, wert), typ)
     r = AR.verify_agent_review_any(env, PK) if through_any else verify(env, PK)
     _no_internal_error(r)
-    assert r["crypto_ok"] is True and r["ok"] is False
-    assert "STATEMENT_NOT_CANONICALIZABLE" in r["reason_codes"], r["errors"]
+    assert r["ok"] is False and "STATEMENT_NOT_CANONICALIZABLE" not in r["reason_codes"]
+    if through_any:
+        assert r["reason_codes"] == ["AGENT_REVIEW_ENVELOPE_UNREADABLE"], r
+    else:
+        assert r["crypto_ok"] is True and r["structure_ok"] is False
+        assert any("is not a JSON number" in e or "outside the I-JSON range" in e
+                   for e in r["errors"]), r["errors"]
 
 
-@pytest.mark.parametrize("version", sorted(VERSIONS))
-def test_where_the_validator_passes_the_top_reason_names_the_missing_canonical_form(version):
-    """`subjectContext.humanRef` is typed nowhere, so the validator passes `2**53` there, and the
-    missing canonical form is the receipt's first and only reason."""
-    bauen, typ, verify = VERSIONS[version]
-    r = verify(_signed_as_sent(_set(bauen(), ("subjectContext", "humanRef"), 2**53), typ), PK)
-    assert r["reason_code"] == "STATEMENT_NOT_CANONICALIZABLE", (r["reason_codes"], r["errors"])
+@pytest.mark.parametrize("wert", OUTSIDE_JCS, ids=repr)
+def test_the_binding_helper_still_names_the_missing_canonical_form(wert):
+    """No signed payload reaches STATEMENT_NOT_CANONICALIZABLE since 2026-10-22, because the strict
+    parser refuses each of these values first. The helper both verifier bodies share keeps its typed
+    answer for a statement that holds one, and this pins it. Until then the three verifiers gave it as
+    the top reason for a receipt with `subjectContext.humanRef = 2**53`, which the validator passes."""
+    ok, fehler = AR._canonical_binding({"predicate": {"humanRef": wert}}, b"{}")
+    assert ok is False and getattr(fehler, "code", None) == "STATEMENT_NOT_CANONICALIZABLE", fehler
 
 
 def test_a_canonical_payload_that_is_merely_not_canonical_keeps_its_sentence():
@@ -189,7 +203,7 @@ def _wrappers() -> dict:
                              relation_statement, run_ledger, subject_binding, trust_pack,
                              verification_summary, verifier_block)
     from proofbundle._statement_payload import load_statement_strict  # noqa: PLC0415
-    from proofbundle.adapters import _provenance, eee  # noqa: PLC0415
+    from proofbundle.adapters import _provenance, eee, trace_record  # noqa: PLC0415
     from proofbundle.errors import BundleFormatError  # noqa: PLC0415
     return {
         ("agent_review", "_rfc8785_bytes"): (AR._rfc8785_bytes, AR.AgentReviewError),
@@ -220,6 +234,11 @@ def _wrappers() -> dict:
         # A producer helper that labels its fallback instead of refusing: the answer is a string.
         ("adapters._provenance", "config_hash"): (_provenance.config_hash, "sha256-sortkeys:"),
         ("adapters.eee", "_record_digest"): (eee._record_digest, "sha256-sortkeys:"),
+        # The TRACE verifier's serializer passes the refusal on, as the primitives do: its one caller,
+        # `verify_trace_record`, hands it only a record that the strict parser and `_canonicalizable`
+        # have read, and those refuse each of these values first, as an unreadable record with exit 2
+        # (tests/test_trace_record.py).
+        ("adapters.trace_record", "_jcs"): (trace_record._jcs, ValueError),
         # The primitives pass the canonicalizer's refusal on unchanged: that is their documented
         # contract (canonical.canonicalize_statement), and every caller above maps it.
         ("canonical", "canonicalize_statement"): (canonical.canonicalize_statement, ValueError),
@@ -309,13 +328,15 @@ def test_the_verifier_block_join_answers_instead_of_raising(wert):
         VB.test_result_ref(st)
 
 
-def test_the_values_are_what_the_strict_parser_admits():
-    """The premise, measured rather than assumed: each value survives the strict parser, so each
-    reaches a verifier inside a correctly signed payload."""
+def test_the_strict_parser_refuses_each_value():
+    """The premise, measured rather than assumed. Until 2026-10-22 each value survived the strict
+    parser and reached a verifier inside a correctly signed payload; now the parser refuses each with
+    the error type it uses for a duplicate key, so only a caller's own dict still carries one."""
     from proofbundle._strict_json import loads_strict  # noqa: PLC0415
+    from proofbundle.errors import BundleFormatError  # noqa: PLC0415
     for wert in OUTSIDE_JCS:
-        gelesen = loads_strict(json.dumps({"x": wert}))["x"]
-        assert gelesen == wert or (math.isnan(wert) and math.isnan(gelesen))
+        with pytest.raises(BundleFormatError, match="is not a JSON number|outside the I-JSON range"):
+            loads_strict(json.dumps({"x": wert}))
 
 
 # ── what the structural budget refuses first (the lens on d5747000) ───────────────────────────
@@ -365,6 +386,11 @@ _BUDGET_ANSWERS: dict = {
     # this tree (2026-10-18): `canonicalize` and `emit_eval_receipt` in front of it refuse all three.
     ("evalclaim", "_jcs_bytes"): {"lone surrogate": EvalClaimError, "nesting 70 deep": b'{"x":[',
                                   "2**8194": EvalClaimError},
+    # `trace_record._jcs` calls rfc8785 without the package's budget as well: seventy levels are written,
+    # and a lone surrogate and 2**8194 are RFC 8785's own refusals, passed on (measured 2026-10-22). The
+    # strict parser in front of it refuses all three, so no record that reaches it holds one.
+    ("adapters.trace_record", "_jcs"): {"lone surrogate": ValueError, "nesting 70 deep": b'{"x":[',
+                                        "2**8194": ValueError},
 }
 
 #: Entries of `_wrappers` this section does not ask, each with the reason.
