@@ -1140,7 +1140,9 @@ def _without_cwt(prot_cwt=None, unprot_cwt=None) -> bytes:
     ({2: "s"}, None, "outside_profile"),                               # no iss
     ({1: "did:example:signer"}, None, "outside_profile"),              # no sub
     ({1: "", 2: "s"}, None, "outside_profile"),                        # empty iss
-    ({1: "did:example:signer", 2: 7}, None, "outside_profile"),        # sub not text
+    # a claim of the wrong type breaks RFC 8392 (iss and sub are text), which the CDDL pass refuses first
+    ({1: "did:example:signer", 2: 7}, None, "malformed"),              # sub not text
+    ({1: 5, 2: "s"}, None, "malformed"),                               # iss not text
     # not a map: label 15 breaks the CWT Claims CDDL (RFC 9597), which the CDDL pass refuses first
     ([1, 2], None, "malformed"),
 ])
@@ -1159,10 +1161,14 @@ def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():
 _SUB = "scitt.ccf.signature.v1"
 RECEIPT_CWT_OUTSIDE = {
     "no sub": (dict(extra_prot={15: {1: ISSUER, 6: 1790000000}}), ISSUER),
-    "a null sub": (dict(extra_prot={15: {1: ISSUER, 2: None, 6: 1790000000}}), ISSUER),
-    "a number as the sub": (dict(extra_prot={15: {1: ISSUER, 2: 7, 6: 1790000000}}), ISSUER),
     "an empty sub": (dict(extra_prot={15: {1: ISSUER, 2: "", 6: 1790000000}}), ISSUER),
     "an empty iss": (dict(issuer=""), ""),
+}
+#: A sub that is no text breaks RFC 8392 itself, and the CDDL pass refuses it before the rule above is asked, as it
+#: refuses an iss that is no text (the merge of 406 and 407, F2 of its counter-reading).
+RECEIPT_CWT_MALFORMED = {
+    "a null sub": (dict(extra_prot={15: {1: ISSUER, 2: None, 6: 1790000000}}), ISSUER),
+    "a number as the sub": (dict(extra_prot={15: {1: ISSUER, 2: 7, 6: 1790000000}}), ISSUER),
 }
 
 
@@ -1176,6 +1182,12 @@ def _receipt_side(trusted_issuer: str, /, **rcpt_kw) -> str:
 def test_a_receipt_carries_a_text_iss_and_sub_in_its_protected_header(case):
     rcpt_kw, issuer = case
     assert _receipt_side(issuer, **rcpt_kw) == "outside_profile"
+
+
+@pytest.mark.parametrize("case", list(RECEIPT_CWT_MALFORMED.values()), ids=list(RECEIPT_CWT_MALFORMED))
+def test_a_receipt_whose_sub_is_no_text_is_malformed(case):
+    rcpt_kw, issuer = case
+    assert _receipt_side(issuer, **rcpt_kw) == "malformed"
 
 
 def test_CONTROL_the_same_receipt_with_a_text_iss_and_sub_is_confirmed():

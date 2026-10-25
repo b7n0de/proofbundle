@@ -290,8 +290,9 @@ def test_42_the_signature_is_over_the_newer_root():
     # Codex on 406: RFC 9943 section 6 asks a Receipt for a text iss and sub as it asks a Signed Statement; at
     # 7fd40593 a consistency receipt without a text sub was confirmed.
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "outside_profile"),
-    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "outside_profile"),
+    # a sub that is no text breaks RFC 8392, which the CDDL pass refuses first (the merge with 406, F2)
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: None}}, "malformed"),
+    ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: 7}}, "malformed"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: ""}}, "outside_profile"),
     ({1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER, 2: SUBJECT}}, "confirmed"),
 ])

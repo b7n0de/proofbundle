@@ -254,8 +254,9 @@ def _crit_ok(headers: dict, processed: tuple) -> Optional[str]:
     """The crit rules that are not shape: its shape, [+ label], is a rule of the CDDL pass.
 
     A LABEL WITH THE VALUE NULL IS THERE (Codex on pull request 406, thread PRRT_kwDOTKah0M6vyo0G, P2): `2: null`
-    read as no crit. Only a label that is not in the header is no crit, here as in the pass, and a crit of another
-    shape is refused here too, so the rule does not rest on the pass having run."""
+    read as no crit. Only a label that is not in the header is no crit, here as in the pass. Every verdict surface
+    runs the pass first, so there the pass refuses a crit of another shape before this is called; the check here
+    keeps the rule for a caller of this function alone, and tests/test_scitt_ccf_cddl_first.py holds it directly."""
     if _CRIT not in headers:
         return None
     crit = headers[_CRIT]
@@ -671,6 +672,11 @@ _STATEMENT_RULES: tuple = _header_rules("statement") + (
     _Rule("259 is uint / tstr", _typed(_PREIMAGE_CTY, lambda v: _uint(v) or isinstance(v, str),
                                        "uint / tstr (RFC 9995)")),
     _Rule("260 is tstr", _typed(_PAYLOAD_LOCATION, lambda v: isinstance(v, str), "tstr (RFC 9995)")),
+    # THE CWT ISSUER AND SUBJECT ARE TEXT ON BOTH SIDES (counter-reading of the merge with pull request 406, F2).
+    # RFC 8392 gives iss and sub as StringOrURI; 406 asks both of a statement and a receipt, and the pass typed the
+    # issuer of a receipt only, so a sub of 7 ended outside_profile and readable where an iss of 5 was malformed.
+    _Rule("statement CWT issuer is tstr", _cwt_claim(1, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
+    _Rule("statement CWT subject is tstr", _cwt_claim(2, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
 )
 
 
@@ -695,6 +701,7 @@ _RECEIPT_BYTES_RULES: tuple = (
 )
 _RECEIPT_RULES: tuple = _header_rules("receipt") + (
     _Rule("receipt CWT issuer is tstr", _cwt_claim(1, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
+    _Rule("receipt CWT subject is tstr", _cwt_claim(2, lambda v: isinstance(v, str), "tstr (RFC 8392)")),
     _Rule("receipt CWT iat is int", _cwt_claim(6, _int, "an integer NumericDate (RFC 8392)")),
     _Rule("receipt vds is int", _typed(_VDS, _int, "int (RFC 9942)")),
     # Codex, PR 279 round four: vdp was typed in the unprotected bucket of a CCF receipt only, so a
