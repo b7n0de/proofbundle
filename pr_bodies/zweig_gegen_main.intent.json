@@ -1,0 +1,47 @@
+{
+ "schema": "proofbundle.zweig_gegen_main.intent.v1",
+ "intents": [
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "open",
+   "case": "c-4da9e8a13634f14f",
+   "reason": "FD-4 of the second counter-reading of pull request 395. Under `from __future__ import annotations` the annotation `o.getenv('X')` of the nested `inner` stays a string, and nothing in the module hands an evaluator a namespace, so the alias `o` of `outer` never meets it and `os.getenv` never runs. main reads the string in the scope of `outer` and reports a read that does not happen. The head reads that scope only where `_module_hands_a_namespace` finds such a call (`_annotations_in_handed_namespaces` in scripts/core_layer_gate.py). This is the form as the test writes it; the oracle of the tool saw no read of the environment."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "open",
+   "case": "c-5b34b16f1428a49c",
+   "reason": "The CRLF form of FD-4. The import decodes a source with CRLF line ends to the same program: under Python 3.10.12 and 3.13.15 the syntax tree equals the LF form and the annotation stays the string `o.getenv('X')`, never evaluated, so the head's GREEN holds here as in the LF form. The oracle saw no read of the environment in this form."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "open",
+   "case": "c-bc01474906d0af6c",
+   "reason": "The CR form of FD-4. A lone CR ends a line for the import as LF does: under Python 3.10.12 and 3.13.15 the syntax tree equals the LF form, the module still hands no evaluator a namespace, and the annotation is never evaluated. The oracle saw no read of the environment in this form."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "main-test",
+   "node": "tests/test_core_layer_gate_sees_every_spelling.py::test_CONTROL_a_reviewed_change_keeps_the_guards",
+   "reason": "The head binds a reviewed change of the guard to the source of each line it covers (F8 of the counter-reading of pull request 395, `_reviewed_changes` in scripts/core_layer_gate.py). main's `_review()` has no `source`, so the head refuses the entry as NOT_MEASURABLE, exit 2, 'every reviewed guard change needs module, form, a count of at least 1, a reason and the source of each line', and the report has no measured part. The head's copy of this test gives the review its source line and stays GREEN."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "main-test",
+   "node": "tests/test_core_layer_gate_sees_every_spelling.py::test_RED_a_review_that_does_not_match_is_red[a reviewed form that is gone]",
+   "reason": "The same review entry without `source`: the head stops at it as NOT_MEASURABLE, exit 2, before it compares the form, where main says RED, exit 1. Both refuse; the head's copy of the case, with the source line, still finds the form that is gone a stale review and RED."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "main-test",
+   "node": "tests/test_core_layer_gate_sees_every_spelling.py::test_RED_a_review_that_does_not_match_is_red[one occurrence more than reviewed]",
+   "reason": "Again main's entry without `source`, here with a second occurrence of the reviewed form: the head refuses the entry as NOT_MEASURABLE, exit 2, where main says RED, exit 1. The head's copy, with the source line, still reports the extra occurrence as a stale review and RED."
+  },
+  {
+   "program": "scripts/core_layer_gate.py",
+   "kind": "main-test",
+   "node": "tests/test_core_layer_gate_sees_every_spelling.py::test_CONTROL_a_read_the_lens_found_keeps_the_guards[a dict union with a module's namespace]",
+   "reason": "`vars(json) | extra` with a parameter `extra` hands the namespace of `json` to `extra.__ror__` when the dict union declines, and that method may write into it. main counts every binary operator over a namespace as a read; the head counts it as one only when the other operand runs no code of the module (F7 of the counter-reading of pull request 395, `reads_only` in scripts/core_layer_gate.py), so here it reports 'a namespace that may be a module's, used other than by reading', a possible change of the guard. The head's tests list this input under COUNTS_ON_PURPOSE."
+  }
+ ]
+}
