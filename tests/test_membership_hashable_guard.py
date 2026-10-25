@@ -1204,6 +1204,13 @@ _LOOKUPS_CLASSIFIED = {
     ("proofbundle/adapters/trace_record.py", "verify_trace_record", "_ALGS", "alg"):
         (1, "guarded: alg is the literal \"EdDSA\" of the embedded form or what _read_jws returns, and it "
          "returns alg only after is_member(alg, _ALGS)"),
+    # Seen once the scitt-ccf/v1 reader of ADR 0009 (the r2 stack, pull request 406) met this guard; each was
+    # read at its source and at every caller.
+    ("proofbundle/scitt_ccf.py", "_key_from_spki", "_EC_CURVES", "params[c:c_end]"):
+        (1, "own value: a slice of spki, and every caller passes bytes (_normalize_keys converts with bytes(), "
+         "the certificate path reads tbs_certificate_bytes), so the key is bytes and hashes"),
+    ("proofbundle/scitt_ccf.py", "_verify", "_ALGS", "alg"):
+        (1, "guarded: isinstance(alg, int) and is_member(alg, _ALGS) return before it in the same condition"),
     ("proofbundle/canonical.py", "_fremdkoerper", "FREMDKOERPER_KLASSEN", "id(klasse)"):
         (1, "own value: id() returns an int"),
     ("proofbundle/canonical.py", "_fremdkoerper", "_EINGEBAUT", "roh"):

@@ -1,0 +1,68 @@
+{
+ "tool": "tools/scitt_ccf_external/differential_corpus_round2.py",
+ "measured_on": "2026-09-26",
+ "image_build_inputs": {
+  "ccf_version": "7.0.17",
+  "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+  "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+  "tdnf_snapshottime": "1790165199"
+ },
+ "signer": {
+  "did": "did:x509:0:sha256:NDUS5H0yhqhmOcSIvyQsuzpDEoMAlpTIARDgZ6BVsRU::subject:CN:proofbundle-scitt-probe",
+  "spki_hex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004e8792383284a33d8c6cd68fd605f2920fb33b4438d30730487fcc7b3a72a54ac310ef512e3aa0464f8ed3ad48680fc64460a10413ea3c00cc597daa2dadac27f",
+  "alg": "ES256",
+  "note": "made for this run, private key discarded"
+ },
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "phases": [
+  {
+   "name": "initial",
+   "keyset": "scitt-keys.initial.hex",
+   "note": "a fresh single-node network on the image, opened with scitt governance local_development"
+  },
+  {
+   "name": "after-configuration-change",
+   "keyset": "scitt-keys.after-configuration-change.hex",
+   "note": "the policy script replaced through a governance proposal by one that also refuses the issuer did:example:blocked"
+  },
+  {
+   "name": "after-restart",
+   "keyset": "scitt-keys.after-restart.hex",
+   "note": "the node stopped; a plain restart of the node refused (PID file my_node.pid already exists, exit 103); the service recovered from its ledger in a new node (command Recover, transition_service_to_open, one recovery share), with a new service identity"
+  }
+ ],
+ "vectors": [
+  "control",
+  "g01-keys-descending",
+  "g02-cwt-claims-keys-reversed",
+  "g03-alg-1-byte-argument",
+  "g04-alg-2-byte-argument",
+  "g05-label-1-byte-argument",
+  "g06-map-count-1-byte-argument",
+  "g07-text-2-byte-length",
+  "g08-x5chain-array-1-byte-count",
+  "g09-map-indefinite",
+  "h01-protected-duplicate-alg-equal",
+  "h02-protected-duplicate-alg-conflicting",
+  "h03-unprotected-duplicate-equal",
+  "h04-unprotected-duplicate-conflicting",
+  "h05-alg-both-buckets-equal",
+  "h06-alg-both-buckets-conflicting",
+  "h07-payload-hash-alg-both-buckets-conflicting",
+  "h08-cwt-claims-both-buckets-equal",
+  "h09-x5chain-both-buckets-conflicting",
+  "i01-crit-x5chain",
+  "i02-crit-cwt-claims",
+  "i03-crit-cwt-claims-and-x5chain",
+  "i04-crit-unknown-int-present",
+  "i05-crit-unknown-int-absent",
+  "i06-crit-unknown-text-present",
+  "i07-crit-registered-not-listed",
+  "i08-crit-empty",
+  "j01-after-configuration-change",
+  "j02-after-restart"
+ ]
+}
