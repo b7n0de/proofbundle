@@ -426,7 +426,23 @@ def test_F7_a_quotation_wrapped_over_two_lines_is_a_quote():
     assert not plg.pruefe("docs: an English title", absatz)["sauber"], "a quote does not span an empty line"
 
 
-@pytest.mark.parametrize("bruch", ["\r\n", "\u2028", "\r"], ids=["crlf", "line-separator", "cr"])
+#: Every line boundary that `str.splitlines` knows besides `\n`, built from code points (counter-reading of
+#: pull request 419, F6: the first form held three of the ten, and three mutants that forget one survived).
+GRENZEN = {"crlf": "\r\n", "cr": "\r", "vt": chr(0x0B), "ff": chr(0x0C), "fs": chr(0x1C), "gs": chr(0x1D),
+           "rs": chr(0x1E), "nel": chr(0x85), "line-separator": chr(0x2028), "paragraph-separator": chr(0x2029)}
+
+
+def test_the_boundaries_are_every_one_splitlines_knows():
+    """The list above is complete: each of its boundaries is one, and every code point `splitlines` cuts at
+    is in it, or is `\\n`."""
+    for name, bruch in GRENZEN.items():
+        assert f"a{bruch}b".splitlines() == ["a", "b"], name
+    geschnitten = {chr(c) for c in range(0x110000)
+                   if not 0xD800 <= c <= 0xDFFF and len(f"a{chr(c)}b".splitlines()) == 2}
+    assert geschnitten == {g for g in GRENZEN.values() if len(g) == 1} | {"\n"}
+
+
+@pytest.mark.parametrize("bruch", list(GRENZEN.values()), ids=list(GRENZEN))
 def test_a_quotation_does_not_span_an_empty_line_whatever_ends_the_line(bruch):
     """Codex thread 4370565956 on pull request 419 (P3): the expressions knew only `\\n`, the line count knew
     more. With `\\r\\n` a quotation ran over an empty line and took German prose with it, which main reports,
@@ -435,6 +451,16 @@ def test_a_quotation_does_not_span_an_empty_line_whatever_ends_the_line(bruch):
     assert not plg.pruefe("docs: an English title", absatz)["sauber"], "a quote does not span an empty line"
     trailer = f"feat: an English subject{bruch}{bruch}Co-authored-by: Jürgen Müller <jm@example.invalid>{bruch}"
     assert plg.pruefe("docs: an English title", "An English body.", [trailer])["sauber"], "a trailer stays a trailer"
+
+
+def test_a_format_character_between_cr_and_lf_keeps_the_empty_line():
+    """Counter-reading of pull request 419, F1: the format characters were removed before the boundaries were
+    read, so `\\r`, a zero-width space and `\\n` became one `\\r\\n`, and the quotation ran over the empty line
+    that the text has. Its twin with `\\n` in place of `\\r` is red, and so is this one now."""
+    zwsp = chr(0x200B)
+    for bruch in ("\r" + zwsp + "\n", "\n" + zwsp + "\n"):
+        absatz = f'An English line with a stray " quote.{bruch}Der Riegel bricht ab, wenn das nicht stimmt. "\n'
+        assert not plg.pruefe("docs: an English title", absatz)["sauber"], repr(bruch)
 
 
 def test_F7_a_dependabot_blockquote_is_a_quote():
@@ -460,4 +486,14 @@ def test_F9_a_body_of_empty_lines_is_read_in_linear_time():
     import time
     t0 = time.perf_counter()
     plg.entkernen("\n" * 65536)
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_F4_a_trailer_without_its_closing_bracket_is_read_in_linear_time():
+    """Counter-reading of pull request 419, F4 (P3): with `@` in both parts of the address, a trailer line
+    without its `>` took quadratic time (measured at db54567c: 32000 characters 2.80 s, 65536 characters
+    10.96 s). The parts of the address hold no `@` now."""
+    import time
+    t0 = time.perf_counter()
+    plg.entkernen("Co-authored-by: x <" + "a@" * 16384)
     assert time.perf_counter() - t0 < 1.0

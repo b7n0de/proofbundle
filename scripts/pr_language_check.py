@@ -112,20 +112,26 @@ _HTML_ZITAT = re.compile(r"<blockquote\b.*?</blockquote\s*>", re.S | re.I)
 #: A quotation in straight double quotes, also over a line break, never over an empty line: a commit
 #: message wraps a quoted sentence like any other.
 _ANFUEHRUNG = re.compile(r'"(?:[^"\n]|\n(?![ \t]*\n))*"')
-_PERSON = re.compile(r"^[ \t]*[A-Za-z][A-Za-z-]*-by:[ \t]+[^<>\n]+<[^<>\s]+@[^<>\s]+>[ \t]*$", re.M)
+#: No `@` in the two parts of the address (counter-reading of pull request 419, F4): with `@` in both
+#: classes, `Co-authored-by: x <` and `a@` repeated took quadratic time (65536 characters 10.96 s).
+_PERSON = re.compile(r"^[ \t]*[A-Za-z][A-Za-z-]*-by:[ \t]+[^<>\n]+<[^<>\s@]+@[^<>\s@]+>[ \t]*$", re.M)
 _KENNUNG = re.compile(r"(?<![0-9A-Za-z_-])[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}(?![0-9A-Za-z_-])")
 
 
 def _gelesen(text: str) -> str:
-    """The text as it reads: after NFKC and without format characters (counter-reading of pull request
+    r"""The text as it reads: after NFKC and without format characters (counter-reading of pull request
     377, F6, P3). A zero-width space inside each list word and a decomposed umlaut hid German prose.
 
     Every line boundary that `splitlines` knows becomes `\n` (Codex thread 4370565956 on pull request
     419): the expressions below know only `\n`, the line count in `treffer` knows more. With `\r\n` a
     quotation ran over an empty line and took German prose with it, and a trailer ending in `\r` was
-    no trailer."""
-    t = "".join(z for z in unicodedata.normalize("NFKC", text) if unicodedata.category(z) != "Cf")
-    return "\n".join(t.splitlines())
+    no trailer.
+
+    The boundaries first, the format characters after (counter-reading of pull request 419, F1): a
+    format character between `\r` and `\n` left a `\r\n` when it was removed, one boundary where the
+    text has two, and the quotation ran over the empty line again. NFKC makes no boundary of its own."""
+    t = "\n".join(text.splitlines())
+    return "".join(z for z in unicodedata.normalize("NFKC", t) if unicodedata.category(z) != "Cf")
 
 
 def entkernen(text: str) -> str:
