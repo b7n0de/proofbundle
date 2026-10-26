@@ -88,6 +88,15 @@ content root. Per edge:
   PAYLOAD is not a well-formed statement (`RELATION_TARGET_MALFORMED`), cycle, or depth > 32.
 - **NOT_EVALUATED** — no profile present.
 
+**Which edges set `lineage`.** `lineage` is computed from the edges the receipt under verification
+declares in its own `relationships`. A receipt that declares none is NOT_EVALUATED, also when an
+attachment declares an edge over it; such edges feed only the `relations` policy of §5
+(`reject_superseded`, `RELATION_MALFORMED_SUCCESSOR`). The states of its own edges combine as: FAIL if
+any edge is FAIL, else DECLARED_UNRESOLVED if any edge is DECLARED_UNRESOLVED, else VERIFIED. An edge
+whose digest names no attached receipt is DECLARED_UNRESOLVED, whatever else is attached;
+"attached-but-unverified" means an attachment whose computed content root the edge names and that does
+not verify standalone. An attachment that no edge names changes nothing, whether it verifies or not.
+
 "Verified STANDALONE" covers the payload as well as the signature, and it binds at every hop
 (deep gate 2026-09-05, finding L4-01): the resolver parses an attached target's payload with the SAME
 strict, canonical oracle the standalone verify path uses. A payload the oracle refuses — a duplicate JSON
