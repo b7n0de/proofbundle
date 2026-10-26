@@ -197,7 +197,8 @@ bound is depth-exceeded.
   — even a valid, attached, verified one — → `RELATION_TARGET_MISMATCH`, exit 3. This fires
   on EVERY such edge, the accept path (T2) included: it closes the decoy-parent gap where
   `require_relation_resolution` alone only proved that SOME edge resolves, not that it
-  resolves to the parent the relying party named.
+  resolves to the parent the relying party named. On an edge whose target is not attached, the
+  edge's declared target digest is compared with the expected roots in the same way.
 - `targetSubjectDigest` (edge field): when PRESENT it is now binding — gegengeprueft against
   the resolved target's real subject digest; a mismatch is a lineage FAIL
   (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break.
