@@ -29,7 +29,10 @@ bytes* were signed and anchored, not what they mean.
 - All top-level and nested string fields carrying binary data use **standard**
   Base64 ([RFC 4648 §4](https://datatracker.ietf.org/doc/html/rfc4648#section-4)),
   with padding. (Exception: the SD-JWT compact string in `sd_jwt_vc.compact`
-  uses base64url per the SD-JWT spec.)
+  uses base64url per the SD-JWT spec.) Such a field is decoded canonically: the
+  standard alphabet only, padding to a multiple of four characters, pad bits zero,
+  no white space and no other character; any other spelling of the same bytes is
+  refused.
 - Hashes are SHA-256 (32 bytes).
 - Integers are JSON numbers with no fractional part.
 - **Duplicate object keys MUST be rejected** (WP-C1), at any nesting depth, in
