@@ -1088,8 +1088,13 @@ def _find_log(logs: Sequence[_Log], log_id: bytes) -> Optional[_Log]:
 # --------------------------------------------------------------------------------------------
 
 def _chain_problem(leaf: Any, ca: _Authority, at: int) -> Optional[str]:
-    """Why ``leaf`` does not chain to ``ca`` at time ``at`` (RFC 5280 path validation in the hybrid
-    model of client-spec 4.3), or None. Intermediates come from the trusted root only."""
+    """Check the supported certificate-path subset at the verified time ``at``.
+
+    CA certificates may carry basicConstraints, keyUsage, an extendedKeyUsage that permits codeSigning
+    and non-critical key identifiers only.
+    Any other CA extension is not implemented and returns unsupported, never a successful path.
+    Intermediates come from the trusted root only; this is not a general RFC 5280 path validator.
+    """
     from cryptography import x509  # noqa: PLC0415
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
     if not ca.valid_at(at):
@@ -1103,15 +1108,38 @@ def _chain_problem(leaf: Any, ca: _Authority, at: int) -> Optional[str]:
             child.verify_directly_issued_by(parent)
         except (ValueError, TypeError, InvalidSignature) as exc:
             return f"certificate {depth} is not issued by certificate {depth + 1}: {exc}"
+        from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
+        processed = {ExtensionOID.BASIC_CONSTRAINTS, ExtensionOID.KEY_USAGE, ExtensionOID.EXTENDED_KEY_USAGE}
+        metadata = {ExtensionOID.SUBJECT_KEY_IDENTIFIER, ExtensionOID.AUTHORITY_KEY_IDENTIFIER}
         try:
-            bc = parent.extensions.get_extension_for_class(x509.BasicConstraints).value
-            ku = parent.extensions.get_extension_for_class(x509.KeyUsage).value
+            extensions = parent.extensions
+        except (ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType) as exc:
+            raise _Fail("verifier-config", f"CA certificate {depth + 1} has unreadable extensions: {exc}") from None
+        for extension in extensions:
+            if extension.oid in processed:
+                continue
+            if extension.oid in metadata and not extension.critical:
+                continue
+            raise _Fail("unsupported", f"CA certificate {depth + 1} carries an extension outside the "
+                                       f"implemented path profile: {extension.oid.dotted_string}")
+        try:
+            bc = extensions.get_extension_for_class(x509.BasicConstraints).value
+            ku = extensions.get_extension_for_class(x509.KeyUsage).value
         except (x509.ExtensionNotFound, ValueError):
             return f"certificate {depth + 1} lacks basicConstraints or keyUsage"
         if not bc.ca or not ku.key_cert_sign:
             return f"certificate {depth + 1} is not a CA allowed to sign certificates"
         if bc.path_length is not None and depth > bc.path_length:
             return f"certificate {depth + 1} allows a path length of {bc.path_length}"
+        # A CA's extendedKeyUsage limits the purposes of what it issues; the leaf's one purpose is
+        # codeSigning (_read_leaf). The public-good Fulcio intermediate carries codeSigning.
+        try:
+            eku = extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+        except x509.ExtensionNotFound:
+            eku = None
+        if eku is not None and ExtendedKeyUsageOID.CODE_SIGNING not in eku \
+                and ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE not in eku:
+            return f"certificate {depth + 1} limits its extended key usage to purposes without codeSigning"
     return None
 
 

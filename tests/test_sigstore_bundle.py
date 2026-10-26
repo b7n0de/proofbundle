@@ -332,3 +332,71 @@ def test_the_command_refuses_unusable_options_with_exit_2(extra: list, why: str,
     assert main(_argv(case) + extra) == 2
     err = capsys.readouterr().err.splitlines()
     assert len(err) == 1 and err[0].startswith("ERROR: ") and why in err[0], err
+
+
+# Review regressions. These cases supplement the 110 manifest vectors.
+
+
+def _certificate_builder_from(cert):
+    from cryptography import x509
+    return (x509.CertificateBuilder().subject_name(cert.subject).issuer_name(cert.issuer)
+            .public_key(cert.public_key()).serial_number(cert.serial_number)
+            .not_valid_before(cert.not_valid_before_utc).not_valid_after(cert.not_valid_after_utc))
+
+
+@pytest.mark.parametrize("extra_kind", ["name-constraints", "unknown-critical"])
+def test_a_ca_constraint_cannot_be_ignored(extra_kind: str) -> None:
+    import base64
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.x509.oid import ObjectIdentifier
+
+    gen = _generator()
+    data, kwargs = _positive()
+    assert verify_sigstore_bundle(data, **kwargs).as_dict()["exit_code"] == 0
+    builder = _certificate_builder_from(gen.INTERMEDIATE_CERT)
+    for extension in gen.INTERMEDIATE_CERT.extensions:
+        builder = builder.add_extension(extension.value, extension.critical)
+    if extra_kind == "name-constraints":
+        extra = x509.NameConstraints(
+            permitted_subtrees=[x509.UniformResourceIdentifier("allowed.example")], excluded_subtrees=None)
+    else:
+        extra = x509.UnrecognizedExtension(ObjectIdentifier("1.2.3.4.5.99"), b"\x05\x00")
+    intermediate = builder.add_extension(extra, critical=True).sign(
+        gen.ROOT_KEY, hashes.SHA384(), ecdsa_deterministic=True)
+    trusted = json.loads(kwargs["trusted_root"])
+    trusted["certificateAuthorities"][0]["certChain"]["certificates"][0]["rawBytes"] = base64.b64encode(
+        intermediate.public_bytes(serialization.Encoding.DER)).decode("ascii")
+    kwargs["trusted_root"] = json.dumps(trusted).encode("utf-8")
+    out = verify_sigstore_bundle(data, **kwargs).as_dict()
+    # A verified chain must enforce the constraint, or explicitly refuse an unsupported feature.
+    assert out["exit_code"] in (1, 2), out["checks"]
+    assert out["ok"] is False
+
+@pytest.mark.parametrize("usage, expected_exit", [
+    ("codeSigning", 0), ("anyExtendedKeyUsage", 0), ("serverAuth", 1)])
+def test_a_ca_extended_key_usage_must_permit_code_signing(usage: str, expected_exit: int) -> None:
+    """The public-good Fulcio intermediate carries extendedKeyUsage codeSigning, so the restricted CA
+    path profile reads that extension instead of refusing it: it must permit the leaf's one purpose."""
+    import base64
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.x509.oid import ExtendedKeyUsageOID
+
+    gen = _generator()
+    data, kwargs = _positive()
+    builder = _certificate_builder_from(gen.INTERMEDIATE_CERT)
+    for extension in gen.INTERMEDIATE_CERT.extensions:
+        builder = builder.add_extension(extension.value, extension.critical)
+    oid = {"codeSigning": ExtendedKeyUsageOID.CODE_SIGNING, "serverAuth": ExtendedKeyUsageOID.SERVER_AUTH,
+           "anyExtendedKeyUsage": ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE}[usage]
+    intermediate = builder.add_extension(x509.ExtendedKeyUsage([oid]), critical=False).sign(
+        gen.ROOT_KEY, hashes.SHA384(), ecdsa_deterministic=True)
+    trusted = json.loads(kwargs["trusted_root"])
+    trusted["certificateAuthorities"][0]["certChain"]["certificates"][0]["rawBytes"] = base64.b64encode(
+        intermediate.public_bytes(serialization.Encoding.DER)).decode("ascii")
+    kwargs["trusted_root"] = json.dumps(trusted).encode("utf-8")
+    out = verify_sigstore_bundle(data, **kwargs).as_dict()
+    assert out["exit_code"] == expected_exit, out["checks"]
+    if expected_exit:
+        assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["certificate-chain"]

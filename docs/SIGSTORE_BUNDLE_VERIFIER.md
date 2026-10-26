@@ -43,6 +43,12 @@ of the arguments of the same names; `--subject-name` and `--tlog-threshold` pass
   uncompressed point, or of Ed25519. No generic key loader runs, and an Ed25519 key is checked
   through `signature.verify_ed25519_pinned`, which refuses a weak trust anchor.
 
+Certificate path checking currently supports CA certificates containing only basicConstraints,
+keyUsage, extendedKeyUsage and non-critical subjectKeyIdentifier or authorityKeyIdentifier. A CA's
+extendedKeyUsage must permit codeSigning (or anyExtendedKeyUsage), the leaf's one purpose; the
+public-good Fulcio intermediate carries codeSigning. Any other CA extension
+is refused as not implemented (exit 2). This restricted profile is not a general RFC 5280 path validator.
+
 ## Where trust comes from
 
 Only from the relying party:
