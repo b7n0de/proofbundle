@@ -116,6 +116,26 @@ member inside one of these objects) is one finding per member. A required member
 is not an object where this section expects one, is that one finding, and the rules of its own members are
 not judged. An empty list is a valid predicate.
 
+The declared members of the objects inside the predicate, the same as the `properties` the machine schema
+gives each of them, whether or not this section names a member elsewhere; a member outside its list is
+undeclared:
+- `decisionMaker`: `id`, `version`
+- `agent`: `id`, `version`, `configurationDigest`
+- `principal`: `id`, `authnContextRef`; its `authnContextRef`: `uri`, `digest`
+- `proposedAction`: `actionType`, `target`, `method`, `parametersDigest`, `parametersRef`,
+  `parametersSchemaRef`; its `target`: `name`, `uri`, `digest`; its `parametersSchemaRef`: `uri`, `digest`
+- each `inputSnapshot` entry: `name`, `uri`, `digest`, `mediaType`
+- `policyBoundary`: `policyEngine`, `policyId`, `policyDigest`, `decisionPath`, `bundleRevision`,
+  `validFrom`, `validUntil`
+- each `evidenceRefs` entry: `relation`, `digest`, `artifactDigest`, `uri`, `predicateType`,
+  `typedDigest`; its `typedDigest`: `type`, `purpose`, `digestAlgorithm`, `digest`
+- `decision`: `verdict`, `reasonCodes`, `humanReadableSummary`, `obligations`, `allowedScope`
+- each `notChecked` entry in the object form: `field`, `reason`, `impact`
+- each `decisionChangeConditions` entry: `conditionType`, `description`, `requiredEvidenceType`
+- `actionOutcome`: `status`, `performedAt`, `outcomeRef`; its `outcomeRef`: `uri`, `digest`
+- `privacy`: `rawInputsIncluded`, `redactionProfile`, `erased`, `masked`
+- `validity`: `audience`, `nonce`, `expiresAt`
+
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`
 - `decision.verdict`: `ALLOW` | `DENY` | `REFUSE` | `ESCALATE` | `DEFER` | `OBSERVE`
