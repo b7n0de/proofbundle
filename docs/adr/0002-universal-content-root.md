@@ -120,6 +120,21 @@ The migration designed above is now implemented for the released `intoto.py` exp
    after signing. New default: `jcs-sha256-v1`. Historic serializer: `legacy-sortkeys-json-v0`
    (`json.dumps(sort_keys=True)`), retained as a named mode. **Absent ⇒ legacy** — this is exactly how
    already-signed 2.0.0 receipts (which carry no field) keep verifying; absence is never silently jcs.
+   **The legacy byte form, exactly.** `legacy-sortkeys-json-v0` is the UTF-8 encoding of Python's
+   `json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, stated here for
+   implementations in other languages: no whitespace between tokens; object members sorted by key in
+   Unicode code-point order at every level; strings in double quotes with `"` and `\` escaped as `\"` and
+   `\\`, the controls U+0008, U+0009, U+000A, U+000C, U+000D as `\b`, `\t`, `\n`, `\f`, `\r`, every other
+   code point below U+0020 as `\u00xx` with lowercase hex, and every other character, non-ASCII included,
+   written raw; integers in decimal; a number that was read as a float written as Python's shortest
+   round-trip `repr` (so `1.0` stays `1.0`, `1e-7` becomes `1e-07`); `true`, `false`, `null`. Under
+   `jcs-sha256-v1` the serialization is RFC 8785.
+   **The binding check, exactly.** A verifier reads `contentRootAlg` from the top level of the Statement
+   parsed from the payload; absent selects `legacy-sortkeys-json-v0`; any other value that is not a
+   registered algorithm id (an unknown string, `null`, a number) is not usable and the binding is not ok.
+   The binding holds iff the payload bytes are byte-identical to the declared algorithm's serialization
+   of the parsed Statement; the reported algorithm is the declared one (or legacy when absent), and
+   there is no fallback to the other algorithm in either direction.
 
 2. **Producer.** `export_intoto_dsse` / `export_eval_result_dsse` / `export_svr_dsse` default to
    `jcs-sha256-v1` via `canonical.canonicalize_statement`. The old `json.dumps` path is retained as the
