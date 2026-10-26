@@ -108,14 +108,14 @@ class TestTestManifestGate(unittest.TestCase):
         und kein Textmuster; ein Fehler in der einen Lesart kann die andere nicht mitreissen. Es
         steht keine Zahl in dieser Zusicherung — sie verlangt Einigkeit, nicht einen Wert.
         """
-        regex_menge = set(self.g.pytest_only_modules(REPO / "tests"))
+        token_menge = set(self.g.pytest_only_modules(REPO / "tests"))
         ast_menge = set(self.g.pytest_only_modules_ast(REPO / "tests"))
-        assert regex_menge, "Vorbedingung: die Regex-Ableitung findet ueberhaupt Module"
+        assert token_menge, "Vorbedingung: die Token-Ableitung findet ueberhaupt Module"
         assert ast_menge, "Vorbedingung: die Syntaxbaum-Ableitung findet ueberhaupt Module"
-        self.assertEqual(regex_menge, ast_menge, (
-            f"Die zwei Ableitungen der pytest-only-Menge sind uneinig. Nur im Regex: "
-            f"{sorted(regex_menge - ast_menge)[:8]}; nur im Syntaxbaum: "
-            f"{sorted(ast_menge - regex_menge)[:8]}. Eine Klassifikation, die sich selbst "
+        self.assertEqual(token_menge, ast_menge, (
+            f"Die zwei Ableitungen der pytest-only-Menge sind uneinig. Nur im Tokenleser: "
+            f"{sorted(token_menge - ast_menge)[:8]}; nur im Syntaxbaum: "
+            f"{sorted(ast_menge - token_menge)[:8]}. Eine Klassifikation, die sich selbst "
             f"widerspricht, ist keine — und ein Boden ueber der GROESSE haette es nicht bemerkt."))
         # Der ECHTE Baum muss einig sein — das ist der Gluecksfall-Pfad und mehr nicht.
         # DASS eine Uneinigkeit das Tor toetet, prueft NICHT dieser Fall, sondern
@@ -156,9 +156,9 @@ class TestTestManifestGate(unittest.TestCase):
             (d / "test_echt.py").write_text(
                 'import unittest\n\n\nclass T(unittest.TestCase):\n'
                 '    def test_y(self):\n        pass\n')
-            regex_menge = set(self.g.pytest_only_modules(d))
+            token_menge = set(self.g.pytest_only_modules(d))
             ast_menge = set(self.g.pytest_only_modules_ast(d))
-            self.assertNotEqual(regex_menge, ast_menge, (
+            self.assertNotEqual(token_menge, ast_menge, (
                 "VORBEDINGUNG dieses Falls: dieser Baum muss die zwei Ableitungen wirklich "
                 "trennen. Tut er es nicht, prueft der Fall nichts und darf nicht still bestehen."))
             lock = d / "lock.json"

@@ -957,17 +957,34 @@ def _is_type_checking(test: ast.expr, guards: tuple[frozenset[str], frozenset[st
 
 
 def runtime_nodes(tree: ast.AST, guards: tuple[frozenset[str], frozenset[str]] | None = None):
-    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:` for the real one only."""
+    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:` for the real one only, and the annotation of
+    an annotated assignment in a function body.
+
+    AN ANNOTATION IN A FUNCTION BODY NEVER RUNS (PEP 526; FD-4l, measured in the follow-up of pull request 395):
+    `x: o.getenv("X") = 1` in a function evaluates the value and not the annotation, and the gate reported a read of
+    the environment that never happens. The annotations of a module and of a class body run when their statement
+    runs, and those of a function's parameters where the def runs or when `typing.get_type_hints` reads them; all of
+    these stay."""
     if guards is None:
         guards = type_checking_guards(tree)
-    stack = [tree]
+    stack: list[tuple[ast.AST, bool]] = [(tree, False)]
     while stack:
-        node = stack.pop()
+        node, in_function = stack.pop()
         yield node
         if isinstance(node, ast.If) and _is_type_checking(node.test, guards):
-            stack.extend(reversed(node.orelse))
+            stack.extend((child, in_function) for child in reversed(node.orelse))
             continue
-        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        children = list(ast.iter_child_nodes(node))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # The body is the scope of the def or the class; its decorators, bases and parameters belong to the one
+            # around it.
+            body = {id(stmt) for stmt in node.body}
+            inner = not isinstance(node, ast.ClassDef)
+            stack.extend((child, inner if id(child) in body else in_function) for child in reversed(children))
+            continue
+        if in_function and isinstance(node, ast.AnnAssign):
+            children = [child for child in children if child is not node.annotation]
+        stack.extend((child, in_function) for child in reversed(children))
 
 
 def _package_of(modname: str, is_pkg: bool) -> str:

@@ -14,6 +14,12 @@
 //!   verify-bundle <bundle.json> [flags]        -> native proofbundle bundle exit-code contract
 //!   verify-trust-pack-threshold <envelope.json> -> trust-pack/v0.1 root-of-trust THRESHOLD check (Ed25519
 //!                                                  leg only; see VERIFIED_SUBCOMMANDS / Finding 11)
+//!   verify-scitt-statement-signature <statement.cbor> [<spki_hex>...]
+//!                                              -> scitt-ccf/v1 statement signature under relying-party
+//!                                                 keys (src/scitt.rs); prints `<status> <valid>`
+//!   verify-scitt-transparent-statement <statement.cbor> <canonical_root_hex> [<rp_trust.json>]
+//!                                              -> scitt-ccf/v1 Transparent Statement against a target's
+//!                                                 root (src/scitt_transparent.rs); prints the result as JSON
 //!   coverage-report                            -> JSON self-declaration of the subcommands above (single
 //!                                                  source of truth consumed by scripts/rust_parity_gate.py
 //!                                                  in the Python repo — never hand-duplicate this list)
@@ -23,6 +29,9 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
+
+mod scitt;
+mod scitt_transparent;
 
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -1195,6 +1204,8 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
     "verify-trust-pack-threshold",
     "verify-relation",
     "verify-relation-statement",
+    "verify-scitt-statement-signature",
+    "verify-scitt-transparent-statement",
 ];
 
 // ---------------------------------------------------------------------------
@@ -2697,6 +2708,33 @@ fn read_file_begrenzt(path: &Path) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// The start of the refusal `read_file_begrenzt` gives past the input budget, as
+/// `budget_ueberschritten` writes it for `input_bytes`. Every other refusal of the read starts with
+/// "cannot read ", so the two never meet; a test holds this text to `budget_ueberschritten`.
+const INPUT_BUDGET_REFUSAL: &str = "verification budget exceeded: input_bytes = ";
+
+/// Why `read_input` read nothing. Past the input budget is a case of its own: a verdict surface whose
+/// Python counterpart takes the bytes themselves, of any length, gives the verdict that counterpart
+/// gives for bytes that long (Codex, PR 290), where a file that cannot be read at all stays `fatal`.
+enum ReadRefusal {
+    OverBudget,
+    Unreadable(String),
+}
+
+/// `read_file_begrenzt` with the refusal past the input budget told apart. The read stays in
+/// `read_file_begrenzt`, the one file read of the verifier, which the decision proof of Z381
+/// replaces by its boundary (`formal/z381_pruefentscheidung/build.rs`); a second read here would
+/// pass that boundary by.
+fn read_input(path: &Path) -> Result<Vec<u8>, ReadRefusal> {
+    read_file_begrenzt(path).map_err(|m| {
+        if m.starts_with(INPUT_BUDGET_REFUSAL) {
+            ReadRefusal::OverBudget
+        } else {
+            ReadRefusal::Unreadable(m)
+        }
+    })
+}
+
 const POLICY_SCHEMA_V01: &str = "proofbundle/trust-policy/v0.1";
 const POLICY_SCHEMA_V02: &str = "proofbundle/trust-policy/v0.2";
 /// Spiegel von policy._TOP_KEYS — jedes andere Feld auf oberster Ebene ist fail-closed ein Fehler.
@@ -3868,7 +3906,8 @@ fn main() {
     if args.len() < 2 {
         eprintln!(
             "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
-verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-report> ..."
+verify-trust-pack-threshold|verify-relation|verify-relation-statement|verify-scitt-statement-signature|\
+verify-scitt-transparent-statement|coverage-report> ..."
         );
         exit(2);
     }
@@ -4077,6 +4116,61 @@ verify-trust-pack-threshold|verify-relation|verify-relation-statement|coverage-r
                     exit(1);
                 }
             }
+        }
+        // scitt-ccf/v1 (ADR 0009): `proofbundle.scitt_ccf.verify_statement_signature`. The status and
+        // the verdict are printed as Python returns them; the exit code is 0 for `confirmed`, 1 for
+        // `statement_signature_invalid` and 3 for a status that is no verdict about the signature.
+        "verify-scitt-statement-signature" => {
+            let path = args.get(2).unwrap_or_else(|| {
+                fatal("verify-scitt-statement-signature needs a statement file")
+            });
+            let keys: Vec<&str> = args[3..].iter().map(|a| text(a, "a key")).collect();
+            // Python reads bytes past the input budget as `malformed` (the profile reads at most
+            // MAX_STATEMENT_BYTES); so does this subcommand, where it used to end in `fatal`, exit 2.
+            let (status, valid) = match read_input(Path::new(path)) {
+                Ok(data) => scitt::verify_statement_signature(&data, &keys),
+                Err(ReadRefusal::OverBudget) => (scitt::MALFORMED, None),
+                Err(ReadRefusal::Unreadable(m)) => fatal(&m),
+            };
+            let shown = match valid {
+                Some(true) => "true",
+                Some(false) => "false",
+                None => "none",
+            };
+            println!("{status} {shown}");
+            exit(match status {
+                scitt::CONFIRMED => 0,
+                scitt::INVALID => 1,
+                _ => 3,
+            });
+        }
+        "verify-scitt-transparent-statement" => {
+            let usage =
+                "verify-scitt-transparent-statement needs a statement file and a canonical root";
+            let path = args.get(2).unwrap_or_else(|| fatal(usage));
+            let root = hex::decode(text(
+                args.get(3).unwrap_or_else(|| fatal(usage)),
+                "the canonical root",
+            ))
+            .unwrap_or_else(|e| fatal(&format!("the canonical root is not hex: {e}")));
+            // Relying-party trust as JSON: {"scitt_statement_keys": [...], "scitt_ccf_services":
+            // {"<issuer>": [...]}}, each key SubjectPublicKeyInfo DER as hex or {"spki", "kid"}.
+            let trust = match args.get(4) {
+                Some(p) => strict_parse(&read_file(p))
+                    .unwrap_or_else(|e| fatal(&format!("bad relying-party trust: {e}"))),
+                None => serde_json::Value::Null,
+            };
+            // As for the statement signature: bytes past the input budget are `malformed`, as the
+            // Python reader reads them, and only a file that cannot be read at all is `fatal`.
+            let check = match read_input(Path::new(path)) {
+                Ok(data) => scitt_transparent::verify_transparent_statement(&data, &root, &trust),
+                Err(ReadRefusal::OverBudget) => {
+                    scitt_transparent::TransparentStatementCheck::malformed()
+                }
+                Err(ReadRefusal::Unreadable(m)) => fatal(&m),
+            };
+            println!("{}", check.to_json());
+            exit(check.exit_class());
         }
         "coverage-report" => {
             // Self-declared, single source of truth (see VERIFY_SUBCOMMANDS doc comment above) — the
@@ -4442,6 +4536,12 @@ mod tests {
         std::fs::write(&gross, vec![b'1'; BUDGET_INPUT_BYTES + 1]).expect("write");
         let e = read_file_begrenzt(&gross).expect_err("ueber der Schranke gelesen");
         assert!(e.contains("input_bytes"), "unerwartete Meldung: {e}");
+        // read_input tells the budget apart by the text budget_ueberschritten writes, and a file
+        // that cannot be read stays unreadable.
+        assert!(budget_ueberschritten("input_bytes", 2, 1).starts_with(INPUT_BUDGET_REFUSAL));
+        assert!(matches!(read_input(&gross), Err(ReadRefusal::OverBudget)));
+        assert!(matches!(read_input(&d.join("fehlt.json")),
+            Err(ReadRefusal::Unreadable(m)) if m.starts_with("cannot read ")));
         let klein = d.join("klein.json");
         std::fs::write(&klein, b"{\"a\":1}").expect("write");
         assert_eq!(read_file_begrenzt(&klein).expect("klein"), b"{\"a\":1}");
