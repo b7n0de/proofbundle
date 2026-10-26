@@ -355,9 +355,11 @@ A conforming verifier MUST perform, in this order, and report each result:
    an issuer key (a trust policy's `sd_jwt.issuer_key_pin`) that matches the key that
    verified the SD-JWT, or, with no pin, sd-jwt-bundle-binding passed and the key that
    verified the SD-JWT is the key under which ed25519-signature verified the bundle. A
-   supplied pin decides alone. The check is reported only when it FAILS, and its failure
-   fails the bundle (exit 1) like any other failed check, also when every other check
-   passed.
+   supplied pin decides alone. A sd-jwt-bundle-binding that was not performed (a payload that is no
+   eval claim, with an SD-JWT that carries no `receipt.root_b64`) has not passed: with no pin the
+   check then FAILS, whether or not the two keys are equal. The check is reported only when it
+   FAILS, and its failure fails the bundle (exit 1) like any other failed check, also when every
+   other check passed.
 8. **root-authenticity** and **tree-size** — additive relying-party root
    authentication (ADR 0004, since the root is NOT in the signature input, §5).
    Performed ONLY when the relying party supplies an expected value: a given
