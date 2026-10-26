@@ -75,16 +75,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The frontend and the backend at the versions of .github/build-constraints.txt, as in release.yml.
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
 
       - name: Prove the sdist is byte-reproducible (two builds, byte-identical)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --check
 
+      # The same build command as release.yml. This job attests and uploads its wheel too, so the wheel
+      # is normalised there in the same way and its generator is read back against the pins; a direct
+      # `python -m build --wheel` here built a wheel that no check compared with the file.
       - name: Build the reproducible sdist + the wheel (the ONLY build here)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: |
-          python scripts/build_reproducible.py --outdir dist
-          python -m build --wheel --outdir dist
+          python scripts/build_reproducible.py --outdir dist --with-wheel \
+            --expect-backend-from .github/build-constraints.txt
 
       # DERSELBE RIEGEL WIE IM RELEASE-WEG (Codex 3999892822, P1 — Nachbar, selbst gefunden).
       # Dieser Auftrag baut sdist UND wheel, attestiert sie danach und laedt sie hoch. Das ist ein

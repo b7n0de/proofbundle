@@ -196,8 +196,14 @@ jobs:
           sha256sum /tmp/release_notes.md | tee /tmp/release_notes.md.sha256
 
       - name: Build sdist and wheel (the ONLY build in this workflow)
+        # THE FRONTEND AND THE BACKEND AT FIXED VERSIONS (owner choice A, 2026-10-26). Without a pin the
+        # isolated build took the newest setuptools of the day, and the wheel names it, so a probe build
+        # and the tag run built different wheels from one commit. The pins and their measurement are in
+        # .github/build-constraints.txt; `--expect-backend-from` reads the pin back from the wheel.
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: |
-          python -m pip install --upgrade build
+          python -m pip install build
           # F2: ship the byte-reproducible, normalised sdist (SOURCE_DATE_EPOCH + canonical tar),
           # then the wheel alongside it. Same dist/ layout as before; the reproducibility gate
           # (published-artifact-gate.yml) proves two builds are byte-identical.
@@ -214,7 +220,8 @@ jobs:
           # 0o664 aus dem Arbeitsbaum, 0o644 aus dem normalisierten sdist. Das machte Bedingung 4
           # des Release-Standards ROT: 11 von 82 Eintraegen unterschieden sich ALLEIN im Modus, bei
           # null inhaltlichen Unterschieden. Der Bauhost stand damit im ausgelieferten Artefakt.
-          python scripts/build_reproducible.py --outdir dist --with-wheel
+          python scripts/build_reproducible.py --outdir dist --with-wheel \
+            --expect-backend-from .github/build-constraints.txt
 
       # DER RIEGEL GEHOERT AUF DEN WEG, DER VEROEFFENTLICHT (Codex 3999892822, P1). Er stand nur
       # in published-artifact-gate.yml, und der laeuft bei Push auf main, bei PRs und nach Plan —

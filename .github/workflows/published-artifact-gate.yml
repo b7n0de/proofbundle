@@ -56,14 +56,26 @@ jobs:
   reproducible-sdist:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # THE SAME FRONTEND, BACKEND AND EPOCH AS THE TAG RUN (2026-10-26), so that the digest this job
+    # prints is the one release.yml builds from the same commit. The pins are in
+    # .github/build-constraints.txt. The full history is needed for the epoch: `head_commit_epoch`
+    # takes the time of the last commit that touches a shipped path, and a clone of depth 1 treats its
+    # boundary as a root that touches every path (measured at bbe5eda1: b916e0eb here, 989eaa5d in the
+    # full clone release.yml uses).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
       - name: Two sdist builds must be byte-identical (deterministic packaging)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --check
 
   hermetic-cleanroom:
@@ -78,9 +90,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
+      # Pinned on the two build steps only: the installs into /tmp/clean below are what a reader does,
+      # and they must resolve the package's own requirements, not the build pins.
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
       - name: Build the reproducible sdist
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --outdir dist
       # OA-7186ff7a75 (13.09.2026), Weg A: der Bau bricht ab, wenn Schluesselmaterial im Paket
       # liegt. VOR der Cleanroom-Installation, weil ein Geheimnis, das erst nach dem Auspacken

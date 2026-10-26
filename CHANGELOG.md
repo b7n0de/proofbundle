@@ -6,9 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [6.4.0] - 2026-10-26
 
-Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they are merged.
+6.4.0 is a feature release following 6.3.1. It adds an experimental reader for SCITT Transparent Statements with CCF receipts under the narrow profile `scitt-ccf/v1` (`proofbundle.scitt_ccf`, with the `[scitt]` extra), which follows draft -06 of the CCF profile, and a verifier for TRACE v0.2 Trust Records (`proofbundle verify-trace`). The strict JSON reader refuses numbers and encodings that JSON and I-JSON do not define, and `verify_bundle` demands the `sd-jwt-bundle-binding` check for a payload that reader refuses. The Rust cross verifier `pb_verify_rs`, repository tools and the release workflows change as described below; the Rust verifier is not part of the Python package.
+
+When upgrading from 6.3.1, review code that hands a verifier JSON with `NaN`, `Infinity`, an integer outside plus or minus 2^53-1, a byte order mark or a UTF-16 or UTF-32 encoding. Such input is refused with `BundleFormatError`. The `scitt_ccf` reader is experimental and is reached only by calling it; no verify path of the package reaches it.
 
 ### Added
 
@@ -26,6 +28,7 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
 
 - **The `scitt-ccf/v1` reader verifies a consistency receipt and a statement algorithm as draft -06 of the CCF profile does (PR412, pull request 412).** With the sizes the caller gives, a consistency receipt is held to 0 < m < n and to a first sibling on the right; the reader's own anchor rules of the -05 reading, the anchor position for both sizes and the count of left siblings for the older size alone, are gone, with their three statuses and the fields `anchor_rule_checked` and `left_siblings_checked`, since -06 says verification does not establish the anchor (section 4, lines 548-549). `verify_statement_signature` gives `outside_profile` for a statement algorithm other than ES256, ES384, PS256 and PS384, before any key is tried, as the profile check of `verify_transparent_statement` does (ADR 0009, Decision 6). `pb_verify_rs` follows both: `verify-scitt-statement-signature` reports such an algorithm as `outside_profile`, exit 3, and `verify-scitt-consistency-receipt` writes neither anchor field.
 - **The strict JSON reader takes only what JSON and I-JSON define.** `proofbundle._strict_json.loads_strict` refuses `NaN`, `Infinity`, `-Infinity` and every number that becomes infinite, an integer literal outside plus or minus 2^53 - 1 (RFC 7493 section 2.2, the range the Rust verifier `pb_verify_rs` reads), and JSON bytes with a UTF-8 byte order mark or in UTF-16 or UTF-32; text with a leading U+FEFF stays the `JSONDecodeError` it was. It raises `BundleFormatError`, the error it already raises for a duplicate member, and every verifier that reads through it refuses such an input instead of reading a value RFC 8785 cannot represent. The SD-JWT and KB-JWT checks name the reason of a refusal in their detail instead of reporting every refusal as a duplicate key.
+- Repository tools, outside the installed package. Every workflow job that builds a distribution installs the build frontend and the build backend at the versions of `.github/build-constraints.txt` (build 1.6.1, packaging 26.3, pyproject_hooks 1.3.3, setuptools 84.2.1, wheel 0.48.0) through `PIP_CONSTRAINT`, and the release workflow refuses a wheel whose recorded generator is not the pinned setuptools (`scripts/build_reproducible.py --expect-backend-from`). Measured at 58de280a with Python 3.12.15 and build 1.6.1, setuptools 84.2.1 and 80.9.0 built different wheels from the same commit, with the same sdist. The byte-reproducibility job of `published-artifact-gate.yml` takes the build epoch from the full history, as the release workflow does. A clone of depth 1 at a head that touches only `audit_artifacts/` took that head's time and built another sdist (`tests/test_every_build_path_pins_its_backend.py`).
 
 ### Fixed
 

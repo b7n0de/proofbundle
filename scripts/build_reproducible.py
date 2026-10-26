@@ -22,6 +22,8 @@ CLI:
   python scripts/build_reproducible.py --check --json               # the same, machine-readable
 
   python scripts/build_reproducible.py --check-wheel                # wheel-from-sdist == direct build
+  python scripts/build_reproducible.py --with-wheel --expect-backend-from .github/build-constraints.txt
+                                                                    # the wheel names the pinned backend
 
 Exit 0 on success; ``--check`` exits non-zero if the two normalised sdists differ.
 
@@ -37,6 +39,7 @@ import gzip
 import hashlib
 import io
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -92,9 +95,12 @@ def _build_sdist(outdir: Path, epoch: int, *, no_isolation: bool = False) -> Pat
     env = dict(os.environ)
     env["SOURCE_DATE_EPOCH"] = str(epoch)
     outdir.mkdir(parents=True, exist_ok=True)
-    # Isolation (default, like release.yml's `python -m build`) fetches a consistent, modern
-    # setuptools/wheel — the reproducibility is achieved by the post-build normalisation, not by the
-    # build backend. --no-isolation is offered for an offline build host that already has the deps.
+    # Isolation (default, like release.yml's `python -m build`) installs `[build-system] requires` into
+    # a fresh environment. The normalisation removes times, owners and modes; it does not remove the
+    # backend's record of itself: the wheel names its generator (`Generator: setuptools (X)`), so
+    # another setuptools gives another wheel (measured 2026-10-26, .github/build-constraints.txt). The
+    # workflows therefore pin the backend through PIP_CONSTRAINT, and `--expect-backend-from` checks
+    # the wheel. --no-isolation is offered for an offline build host that already has the deps.
     cmd = [sys.executable, "-m", "build", "--sdist", "--outdir", str(outdir)]
     if no_isolation:
         cmd.insert(4, "--no-isolation")
@@ -357,6 +363,47 @@ def check_reproducible(epoch: int, *, no_isolation: bool = False, as_json: bool 
     return 0 if r["reproducible"] else 1
 
 
+def wheel_generator(wheel: Path) -> str | None:
+    """The `Generator:` value of the one `*.dist-info/WHEEL` file at the top of `wheel`, or None."""
+    with zipfile.ZipFile(wheel) as z:
+        namen = [n for n in z.namelist() if n.count("/") == 1 and n.endswith(".dist-info/WHEEL")]
+        if len(namen) != 1:
+            return None
+        for zeile in z.read(namen[0]).decode("utf-8", "replace").splitlines():
+            if zeile.startswith("Generator:"):
+                return zeile.split(":", 1)[1].strip()
+    return None
+
+
+def backend_pin(constraints: Path) -> str | None:
+    """The version a `setuptools==X` line of the constraints file pins, or None when none does."""
+    for zeile in constraints.read_text(encoding="utf-8").splitlines():
+        m = re.fullmatch(r"setuptools\s*==\s*([0-9][^\s;#]*)", zeile.split("#", 1)[0].strip(),
+                         re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def backend_mismatch(wheel: Path, constraints: Path) -> str | None:
+    """None when `wheel` was built by the setuptools `constraints` pins, otherwise the reason.
+
+    THE PIN IS READ BACK FROM THE ARTEFACT, not assumed from the environment (2026-10-26). The pin
+    reaches the build environment only as long as pip reads PIP_CONSTRAINT for the install that
+    `python -m build` makes, and pip 26.2 already stopped reading it for its own isolated builds. A
+    wheel without a readable generator, or a constraints file without a setuptools pin, is a refusal
+    too: a check that cannot see what it compares must not pass."""
+    soll = backend_pin(constraints)
+    if soll is None:
+        return f"{constraints} pins no setuptools version with `==`"
+    ist = wheel_generator(wheel)
+    if ist is None:
+        return f"{wheel.name} names no generator in its WHEEL file"
+    if ist != f"setuptools ({soll})":
+        return f"{wheel.name} was built by {ist!r}, but {constraints.name} pins setuptools {soll}"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--outdir", type=Path, default=REPO / "dist",
@@ -377,7 +424,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="pass --no-isolation to `python -m build` (offline host with build deps present)")
     p.add_argument("--json", action="store_true",
                    help="with --check: print the machine-readable measurement instead of prose")
+    p.add_argument("--expect-backend-from", type=Path, default=None, metavar="CONSTRAINTS",
+                   help="with --with-wheel: exit 1 when the wheel's generator is not the setuptools "
+                        "version the constraints file CONSTRAINTS pins")
     args = p.parse_args(argv)
+    if args.expect_backend_from is not None and not args.with_wheel:
+        p.error("--expect-backend-from needs --with-wheel: only a wheel names its build backend")
     epoch = args.epoch if args.epoch is not None else head_commit_epoch()
     if args.check_wheel:
         return check_wheel_from_sdist(epoch, no_isolation=args.no_isolation, as_json=args.json)
@@ -389,6 +441,12 @@ def main(argv: list[str] | None = None) -> int:
         whl, wdigest = build_normalized_wheel(REPO, args.outdir, epoch,
                                               no_isolation=args.no_isolation)
         print(f"built normalised wheel: {whl}\n  sha256={wdigest}\n  epoch={epoch}")
+        if args.expect_backend_from is not None:
+            grund = backend_mismatch(whl, args.expect_backend_from)
+            if grund is not None:
+                print(f"BUILD BACKEND NOT THE PINNED ONE: {grund}")
+                return 1
+            print(f"build backend as pinned: {wheel_generator(whl)}")
     return 0
 
 
