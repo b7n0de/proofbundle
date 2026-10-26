@@ -79,7 +79,8 @@ the crypto step fails:
 
 1. **crypto_ok** — DSSE signature over the exact PAE bytes with the expected Ed25519 key. On failure every
    downstream trust field is `None` (no partial trust).
-2. **predicate_type_ok** — vendored `action-outcome/v0.1`.
+2. **predicate_type_ok** — vendored `action-outcome/v0.1`, the exact string
+   `https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1`.
 3. **hash_binding** — `rfc8785(statement)` equals the transmitted body bytes (no re-canonicalization drift).
 4. **decision_bound** — embedded `decisionRef.sha256` equals `expected_decision_ref` (when supplied).
 5. **role_separation_ok** — `decision_maker_id != executor.id` (an executor may not authorize its own action),

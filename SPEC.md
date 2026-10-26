@@ -803,6 +803,18 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
   not a statement of correctness*. `lineage` NEVER feeds `cryptoValid` in either direction
   (lattice monotonicity); a DECLARED_UNRESOLVED edge never reads as a pass.
 - Offline: targets are attached by the caller (`--with-related`), never fetched.
+- The verify paths that carry the profile are defined in
+  [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) §4 to §7 and
+  [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) §5: the DSSE envelope
+  carries `payloadType` `application/vnd.in-toto+json` and its signature is checked over the PAE of
+  §7b (another `payloadType` fails the signature check, exit 1); the Statement carries the
+  predicateType `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` or
+  `https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1` (another is malformed, exit 2);
+  an unknown predicate member is malformed (exit 2); and a present `validity.expiresAt` of the
+  receipt under verification is judged at one evaluation time, `--verification-time` when given,
+  else the wall clock (expired is exit 2). An attached target is verified STANDALONE by its own
+  signature under its key, its `payloadType` and the statement oracle of
+  `docs/predicates/relation.md` §4; its own `validity.expiresAt` is not judged.
 
 ### Trust-policy hook (trust-policy v0.2, section `relations`)
 

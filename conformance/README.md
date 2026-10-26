@@ -97,6 +97,18 @@ decision-receipt/v0.1 conformance: done (graduated 2026-07-19, block 958761)** w
 case (CONFORMANCE.md rule 5, no silent changes: a regeneration is a new case, the old one kept, so its
 historical green run stays reproducible).
 
+### `decision_relation`, `outcome_relation`, `relation_statement`
+
+Relation vectors (`relation/`) run the `decision verify`, `outcome verify` or `relation-statement
+verify` path of SPEC.md §7j and §7k on `input`, with `--pub` read from the file named by `pub`, one
+`--with-related` per entry of `related` (each followed by `--related-pub` with the key at the same
+position of `relatedPubs`, when given), and `--policy` when `policy` is given. A `decision_relation`
+case is evaluated at the receipt's own `predicate.recordedAt` (else `decidedAt`) as
+`--verification-time`, so a fixed-date `validity.expiresAt` in a fixture cannot move the verdict as
+the wall clock advances. `exitCode` is the CLI exit contract; `lineage` is the reported lineage
+state, where `null` and `NOT_EVALUATED` are the same observation; `errorContains` holds when the
+string occurs in the verifier's JSON report or its error output.
+
 ### `content_root_vector`
 
 Action-chain content-root vectors (`action_chain_content_roots/`, Phase 1 / R51): language-neutral
