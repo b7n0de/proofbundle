@@ -96,6 +96,20 @@ Optional: `recordedAt`, `delegationRefs`, `actionOutcome`, `traceContext`, `vali
 requires `audience` + `nonce`), `relationships` (`docs/predicates/relation.md`). `anchors` is not a predicate
 field: anchors travel detached (§8), and an `anchors` member inside the predicate is an unknown field.
 
+**Default mode.** Without `--strict`, `decision verify` validates the predicate in the default mode, and
+the conformance counts of `decision_predicate_findings` are counts of this mode. It requires
+`schemaVersion`, `decisionId`, `decisionType`, `decidedAt`, `decisionMaker`, `agent`, `principal`,
+`proposedAction`, `inputSnapshot`, `policyBoundary`, `evidenceRefs` and `decision`; `notChecked`,
+`decisionChangeConditions` and `privacy` are optional here and required only in the strict mode above, and
+no top-level member outside the required and optional fields is allowed. Validation yields a list of
+findings, counted as follows: all unknown top-level members together are one finding; each missing
+required member is one finding; each `evidenceRefs` entry that lacks a string `relation` or a sha256
+content-root `digest` is one finding; each other rule of this section that a member breaks (an enum, an
+RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `policyBoundary.policyEngine`,
+`policyId` and `decisionPath` as a non-empty string, the `proposedAction` digest or reference, the `id`
+of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
+member inside one of these objects) is one finding per member. An empty list is a valid predicate.
+
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`
 - `decision.verdict`: `ALLOW` | `DENY` | `REFUSE` | `ESCALATE` | `DEFER` | `OBSERVE`
