@@ -339,7 +339,10 @@ marked v0.2, and v0.3 is v0.2 with `producer.verifier`. A *digest object* is an 
 
 Without the CAP-1 members, `COMPLETE` requires integer `observedRuns` and `expectedRuns` with
 `observedRuns` not below `expectedRuns` and `expectedRuns` not 0, a non-empty `sources`, `window` and
-`collectionMethod`, and no non-empty `knownGaps`; `PARTIAL` requires a non-empty `knownGaps`. With a
+`collectionMethod`, and no non-empty `knownGaps`; `PARTIAL` requires a non-empty `knownGaps`. Each of
+`sources`, `window` and `collectionMethod` counts as missing there when it is absent, null, `false`, the
+number 0, the empty string, the empty array or the empty object, and as given otherwise, whatever its
+type (`true`, `" "` and `[""]` included); `sources` must still be an array of strings. With a
 CAP-1 member present, `COMPLETE` is refuted only by those counters and by a non-empty `knownGaps`, and the
 CAP-1 rules judge the rest.
 
