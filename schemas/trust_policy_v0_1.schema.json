@@ -332,7 +332,7 @@
     "relations": {
       "type": "object",
       "additionalProperties": false,
-      "description": "v0.2-only (relation/v0.1 lineage profile, EXPERIMENTAL 3.3.0). require_relation_resolution: named relations that, when they appear as edges, MUST resolve (target attached and standalone-verified) — a DECLARED_UNRESOLVED edge of a named relation fails the policy (LINEAGE_REQUIREMENT_FAILED, exit 3). reject_superseded: an attached, verified receipt that declares a successor relation over the receipt under verification blocks automation. Enforced by the decision verify path; never changes the crypto verdict.",
+      "description": "v0.2-only (relation/v0.1 lineage profile, EXPERIMENTAL 3.3.0). require_relation_resolution: named relations that, when they appear as edges, MUST resolve (target attached and standalone-verified) — a DECLARED_UNRESOLVED edge of a named relation fails the policy (LINEAGE_REQUIREMENT_FAILED, exit 3). reject_superseded: an attached, verified receipt that declares a successor relation over the receipt under verification blocks automation. reject_retracted (3.5.0, relation-statement path): a verified retracts statement over the target blocks automation. relation_signer (3.4.0, WHO may replace) and require_relation_target (3.4.0, WHICH parent) are the pins of SPEC.md §7j. Enforced by the decision, outcome and relation-statement verify paths; never changes the crypto verdict.",
       "properties": {
         "require_relation_resolution": {
           "type": "array",
@@ -343,6 +343,49 @@
         },
         "reject_superseded": {
           "type": "boolean"
+        },
+        "reject_retracted": {
+          "type": "boolean",
+          "description": "relation-statement path (SPEC.md §7k): a verified retracts statement of an authorized signer over the target blocks automation (exit 3)."
+        },
+        "relation_signer": {
+          "type": "object",
+          "description": "SPEC.md §7j: per relation, WHO may declare it. {\"mode\":\"same-key\"} (the successor's issuer key equals the key the target verified under) or {\"mode\":\"pinned\",\"keys\":[<base64 raw Ed25519 key>, …]} (byte membership, never a keyId alias). Unmet is RELATION_SIGNER_UNAUTHORIZED, exit 3.",
+          "propertyNames": {
+            "enum": ["supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends"]
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mode"],
+                "properties": {"mode": {"const": "same-key"}}
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mode", "keys"],
+                "properties": {
+                  "mode": {"const": "pinned"},
+                  "keys": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                }
+              }
+            ]
+          }
+        },
+        "require_relation_target": {
+          "type": "object",
+          "description": "SPEC.md §7j: per relation, WHICH parent an edge may resolve to: one 64-char lowercase hex content root (jcs-sha256-v1) or a non-empty list of them. An edge that resolves to any other parent is RELATION_TARGET_MISMATCH, exit 3.",
+          "propertyNames": {
+            "enum": ["supersedes", "revises", "corrects", "retracts", "renews", "derivedFrom", "amends"]
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+            ]
+          }
         }
       }
     }
