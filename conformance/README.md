@@ -88,8 +88,10 @@ Bishop-Fox parser-differential defense), a single flipped payload byte fails the
 Agent-review vectors (`agent_review/`) are read against `docs/AGENT_REVIEW_PREDICATE.md` and
 `docs/VERIFIER_BLOCK.md`. The corpus test key is the Ed25519 key with the 32 seed bytes 0x00, 0x01, …,
 0x1f; it must never sign anything a reader takes as evidence, and its raw public key, hex-encoded, is
-`agent_review/publickey.hex`. To *issue* a predicate is to build its in-toto Statement, refuse it when it
-breaks a rule of its version, and sign it as a DSSE envelope with the corpus key; to *verify as* a version
+`agent_review/publickey.hex`. To *issue* a predicate is to build its in-toto Statement from the predicate as
+given, refuse it when it breaks a rule of its version, and sign it as a DSSE envelope with the corpus key;
+issuing fills in no member, so a member a rule requires and the predicate lacks, a derived one such as
+`limitationCodes` included, breaks that rule; to *verify as* a version
 is that version's verification under the corpus public key. A case reads only its own `input`, and its one
 axis decides the use:
 
