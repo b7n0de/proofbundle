@@ -1272,8 +1272,12 @@ def _candidate_binding_error(body: dict, repo: Path,
     sdist_p, wheel_p, dist_grund = _dist_files(repo, version)
     if sdist_p is None or wheel_p is None:
         return ART_UNMEASURABLE_HERE, (
-            f"the candidate sdist/wheel digests cannot be recomputed here: {dist_grund} — build the "
-            "candidate first (`python scripts/build_reproducible.py --outdir dist`); an "
+            f"the candidate sdist/wheel digests cannot be recomputed here: {dist_grund} — "
+            "install the pinned frontend with `python -m pip install --constraint "
+            ".github/build-constraints.txt build`, then build the candidate with "
+            "`PIP_CONSTRAINT=\"$PWD/.github/build-constraints.txt\" python "
+            "scripts/build_reproducible.py --outdir dist --with-wheel "
+            "--expect-backend-from .github/build-constraints.txt`; an "
             "un-recomputed digest is not evidence")
     live_sdist = hashlib.sha256(sdist_p.read_bytes()).hexdigest()
     live_wheel = hashlib.sha256(wheel_p.read_bytes()).hexdigest()

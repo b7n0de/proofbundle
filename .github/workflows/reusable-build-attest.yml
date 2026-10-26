@@ -8,10 +8,10 @@ name: reusable-build-attest
 # github.blog 2026-01-20). This is that workflow: build ONCE, deterministically, then attest THOSE
 # exact bytes. Every release inherits L3 by calling it — no per-release rebuild of the attest logic.
 #
-# Determinism: the sdist is built via scripts/build_reproducible.py, which normalises the tarball to a
-# byte-reproducible canonical form (SOURCE_DATE_EPOCH + canonical member metadata + zeroed gzip mtime).
-# The determinism proof is sdist-only (the normaliser targets the sdist); the wheel is built and
-# attested but NOT claimed byte-identical here (honest scope).
+# Both the sdist and the wheel are normalised by scripts/build_reproducible.py.
+# This workflow compares two sdist builds and checks the release wheel's setuptools
+# Generator against the constraints. It does not compare the wheel with a wheel
+# built from the sdist or compare either final artifact with a separate release run.
 #
 # dry_run=true exercises the BUILD + determinism half on a PR without producing (throwaway)
 # attestations — so this workflow is live-tested by published-artifact-gate.yml, not a paper anchor.

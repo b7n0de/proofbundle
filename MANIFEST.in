@@ -221,6 +221,11 @@ include scripts/pre_tag_receipt_lib.py
 include scripts/readiness_pack_gate.py
 include scripts/readiness_pack_manifest.py
 include scripts/release_text_hygiene.py
+# IN (2026-10-26): scripts/release_dist_matches_signed_candidate.py, beside audit_candidate_matrix.py and
+# sign_readiness_artifact.py, whose checks it calls. release.yml runs it from the checkout; its test
+# module reads .github/ and is a repo-context test that skips outside a checkout (measured on an sdist of
+# this tree). It reads public keys, signed evidence and dist/ and holds no key.
+include scripts/release_dist_matches_signed_candidate.py
 include scripts/render_demo.py
 include scripts/rust_parity_gate.py
 include scripts/shipped_docs_check.py

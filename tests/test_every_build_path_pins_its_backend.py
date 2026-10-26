@@ -19,8 +19,12 @@ That check stood on release.yml alone at first, while reusable-build-attest.yml 
 wheel of its own (seen by the lens on the 6.4.0 preparation, 2026-10-26); the rule is therefore one
 about the set of wheel builds, as the pin rule is one about the set of build steps.
 
-HONEST LIMIT: measured is the text of the workflow files of this tree and the logic of the read-back
-on wheels built here. A build outside these files is not seen; this is a lower bound, not a guarantee.
+HONEST LIMIT: these checks inspect recognised run steps in .github/workflows/*.yml and *.yaml.
+They cover the command forms exercised by the contract tests and reject uv build and pipx run
+build until those paths have their own measured pins. They do not resolve reusable-workflow calls.
+The local reusable workflow is inspected as a separate file. The minimum of four recognised
+build jobs detects an unexpectedly small measured set; it does not prove that every build path
+was found.
 """
 from __future__ import annotations
 
@@ -41,15 +45,19 @@ PIN_ENV = "${{ github.workspace }}/" + CONSTRAINTS_REL
 
 #: What counts as a build step. `--check` counts too: it builds twice, and its digest is read as the
 #: digest of the commit.
-BAUT = ("python -m build", "build_reproducible.py")
+BAUT = ("python -m build", "python3 -m build", "build_reproducible.py")
 #: An install of the build frontend.
-INSTALLIERT_BUILD = re.compile(r"\bpip install\b[^\n]*(?<![\w./-])build(?![\w./\[-])")
+INSTALLIERT_BUILD = re.compile(
+    r"\bpip install\b[^\n]*(?<![\w./-])build(?:\[[^]\s]+\])?(?![\w./\[-])"
+)
+NICHT_UNTERSTUETZT = re.compile(r"\b(?:uv\s+build|pipx\s+run\s+build)\b")
 #: The names the order fixes; the file may pin more.
 PFLICHT = ("build", "setuptools", "wheel")
 
 
 def _baut_oder_installiert(run: str) -> bool:
-    return any(b in run for b in BAUT) or bool(INSTALLIERT_BUILD.search(run))
+    return (any(b in run for b in BAUT) or bool(INSTALLIERT_BUILD.search(run))
+            or bool(NICHT_UNTERSTUETZT.search(_befehle(run))))
 
 
 #: A direct call of the frontend. `python -m pip install build` is not one.
@@ -72,11 +80,14 @@ def _baut_wheel(befehle: str) -> bool:
 def _schritte():
     if not ABLAEUFE.is_dir():
         pytest.skip(f"NOT MEASURABLE: {ABLAEUFE} is missing")
-    for datei in sorted(ABLAEUFE.glob("*.yml")):
+    for datei in sorted(p for p in ABLAEUFE.iterdir() if p.suffix in {".yml", ".yaml"}):
         d = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
         for name, job in (d.get("jobs") or {}).items():
             for schritt in job.get("steps") or []:
-                yield datei.name, name, schritt
+                effektiv = dict(d.get("env") or {})
+                effektiv.update(job.get("env") or {})
+                effektiv.update(schritt.get("env") or {})
+                yield datei.name, name, {**schritt, "env": effektiv}
 
 
 def _lade_bauskript():
@@ -106,6 +117,8 @@ def test_the_constraints_file_pins_each_named_package_exactly():
             continue
         m = re.fullmatch(r"([A-Za-z0-9_.-]+)==([0-9][0-9A-Za-z.]*)", teil)
         assert m, f"not an exact pin: {zeile!r}"
+        name = m.group(1).lower().replace("_", "-")
+        assert name not in gepinnt, f"duplicate package pin: {name}"
         gepinnt[m.group(1).lower().replace("_", "-")] = m.group(2)
     for name in PFLICHT:
         assert name in gepinnt, (name, gepinnt)
@@ -117,6 +130,9 @@ def test_every_step_that_installs_the_frontend_or_builds_reads_the_pins():
     for datei, job, schritt in _schritte():
         run = str(schritt.get("run") or "")
         if not _baut_oder_installiert(run):
+            continue
+        if NICHT_UNTERSTUETZT.search(_befehle(run)):
+            ohne.append(f"{datei}:{job}: unmeasured build frontend")
             continue
         wert = (schritt.get("env") or {}).get("PIP_CONSTRAINT")
         if wert != PIN_ENV:
@@ -147,7 +163,7 @@ def test_every_step_that_builds_a_wheel_reads_the_pin_back_from_it():
 def _jobs():
     if not ABLAEUFE.is_dir():
         pytest.skip(f"NOT MEASURABLE: {ABLAEUFE} is missing")
-    for datei in sorted(ABLAEUFE.glob("*.yml")):
+    for datei in sorted(p for p in ABLAEUFE.iterdir() if p.suffix in {".yml", ".yaml"}):
         d = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
         for name, job in (d.get("jobs") or {}).items():
             yield datei.name, name, job.get("steps") or []
@@ -230,7 +246,7 @@ def test_the_read_back_refuses_the_neighbours_of_the_pinned_version(tmp_path):
 
 def test_the_generator_is_read_from_the_top_level_wheel_file_only(tmp_path):
     """[COUNTS] A WHEEL file below the top, a file that only ends in WHEEL, and a `Generator:` that is
-    not at the start of its line name nothing (lens on PR 424, F2)."""
+    not at the start of its line name nothing."""
     mod = _lade_bauskript()
     kopf = "Wheel-Version: 1.0\nGenerator: setuptools (84.2.1)\nTag: py3-none-any\n"
     for name, text in (("a/b/c.dist-info/WHEEL", kopf), ("x/WHEEL", kopf),
@@ -261,7 +277,7 @@ def _main_mit_ersetztem_bau(mod, tmp_path, wheel_text, argv, monkeypatch, capsys
 
 
 def test_main_exits_1_when_the_built_wheel_names_another_backend(tmp_path, monkeypatch, capsys):
-    """[COUNTS] The wiring of `--expect-backend-from` in `main` (lens on PR 424, F1): the pinned
+    """[COUNTS] The wiring of `--expect-backend-from` in `main`: the pinned
     generator gives 0, another one gives 1 with the refusal, and the read-back reads the wheel."""
     mod = _lade_bauskript()
     c = tmp_path / "c.txt"
@@ -272,6 +288,62 @@ def test_main_exits_1_when_the_built_wheel_names_another_backend(tmp_path, monke
     assert rc == 0 and "build backend as pinned: setuptools (84.2.1)" in out, (rc, out)
     rc, out = _main_mit_ersetztem_bau(mod, tmp_path, kopf.format("80.9.0"), argv, monkeypatch, capsys)
     assert rc == 1 and "BUILD BACKEND NOT THE PINNED ONE" in out, (rc, out)
+
+
+def test_main_reads_the_exact_wheel_returned_by_the_builder(tmp_path, monkeypatch, capsys):
+    mod = _lade_bauskript()
+    constraints = tmp_path / "constraints.txt"
+    constraints.write_text("setuptools==84.2.1\n", encoding="utf-8")
+    outdir = tmp_path / "built"
+    outdir.mkdir()
+    name = "proofbundle-6.4.0-py3-none-any.whl"
+    header = "Wheel-Version: 1.0\nGenerator: setuptools ({})\nTag: py3-none-any\n"
+    built = _wheel(outdir / name, header.format("80.9.0"))
+    _wheel(tmp_path / name, header.format("84.2.1"))
+    sdist = outdir / "proofbundle-6.4.0.tar.gz"
+    sdist.write_bytes(b"build stub")
+    monkeypatch.setattr(mod, "build_normalized", lambda *a, **k: (sdist, "00"))
+    monkeypatch.setattr(mod, "build_normalized_wheel", lambda *a, **k: (built, "11"))
+    real_check = mod.backend_mismatch
+    seen = []
+
+    def check(wheel, pins):
+        seen.append((wheel, pins))
+        return real_check(wheel, pins)
+
+    monkeypatch.setattr(mod, "backend_mismatch", check)
+    rc = mod.main(["--epoch", "1700000000", "--outdir", str(outdir),
+                   "--with-wheel", "--expect-backend-from", str(constraints)])
+    assert seen == [(built, constraints)]
+    assert rc == 1
+    assert "BUILD BACKEND NOT THE PINNED ONE" in capsys.readouterr().out
+
+
+def test_backend_pin_requires_one_unambiguous_exact_line(tmp_path):
+    mod = _lade_bauskript()
+    constraints = tmp_path / "constraints.txt"
+    for contents, expected in (
+        ("setuptools==84.2.1\n", "84.2.1"),
+        ("setuptools===84.2.1\n", None),
+        ("setuptools==84.2.1\nsetuptools==80.9.0\n", None),
+        ("setuptools==80.9.0\nsetuptools==84.2.1\n", None),
+        ("setuptools==84.2.1\nsetuptools==84.2.1\n", None),
+        ("setuptools===84.2.1\nsetuptools==84.2.1\n", None),
+    ):
+        constraints.write_text(contents, encoding="utf-8")
+        assert mod.backend_pin(constraints) == expected, contents
+
+
+def test_generator_requires_one_unambiguous_header(tmp_path):
+    mod = _lade_bauskript()
+    good = "Wheel-Version: 1.0\nGenerator: setuptools (84.2.1)\nTag: py3-none-any\n"
+    wheel = _wheel(tmp_path / "control.whl", good)
+    assert mod.wheel_generator(wheel) == "setuptools (84.2.1)"
+    for extra in ("Generator: setuptools (80.9.0)\n",
+                  "Generator: setuptools (84.2.1)\n",
+                  "generator: setuptools (80.9.0)\n"):
+        wheel = _wheel(tmp_path / "ambiguous.whl", good + extra)
+        assert mod.wheel_generator(wheel) is None
 
 
 def test_main_refuses_the_switch_where_it_would_check_nothing(tmp_path, monkeypatch, capsys):

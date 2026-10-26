@@ -96,9 +96,8 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 ## Beta / pre-release (any future pre-release line)
 
-Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
-stable default has since moved on to the 5.x line (current: 6.4.0) and the `[experimental]` extra
-ships with normal releases.
+Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09).
+The `[experimental]` extra now ships with normal final releases (current: 6.4.0).
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
 

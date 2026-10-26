@@ -917,43 +917,45 @@ FINDINGS = [
     {"id": "CODEX-630-K8", "severity": "P2", "status": "closed", "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: scripts/b7_pr_form_gate.py reads Markdown paragraphs as separate runs, so the same rendered attribution is refused as HTML and passes as Markdown; the gate is advisory. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool. CLOSED in 6.3.1 by pull request 393, measured with tests/test_pr_form_gate_reads_one_rendered_sequence.py, which fails 6 cases at v6.3.0 06d2021a and passes at the release candidate 56eb5a6f"},
     {"id": "CODEX-630-K9", "severity": "P2", "status": "closed", "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: interop/acde_01/acde01/reconcile.py filters a requested scope down to the population it knows, so an unknown scope member yields PASS and FULLY_SUPPORTED. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool. CLOSED in 6.3.1 by pull request 393, measured with tests/test_acde01_claim_scope_members_are_resolved.py, which fails 4 cases at v6.3.0 06d2021a and passes at the release candidate 56eb5a6f"},
     {"id": "CODEX-630-K10", "severity": "P2", "status": "closed", "note": "found by the Codex defect search on the 6.3.0 candidate 98b168b9 on 2026-10-12 (CODEX-DEFEKTSUCHE-630-KANDIDAT-01), which rated it P1 under the contract of that search: interop/acde_01/acde01/report_check.py takes draft_equation_holds from the report it checks and accepts an unknown instruction class, so a report that breaks its conservation equation passes. It lies outside the installed package, and the owner's triage of 2026-10-12 moves it to 6.3.1; severity P2 by that triage, not measured by a tool. CLOSED in 6.3.1 by pull request 393, measured with tests/test_acde01_report_check_recomputes_conservation.py, which fails 3 cases at v6.3.0 06d2021a and passes at the release candidate 56eb5a6f"},
-    # ── THE THREE ENTRIES OF 6.4.0 (order COWORK-ANTWORT-424-TEXTE-REGISTER-01, 2026-10-26) ─────
-    #
-    # What stays open in 6.4.0 and stands in RESTRISIKO_640.md as a limit is carried here, each with
-    # its `Register entry` sentence there. Findings the lens on the preparation head closed in the
-    # same pull request are not carried. The severity of the two lens findings is the lens's own; the
-    # first entry's source rates it in words only, so its note says how the grade was assigned.
+    # Three explicit additions for release 6.4.0.
+    # These entries correspond to the three Register entry references in RESTRISIKO_640.md.
+    # This block is not an exhaustive index of that document or of earlier open findings.
+    # Severity is triage for each stated scope; it is not a tool-measured impact bound.
     {"id": "R640-B10-1", "severity": "P3", "status": "open",
-     "note": "promised in RESTRISIKO_640.md, section 'A startup module of a uv environment runs "
-             "before the third-party receipt verifier': an environment made by uv 0.12.24 with "
-             "Python 3.10.12 carries _virtualenv.pth, whose module imports contextlib when the "
-             "interpreter starts, so run without -I and with PYTHONPATH naming a directory of the "
-             "checkout, a contextlib planted there runs before the first line of "
-             "scripts/verify_pre_tag_receipt.py. With a plant that only leaves a marker the run "
-             "stopped with a traceback and exit 1, the exit code of NOT VERIFIED, and no run gave "
-             "exit 0; under the documented python -I the plant did not run. Two cases of "
-             "tests/test_verify_pre_tag_receipt_third_party.py fail in such an environment, and CI "
-             "and the release runner use none. Measured on 2026-10-26. Severity P3 assigned by the "
-             "producer from the sheet's stated reach ('small'), not measured by a tool. Open: a "
-             "change of the tests and of the verifier's exit code for this case is not part of "
-             "6.4.0"},
+     "note": "Recorded in RESTRISIKO_640.md, section 'A startup module of a uv environment runs "
+             "before the third-party receipt verifier'. In the measurement of 2026-10-26, the "
+             "environment made by uv 0.12.24 with Python 3.10.12 carried _virtualenv.pth, whose "
+             "startup module imported contextlib. Without -I and with PYTHONPATH naming a checkout "
+             "directory, a planted contextlib ran before scripts/verify_pre_tag_receipt.py. The "
+             "marker-only plant caused a traceback and exit 1, also the verifier's NOT VERIFIED "
+             "exit code; it did not produce exit 0. With the documented python -I command, the "
+             "same plant did not run. This observation concerns the measured environment and does "
+             "not bound what other code executed before the verifier could do. Two cases of "
+             "tests/test_verify_pre_tag_receipt_third_party.py failed in that environment because "
+             "they assumed that startup did not import contextlib. Severity P3 is a triage of "
+             "the test and diagnostic gap for this non-isolated invocation, not a measurement of "
+             "the impact of arbitrary startup code. Changes to those tests and the verifier's "
+             "exit-code distinction for this case remain outside 6.4.0"},
     {"id": "BUILD-PATH-TEST-READS-WORKFLOW-TEXT-01", "severity": "P3", "status": "open",
-     "note": "promised in RESTRISIKO_640.md, section 'Repository tools': "
-             "tests/test_every_build_path_pins_its_backend.py reads the text of the workflow "
-             "files, so it does not see every way to build (for example pyproject-build, pip "
-             "wheel or setup.py bdist_wheel) and does not see a build step that is skipped or "
-             "allowed to fail. Found by the lens on the 6.4.0 preparation head 0917ec7e on "
-             "2026-10-26 (F4); its mutants R07 and R09 to R18 survive the class test at 59b3814a. "
-             "Severity P3 as rated by that lens: the sdists of the measured unpinned builds are "
-             "equal, and the read-back runs on the steps that build the published wheel. Open"},
+     "note": "Recorded in RESTRISIKO_640.md, section 'Repository tools'. "
+             "tests/test_every_build_path_pins_its_backend.py inspects recognized run-step text "
+             "in .yml and .yaml workflow files. Its contract tests cover supported command forms "
+             "and reject the unmeasured uv build and pipx run build paths. Other forms, including "
+             "pyproject-build, pip wheel and setup.py bdist_wheel, remain outside recognition. "
+             "The tests do not establish execution of a conditional step, failure propagation "
+             "through an allowed failure, or resolution of every reusable-workflow call. Severity "
+             "P3 concerns this test-coverage limit, not a proof that every future publishing path "
+             "uses the pinned backend. The wheel-build steps in release.yml and "
+             "reusable-build-attest.yml perform the generator read-back. Open"},
     {"id": "LOCAL-BUILD-COMMANDS-WITHOUT-PIN-01", "severity": "P3", "status": "open",
-     "note": "promised in RESTRISIKO_640.md, section 'Repository tools': the local build commands "
-             "in docs/readiness_pack/REPRODUCTION_RUNBOOK.md and in the hint of "
-             "scripts/audit_candidate_matrix.py do not set PIP_CONSTRAINT, so a local candidate "
-             "build takes the setuptools of the day and its wheel can differ from the one the "
-             "release workflow builds. Found by the lens on the 6.4.0 preparation head 0917ec7e on "
-             "2026-10-26 (F11). Severity P3 as rated by that lens: it concerns a local "
-             "reproduction, not a workflow that publishes. Open"},
+     "note": "Recorded in RESTRISIKO_640.md, section 'Repository tools'. The local equality-check "
+             "commands in docs/readiness_pack/REPRODUCTION_RUNBOOK.md do not set PIP_CONSTRAINT "
+             "or read back a backend version. Their results alone do not bind their build inputs "
+             "or artifact hashes to the frozen release candidate. The hint in "
+             "scripts/audit_candidate_matrix.py has been corrected to install the pinned "
+             "frontend and build both distributions with the wheel's generator checked. Severity "
+             "P3 concerns the remaining local equality-check instructions, not a publishing "
+             "workflow. Open"},
 ]
 
 

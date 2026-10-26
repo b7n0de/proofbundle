@@ -56,13 +56,13 @@ jobs:
   reproducible-sdist:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # THE SAME FRONTEND, BACKEND AND EPOCH AS THE TAG RUN (2026-10-26), so that on a push to main the
-    # digest this job prints is the one release.yml builds for the same shipped content; a pull request
-    # run checks out the merge commit GitHub makes, not the head. The pins are in
-    # .github/build-constraints.txt. The full history is needed for the epoch: `head_commit_epoch`
-    # takes the time of the last commit that touches a shipped path, and a clone of depth 1 treats its
-    # boundary as a root that touches every path (measured at bbe5eda1: b916e0eb here, 989eaa5d in the
-    # full clone release.yml uses).
+    # This job uses the same version constraints and full-history epoch rule as
+    # release.yml. Its digest identifies the sdist built from this checked-out
+    # revision; equality with another run requires comparing the artifact hashes.
+    # A pull_request run checks out GitHub's merge commit, not the PR head.
+    # The epoch excludes only release_notes/ and audit_artifacts/; changes to
+    # other paths can change it even when those paths are not shipped.
+    # Full history avoids treating a shallow boundary as the last source change.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -81,10 +81,8 @@ jobs:
 
   hermetic-cleanroom:
     runs-on: ubuntu-latest
-    # 75, NOT 45 (owner decision of 2026-10-21 on card OA-97a73a0ac7, option A): three of the last ten
-    # jobs ran into 45, the longest complete one took 43.4 min, and almost all of it is the serial run of
-    # the shipped suite from the unpacked sdist. 45 replaced 20 on card OA-52e183ce21 (2026-10-01): 8 min
-    # at d388ed3d, 16 min at 110cdad9, cut at 20 at 6b02d9f7 without a failing test.
+    # Three of the last ten measured jobs reached the former 45-minute timeout; the longest completed
+    # run took 43.4 minutes, mainly in the serial suite from the unpacked sdist. Allow 75 minutes.
     timeout-minutes: 75
     steps:
       # The full history, for the epoch of the tag run: the sdist this job tests is the published one

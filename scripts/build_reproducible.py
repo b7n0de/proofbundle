@@ -22,6 +22,8 @@ CLI:
   python scripts/build_reproducible.py --check --json               # the same, machine-readable
 
   python scripts/build_reproducible.py --check-wheel                # wheel-from-sdist == direct build
+  python scripts/build_reproducible.py --check-wheel --frozen-pair SDIST_SHA256 WHEEL_SHA256
+                                                                    # ... and both are the frozen pair
   python scripts/build_reproducible.py --with-wheel --expect-backend-from .github/build-constraints.txt
                                                                     # the wheel names the pinned backend
 
@@ -105,7 +107,7 @@ def _build_sdist(outdir: Path, epoch: int, *, no_isolation: bool = False) -> Pat
     if no_isolation:
         cmd.insert(4, "--no-isolation")
     subprocess.run(cmd, cwd=str(REPO), env=env, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                   stdout=sys.stderr, stderr=sys.stderr)
     tars = sorted(outdir.glob("*.tar.gz"))
     if not tars:
         raise RuntimeError(f"no sdist produced in {outdir}")
@@ -251,7 +253,7 @@ def _build_wheel(quelle: Path, outdir: Path, epoch: int, *, no_isolation: bool =
     if no_isolation:
         cmd.insert(4, "--no-isolation")
     subprocess.run(cmd, cwd=str(quelle), env=env, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                   stdout=sys.stderr, stderr=sys.stderr)
     whls = sorted(outdir.glob("*.whl"))
     if not whls:
         raise RuntimeError(f"no wheel produced in {outdir} (source {quelle})")
@@ -297,7 +299,8 @@ def _entpacke_sicher(tf: tarfile.TarFile, ziel: Path) -> None:
         tf.extract(m, wurzel)
 
 
-def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
+def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False,
+                             frozen: tuple[str, str] | None = None) -> dict:
     """Die zweite Haelfte des Byte-Freeze: wheel AUS DEM SDIST gegen wheel AUS DEM BAUM.
 
     WARUM ES DIESE FUNKTION GIBT. Der Release-Standard 6.0.0 vom 05.09.2026 nennt in seinem
@@ -315,11 +318,20 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
     GEBAUT WIRD AUS DEM NORMALISIERTEN SDIST, nicht aus dem rohen: das normalisierte ist das, was
     ausgeliefert wird und was ein Nutzer herunterlaedt. Eine Messung gegen das rohe wuerde eine
     Datei pruefen, die niemand bekommt.
+
+    DAS EINGEFRORENE PAAR (externes Review der 6.4.0-Vorbereitung, 2026-10-26, Plan P1 und D2). Das
+    Ergebnis nannte die zwei wheel-Digests und `identical`, aber nicht das sdist, aus dem es baute,
+    und nichts verglich die drei mit dem Paar, das der Releaseplan einfriert. Ein gruenes
+    `identical: true` sagte damit, dass zwei frische wheels einander gleichen, nicht dass das
+    eingefrorene sdist das eingefrorene wheel ergibt. Jetzt steht `sha256_sdist` im Ergebnis, und
+    ``frozen`` = (sdist-Digest, wheel-Digest) bindet: das sdist der Messung ist das eingefrorene, und
+    BEIDE wheels sind das eingefrorene wheel, dessen Generator `--expect-backend-from` gelesen hat.
     """
     with tempfile.TemporaryDirectory(prefix="pb_wheel_") as td:
         arbeit = Path(td)
         direkt, _ = build_normalized_wheel(REPO, arbeit / "direkt", epoch, no_isolation=no_isolation)
         sdist, _ = build_normalized(arbeit / "sd", epoch, no_isolation=no_isolation)
+        hs = hashlib.sha256(sdist.read_bytes()).hexdigest()
         entpackt = arbeit / "aus"
         entpackt.mkdir()
         with tarfile.open(sdist, "r:gz") as tf:
@@ -331,23 +343,35 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False) -> dict:
                                               no_isolation=no_isolation)
         ha = hashlib.sha256(direkt.read_bytes()).hexdigest()
         hb = hashlib.sha256(aus_sdist.read_bytes()).hexdigest()
-        return {"schema": WHEEL_MEASUREMENT_SCHEMA, "identical": ha == hb,
-                "sha256_direct": ha, "sha256_from_sdist": hb,
-                "name_direct": direkt.name, "name_from_sdist": aus_sdist.name, "epoch": epoch}
+        r = {"schema": WHEEL_MEASUREMENT_SCHEMA, "identical": ha == hb,
+             "sha256_direct": ha, "sha256_from_sdist": hb, "sha256_sdist": hs,
+             "name_direct": direkt.name, "name_from_sdist": aus_sdist.name, "epoch": epoch}
+        if frozen is not None:
+            fs, fw = frozen
+            r.update({"frozen_sdist_sha256": fs, "frozen_wheel_sha256": fw,
+                      "bound_to_frozen_pair": hs == fs and ha == fw and hb == fw})
+        return r
 
 
-def check_wheel_from_sdist(epoch: int, *, no_isolation: bool = False, as_json: bool = False) -> int:
-    r = measure_wheel_from_sdist(epoch, no_isolation=no_isolation)
+def check_wheel_from_sdist(epoch: int, *, no_isolation: bool = False, as_json: bool = False,
+                           frozen: tuple[str, str] | None = None) -> int:
+    r = measure_wheel_from_sdist(epoch, no_isolation=no_isolation, frozen=frozen)
+    ok = r["identical"] and (frozen is None or r["bound_to_frozen_pair"])
     if as_json:
         import json as _json  # noqa: PLC0415
         print(_json.dumps(r, sort_keys=True))
-    elif r["identical"]:
-        print("WHEEL FREEZE OK: wheel from the shipped sdist is byte-identical to the direct build"
-              f"\n  sha256={r['sha256_direct']}\n  epoch={epoch}")
-    else:
+    elif not r["identical"]:
         print("WHEEL FREEZE FAILED: the two wheels differ"
               f"\n  direct     = {r['sha256_direct']}\n  from sdist = {r['sha256_from_sdist']}")
-    return 0 if r["identical"] else 1
+    elif not ok:
+        print("WHEEL FREEZE NOT THE FROZEN PAIR: the measured sdist or wheels are not the frozen ones"
+              f"\n  sdist  measured = {r['sha256_sdist']}  frozen = {r['frozen_sdist_sha256']}"
+              f"\n  wheel  measured = {r['sha256_direct']}  frozen = {r['frozen_wheel_sha256']}")
+    else:
+        print("WHEEL FREEZE OK: wheel from the shipped sdist is byte-identical to the direct build"
+              f"\n  sha256={r['sha256_direct']}\n  sdist sha256={r['sha256_sdist']}\n  epoch={epoch}"
+              + ("\n  bound to the frozen pair" if frozen is not None else ""))
+    return 0 if ok else 1
 
 
 def check_reproducible(epoch: int, *, no_isolation: bool = False, as_json: bool = False) -> int:
@@ -364,25 +388,29 @@ def check_reproducible(epoch: int, *, no_isolation: bool = False, as_json: bool 
 
 
 def wheel_generator(wheel: Path) -> str | None:
-    """The `Generator:` value of the one `*.dist-info/WHEEL` file at the top of `wheel`, or None."""
+    """Read one unambiguous, exactly spelled Generator header from one top-level WHEEL file."""
     with zipfile.ZipFile(wheel) as z:
-        namen = [n for n in z.namelist() if n.count("/") == 1 and n.endswith(".dist-info/WHEEL")]
-        if len(namen) != 1:
+        names = [n for n in z.namelist() if n.count("/") == 1 and n.endswith(".dist-info/WHEEL")]
+        if len(names) != 1:
             return None
-        for zeile in z.read(namen[0]).decode("utf-8", "replace").splitlines():
-            if zeile.startswith("Generator:"):
-                return zeile.split(":", 1)[1].strip()
-    return None
+        lines = z.read(names[0]).decode("utf-8", "replace").splitlines()
+        generators = [line for line in lines if line.partition(":")[0].casefold() == "generator"]
+        if len(generators) != 1 or not generators[0].startswith("Generator:"):
+            return None
+        return generators[0].split(":", 1)[1].strip()
 
 
 def backend_pin(constraints: Path) -> str | None:
-    """The version a `setuptools==X` line of the constraints file pins, or None when none does."""
-    for zeile in constraints.read_text(encoding="utf-8").splitlines():
-        m = re.fullmatch(r"setuptools\s*==\s*([0-9][^\s;#]*)", zeile.split("#", 1)[0].strip(),
-                         re.IGNORECASE)
-        if m:
-            return m.group(1)
-    return None
+    """Read exactly one unconditional setuptools==version line; refuse ambiguity."""
+    lines = [line.split("#", 1)[0].strip()
+             for line in constraints.read_text(encoding="utf-8").splitlines()]
+    backend_lines = [line for line in lines
+                     if re.match(r"setuptools(?=\s|[<>=!~;\[]|$)", line, re.IGNORECASE)]
+    if len(backend_lines) != 1:
+        return None
+    match = re.fullmatch(r"setuptools\s*==\s*([0-9][0-9A-Za-z.]*)",
+                         backend_lines[0], re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def backend_mismatch(wheel: Path, constraints: Path) -> str | None:
@@ -402,6 +430,13 @@ def backend_mismatch(wheel: Path, constraints: Path) -> str | None:
     if ist != f"setuptools ({soll})":
         return f"{wheel.name} was built by {ist!r}, but {constraints.name} pins setuptools {soll}"
     return None
+
+
+def _sha256_hex(wert: str) -> str:
+    """A SHA-256 written as 64 lower-case hex digits, as `sha256sum` and the release plan write it."""
+    if not re.fullmatch(r"[0-9a-f]{64}", wert):
+        raise argparse.ArgumentTypeError(f"not a SHA-256 of 64 lower-case hex digits: {wert!r}")
+    return wert
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -427,16 +462,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expect-backend-from", type=Path, default=None, metavar="CONSTRAINTS",
                    help="with --with-wheel: exit 1 when the wheel's generator is not the setuptools "
                         "version the constraints file CONSTRAINTS pins")
+    p.add_argument("--frozen-pair", nargs=2, type=_sha256_hex, default=None,
+                   metavar=("SDIST_SHA256", "WHEEL_SHA256"),
+                   help="with --check-wheel: exit 1 unless the measured sdist is SDIST_SHA256 and "
+                        "both measured wheels are WHEEL_SHA256, the pair the release plan freezes")
     args = p.parse_args(argv)
     if args.expect_backend_from is not None and not args.with_wheel:
         p.error("--expect-backend-from needs --with-wheel: only a wheel names its build backend")
-    # `--check` and `--check-wheel` return below before any wheel is read, so beside them the switch
-    # would pass without checking anything (lens on PR 424, F5).
+    if args.frozen_pair is not None and not args.check_wheel:
+        p.error("--frozen-pair needs --check-wheel: only that measurement builds both wheels")
+    # `--check` and `--check-wheel` return below before any wheel is read, so combining either with
+    # this switch would claim a read-back that did not run.
     if args.expect_backend_from is not None and (args.check or args.check_wheel):
         p.error("--expect-backend-from reads the wheel of a build, not of --check or --check-wheel")
     epoch = args.epoch if args.epoch is not None else head_commit_epoch()
     if args.check_wheel:
-        return check_wheel_from_sdist(epoch, no_isolation=args.no_isolation, as_json=args.json)
+        frozen = tuple(args.frozen_pair) if args.frozen_pair is not None else None
+        return check_wheel_from_sdist(epoch, no_isolation=args.no_isolation, as_json=args.json,
+                                      frozen=frozen)
     if args.check:
         return check_reproducible(epoch, no_isolation=args.no_isolation, as_json=args.json)
     dst, digest = build_normalized(args.outdir, epoch, no_isolation=args.no_isolation)
