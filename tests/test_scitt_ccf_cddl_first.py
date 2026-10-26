@@ -130,7 +130,9 @@ def _cases():
     return [
         # controls: they must confirm, or nothing below means anything
         ("control transparent statement", lambda: _ts(), "confirmed", True, None),
-        ("control consistency receipt", lambda: _cons(), "confirmed", True, None),
+        # without older_size the anchor rule of section 4 is not complete, so the control reads as
+        # confirmed_without_tree_sizes since pull request 355; every check the pass and the status logic make held
+        ("control consistency receipt", lambda: _cons(), "confirmed_without_tree_sizes", True, None),
         # R1, PR 278 thread 4110616327: proofs parsed before the profile, and its sibling in _verify_consistency
         ("R1 junk inclusion proof under an unsupported alg",
          lambda: _ts(alg=-8, proofs_override=[b"junk"]), "malformed", False, "does not decode"),

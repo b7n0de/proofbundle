@@ -267,6 +267,18 @@ EXCEPTIONS = {
            "not list"),
     "tools/scitt_ccf_external/rust_crosscheck.py": (
         2, "differential harness: reads the stored vector and the JSON output of the Rust verifier it compares"),
+    "tools/scitt_ccf_external/section4_reader_go/run_section4.py": (
+        1, "runs the Go reader of section 4 (pull request 411) on the vectors and prints a table: reads each vector "
+           "file; the verdicts printed are the Go reader's"),
+    "tools/scitt_ccf_external/section4_vectors/check_vectors.py": (
+        11, "the independent checker of the section 4 vectors (pull request 411), written from the text of -05 "
+            "without proofbundle: it decodes the stored receipts and proofs with cbor2 and reads the vector files and "
+            "their manifest; its readings A and B are its own, held beside the reader's by "
+            "tests/test_scitt_ccf_section4_vectors.py"),
+    "tools/scitt_ccf_external/section4_vectors/generate_vectors.py": (
+        13, "generator of the section 4 vectors (pull request 411): reads the ledger fixture and its leaves and "
+            "decodes the receipts and proofs of that fixture and of the receipts it has just built; it writes test "
+            "input and judges nothing"),
     "tools/scitt_ccf_external/transparent_statement_vectors.py": (
         1, "writes the shared Transparent Statement vectors and reads them back for --check; they hold CBOR integers "
            "past the I-JSON range (a receipt iat of 2^64 - 1) that loads_strict refuses, and every other file it "

@@ -25,6 +25,12 @@ THE ORACLE. Every vector carries the verdict it is designed to produce. The gene
 the file unless the Python verifier returns exactly that for every vector; the Rust verifier is held
 to the same, and to Python on every other field.
 
+THE TREE SIZES. `pb_verify_rs` takes no `older_size` and no `newer_size`, so every vector is a call
+without them, in both verifiers: the success it is built for is `confirmed_without_tree_sizes`, exit
+class 0 as for `confirmed`; `older_size` is None, `newer_size` the seqno of the receipt's `ccf.v1`
+txid by Python's rule once the newer roots agree, and neither anchor rule of the sizes runs. The
+vectors x07 to x17 hold both verifiers to that rule on txids it reads and refuses.
+
 FORM. As in transparent_statement_vectors.py, whose reading of parts, refs and trust this file uses:
 a byte string is a list of parts, a trust document is in the form `pb_verify_rs` reads, and named
 trust documents are under `trusts`. `older_issuer` is text, as the Rust command line takes it.
@@ -58,7 +64,10 @@ LEDGER = "tests/fixtures/scitt_ccf/local_ledger_consistency.json"
 ISSUER = "svc.example"
 H = lambda b: hashlib.sha256(b).digest()  # noqa: E731
 FIELDS = ("status", "readable", "signature_valid", "older_root_matches", "newer_root", "proofs", "issuer",
-          "kid", "kid_bound_to_key", "receipt_iat", "ccf_txid", "inclusion_proofs_present")
+          "kid", "kid_bound_to_key", "receipt_iat", "ccf_txid", "inclusion_proofs_present", "older_size",
+          "newer_size", "newer_size_source", "anchor_rule_checked", "left_siblings_checked")
+#: Python's `_SIZE_FROM_HEADER`: where a newer size the caller did not give comes from.
+FROM_HEADER = "protected header ccf.v1 txid"
 
 
 # -- the shared reading of the file (the parity test and crosscheck.py carry the same few lines) --------
@@ -81,9 +90,14 @@ def python_result(doc: dict, v: dict) -> dict:
     return r
 
 
+#: What `observed` reads for a field the result does not carry, a verifier from before the field.
+ABSENT = "<absent>"
+
+
 def observed(r: dict) -> dict:
-    """The fields a vector's `want` may name, read from a result in `to_dict()` form."""
-    return {k: r[k] for k in FIELDS}
+    """The fields a vector's `want` may name, read from a result in `to_dict()` form; a field the result
+    lacks reads as ABSENT, which no want names, so it is a mismatch and not a KeyError."""
+    return {k: r.get(k, ABSENT) for k in FIELDS}
 
 
 def mismatch(want: dict, got: dict) -> dict:
@@ -155,7 +169,9 @@ def want(status: str, **kw) -> dict:
 
 
 def confirmed(**kw) -> dict:
-    return want("confirmed", readable=True, signature_valid=True, older_root_matches=True, **kw)
+    """The success of a call without tree sizes, which every vector is: neither anchor rule of the sizes ran."""
+    return want("confirmed_without_tree_sizes", readable=True, signature_valid=True, older_root_matches=True,
+                older_size=None, anchor_rule_checked=False, left_siblings_checked=False, **kw)
 
 
 def malformed(**kw) -> dict:
@@ -646,10 +662,34 @@ def synthetic_vectors(b: Builder) -> None:
         b.add(vid, what, b.crec(prot_pairs=pp(cwt=cmap(cwt))), r13, confirmed(receipt_iat=iat))
     b.add("x06-txid-unprotected", "the ccf.v1 header in the unprotected bucket: no txid",
           b.crec(prot_pairs=pp(ccf=None), unprot=cmap([(text("ccf.v1"), cmap([(text("txid"), text("2.24"))])),
-                                                       vdp_good])), r13, confirmed(ccf_txid=None))
-    b.add("x04-txid-absent", "no ccf.v1 header", b.crec(prot_pairs=pp(ccf=None)), r13, confirmed(ccf_txid=None))
+                                                       vdp_good])), r13,
+          confirmed(ccf_txid=None, newer_size=None, newer_size_source=None))
+    b.add("x04-txid-absent", "no ccf.v1 header", b.crec(prot_pairs=pp(ccf=None)), r13,
+          confirmed(ccf_txid=None, newer_size=None, newer_size_source=None))
     b.add("x05-txid-int", "a txid that is an integer",
-          b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), uint(24))]))), r13, confirmed(ccf_txid=None))
+          b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), uint(24))]))), r13,
+          confirmed(ccf_txid=None, newer_size=None, newer_size_source=None))
+
+    # -- the newer size of a call without sizes: the seqno of the txid, by Python's rule ---------------------
+    # "view.seqno", each part 0 or one to twenty ASCII digits without a leading zero. Python takes the seqno
+    # as it is when the caller gives no size, 0 and past 2^64 included; no other rule reads it then.
+    nines = "9" * 20
+    for vid, what, txid, size in (
+        ("x07-txid-seqno-2-64", "the seqno 2^64", "2.18446744073709551616", 2 ** 64),
+        ("x08-txid-twenty-digits", "a seqno of twenty digits, past 2^64", f"{nines}.{nines}", int(nines)),
+        ("x09-txid-seqno-zero", "the seqno 0", "2.0", 0),
+        ("x10-txid-21-digits", "a seqno of twenty-one digits", f"2.1{nines}", None),
+        ("x11-txid-leading-zero", "a seqno with a leading zero", "2.024", None),
+        ("x12-txid-view-leading-zero", "a view with a leading zero", "02.24", None),
+        ("x13-txid-no-dot", "no dot", "224", None),
+        ("x14-txid-three-parts", "three parts", "2.24.1", None),
+        ("x15-txid-newline", "a newline after the seqno", "2.24\n", None),
+        ("x16-txid-arabic-indic-digit", "an Arabic-Indic digit four in the seqno", "2.2\u0664", None),
+        ("x17-txid-empty-view", "no view", ".24", None),
+    ):
+        b.add(vid, f"the txid {what}: newer_size {size}",
+              b.crec(prot_pairs=pp(ccf=cmap([(text("txid"), text(txid))]))), r13,
+              confirmed(ccf_txid=txid, newer_size=size, newer_size_source=None if size is None else FROM_HEADER))
 
 
 def build() -> dict:
