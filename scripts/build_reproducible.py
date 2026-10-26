@@ -319,13 +319,13 @@ def measure_wheel_from_sdist(epoch: int, *, no_isolation: bool = False,
     ausgeliefert wird und was ein Nutzer herunterlaedt. Eine Messung gegen das rohe wuerde eine
     Datei pruefen, die niemand bekommt.
 
-    DAS EINGEFRORENE PAAR (externes Review der 6.4.0-Vorbereitung, 2026-10-26, Plan P1 und D2). Das
-    Ergebnis nannte die zwei wheel-Digests und `identical`, aber nicht das sdist, aus dem es baute,
-    und nichts verglich die drei mit dem Paar, das der Releaseplan einfriert. Ein gruenes
-    `identical: true` sagte damit, dass zwei frische wheels einander gleichen, nicht dass das
-    eingefrorene sdist das eingefrorene wheel ergibt. Jetzt steht `sha256_sdist` im Ergebnis, und
-    ``frozen`` = (sdist-Digest, wheel-Digest) bindet: das sdist der Messung ist das eingefrorene, und
-    BEIDE wheels sind das eingefrorene wheel, dessen Generator `--expect-backend-from` gelesen hat.
+    THE FROZEN PAIR (external review of the 6.4.0 preparation, 2026-10-26, plan P1 and D2). The result
+    named the two wheel digests and `identical`, but not the sdist it built from, and nothing compared
+    the three with the pair the release plan freezes. A passing `identical: true` therefore said that
+    two fresh wheels agree with each other, not that the frozen sdist gives the frozen wheel. Now
+    `sha256_sdist` is in the result, and ``frozen`` = (sdist digest, wheel digest) binds: the sdist of
+    the measurement is the frozen one, and BOTH wheels are the frozen wheel, whose generator
+    `--expect-backend-from` has read.
     """
     with tempfile.TemporaryDirectory(prefix="pb_wheel_") as td:
         arbeit = Path(td)

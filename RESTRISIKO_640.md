@@ -10,7 +10,7 @@ The findings that stay open after 6.3.1 are listed in [the 6.3.1 record](RESTRIS
 
 ### The 24-hour soak runs beside the release
 
-By the owner decision of 2026-09-08 recorded in [the residual-risk record of 6.0.0](RESTRISIKO_600.md#s21--c63-verlangt-einen-24-stunden-soak-den-es-zum-kandidatenkopf-nicht-gibt), the full 24-hour fuzz soak runs in parallel with the release and does not hold the tag. The soak evidence of 6.4.0 is the short soak at the release candidate, signed and bound to that candidate (audit matrix row C6.2). Until the 24-hour run reports, row C6.3 is a named residual risk of this release. A crash the 24-hour run finds is a new finding under the usual rules.
+By the owner decision of 2026-09-08 recorded in [the residual-risk record of 6.0.0](RESTRISIKO_600.md), the full 24-hour fuzz soak runs in parallel with the release and does not hold the tag. The soak evidence of 6.4.0 is the short soak at the release candidate, signed and bound to that candidate (audit matrix row C6.2). Until the 24-hour run reports, row C6.3 is a named residual risk of this release. A crash the 24-hour run finds is a new finding under the usual rules.
 
 ### A startup module of a uv environment runs before the third-party receipt verifier
 
