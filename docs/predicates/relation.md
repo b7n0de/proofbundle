@@ -275,6 +275,9 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
   On this path `reject_retracted` blocks on the statement's own VERIFIED `retracts` edge and
   `reject_superseded` on its own VERIFIED `supersedes`, `revises` or `corrects` edge; both report
   `LINEAGE_REQUIREMENT_FAILED`, exit 3.
+  On this path `relation_signer` judges the key the statement verified under: `pinned` compares that
+  key with the pinned set, `same-key` with the key its target verified under. `reject_retracted` and
+  `reject_superseded` do not depend on `relation_signer`; when both rules fire, both codes are reported.
 - Rust parity: the independent Rust verifier carries this profile since 3.5.0
   (`verify-relation-statement`); `crosscheck.py` drives the statement vectors differentially and
   asserts Python and Rust land on the same exit class + lineage. Differential agreement on these
