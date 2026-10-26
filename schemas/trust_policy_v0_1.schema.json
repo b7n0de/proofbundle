@@ -306,6 +306,30 @@
         "allow_pending": {
           "type": "boolean",
           "description": "If false (default), a pending anchor does NOT satisfy require_external_anchor."
+        },
+        "require_audience": {
+          "type": "boolean",
+          "description": "If true, validity.audience MUST be present as a non-empty list; the value binding is still --aud."
+        },
+        "require_nonce": {
+          "type": "boolean",
+          "description": "If true, validity.nonce MUST be present as a non-empty string; the value binding is still --nonce."
+        },
+        "require_not_checked": {
+          "type": "boolean",
+          "description": "If true, notChecked[] MUST be present as a non-empty list."
+        },
+        "require_decision_change_conditions": {
+          "type": "boolean",
+          "description": "If true, decisionChangeConditions[] MUST be present as a non-empty list."
+        },
+        "require_trace_context": {
+          "type": "boolean",
+          "description": "If true, traceContext MUST be present as an object."
+        },
+        "allow_raw_inputs": {
+          "type": "boolean",
+          "description": "If false (default, fail-closed), a receipt whose privacy.rawInputsIncluded is true is rejected; only true allows raw inputs."
         }
       }
     },
@@ -334,6 +358,34 @@
         },
         "allow_pending": {
           "type": "boolean"
+        },
+        "trusted_tsa_roots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "WP-A1 relying-party anchor trust material carried in the policy file (no file paths): base64 DER root certificates of trusted RFC 3161 time-stamping authorities, each a non-empty string. Optional, fail-closed."
+        },
+        "trusted_tsa_policy_oids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "WP-A1 relying-party anchor trust material: the accepted TSA policy OIDs as dotted-decimal strings, each a non-empty string. Optional, fail-closed."
+        },
+        "bitcoin_block_headers": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[0-9]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "description": "WP-A1 relying-party anchor trust material: a decimal height string mapped to the 64-character hex merkle root of that Bitcoin block header. The loader checks the length of each root, not its characters. Optional, fail-closed."
         }
       }
     },
