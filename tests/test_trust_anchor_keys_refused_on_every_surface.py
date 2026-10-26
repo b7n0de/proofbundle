@@ -906,8 +906,10 @@ class RustParity(unittest.TestCase):
     def test_the_trust_pack_threshold_agrees(self):
         import tempfile
         from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE
-        # A Statement v1, so the refusal below is the key's and not the missing `_type`'s.
+        # A Statement v1 with a subject, so the refusal below is the key's and not the missing `_type`'s or
+        # the missing subject's (the Statement oracle reads the subject since 2026-10-17).
         stmt = {"_type": "https://in-toto.io/Statement/v1",
+                "subject": [{"name": "trust-pack:tp:v1", "digest": {"sha256": "a" * 64}}],
                 "predicate": {"keys": {"l1": {"publicKey": _b64(I1)}, "l2": {"publicKey": _b64(I2)}},
                               "roles": {"root": {"keyIds": ["l1", "l2"], "threshold": 2}}}}
         env = {"payload": _b64(json.dumps(stmt).encode()), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
@@ -937,6 +939,7 @@ class RustParity(unittest.TestCase):
                     py = [e for e in validate_trust_pack_predicate(pred)
                           if e.startswith("keys['dm1'].publicKey is a")]
                     env = {"payload": _b64(json.dumps({"_type": "https://in-toto.io/Statement/v1",
+                                                       "subject": [{"digest": {"sha256": "a" * 64}}],
                                                        "predicate": pred}).encode()),
                            "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
                            "signatures": [{"keyid": "r1", "sig": _b64(UNIV)}]}

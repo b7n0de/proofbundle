@@ -71,6 +71,17 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-09-25: the scitt-ccf/v1 reader of ADR 0009 (not an anchor type yet). The population guard
+    # reported its five surfaces the moment the module existed, which is its job. A FOREIGN binary
+    # format again, read from a Transparency Service we do not run: decode_cose_sign1,
+    # load_cose_keyset and recompute_data_hash refuse with a typed ScittFormatError (a
+    # BundleFormatError) or ScittUnavailable without the [scitt] extra; the two verify_ surfaces
+    # return a status for every input and never raise.
+    "scitt_ccf",
+    # 2026-10-16: the TRACE v0.2 Trust Record verifier, a second FOREIGN format. The population guard
+    # reported `verify_trace_record` outside the property, and it belongs inside for the reason above:
+    # the record bytes arrive from a producer we do not control.
+    "adapters.trace_record",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -230,9 +241,13 @@ _OUT_OF_SCOPE = frozenset({
     #       `attach` are ERZEUGER in the sense of the family rule above: they take our own values
     #       and refuse loudly (`require_valid_verifier_block`) rather than emit a malformed block.
     #   `statement_digest`, `test_result_ref` are digest helpers; `join_test_result` also feeds
-    #       `statement_digest` a caller-supplied statement, and a hostile one ends in a typed
+    #       `statement_digest` a caller-supplied statement, and a hostile one ended in a typed
     #       `BundleFormatError` from the canonicalizer (lens C, 2026-09-18, measured with a
     #       deeply nested `annotations` dict) -- an accepted termination, never a raw crash.
+    #       Since lens run 7 on 8ecb6edf the join answers such a statement instead: a digest
+    #       that does not match, with the reason (measured: the nested dict, and `2**53` or NaN,
+    #       which raised the canonicalizer's bare ValueError there); `statement_digest` and
+    #       `test_result_ref` raise `VerifierBlockError` for the value, their own typed error.
     #   `join_test_result` and `report` read a block that has ALREADY passed
     #       `validate_verifier_block` on the consumer side (`_verify_v02_inner` calls `report` only
     #       after the shape errors are empty); `report` returns a verdict dict for every input and
@@ -349,7 +364,10 @@ _OUT_OF_SCOPE = frozenset({
     "issue_enclave_attestation",  "issue_sd_jwt",  "issue_status_list_token",  "issuer_fingerprint",
     "issuer_matches",  "key_id",  "last_ats",  "leaf_hash",  "leaf_node_hash",  "link_runs",
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
-    "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
+    "merkle_tree_hash",  "nested_closure_violations",
+    # Deep gate Z195 (L3-Z195-05): the type sibling of nested_closure_violations, same classification;
+    # it never raises on its object and raises ValueError only for a kind no type map may name.
+    "nested_type_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
     # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
@@ -398,6 +416,13 @@ _OUT_OF_SCOPE = frozenset({
     #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
     #       unmet).
     "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
+    # 2026-10-16, `proofbundle.adapters.trace_record`. `exit_code` is covered by the entry above (it maps
+    # OUR TraceVerdict). `jwk_thumbprint` is the STRICT key reader: it raises ValueError on a JWK that
+    # is not a usable public Ed25519, P-256 or P-384 key, because a thumbprint of a half-read key would
+    # name a key nobody holds. `verify_trace_record` reaches it only inside the `cnf-binding` check,
+    # which turns that ValueError into a failing check. Measured beforehand: no other scanned module
+    # exports the name.
+    "jwk_thumbprint",
     # 2026-09-28, eval-result v0.2 (the revised #575 draft). Four PRODUCERS beside their v0.1 siblings
     # above, for the same reason: they take the caller's own claim, key and descriptors and refuse a
     # bad one with BundleFormatError, which is the producer contract. The one function of the family

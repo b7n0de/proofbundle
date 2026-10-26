@@ -194,19 +194,37 @@ def _strict_b64url(segment: str) -> "bytes | None":
 
 def _strict_json_object(raw: bytes) -> "dict | None":
     """docs/ANCHORS.md, step 2: a JSON object as Python's ``json`` module reads the decoded bytes, a
-    duplicate key or a lone surrogate refused. The text names that module and what it accepts beyond
-    RFC 8259 (``NaN``, a UTF-8 byte order mark, UTF-16 and UTF-32), so this reading follows it.
+    duplicate key or a lone surrogate refused, and refused too what the text names beyond RFC 8259
+    (``NaN``, ``Infinity``, a number that overflows to infinity, a UTF-8 byte order mark, UTF-16 and
+    UTF-32, and an integer literal outside +-(2**53 - 1); refused since 2026-10-22, read before).
 
     NOT INDEPENDENT on that axis (lens run 3 at 15d0b643): it reads with the same module the code
-    reads with, so it pins that code and text agree, not that the module's extensions are right. The
-    size limits of the reader are not modelled either; no input here comes near them."""
+    reads with, so it pins that code and text agree, not that the module is right. The size limits of
+    the reader are not modelled either; no input here comes near them."""
     def no_duplicates(pairs):
         keys = [k for k, _ in pairs]
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate key")
         return dict(pairs)
+
+    def no_constant(name):
+        raise ValueError(f"{name} is no JSON number")
+
+    def finite(text):
+        value = float(text)
+        if value in (float("inf"), float("-inf")):
+            raise ValueError("no finite double")
+        return value
+
+    def i_json(text):
+        if len(text.lstrip("-")) > 16 or abs(int(text)) > 2**53 - 1:
+            raise ValueError("integer outside I-JSON")
+        return int(text)
+    if raw[:3] == b"\xef\xbb\xbf" or raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:4]:
+        return None
     try:
-        obj = json.loads(raw, object_pairs_hook=no_duplicates)
+        obj = json.loads(raw, object_pairs_hook=no_duplicates, parse_constant=no_constant, parse_float=finite,
+                         parse_int=i_json)
     except ValueError:
         return None
     stack = [obj]
@@ -235,7 +253,8 @@ def _docs_name_the_fold_domain(text: str) -> list:
               "UTF-16 and UTF-32 accepted": "UTF-16 or UTF-32", "the digit limit": "4,300 digits",
               "the fold ignores the verdict": "whether or not its signature verifies",
               "how depth is counted": "one level below the container",
-              "the digit limit is the interpreter's": "get_int_max_str_digits"}
+              "the digit limit is the interpreter's": "get_int_max_str_digits",
+              "the I-JSON integer range": "±(2^53 − 1)"}
     return [name for name, phrase in wanted.items() if phrase not in section]
 
 
@@ -511,13 +530,14 @@ class TwinsHaveOneIdentity(unittest.TestCase):
             self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
                                 f"{label}: not folded, by the code and by the text")
 
-    def test_a_header_the_reader_accepts_beyond_rfc_8259_is_folded_by_both(self):
-        """Lens run 3 at 15d0b643, D3-1-a: a header with ``NaN``, a UTF-8 byte order mark, or in UTF-16
-        verifies, and the code folds its twins to one root; the text of that commit did not say the
-        reader accepts these forms, so a reader of it following RFC 8259 got two roots. The text names
-        them now. This pins, for each form, that verification accepts both spellings, that the code
-        gives them one root, and that the recipe as written gives the same root. GREEN on f536af50 and
-        accd932c; RED on 126ed1dc, where the twins had two roots."""
+    def test_a_header_beyond_rfc_8259_is_refused_and_folded_by_neither(self):
+        """Lens run 3 at 15d0b643, D3-1-a, named the forms beyond RFC 8259 the reader took: a header with
+        ``NaN``, a UTF-8 byte order mark, or in UTF-16 verified and the code folded its twins to one root.
+        Until 07b6122c this case pinned that acceptance. Since DELTA-LOADS-STRICT-NUR-JSON-ZAHLEN-01
+        (2026-10-22) the strict reader refuses these forms, as the Rust verifier always did; the case now
+        pins the other side, as the edge forms above: neither spelling verifies, neither is folded, and
+        the code and the recipe as written agree on each root. An integer literal outside the I-JSON
+        range joined them the same day (owner choice A)."""
         from proofbundle.anchors import receipt_canonical_root  # noqa: PLC0415
 
         def signed(header_raw: bytes) -> str:
@@ -530,15 +550,18 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
         forms = {"NaN in the header": b'{"alg":"ES256","typ":"dc+sd-jwt","x":NaN}',
                  "a UTF-8 byte order mark": b"\xef\xbb\xbf" + b'{"alg":"ES256","typ":"dc+sd-jwt"}',
-                 "UTF-16-LE text": '{"alg":"ES256","typ":"dc+sd-jwt"}'.encode("utf-16-le")}
+                 "UTF-16-LE text": '{"alg":"ES256","typ":"dc+sd-jwt"}'.encode("utf-16-le"),
+                 "2**53 in the header": b'{"alg":"ES256","typ":"dc+sd-jwt","x":9007199254740992}'}
         for label, raw in forms.items():
             compact = signed(raw)
             bundle = _carrying(compact, self.pub_b64)
             twin = _with_compact(bundle, _twin(compact))
-            self.assertTrue(verify_bundle(bundle).ok, label)
-            self.assertTrue(verify_bundle(twin).ok, label)
-            self.assertEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin), label)
-            self.assertEqual(receipt_canonical_root(twin), _root_per_docs(twin), label)
+            self.assertFalse(verify_bundle(bundle).ok, label)
+            self.assertFalse(verify_bundle(twin).ok, label)
+            for spelling in (bundle, twin):
+                self.assertEqual(receipt_canonical_root(spelling), _root_per_docs(spelling), label)
+            self.assertNotEqual(receipt_canonical_root(bundle), receipt_canonical_root(twin),
+                                f"{label}: not folded, by the code and by the text")
 
     def test_the_docs_name_the_domain_of_the_fold(self):
         """RED on the docs/ANCHORS.md of accd932c, which named neither condition, and of 15d0b643, which
@@ -698,7 +721,13 @@ _ECDSA_WATCHED = _CURVE_FLOOR | _installed_curves() | {
     "generate_private_key", "derive_private_key", "EllipticCurvePrivateKey",
     "EllipticCurvePrivateNumbers", "get_curve_for_oid", "_CURVE_TYPES"}
 _ECDSA_ALLOWED = frozenset({("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
-                            ("anchors_rootcommit.py", "SECP256k1")})
+                            # 2026-10-16: the ES384 VERIFIER (`signature.verify_ecdsa_p384`) for TRACE
+                            # Trust Records. The curve's name is allowed in signature.py as P-256's is;
+                            # a path that SIGNS on P-384 is still found by its key maker and its call.
+                            ("signature.py", "SECP384R1"),
+                            ("anchors_rootcommit.py", "SECP256k1"),
+                            ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
+                            ("scitt_ccf.py", "SECP384R1")})
 
 
 def _ecdsa_inventory(root: pathlib.Path) -> "set[tuple[str, str]]":
@@ -782,7 +811,12 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
         ES256 verifier and the secp256k1 recovery in rootcommit. A new path that SIGNS with ECDSA must
         emit the low s and join the property above; this case fails until someone looks. Up to
         31816e08 it knew two curves, so a P-384 signing path in signature.py, where ECDSA is allowed
-        for the verifier, passed it; the case below plants one."""
+        for the verifier, passed it; the case below plants one.
+
+        Looked at when main met the scitt-ccf/v1 branch: scitt_ccf.py names ECDSA only in
+        `key.verify(der, tbs, ec.ECDSA(h))`, and SECP256R1 and SECP384R1 only in its curve tables, which
+        build public keys from a SubjectPublicKeyInfo or a COSE_KeySet. It verifies statements and
+        receipts under keys of others and signs nothing, so it joins the verifiers in _ECDSA_ALLOWED."""
         found = _ecdsa_inventory(SRC)
         self.assertEqual(found - _ECDSA_ALLOWED, set(), "an ECDSA path outside the verifiers")
         self.assertTrue(_ECDSA_ALLOWED & found, "the inventory walked nothing")
@@ -824,9 +858,10 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
                 copy_of.write_text(source + "\n\n" + plant, encoding="utf-8")
                 if not _ecdsa_inventory(pathlib.Path(tmp)) - _ECDSA_ALLOWED:
                     missed.append(what)
-        # SECP256R1 is the verifier's own curve in signature.py, so its name alone is allowed there;
-        # a path that SIGNS on it is found by the key maker and by the signing call
-        self.assertEqual(sorted(missed), ["SECP256R1 by string", "SECP256R1 named"])
+        # SECP256R1 and SECP384R1 are the verifiers' own curves in signature.py, so their names alone
+        # are allowed there; a path that SIGNS on either is found by the key maker and by the signing call
+        self.assertEqual(sorted(missed), ["SECP256R1 by string", "SECP256R1 named",
+                                          "SECP384R1 by string", "SECP384R1 named"])
 
 
 class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):

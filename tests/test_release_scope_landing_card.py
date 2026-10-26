@@ -170,3 +170,13 @@ def test_ohne_die_ausweisung_bleibt_ein_umfang_ohne_zweig_nicht_messbar(monkeypa
     d = LK.karte(version="9.9.9", scope_pfad=p)
     assert d["zustand"] == "NOT MEASURABLE" and d["rc"] == 2, d
     assert "kein einziger Zweig" in d["grund"], d
+
+
+def test_a_follow_up_title_does_not_count_the_line_of_its_parent(monkeypatch, umfang):
+    """`[<version> <ID>-FOLGE]` belongs to the row of its parent and lands nothing of its own (Nachtrag 5 of
+    CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01): the line lands with the parent's own pull request."""
+    d = _karte(monkeypatch, umfang, [])
+    k = d["offen"][0]
+    e = _karte(monkeypatch, umfang, [{"number": 998, "title": f"[{d['version']} {k}-FOLGE] fix(x): y",
+                                      "mergedAt": "2026-10-24T00:00:00Z"}])
+    assert (e["gelandet"], e["aus_titeln"]) == (d["gelandet"], 0) and k in e["offen"], e

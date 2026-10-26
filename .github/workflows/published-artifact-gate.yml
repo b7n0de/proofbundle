@@ -68,10 +68,11 @@ jobs:
 
   hermetic-cleanroom:
     runs-on: ubuntu-latest
-    # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 8 min at d388ed3d,
-    # 16 min at 110cdad9, cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at
-    # each call that the shipped suite pays too.
-    timeout-minutes: 45
+    # 75, NOT 45 (owner decision of 2026-10-21 on card OA-97a73a0ac7, option A): three of the last ten
+    # jobs ran into 45, the longest complete one took 43.4 min, and almost all of it is the serial run of
+    # the shipped suite from the unpacked sdist. 45 replaced 20 on card OA-52e183ce21 (2026-10-01): 8 min
+    # at d388ed3d, 16 min at 110cdad9, cut at 20 at 6b02d9f7 without a failing test.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0

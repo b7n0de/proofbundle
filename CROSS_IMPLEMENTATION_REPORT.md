@@ -83,11 +83,32 @@ these cases independently (§7 "Zweitverifier reproduziert den Conformance-Corpu
   to CONFIRM a genuine relying-party-supplied anchor, which no corpus case exercises (`--bitcoin-header` is
   not an allowed conformance verifyArg).
 
-**A MEASURED SUBSET of the corpus is reproduced independently, not all of it** (`crosscheck.py`, exit 0 — 14/14 on the recorded 3.2.0-era run this report documents). **Re-measured 2026-09-08 by running the tool: 57 of the 107 corpus cases that existed then**, 42 of them relation vectors compared differentially (Python == Rust on exit class and lineage); the remainder is declared Python-only in the scope section below. The sentence here previously read "All corpus cases are reproduced" and then "56/56 as of v3.7.0" — two claims that were each true of a smaller, older corpus and together read as full coverage of the current one. A lens of the closing round found it; the number now carries the command that produces it and the date it was taken. **The corpus holds 135 cases today** (`python -c "import json;print(len(json.load(open('conformance/manifest.json'))['cases']))"`, measured 2026-09-25), so the 2026-09-08 figure is a ratio over a smaller corpus and NOT a current coverage claim. The reproduction count against today's corpus was measured on 2026-09-25 with a release build of `tools/pb_verify_rs`: 61 of 135, with the other 74 named by kind in `docs/readiness_pack/rust_parity_scope.md`. This sentence said until then that the count had not been re-measured, although that file already carried a measurement of 2026-09-20. The corpus size is now derived by `tests/test_shipped_comment_numbers.py`, so this sentence cannot drift again in silence — which is the same remedy, applied one level up from the number that was corrected here. Research note:
+**A MEASURED SUBSET of the corpus is reproduced independently, not all of it** (`crosscheck.py`, exit 0 — 14/14 on the recorded 3.2.0-era run this report documents). **Re-measured 2026-09-08 by running the tool: 57 of the 107 corpus cases that existed then**, 42 of them relation vectors compared differentially (Python == Rust on exit class and lineage); the remainder is declared Python-only in the scope section below. The sentence here previously read "All corpus cases are reproduced" and then "56/56 as of v3.7.0" — two claims that were each true of a smaller, older corpus and together read as full coverage of the current one. A lens of the closing round found it; the number now carries the command that produces it and the date it was taken. **The corpus holds 145 cases today** (`python -c "import json;print(len(json.load(open('conformance/manifest.json'))['cases']))"`, measured 2026-10-18), so the 2026-09-08 figure is a ratio over a smaller corpus and NOT a current coverage claim. The reproduction count against today's corpus was measured on 2026-10-18 with a release build of `tools/pb_verify_rs`: 69 of 145, with the other 76 named by kind in `docs/readiness_pack/rust_parity_scope.md`; of the ten content-root vectors added that day, the eight that pin a root run through the Rust `content-root` subcommand, and the two binding vectors are named. This sentence said until then that the count had not been re-measured, although that file already carried a measurement of 2026-09-20. The corpus size is now derived by `tests/test_shipped_comment_numbers.py`, so this sentence cannot drift again in silence — which is the same remedy, applied one level up from the number that was corrected here. Research note:
 a SOTA review (2026) confirms OpenTimestamps-over-Bitcoin as the strongest trust-minimized long-term
 *archival* anchor (permissionless, offline-verifiable, no trusted third party) — correctly used here as
 an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparency logs as lower-latency
 *connected* alternatives.
+
+## Command-line forms that answer differently on purpose (contract)
+
+`pb_verify_rs verify-bundle`, `verify-relation` and `verify-relation-statement` read their words with argparse's
+rules (Z381). Two forms stay different from the Python CLI by decision, and each is a contract, not a gap:
+
+- **R1.** A help word in a verify command (`-h`, `--help` or an abbreviation such as `--he`, also after the path)
+  makes the Python CLI print its help and exit 0 without verifying anything, while `pb_verify_rs` exits 2, so an
+  exit 0 after a help word is never a verdict.
+- **R2.** An option that only the Python CLI carries out (`--json` and `--policy` on `verify-bundle`, `--strict`
+  on `verify-relation`, among others) is refused by `pb_verify_rs` with exit 2 while the Python CLI gives its
+  verdict, because the Rust verifier refuses an option it does not read instead of dropping it, the rule of 6.3.1
+  P2-1.
+
+These readings follow CPython 3.13 (Unicode 15.1). Measured with argparse and `type=int`, as the CLI declares
+`--expected-tree-size`, under CPython 3.10.12, 3.11.15, 3.12.15, 3.13.16 and 3.14.8: 3.12 reads the measured digits
+as 3.13 does. Under 3.10 and 3.11 a digit that Unicode added later, such as a Kawi digit, is a usage error (exit 2)
+for the Python CLI and a number for `pb_verify_rs`; under 3.14 a digit of Unicode 16.0, such as a Garay digit, is a
+number for the Python CLI and a usage error (exit 2) for `pb_verify_rs`. The earlier relation form, the key as a word
+after the path without `--pub`, is still read by `pb_verify_rs` and refused by the Python CLI with exit 2. It is a
+residual of Z381 named in `docs/release_scope/6.4.0.md`, not a contract.
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

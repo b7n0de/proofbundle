@@ -1,0 +1,211 @@
+{
+  "tool": "tools/scitt_ccf_external/local_ledger_probe.py",
+  "measured_on": "2026-09-25",
+  "environment": {
+    "python": "3.11.15",
+    "cryptography": "50.0.1"
+  },
+  "service": {
+    "url": "https://127.0.0.1:8000",
+    "ledger_repository": "https://github.com/microsoft/scitt-ccf-ledger",
+    "ledger_commit": "00101f769d872711356e080fbb089ac48589c60a",
+    "image_note": "built locally from docker/Dockerfile at that commit; only change: the base image carries this sandbox's proxy CA",
+    "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+    "configuration": "{\"authentication\":{\"allowUnauthenticated\":true},\"policy\":{\"policyScript\":\"export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }\"}}",
+    "image_build_inputs": {
+      "ccf_version": "7.0.17",
+      "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+      "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+      "tdnf_snapshottime": "1790165199"
+    },
+    "service_keyset_sha256": "f276b3f91adbc088e567c3e2cde92d2d997d6ba4d0aa7ffa9dc810c027535c96"
+  },
+  "target": {
+    "bundle": "examples/example_bundle.json",
+    "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+  },
+  "signer": {
+    "did": "did:x509:0:sha256:Iv1ELrTJUfqi_kHRJ0wnRude9AUk-yvLsI7TPXIB7ws::subject:CN:proofbundle-scitt-probe",
+    "leaf_spki_sha256": "5e9e0b5911da7e12486553c97645e6b5584bc53bd37f7db295303d823cce7edb",
+    "alg": "ES256",
+    "note": "made for this run, private key discarded"
+  },
+  "forms": [
+    {
+      "form": "control",
+      "submitted_length": 1141,
+      "submitted_sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+      "post_status": 202,
+      "accepted": true,
+      "txid": "2.34",
+      "receipt_signature_valid_with_service_keyset": true,
+      "receipt_leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+      "stored_statement": {
+        "tagged": true,
+        "all_heads_shortest_form": true,
+        "unprotected_labels": [
+          "394"
+        ],
+        "protected_as_submitted": true,
+        "payload_element_hex_head": "5820df",
+        "signature_element_hex_head": "5840cf",
+        "payload_element_as_submitted": true,
+        "signature_element_as_submitted": true
+      },
+      "data_hash_candidates": {
+        "sha256(submitted bytes)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        },
+        "sha256(stored statement, unprotected emptied)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        },
+        "sha256(submitted elements spliced, tag 18, unprotected a0)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        }
+      }
+    },
+    {
+      "form": "detached",
+      "submitted_length": 1108,
+      "submitted_sha256": "c8d69f9db86ab0735fc0d5f0fdb564b1fc189f8e79e75fbcf2011076d3638de1",
+      "post_status": 400,
+      "accepted": false,
+      "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+    },
+    {
+      "form": "untagged",
+      "submitted_length": 1140,
+      "submitted_sha256": "9cd1b1b4fbeb014556bd2a39b4f04ea7541ee322c1d3910e5e07582fb4c8646d",
+      "post_status": 400,
+      "accepted": false,
+      "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"COSE_Sign1 is not tagged\"}"
+    },
+    {
+      "form": "indefinite_array",
+      "submitted_length": 1142,
+      "submitted_sha256": "e3b91f74e5de3e0493a9d083f94ad4e0e97adfd963086c91388e915e1c79dd92",
+      "post_status": 400,
+      "accepted": false,
+      "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}"
+    },
+    {
+      "form": "nonshortest_sig_head",
+      "submitted_length": 1142,
+      "submitted_sha256": "d9626ac508956ce9ef43fb05fdbdf0cb9b27424d1fb6e8307a80954361f98011",
+      "post_status": 202,
+      "accepted": true,
+      "txid": "2.36",
+      "receipt_signature_valid_with_service_keyset": true,
+      "receipt_leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+      "stored_statement": {
+        "tagged": true,
+        "all_heads_shortest_form": true,
+        "unprotected_labels": [
+          "394"
+        ],
+        "protected_as_submitted": true,
+        "payload_element_hex_head": "5820df",
+        "signature_element_hex_head": "5840cf",
+        "payload_element_as_submitted": true,
+        "signature_element_as_submitted": false
+      },
+      "data_hash_candidates": {
+        "sha256(submitted bytes)": {
+          "sha256": "d9626ac508956ce9ef43fb05fdbdf0cb9b27424d1fb6e8307a80954361f98011",
+          "equals_receipt": false
+        },
+        "sha256(stored statement, unprotected emptied)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        },
+        "sha256(submitted elements spliced, tag 18, unprotected a0)": {
+          "sha256": "d9626ac508956ce9ef43fb05fdbdf0cb9b27424d1fb6e8307a80954361f98011",
+          "equals_receipt": false
+        }
+      }
+    },
+    {
+      "form": "nonshortest_alg",
+      "submitted_length": 1142,
+      "submitted_sha256": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+      "post_status": 202,
+      "accepted": true,
+      "txid": "2.38",
+      "receipt_signature_valid_with_service_keyset": true,
+      "receipt_leaf_data_hash": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+      "stored_statement": {
+        "tagged": true,
+        "all_heads_shortest_form": true,
+        "unprotected_labels": [
+          "394"
+        ],
+        "protected_as_submitted": true,
+        "payload_element_hex_head": "5820df",
+        "signature_element_hex_head": "584025",
+        "payload_element_as_submitted": true,
+        "signature_element_as_submitted": true
+      },
+      "data_hash_candidates": {
+        "sha256(submitted bytes)": {
+          "sha256": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+          "equals_receipt": true
+        },
+        "sha256(stored statement, unprotected emptied)": {
+          "sha256": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+          "equals_receipt": true
+        },
+        "sha256(submitted elements spliced, tag 18, unprotected a0)": {
+          "sha256": "a38f3a3f1345b3193c40b279f4ee5bfee802db51cb71c6bee38a63e8fac21f53",
+          "equals_receipt": true
+        }
+      }
+    },
+    {
+      "form": "indefinite_payload",
+      "submitted_length": 1143,
+      "submitted_sha256": "a584e9d9485bef9bec1de52d9f0c52afa5ff70254f92303d26b8c91ce9b72054",
+      "post_status": 400,
+      "accepted": false,
+      "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Detached or empty payloads are not supported\"}"
+    },
+    {
+      "form": "extra_unprotected",
+      "submitted_length": 1149,
+      "submitted_sha256": "73b3f79ce7f57df25867e53333daed15a93b26e2002dc946217743aa9011e331",
+      "post_status": 202,
+      "accepted": true,
+      "txid": "2.40",
+      "receipt_signature_valid_with_service_keyset": true,
+      "receipt_leaf_data_hash": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+      "stored_statement": {
+        "tagged": true,
+        "all_heads_shortest_form": true,
+        "unprotected_labels": [
+          "394"
+        ],
+        "protected_as_submitted": true,
+        "payload_element_hex_head": "5820df",
+        "signature_element_hex_head": "5840cf",
+        "payload_element_as_submitted": true,
+        "signature_element_as_submitted": true
+      },
+      "data_hash_candidates": {
+        "sha256(submitted bytes)": {
+          "sha256": "73b3f79ce7f57df25867e53333daed15a93b26e2002dc946217743aa9011e331",
+          "equals_receipt": false
+        },
+        "sha256(stored statement, unprotected emptied)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        },
+        "sha256(submitted elements spliced, tag 18, unprotected a0)": {
+          "sha256": "eda0ffdadd26bf5d318c7f624aa80f481bbf7b00463c143e4a9e512a4ccea2d9",
+          "equals_receipt": true
+        }
+      }
+    }
+  ]
+}

@@ -799,6 +799,24 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     „Anker nicht im selben Commit wie der Kandidat eingefuehrt" uebersprungen statt zu raten — sie
     braucht einen echten Baum, um etwas zu messen.
     """
+    # ONE READING OF EACH INPUT (CODEX-KLASSENSUCHE-631-01, B1, measured at f6ea5cc3): the signed body was built
+    # from `artifact.items()`, while `signer_role` and `produced_at` were read again through `artifact.get`, so a
+    # dict subclass answered the anchor's validity window with another time than the one signed (`verified` for a
+    # signature made after the anchor expired; the same stored document as a plain dict was `untrusted`). The
+    # artifact and the anchor are copied once from their storage into plain values, and every check below, the
+    # signature, the role, the times and the anchor binding, reads only these copies.
+    try:
+        from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    except Exception as exc:                             # noqa: BLE001 — die Bibliothek fehlt: Umgebung
+        return ART_UNMEASURABLE_HERE, (f"the plain-value reader is not available in this environment "
+                                       f"({type(exc).__name__}: {exc}) — not measurable is not verified")
+    try:
+        artifact = plain_json(artifact, what="the artifact", error=ValueError)
+        trusted = plain_json(trusted, what="the trust anchor", error=ValueError)
+    except ValueError as exc:
+        return ART_UNTRUSTED, f"the artifact or its anchor is no plain JSON value ({exc}), so no single reading is signed"
+    if not isinstance(artifact, dict):
+        return ART_UNTRUSTED, "the artifact is no JSON object"
     sig = artifact.get("signature")
     if not isinstance(sig, dict):
         return ART_UNSIGNED, "the artifact carries no signature block"
@@ -1161,14 +1179,17 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
             return None, f"git merge-base failed here (exit {vorfahr.returncode})"
         if vorfahr.returncode == 1:
             return False, "the bound commit is not an ancestor of HEAD"
+        # -z AND AS BYTES (counter-reading of pull request 375, F8, P3): read line by line with
+        # `strip()`, a name with a space at its edge, which git does not quote, matched the evidence
+        # set, and a lookalike counted as a commit of the evidence file itself.
         geaendert = subprocess.run(
-            ["git", "-C", str(repo), "diff", "--name-only", gebunden, live],
-            capture_output=True, text=True, timeout=10)
+            ["git", "-C", str(repo), "diff", "--name-only", "-z", gebunden, live],
+            capture_output=True, timeout=10)
         if geaendert.returncode != 0:
             return None, f"git diff --name-only failed here (exit {geaendert.returncode})"
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"git is not usable here ({type(exc).__name__})"
-    pfade = {ln.strip() for ln in geaendert.stdout.splitlines() if ln.strip()}
+    pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
@@ -2293,6 +2314,48 @@ _DIFFERENTIAL_ARTIFACT_REL = "audit_artifacts/360/rust_differential_matrix.json"
 _DIFFERENTIAL_SCHEMA = "proofbundle.rust_relation_differential_matrix.v1"
 
 
+def _differential_rows(rows: list) -> tuple[list, list, list]:
+    """The rows of the differential report as C8.2 judges them, as three lists of caseIds: the incomplete rows,
+    the rows that contradict themselves, and the rows on which Python, Rust or the expectation disagree."""
+    # THE GATE COMPUTES THE AGREEMENT, THE FLAGS ARE CHECKED AGAINST IT (CODEX-KLASSENSUCHE-631-01, F1, measured at
+    # f6ea5cc3): a signed one-row report with expected and python VERIFIED/VERIFIED, exit 0, and rust
+    # CRYPTO_FAIL/FAIL, exit 1, carried agree_python_rust, rust_reproduces_expectation and all_agree true, and this
+    # cell answered "Python==Rust on every row". Each row must hold the three labels over the common axes in the
+    # common vocabulary and both exit codes; each side's exit class is its exit code's class; Python and Rust are
+    # compared on every axis either fills (`agree`, the matrix630 sibling), Rust and the expectation on the axes
+    # the expectation pins (`compare`). A flag that is not that result, or all_agree that is not their conjunction,
+    # is a report that contradicts itself.
+    from common_vocabulary import (  # noqa: PLC0415
+        AXES, EXIT_CLASSES, LINEAGE_STATES, POLICY_VERDICTS, agree, compare, exit_class)
+    werte = {"exitClass": EXIT_CLASSES, "lineage": LINEAGE_STATES, "policyVerdict": POLICY_VERDICTS}
+
+    def _label_ok(label, gepinnt: bool) -> bool:
+        return (type(label) is dict and set(label) == set(AXES)
+                and all(label[a] in werte[a] or (label[a] is None and (gepinnt or a != "exitClass"))
+                        for a in AXES))
+
+    unvollstaendig, widerspruch, uneins = [], [], []
+    for r in rows:
+        fall = r.get("caseId") if isinstance(r, dict) else None
+        if not (isinstance(r, dict) and _label_ok(r.get("expected"), True) and _label_ok(r.get("python"), False)
+                and _label_ok(r.get("rust"), False) and type(r.get("python_exit")) is int
+                and type(r.get("rust_exit")) is int and type(r.get("agree_python_rust")) is bool
+                and type(r.get("rust_reproduces_expectation")) is bool):
+            unvollstaendig.append(fall)
+            continue
+        if (r["python"]["exitClass"] != exit_class(r["python_exit"])
+                or r["rust"]["exitClass"] != exit_class(r["rust_exit"])):
+            widerspruch.append(fall)
+            continue
+        gleich, _ = agree(r["python"], r["rust"])
+        reproduziert, _ = compare(r["expected"], r["rust"])
+        if r["agree_python_rust"] is not gleich or r["rust_reproduces_expectation"] is not reproduziert:
+            widerspruch.append(fall)
+        elif not (gleich and reproduziert):
+            uneins.append(fall)
+    return unvollstaendig, widerspruch, uneins
+
+
 def c8_2_differential_agrees():
     """Python == Rust — ueber ZEILEN, nicht ueber ein einzelnes Bool.
 
@@ -2332,11 +2395,16 @@ def c8_2_differential_agrees():
     if len(rows) != erwartet:
         return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} claims {erwartet} vector(s) but carries "
                       f"{len(rows)} row(s) — the artifact contradicts its own population")
-    uneins = [r.get("caseId") for r in rows
-              if not isinstance(r, dict) or r.get("agree_python_rust") is not True]
+    unvollstaendig, widerspruch, uneins = _differential_rows(rows)
+    if unvollstaendig:
+        return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries {len(unvollstaendig)} row(s) without the three labels "
+                      f"in the common vocabulary, both exit codes and both flags: {unvollstaendig[:5]}")
+    if widerspruch:
+        return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries {len(widerspruch)} row(s) whose exit codes or flags "
+                      f"contradict their own labels: {widerspruch[:5]}")
     if uneins:
-        return FAIL, (f"Python and Rust disagree on {len(uneins)} differential vector(s): "
-                      f"{uneins[:5]}")
+        return FAIL, (f"Python and Rust, or Rust and the declared expectation, disagree on {len(uneins)} "
+                      f"differential vector(s): {uneins[:5]}")
     if b.get("all_agree") is not True:
         return FAIL, (f"{_DIFFERENTIAL_ARTIFACT_REL} carries all_agree="
                       f"{b.get('all_agree')!r} while every row agrees — the artifact contradicts itself")

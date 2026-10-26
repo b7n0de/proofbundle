@@ -511,7 +511,8 @@ class TestAutomationSummaryCountsOnlyBools(unittest.TestCase):
                              "referencesResolved": False, "safeForAutomation": False,
                              "automationBlockers": ["CRYPTO_NOT_OK", "STRUCTURE_NOT_OK", "POLICY_NOT_EVALUATED",
                                                     "REFERENCES_NOT_RESOLVED", "RECEIPT_NOT_OK"]})
-        self.assertIs(_auto(evidence_bound=None)["referencesResolved"], True)
+        # No reference check ran: None, not a vacuous True (L1-SEM-02, carried 2026-10-18).
+        self.assertIsNone(_auto(evidence_bound=None)["referencesResolved"])
 
 
 # ── policy: a boolean field of a policy dict on the library path ──────────────────────────────────
@@ -1473,9 +1474,10 @@ _OPTIONAL_EXTRAS = {
     "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
              "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},
     "inspect": {"inspect-ai": "inspect_ai"},
+    "scitt": {"cbor2": "cbor2"},
     "dev": {"pytest": "pytest", "ruff": "ruff", "jsonschema": "jsonschema", "mypy": "mypy", "build": "build",
             "hypothesis": "hypothesis", "rfc8785": "rfc8785", "sd-jwt": "sd_jwt", "pyyaml": "yaml",
-            "inspect-ai": "inspect_ai"},
+            "inspect-ai": "inspect_ai", "cbor2": "cbor2"},
 }
 
 #: The core dependencies (``[project].dependencies``), by the same two names. A missing core dependency is a

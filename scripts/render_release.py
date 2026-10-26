@@ -142,13 +142,16 @@ NICHT_AUSGELIEFERT = ("release_notes/", "audit_artifacts/")
 
 
 def _git(repo: Path, *args: str) -> str | None:
+    """git's output decoded as Python decodes a file name: a strict text decoder raised
+    `UnicodeDecodeError` on a name that is not UTF-8, which the handler below does not catch
+    (counter-reading of pull request 375, F11)."""
+    import os  # noqa: PLC0415
     import subprocess  # noqa: PLC0415 — only the CLI path needs it
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
-                           timeout=20)
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=20)
     except (OSError, subprocess.SubprocessError):
         return None
-    return r.stdout if r.returncode == 0 else None
+    return os.fsdecode(r.stdout) if r.returncode == 0 else None
 
 
 def liefert_dasselbe_paket(repo: Path, erklaert: str, kopf: str) -> str | None:
@@ -377,6 +380,11 @@ def _pruefe_zwei_ebenen(daten: Dict[str, Any]) -> List[str]:
             isinstance(x, dict) and _text(x, "text") and str(x.get("url", "")).startswith("https://")
             for x in links):
         befunde.append("weitere_links lists objects with a text and an https url")
+    # A LINK WITHOUT A TARGET POINTS NOWHERE, in every form (6.3.1, RR1).
+    for t in _seitentexte(daten):
+        for _s, _e, ziel in _link_ziele(str(t)):
+            if not ziel.strip():
+                befunde.append(f"a link on the page has no target: {str(t)[:60]!r}")
     fremd = [k for k in NUR_GRUPPEN if k in daten]
     if fremd:
         befunde.append(f"the two-level source carries fields only the grouped form renders, which "
@@ -391,13 +399,73 @@ def _pruefe_zwei_ebenen(daten: Dict[str, Any]) -> List[str]:
     return befunde
 
 
-#: A markdown link whose target is a path. On a release page such a link resolves against the page,
-#: not the repository, so it would point nowhere; the renderer binds it to the described commit.
-_RELATIVER_LINK = re.compile(r"\]\((?!https?://|mailto:|#)([^)\s]+)\)")
+#: A link whose target is a path. On a release page such a link resolves against the page, not the
+#: repository, so it would point nowhere; the renderer binds it to the described commit.
+#:
+#: EVERY LINK FORM, NOT ONE (6.3.1, RR1). Until 6.3.1 one expression stood for all links, and it saw only
+#: `[text](path)`: a title after the target, a target in angle brackets, a reference definition and an
+#: HTML `href` were neither bound to the described commit nor checked in its tree, so such a link pointed
+#: at the release page itself and a missing file passed the check. `_link_ziele` finds the target of each
+#: form and the span it is written in; `_binde` and `verlinkte_ziele` both read it, so what is bound is
+#: what is checked. A target that is a URL, a mail address or an anchor of the page is not a path.
+_NICHT_IM_BAUM = re.compile(r"https?://|mailto:|#")
+_REFERENZ_DEFINITION = re.compile(r"^ {0,3}\[(?:[^\]\\\n]|\\.)+\]:[ \t]*(?:\n[ \t]*)?(?:<([^<>\n]*)>|(\S+))", re.M)
+_HTML_TAG = re.compile(r"<[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?>")
+_HTML_ZIEL = re.compile(r"""\s(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""", re.I)
+_CODE = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)", re.S)
+
+
+def _link_ziele(text: str) -> List[tuple]:
+    """(start, end, target) of every link target in `text`, in text order: an inline link or image,
+    `[t](target)` or `[t](target "title")`, the target bare or in angle brackets; a reference definition
+    `[label]: target`, bare or in angle brackets; an HTML `href` or `src`, quoted or not. A link inside a
+    code span is code, not a link. An empty target is returned with an empty span, so it can be named."""
+    roh = _CODE.sub(lambda m: " " * len(m.group(0)), text)
+    ziele: List[tuple] = []
+    i = roh.find("](")
+    while i != -1:
+        j = i + 2
+        while j < len(roh) and roh[j] in " \t":
+            j += 1
+        if roh.startswith("\n", j):
+            j += 1
+            while j < len(roh) and roh[j] in " \t":
+                j += 1
+        ende = roh.find(">", j + 1) if roh.startswith("<", j) else -1
+        if ende != -1 and not any(c in roh[j + 1:ende] for c in "<\n"):
+            ziele.append((j + 1, ende, text[j + 1:ende]))
+        else:
+            k, tiefe = j, 0
+            while k < len(roh) and not roh[k].isspace():
+                if roh[k] == "(":
+                    tiefe += 1
+                elif roh[k] == ")":
+                    if tiefe == 0:
+                        break
+                    tiefe -= 1
+                k += 1
+            ziele.append((j, k, text[j:k]))
+        i = roh.find("](", i + 2)
+    for m in _REFERENZ_DEFINITION.finditer(roh):
+        g = 1 if m.group(1) is not None else 2
+        ziele.append((m.start(g), m.end(g), text[m.start(g):m.end(g)]))
+    for tag in _HTML_TAG.finditer(roh):
+        for m in _HTML_ZIEL.finditer(tag.group(0)):
+            g = next(n for n in (1, 2, 3) if m.group(n) is not None)
+            s, e = tag.start() + m.start(g), tag.start() + m.end(g)
+            ziele.append((s, e, text[s:e]))
+    return sorted(ziele)
+
+
+def _ist_pfad(ziel: str) -> bool:
+    return bool(ziel.strip()) and not _NICHT_IM_BAUM.match(ziel)
 
 
 def _binde(text: str, basis: str) -> str:
-    return _RELATIVER_LINK.sub(lambda m: f"]({basis}/{m.group(1)})", text)
+    for s, e, ziel in reversed(_link_ziele(text)):
+        if _ist_pfad(ziel):
+            text = f"{text[:s]}{basis}/{ziel}{text[e:]}"
+    return text
 
 
 def _restrisiko(q: Dict[str, Any]) -> str:
@@ -410,14 +478,18 @@ def verlinkte_ziele(daten: Dict[str, Any]) -> List[str]:
     frueher = daten.get("frueherer_risikobericht")
     ziele = ["CHANGELOG.md", _restrisiko(daten), frueher if isinstance(frueher, str) else "",
              f"docs/release_scope/{daten['version']}.md"]
+    for t in _seitentexte(daten):
+        ziele += [z for _s, _e, z in _link_ziele(str(t)) if _ist_pfad(z)]
+    return list(dict.fromkeys(z for z in ziele if z))
+
+
+def _seitentexte(daten: Dict[str, Any]) -> List[Any]:
+    """Every text of the source that `_binde` renders onto a two-level page."""
     texte = [daten.get("kopfsatz", ""), daten.get("selbst_pruefen", ""),
              daten.get("nicht_bewiesen", ""), daten.get("referenzmessung", ""),
              daten.get("schlusssatz", "")]
     texte += [h.get("text", "") for h in daten.get("highlights") or [] if isinstance(h, dict)]
-    texte += _zeilen_der_quelle(daten)
-    for t in texte:
-        ziele += [m.group(1) for m in _RELATIVER_LINK.finditer(str(t))]
-    return list(dict.fromkeys(z for z in ziele if z))
+    return texte + _zeilen_der_quelle(daten)
 
 
 def _anker(ueberschrift: str) -> str:

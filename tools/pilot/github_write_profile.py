@@ -46,6 +46,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from proofbundle._plain_value import plain_json
 from proofbundle._strict_json import loads_strict
 from proofbundle._wire_b64 import decode_b64_either
 from proofbundle.canonical import canonicalize_statement
@@ -217,6 +218,19 @@ def reconcile(decision_env: dict, outcome_env: dict | None, observed_scope: dict
     """One decision and at most one outcome, read under github-write/1. Never raises on bad input."""
     checks: dict = {}
     try:
+        # ONE READING OF EACH INPUT (CODEX-630-K3, measured at 98b168b9). The core verification copies what a dict
+        # subclass stores, and this profile then read `payload`, the decision and the scope again through the
+        # subclass's own `__getitem__`: a signed outcome whose bytes differ was accepted behind a view that showed
+        # the approved digest, a signed REFUSE behind a view that showed an approval, a wrong target behind a
+        # matching scope. Each input is now read once, from its own storage, and everything below, verification
+        # and judgement, reads only this copy.
+        decision_env = plain_json(decision_env, what="the decision envelope", error=ValueError)
+        if outcome_env is not None:
+            outcome_env = plain_json(outcome_env, what="the outcome envelope", error=ValueError)
+        if isinstance(observed_scope, dict):
+            # The scope is copied from its storage with its values as stored, not converted: its shape is judged
+            # below by the exact type of each value (Codex thread 4219220651), and a str subclass stays refused.
+            observed_scope = dict(dict.items(observed_scope))
         return _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, observer_key,
                           observer_id, checks)
     # Any exception of a reader is an answer here, not only the ones named so far. The list grew one type per

@@ -23,19 +23,17 @@ live here.
 from __future__ import annotations
 
 import hashlib
-import re
 from typing import Any
 
 from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie, _pruefkopie,
                         _richtlinie_von)
 from .errors import ProofBundleError
 from ._membership import is_member
+from ._schema_shapes import SEMVER_0_1_X as _SEMVER_0_1_X   # 0.1.x as ECMA-262 reads it, one definition
 
 RELATION_STATEMENT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
-
-_SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _REQUIRED = ("schemaVersion", "statementId", "relationships")
 _ALLOWED_TOP = set(_REQUIRED)
@@ -112,6 +110,12 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     except canonical.CanonicalizerUnavailable as exc:
         raise RelationStatementError(
             "relation statements need the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
+    except canonical.NOT_CANONICALIZABLE as exc:
+        # Everything the shared path refuses, the canonicalizer's own refusal and the structural
+        # budget's before it, leaves as this module's typed error (canonical.NOT_CANONICALIZABLE); the
+        # verify path already reads it as a verdict.
+        raise RelationStatementError(
+            f"a relation statement value is not RFC 8785 (JCS) canonicalizable: {exc}") from exc
 
 
 def _rfc8785_available() -> bool:
@@ -148,12 +152,13 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
     name = subject_name or f"relation-statement:{predicate.get('statementId', '')}"
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
-    return {
+    from ._statement_payload import refuse_an_unwritable_subject  # noqa: PLC0415
+    return refuse_an_unwritable_subject({
         "_type": STATEMENT_TYPE,
         "subject": [{"name": name, "digest": {"sha256": sha}}],
         "predicateType": RELATION_STATEMENT_PREDICATE_TYPE,
         "predicate": predicate,
-    }
+    }, RelationStatementError)
 
 
 @_ein_stand(aussen={"signer": "signierer"})
@@ -411,7 +416,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
                 "message": ("reject_retracted: a verified relation-statement RETRACTS the target; "
                             "the target stays crypto-valid for its bytes but is no longer safe for "
                             "automated use under this policy")}]
-        if resolved and relations.get("reject_superseded") and rel0 in SUCCESSOR_RELATIONS:
+        if resolved and relations.get("reject_superseded") and is_member(rel0, SUCCESSOR_RELATIONS):
             _viol = list(_viol) + [{
                 "code": CODE_LINEAGE_REQUIREMENT_FAILED,
                 "message": (f"reject_superseded: a verified relation-statement declares {rel0!r} over "

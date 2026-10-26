@@ -1,0 +1,79 @@
+{
+ "id": "S4-10",
+ "title": "Tiago Pinto's N1 = HASH(R_6 || HASH(d[6])), signed as the root of 7 leaves",
+ "draft": "draft-ietf-scitt-receipts-ccf-profile-05",
+ "sentences": [
+  {
+   "section": "4",
+   "text": "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`."
+  },
+  {
+   "section": "4",
+   "text": "Neither tree size is needed for verification."
+  }
+ ],
+ "receipt_hex": "d284589ba5013822045840623032336463326463323763383930623730346338333139656366393433313930376138393733653439646162323231623533343236396438333334643437340fa2017822746573742d6f6e6c792e73656374696f6e342d766563746f72732e696e76616c6964027673636974742e6363662e7369676e61747572652e763119018b02666363662e7631a1647478696463322e37a119018ca12181584aa20158206aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b028182f45820fcd57ed565de73bdc96d46dc3499e5ea801ada0d5fb5ea90f9bcc7b4c3b3dea7f658600ba77f68da969ff15327ec37ae5ea2751732f33710197cb324507586892b2012d709f2ec465591dc345cd42fd180c427dc3aae987b05d022820b24ed10d5525fc97fe3c97a1380c136b4e6476d45961e716a39fdcc5224661ea546cbba1b0d57",
+ "older_root_hex": "6aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b",
+ "public_key": {
+  "kid": "b023dc2dc27c890b704c8319ecf9431907a8973e49dab221b534269d8334d474",
+  "alg": -35,
+  "crv": "P-384",
+  "spki_der_hex": "3076301006072a8648ce3d020106052b810400220362000406a8d6dcb065f4bd78f540ed869f557914dd15382c78ac8e0b1d4be60615f804d02cc1d366f8393b961a47175c0fd6e10e02f77b6f74feeddb961a859e767f787499f0e0abb7568bfed36f9e94c6b5ceb79602697298be681bfdeda861fdea7b",
+  "issuer": "test-only.section4-vectors.invalid"
+ },
+ "reading_a": {
+  "result": "accept",
+  "step": "return true"
+ },
+ "reading_b_size_free": {
+  "result": "passes_size_free_checks",
+  "rule": "B1 to B13 hold",
+  "rule_text": "the size-free checks B1 to B13 hold; this does not establish 0 < m < n or the canonical anchor position"
+ },
+ "older_size": 6,
+ "newer_size": 7,
+ "tree_sizes_note": "older_size: 6 from the constructed older tree; newer_size: 7 asserted by the synthetic test-key header txid 2.7; the signed N1 is not the canonical root R_7.",
+ "reading_b_size_aware": {
+  "result": "reject",
+  "rule": "B14",
+  "rule_text": "4: the anchor MUST and 0 < m < n with the tree sizes older_size m and newer_size n: 0 < m < n, and the tags equal those of RFC 9162 2.1.4.1 for m and n (for a proof that does not start from older_root, for some m' below n); with m alone, the proof from older_root has popcount(m) - 1 left siblings"
+ },
+ "generator_tree_sizes": [
+  {
+   "m": 6,
+   "n": 7
+  }
+ ],
+ "consistency_proofs_decoded": [
+  {
+   "anchor_hex": "6aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b",
+   "path": [
+    [
+     false,
+     "fcd57ed565de73bdc96d46dc3499e5ea801ada0d5fb5ea90f9bcc7b4c3b3dea7"
+    ]
+   ]
+  }
+ ],
+ "construction": "anchor R_6 of the ledger's first 6 leaves, path [right HASH(d[6])] with the ledger's leaf 6, signed over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7 a service writes for a state of 7 leaves; N1 is a deliberately noncanonical root (R_7 is HASH(node(0, 4) || HASH(node(4, 6) || HASH(d[6])))). Without sizes the proof has the form of a canonical proof from 4 to 5",
+ "provenance": {
+  "signer": "test key",
+  "note": "signed with TEST_ONLY_es384_private_key.pem over a deliberately noncanonical root",
+  "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
+ },
+ "list_references": [
+  {
+   "name": "Pinto",
+   "url": "https://mailarchive.ietf.org/arch/msg/scitt/eF_K0AwI5dQRDUwnLazYem0YrJA/"
+  }
+ ],
+ "proofbundle_reader": {
+  "information_only": true,
+  "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
+  "status_without_sizes": "confirmed_without_tree_sizes",
+  "status_with_sizes": "confirmed",
+  "commit": "5798be9d617638af3717a030a31a1df29cd9607d",
+  "scitt_ccf_py_sha256": "49297d43de77f5ea0f873114543838eaa56a58c946b4aabfa4543f20df848646",
+  "older_issuer": "test-only.section4-vectors.invalid"
+ }
+}

@@ -69,7 +69,8 @@ class TestAutomationSummaryUnit(unittest.TestCase):
                   "references": ["audience_ok", "nonce_ok"]}
         safe = automation_summary({**base, "audience_ok": None, "nonce_ok": None}, required_checks=checks)
         self.assertTrue(safe["safeForAutomation"])
-        self.assertTrue(safe["referencesResolved"])
+        # Every reference None: no check ran, so the dimension is None, not True (L1-SEM-02, 2026-10-18).
+        self.assertIsNone(safe["referencesResolved"])
         unsafe = automation_summary({**base, "audience_ok": False, "nonce_ok": None}, required_checks=checks)
         self.assertFalse(unsafe["safeForAutomation"])
         self.assertFalse(unsafe["referencesResolved"])

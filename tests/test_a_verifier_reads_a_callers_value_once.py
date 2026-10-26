@@ -2039,6 +2039,7 @@ _AUFRUFE_VON_PARAMETERN = {
     ("_plain_value.py", "plain_json", "error"): "the error type its callers in this package pass",
     ("canonical.py", "_plain_for_jcs", "key_error"): "the error type its callers in this package pass",
     ("canonical.py", "_eine_kopie", "fehler"): "the error type its callers in this package pass",
+    ("_statement_payload.py", "refuse_an_unwritable_subject", "error"): "the error type its callers in this package pass",
     ("sdjwt_issue.py", "_fehler", "art"): "the error type its callers in this package pass",
     ("canonical.py", "_stand", "leser"): ("a boundary reader of this package (`_abbild_stand`, `_konsistenz_stand`, "
                                           "`_liste_stand`), "
@@ -2059,6 +2060,8 @@ _AUFRUFE_VON_PARAMETERN = {
     ("cap1.py", "_r8_supports_bounds_citation", "f"): "the finding recorder `check_cap1_document` passes",
     ("intoto.py", "_judge_claim_fields", "felder_von"): "a field reader of this package its two callers pass",
     ("merkle.py", "_hashes_of", "lesen"): "a byte reader of this package (`_bytes_von`, `_puffer_von`)",
+    ("scitt_ccf.py", "_typed", "ok"): "a type predicate of this module's CDDL rule tables, never a caller's value",
+    ("scitt_ccf.py", "_cwt_claim", "ok"): "a type predicate of this module's CDDL rule tables, never a caller's value",
 }
 
 

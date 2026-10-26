@@ -122,6 +122,10 @@ _NICHT_DIFFERENTIELL = {
                       "pb_verify_rs; bis dahin fahren die fuenfzehn Faelle im Python-"
                       "Konformanzlauf (122/122). Nicht gedeckt heisst hier: nicht differentiell "
                       "gefahren"),
+    "content_root_vector": ("only the two binding vectors: they pin a verdict of the Python "
+                            "content-root binding (bindingOk and the declared algorithm), not a root, "
+                            "and pb_verify_rs has no subcommand for that verdict; the eight vectors "
+                            "that pin a root run through its content-root subcommand above"),
 }
 
 
@@ -717,6 +721,156 @@ def main() -> int:
     if not (code == 1 and out.startswith("FAIL") and py_unmet is False):
         failures.append(f"trust-pack threshold-unmet mismatch: py={py_unmet} rust={out}/exit{code}")
 
+    # (6b) scitt-ccf/v1 statement signatures (ADR 0009): every shared vector through BOTH verifiers.
+    # tests/fixtures/scitt_statement_signature/vectors.json carries the status and verdict each vector
+    # is built to produce (the oracle); Python and Rust must both give exactly that, the Rust exit
+    # class included (0 confirmed, 1 statement_signature_invalid, 3 a status that is no verdict).
+    from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
+    from proofbundle.scitt_ccf import verify_statement_signature, verify_transparent_statement  # noqa: PLC0415
+    scitt_doc = _loads_strict((ROOT / "tests" / "fixtures" / "scitt_statement_signature" / "vectors.json")
+                              .read_text(encoding="utf-8"))
+
+    def _scitt_bytes(parts: list) -> bytes:
+        out = b""
+        for p in parts:
+            if isinstance(p, str):
+                out += bytes.fromhex(p)
+            elif "ref" in p:
+                out += bytes.fromhex(scitt_doc["refs"][p["ref"]])
+            else:
+                out += bytes(p["zeros"])
+        return out
+
+    scitt_n = 0
+    for v in scitt_doc["vectors"]:
+        data = _scitt_bytes(v["statement"])
+        keys = [_scitt_bytes(k) for k in v["keys"]]
+        want = (v["want"]["status"], v["want"]["valid"])
+        py = verify_statement_signature(data, statement_keys=keys)
+        (tmp / "scitt_statement.cbor").write_bytes(data)
+        code, out = _run("verify-scitt-statement-signature", str(tmp / "scitt_statement.cbor"),
+                         *(k.hex() for k in keys))
+        shown = {True: "true", False: "false", None: "none"}[want[1]]
+        want_code = {"confirmed": 0, "statement_signature_invalid": 1}.get(want[0], 3)
+        if py != want or out.split() != [want[0], shown] or code != want_code:
+            failures.append(f"scitt statement signature {v['id']}: built for {want}, "
+                            f"Python {py}, Rust {out}/exit{code}")
+        scitt_n += 1
+    # A statement file over the Rust input budget (Codex, PR 290): Python reads the bytes as malformed,
+    # and Rust must too, exit 3, where it used to end in `fatal`, exit 2. A confirmed real statement,
+    # padded with zeros at run time to one byte past the budget the binary reports; never checked in.
+    scitt_budget = _loads_strict(subprocess.run([str(BIN), "budget"], capture_output=True, text=True,
+                                                check=True).stdout)["input_bytes"]
+    scitt_real = next(v for v in scitt_doc["vectors"]
+                      if v["origin"] != "synthetic" and v["want"]["status"] == "confirmed")
+    scitt_keys = [_scitt_bytes(k) for k in scitt_real["keys"]]
+    with (tmp / "scitt_over_budget.cbor").open("wb") as f:
+        f.write(_scitt_bytes(scitt_real["statement"]))
+        f.truncate(scitt_budget + 1)
+    py = verify_statement_signature((tmp / "scitt_over_budget.cbor").read_bytes(), statement_keys=scitt_keys)
+    code, out = _run("verify-scitt-statement-signature", str(tmp / "scitt_over_budget.cbor"),
+                     *(k.hex() for k in scitt_keys))
+    if py != ("malformed", None) or out.split() != ["malformed", "none"] or code != 3:
+        failures.append(f"scitt statement signature over the input budget ({scitt_budget + 1} bytes): "
+                        f"Python {py}, Rust {out}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_over_budget.cbor").unlink()
+
+    # (6c) scitt-ccf/v1 Transparent Statements (ADR 0009): every shared vector through BOTH verifiers.
+    # tests/fixtures/scitt_transparent_statement/vectors.json carries the verdict each vector is built to
+    # produce (for a statement the ledger served, the status its corpus round recorded and the leaf
+    # data-hash of the ledger's receipt). Python and Rust must both give it, the Rust exit class included
+    # (0 confirmed, 1 a check over the evidence failed, 3 no verdict), and each other's result on every
+    # field but the prose. The file is read by the generator's own functions, as the parity test reads it.
+    sys.path.insert(0, str(ROOT / "tools" / "scitt_ccf_external"))
+    import transparent_statement_vectors as tsv  # noqa: PLC0415
+    ts_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_transparent_statement" / "vectors.json")
+                        .read_text(encoding="utf-8"))
+    ts_failed = {"unbound", "statement_signature_invalid", "root_mismatch", "signature_invalid",
+                 "receipt_not_bound"}
+    ts_n = 0
+    for v in ts_doc["vectors"]:
+        ts_trust = tsv.trust_of(ts_doc, v)
+        (tmp / "scitt_ts.cbor").write_bytes(tsv.assemble(v["statement"], ts_doc["refs"]))
+        ts_argv = [str(tmp / "scitt_ts.cbor"), tsv.assemble(v["root"], ts_doc["refs"]).hex()]
+        if ts_trust is not None:
+            (tmp / "scitt_ts_trust.json").write_text(json.dumps(ts_trust), encoding="utf-8")
+            ts_argv.append(str(tmp / "scitt_ts_trust.json"))
+        code, out = _run("verify-scitt-transparent-statement", *ts_argv)
+        py = tsv.python_result(ts_doc, v)
+        try:
+            rs = json.loads(out)
+        except ValueError:
+            rs = None
+        want = v["want"]["status"]
+        want_code = 0 if want == "confirmed" else 1 if want in ts_failed else 3
+        if rs != py or tsv.mismatch(v["want"], py) or code != want_code:
+            failures.append(f"scitt transparent statement {v['id']}: built for {v['want']}, Python "
+                            f"{tsv.observed(py)}, Rust {tsv.observed(rs) if rs else out}/exit{code}")
+        ts_n += 1
+    # The input budget, as in (6b): a confirmed synthetic statement one byte past it is malformed, exit 3.
+    ts_s01 = next(v for v in ts_doc["vectors"] if v["id"] == "s01-confirmed")
+    ts_root = tsv.assemble(ts_s01["root"], ts_doc["refs"]).hex()
+    with (tmp / "scitt_ts_over_budget.cbor").open("wb") as f:
+        f.write(tsv.assemble(ts_s01["statement"], ts_doc["refs"]))
+        f.truncate(scitt_budget + 1)
+    code, out = _run("verify-scitt-transparent-statement", str(tmp / "scitt_ts_over_budget.cbor"), ts_root)
+    py_status = verify_transparent_statement((tmp / "scitt_ts_over_budget.cbor").read_bytes(),
+                                             canonical_root=bytes.fromhex(ts_root)).status
+    if py_status != "malformed" or '"status":"malformed"' not in out or code != 3:
+        failures.append(f"scitt transparent statement over the input budget: Python {py_status}, Rust "
+                        f"{out[:80]}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_ts_over_budget.cbor").unlink()
+
+    # (6d) scitt-ccf/v1 consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4): every
+    # shared vector through BOTH verifiers. tests/fixtures/scitt_consistency_receipt/vectors.json carries
+    # the verdict each vector is built to produce (for the local ledger's states, the roots the fixture
+    # recorded from the ledger). Python and Rust must both give it, the Rust exit class included (0
+    # confirmed or confirmed_without_tree_sizes, 1 a check over the evidence failed, 3 no verdict), and each
+    # other's result on every field but the prose. Rust takes no tree sizes, so each vector is the Python
+    # call without them. The file is read by the generator's own functions, as the parity test reads it.
+    import consistency_receipt_vectors as crv  # noqa: PLC0415
+    from proofbundle.scitt_ccf import verify_consistency_receipt  # noqa: PLC0415
+    cr_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_consistency_receipt" / "vectors.json")
+                        .read_text(encoding="utf-8"))
+    cr_confirmed = {"confirmed", "confirmed_without_tree_sizes"}
+    cr_failed = {"consistency_newer_roots_differ", "consistency_anchor_not_canonical",
+                 "consistency_older_root_mismatch", "consistency_issuer_mismatch", "signature_invalid"}
+    cr_n = 0
+    for v in cr_doc["vectors"]:
+        cr_trust = crv.trust_of(cr_doc, v)
+        (tmp / "scitt_cr.cbor").write_bytes(crv.assemble(v["receipt"], cr_doc["refs"]))
+        cr_argv = [str(tmp / "scitt_cr.cbor"), crv.assemble(v["older_root"], cr_doc["refs"]).hex(),
+                   v["older_issuer"]]
+        if cr_trust is not None:
+            (tmp / "scitt_cr_trust.json").write_text(json.dumps(cr_trust), encoding="utf-8")
+            cr_argv.append(str(tmp / "scitt_cr_trust.json"))
+        code, out = _run("verify-scitt-consistency-receipt", *cr_argv)
+        py = crv.python_result(cr_doc, v)
+        try:
+            rs = json.loads(out)
+        except ValueError:
+            rs = None
+        want = v["want"]["status"]
+        want_code = 0 if want in cr_confirmed else 1 if want in cr_failed else 3
+        if rs != py or crv.mismatch(v["want"], py) or code != want_code:
+            failures.append(f"scitt consistency receipt {v['id']}: built for {v['want']}, Python "
+                            f"{crv.observed(py)}, Rust {crv.observed(rs) if rs else out}/exit{code}")
+        cr_n += 1
+    # The input budget, as in (6b): the confirmed control receipt one byte past it is malformed, exit 3.
+    cr_s01 = next(v for v in cr_doc["vectors"] if v["id"] == "s01-control")
+    cr_older = crv.assemble(cr_s01["older_root"], cr_doc["refs"])
+    with (tmp / "scitt_cr_over_budget.cbor").open("wb") as f:
+        f.write(crv.assemble(cr_s01["receipt"], cr_doc["refs"]))
+        f.truncate(scitt_budget + 1)
+    code, out = _run("verify-scitt-consistency-receipt", str(tmp / "scitt_cr_over_budget.cbor"), cr_older.hex(),
+                     cr_s01["older_issuer"])
+    py_status = verify_consistency_receipt((tmp / "scitt_cr_over_budget.cbor").read_bytes(), older_root=cr_older,
+                                           older_issuer=cr_s01["older_issuer"]).status
+    if py_status != "malformed" or '"status":"malformed"' not in out or code != 3:
+        failures.append(f"scitt consistency receipt over the input budget: Python {py_status}, Rust "
+                        f"{out[:80]}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_cr_over_budget.cbor").unlink()
+
     # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -861,6 +1015,55 @@ def main() -> int:
                                 f"{sorted(expected)} — gefahren werden contentRootHex und "
                                 f"canonicalizeRefuses, benannt uebersprungen nonConformantDiffers "
                                 f"und classification. Nicht lesbar ist keine Freigabe")
+        elif kind == "content_root_vector":
+            # THE PINNED ROOTS RUN IN THE SECOND IMPLEMENTATION, through the `content-root` subcommand
+            # the rows above already use (the second reading of this change, 2026-10-18: the first
+            # form named the whole kind a gap because `coverage-report` lists verify subcommands only,
+            # and pb_verify_rs reproduced 9 of 9 pinned roots unchanged). A `binding` vector pins a
+            # verdict of the Python content-root binding, not a root, and pb_verify_rs has no
+            # subcommand for that verdict: those two are a named gap, the others are run.
+            mode = case.get("mode")
+            if mode == "canonical":
+                _, got = _run("content-root", str(cdir / case.get("input", "statement.json")))
+                if got != expected.get("contentRoot"):
+                    failures.append(f"corpus {cid}: content root pinned={expected.get('contentRoot')} "
+                                    f"rust={got}")
+                reproduced += 1
+            elif mode == "pair_reference":
+                for datei, schluessel in (("decision.json", "decisionRoot"), ("evidence.json", "evidenceRoot")):
+                    _, got = _run("content-root", str(cdir / datei))
+                    if got != expected.get(schluessel):
+                        failures.append(f"corpus {cid}: {schluessel} pinned={expected.get(schluessel)} "
+                                        f"rust={got}")
+                reproduced += 1
+            elif mode == "envelope_invariance":
+                # The root is taken over the payload a DSSE envelope carries: both envelopes of the
+                # vector carry the same payload under different signatures, and both must give the pin.
+                # The envelope is read strictly: a duplicate payload key is refused, not read last-wins.
+                # The payload is decoded as every DSSE envelope field is, canonical in either alphabet,
+                # through the one wire decoder and not the stdlib, so this tool accepts no wire form
+                # the verifiers refuse.
+                from proofbundle._strict_json import loads_strict as _loads_strict  # noqa: PLC0415
+                from proofbundle._wire_b64 import decode_b64_either  # noqa: PLC0415
+                for datei in (case.get("input", "envelope_a.json"), expected.get("secondEnvelope")):
+                    umschlag = _loads_strict((cdir / datei).read_bytes())
+                    with tempfile.NamedTemporaryFile("wb", suffix=".json", delete=False) as f:
+                        f.write(decode_b64_either(umschlag["payload"]))
+                        nutzlast = f.name
+                    try:
+                        _, got = _run("content-root", nutzlast)
+                    finally:
+                        pathlib.Path(nutzlast).unlink()
+                    if got != expected.get("contentRoot"):
+                        failures.append(f"corpus {cid}: content root of the payload of {datei} "
+                                        f"pinned={expected.get('contentRoot')} rust={got}")
+                reproduced += 1
+            elif mode == "binding":
+                nicht_gedeckt.setdefault(kind, []).append(cid)
+            else:
+                failures.append(f"corpus {cid}: content_root_vector with an unknown mode {mode!r}; this "
+                                f"differential runs canonical, pair_reference and envelope_invariance and "
+                                f"names binding as a gap")
         elif kind in _NICHT_DIFFERENTIELL:
             nicht_gedeckt.setdefault(kind, []).append(cid)
         else:
@@ -912,6 +1115,15 @@ def main() -> int:
           "trust-pack root-threshold (met+unmet) agree; "
           f"JWS crit header fail-closed on both sides ({crit_n} vectors: control + crit-unknown, "
           "RFC 7515 §4.1.11, Nachtrag 50b); "
+          f"scitt-ccf/v1 statement signature: {scitt_n} shared vector(s), Python == Rust == the built "
+          "verdict, the Rust exit class included, and a statement file over the input budget malformed "
+          "in both; "
+          f"scitt-ccf/v1 transparent statement: {ts_n} shared vector(s), Python == Rust on every field but "
+          "the prose, both == the built verdict, the Rust exit class included, and a file over the input "
+          "budget malformed in both; "
+          f"scitt-ccf/v1 consistency receipt: {cr_n} shared vector(s), Python == Rust on every field but the "
+          "prose, both == the built verdict, the Rust exit class included, and a file over the input budget "
+          "malformed in both; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "

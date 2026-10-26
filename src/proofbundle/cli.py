@@ -399,6 +399,7 @@ _COMMAND_GROUPS = (
         ("verify-proof", "verify a C2SP .tlog-proof file offline"),
         ("verify-opening", "verify one sample opening against a samples root"),
         ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
+        ("verify-trace", "verify a TRACE v0.2 Trust Record against your keys"),
         ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
     )),
     ("Emit and commit", (
@@ -1954,7 +1955,7 @@ def _historical_now_posix(value):
     # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
     # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"[.,](\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value, _re.ASCII)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
@@ -2001,6 +2002,96 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _trace_trusted_keys(paths) -> list:
+    """The relying party's keys for ``verify-trace``: each file holds one public JWK or a JWK Set."""
+    keys: list = []
+    for path in paths:
+        with _open_input(path) as handle:
+            doc = loads_strict(_read_capped(handle))
+        if isinstance(doc, dict) and "keys" in doc:
+            if not isinstance(doc["keys"], list) or not doc["keys"]:
+                raise BundleFormatError(f"{path}: a JWK Set must hold a non-empty 'keys' array")
+            keys.extend(doc["keys"])
+        else:
+            keys.append(doc)
+    return keys
+
+
+def _cmd_verify_trace(args: argparse.Namespace) -> int:
+    from .adapters.trace_record import exit_code, verify_trace_record  # noqa: PLC0415
+    try:
+        keys = _trace_trusted_keys(args.key)
+        with _open_input(args.record, binary=True) as handle:
+            raw = _read_capped_bytes(handle)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        _err(exc)
+        return 2
+    # A compact JWS in a file usually ends with a newline; the library reads the token exactly, so the
+    # surrounding ASCII whitespace is removed here and only here. A JSON record is passed as read.
+    if raw.lstrip(b" \t\r\n")[:1] != b"{":
+        raw = raw.strip(b" \t\r\n")
+    verdict = verify_trace_record(
+        raw, trusted_keys=keys, now=args.now, max_age_seconds=args.max_age,
+        max_future_skew_seconds=args.max_future_skew, expected_nonce=args.nonce,
+        expected_policy_hashes=args.policy_hash, expected_subjects=args.subject,
+        expected_transcript_hash=args.transcript_hash)
+    code = exit_code(verdict)
+    if args.json:
+        print(json.dumps(verdict.as_dict(), indent=2))
+        return code
+    form = f"{verdict.form} ({verdict.alg})" if verdict.form and verdict.alg else (verdict.form or "unknown")
+    print(f"FORM: {_safe_line(form)}")
+    for check in verdict.result.checks:
+        print(f"[{'PASS' if check.ok is True else 'FAIL'}] {check.name}: {_safe_line(str(check.detail))}")
+    if verdict.profile is not None:
+        print(f"PROFILE: {_safe_line(verdict.profile)} (accepted: {', '.join(verdict.accepted_profiles)})")
+    if verdict.policy == "NOT_EVALUATED":
+        print("POLICY: NOT_EVALUATED (no relying-party expectation supplied)")
+    else:
+        print(f"POLICY: {verdict.policy}")
+    print("REVOCATION: NOT_EVALUATED (no revocation bundle consumed; TRACE section 3.2.3: no revocation "
+          "check was performed)")
+    for path, permitted in verdict.unknown_fields:
+        print(f"UNKNOWN FIELD: {_safe_line(path)} ({'permitted by the schema' if permitted else 'refused'})")
+    for item in verdict.not_checked:
+        print(f"NOT CHECKED: {item}")
+    blockers = ", ".join(verdict.automation.get("automationBlockers", []))
+    print(f"AUTOMATION: safeForAutomation={'true' if verdict.automation.get('safeForAutomation') else 'false'}"
+          f" ({blockers})")
+    print(f"=> {'OK' if code == 0 else 'FAILED'} (exit {code})")
+    if code == 0:
+        print("\nThis proves the record was signed by a key you trust, names that key in cnf, is fresh in "
+              "your window and meets the expectations you supplied. It does not prove that anything the "
+              "record states is true, and it is not a decision: a verified record is evidence for your "
+              "policy.")
+    return code
+
+
+#: The options of `intoto` and `svr` that only one of their two modes reads, by dest and spelling. A mode refuses
+#: an option it does not read instead of dropping it (631 part 2, P2 group 1, measured at 063b4e22: `intoto
+#: --verify --predicate-version v0.2`, `--evaluator`, `--receipt-uri not-a-uri` and every other export option
+#: ended `=> OK` with exit 0 exactly as without them, as did `svr --verify` with `--policy-uri` or `--key`, and
+#: an export with `--pub`). `--subject-profile` and `--predicate-version` have no parser default for this reason:
+#: the default is applied in the export, so a value given to `--verify` can be told from none.
+_INTOTO_EXPORT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"),
+                          ("subject_profile", "--subject-profile"), ("subject_name", "--subject-name"),
+                          ("subject_sha256", "--subject-sha256"), ("predicate_version", "--predicate-version"),
+                          ("evaluator", "--evaluator"), ("receipt_uri", "--receipt-uri"))
+_SVR_EMIT_OPTIONS = (("out", "--out"), ("key", "--key"), ("new_key", "--new-key"), ("policy_uri", "--policy-uri"),
+                     ("policy_sha256", "--policy-sha256"))
+
+
+def _options_the_mode_does_not_read(args: argparse.Namespace, command: str, options: tuple) -> bool:
+    """True (with a named error) when `args` carries an option of `options`, which the chosen mode does not read;
+    an option is given when its value is not None, so an empty value counts as given."""
+    given = [flag for dest, flag in options if getattr(args, dest, None) is not None]
+    if given:
+        mode = "--verify" if args.verify else "the export"
+        print(f"ERROR: {command} {mode} does not read {', '.join(given)}; give only the options this mode reads",
+              file=sys.stderr)
+    return bool(given)
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2018,6 +2109,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             # caller which flag is missing.
             print("ERROR: --verify requires --pub", file=sys.stderr)
             return 2
+        if _options_the_mode_does_not_read(args, "intoto", _INTOTO_EXPORT_OPTIONS):
+            return 2
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2033,6 +2126,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         ok = bool(res["ok"]) and isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES
         note = "" if pt == EVAL_RESULT_PREDICATE_TYPE else f"  (predicateType {_safe_line(repr(pt))})"
         print(f"[{'PASS' if ok else 'FAIL'}] eval-result attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
         print("=> OK" if ok else "=> FAILED")
@@ -2041,7 +2136,14 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
     # The version decides which flags mean something; a flag the chosen version does not read is refused,
     # never silently dropped. Checked before the signer, so --new-key writes no key for a refused call.
-    version, evaluator = args.predicate_version, args.evaluator
+    if _options_the_mode_does_not_read(args, "intoto", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    version = args.predicate_version if args.predicate_version is not None else "v0.1"
+    profile = args.subject_profile if args.subject_profile is not None else "receipt"
+    evaluator = args.evaluator
     if version == "v0.1":
         if evaluator is not None or args.receipt_uri is not None:
             print("ERROR: --evaluator and --receipt-uri apply to --predicate-version v0.2 only",
@@ -2076,19 +2178,19 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         roots = recompute_merkle_root_b64(bundle)
         if version == "v0.2":
             model = None
-            if args.subject_profile == "public-model":
+            if profile == "public-model":
                 # The public model is disclosed as the subject; the predicate identifies it once, by the
                 # same name and digest, instead of by a salted commitment.
                 model = {"name": args.subject_name,
                          "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
             envelope = export_eval_result_v02_dsse(
-                claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
+                claim, signer, evaluator_id=str(evaluator), subject_profile=profile,
                 subject_name=args.subject_name, subject_sha256=args.subject_sha256,
                 root_b64=roots.get("stated_b64"), model=model,
                 evidence=[receipt_evidence(raw, uri=args.receipt_uri)])
         else:
             envelope = export_eval_result_dsse(
-                claim, signer, subject_profile=args.subject_profile, subject_name=args.subject_name,
+                claim, signer, subject_profile=profile, subject_name=args.subject_name,
                 subject_sha256=args.subject_sha256, root_b64=roots.get("stated_b64"))
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
@@ -2097,9 +2199,9 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
         json.dump(envelope, handle, indent=2)
         handle.write("\n")
     if version == "v0.2":
-        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result v0.2 attestation {args.out} (subject profile: {profile})")
     else:
-        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {args.subject_profile})")
+        print(f"wrote in-toto eval-result attestation {args.out} (subject profile: {profile})")
     return 0
 
 
@@ -2110,6 +2212,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         if args.pub is None:
             # MJ-1: --verify needs --pub (cannot be argparse-required — this command also EMITs).
             print("ERROR: --verify requires --pub", file=sys.stderr)
+            return 2
+        if _options_the_mode_does_not_read(args, "svr", _SVR_EMIT_OPTIONS):
             return 2
         try:
             with _open_input(args.receipt) as handle:
@@ -2129,6 +2233,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         pt = res.get("predicate_type")
         note = "" if pt == SVR_PREDICATE_TYPE else f"  (predicateType {pt!r})"
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
+        if res.get("statement_ok") is False:
+            print(f"    {_safe_line(res['statement_detail'])}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2139,6 +2245,15 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         return 0 if res["ok"] else 1
 
     from .bundle import load_bundle  # noqa: PLC0415
+    if _options_the_mode_does_not_read(args, "svr", (("pub", "--pub"),)):
+        return 2
+    if args.out is None:
+        print("ERROR: the export needs --out <file>", file=sys.stderr)
+        return 2
+    if args.policy_sha256 is not None and args.policy_uri is None:
+        # The digest is written only as the digest OF a policy URI; alone it was dropped and the SVR written without it.
+        print("ERROR: --policy-sha256 names the digest of --policy-uri and needs it", file=sys.stderr)
+        return 2
     signer = _resolve_signer(args)
     if signer is None:
         return 2
@@ -2301,7 +2416,9 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 stmt = None
         if stmt is not None:
             # WP-A2/O2: the target statement's own subject digest (subject[0].digest.sha256) — the
-            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against.
+            # ground truth the edge's optional targetSubjectDigest is gegengeprueft against. Since
+            # 2026-10-17 the oracle refuses a target without a usable subject above (malformed), so
+            # "absent" is not reached from here; it stays as the second line, as in the Rust verifier.
             subj = stmt.get("subject")
             if not isinstance(subj, list) or not subj:
                 subject_digest_state = "absent"
@@ -3341,6 +3458,43 @@ def build_parser() -> argparse.ArgumentParser:
                                      "(ISO-8601 'Z'); without it the attestation freshness is not judged")
     verify_enclave.set_defaults(func=_cmd_verify_enclave)
 
+    verify_trace = sub.add_parser(
+        "verify-trace",
+        help="verify a TRACE v0.2 Trust Record (compact JWS or embedded signature) against your keys",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes:\n"
+               "  0  verified: signed by a trusted key, cnf names that key, well formed, fresh, and every\n"
+               "     supplied expectation holds\n"
+               "  1  cryptographic or structural failure (signature, cnf binding, canonical payload,\n"
+               "     profile, schema, a record member the schema does not define)\n"
+               "  2  unreadable input under this profile, a JWS header member other than alg, typ\n"
+               "     and kid included, or unusable trust material\n"
+               "  3  sound record, but a relying-party requirement is unmet (time window, nonce,\n"
+               "     policy hash, subject, transcript hash)\n"
+               "Trust comes only from the options: the record's own cnf key, policy hash and time are\n"
+               "never trusted on their own. A verified record is evidence for a policy, never a decision,\n"
+               "and never safeForAutomation: revocation and platform evidence are not checked.")
+    verify_trace.add_argument("record", help="path to the record: a compact JWS or a JSON object with an "
+                                             "embedded Ed25519 signature")
+    verify_trace.add_argument("--key", action="append", required=True, metavar="JWK_FILE",
+                              help="a trusted public key (JWK or JWK Set file); repeatable")
+    verify_trace.add_argument("--now", type=int, default=None,
+                              help="the verification instant, Unix seconds within +-(2**53 - 1) (default: the clock)")
+    verify_trace.add_argument("--max-age", dest="max_age", type=int, default=86400,
+                              help="maximum record age in seconds, 0 to 2**53 - 1 (default 86400, TRACE section 3.2.2)")
+    verify_trace.add_argument("--max-future-skew", dest="max_future_skew", type=int, default=300,
+                              help="allowed future clock skew in seconds, 0 to 2**53 - 1 (default 300)")
+    verify_trace.add_argument("--nonce", default=None, help="the challenge runtime.nonce must echo")
+    verify_trace.add_argument("--policy-hash", dest="policy_hash", action="append", default=None,
+                              metavar="DIGEST", help="an expected policy.bundle_hash (sha256:/sha384:); "
+                                                     "repeatable")
+    verify_trace.add_argument("--subject", action="append", default=None,
+                              help="an accepted subject (workload identity); repeatable")
+    verify_trace.add_argument("--transcript-hash", dest="transcript_hash", default=None, metavar="DIGEST",
+                              help="the tool_transcript.hash of the transcript you hold")
+    verify_trace.add_argument("--json", action="store_true", help="machine readable output")
+    verify_trace.set_defaults(func=_cmd_verify_trace)
+
     demo = sub.add_parser(
         "demo",
         help="run the whole trust story in memory (pip-only, offline): honest receipt verifies, "
@@ -3357,12 +3511,12 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
     intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
-                        default="receipt",
+                        default=None,
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
     intoto.add_argument("--subject-name", help="subject name (required for public-model / release-gate)")
     intoto.add_argument("--subject-sha256", help="subject artifact sha256, 64-char hex "
                                                  "(required for public-model / release-gate)")
-    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default="v0.1",
+    intoto.add_argument("--predicate-version", choices=("v0.1", "v0.2"), default=None,
                         help="eval-result predicate to write (default v0.1, the shape released versions wrote; "
                              "v0.2 is the revised in-toto/attestation#575 draft and needs --evaluator)")
     intoto.add_argument("--evaluator", help="v0.2: URI of the party that ran the evaluation (evaluator.id); "
@@ -3371,7 +3525,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released contract and v0.2 with its shape checked")
+                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
 
