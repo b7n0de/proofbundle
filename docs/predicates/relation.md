@@ -142,6 +142,8 @@ below; a conformance vector's `errorContains` names one of them.
 Invariants: `lineage` NEVER feeds `cryptoValid` in either direction (proven by test — a
 forged envelope never computes lineage, and a lineage FAIL never flips `crypto_ok`).
 A REQUESTED check that FAILs exits 2 at the CLI, never a silent 0.
+When classes meet, the lower exit decides: a signature of the receipt under verification that does not
+verify (exit 1) before a lineage FAIL (exit 2), and a lineage FAIL before an unmet policy (exit 3).
 
 A structural note on cycles: under content-root addressing a REAL hash cycle is impossible
 to construct (a receipt's root contains its own edges, so a back-edge would need the
