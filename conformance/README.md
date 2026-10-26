@@ -161,7 +161,10 @@ array of objects fires R6; and a `capped_to` that is `null` or empty states no v
 `complete` is false.
 
 Every rule is judged on every document on its own, and the set holds every rule the document breaks, so one
-document can fire several rules; a document that is not a JSON object fires R0 alone. For R1 the accounted units of
+document can fire several rules; a document that is not a JSON object fires R0 alone. The draft's demand that each
+negative control be refused "by the rule it targets rather than by some other rule" (its Section 7.1) is a demand on
+the vectors and their author, not a rule of the verifier: a verifier reports every rule that fires, the targeted one
+and any other beside it. For R1 the accounted units of
 a stratum are the distinct non-empty strings its `unexamined` entries name as `unit`, whatever R2 and R3 judge of an
 entry's disposition or digest; a unit named twice counts once and fires R1; when `eligible` and `examined` are both
 integers, `eligible` must equal `examined` plus the number of accounted units. R8 is judged only for a stratum that
