@@ -116,8 +116,11 @@ depended on which parser read a hop, and the hop's author chooses the bytes.
 under the strict reader, its bytes are its own RFC 8785 canonical form, its `_type` is exactly
 `https://in-toto.io/Statement/v1`, and its `subject` is a non-empty array whose every entry is
 an object carrying a non-empty `digest` object with non-empty string values (a `sha256` value is
-64 lowercase hex). A `relationships` member whose value is `null` declares nothing and is treated
-exactly as an absent member, on the receipt under verification and on every attachment.
+64 lowercase hex). On an attachment, a `relationships` member whose value is `null` declares nothing
+and is treated exactly as an absent member. On the receipt under verification it is malformed (exit 2,
+lineage NOT_EVALUATED, `relationships must be a JSON array of edge objects`), and so is an empty array
+(exit 2, lineage FAIL, `relation:malformed:`): there the predicate carries a non-empty array or no
+`relationships` member.
 
 **Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
 below; a conformance vector's `errorContains` names one of them.
