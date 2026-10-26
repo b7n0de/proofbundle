@@ -122,7 +122,9 @@ Their labels become answers through an explicit table (`ABBILDUNG` in `pruefmeng
 the table is an error, and no expected answer is ERROR. An entry on which they differ in verdict, first failing
 step, or profile rule is left out of the set and recorded in
 `befunde.jsonl` as a finding on the text. Entries that hit a resource limit of the verifiers are left out as well,
-because the draft fixes no limit values.
+because the draft fixes no limit values. An entry on which a verifier raises instead of giving a verdict, as the author
+checker can on Python's default recursion and integer-conversion limits, is left out and recorded in `befunde.jsonl`
+with the name of the exception; it never stops the generator.
 
 ## Tests
 

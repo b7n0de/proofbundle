@@ -987,16 +987,28 @@ PFLICHT = ["s1_members", "s2_schema", "s3_payload_b64", "s4_payload_json", "s5_j
 
 
 # ---- the verifiers' answers ---------------------------------------------------------------------------------------
+#: What a verifier answers when it raises instead of giving a verdict. The author checker is kept byte for byte, and on
+#: Python's default limits it can raise RecursionError on deep nesting or ValueError when a long decimal string
+#: meets the integer-conversion limit (Codex on pull request 425). Such an entry gets this label, so the two verifiers
+#: disagree on it and it is left out as a finding; the generator does not stop.
+KEIN_URTEIL = "NO_VERDICT"
+
+
 def _label_autor(rb: bytes, key: bytes) -> tuple:
     try:
         verdict, step = autor_pruefer.verify(rb, key)
     except autor_pruefer.ResourceLimit:
         return "RESOURCE_LIMIT", "RESOURCE_LIMIT"
+    except (RecursionError, ValueError) as exc:
+        return KEIN_URTEIL, type(exc).__name__
     return verdict, "all" if verdict == "PASS" else step
 
 
 def _label_text(rb: bytes, key: bytes) -> tuple:
-    result = text_pruefer.verify(rb, key)
+    try:
+        result = text_pruefer.verify(rb, key)
+    except (RecursionError, ValueError) as exc:
+        return KEIN_URTEIL, type(exc).__name__
     return result["result"], text_pruefer.step_label(result)
 
 
@@ -1114,7 +1126,7 @@ def erzeugen(seed: bytes, anzahl: int = STANDARD_ANZAHL, kennung: str = "einsend
             if rb in annex or (rb, key) in seen:
                 continue
             a, t = _label_autor(rb, key), _label_text(rb, key)
-            if a != t:
+            if a != t or a[0] == KEIN_URTEIL:
                 befunde.append({"bauart": kind, "receipt_b64": b64(rb), "key_b64": b64(key),
                                 "autor": "%s %s" % a, "text": "%s %s" % t})
                 continue
@@ -1183,7 +1195,7 @@ def pruefe_challenge(challenge: bytes) -> list:
     seen: set = set()
     for n, line in enumerate(text[:-1].split("\n") if text.endswith("\n") else text.split("\n"), 1):
         try:
-            row = json.loads(line, object_pairs_hook=_eindeutig)
+            row = json.loads(line, object_pairs_hook=_eindeutig, parse_constant=_keine_konstante)
         except (ValueError, RecursionError):
             out.append("Zeile %d: kein JSON-Objekt" % n)
             continue
@@ -1415,6 +1427,16 @@ class _DoppelterName(ValueError):
     pass
 
 
+class _KeinJson(ValueError):
+    pass
+
+
+def _keine_konstante(name: str):
+    """parse_constant: NaN, Infinity and -Infinity, which Python's json reads by default, are no JSON (RFC 8259,
+    section 6). A line that holds one is not one JSON text (Codex on pull request 425)."""
+    raise _KeinJson(name)
+
+
 def _eindeutig(pairs: list) -> dict:
     """object_pairs_hook: a member name twice in one object makes the line ambiguous."""
     out: dict = {}
@@ -1433,9 +1455,11 @@ def _zeile(chunk: bytes):
     except UnicodeDecodeError:
         return None, "kein UTF-8"
     try:
-        return json.loads(line, object_pairs_hook=_eindeutig), None
+        return json.loads(line, object_pairs_hook=_eindeutig, parse_constant=_keine_konstante), None
     except _DoppelterName:
         return None, "ein Name steht doppelt"
+    except _KeinJson:
+        return None, "kein JSON (NaN oder Infinity)"
     except RecursionError:
         return None, "zu tief verschachtelt"
     except ValueError:

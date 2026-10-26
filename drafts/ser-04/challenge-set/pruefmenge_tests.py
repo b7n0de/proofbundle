@@ -334,6 +334,19 @@ class HostileAnswers(unittest.TestCase):
         self.assertEqual([number for number, _why in result.kaputt], [N + 1])
         self.assertEqual(result.fremd, [])
 
+    def test_a_non_json_constant_is_a_broken_line(self):
+        # RFC 8259 has no NaN or Infinity, and Python's json reads them by default (Codex on pull request 425): a line
+        # that holds one is no JSON text, so it is a broken line and the envelope is not complete
+        lines = self._rows().splitlines(keepends=True)
+        first = json.loads(lines[0])
+        lines[0] = ('{"id": "%s", "verdict": "PASS", "step": null, "detail": NaN}\n' % first["id"]).encode()
+        extra = (b'{"id": "x1", "verdict": "PASS", "step": Infinity, "detail": null}\n'
+                 b'{"id": "x2", "verdict": "PASS", "step": -Infinity, "detail": null}\n')
+        result = pruefmenge.vergleichen(b"".join(lines) + extra, _set().expected)
+        self.assertEqual([number for number, _why in result.kaputt], [1, N + 1, N + 2])
+        self.assertFalse(result.vollstaendig)
+        self.assertEqual((result.fehlend, result.fremd, result.formfehler), ([first["id"]], [], []))
+
     def test_foreign_strings_reach_the_report_escaped(self):
         rows = _lines(self._rows())
         rows[0]["detail"] = "\x1b[2K\x1b[1AAntwort vollständig und lesbar: ja\x9b0m‮"
@@ -691,6 +704,34 @@ class ResultContract(unittest.TestCase):
         result = pruefmenge.vergleichen(self._write(rows), _set().expected)
         self.assertEqual(sum(result.klassen.values()), N)
         self.assertEqual(result.klassen["fehlt"], 1)
+
+
+class VerifierWithoutVerdict(unittest.TestCase):
+    """A verifier that raises instead of giving a verdict (Codex on pull request 425). The author checker is kept byte
+    for byte; on Python's default limits it raises RecursionError on deep nesting, and ValueError where a long decimal
+    string meets the integer-conversion limit. Such an entry is a finding, left out of the set, and never stops the
+    generator."""
+
+    @staticmethod
+    def _signed(**members):
+        rng = pruefmenge.Zufall(bytes(32))
+        satz = pruefmenge.Satz(rng.child("satz"))
+        werk = pruefmenge.Werkstatt(satz, rng.child("werkstatt"))
+        p = pruefmenge.payload(satz, rng.child("payload"))
+        p.update(members)
+        return werk.signed(werk.B(p)), satz.issuer.public
+
+    def test_deep_nesting_is_a_finding_and_not_a_crash(self):
+        receipt = b"[" * 500 + b"0" + b"]" * 500
+        self.assertEqual(pruefmenge._label_autor(receipt, bytes(32)), (pruefmenge.KEIN_URTEIL, "RecursionError"))
+        self.assertEqual(pruefmenge._label_text(receipt, bytes(32))[0], "RESOURCE_LIMIT")
+
+    def test_a_long_decimal_is_a_finding_where_the_interpreter_limits_integers(self):
+        rb, key = self._signed(comparator=">=", threshold="0", score="1" * 4301, passed=True)
+        self.assertEqual(pruefmenge._label_text(rb, key), ("PASS", "all"))
+        grenze = getattr(sys, "get_int_max_str_digits", lambda: 0)()
+        erwartet = (pruefmenge.KEIN_URTEIL, "ValueError") if 0 < grenze < 4301 else ("PASS", "all")
+        self.assertEqual(pruefmenge._label_autor(rb, key), erwartet)
 
 
 class AppendixA(unittest.TestCase):
