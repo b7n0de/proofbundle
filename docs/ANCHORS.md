@@ -222,7 +222,14 @@ to, for a receipt its content root) is read from the detached proof file alone, 
    operations `08`, `02`, `03` on the path from the file digest down to it, is `confirmed`. When none
    confirms, the status is `null_op` when a matching attestation had no such hash operation on its path,
    else `block_mismatch` when a covered root differs, else `bad_header` when a supplied root is not hex,
-   else `upgraded_unverified`. Only `confirmed` is a verifying anchor, `pending` satisfies
+   else `upgraded_unverified`. Only the roots at the heights of Bitcoin attestations are read; a root at
+   another height decides nothing, and an empty root leaves its height uncovered. A root is hex when it
+   is two-digit pairs of `0-9`, `a-f`, `A-F`, with ASCII white space allowed before, after and between
+   the pairs; an odd count of digits or any other character is not hex. A root that is hex is compared
+   by the bytes it spells, whatever their number, so a short one is a differing root. The CLI's
+   `--bitcoin-header` refuses a root that is not 32 bytes of hex as malformed (exit 2) before any
+   verdict, while the policy loader admits any string of 64 characters, so `bad_header` reaches the
+   verdict through a policy file. Only `confirmed` is a verifying anchor, `pending` satisfies
    `--require-anchor` only with `--allow-pending`, and the bundle's own `frozen` headers never enter this
    step.
 
