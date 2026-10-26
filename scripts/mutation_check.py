@@ -1250,16 +1250,28 @@ _RC_NICHT_MESSBAR = frozenset({2, 3, 4})
 
 
 #: The head of a section in which pytest reproduces a test's OWN output.
-_AUFGEFANGEN_AUF = re.compile(r"^-+ Captured [^\n]*-+\s*$")
+#:
+#: ONE DASH BEFORE THE END, NOT A RUN OF THEM (counter-reading of pull request 371, F9, P3). The
+#: pattern was `^-+ Captured [^\n]*-+\s*$`: `[^\n]*` and `-+` both took dashes, so a line
+#: `- Captured ` with a long run of dashes and one other character at its end failed in quadratic
+#: time (8000 dashes 0.57 s, 16000 dashes 2.59 s, measured at 4b4e83a0). `.*-` asks the same and
+#: leaves every dash to one part.
+_AUFGEFANGEN_AUF = re.compile(r"^-+ Captured .*-\s*$")
 
 #: A line that opens a new top-level section and so closes the captured block. pytest draws its
-#: section separators from `=`, `_` and `-`.
+#: section separators from `=`, `_` and `-`, each with a title (`TerminalWriter.sep(fill, title)`).
 #:
 #: `!` IS DELIBERATELY NOT AMONG THEM, and the first version had it. With it, the captured
 #: diagnostic line `! ordinary diagnostic !` closed the block ITSELF, stayed in the text and was
 #: still read as a banner: the cut had no effect, and exactly the case it was built against got
 #: through. Found by its own property node, not while writing it.
-_ABSCHNITT_ZU = re.compile(r"^(?:={3,}|_{3,}|-{3,})")
+#:
+#: A TITLE IS ASKED FOR (counter-reading of pull request 371, F3, P3). The block closed at any line
+#: that began with three of `-`, `=` or `_` and had the run's width, so a test that printed 80 dashes
+#: and then `! ordinary diagnostic !` put the second line back on the top level. pytest writes no
+#: separator without a title after a captured block. A title does not begin with its fill
+#: character, so a row like `_ _ _ _` stays the test's text as well.
+_ABSCHNITT_ZU = re.compile(r"^(?:=+ [^\s=].* =+|_+ [^\s_].* _+|-+ [^\s-].* -+)\s*$")
 
 #: A separator pytest draws WITH a title on the top level (`=== FAILURES ===`). Its width is the
 #: run's full width, unless the title is longer than that.
@@ -1283,8 +1295,10 @@ def _ohne_aufgefangene_ausgabe(text: str) -> str:
     that printed `---` and then `! ordinary diagnostic !` put the second line back on the top level
     and the run counted as NOT MEASURABLE. pytest draws every separator whose title fits to the same
     full width of the run (`TerminalWriter.sep` fills the line to `fullwidth`), and the `Captured`
-    line that opened the block has that width. A line the test prints in the same shape AND the same
-    width still closes the block; that is the limit of reading a text, and it is named here.
+    line that opened the block has that width. Each of those separators carries a title, so a line
+    without one stays inside, also in the run's width (counter-reading of pull request 371, F3). A
+    line the test prints in the shape of a titled separator AND in the same width still closes the
+    block; that is the limit of reading a text, and it is named here.
 
     A HEADER INSIDE A BLOCK DOES NOT SET ITS WIDTH, AND A WIDE HEADER STILL CLOSES (counter-reading
     of pull request 371, F1, P2). The width was taken from every `Captured` line, also from one the
@@ -1299,7 +1313,7 @@ def _ohne_aufgefangene_ausgabe(text: str) -> str:
     for zeile in text.splitlines(keepends=True):
         roh = zeile.rstrip("\n")
         w = len(roh.rstrip())
-        if drin and _ABSCHNITT_ZU.match(zeile) and w in (breite, voll):
+        if drin and _ABSCHNITT_ZU.match(roh) and w in (breite, voll):
             drin = False
         if not drin and _AUFGEFANGEN_AUF.match(roh):
             drin, breite = True, w
@@ -1386,7 +1400,11 @@ def _rote_aus_text(text: str) -> int | None:
     # Signal, ein interner Fehler. Sie ist an die BANNERFORM gebunden ("!!!! Interrupted: ... !!!!"
     # am Zeilenanfang), nicht an das blosse Wort — sonst faerbte ein Test, der "Interrupted" in
     # einem Traceback ausgibt, den Lauf faelschlich NICHT MESSBAR.
-    if re.search(r"^!+ Interrupted", text, re.M) or re.search(r"^INTERNALERROR", text, re.M):
+    # ON THE TOP LEVEL, as in `_rote_aus_lauf` (counter-reading of pull request 371, P3 under F2,
+    # probe J). Without a JUnit file the verdict comes from here, and a failing test that printed
+    # `! Interrupted by the test !` made its measured red NOT MEASURABLE.
+    oben = _ohne_aufgefangene_ausgabe(text)
+    if re.search(r"^!+ Interrupted", oben, re.M) or re.search(r"^INTERNALERROR", oben, re.M):
         return None
     # DER RUECKFALLPFAD, UND ER IST GEHAERTET STATT GEERBT (deep gate Lauf 5, Linse 5). Gesucht
     # wird in der BILANZZEILE, nicht im ganzen Blob: `re.search` auf stdout+stderr nahm den ersten
