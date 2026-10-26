@@ -413,7 +413,11 @@ What v0.2 adds, each with its conformance case:
   `require_coverage_status`, `time` and `name`, and an absent one reads as null; a policy file may carry
   further keys, such as reasons or measurements beside its rules, and they decide nothing.
   For a policy read by `load_policy`, the result's `policy_name` is the policy's `name` and its `policy_digest` is the string `sha256:` followed by the lowercase hex sha256 of the policy file's bytes.
-- **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
+- **Time claims that contradict each other are fatal.** The event axis is `CONFLICT` when the
+  declaration's time claims of kind `reviewCompleted` carry more than one distinct value, compared as
+  written and not as instants; claims of the other kinds take no part. Both the event and the
+  observation axis are `CONFLICT` when an observation by a named observer lies before the one
+  declared `reviewCompleted` time. A `CONFLICT` on the event or observation
   axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
   `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak
   one. A policy may additionally carry a `time` block; it is evaluated with `evaluate_time_policy`,
