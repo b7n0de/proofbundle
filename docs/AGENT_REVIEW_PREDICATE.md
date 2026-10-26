@@ -48,7 +48,10 @@ the subject. A pull-request receipt binds `repositoryId`, `pullRequestNodeId`, `
 `reviewedDiffDigest` and `bodyCoreDigest`. An issue has no head sha, no merge base and no diff, so it
 gets its own profile: `issueNodeId`, optional `commentNodeId`, `bodyCoreDigest` and `revisedAt`.
 
-The statement's subject digest is taken over the **subjectContext alone**. A receipt copied onto
+The statement's subject digest is taken over the **subjectContext alone**: `subject[0].digest.sha256`
+is the SHA-256 of the RFC 8785 (JCS) bytes of the predicate's `subjectContext`, written as 64
+lowercase hex characters, in v0.1, v0.2 and v0.3 alike; a supplied `expected_subject_digest` is
+compared with that value. A receipt copied onto
 another pull request therefore carries the old context and fails the binding check, while remaining
 cryptographically sound — which is precisely the failure this binding exists to expose.
 The result field `subject_expectation` says whether the receipt was compared with an expectation supplied from outside: `checked` once a supplied `expected_subject_digest` has been compared with the digest of the signed `subjectContext`, and `not_supplied` otherwise, in particular whenever no expectation is passed. Without that comparison `ok` is false even for an internally consistent receipt, and the result carries a warning that names `expected_subject_digest`.
@@ -341,6 +344,12 @@ CAP-1 rules judge the rest.
 new version — not a patch. `predicateType` is read, not decoration: a receipt naming a version this
 verifier does not know is refused rather than guessed at.
 `schemaVersion` is not the predicate version: `agent-review/v0.1`, `v0.2` and `v0.3` predicates all carry a `schemaVersion` of the form `0.1.x`, and the version is read from `predicateType` alone.
+The three `predicateType` values are `https://b7n0de.com/proofbundle/predicates/agent-review/v0.1`,
+`https://b7n0de.com/proofbundle/predicates/agent-review/v0.2` and
+`https://b7n0de.com/proofbundle/predicates/agent-review/v0.3`, each compared as a whole string: the
+version dispatcher reports `predicateVersionStatus` `legacy` for the first, `current` for the other
+two and `unknown` for any other string, also one that differs only in the scheme, the case, a
+trailing `/` or a missing `/predicates/`.
 
 ## Version 0.2 — the emitter's default since 6.0.0
 
