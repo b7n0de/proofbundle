@@ -70,10 +70,12 @@ Each check is reported by name; the first integrity failure ends the run.
 6. `statement`, `predicate-type`, `predicate`
 7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name` (exit 3)
 
-`predicate` holds the predicate to SLSA Provenance v1 and to its buildType's own rules. For the
-actions.github.io buildType these include the four internal parameters and a resolved dependency
-naming the source commit, both MUST in that specification; the slsa-framework buildType makes them
-optional. Both buildTypes "MUST NOT be used for any other event type" than `create`, `release`,
+`predicate` holds the predicate to SLSA Provenance v1 and to its buildType's own rules. The external
+parameters are read closed, as both buildTypes ask of a consumer: `workflow` for the actions.github.io
+buildType; `workflow`, `inputs`, `release` and `vars` for the slsa-framework one, with at most one of
+`inputs` and `release`. The actions.github.io buildType also requires the four internal parameters
+and a resolved dependency naming the source commit, both MUST in that specification; the
+slsa-framework buildType makes them optional. Both buildTypes "MUST NOT be used for any other event type" than `create`, `release`,
 `push` and `workflow_dispatch` (contract GH-05, enforced since the owner decision of 2026-10-26):
 the event the predicate states (`internalParameters.github.event_name`) and the build trigger in the
 certificate must each, where stated, be one of the four, and at least one must be stated. The

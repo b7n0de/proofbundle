@@ -1297,10 +1297,20 @@ def _slsa_v1(pred: Any) -> Dict[str, Any]:
 
 
 def _workflow_params(bd: Dict[str, Any]) -> Dict[str, str]:
-    """The GitHub workflow external parameters: exactly ``workflow`` {ref, repository, path}. The
-    buildType says consumers SHOULD reject unrecognized external parameters."""
-    ext = _members(bd["externalParameters"], "predicate.buildDefinition.externalParameters", ("workflow",),
-                   ("workflow",), check="predicate")
+    """The GitHub workflow external parameters: ``workflow`` {ref, repository, path}, and for the
+    slsa-framework buildType also the objects ``inputs``, ``release`` and ``vars``, at most one of
+    ``inputs`` and ``release``. Both buildTypes say consumers SHOULD reject unrecognized external
+    parameters, so nothing else is read."""
+    slsa = bd["buildType"] == NPM_GITHUB_BUILD_TYPE
+    ext = _members(bd["externalParameters"], "predicate.buildDefinition.externalParameters",
+                   ("workflow", "inputs", "release", "vars") if slsa else ("workflow",), ("workflow",),
+                   check="predicate")
+    for k in ("inputs", "release", "vars"):
+        if _present(ext, k) is not None and type(ext[k]) is not dict:
+            raise _Fail("predicate", f"externalParameters.{k} must be an object")
+    if _present(ext, "inputs") is not None and _present(ext, "release") is not None:
+        raise _Fail("predicate", "externalParameters: at most one of inputs or release can be set "
+                                 "(slsa-framework buildType)")
     wf = _members(ext["workflow"], "predicate.buildDefinition.externalParameters.workflow",
                   ("ref", "repository", "path"), ("ref", "repository", "path"), check="predicate")
     for k in ("ref", "repository", "path"):

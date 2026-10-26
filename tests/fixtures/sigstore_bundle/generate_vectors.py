@@ -487,6 +487,12 @@ def _statement_edit(fn: Callable[[Dict[str, Any]], None], build_type: str = GITH
     return st
 
 
+def _dispatch_inputs_and_vars(st: Dict[str, Any]) -> None:
+    bd = st["predicate"]["buildDefinition"]
+    bd["externalParameters"].update(inputs={"version": "1.2.3"}, vars={"REGION": "eu"})
+    bd["internalParameters"]["github"]["event_name"] = "workflow_dispatch"
+
+
 def _event(name: str) -> Callable[[Dict[str, Any]], None]:
     def fn(st: Dict[str, Any]) -> None:
         st["predicate"]["buildDefinition"]["internalParameters"]["github"]["event_name"] = name
@@ -897,6 +903,18 @@ def cases() -> List[Dict[str, Any]]:
              steps=["GH-05"], exitCode=1, failedCheck="predicate",
              rationale="The slsa-framework buildType carries the same rule in the same words "
                        "(github-actions-buildtypes workflow/v1)."),
+        dict(gh, caseId="pos-slsa-buildtype-dispatch-inputs-and-vars", build={"version": "0.2", "statement":
+             _statement_edit(_dispatch_inputs_and_vars, NPM_BUILD_TYPE),
+             "cert": leaf_cert(dict(EXTENSIONS, build_trigger="workflow_dispatch"), WORKFLOW_URI)},
+             steps=["GH-07", "SP-08"], exitCode=0, failedCheck=None,
+             rationale="The slsa-framework buildType defines the external parameters inputs, release and vars "
+                       "beside workflow; a run of workflow_dispatch with inputs and vars is well formed."),
+        dict(gh, caseId="neg-slsa-buildtype-inputs-and-release", build={"version": "0.2", "statement":
+             _statement_edit(lambda st: (_dispatch_inputs_and_vars(st), st["predicate"]["buildDefinition"][
+                 "externalParameters"].update(release={"name": "v1"})), NPM_BUILD_TYPE),
+             "cert": leaf_cert(dict(EXTENSIONS, build_trigger="workflow_dispatch"), WORKFLOW_URI)},
+             steps=["GH-07"], exitCode=1, failedCheck="predicate",
+             rationale="At most one of inputs or release can be set (slsa-framework buildType)."),
         dict(gh, caseId="pos-github-event-workflow-dispatch", build={
              "statement": _statement_edit(_event("workflow_dispatch")),
              "cert": leaf_cert(dict(EXTENSIONS, build_trigger="workflow_dispatch"), WORKFLOW_URI)}, steps=["GH-05"],
