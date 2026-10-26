@@ -142,6 +142,11 @@ while the receipt carries that field. Fail-closed is expected.
 **Provenance.** Measured 2026-08-26 against `inspect-receipts@397ae3ad`: the same probe returns
 `valid=True, binding_checked=content-hash`.
 
+The counter-proof and the provenance above describe the measurement against inspect-receipts.
+proofbundle's own R3 vectors read the rule as the section *How the conformance vectors read the rules*
+maps it: a present `samples` commitment must carry a `samples.n` equal to `n` (`EVAL_CLAIM.md` §3), and
+a mismatch is `invalid`.
+
 ## R4 — key resolution fails closed
 
 An unresolvable `kid` is invalid, not valid-with-reservation. A key shipped inside the receipt alone
@@ -151,6 +156,12 @@ never carries a `valid=True`.
 All three must come out invalid.
 
 **Provenance.** Measured 2026-08-26 against `inspect-receipts@397ae3ad`: holds in all three cases.
+
+These three cases and their provenance describe the measurement against inspect-receipts.
+proofbundle's own R4 vectors read the rule as the section *How the conformance vectors read the rules*
+maps it: the bundle's signing key must equal the claim's `issuer` (`EVAL_CLAIM.md` §5), so the R4
+positive control, whose key ships inside the bundle and is the claim's issuer, is `valid`, and the
+counter-proof, whose claim names another key as `issuer`, is `invalid`.
 
 ## R5 — coverage does not follow from integrity
 
