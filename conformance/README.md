@@ -113,10 +113,11 @@ axis decides the use:
   current receipt, 64 lowercase hex, or `null` when there is none; `chainIntegrity` is a boolean, `false`
   when the chain's integrity fails. For `unverifiedSupersessionClaim` a verifier reports two lists of
   receipt digests, each empty when there is none: under `unverifiedSupersessionClaim` the unverified
-  supersession claims, and under `correctedReceipts` the receipts marked corrected, where a receipt is
-  marked corrected when an envelope in the verified set names its digest as `priorDigest` under
-  `supersedes`, `corrects` or `withdraws` (`docs/AGENT_REVIEW_PREDICATE.md`, *Supersession*). The axis
-  holds when the receipt digest the vector names is in the first list and the second list is empty.
+  supersession claims, and under `correctedReceipts` the receipts marked corrected: each digest once, in
+  any order, that an envelope in the verified set names as `priorDigest` under `supersedes`, `corrects` or
+  `withdraws`, also a digest that no envelope of the input has (`docs/AGENT_REVIEW_PREDICATE.md`,
+  *Supersession*). The axis holds when the receipt digest the vector names is in the first list and the
+  second list is empty.
 - `versionStatus`: the envelope goes through the version dispatcher with `params.expectedSubjectDigest` when
   given; the value is its `predicateVersionStatus` (`legacy`, `current` or `unknown`). `legacy` carries
   `AGENT_REVIEW_LEGACY_V01` as an advisory code, never as a reason code, with the same `ok` the `v0.1`
