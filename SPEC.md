@@ -795,7 +795,10 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
 - `targetReceiptDigest` (required) is the target's `jcs-sha256-v1` content root with an
   EXPLICIT, never-defaulted `digestAlgorithm`. `targetSubjectDigest` (optional) is the
   target's subject digest — when PRESENT it is binding (checked against the resolved
-  target, since 3.4.0). Hard caps: 64 edges per receipt, attached-ancestry depth 32.
+  target, since 3.4.0): its `digest` is compared with `subject[0].digest.sha256` of a target
+  that has exactly one subject entry, although its `digestAlgorithm` names the content-root
+  algorithm (the exact rule and its failure codes are in `docs/predicates/relation.md` §5).
+  Hard caps: 64 edges per receipt, attached-ancestry depth 32.
 - Honesty boundary (verbatim, claims-hygiene enforced): *relationship declared by issuer,
   not a statement of correctness*. `lineage` NEVER feeds `cryptoValid` in either direction
   (lattice monotonicity); a DECLARED_UNRESOLVED edge never reads as a pass.

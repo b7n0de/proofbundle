@@ -157,6 +157,15 @@ bound is depth-exceeded.
 - `targetSubjectDigest` (edge field): when PRESENT it is now binding — gegengeprueft against
   the resolved target's real subject digest; a mismatch is a lineage FAIL
   (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break.
+  **What is compared.** The field has the object form of `targetReceiptDigest`, and its
+  `digestAlgorithm` MUST be a registered content-root algorithm (today only `jcs-sha256-v1`),
+  but its `digest` is NOT a content root: it is compared, as 64 lowercase hex, with the `sha256`
+  entry of the `digest` of the resolved target's only `subject` entry (the in-toto subject
+  digest, `subject[0].digest.sha256`). A target with more than one subject entry fails with
+  `RELATION_TARGET_SUBJECT_AMBIGUOUS` (the verifier never binds `subject[0]` of several), a single
+  entry without a well-formed `sha256` digest with `RELATION_TARGET_SUBJECT_MALFORMED`; each is a
+  lineage FAIL, exit 2. A target with no subject entry is not a well-formed statement and fails
+  earlier with `RELATION_TARGET_MALFORMED` (§4).
 - Authorization and parent-pinning are RELYING-PARTY POLICY, never format truth: a passing
   check proves set membership / the named parent under the verifier's pins, not that anyone
   is "really" authorized or in the right.
