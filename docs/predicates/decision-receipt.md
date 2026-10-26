@@ -93,7 +93,8 @@ A `notChecked` entry is an object `{field, reason, impact}`. A bare string is st
 deprecated legacy form, and the schema marks it so; new receipts use the object form.
 
 Optional: `recordedAt`, `delegationRefs`, `actionOutcome`, `traceContext`, `validity` (strict interactive mode
-requires `audience` + `nonce`), `anchors`.
+requires `audience` + `nonce`), `relationships` (`docs/predicates/relation.md`). `anchors` is not a predicate
+field: anchors travel detached (§8), and an `anchors` member inside the predicate is an unknown field.
 
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`
