@@ -1136,10 +1136,10 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
     1. ``gebunden`` ist ein Vorfahr von ``live`` (``git merge-base --is-ancestor``). Ein fremder
        Commit aus einem anderen Zweig faellt hier — er ist kein "spaeterer Evidenzcommit", er ist
        ein anderer Baustand.
-    2. Die Pfadmenge von ``gebunden`` nach ``live`` liegt vollstaendig in
-       ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS``. Ein Commit, der irgendetwas anderes
-       anfasst — Quelltext, Vertrauensanker, Klassen-Ledger — faellt hier, auch wenn er ein
-       Vorfahr-Nachfahr-Verhaeltnis hat.
+    2. Every path changed from ``gebunden`` to ``live`` belongs to
+       ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS`` or is the canonical receipt path for
+       the version in the bound commit. Receipts for other versions or in other folders are
+       refused. An ancestor relation does not authorize any other changed path.
 
     Die Richtung ist bewusst eng: das Tor laesst den dokumentierten Ablauf zu und sonst nichts. Es
     ist KEIN Freibrief fuer "HEAD ist irgendwie weiter" — genau das waere die Luecke, die die
@@ -1191,11 +1191,26 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
         return None, f"git is not usable here ({type(exc).__name__})"
     pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
-    # THE PRE-TAG RECEIPT IS EVIDENCE OF THE SAME COMMIT (owner choice A on card OA-c04430c2ea,
-    # 2026-10-26, release plan P7): it binds the candidate's `subject_tree_digest`, which leaves it out,
-    # and `sra.tree_digest` now leaves it out by the same pattern. One evidence commit on the candidate
-    # may therefore carry the receipt beside the mutable evidence; any other path still stops here.
-    fremd = [p for p in fremd if not sra.ist_quittungspfad(p)]
+    # Both tree digests exclude every receipt-shaped path. The transition from the candidate
+    # is narrower: only the canonical receipt path of that candidate's version may change.
+    # Read that version from the bound commit, never from a mutable working-tree file.
+    quittungen = [p for p in fremd if sra.ist_quittungspfad(p)]
+    if quittungen:
+        try:
+            projekt = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{gebunden}:pyproject.toml"],
+                capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+            return None, f"the candidate version cannot be read here ({type(exc).__name__})"
+        if projekt.returncode != 0:
+            return False, "the bound commit carries no readable pyproject.toml"
+        versionen = re.findall(r'''(?m)^\s*version\s*=\s*["']([^"']+)["']''', projekt.stdout)
+        if len(versionen) != 1 or not re.fullmatch(r"[0-9][0-9A-Za-z.+!_\-]*", versionen[0]):
+            return False, "the bound commit names no unambiguous receipt-compatible version"
+        version = versionen[0]
+        quittung = (f"audit_artifacts/{version.replace('.', '')}/"
+                    f"pre_tag_receipt_v{version}.json")
+        fremd = [p for p in fremd if p != quittung]
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
                        f"{', '.join(fremd[:5])}"

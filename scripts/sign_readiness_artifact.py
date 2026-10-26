@@ -30,8 +30,11 @@ release-evidence files: sha256 over the sorted ``git ls-tree -r HEAD`` lines EXC
 paths in :data:`MUTABLE_EVIDENCE_RELS` — the artifacts a release run writes AS PART of measuring
 them — and the pre-tag receipt, by the one pattern ``pre_tag_receipt_lib._RECEIPT_MUSTER`` that the
 receipt's own ``subject_tree_digest`` excludes it with (owner choice A on card OA-c04430c2ea,
-2026-10-26; see :func:`ist_quittungspfad`). Everything else under ``audit_artifacts/`` (the trust anchor, the class ledger, prior
-releases' historical records) IS part of the bound tree (deep gate 2026-09-05, NACHTRAG2 Teil C
+2026-10-26; see :func:`ist_quittungspfad`). Every path matching that receipt pattern is excluded, including receipt paths for other
+versions. The transition from the bound candidate to a later evidence commit separately permits
+only the canonical receipt path of the candidate's version, beside ``MUTABLE_EVIDENCE_RELS``.
+Everything outside those digest exclusions under ``audit_artifacts/`` (including the trust anchor
+and the class ledger) IS part of the bound tree (deep gate 2026-09-05, NACHTRAG2 Teil C
 Auflage C3: "audit_artifacts nicht pauschal aus dem Baumdigest ausschliessen" — a whole-directory
 exclusion let a key be introduced in the very build path it would go on to authorise, invisibly to
 this binding).
@@ -172,8 +175,8 @@ def ist_quittungspfad(pfad: str) -> bool:
 
 def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS) -> str:
     """The quantity the gate recomputes: sha256 over sorted, RECURSIVE `git ls-tree HEAD`, minus
-    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) and the pre-tag receipt (see
-    :func:`ist_quittungspfad`) — never a whole directory.
+    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) and every path matching the
+    pre-tag receipt pattern, for any version (see :func:`ist_quittungspfad`) — never a whole directory.
 
     A tree that names a path twice on any level gets no digest (R13-3, external review round 13):
     the sorted lines of two entries of one name are the same for both orders, while `git show` and a

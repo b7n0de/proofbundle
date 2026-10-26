@@ -67,7 +67,7 @@ def baum():
     try:
         if subprocess.run(["git", "init", "-q", str(td)], capture_output=True).returncode != 0:
             pytest.skip("NOT MEASURABLE: git is not usable here")
-        kandidat = _commit(td, {"pyproject.toml": '[project]\nversion = "9.9.9"\n',
+        kandidat = _commit(td, {"pyproject.toml": '[project]\nversion = "6.4.0"\n',
                                 "src/pkg/__init__.py": "", "audit_artifacts/640/README.md": "page\n"},
                            "candidate")
         yield td, kandidat
@@ -115,3 +115,16 @@ def test_both_bindings_name_one_exclusion_rule():
     assert not sra.ist_quittungspfad("src/" + RECEIPT)
     assert not sra.ist_quittungspfad("audit_artifacts/640/README.md")
     assert sra._quittungsmuster().pattern == lib._RECEIPT_MUSTER.pattern
+
+
+@pytest.mark.parametrize("receipt", (
+    "audit_artifacts/631/pre_tag_receipt_v6.3.1.json",
+    "audit_artifacts/641/pre_tag_receipt_v6.4.1.json",
+    "audit_artifacts/999/pre_tag_receipt_v6.4.0.json",
+))
+def test_a_later_evidence_commit_refuses_other_receipt_paths(baum, receipt):
+    """[COUNTS] The broad digest exclusion does not authorize changes to another receipt path."""
+    repo, c = baum
+    m = _modul("_acm_other_receipt_path", "audit_candidate_matrix.py")
+    e = _commit(repo, {receipt: "{}\n"}, "other receipt")
+    assert m._evidenz_relation_erlaubt(repo, c, e)[0] is False
