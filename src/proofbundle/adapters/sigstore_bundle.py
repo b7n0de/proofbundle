@@ -482,7 +482,7 @@ def _read_leaf(der: bytes) -> _Leaf:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
         version = cert.version
-    except (ValueError, x509.DuplicateExtension, x509.InvalidVersion) as exc:
+    except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
     if version is not x509.Version.v3:
         raise _Fail("certificate", "the leaf certificate is not X.509 v3")

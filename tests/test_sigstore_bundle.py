@@ -392,6 +392,28 @@ def test_sct_signature_must_use_the_hash_named_in_its_wire_bytes(monkeypatch: py
     assert out["exit_code"] == 1, out["checks"]
     assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["sct"]
 
+
+@pytest.mark.parametrize("san_tag", [0xA3, 0xA5])
+def test_unsupported_general_name_is_a_certificate_failure(san_tag: int) -> None:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.x509.oid import ExtensionOID
+
+    gen = _generator()
+    leaf = gen.leaf_cert(gen.EXTENSIONS, gen.WORKFLOW_URI)
+    sb._read_leaf(leaf.public_bytes(serialization.Encoding.DER))
+    builder = _certificate_builder_from(leaf)
+    for extension in leaf.extensions:
+        if extension.oid == ExtensionOID.SUBJECT_ALTERNATIVE_NAME:
+            value = x509.UnrecognizedExtension(extension.oid, bytes([0x30, 2, san_tag, 0]))
+        else:
+            value = extension.value
+        builder = builder.add_extension(value, extension.critical)
+    changed = builder.sign(gen.INTERMEDIATE_KEY, hashes.SHA384(), ecdsa_deterministic=True)
+    with pytest.raises(sb._Fail) as caught:
+        sb._read_leaf(changed.public_bytes(serialization.Encoding.DER))
+    assert caught.value.check == "certificate"
+
 @pytest.mark.parametrize("usage, expected_exit", [
     ("codeSigning", 0), ("anyExtendedKeyUsage", 0), ("serverAuth", 1)])
 def test_a_ca_extended_key_usage_must_permit_code_signing(usage: str, expected_exit: int) -> None:
