@@ -56,8 +56,9 @@ jobs:
   reproducible-sdist:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # THE SAME FRONTEND, BACKEND AND EPOCH AS THE TAG RUN (2026-10-26), so that the digest this job
-    # prints is the one release.yml builds from the same commit. The pins are in
+    # THE SAME FRONTEND, BACKEND AND EPOCH AS THE TAG RUN (2026-10-26), so that on a push to main the
+    # digest this job prints is the one release.yml builds for the same shipped content; a pull request
+    # run checks out the merge commit GitHub makes, not the head. The pins are in
     # .github/build-constraints.txt. The full history is needed for the epoch: `head_commit_epoch`
     # takes the time of the last commit that touches a shipped path, and a clone of depth 1 treats its
     # boundary as a root that touches every path (measured at bbe5eda1: b916e0eb here, 989eaa5d in the
