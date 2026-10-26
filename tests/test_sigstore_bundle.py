@@ -81,6 +81,28 @@ def test_every_profile_has_a_positive_control_from_the_test_instance_and_from_pu
         assert sources == {"synthetic", "public"}, profile
 
 
+DOC = Path(__file__).resolve().parents[1] / "docs" / "SIGSTORE_BUNDLE_VERIFIER.md"
+
+
+def _doc_section(title: str) -> str:
+    parts = DOC.read_text(encoding="utf-8").split(f"\n## {title}\n", 1)
+    assert len(parts) == 2, f"docs/SIGSTORE_BUNDLE_VERIFIER.md has no section {title!r}"
+    return parts[1].split("\n## ", 1)[0]
+
+
+def test_the_refusal_of_unknown_dsse_members_is_a_documented_deviation() -> None:
+    """Owner decision of 2026-10-26: a member of the DSSE envelope or of its signature that the reader does
+    not define is refused, although DSSE says a consumer MUST ignore it (contract DS-03). The documentation
+    names the deviation and its vectors, and each vector of the step fails where it says."""
+    text = " ".join(_doc_section("Deviations from the specifications").split())
+    assert "DS-03" in text and "Consumers MUST ignore unrecognized fields." in text
+    ds03 = [c for c in CASES if "DS-03" in c["steps"]]
+    assert {c["caseId"] for c in ds03} == {"neg-dsse-envelope-unknown-member", "neg-dsse-signature-unknown-member"}
+    for case in ds03:
+        assert case["caseId"] in text
+        assert case["expected"] == {"exitCode": 1, "failedCheck": "bundle-structure"}
+
+
 def test_the_three_classes_are_disjoint_and_an_unclassified_failure_is_structural() -> None:
     assert not (sb._UNREADABLE & sb._INTEGRITY or sb._UNREADABLE & sb._REQUIREMENT or sb._INTEGRITY & sb._REQUIREMENT)
     res = sb.VerificationResult()

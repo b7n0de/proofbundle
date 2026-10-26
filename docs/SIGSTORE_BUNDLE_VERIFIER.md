@@ -76,6 +76,17 @@ the actions.github.io buildType, `https://github.com/actions/runner/<runner_envi
 slsa-framework one). These equalities come from the producers' source code, not from a
 specification; they are pinned in `SPEC_PIN`.
 
+## Deviations from the specifications
+
+Unknown members of the DSSE envelope are refused (contract DS-03). DSSE says of the envelope:
+"Producers, or future versions of the spec, MAY add additional fields. Consumers MUST ignore
+unrecognized fields." (secure-systems-lab/dsse `envelope.md`). This reader refuses a member of
+`dsseEnvelope`, or of its one signature, that it does not define, with `bundle-structure` (exit 1),
+as it refuses one anywhere else in the bundle. In a bundle the envelope is the protobuf message
+`io.intoto.Envelope`, whose JSON mapping refuses an unknown field by default, and a member that one
+reader ignores while another reads it gives the same bytes two meanings. The owner decided so on
+2026-10-26. Vectors: `neg-dsse-envelope-unknown-member`, `neg-dsse-signature-unknown-member`.
+
 ## What a pass does not say
 
 The predicate is written by the workflow that signed it. A pass says who signed what and when, as

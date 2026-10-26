@@ -881,6 +881,8 @@ def _read_bundle(doc: Any, version: int) -> _Bundle:
             p = f"bundle.verificationMaterial.timestampVerificationData.rfc3161Timestamps[{i}]"
             stamps.append(_b64(_members(t, p, ("signedTimestamp",), ("signedTimestamp",))["signedTimestamp"],
                                p + ".signedTimestamp"))
+    # Read closed like every message of the bundle, although DSSE says to ignore an unknown envelope
+    # field (contract DS-03; a deviation, docs/SIGSTORE_BUNDLE_VERIFIER.md).
     env = _members(obj["dsseEnvelope"], "bundle.dsseEnvelope", ("payload", "payloadType", "signatures"),
                    ("payload", "payloadType", "signatures"))
     sigs = _list(env["signatures"], "bundle.dsseEnvelope.signatures")

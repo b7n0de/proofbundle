@@ -840,6 +840,16 @@ def cases() -> List[Dict[str, Any]]:
         dict(gh, caseId="neg-identity-issuer-only", identity={"issuer": ISSUER}, build={}, steps=["SV-20", "GH-20"],
              exitCode=2, failedCheck="verifier-config",
              rationale="An issuer alone accepts every GitHub workflow; the policy must name a workflow or repository."),
+
+        # Owner decisions of 2026-10-26 (Nachtrag 1).
+        dict(gh, caseId="neg-dsse-envelope-unknown-member", build={"edit": lambda d: d["dsseEnvelope"].update(
+             extra="unsigned")}, steps=["DS-03", "SB-34"], exitCode=1, failedCheck="bundle-structure",
+             rationale="DSSE says to ignore an unrecognized envelope field; in a bundle the envelope is read "
+                       "closed like every other message (a deviation from DSSE, named in the documentation)."),
+        dict(gh, caseId="neg-dsse-signature-unknown-member", build={"edit": lambda d: d["dsseEnvelope"][
+             "signatures"][0].update(extra="unsigned")}, steps=["DS-03", "SB-34"], exitCode=1,
+             failedCheck="bundle-structure",
+             rationale="The same deviation for a member of the envelope's one signature."),
     ]
 
 

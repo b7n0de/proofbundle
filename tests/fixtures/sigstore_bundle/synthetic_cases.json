@@ -1468,6 +1468,48 @@
       "identity": {
         "issuer": "https://token.actions.githubusercontent.com"
       }
+    },
+    {
+      "caseId": "neg-dsse-envelope-unknown-member",
+      "input": "synthetic/neg-dsse-envelope-unknown-member.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "DS-03",
+        "SB-34"
+      ],
+      "rationale": "DSSE says to ignore an unrecognized envelope field; in a bundle the envelope is read closed like every other message (a deviation from DSSE, named in the documentation).",
+      "sha256": "300a909cf5d1e112aa8baba07979e05b3292d40b523178e482a43a2f1d45fb13",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-dsse-signature-unknown-member",
+      "input": "synthetic/neg-dsse-signature-unknown-member.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "DS-03",
+        "SB-34"
+      ],
+      "rationale": "The same deviation for a member of the envelope's one signature.",
+      "sha256": "4bb598c66eda4701925dd5356953a196d421cf9dc7d0fc30d6209cb4dcf7740e",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
     }
   ]
 }
