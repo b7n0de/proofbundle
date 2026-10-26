@@ -160,6 +160,12 @@ def _parse_iso_utc(s):
 _ANCHORS_KEYS = {"require_anchor", "require_anchor_target", "allow_pending",
                  "trusted_tsa_roots", "bitcoin_block_headers", "trusted_tsa_policy_oids"}
 _ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
+# OQ-19: a height of the relying party's Bitcoin header map is ASCII digits and a root 64 hex digits, as
+# `--bitcoin-header` takes them; `str.isdigit()` also held for digits of other scripts ("٣", "８", "²") and a root was
+# only measured, so a policy carried what the command line refuses. An explicit class, because `\d` and `isdigit` are
+# Unicode-wide.
+_BITCOIN_HEIGHT = re.compile(r"[0-9]+")
+_BITCOIN_ROOT = re.compile(r"[0-9a-fA-F]{64}")
 # relation/v0.1 (EXPERIMENTAL, 3.3.0 → 3.5.0): the lineage policy section. relation_signer (WP-A,
 # WHO may replace) and require_relation_target (WP-A2, WHICH parent) are LIVE since 3.4.0 —
 # reject_retracted (3.5.0, relation-statement standalone) turns a verified retracts statement over the
@@ -655,7 +661,8 @@ def _felder_pruefen(policy: dict, *, schema_gate: bool) -> None:
         if "bitcoin_block_headers" in anc:
             hdrs = anc["bitcoin_block_headers"]
             if not isinstance(hdrs, dict) or not all(
-                    isinstance(k, str) and k.isdigit() and isinstance(v, str) and len(v) == 64
+                    isinstance(k, str) and _BITCOIN_HEIGHT.fullmatch(k) and isinstance(v, str)
+                    and _BITCOIN_ROOT.fullmatch(v)
                     for k, v in hdrs.items()):
                 raise PolicyError("anchors.bitcoin_block_headers must map a decimal height string to a "
                                   "64-char hex merkle root")
