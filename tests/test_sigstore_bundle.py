@@ -373,6 +373,25 @@ def test_a_ca_constraint_cannot_be_ignored(extra_kind: str) -> None:
     assert out["exit_code"] in (1, 2), out["checks"]
     assert out["ok"] is False
 
+
+def test_sct_signature_must_use_the_hash_named_in_its_wire_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    gen = _generator()
+    data, kwargs = _positive()
+    assert verify_sigstore_bundle(data, **kwargs).as_dict()["exit_code"] == 0
+    original = gen._sct
+
+    def wrong_hash(*args, **kwargs):
+        raw = bytearray(original(*args, **kwargs))
+        assert raw[43:45] == b"\x04\x03"  # SHA-256, ECDSA in TLS DigitallySigned
+        raw[43] = 5  # Declare SHA-384 while preserving the SHA-256 signature.
+        return bytes(raw)
+
+    monkeypatch.setattr(gen, "_sct", wrong_hash)
+    leaf = gen.leaf_cert(gen.EXTENSIONS, gen.WORKFLOW_URI)
+    out = verify_sigstore_bundle(gen.bundle(cert=leaf), **kwargs).as_dict()
+    assert out["exit_code"] == 1, out["checks"]
+    assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["sct"]
+
 @pytest.mark.parametrize("usage, expected_exit", [
     ("codeSigning", 0), ("anyExtendedKeyUsage", 0), ("serverAuth", 1)])
 def test_a_ca_extended_key_usage_must_permit_code_signing(usage: str, expected_exit: int) -> None:

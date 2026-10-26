@@ -1146,7 +1146,7 @@ def _chain_problem(leaf: Any, ca: _Authority, at: int) -> Optional[str]:
 def _sct_problem(leaf: _Leaf, issuer: Any, ctlogs: Sequence[_Log]) -> Optional[str]:
     """None when an SCT embedded in the leaf verifies under a trusted CT log (RFC 6962 section 3.2)."""
     from cryptography import x509  # noqa: PLC0415
-    from cryptography.x509.certificate_transparency import LogEntryType, Version  # noqa: PLC0415
+    from cryptography.x509.certificate_transparency import LogEntryType, SignatureAlgorithm, Version  # noqa: PLC0415
     try:
         scts = leaf.cert.extensions.get_extension_for_class(x509.PrecertificateSignedCertificateTimestamps).value
     except x509.ExtensionNotFound:
@@ -1168,6 +1168,17 @@ def _sct_problem(leaf: _Leaf, issuer: Any, ctlogs: Sequence[_Log]) -> Optional[s
             continue
         if sct.version is not Version.v1 or sct.entry_type is not LogEntryType.PRE_CERTIFICATE:
             tried.append("SCT of another version or entry type")
+            continue
+        expected_hash = {"p256": "sha256", "p384": "sha384"}.get(log.key.kind)
+        try:
+            declared_hash = sct.signature_hash_algorithm.name
+            declared_algorithm = sct.signature_algorithm
+        except (ValueError, UnsupportedAlgorithm):
+            tried.append("SCT declares a signature algorithm this verifier does not read")
+            continue
+        if (expected_hash is None or declared_hash != expected_hash
+                or declared_algorithm is not SignatureAlgorithm.ECDSA):
+            tried.append("SCT signature algorithm does not match the trusted log key")
             continue
         ms = when // 1_000_000
         ext = sct.extension_bytes
