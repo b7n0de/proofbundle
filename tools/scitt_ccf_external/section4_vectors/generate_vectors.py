@@ -47,7 +47,7 @@ LEAVES = REPO / "tools" / "scitt_ccf_external" / "consistency_result.json"
 TEST_KEY = HERE / "TEST_ONLY_es384_private_key.pem"
 TEST_ISSUER = "test-only.section4-vectors.invalid"
 TEST_SUBJECT = "scitt.ccf.signature.v1"
-READER_COMMIT = "ad11dba39b7323f15685a81122d6cd16ada9bc4f"
+READER_COMMIT = "5798be9d617638af3717a030a31a1df29cd9607d"
 DRAFT = {"name": "draft-ietf-scitt-receipts-ccf-profile-05",
          "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
          "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",

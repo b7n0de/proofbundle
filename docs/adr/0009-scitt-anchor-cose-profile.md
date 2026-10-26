@@ -68,7 +68,12 @@ The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/
   commit `e729c2ec037ac763d0cf422bb58a219f8d6a02f4` (2026-09-23),
   https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/blob/e729c2ec037ac763d0cf422bb58a219f8d6a02f4/draft-ietf-scitt-receipts-ccf-profile.md
   (22426 B, sha256 `7efdb7aa934ab0cfc1093e99932f7d2efd39bb66f5bf43594806d7b282ca0077`, retrieved
-  2026-09-25);
+  2026-09-25). Since 2026-10-24 (finding B53-6 of the CCF_7021 interop delivery) the reader follows
+  **draft-ietf-scitt-receipts-ccf-profile-06** in sections 3 to 5, the text retrieved on 2026-10-24
+  from https://www.ietf.org/archive/id/draft-ietf-scitt-receipts-ccf-profile-06.txt (1064 lines,
+  sha256 `a61b704bcd39283d1e3f3a451c05987c9c845bae0009ee6bb50d1820ae398928`); Decision 15 and
+  `src/proofbundle/scitt_ccf.py` name its lines. The type string stays `scitt-ccf/v1`; whether -06
+  makes a new profile version is the owner's decision, not taken here;
 - inclusion proofs for the statement verdict. Consistency proofs (vdp key -2, new in -05) beside
   them are reported as present, parsed under the -05 CDDL (one or more), and must compute the
   inclusion root as their newer root (-05 section 5: all proofs in a receipt recompute the same
@@ -453,49 +458,63 @@ non-shortest protected header, the legacy receipt, and two kid bindings not repo
 invalid signature). Verdicts differ by design and are recorded, not compared: scitt-verifier
 appraises a signer chain and a policy, v1 requires a hash envelope over a proofbundle root.
 
-### 15. Consistency receipts (-05 section 4), beside the anchor, not in it
+### 15. Consistency receipts (section 4 of -06, of -05 until 2026-10-24), beside the anchor, not in it
 
 A consistency receipt relates two roots of one ledger; it proves nothing about a statement, so it
 never enters the anchor verdict. `proofbundle.scitt_ccf.verify_consistency_receipt` checks one
 against an older root the caller already verified (typically `merkle_root` of a `confirmed`
 inclusion receipt) and that receipt's issuer, with its own closed status set,
-`CONSISTENCY_STATUS_ORDER`, the first that applies deciding:
+`CONSISTENCY_STATUS_ORDER`, the first that applies deciding (the lines are those of the -06 text
+named in the scope above):
 
 | status | rule |
 |---|---|
-| `consistency_proof_missing` | no `vdp`, or no -2 (4.1, 4.2); an empty -2, or a `vdp` with neither -1 nor -2, is `malformed`, because the CDDL pass runs first (Decision 16) |
-| `consistency_payload_attached` | the newer root is not detached (4.1) |
-| `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, section 5) |
-| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given or taken from the header (4) |
-| `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -05 (G5) |
-| `consistency_path_not_canonical` | with both sizes: a proof's path describes no node of the tree of n leaves |
-| `consistency_anchor_position_mismatch` | with both sizes: a proof's tags are not those of RFC 9162 2.1.4.1 for m and n (for a proof that does not recompute the older root, for the m its anchor implies), so its anchor is not the root of T[m-2^t] .. T[m-1] (4) |
-| `consistency_left_siblings_mismatch` | with the older size alone: the proof that recomputes the older root has not popcount(m) - 1 left siblings, the complete subtrees left of the anchor section 4 requires (4) |
-| `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
-| `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
-| `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
-| `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
+| `consistency_proof_missing` | no `vdp`, or no -2 (4.1, lines 571-573; Figure 9, lines 634-638); an empty -2, or a `vdp` with neither -1 nor -2, is `malformed`, because the CDDL pass runs first (Decision 16) |
+| `consistency_payload_attached` | the newer root is not detached (4.1, line 575; line 639) |
+| `consistency_newer_roots_differ` | two proofs, or a proof and an inclusion proof beside it, compute different newer roots (4.1, lines 575-578; section 5, lines 762-767; line 649) |
+| `consistency_tree_sizes_invalid` | a size the caller gives is not an int from 1 to 2^64, or 0 < m < n fails for the sizes given (4, lines 511-513 and 545-546) |
+| `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -06, which defines no source of sizes (7.3, line 859; G5) |
+| `consistency_anchor_not_canonical` | a proof starts with a left sibling (4, lines 541-546; line 646), so its anchor is not the one section 4 requires; this covers m = n |
+| `consistency_older_root_mismatch` | no proof recomputes the older root (lines 651-654; 7.3, lines 830-831) |
+| `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -06 (owner answer S1 a, until the working group answers G3); 7.3, lines 831-833, leaves the accepted key to the verifier's trust policy |
+| `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root (line 657) |
 
-`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that the implemented checks
-passed without both tree sizes being available. It does not establish strict growth or the full
-anchor rule. `confirmed` requires both sizes and the corresponding checks; the sizes must be bound
-to the roots under the caller's trust model and our local txid-to-size rule. The older size is the caller's (`older_size`), bound
+Until 2026-10-24 three more statuses stood between `consistency_newer_size_mismatch` and
+`consistency_anchor_not_canonical`, all from the -05 reading B14 of the section 4 vectors:
+`consistency_path_not_canonical` and `consistency_anchor_position_mismatch` with both sizes (the tags of
+RFC 9162 2.1.4.1 for m and n), and `consistency_left_siblings_mismatch` with the older size alone
+(popcount(m) - 1 left siblings). They refused S4-10, which Figure 9 of -06 (lines 633-658) accepts.
+-06 states no such verifier step: "verification does not establish m, n, or that the anchor is the
+node required above" (4, lines 548-549); the comparison with older_root confirms that the anchor is a
+node of that state, "but not that it is the anchor required in Section 4, which is not needed for the
+guarantee the receipt provides" (4.2, lines 681-683; 7.3, lines 845-851). They are removed, with the
+two flags `anchor_rule_checked` and `left_siblings_checked` that reported them (finding B53-6).
+
+`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that every check above passed
+without both tree sizes from the caller, so 0 < m < n was not checked. `confirmed` means the same with
+both sizes, and 0 < m < n holds for them. Neither establishes m, n or the anchor position: "The receipt
+carries no tree sizes and the signature covers only the newer root, so sizes cannot be authenticated"
+(7.3, lines 845-846). Both sizes are the caller's, bound to the roots under the caller's trust model:
+a verifier that needs m or n "MUST obtain them from a source it trusts independently of the receipt"
+(lines 857-858), so the reader takes neither from the receipt. The older size (`older_size`) is bound
 like `older_root` to the state it came from, typically the seqno of the txid of the inclusion
-receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
-none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
-is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement of -05
-(`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
-exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it
-does not establish canonical tags. Without sizes, an anchor that is no node of the newer tree,
-such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5
-and passes the first tag; with them it is `consistency_anchor_position_mismatch` (vector S4-10 in
-`tools/scitt_ccf_external/section4_vectors/`).
+receipt that verified it; the newer size (`newer_size`) likewise, typically from the inclusion
+receipt the caller verified for the newer state. Until 2026-10-23 the reader took the newer size
+from this receipt's own `ccf.v1` txid where the caller gave none; now that txid only has to agree
+with a newer size the caller gives (`consistency_newer_size_mismatch`). That a seqno is the tree size
+its signature covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a
+requirement of the draft (`SECTION4_WGLC.md`, G5). An anchor that is no node of the newer tree, such as
+the root of 6 leaves under one right sibling (vector S4-10 in `tools/scitt_ccf_external/section4_vectors/`),
+has the form of a canonical proof from 4 to 5 and passes Figure 9, with the sizes 6 and 7 as without
+them: that the signed value is a Merkle Tree Hash is the Transparency Service's attestation, which -06
+verification does not establish (4.2, lines 685-688; 7.3, lines 853-857).
 
 `malformed` and `outside_profile` keep their meaning; the protected header rules are those of
-inclusion receipts, as 4.1 says. Two of these go further than the 4.2 pseudo-code. That code accepts
-a receipt with a corrupted second proof, and one whose anchor lies below the section 4 anchor. Both
-were measured on the local ledger and in every tree pair up to 257 leaves, and they are refused here
-because 4 and 4.1 say MUST. The measurement, the third-party RFC 9162 oracle
+inclusion receipts, as 4.1 says. Two of these went further than the 4.2 pseudo-code of -05. That code
+accepted a receipt with a corrupted second proof, and one whose anchor lies below the section 4
+anchor. Both were measured on the local ledger and in every tree pair up to 257 leaves, and they were
+refused here because 4 and 4.1 of -05 say MUST. Figure 9 of -06 refuses both itself (lines 649 and
+646). The measurement, the third-party RFC 9162 oracle
 (transparency-dev/merkle at `fbbcd741`) and the questions for the working group are in
 `tools/scitt_ccf_external/SECTION4_WGLC.md`. No service measured emits a consistency receipt, so the
 real vector (`tests/fixtures/scitt_ccf/local_ledger_consistency.json`) is the service's own

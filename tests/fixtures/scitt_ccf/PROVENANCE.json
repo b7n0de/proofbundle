@@ -1,6 +1,6 @@
 {
   "suite": "scitt_ccf",
-  "note": "Fixtures of the scitt-ccf/v1 reader (ADR 0009). One file was made here; two carry third-party bytes, copied verbatim and labelled per entry with origin, source and licence (owner answer N3 b). tests/test_scitt_ccf_external_bytes.py holds every file in this directory to an entry here, and every entry to its sha256.",
+  "note": "Fixtures of the scitt-ccf/v1 reader (ADR 0009). Three files were made here; two carry third-party bytes, copied verbatim and labelled per entry with origin, source and licence (owner answer N3 b). tests/test_scitt_ccf_external_bytes.py holds every file in this directory to an entry here, and every entry to its sha256.",
   "files": [
     {
       "filename": "local_ledger_control.json",
@@ -41,6 +41,16 @@
       "fetched": "2026-09-25",
       "license": "MIT (this repository); keys, statements and receipts were all generated in that run",
       "note": "three signed states of one ledger and a consistency receipt: the service's own signature over the newer root with a -05 proof computed from the ledger's leaves, which the ccf package 7.0.17 validated"
+    },
+    {
+      "filename": "ccf_7021_b53_6.json",
+      "origin": "made here",
+      "sha256": "73407721241a3591d3afc8fff685743e0aa11b75a927fc116a0353bdabe2d03b",
+      "source_url": "the CCF_7021 interop delivery (archive CCF_7021_INTEROP_20261023.tar.gz, sha256 55fd24ee70c9939d89feef56d625f56a2193b5a39ac4215d7743b24496af0ae4), roh/register and roh/vektoren/vectors.json, run against local https://github.com/microsoft/scitt-ccf-ledger states in virtual mode",
+      "source_ref_or_commit": "00101f769d872711356e080fbb089ac48589c60a, 0288af357bb55c78feb73182a3b86d2d954c8160 and ef68d03d7ca021273cc37c4cd57c67636f63806d (the three ledger states built and run)",
+      "fetched": "2026-10-23",
+      "license": "MIT (this repository); keys, statements and receipts were all generated in those runs",
+      "note": "the vectors of finding B53-6 that the house's own forms carry: 20 ALG statements as three states served them, and one ef68d03d receipt with its path emptied beside its control (tests/test_scitt_ccf_06.py)"
     }
   ]
 }

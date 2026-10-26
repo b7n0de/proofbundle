@@ -281,15 +281,15 @@ def synthetic_vectors(b: Builder) -> None:
         "statement_signature_invalid", False)
     eddsa = b.protected(b"\x27", b.leaf("p256"))
     add("s19-alg-eddsa", "alg EdDSA (-8), which v1 does not verify with", b.statement(eddsa), ["spki_p256"],
-        "statement_signature_invalid", False)
+        "outside_profile", None)
     text = b.protected(b"\x65ES256", b.leaf("p256"))
     add("s20-alg-text", "alg as the text ES256", b.statement(text), ["spki_p256"],
-        "statement_signature_invalid", False)
+        "outside_profile", None)
     absent = b.protected(None, b.leaf("p256"))
     add("s21-alg-absent", "no alg in the protected header", b.statement(absent), ["spki_p256"],
-        "statement_signature_invalid", False)
+        "outside_profile", None)
     add("s22-alg-unprotected", "alg in the unprotected header only", b.statement(absent, unprot=b"\xa1\x01\x26"),
-        ["spki_p256"], "statement_signature_invalid", False)
+        ["spki_p256"], "outside_profile", None)
     add("s23-untagged", "a COSE_Sign1 without tag 18", b.statement(es256, tag=b""), ["spki_p256"],
         "confirmed", True)
     add("s24-payload-5-bytes", "a payload of 5 bytes; the signature check does not read its length",
@@ -315,11 +315,11 @@ def synthetic_vectors(b: Builder) -> None:
     add("s33-x5chain-trailing-byte", "the certificate followed by one byte",
         b.statement(b.protected(b"\x26", trailing)), ["spki_p256"], "malformed", None)
     ed = b.protected(b"\x27", b.leaf("ed25519"))
-    add("s34-leaf-ed25519", "an Ed25519 end-entity key and the same key as the relying party's: v1 does not "
-        "verify with Ed25519, so the key is not trust", b.statement(ed, signer="ed25519"), ["spki_ed25519"],
-        "needs_rp_trust", None)
+    add("s34-leaf-ed25519", "an Ed25519 end-entity key and the same key as the relying party's, alg EdDSA (-8): "
+        "outside the profile before any key is looked at", b.statement(ed, signer="ed25519"), ["spki_ed25519"],
+        "outside_profile", None)
     add("s35-leaf-ed25519-p256-key", "an Ed25519 end-entity key and a P-256 relying-party key",
-        b.statement(ed, signer="ed25519"), ["spki_p256"], "needs_rp_trust", None)
+        b.statement(ed, signer="ed25519"), ["spki_p256"], "outside_profile", None)
     # relying-party keys
     add("k01-compressed-point", "the relying-party key as a compressed P-256 point: the same key", ok,
         ["spki_p256_compressed"], "confirmed", True)

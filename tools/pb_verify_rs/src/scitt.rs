@@ -685,6 +685,15 @@ pub(crate) fn statement_signature(
     selector: &Selector,
     keys: &[PubKey],
 ) -> (&'static str, Option<bool>) {
+    // ADR 0009, Decision 6: an algorithm v1 does not verify with is outside the profile, never
+    // "invalid", before any key is looked at, as Python's `_statement_alg_outside` reads the
+    // protected alg (draft -06 sets no statement algorithm).
+    if !matches!(
+        get(&st.protected, ALG),
+        Some(Item::Int(-7 | -35 | -37 | -38))
+    ) {
+        return (OUTSIDE, None);
+    }
     let Some(payload) = &st.payload else {
         return (OUTSIDE, None); // a detached payload
     };

@@ -247,8 +247,10 @@ def _cases():
          "a proof is not a byte string"),
         ("a proof with a third key", lambda: _ts(proofs_override=[_proof(extra={3: 0})]), "malformed", False,
          "a proof is exactly"),
-        ("a proof with an empty path", lambda: _ts(proofs_override=[_proof(path=[])]), "malformed", False,
-         "a path has 1 to"),
+        # Since pull request 412 (F1, -06 section 3) an empty inclusion path is a tree of one leaf; the bound of one
+        # holds for a consistency proof (-06 section 4, [+ ccf-proof-element]).
+        ("a consistency proof with an empty path",
+         lambda: _cons(proofs=[_c().enc_proof(_c().TREE.root(13), [])]), "malformed", False, "a path has 1 to"),
         ("a path element with an int tag",
          lambda: _ts(proofs_override=[_proof(path=[[1, hashlib.sha256(bytes([0])).digest()]]
                                                    + [[i % 2 == 0, hashlib.sha256(bytes([i])).digest()]

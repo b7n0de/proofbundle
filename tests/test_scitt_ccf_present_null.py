@@ -80,8 +80,10 @@ def _consistency(v, rp, unprot, *, prot=None, key=None) -> str:
                                              serialization.PublicFormat.SubjectPublicKeyInfo)
         rp = {"scitt_ccf_services": {v["issuer"]: [{"spki": spki, "kid": prot[4]}]}}
     raw = b"\xd2" + cbor2.dumps([n_prot, unprot, None, n_sig])
+    # both sizes from the caller (-06, "Consistency Receipts"): n is the newer state's, not the receipt's txid
     return S.verify_consistency_receipt(raw, older_root=older.merkle_root, older_issuer=older.issuer,
-                                        rp_trust=rp, older_size=19).status
+                                        rp_trust=rp, older_size=19,
+                                        newer_size=v["states"]["newer"]["tree_size"]).status
 
 
 def _p1924(v):

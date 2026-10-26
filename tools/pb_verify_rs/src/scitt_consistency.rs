@@ -9,11 +9,11 @@
 //!
 //! THE TREE SIZES. The command line takes no `older_size` and no `newer_size`, so every call is
 //! Python's call without them, and the result is what Python gives for that call: the success is
-//! `confirmed_without_tree_sizes`, never `confirmed`; `older_size` is null; `newer_size` is the
-//! seqno of this receipt's `ccf.v1` txid, read by Python's rule, once the newer roots agree;
-//! neither anchor rule of the sizes runs, so `anchor_rule_checked` and `left_siblings_checked` are
-//! false. The exit class of `confirmed_without_tree_sizes` is 0, as for `confirmed`: the status
-//! carries the difference.
+//! `confirmed_without_tree_sizes`, never `confirmed`, and `older_size`, `newer_size` and
+//! `newer_size_source` are null. Draft -06, 7.3, lines 857-858: a verifier that needs m or n
+//! "MUST obtain them from a source it trusts independently of the receipt", so no size is taken
+//! from this receipt's `ccf.v1` txid. The exit class of `confirmed_without_tree_sizes` is 0, as for
+//! `confirmed`: the status carries the difference.
 
 use serde_json::Value;
 
@@ -32,8 +32,6 @@ const ISSUER_MISMATCH: &str = "consistency_issuer_mismatch";
 /// Python's `CONFIRMED_WITHOUT_TREE_SIZES`: every check of a call without tree sizes passed. It does
 /// not establish strict growth (0 < m < n) or the full anchor rule of section 4.
 const CONFIRMED_WITHOUT_TREE_SIZES: &str = "confirmed_without_tree_sizes";
-/// Python's `_SIZE_FROM_HEADER`, the source of a newer size the caller did not give.
-const SIZE_FROM_HEADER: &str = "protected header ccf.v1 txid";
 
 /// Python's `ConsistencyCheck`, without `detail`.
 #[derive(Default)]
@@ -50,9 +48,6 @@ pub struct ConsistencyCheck {
     pub receipt_iat: Option<i128>,
     pub ccf_txid: Option<String>,
     pub inclusion_proofs_present: bool,
-    /// The seqno of the txid: twenty digits reach past 64 bits, as Python's int does.
-    pub newer_size: Option<u128>,
-    pub newer_size_source: Option<&'static str>,
 }
 
 impl ConsistencyCheck {
@@ -127,9 +122,6 @@ pub fn verify_consistency_receipt(
         out.signature_valid = Some(good.is_some());
         out.kid_bound_to_key = good.map(|k| Some(derived_kid(&k.spki)) == v.kid);
     }
-    // The tree sizes, where Python sets them: the newer one from the txid, the older one unknown.
-    out.newer_size = v.txid.as_deref().and_then(txid_tree_size);
-    out.newer_size_source = out.newer_size.map(|_| SIZE_FROM_HEADER);
 
     if v.consistency.iter().any(|(_, _, first_left)| *first_left) {
         return done(out, ANCHOR_NOT_CANONICAL); // section 4: the anchor's sibling is on its right
@@ -150,28 +142,9 @@ pub fn verify_consistency_receipt(
     done(out, CONFIRMED_WITHOUT_TREE_SIZES)
 }
 
-/// Python's `_txid_tree_size`: the seqno of a txid "view.seqno", each part ASCII digits, 0 or
-/// without a leading zero, at most twenty of them; anything else is None. That the seqno is the
-/// tree size the signature covers is proofbundle's own rule, not a requirement of -05
-/// (SECTION4_WGLC.md, G5). Python reports the seqno of a call without sizes as it is, 0 and
-/// beyond 2^64 included.
-fn txid_tree_size(txid: &str) -> Option<u128> {
-    let part = |p: &str| {
-        (1..=20).contains(&p.len())
-            && p.bytes().all(|b| b.is_ascii_digit())
-            && (p == "0" || !p.starts_with('0'))
-    };
-    let (view, seqno) = txid.split_once('.')?;
-    if part(view) && part(seqno) {
-        seqno.parse().ok()
-    } else {
-        None
-    }
-}
-
 impl ConsistencyCheck {
     /// One JSON object with the fields and names of Python's `to_dict()` but `detail`;
-    /// `receipt_iat` and `newer_size` are written as the integers they are, beyond 64 bits included.
+    /// `receipt_iat` is written as the integer it is, beyond 64 bits included.
     pub fn to_json(&self) -> String {
         let mut m = serde_json::Map::new();
         m.insert("status".into(), self.status.into());
@@ -188,20 +161,16 @@ impl ConsistencyCheck {
             "inclusion_proofs_present".into(),
             self.inclusion_proofs_present.into(),
         );
-        // The command line takes no tree sizes: no older size, and no anchor rule of the sizes ran.
-        m.insert("older_size".into(), Value::Null);
-        m.insert("newer_size_source".into(), self.newer_size_source.into());
-        m.insert("anchor_rule_checked".into(), false.into());
-        m.insert("left_siblings_checked".into(), false.into());
+        // The command line takes no tree sizes, and none comes from the receipt (-06 7.3).
+        for size in ["older_size", "newer_size", "newer_size_source"] {
+            m.insert(size.into(), Value::Null);
+        }
         m.insert("profile".into(), "scitt-ccf/v1".into());
         let head = Value::Object(m).to_string();
-        let number = |n: Option<String>| n.unwrap_or_else(|| "null".to_string());
-        let iat = number(self.receipt_iat.map(|n| n.to_string()));
-        let newer_size = number(self.newer_size.map(|n| n.to_string()));
-        format!(
-            "{},\"newer_size\":{newer_size},\"receipt_iat\":{iat}}}",
-            &head[..head.len() - 1]
-        )
+        let iat = self
+            .receipt_iat
+            .map_or("null".to_string(), |n| n.to_string());
+        format!("{},\"receipt_iat\":{iat}}}", &head[..head.len() - 1])
     }
 
     /// 0 confirmed or confirmed_without_tree_sizes, the status says which; 1 a check over the
@@ -263,54 +232,19 @@ mod tests {
     }
 
     #[test]
-    fn the_newer_size_is_the_seqno_of_a_txid_by_pythons_rule() {
-        let twenty = "9".repeat(20);
-        for (txid, want) in [
-            ("2.24", Some(24)),
-            ("0.0", Some(0)),
-            ("2.18446744073709551616", Some(1u128 << 64)),
-            (
-                &format!("{twenty}.{twenty}")[..],
-                Some(twenty.parse().unwrap()),
-            ),
-            (&format!("2.1{twenty}")[..], None),
-            ("2.024", None),
-            ("02.24", None),
-            ("2.", None),
-            (".24", None),
-            ("224", None),
-            ("2.24.1", None),
-            ("2.24\n", None),
-            (" 2.24", None),
-            ("+2.24", None),
-            ("2.2\u{664}", None),
-            ("2.2\u{ff14}", None),
-        ] {
-            assert_eq!(txid_tree_size(txid), want, "{txid:?}");
-        }
-    }
-
-    #[test]
-    fn a_newer_size_past_64_bits_is_written_as_the_integer_it_is() {
+    fn no_tree_size_is_taken_from_the_receipt_and_no_anchor_field_is_written() {
         let c = ConsistencyCheck {
             status: CONFIRMED_WITHOUT_TREE_SIZES,
-            newer_size: Some(u128::from(u64::MAX) + 1),
-            newer_size_source: Some(SIZE_FROM_HEADER),
+            ccf_txid: Some("2.24".into()),
             ..Default::default()
         };
-        let json = c.to_json();
-        // serde_json reads past u64 as a float, so the integer is checked in the text itself.
-        assert!(
-            json.contains("\"newer_size\":18446744073709551616,"),
-            "{json}"
-        );
-        let got: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(got["newer_size_source"], SIZE_FROM_HEADER);
-        assert_eq!(got["older_size"], Value::Null);
-        assert_eq!(
-            (&got["anchor_rule_checked"], &got["left_siblings_checked"]),
-            (&Value::Bool(false), &Value::Bool(false))
-        );
+        let got: Value = serde_json::from_str(&c.to_json()).unwrap();
+        for size in ["older_size", "newer_size", "newer_size_source"] {
+            assert_eq!(got[size], Value::Null, "{size}");
+        }
+        let fields = got.as_object().unwrap();
+        assert!(!fields.contains_key("anchor_rule_checked"));
+        assert!(!fields.contains_key("left_siblings_checked"));
         assert_eq!(c.exit_class(), 0);
     }
 }

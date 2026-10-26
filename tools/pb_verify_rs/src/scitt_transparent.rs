@@ -200,9 +200,11 @@ fn bytes32(v: &Item) -> Option<Hash> {
     }
 }
 
-/// `_PROOF_RULES`: a byte string that decodes to exactly {1: ..., 2: path}, the path 1 to MAX_PATH
-/// elements of [bool, bstr .size 32]. -> (part 1, path).
-fn proof(raw: &Item) -> Result<(Item, Vec<(bool, Hash)>), ()> {
+/// `_PROOF_RULES`: a byte string that decodes to exactly {1: ..., 2: path}, the path `min_path` to
+/// MAX_PATH elements of [bool, bstr .size 32]. -> (part 1, path). An inclusion path may be empty
+/// (-06 section 3, Figure 6: a tree of one leaf, whose root is the leaf hash); a consistency path
+/// holds one element or more (-06 section 4, Figure 8).
+fn proof(raw: &Item, min_path: usize) -> Result<(Item, Vec<(bool, Hash)>), ()> {
     let Item::Bytes(raw) = raw else {
         return Err(());
     };
@@ -212,7 +214,7 @@ fn proof(raw: &Item) -> Result<(Item, Vec<(bool, Hash)>), ()> {
     let (Some(first), Some(Item::Array(steps))) = (get(&m, 1), get(&m, 2)) else {
         return Err(());
     };
-    if m.len() != 2 || steps.is_empty() || steps.len() > MAX_PATH {
+    if m.len() != 2 || steps.len() < min_path || steps.len() > MAX_PATH {
         return Err(());
     }
     let path = steps
@@ -231,7 +233,7 @@ fn proof(raw: &Item) -> Result<(Item, Vec<(bool, Hash)>), ()> {
 /// -05 section 3.2 compute_root of one ccf-inclusion-proof, after `_LEAF_RULES`: -> (root, the
 /// data-hash of its leaf).
 fn inclusion_root(raw: &Item) -> Result<(Hash, Hash), ()> {
-    let (leaf, path) = proof(raw)?;
+    let (leaf, path) = proof(raw, 0)?;
     let Item::Array(parts) = leaf else {
         return Err(());
     };
@@ -259,7 +261,7 @@ fn inclusion_root(raw: &Item) -> Result<(Hash, Hash), ()> {
 /// root, the newer root, whether the first path element is a left sibling). The anchor folded with
 /// the left siblings alone gives the older root, with all siblings the newer one.
 fn consistency_roots(raw: &Item) -> Result<(Hash, Hash, bool), ()> {
-    let (anchor, path) = proof(raw)?;
+    let (anchor, path) = proof(raw, 1)?;
     let Some(anchor) = bytes32(&anchor) else {
         return Err(());
     };

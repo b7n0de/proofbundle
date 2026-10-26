@@ -71,9 +71,9 @@
   "information_only": true,
   "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
   "status_without_sizes": "confirmed_without_tree_sizes",
-  "status_with_sizes": "consistency_anchor_position_mismatch",
-  "commit": "ad11dba39b7323f15685a81122d6cd16ada9bc4f",
-  "scitt_ccf_py_sha256": "8f5b7e16be7d85e0fdb1573343bbbaca728a113d8f9d4dfc72d4fc9e216cf8b3",
+  "status_with_sizes": "confirmed",
+  "commit": "5798be9d617638af3717a030a31a1df29cd9607d",
+  "scitt_ccf_py_sha256": "49297d43de77f5ea0f873114543838eaa56a58c946b4aabfa4543f20df848646",
   "older_issuer": "test-only.section4-vectors.invalid"
  }
 }

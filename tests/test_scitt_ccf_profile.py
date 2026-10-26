@@ -329,13 +329,28 @@ def test_structure_no_receipt_is_not_a_transparent_statement():
 @pytest.mark.parametrize("rkw, status", [
     (dict(evidence=""), "malformed"),
     (dict(evidence="x" * 1025), "malformed"),
-    (dict(path_len=0), "malformed"),
     (dict(tagged=False), "outside_profile"),
 ])
 def test_structure_receipt(rkw, status):
     st = Stmt()
     r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), **rkw).build()]))
     assert r.receipts[0].status == status and not r.profile_satisfied
+
+
+def test_structure_an_inclusion_proof_with_an_empty_path_is_a_tree_of_one_leaf():
+    """-06 section 3 writes the inclusion path as `[* ccf-proof-element]` and says "The `path` is empty for a
+    tree of size 1, whose root is the leaf hash". The reader required one to 64 elements for both proof
+    families, so it refused such a receipt as malformed, the valid example of the profile's own samples
+    included (samples/inclusion-receipts/valid/01-one-leaf-empty-path.cbor, draft -06). A consistency proof
+    keeps its lower bound of one, because section 4 writes its path as `[+ ccf-proof-element]`."""
+    st = Stmt()
+    r = verify(transparent(st, [Rcpt(data_hash=dh_of(st), path_len=0).build()]))
+    leaf = hashlib.sha256(hashlib.sha256(b"itx").digest() + hashlib.sha256(Rcpt().evidence.encode()).digest()
+                          + dh_of(st)).digest()
+    assert (r.status, r.receipts[0].status, r.receipts[0].merkle_root) == ("confirmed", "confirmed", leaf)
+    beside = verify(transparent(st, [Rcpt(data_hash=dh_of(st), path_len=0, consistency="same_root").build()]))
+    assert (beside.receipts[0].status, beside.receipts[0].readable) == ("malformed", False)
+    assert "a path has 1 to" in beside.receipts[0].detail
 
 
 def test_structure_leaf_and_path_element_types():
@@ -666,6 +681,21 @@ def test_algorithm_outside_v1_is_not_invalid():
     st = Stmt()
     rc = Rcpt(data_hash=dh_of(st), extra_prot={1: -36}).build()
     assert verify(transparent(st, [rc])).receipts[0].status == "outside_profile"
+
+
+@pytest.mark.parametrize("alg, unprot", [(-8, None), (-36, None), (-39, None), ("ES256", None), (None, None),
+                                         (None, {1: -7})])
+def test_algorithm_outside_v1_is_not_invalid_for_the_statement_signature_either(alg, unprot):
+    """Decision 6: any other algorithm is outside_profile, never invalid. verify_statement_signature said
+    statement_signature_invalid, or needs_rp_trust without keys, where verify_transparent_statement said
+    outside_profile for the same statement (finding B53-6: PS512 as three ledger states served it,
+    tests/test_scitt_ccf_06.py). None: no alg in the protected header, {1: -7}: alg in the unprotected one only."""
+    prot = {258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"}}
+    st = Stmt(prot_map=prot if alg is None else {1: alg, **prot})
+    ts = ts_of(st, unprot)
+    assert verify(ts).statement_status == "outside_profile"
+    assert S.verify_statement_signature(ts, statement_keys=[spki(STMT_KEY)]) == ("outside_profile", None)
+    assert S.verify_statement_signature(ts, statement_keys=None) == ("outside_profile", None)
 
 
 def test_algorithm_ecdsa_signature_of_wrong_length():

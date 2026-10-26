@@ -727,7 +727,13 @@ def synthetic_vectors(b: Builder) -> None:
     refused("v18-proof-three-keys", "a proof map with a third key", rc(dh, inclusion=[
         cmap([(uint(1), arr([bstr(b"\x01" * 32), text("e"), bstr(dh)])), (uint(2), arr([arr([TRUE, bstr(b"\x02" * 32)])])),
               (uint(3), uint(0))])]))
-    refused("v19-path-empty", "an empty path", rc(dh, inclusion=[b.inclusion(dh, raw_path=arr([]))[0]]))
+    # -06 section 3, Figure 6 (`path: [* ccf-proof-element]`) and lines 362-363: "The path is empty for a tree of
+    # size 1, whose root is the leaf hash." The receipt is signed with zeros like its neighbours, so it is readable
+    # and its signature fails over that root; v39 is the same proof signed over the leaf hash.
+    b.add_ts("v19-path-empty", "an empty path: a tree of one leaf under -06, its receipt signed with zeros",
+             ts(parts, [rc(dh, inclusion=[b.inclusion(dh, raw_path=arr([]))[0]]), good]),
+             status("confirmed", "confirmed", ["signature_invalid", "confirmed"], readable=True,
+                    receipt_readable=[True, True]))
     refused("v20-path-65", "a path of 65 elements", rc(dh, inclusion=[b.inclusion(dh, path=[(True, b"\x02" * 32)] * 65)[0]]))
     refused("v21-path-element-int", "a path element [int, bstr]",
             rc(dh, inclusion=[b.inclusion(dh, raw_path=arr([arr([uint(1), bstr(b"\x02" * 32)])]))[0]]))
@@ -775,6 +781,9 @@ def synthetic_vectors(b: Builder) -> None:
     b.add_ts("v36-path-64", "a path of 64 elements",
              ts(parts, [rc(dh, inclusion=[b.inclusion(dh, path=[(True, b"\x02" * 32)] * 64)[0]],
                            sign_root=b.inclusion(dh, path=[(True, b"\x02" * 32)] * 64)[1])]), confirmed())
+    one_leaf, leaf_hash = b.inclusion(dh, path=[])
+    b.add_ts("v39-path-empty-over-the-leaf", "an empty path signed over the leaf hash: a tree of one leaf (-06)",
+             ts(parts, [rc(dh, inclusion=[one_leaf], sign_root=leaf_hash)]), confirmed())
 
     # -- the status logic of one receipt -------------------------------------------------------------
     def one(vid, what, receipt, receipt_status, top=None, **kw):
