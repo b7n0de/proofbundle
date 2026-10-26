@@ -850,8 +850,9 @@ def cases() -> List[Dict[str, Any]]:
              build={}, steps=["SV-58"], exitCode=2, failedCheck="verifier-config",
              rationale="A trusted-root key on a curve the module cannot load is unusable trust material."),
         dict(gh, caseId="neg-too-many-log-entries", build={"edit": lambda d: d["verificationMaterial"].update(
-             tlogEntries=d["verificationMaterial"]["tlogEntries"] * 33)}, steps=["SV-56"], exitCode=1,
-             failedCheck="bundle-structure", rationale="More log entries than the count bound of 32."),
+             tlogEntries=[{}] * 33)}, steps=["SV-56"], exitCode=1, failedCheck="bundle-structure",
+             rationale="More log entries than the count bound of 32: 33 empty entries, refused before any is "
+                       "read (owner decision of 2026-10-26: empty entries instead of copies, under 10 KB)."),
 
         # Relying-party configuration.
         dict(gh, caseId="neg-identity-issuer-only", identity={"issuer": ISSUER}, build={}, steps=["SV-20", "GH-20"],

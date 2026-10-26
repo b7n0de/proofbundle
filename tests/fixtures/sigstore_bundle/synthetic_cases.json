@@ -1446,8 +1446,8 @@
       "steps": [
         "SV-56"
       ],
-      "rationale": "More log entries than the count bound of 32.",
-      "sha256": "fa8876777ff3c00a848c4a57eef988d8bbc5ec8d1619aeaf61fb919a02abeb11",
+      "rationale": "More log entries than the count bound of 32: 33 empty entries, refused before any is read (owner decision of 2026-10-26: empty entries instead of copies, under 10 KB).",
+      "sha256": "348b3180432f8b589750f34f1b5c7aafd9de60c3b560af5f0da23caf045ca723",
       "identity": {
         "source_repository_uri": "https://github.com/octo-org/octo-repo",
         "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"

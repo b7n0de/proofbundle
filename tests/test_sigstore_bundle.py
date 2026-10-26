@@ -121,6 +121,17 @@ def test_predicate_binding_is_a_note_and_decides_no_verdict() -> None:
             assert notes[0].startswith("predicate-binding: agrees"), (case["caseId"], notes)
 
 
+def test_the_entry_bound_vector_is_small_and_fails_at_the_bound() -> None:
+    """Owner decision of 2026-10-26: the vector of the entry bound carries 33 empty entries instead of 33
+    copies of one, under 10 KB, and still fails at the bound, before any entry is read."""
+    case = next(c for c in CASES if c["caseId"] == "neg-too-many-log-entries")
+    data = (FIX / case["input"]).read_bytes()
+    assert len(data) < 10 * 1024, len(data)
+    out = verify_sigstore_bundle(data, **_arguments(case)).as_dict()
+    failed = [c for c in out["checks"] if c["ok"] is not True]
+    assert failed[0]["detail"] == f"the bundle carries 33 log entries, over the bound of {sb._MAX_ENTRIES}"
+
+
 def test_the_three_classes_are_disjoint_and_an_unclassified_failure_is_structural() -> None:
     assert not (sb._UNREADABLE & sb._INTEGRITY or sb._UNREADABLE & sb._REQUIREMENT or sb._INTEGRITY & sb._REQUIREMENT)
     res = sb.VerificationResult()
