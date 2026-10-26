@@ -136,7 +136,8 @@ enforced on the emit path:
 - object keys sorted by **UTF-16 code units** (not Python code points — otherwise it
   diverges on emoji and characters beyond the BMP);
 - **duplicate keys rejected** when parsing claim JSON;
-- all string values **NFC-normalized** (non-NFC rejected);
+- all string values **NFC-normalized** (non-NFC rejected), the values inside arrays and nested
+  objects included; member names are not checked for NFC;
 - **Python floats rejected** (numbers with fractional parts are decimal strings);
 - integers limited to the IEEE-754 safe range (`2^53-1`);
 - compact separators, UTF-8.
