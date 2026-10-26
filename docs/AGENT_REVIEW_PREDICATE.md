@@ -51,6 +51,7 @@ gets its own profile: `issueNodeId`, optional `commentNodeId`, `bodyCoreDigest` 
 The statement's subject digest is taken over the **subjectContext alone**. A receipt copied onto
 another pull request therefore carries the old context and fails the binding check, while remaining
 cryptographically sound — which is precisely the failure this binding exists to expose.
+The result field `subject_expectation` says whether the receipt was compared with an expectation supplied from outside: `checked` once a supplied `expected_subject_digest` has been compared with the digest of the signed `subjectContext`, and `not_supplied` otherwise, in particular whenever no expectation is passed. Without that comparison `ok` is false even for an internally consistent receipt, and the result carries a warning that names `expected_subject_digest`.
 
 ### `reviewedDiffDigest`, and why it needed writing down
 
@@ -149,6 +150,7 @@ predicate exists to avoid.
 Time is likewise four separate questions, never one field: `declaredAt`, `observedAt`, `signedAt`,
 `anchoredAt`. **`anchoredAt` must be null in v0.1.** A signature proves the signed bytes contain a
 time value, not that the value is externally true, and this predicate carries no anchor evidence.
+Of the four, only `declaredAt` is required. An absent time field reads as null, so `anchoredAt` may be absent or null, and in v0.2 and v0.3 "`times.observedAt` is not allowed" means that it is absent or null. `observations` may likewise be absent, which reads as empty.
 
 ## Coverage
 
@@ -194,6 +196,7 @@ in a different order must not disagree, or the root would report tampering where
 When the signature verifies and `findingsRoot` is present, the verifier recomputes the root over
 `declaration.findings`; a root that does not match makes the verification fail, so a receipt whose list
 was changed after signing is `invalid`, not merely annotated.
+Precisely: each leaf is the lowercase hex sha256 of one finding's RFC 8785 bytes, and the root is the lowercase hex sha256 over the ASCII bytes of the sorted leaves, concatenated as hex strings without a separator.
 
 ## Supersession
 
@@ -205,6 +208,8 @@ Resolving a receipt chain orders the receipts by these relations and checks no s
 envelope whose receipt digest the caller has verified may mark a predecessor as corrected. The chain's
 integrity fails when such an envelope names a `priorDigest` that is not the receipt digest of any envelope
 in the set, because a correction whose predecessor has disappeared can no longer be followed.
+`receipt_digest(envelope)` is the lowercase hex sha256 over the envelope's base64-decoded `payload` bytes — the signed statement as stored, which the emitter writes in RFC 8785 form — without the signatures and without a `sha256:` prefix; a `priorDigest.sha256` cites this value. `current` is the one receipt digest in the set that no envelope in `verified` names as predecessor, whether or not that receipt is itself in `verified`; when there is not exactly one, `current` is null and `ambiguous` is true.
+An envelope that carries a `supersession` block but whose `receipt_digest` is not in `verified` corrects nothing; its own `receipt_digest`, not the `priorDigest` it names, is listed in `unverified_supersession_claims`, so a rejected takeover attempt is reported rather than dropped.
 
 ## The human block
 
@@ -219,8 +224,8 @@ The renderers read the predicate version from the predicate (`timeClaims`, `limi
 `legacy_v01=`; an explicit answer always wins over the markers.
 
 **The `Receipt:` line is the sha256 of the receipt file as published** — the value a reader
-recomputes with `sha256sum` on the `.receipt.json`. It is not `receipt_digest()`, the canonical
-digest of the envelope that supersession (`priorDigest`) and `resolve_receipt_chain` key on. The two
+recomputes with `sha256sum` on the `.receipt.json`. It is not `receipt_digest()`, the digest of the
+envelope's signed payload (see Supersession) that supersession (`priorDigest`) and `resolve_receipt_chain` key on. The two
 differ by construction; a correction must cite the canonical digest, and a block's file hash is a
 locator, not a chain key.
 
@@ -288,6 +293,7 @@ Three classifications, and the difference between the last two is the substance:
 `v0.1` is `0.1.x`. A change that alters what a receipt asserts, or what a verifier must reject, is a
 new version — not a patch. `predicateType` is read, not decoration: a receipt naming a version this
 verifier does not know is refused rather than guessed at.
+`schemaVersion` is not the predicate version: `agent-review/v0.1`, `v0.2` and `v0.3` predicates all carry a `schemaVersion` of the form `0.1.x`, and the version is read from `predicateType` alone.
 
 ## Version 0.2 — the emitter's default since 6.0.0
 
@@ -307,6 +313,7 @@ What v0.2 adds, each with its conformance case:
   produces them from the predicate. The five codes are `IDENTITY_UNBOUND`, `TIME_SELF_DECLARED`,
   `CURRENTNESS_UNKNOWN`, `COVERAGE_PARTIAL` and `NOT_QUALITY_ATTESTATION`; the last one is always
   present, because no receipt of this kind says anything about the quality of the reviewed work.
+  The validator checks that each code is known and appears once; it does not compare the list with `derive_limitation_codes`, and the policy evaluates the derived codes, never the stated ones.
 - **Time claims carry their source.** `declaration.timeClaims[]` entries have `kind`
   (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value`,
   `assertedBy` and `assurance`; `times.observedAt` is not allowed on a Tier 1 predicate, because an
@@ -334,6 +341,7 @@ What v0.2 adds, each with its conformance case:
   nothing, or turn the coverage membership test into a substring test. A `time` block, if present,
   must name a known kind. A policy that fails this reaches the result as `POLICY_NOT_EVALUABLE` with
   `insufficient_evidence`.
+  For a policy read by `load_policy`, the result's `policy_name` is the policy's `name` and its `policy_digest` is the string `sha256:` followed by the lowercase hex sha256 of the policy file's bytes.
 - **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
   axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
   `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak
