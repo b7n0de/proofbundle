@@ -114,7 +114,10 @@ RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `polic
 of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
 member inside one of these objects) is one finding per member. A required member that is missing, or that
 is not an object where this section expects one, is that one finding, and the rules of its own members are
-not judged. An empty list is a valid predicate.
+not judged. An empty list is a valid predicate. A JSON `null` is no finding at `actionOutcome.performedAt`
+and `actionOutcome.outcomeRef`, where it states no time and no reference, nor at `decisionMaker.version`,
+whose form is not checked; at every other declared member, in both modes, it breaks that member's rule
+and is a finding.
 
 The declared members of the objects inside the predicate, the same as the `properties` the machine schema
 gives each of them, whether or not this section names a member elsewhere; a member outside its list is
