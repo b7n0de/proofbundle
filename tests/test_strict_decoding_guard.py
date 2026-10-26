@@ -222,10 +222,10 @@ EXCEPTIONS = {
         1, "reads back the canonical bytes of a state whose signature was verified one line before"),
     "tools/merkle_accumulator/render_runs.py": (1, "renders recorded run summaries for reading, decides nothing"),
     "tools/pb_verify_rs/crosscheck.py": (
-        18, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
-            "under the alias _json build its own test inputs; two read the shared Transparent Statement vectors and "
-            "the Rust verifier's JSON result over them, which hold CBOR integers past the I-JSON range (a receipt iat "
-            "of 2^64 - 1) that loads_strict refuses"),
+        20, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
+            "under the alias _json build its own test inputs; four read the shared Transparent Statement and "
+            "consistency receipt vectors and the Rust verifier's JSON result over them, which hold CBOR integers past "
+            "the I-JSON range (a receipt iat of 2^64 - 1) that loads_strict refuses"),
     "tools/scitt_ccf_datahash_vector/reader_matrix.py": (
         2, "measures cbor2 itself: what the library accepts is the result"),
     # The measurement harnesses of tools/scitt_ccf_external, named when the scitt-ccf reader joined the strict rule
@@ -236,6 +236,10 @@ EXCEPTIONS = {
         9, "measurement harness of consistency receipts: reads the output of the third-party Merkle oracle it runs, its "
            "own run files and stored result, the example bundle, and the service's receipts and proofs with cbor2 to "
            "rebuild them for its probes"),
+    "tools/scitt_ccf_external/consistency_receipt_vectors.py": (
+        1, "writes the shared consistency receipt vectors and reads them back for --check; they hold CBOR integers "
+           "past the I-JSON range (an iat of 2^64 - 1) that loads_strict refuses, and the one other file it reads "
+           "goes through loads_strict"),
     "tools/scitt_ccf_external/differential_corpus.py": (
         8, "builds and re-derives the differential corpus: reads the local ledger's configuration, version and quote "
            "responses, its own manifest and records, the example bundle and the build inputs, and the first receipt of "
