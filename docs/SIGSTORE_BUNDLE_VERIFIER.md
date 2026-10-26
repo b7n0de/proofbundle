@@ -138,10 +138,15 @@ of another event, such as `pull_request` or `schedule`, therefore fails here wit
 `predicate-binding` is a note, not a check (owner decision of 2026-10-26). It compares the predicate
 with the certificate: repository, ref, commit, build config, run invocation, trigger, repository and
 owner IDs, and the builder (the signer workflow for the actions.github.io buildType,
-`https://github.com/actions/runner/<runner_environment>` for the slsa-framework one). These
-equalities come from the producers' source code, not from a specification; they are pinned in
-`SPEC_PIN`. Every verdict that read an SLSA predicate carries one note beginning
-`predicate-binding: agrees` or `predicate-binding: differs`, and no exit code depends on it.
+`https://github.com/actions/runner/<runner_environment>` for the slsa-framework one). The concrete
+comparisons follow the producers' source code pinned in `SPEC_PIN`. Related builder requirements
+also have normative sources. The actions buildType constrains `builder.id` (contract GH-10), and
+SLSA requires consumers to accept only specific signer-builder pairs (contract SP-13). This reader
+reports builder mismatches but does not enforce that signer-builder acceptance policy. Its pass
+therefore does not establish that a trusted signer is authorized to claim the stated builder.
+A verdict that reaches and passes the SLSA `predicate` check carries one note beginning
+`predicate-binding: agrees` or `predicate-binding: differs`. A run that stops earlier carries no
+such note, and no exit code depends on the note.
 
 ## Deviations from the specifications
 

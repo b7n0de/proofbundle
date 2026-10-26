@@ -13,9 +13,11 @@ material, and nothing is fetched.
 
 WRITTEN FROM THE SPECIFICATIONS, NOT FROM A CLIENT. The rules below were read from the documents pinned
 in :data:`SPEC_PIN` (each by commit). No Sigstore client library is imported or copied, and the tests of
-this module import none. Where a rule comes from a producer's source code rather than a specification
-(the cross-checks between the predicate and the certificate, ``predicate-binding``), it is reported as a
-note and decides no verdict (owner decision of 2026-10-26), and :data:`SPEC_PIN` names the file.
+this module import none. Predicate-to-certificate comparisons also use the pinned producers' code.
+They are reported as a note and decide no verdict (owner decision of 2026-10-26). This does not make
+all related requirements non-normative: the actions buildType constrains ``builder.id`` (GH-10), and
+SLSA requires acceptance of specific signer-builder pairs (SP-13). This reader reports builder
+mismatches but does not enforce that signer-builder acceptance policy.
 
 WHAT A PASS MEANS. The bundle and its statement pass the selected profile's checks, its signature
 verifies under the supplied trust material, and the relying-party requirements are met. For the
@@ -1437,14 +1439,14 @@ def _binding(checks: List[Tuple[str, Any, Optional[str]]]) -> List[str]:
 
 
 def _check_slsa_binding(pred: Dict[str, Any], leaf: _Leaf) -> str:
-    """Whether the predicate agrees with what Fulcio wrote into the certificate from the OIDC token, as a
-    note that decides no verdict.
+    """Whether the predicate agrees with what Fulcio wrote into the certificate from the OIDC token,
+    reported as a note that decides no verdict (owner decision of 2026-10-26).
 
-    These equalities come from the PRODUCERS (actions/toolkit attest provenance.ts and npm/cli
-    lib/utils/provenance.js, :data:`SPEC_PIN`), which build both from the same token claims; no
-    specification states them, so a disagreement is reported and not judged (owner decision of
-    2026-10-26). A disagreement says the signed predicate describes another run than the one the
-    certificate was issued to, or that a producer changed its rules."""
+    The concrete comparisons follow the pinned producers' code (actions/toolkit attest provenance.ts
+    and npm/cli lib/utils/provenance.js). Related builder requirements also have normative sources:
+    GH-10 constrains the actions buildType's builder.id, and SP-13 requires acceptance of specific
+    signer-builder pairs. This function reports differences; it does not enforce that acceptance
+    policy. A difference may also reflect omitted data or a changed producer, rather than another run."""
     bd, rd = pred["buildDefinition"], pred["runDetails"]
     wf = _workflow_params(bd)
     e = leaf.extensions
