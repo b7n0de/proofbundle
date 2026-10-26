@@ -1,0 +1,17 @@
+The specification text in this directory, including
+draft-hillier-coverage-attestation-00 and cap-1/src/CAP-1.schema.json, is
+licensed under the Creative Commons Attribution 4.0 International licence
+(CC BY 4.0), https://creativecommons.org/licenses/by/4.0/.
+
+The code in cap-1/src, including the three verifier implementations, the
+vectors and the harnesses, is licensed under the Apache License 2.0. See
+LICENSE in this directory.
+
+Attribution is the only condition on the specification text and it is the
+condition that matters. Implement it, extend it, ship it in a product, but
+cite it:
+
+    Hillier, J. D., "The Coverage Attestation Profile (CAP-1)",
+    draft-hillier-coverage-attestation-00, Certisyn, Inc., 2026.
+
+Material submitted to the IETF is additionally subject to BCP 78 and BCP 79.

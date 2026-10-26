@@ -919,6 +919,7 @@ for the bundle schema at the top of this document.
 | [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
 | [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
 | [`docs/AGENT_REVIEW_PREDICATE.md`](docs/AGENT_REVIEW_PREDICATE.md), [`docs/VERIFIER_BLOCK.md`](docs/VERIFIER_BLOCK.md) | the agent-review predicate v0.1 to v0.3, its verifier block, receipt chains and policy decisions | `agent_review_predicate` |
+| [`conformance/cap1/draft-hillier-coverage-attestation-00.txt`](conformance/cap1/draft-hillier-coverage-attestation-00.txt) | the CAP-1 coverage-attestation document (its Section 4), the rules R0 to R8 a verifier enforces (its Section 5) and the closed disposition vocabulary (its Section 6) | `cap1_document` |
 
 The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json),
 [`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
@@ -934,9 +935,22 @@ their predicate, because those cases test the subject shape of a target; and the
 `conformance/relation/null-relationships-successor/related_n.json` carries `relationships: null`, which
 the mirror does not allow and `docs/predicates/relation.md` §4 reads as absent on an attachment.
 
-Not yet backed by a text in this repository, and recorded rather than implied: the CAP-1 rules R0 to R8
-of `draft-hillier-coverage-attestation-00` (`cap1_document`); the draft is not vendored until its licence
-is settled.
+The CAP-1 draft is not written here but vendored byte for byte from its author's repository:
+`conformance/cap1/draft-hillier-coverage-attestation-00.txt` is the file `cap-1/draft-hillier-coverage-attestation-00.txt`
+of https://github.com/Certisyn-Inc/certisyn-drafts at commit `0d8ebd751b95dd85a094686c2768f9cce7a27b03`, 32544 bytes,
+sha256 `7a9eeb1fbdb1fee95697622546d2ae7efba762fff193d6ee34765233539ac353`, fetched with git on 2026-10-26, and
+[`conformance/cap1/LICENSE-SPEC`](conformance/cap1/LICENSE-SPEC) (sha256
+`b32b9706f7067c7f51ed74f9d75562a89518839d322b15fa7f5546ff12482161`) and [`conformance/cap1/NOTICE`](conformance/cap1/NOTICE)
+(sha256 `2f95eb9b1220b57f8992de1bae36e8c1c48c088e369910f1ab77be2d53463092`) are the files of the same name at that commit.
+The draft text is licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/) with attribution to Dr Joel David Hillier, Certisyn, Inc.; the vectors
+are under the Apache License 2.0 (`conformance/cap1/vectors/LICENSE.author`, the `LICENSE` that `LICENSE-SPEC` names).
+The MIT licence of this repository does not replace CC BY 4.0 for these files. The citation `LICENSE-SPEC` asks for:
+
+    Hillier, J. D., "The Coverage Attestation Profile (CAP-1)",
+    draft-hillier-coverage-attestation-00, Certisyn, Inc., 2026.
+
+Whether these bytes equal the text of the draft in the IETF archive is not measured.
 
 ## 8. References
 
