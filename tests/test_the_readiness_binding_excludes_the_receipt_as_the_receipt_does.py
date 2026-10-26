@@ -100,10 +100,11 @@ def test_the_control_and_the_lookalike_still_move_the_binding(baum):
     e = _commit(repo, {RECEIPT: "{}\n", "audit_artifacts/640/README.md": "changed page\n"}, "receipt and page")
     assert sra.tree_digest(repo) != vorher[0] and lib.subject_tree_digest(repo) != vorher[1]
     assert m._evidenz_relation_erlaubt(repo, c, e)[0] is False
+    nach_e = (sra.tree_digest(repo), lib.subject_tree_digest(repo))
     f = _commit(repo, {"src/audit_artifacts/640/pre_tag_receipt_v6.4.0.json": "{}\n"}, "lookalike")
     assert m._evidenz_relation_erlaubt(repo, e, f)[0] is False
-    nach_e = sra.tree_digest(repo)
-    assert nach_e != vorher[0]
+    assert sra.tree_digest(repo) != nach_e[0]
+    assert lib.subject_tree_digest(repo) != nach_e[1]
 
 
 def test_both_bindings_name_one_exclusion_rule():
