@@ -887,6 +887,32 @@ on every vector. This is differential AGREEMENT on these vectors, not a correctn
 implementation; the parity registry (`scripts/rust_parity_registry.json`, AST-checked by
 `scripts/rust_parity_gate.py`) records honestly which surfaces are COVERED / PARTIAL / PENDING.
 
+## 7l. Normative companion texts and the conformance corpus
+
+The conformance corpus ([`CONFORMANCE.md`](CONFORMANCE.md), [`conformance/README.md`](conformance/README.md),
+[`conformance/vector_schema.json`](conformance/vector_schema.json)) is judged against this document and
+the companion texts below. Each of them is normative for the part it names.
+
+| text | normative for | corpus kinds |
+|---|---|---|
+| [`EVAL_CLAIM.md`](EVAL_CLAIM.md) | the `proofbundle/eval-claim/v0.1` claim a payload carries (§6), its canonicalization, its issuer binding and the reported-version status rule | `native_bundle`, `envelope_profile_rule`, `provenance_version_status` |
+| [`docs/RECEIPT_ENVELOPE_PROFILE.md`](docs/RECEIPT_ENVELOPE_PROFILE.md) | the receipt-envelope rules R1 to R4 and how their vectors are read | `envelope_profile_rule` |
+| [`docs/adr/0002-universal-content-root.md`](docs/adr/0002-universal-content-root.md) | the `jcs-sha256-v1` content root, the two-part rule, `contentRootAlg` and `legacy-sortkeys-json-v0` | `content_root_vector`, the content roots of §7j |
+| [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) | the decision-receipt predicate and its verify path | `decision_relation`, `relation_statement`, `content_root_vector` |
+| [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
+| [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
+
+The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json),
+[`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
+[`schemas/action-outcome-v0.1.schema.json`](schemas/action-outcome-v0.1.schema.json)) are informative mirrors:
+they never gate a verdict (`docs/predicates/relation.md` §2), and where a mirror and its text disagree the
+text governs the corpus.
+
+Not yet backed by a text in this repository, and recorded rather than implied: the CAP-1 rules R0 to R8
+of `draft-hillier-coverage-attestation-00` (`cap1_document`), the default-mode rule list of the
+decision-receipt validator that the `decision_predicate_findings` counts of `decision_crossimpl` depend
+on, and the OpenTimestamps proof format behind the `anchor` axis of `decision_crossimpl`.
+
 ## 8. References
 
 - RFC 6962 — Certificate Transparency (Merkle tree hashing, inclusion proofs).
