@@ -53,7 +53,11 @@ bytes* were signed and anchored, not what they mean.
 
 A verifier MUST reject a bundle whose `schema` is not `"proofbundle/v0.1"`
 (unsupported), and MUST reject unknown top-level fields (the schema is
-`additionalProperties: false`). The optional `anchors` field is now a KNOWN
+`additionalProperties: false`). Such a rejection is malformed (exit 2), as is a document that is not a JSON
+object, a missing or wrongly typed member, an `alg` or `hash_alg` other than the one §4 and §5 require, and a
+Base64 field that does not decode; a bundle that is well formed in this sense and fails a check, a signature or
+key that decodes to the wrong length and a `tree_size` that admits no leaf included, is a verification failure
+(exit 1). The optional `anchors` field is now a KNOWN
 field: a bundle carrying it is not malformed, but the core verifier (§7) does
 NOT verify it — anchors are a separate, opt-in relying-party step (§7i), so a
 bundle's crypto verdict is identical whether or not it carries `anchors`.
