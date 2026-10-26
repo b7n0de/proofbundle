@@ -1,8 +1,8 @@
 # Lineage / relationship profile `relation/v0.1`
 
 Status: EXPERIMENTAL in proofbundle 3.3.0 (API and wire format may change without deprecation).
-Executable contract: the hand-rolled fail-closed validator and chain verifier in
-`src/proofbundle/relation.py`; the JSON-Schema mirrors in
+Reference implementation: the hand-rolled fail-closed validator and chain verifier in
+`src/proofbundle/relation.py`; this page, not the code, is normative (SPEC.md §7l); the JSON-Schema mirrors in
 [`schemas/decision-receipt-v0.1.schema.json`](../../schemas/decision-receipt-v0.1.schema.json) /
 [`schemas/action-outcome-v0.1.schema.json`](../../schemas/action-outcome-v0.1.schema.json) are
 docs-only and never gate a verdict. Design record:

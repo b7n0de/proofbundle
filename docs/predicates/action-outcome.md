@@ -5,8 +5,8 @@ wire format may change without deprecation). It closes the eval → decision →
 what was measured, a decision says what was permitted, an outcome says what was actually *done* about it.
 
 Schema: [`schemas/action-outcome-v0.1.schema.json`](../../schemas/action-outcome-v0.1.schema.json) (docs-only;
-the executable contract is the hand-rolled fail-closed validator in `src/proofbundle/outcome.py`, not the
-JSON Schema — the schema never gates a verdict).
+the reference implementation is the hand-rolled fail-closed validator in `src/proofbundle/outcome.py`; this page,
+not the code and not the JSON Schema, is normative (SPEC.md §7l), and the schema never gates a verdict).
 
 ## 1. Purpose
 

@@ -812,8 +812,8 @@ authority, calendar, or chain.
 
 Status: EXPERIMENTAL since 3.3.0 (API and wire format may change without deprecation).
 Normative-short here; the deep contract and interop mapping live in
-[`docs/predicates/relation.md`](docs/predicates/relation.md), the executable one in
-`src/proofbundle/relation.py`.
+[`docs/predicates/relation.md`](docs/predicates/relation.md); `src/proofbundle/relation.py` is its reference
+implementation, which is not normative (§7l).
 
 Change is never expressed by mutation. A receipt binds exact bytes and stays valid for
 them forever; when a result is deliberately corrected, re-run, retracted, or renewed, the
@@ -883,8 +883,8 @@ content-root digests, matching the offline house contract.
 ## 7k. Standalone relation profile — `relation-statement/v0.1` (EXPERIMENTAL)
 
 Status: EXPERIMENTAL since 3.5.0. Normative-short here; prose in
-[`docs/predicates/relation.md`](docs/predicates/relation.md), executable in
-`src/proofbundle/relation_statement.py`.
+[`docs/predicates/relation.md`](docs/predicates/relation.md); `src/proofbundle/relation_statement.py` is its
+reference implementation, which is not normative (§7l).
 
 The in-receipt edges of 7j express change from the SUCCESSOR's side. A relation statement is the
 INDEPENDENT case: a DSSE-signed statement OVER a target receipt, carrying EXACTLY ONE typed edge and
