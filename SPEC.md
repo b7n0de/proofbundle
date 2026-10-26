@@ -891,7 +891,9 @@ implementation; the parity registry (`scripts/rust_parity_registry.json`, AST-ch
 
 The conformance corpus ([`CONFORMANCE.md`](CONFORMANCE.md), [`conformance/README.md`](conformance/README.md),
 [`conformance/vector_schema.json`](conformance/vector_schema.json)) is judged against this document and
-the companion texts below. Each of them is normative for the part it names.
+the companion texts below. Each of them is normative for the part it names; where one of them and this
+document disagree, this document is normative and the companion text is a bug, the same precedence as
+for the bundle schema at the top of this document.
 
 | text | normative for | corpus kinds |
 |---|---|---|
