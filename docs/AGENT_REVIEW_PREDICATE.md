@@ -134,10 +134,12 @@ value, so the block is delimited by fixed markers and replaced by a fixed token 
 ```
 
 The token is part of the wire format. Two implementations that pick different tokens compute
-different digests over the same body, and the mismatch would look like tampering.
+different digests over the same body, and the mismatch would look like tampering. The replaced span runs
+from the first character of the begin marker through the last character of the end marker, both markers
+included, and `bodyCoreDigest` is the lowercase hex SHA-256 of the UTF-8 bytes of the result.
 
 **Fail-closed on ambiguity.** Zero blocks is the normal pre-disclosure case and hashes as-is. Two
-blocks, or a begin without an end, is not a body that reduces to one canonical form: an actor who may
+blocks, a begin without an end, or an end before its begin, is not a body that reduces to one canonical form: an actor who may
 append a second block could otherwise choose which one defines the digest. That case raises rather
 than picks.
 
