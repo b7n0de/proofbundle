@@ -68,7 +68,11 @@ semantically mixes into the other.
 
 ## 4. Predicate type and payload
 
-- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`
+- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`, the one predicateType of a
+  decision receipt. `https://b7n0de.com/proofbundle/decision-receipt/v0.1`, without `/predicates/`, is not one: the
+  verify path refuses it as malformed (exit 2). Two content-root vectors of the corpus carry it as fixture bytes only
+  (`content-root-cross-predicate-ref`, `content-root-envelope-invariance`); their successor cases
+  (`…-predicates-path`) carry the predicateType above.
 - Statement `_type`: `https://in-toto.io/Statement/v1`
 - DSSE `payloadType`: `application/vnd.in-toto+json` (the in-toto envelope media type, not a predicate subtype)
 - `subject`: a commitment to the decision (e.g. `name: "decision:<decisionId>"`, `digest.sha256`). Evidence
