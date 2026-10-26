@@ -159,6 +159,14 @@ that is not an object with a non-empty string `ref` fires R0; an `absence_assert
 array of objects fires R6; and a `capped_to` that is `null` or empty states no verdict, so it fires R7 when
 `complete` is false.
 
+Every rule is judged on every document on its own, and the set holds every rule the document breaks, so one
+document can fire several rules; a document that is not a JSON object fires R0 alone. For R1 the accounted units of
+a stratum are the distinct non-empty strings its `unexamined` entries name as `unit`, whatever R2 and R3 judge of an
+entry's disposition or digest; a unit named twice counts once and fires R1; when `eligible` and `examined` are both
+integers, `eligible` must equal `examined` plus the number of accounted units. R8 is judged only for a stratum that
+exists and that an absence assertion names as its `stratum`: its `supports` must be a non-empty array of strings
+that are neither empty nor white space; an absence assertion that names no existing stratum fires R6 alone.
+
 ## Cases today
 
 | caseId | proves | does NOT prove |
