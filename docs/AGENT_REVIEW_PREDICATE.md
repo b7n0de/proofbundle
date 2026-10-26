@@ -402,7 +402,9 @@ What v0.2 adds, each with its conformance case:
   coverage status is required. A string is refused, because it would be read as characters and match
   nothing, or turn the coverage membership test into a substring test. A `time` block, if present,
   must name a known kind. A policy that fails this reaches the result as `POLICY_NOT_EVALUABLE` with
-  `insufficient_evidence`.
+  `insufficient_evidence`. The keys a policy decision reads are `blocking`, `never_blocking`,
+  `require_coverage_status`, `time` and `name`, and an absent one reads as null; a policy file may carry
+  further keys, such as reasons or measurements beside its rules, and they decide nothing.
   For a policy read by `load_policy`, the result's `policy_name` is the policy's `name` and its `policy_digest` is the string `sha256:` followed by the lowercase hex sha256 of the policy file's bytes.
 - **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
   axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
