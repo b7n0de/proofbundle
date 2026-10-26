@@ -48,18 +48,28 @@ hide it.
 ### `decision_crossimpl`
 
 A decision-receipt statement pair (decision + referenced evidence) produced by a **second,
-independent implementation**, checked for cross-implementation agreement:
+independent implementation**, checked for cross-implementation agreement. A case directory holds the two
+in-toto Statements `decision_receipt.json` and `evidence_eval_result.json`, their `.jcs` bytes, the
+producer's `MANIFEST.json` and, when anchored, the OpenTimestamps proof `decision_receipt.jcs.ots`. The
+axes:
 
-- `.jcs` bytes are byte-identical with proofbundle's RFC 8785 canonical output;
-- both content roots (`statement_content_root`, jcs-sha256-v1) recompute to the `MANIFEST.json`
-  values and to `expected`;
-- `decision.evidenceRefs[*].digest` binds the evidence **content root**;
-- `validate_decision_predicate` returns exactly `expected.decision_predicate_findings` (an
-  expected-fail when the external predicate does not yet match `decision-receipt/v0.1`);
-- the OpenTimestamps anchor, when present, resolves to the expected status offline
-  (`confirmed` against a frozen merkle root, or `pending`). The verifier rejects a wrong
-  frozen root (`block_mismatch`), so confirmation is not a blind pass — that negative is
-  exercised by `tests/test_anchors_ots.py`; the corpus itself runs the positive check.
+- `jcs_byte_identical`: each `.jcs` file is byte-identical with the RFC 8785 bytes of its `.json`
+  Statement;
+- `decision_content_root`, `evidence_content_root`: the `jcs-sha256-v1` content roots of the two
+  Statements (ADR 0002), 64 lowercase hex; `content_roots_match_manifest`: they equal
+  `decision_content_root_sha256` and `evidence_content_root_sha256` of `MANIFEST.json`;
+- `evidence_ref_binds_content_root`: at least one `predicate.evidenceRefs[].digest.sha256` of the
+  decision equals the evidence content root (`docs/predicates/decision-receipt.md` §3);
+- `decision_predicate_findings`: the number of findings of the default-mode validation of the decision's
+  predicate (`docs/predicates/decision-receipt.md` §6, *Default mode*; an expected-fail when the external
+  predicate does not yet match `decision-receipt/v0.1`), and `schema_conformant`: whether that number is 0;
+- `anchor`, when the case ships a proof: the verdict of `decision_receipt.jcs.ots` against the SHA-256 of
+  `decision_receipt.jcs` (`docs/ANCHORS.md`, *The proof format and the verdict, exactly*), with the
+  relying-party header the case supplies in `anchor.rpTrust.bitcoinBlockHeaderMerkleRootsByHeight`; that
+  header is an input, and `anchor.frozen` is producer evidence that never enters the verdict. The value is
+  the status, `confirmed` or `pending`. A confirmation is not a blind pass: a wrong relying-party root gives
+  `block_mismatch`, a negative exercised by `tests/test_anchors_ots.py`; the corpus itself runs the
+  positive check.
 
 ### `native_bundle`
 
