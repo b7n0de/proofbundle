@@ -65,6 +65,7 @@
     "provenance/version-status-reported-without-field",
     "provenance/version-status-unknown-literal",
     "provenance/version-status-unrelated-status-field",
+    "provenance/version-status-unrelated-status-field-named-set",
     "relation/declared-supersedes-verified",
     "relation/declared-unresolved",
     "relation/decoy-accept-path",
