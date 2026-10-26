@@ -703,6 +703,12 @@ Each `anchors[]` entry is a JSON object:
 | `preRegistration` | the commitment existed **before** the run (backdating protection; in-toto/attestation#565) | SHA-256 of the raw protocol bytes, i.e. the receipt's `prereg_sha256` |
 | `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`**, computed over the canonical form in which every ES256 signature in `sd_jwt_vc.compact` (the issuer JWT's and a trailing Key Binding JWT's) has `s ≤ n/2` (§6; the steps are in `docs/ANCHORS.md`). The bundle itself is not rewritten. |
 
+A verifier reads the `preRegistration` root from the payload read as an eval claim
+(`EVAL_CLAIM.md` §5): it is the 32 bytes that the 64 hex characters of `prereg_sha256` spell, not a
+hash of those characters. A payload that is not an eval claim, or carries no `prereg_sha256`, gives
+the receipt no `preRegistration` root, and a `preRegistration` anchor on it fails as an anchor whose
+target has no root.
+
 **The type name is an identifier, not a grammar (rev 2026-09-20).** An earlier revision of the
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or
 reject a type by its SHAPE. It cannot, and no anchor type this project ships has that shape.
