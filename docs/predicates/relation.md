@@ -126,7 +126,11 @@ lineage NOT_EVALUATED, `relationships must be a JSON array of edge objects`), an
 (exit 2, lineage FAIL, `relation:malformed:`): there the predicate carries a non-empty array or no
 `relationships` member. Any other value there that is not a non-empty array of edges that each meet the
 edge table, a value that is no array included, is malformed in the same way as the empty array (exit 2,
-lineage FAIL, `relation:malformed:`).
+lineage FAIL, `relation:malformed:`). The receipt under verification is held to the same oracle, after
+its signature: a signature that fails is exit 1 whatever the payload; under one that verifies, a payload
+that is no JSON object under the strict reader, or whose `_type` or `subject` breaks the rule above, is
+malformed (exit 2, lineage NOT_EVALUATED), and one that is only not its own RFC 8785 form is malformed
+too (exit 2), its edges judged as usual.
 
 **Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
 below; a conformance vector's `errorContains` names one of them.
