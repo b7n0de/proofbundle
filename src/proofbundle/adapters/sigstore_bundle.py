@@ -1388,7 +1388,9 @@ def _github_build_type(bd: Dict[str, Any]) -> None:
     the four internal parameters (MUST, contract GH-08) and a resolved dependency naming the source commit
     (MUST, GH-09). The slsa-framework buildType makes both optional, so it is not held to them."""
     wf = _workflow_params(bd)
-    _github_internal(bd, ("event_name", "repository_id", "repository_owner_id", "runner_environment"))
+    gh = _github_internal(bd, ("event_name", "repository_id", "repository_owner_id", "runner_environment"))
+    if not is_member(gh["runner_environment"], ("github-hosted", "self-hosted")):
+        raise _Fail("predicate", "internalParameters.github.runner_environment must be github-hosted or self-hosted")
     if not any(type(c) is str and c for c in _source_commits(bd, wf)):
         raise _Fail("predicate", "resolvedDependencies must name the source git+" + render_safe(
             wf["repository"] + "@" + wf["ref"], quote=False) + " with a gitCommit digest (actions.github.io "

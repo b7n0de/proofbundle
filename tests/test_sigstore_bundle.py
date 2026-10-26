@@ -352,6 +352,19 @@ def test_slsa_optional_arrays_refuse_boolean_and_number(field: str, invalid: obj
     assert caught.value.check == "predicate"
 
 
+def test_actions_runner_environment_uses_the_buildtypes_two_values() -> None:
+    gen = _generator()
+    definition = gen.provenance_statement()["predicate"]["buildDefinition"]
+    github = definition["internalParameters"]["github"]
+    for allowed in ("github-hosted", "self-hosted"):
+        github["runner_environment"] = allowed
+        sb._github_build_type(definition)
+    github["runner_environment"] = "not-a-runner-kind"
+    with pytest.raises(sb._Fail) as caught:
+        sb._github_build_type(definition)
+    assert caught.value.check == "predicate"
+
+
 @pytest.mark.parametrize("site", ["publish-signer", "dist-signature"])
 @pytest.mark.parametrize("expiry_offset", [-1, 0, 1])
 def test_registry_expiry_is_exclusive_at_both_signature_checks(site: str, expiry_offset: int) -> None:
