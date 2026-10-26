@@ -108,7 +108,11 @@ axis decides the use:
   the same body core digest.
 - `subjectExpectation`: the envelope is verified as `v0.1` without an expected subject digest; the value is
   the reported subject expectation, and an absent expectation is reported as a warning that names
-  `expected_subject_digest`.
+  `expected_subject_digest`. The reported subject expectation is `checked` when the verification compares the
+  receipt's subject with a supplied expected subject digest, whatever that comparison finds, and `not_supplied`
+  when no expected subject digest is supplied or the verification stops before it reads the subject; the
+  warning is a second observation beside the value, given when no expected subject digest is supplied and the
+  subject is read, and it is not the value.
 - `currentReceipt`, `chainIntegrity`, `unverifiedSupersessionClaim`: the input holds `envelopes`; each is
   verified as `v0.1`, the receipt digests of those whose signature verifies form the verified set, and the
   receipt chain of all envelopes is resolved with that set: `currentReceipt` is the receipt digest of the
