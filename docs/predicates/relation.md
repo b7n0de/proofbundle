@@ -97,6 +97,13 @@ whose digest names no attached receipt is DECLARED_UNRESOLVED, whatever else is 
 "attached-but-unverified" means an attachment whose computed content root the edge names and that does
 not verify standalone. An attachment that no edge names changes nothing, whether it verifies or not.
 
+**The attached ancestry.** A VERIFIED edge is followed into the edges its target declares, and on, as
+far as targets are attached. The direct targets of the receipt under verification are at depth 1;
+resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). An attached
+ancestor that an edge of the ancestry names and that does not verify standalone makes the receipt's edge
+FAIL as well (`relation:ancestor_verification_failed`). An edge of an ancestor whose target is not
+attached ends the walk there and does not lower VERIFIED.
+
 "Verified STANDALONE" covers the payload as well as the signature, and it binds at every hop
 (deep gate 2026-09-05, finding L4-01): the resolver parses an attached target's payload with the SAME
 strict, canonical oracle the standalone verify path uses. A payload the oracle refuses — a duplicate JSON
@@ -119,6 +126,7 @@ below; a conformance vector's `errorContains` names one of them.
 |---|---|---|
 | structural error of an edge (shape, unknown field, unknown relation, digest not 64 lowercase hex, missing `digestAlgorithm`) | `relation:malformed:` followed by the detail | 2 |
 | attached target named by an edge that does not verify standalone (signature, key, `payloadType`) | `relation:target_verification_failed` | 2 |
+| attached ancestor, named by an edge of the ancestry, that does not verify standalone | `relation:ancestor_verification_failed` | 2 |
 | attached target whose payload is not a well-formed statement | `RELATION_TARGET_MALFORMED` | 2 |
 | attached ancestry deeper than 32 | `relation:depth_exceeded` | 2 |
 | a cycle | `relation:cycle` | 2 |
