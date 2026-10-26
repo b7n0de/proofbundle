@@ -392,7 +392,9 @@ What v0.2 adds, each with its conformance case:
   (`agent-review/default`); its name and sha256 digest appear in the result, so a later reading can
   say what the decision was made against. Decisions are `accept`, `reject` and
   `insufficient_evidence` (a coverage that is not stated is the absence of evidence, not evidence of
-  a defect). Without a policy the result carries `policy_decision: null`, the advisory code
+  a defect). The decision is `reject` when a derived code is in `blocking` and not in `never_blocking`,
+  otherwise `insufficient_evidence` when `require_coverage_status` is set and the coverage status is not
+  in it, otherwise `accept`. Without a policy the result carries `policy_decision: null`, the advisory code
   `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false; `ok` is unaffected, because a
   check that was not run is not a failed check. A `reject` or an `insufficient_evidence` sets `ok`
   to false. The policy file itself is validated before it decides: `blocking` and `never_blocking`
