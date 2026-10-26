@@ -472,7 +472,10 @@ verified under fails the policy (exit 3); the `outcome verify` and `relation-sta
 judge a policy by its `relations` section alone, so a policy without one, or one that sets a rule the
 path does not apply, a `decision_receipt` section among them, is refused (exit 2). On all three paths
 `valid_from`, `valid_until`, `requiresIdentityOverlay`, `policyPurpose` and the `relations` section
-apply, and an unmet one fails the policy (exit 3).
+apply, and an unmet one fails the policy (exit 3). Of the `relations` rules, `require_relation_resolution`,
+`reject_superseded`, `relation_signer` and `require_relation_target` apply on all three paths, and
+`reject_retracted` applies only on the `relation-statement verify` path; the `decision verify` and `outcome
+verify` paths refuse a policy that sets `reject_retracted` (exit 2).
 
 ## 7a. Scope guardrail (honest)
 
