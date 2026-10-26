@@ -250,8 +250,10 @@ sd-jwt-issuer-identity check.
 
 Check **sd-jwt-bundle-binding** (WP-C1 + N1): performed when `sd_jwt_vc` is present
 and its issuer signature verified, in **two** cases:
-1. `payload_b64` decodes to a `proofbundle/eval-claim/v0.1` claim with a
-   `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
+1. `payload_b64`, decoded, read as UTF-8 and parsed with the strict reader of §2, is
+   a JSON object whose member `schema` is the string `proofbundle/eval-claim/v0.1`
+   (members such as `passed`, `threshold` or `suite` do not make a payload an eval
+   claim; only `schema` does), and the bundle carries `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
    `comparator`, `suite`, `issuer`) and its committed `receipt.root_b64` MUST match
    the bundle payload bit-exact and bind **this** bundle's Merkle root. A valid
    issuer signature over disclosures that describe a *different* bundle (a receipt
@@ -267,6 +269,14 @@ and its issuer signature verified, in **two** cases:
    commitment) carries no eval anchoring claim and is out of scope — it does not add
    this check (backward-compatible). A conforming verifier MUST implement case 2, or
    it remains vulnerable to grafting a signed eval SD-JWT onto an arbitrary payload.
+
+A payload that the strict reader refuses (a duplicate key at any depth, §2; `NaN`,
+`Infinity` or `-Infinity`; a number with no finite IEEE 754 double; an integer literal
+outside ±(2^53 − 1); nesting beyond the reader's depth bound) also performs the check,
+and it **FAILS** (reason: `unreadable claim`): whether it is an eval claim cannot be
+read, so it does not read as no claim. A payload that is not UTF-8 or not JSON text (a
+leading byte order mark, a raw control character inside a string) is no eval claim;
+only case 2 can add the check for it.
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
@@ -319,8 +329,9 @@ A conforming verifier MUST perform, in this order, and report each result:
    a forged issuer identity).
 7. **sd-jwt-bundle-binding** — if `sd_jwt_vc` is present and its issuer signature
    verified, in EITHER of two cases (§6): the payload is a
-   `proofbundle/eval-claim/v0.1` claim (WP-C1; fail-closed against cross-receipt
-   substitution), OR the payload is NOT an eval-claim but the SD-JWT carries an
+   `proofbundle/eval-claim/v0.1` claim by its `schema` member (WP-C1; fail-closed against
+   cross-receipt substitution; a payload the strict reader refuses fails the check), OR
+   the payload is NOT an eval-claim but the SD-JWT carries an
    eval-binding `receipt.root_b64` commitment (N1, since 3.1.1; fail-closed against
    grafting a signed eval SD-JWT onto an arbitrary payload). A generic SD-JWT-VC with
    no `receipt.root_b64` is out of scope.
@@ -329,7 +340,9 @@ A conforming verifier MUST perform, in this order, and report each result:
    an issuer key (a trust policy's `sd_jwt.issuer_key_pin`) that matches the key that
    verified the SD-JWT, or, with no pin, sd-jwt-bundle-binding passed and the key that
    verified the SD-JWT is the key under which ed25519-signature verified the bundle. A
-   supplied pin decides alone. The check is reported only when it FAILS.
+   supplied pin decides alone. The check is reported only when it FAILS, and its failure
+   fails the bundle (exit 1) like any other failed check, also when every other check
+   passed.
 8. **root-authenticity** and **tree-size** — additive relying-party root
    authentication (ADR 0004, since the root is NOT in the signature input, §5).
    Performed ONLY when the relying party supplies an expected value: a given
