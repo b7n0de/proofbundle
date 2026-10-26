@@ -1824,6 +1824,134 @@
       "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
       "versionDocument": "synthetic/neg-npm-registry-signature-other-version.version.json",
       "versionDocumentSha256": "3f7f81cbc437c3cee6c97553dd0a6b562d47a74d932fa5b5f53d54a369202b1e"
+    },
+    {
+      "caseId": "pos-npm-package-json-repository",
+      "input": "synthetic/pos-npm-package-json-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "package.json names the package of the provenance's subject and, in npm's normalized object form, the repository the certificate names.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/pos-npm-package-json-repository.package.json",
+      "packageJsonSha256": "346f2c2b5baffb57bf58ae91cf6121da8bfc5f7bf656c6742a7e5c2d617721dd"
+    },
+    {
+      "caseId": "pos-npm-package-json-shorthand",
+      "input": "synthetic/pos-npm-package-json-shorthand.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "The shortcut form github:<owner>/<repo> of npm's package.json documentation.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/pos-npm-package-json-shorthand.package.json",
+      "packageJsonSha256": "9d183305349dd96db5cedeb405cb97e4750ca0443319f285e824e070f25d8925"
+    },
+    {
+      "caseId": "neg-npm-package-json-other-repository",
+      "input": "synthetic/neg-npm-package-json-other-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "package.json names another repository than the one the provenance was built from.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-other-repository.package.json",
+      "packageJsonSha256": "075d737d9503d9f9f7121cc87402a827bd4221bb535ba24f0b2f5ae64100c0e1"
+    },
+    {
+      "caseId": "neg-npm-package-json-repository-case",
+      "input": "synthetic/neg-npm-package-json-repository-case.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "The repository must match case-sensitively (npm docs, generating provenance statements).",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-repository-case.package.json",
+      "packageJsonSha256": "b9b3e53edb3f99e17ce4b5e717fadcdd9503ef464f521cce458b87d853f253d8"
+    },
+    {
+      "caseId": "neg-npm-package-json-no-repository",
+      "input": "synthetic/neg-npm-package-json-no-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "Provenance requires a public repository in package.json.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-no-repository.package.json",
+      "packageJsonSha256": "218736fc2128b1e929e55d61fe9653ea211bb322e5a28b5d7d6cc4956c56bf6d"
+    },
+    {
+      "caseId": "neg-npm-package-json-other-version",
+      "input": "synthetic/neg-npm-package-json-other-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json is of another version than the provenance's subject.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-other-version.package.json",
+      "packageJsonSha256": "6b319f176ce1947e5be827085454924c9276cc4652ec8306fd25b0827b439123"
     }
   ]
 }

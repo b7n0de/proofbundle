@@ -198,7 +198,7 @@ _INTEGRITY = frozenset({"bundle-structure", "certificate", "public-key", "signat
                         "timestamp-authority", "signing-time", "certificate-chain", "sct", "statement",
                         "predicate-type", "predicate", "registry-signature"})
 #: Check names whose failure is an unmet relying-party requirement (exit 3).
-_REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name"})
+_REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name", "package-json"})
 
 #: The most transparency-log entries and RFC 3161 timestamps one bundle may carry. Each entry costs a
 #: body parse, two signature checks and a Merkle walk, and the input budget alone admitted 1500 copies
@@ -1448,6 +1448,50 @@ def _check_npm_publish(pred: Any, statement: Dict[str, Any]) -> Tuple[str, str]:
     return name, version
 
 
+#: The forms of package.json's ``repository`` read as a GitHub repository: npm's normalized object form
+#: ``git+https://github.com/<owner>/<repo>.git``, the shortcut forms ``<owner>/<repo>`` and
+#: ``github:<owner>/<repo>`` of npm's package.json documentation, and the https, git, ssh and scp-like
+#: URLs of the same repository, each with or without ``.git``. Any other value names no GitHub
+#: repository here. ASCII classes only.
+_GITHUB_REPOSITORY = re.compile(
+    r"\A(?:(?:git\+)?https://github\.com/|git://github\.com/|(?:git\+)?ssh://git@github\.com/|git@github\.com:"
+    r"|github:)?([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\Z")
+
+
+def _check_package_json(doc: Dict[str, Any], statement: Dict[str, Any], leaf: _Leaf) -> Tuple[bool, str]:
+    """The package.json of the tarball against the provenance (contract NP-15): "Ensure your
+    `package.json` is configured with a public `repository` that matches (case-sensitive) where you are
+    publishing with provenance from" (npm docs, "Generating provenance statements"). It must name the
+    package of a subject of the statement, and a repository that reads as the one the certificate names
+    (``source_repository_uri``, Fulcio 1.12), compared case-sensitively. How the registry compares at
+    publish time is not published; the forms read (:data:`_GITHUB_REPOSITORY`) are this module's, taken
+    from npm's package.json documentation. Members the reader does not use are ignored."""
+    name, version = doc.get("name"), doc.get("version")
+    if type(name) is not str or type(version) is not str or not name or not version:
+        return False, "package.json names no package: name and version must be non-empty strings"
+    purl = _npm_purl(name, version)
+    subjects = [s.get("name") for s in statement["subject"]]
+    if not any(s == purl for s in subjects):
+        return False, f"package.json is of {render_safe(purl)}, the provenance's subjects are {render_safe(subjects)}"
+    repository = doc.get("repository")
+    url = repository
+    if type(repository) is dict:
+        if repository.get("type", "git") != "git":
+            return False, f"package.json's repository is of type {render_safe(repository.get('type'))}, not git"
+        url = repository.get("url")
+    if url is None:
+        return False, "package.json names no repository, and provenance requires one (contract NP-15)"
+    m = _GITHUB_REPOSITORY.match(url) if type(url) is str else None
+    if m is None:
+        return False, f"package.json's repository {render_safe(url)} is no form of a GitHub repository this module reads"
+    uri = "https://github.com/" + m.group(1) + "/" + m.group(2)
+    certified = leaf.extensions.get("source_repository_uri")
+    if uri != certified:
+        return False, (f"package.json's repository reads as {render_safe(uri)}, the certificate names "
+                       f"{render_safe(certified)} (compared case-sensitively, contract NP-15)")
+    return True, f"package.json of {render_safe(purl)} names {render_safe(uri)}, the repository the certificate names"
+
+
 def _check_registry_signature(doc: Dict[str, Any], name: str, version: str, statement: Dict[str, Any],
                               keys: Dict[str, _RegistryKey], times: Sequence[int]) -> str:
     """The registry's signatures in the version document's ``dist.signatures`` (contract NP-10, NP-14).
@@ -1661,6 +1705,7 @@ def verify_sigstore_bundle(
     expected_subject_name: Optional[str] = None,
     tlog_threshold: int = 1,
     version_document: Any = None,
+    package_json: Any = None,
 ) -> SigstoreVerdict:
     """Verify one Sigstore bundle (wire bytes, ``bytes`` or ``str``) under one profile of :data:`PROFILES`.
 
@@ -1682,6 +1727,9 @@ def verify_sigstore_bundle(
     ``version_document`` (npm-publish) is the registry's version document of the package
     (``https://registry.npmjs.org/<name>/<version>``) as wire bytes; when given, the registry signatures
     in its ``dist.signatures`` are checked (``registry-signature``), and when not, a note says so.
+    ``package_json`` (npm-provenance) is the package.json of the tarball the relying party holds, as wire
+    bytes; when given, it must name the package of a subject and the repository the certificate names
+    (``package-json``, a requirement). The reader does not open the tarball.
 
     The body never raises: unusable trust material and unreadable bytes come back as failing checks
     (exit 2), every other outcome as a check of its own. The arguments are read once at the call
@@ -1705,7 +1753,8 @@ def verify_sigstore_bundle(
             keys = _read_registry_keys(_wire(registry_keys, "the registry keys document"))
         elif registry_keys is not None:
             raise _Unreadable(f"profile {prof} is certificate-signed; registry_keys does not apply")
-        for what, value, profiles in (("version_document", version_document, ("npm-publish",)),):
+        for what, value, profiles in (("version_document", version_document, ("npm-publish",)),
+                                      ("package_json", package_json, ("npm-provenance",))):
             if value is not None and not is_member(prof, profiles):
                 raise _Unreadable(f"profile {prof} has no use for it; {what} does not apply")
     except _Unreadable as exc:
@@ -1721,7 +1770,8 @@ def verify_sigstore_bundle(
     read = []
     try:
         for key, value, what in (("bundle", bundle, "the bundle"),
-                                 ("version_document", version_document, "the npm version document")):
+                                 ("version_document", version_document, "the npm version document"),
+                                 ("package_json", package_json, "the package.json")):
             if value is None and key != "bundle":
                 cfg[key] = None
                 continue
@@ -1935,3 +1985,6 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         named = [s.get("name") for s in statement["subject"]]
         res.add("subject-name", cfg["subject_name"] in named,
                 f"subject names {render_safe(named)}, expected {render_safe(cfg['subject_name'])}")
+    if cfg["package_json"] is not None:
+        assert leaf is not None
+        res.add("package-json", *_check_package_json(cfg["package_json"], statement, leaf))

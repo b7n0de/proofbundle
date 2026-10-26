@@ -1002,6 +1002,7 @@ def _flaechen():
     sig_fix = _WURZEL / "tests" / "fixtures"
     sig_bundle = (sig_fix / "sigstore_bundle" / "public" / "npm-sigstore-3.0.0-provenance.sigstore.json").read_bytes()
     sig_root = (sig_fix / "checkpoint" / "trusted_root.json").read_bytes()
+    sig_package = (sig_fix / "sigstore_bundle" / "public" / "npm-sigstore-3.0.0-package.json").read_bytes()
     sig_digest = ("sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6be"
                   "efa46a8b894489557531c70911000d87fe66d78")
     sig_identity = {"source_repository_uri": "https://github.com/sigstore/sigstore-js",
@@ -1142,7 +1143,8 @@ def _flaechen():
             accepted_profiles=w(["tag:agentrust-io.com,2026:trace-v0.2"]))),
         ("adapters.sigstore_bundle.verify_sigstore_bundle", lambda w: sb.verify_sigstore_bundle(
             w(sig_bundle), trusted_root=w(sig_root), artifact_digest=w(sig_digest), profile=w("npm-provenance"),
-            identity=w(sig_identity), expected_subject_name=w("pkg:npm/sigstore@3.0.0"), tlog_threshold=w(1))),
+            identity=w(sig_identity), expected_subject_name=w("pkg:npm/sigstore@3.0.0"), tlog_threshold=w(1),
+            package_json=w(sig_package))),
         # emit surfaces
         ("evalclaim.emit_eval_receipt", lambda w: ec.emit_eval_receipt(w(_claim("0.10")), _T)),
         ("decision.emit_decision_receipt", lambda w: decision.emit_decision_receipt(w(dec_pred), _T)),

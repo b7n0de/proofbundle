@@ -489,6 +489,16 @@ def version_document(*, name: str = "octo-pkg", version: str = "1.0.0", integrit
     return json.dumps({"name": name, "version": version, "dist": dist}, indent=2).encode("utf-8") + b"\n"
 
 
+def package_json(*, name: str = "octo-pkg", version: str = "1.0.0", repository: Any = None,
+                 drop_repository: bool = False) -> bytes:
+    """The package.json of the npm tarball, with the repository in the object form npm normalizes it to
+    (npm docs, package.json "repository") unless ``repository`` names another value."""
+    doc: Dict[str, Any] = {"name": name, "version": version, "description": "test package of the vectors"}
+    if not drop_repository:
+        doc["repository"] = repository if repository is not None else {"type": "git", "url": f"git+{REPO}.git"}
+    return json.dumps(doc, indent=2).encode("utf-8") + b"\n"
+
+
 def _with(base: Dict[str, Any], **changes: Any) -> Dict[str, Any]:
     out = copy.deepcopy(base)
     out.update(changes)
@@ -963,6 +973,29 @@ def cases() -> List[Dict[str, Any]]:
         dict(pub, caseId="neg-npm-registry-signature-other-version", versionDoc={"version": "1.0.1"},
              steps=["NP-10", "NP-03"], exitCode=1, failedCheck="registry-signature",
              rationale="A sound registry signature for another version than the publish attestation names."),
+
+        # The package.json of the tarball against the certificate (NP-15, owner answer 8 of 2026-10-26).
+        dict(npm, caseId="pos-npm-package-json-repository", packageJsonDoc={}, steps=["NP-15", "NP-08"],
+             exitCode=0, failedCheck=None,
+             rationale="package.json names the package of the provenance's subject and, in npm's normalized "
+                       "object form, the repository the certificate names."),
+        dict(npm, caseId="pos-npm-package-json-shorthand", packageJsonDoc={"repository": "github:octo-org/octo-repo"},
+             steps=["NP-15"], exitCode=0, failedCheck=None,
+             rationale="The shortcut form github:<owner>/<repo> of npm's package.json documentation."),
+        dict(npm, caseId="neg-npm-package-json-other-repository", packageJsonDoc={
+             "repository": {"type": "git", "url": "git+https://github.com/octo-org/other-repo.git"}}, steps=["NP-15"],
+             exitCode=3, failedCheck="package-json",
+             rationale="package.json names another repository than the one the provenance was built from."),
+        dict(npm, caseId="neg-npm-package-json-repository-case", packageJsonDoc={
+             "repository": {"type": "git", "url": "git+https://github.com/Octo-Org/octo-repo.git"}}, steps=["NP-15"],
+             exitCode=3, failedCheck="package-json",
+             rationale="The repository must match case-sensitively (npm docs, generating provenance statements)."),
+        dict(npm, caseId="neg-npm-package-json-no-repository", packageJsonDoc={"drop_repository": True},
+             steps=["NP-15"], exitCode=3, failedCheck="package-json",
+             rationale="Provenance requires a public repository in package.json."),
+        dict(npm, caseId="neg-npm-package-json-other-version", packageJsonDoc={"version": "1.0.1"},
+             steps=["NP-15", "NP-08"], exitCode=3, failedCheck="package-json",
+             rationale="The package.json is of another version than the provenance's subject."),
     ]
 
 
@@ -998,7 +1031,8 @@ def write() -> List[Dict[str, Any]]:
         for key in ("identity", "registryKeys", "expectedSubjectName", "tlogThreshold", "expectedNotes"):
             if key in case:
                 entry[key] = case[key]
-        for key, suffix, make in (("versionDoc", "version", version_document),):
+        for key, suffix, make in (("versionDoc", "version", version_document),
+                                  ("packageJsonDoc", "package", package_json)):
             if key in case:
                 extra = make(**case[key])
                 path = f"synthetic/{case['caseId']}.{suffix}.json"
@@ -1010,7 +1044,7 @@ def write() -> List[Dict[str, Any]]:
 
 
 #: Further inputs of a case beside the bundle, by the key a case names them under and the manifest key.
-EXTRA_INPUTS = {"versionDoc": "versionDocument"}
+EXTRA_INPUTS = {"versionDoc": "versionDocument", "packageJsonDoc": "packageJson"}
 
 
 
@@ -1105,6 +1139,14 @@ def _public_cases() -> List[Dict[str, Any]]:
              versionDocument="public/neg-npm-sigstore-3.0.0-version-signature-changed.json", exitCode=1,
              failedCheck="registry-signature", steps=["NP-10"],
              rationale="One base64 character of the registry signature changed."),
+        dict(npm_prov, caseId="pub-npm-sigstore-3.0.0-package-json", packageJson="public/npm-sigstore-3.0.0-package.json",
+             exitCode=0, failedCheck=None, steps=["NP-15", "NP-08"],
+             rationale="The package.json inside sigstore-3.0.0.tgz names git+https://github.com/sigstore/sigstore-js.git, "
+                       "the repository the provenance's certificate names."),
+        dict(npm_prov, caseId="pub-neg-npm-package-json-of-2.1.0",
+             packageJson="public/ghcli-sigstore-js-2.1.0-package.json", exitCode=3, failedCheck="package-json",
+             steps=["NP-15", "NP-08"],
+             rationale="The package.json of sigstore@2.1.0 offered with the provenance of sigstore@3.0.0."),
         dict(caseId="pub-unsupported-message-signature", input="public/sigstore-python-bundle-v3-github.whl.sigstore.json",
              trustedRoot=PUBLIC_GOOD_ROOT, profile="github-artifact-attestation",
              artifactDigest="sha256:" + "00" * 32, identity={"source_repository_uri": "https://github.com/x/y"},

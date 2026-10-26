@@ -52,7 +52,7 @@ def _arguments(case: dict) -> dict:
 
 
 #: Inputs beside the bundle, by manifest key and the argument that takes them.
-EXTRA_INPUTS = {"versionDocument": "version_document"}
+EXTRA_INPUTS = {"versionDocument": "version_document", "packageJson": "package_json"}
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c["caseId"] for c in CASES])
@@ -185,6 +185,7 @@ def test_text_and_bytes_read_alike() -> None:
     ({"tlog_threshold": True}, "tlog_threshold"),
     ({"tlog_threshold": 2}, "exceeds the trusted logs"),
     ({"version_document": b"{}"}, "version_document does not apply"),
+    ({"package_json": b"{}"}, "package_json does not apply"),
 ])
 def test_unusable_trust_material_is_exit_2(change: dict, why: str) -> None:
     data, kwargs = _positive()
@@ -242,6 +243,9 @@ def test_the_synthetic_vectors_are_what_the_generator_writes() -> None:
         if "versionDoc" in case:
             assert gen.version_document(**case["versionDoc"]) == \
                 (FIX / by_id[case["caseId"]]["versionDocument"]).read_bytes(), case["caseId"]
+        if "packageJsonDoc" in case:
+            assert gen.package_json(**case["packageJsonDoc"]) == \
+                (FIX / by_id[case["caseId"]]["packageJson"]).read_bytes(), case["caseId"]
     assert gen.trusted_root() == (FIX / "trust" / "test_trusted_root.json").read_bytes()
     assert gen.trusted_root(log_id_of=gen.FOREIGN_REKOR_KEY) == \
         (FIX / "trust" / "test_trusted_root_bad_log_id.json").read_bytes()

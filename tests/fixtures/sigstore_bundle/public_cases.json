@@ -320,6 +320,52 @@
       "versionDocumentSha256": "5b34df3f92b9f06a0878a656a1cb14d46c3f50f1437422b7fe9f07c4170c479e"
     },
     {
+      "caseId": "pub-npm-sigstore-3.0.0-package-json",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json inside sigstore-3.0.0.tgz names git+https://github.com/sigstore/sigstore-js.git, the repository the provenance's certificate names.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      },
+      "packageJson": "public/npm-sigstore-3.0.0-package.json",
+      "packageJsonSha256": "cf6e7d2ff547dab9745b5bda76ec33b90b21c6be44a7bbee2430a771b8311e66"
+    },
+    {
+      "caseId": "pub-neg-npm-package-json-of-2.1.0",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json of sigstore@2.1.0 offered with the provenance of sigstore@3.0.0.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      },
+      "packageJson": "public/ghcli-sigstore-js-2.1.0-package.json",
+      "packageJsonSha256": "770215c9a2d5a6a0bfd210494d953628708e9e070a50a710e031cba7f9243565"
+    },
+    {
       "caseId": "pub-unsupported-message-signature",
       "input": "public/sigstore-python-bundle-v3-github.whl.sigstore.json",
       "trustedRoot": "../checkpoint/trusted_root.json",

@@ -44,6 +44,9 @@ Only from the relying party:
   (`https://registry.npmjs.org/<name>/<version>`) as wire bytes. With it, the registry signatures in
   `dist.signatures` are checked (`registry-signature`, contract NP-10 and NP-14); without it, a note
   says they were not.
+- `package_json` (npm-provenance, optional): the `package/package.json` of the tarball the relying
+  party holds, as wire bytes. The reader does not open the tarball; that this package.json comes
+  from the tarball whose digest is `artifact_digest` is the relying party's to ensure.
 
 The `gh attestation verify` flags map onto `identity` as follows: `--repo` to
 `source_repository_uri`, `--owner` to `source_repository_owner_uri`, `--cert-identity` to `san`,
@@ -73,7 +76,19 @@ Each check is reported by name; the first integrity failure ends the run.
 5. `certificate-chain` at every verified time (hybrid model), `sct`
 6. `statement`, `predicate-type`, `predicate`, and for npm-publish with a version document
    `registry-signature`
-7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name` (exit 3)
+7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name`, and with
+   a package.json `package-json` (exit 3)
+
+`package-json` holds npm's provenance requirement that package.json carry "a public `repository`
+that matches (case-sensitive) where you are publishing with provenance from" (contract NP-15). The
+package.json must name the package of a subject of the statement (`pkg:npm/<name>@<version>`) and a
+repository that reads as the certificate's `source_repository_uri`, compared case-sensitively. Read
+as a GitHub repository are npm's normalized object form `{"type": "git", "url":
+"git+https://github.com/<owner>/<repo>.git"}`, the shortcut forms `<owner>/<repo>` and
+`github:<owner>/<repo>`, and the https, git, ssh and scp-like URLs of the repository, each with or
+without `.git`. The registry's own comparison at publish time is not published, so these forms are
+this reader's choice, taken from npm's package.json documentation (npm/cli@311ff5ef
+`docs/lib/content/configuring-npm/package-json.md`, "repository").
 
 `registry-signature` reads the version document as npm's open manifest and uses `name`, `version`
 and `dist`. It must name the publish attestation's package and version, and `dist.integrity` must be
