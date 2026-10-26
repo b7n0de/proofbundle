@@ -314,6 +314,12 @@ What v0.2 adds, each with its conformance case:
   `CURRENTNESS_UNKNOWN`, `COVERAGE_PARTIAL` and `NOT_QUALITY_ATTESTATION`; the last one is always
   present, because no receipt of this kind says anything about the quality of the reviewed work.
   The validator checks that each code is known and appears once; it does not compare the list with `derive_limitation_codes`, and the policy evaluates the derived codes, never the stated ones.
+  `derive_limitation_codes` derives each code by one condition on the predicate: `IDENTITY_UNBOUND`
+  when no entry of `declaration.authoring` or `declaration.reviewRuns` carries a string `assurance`
+  other than `selfDeclared`; `TIME_SELF_DECLARED` when `observations` is not a non-empty array (the
+  members of `times` and `declaration.timeClaims` do not enter); `COVERAGE_PARTIAL` when
+  `coverage.status` is `PARTIAL` or `UNKNOWN`; `CURRENTNESS_UNKNOWN` and `NOT_QUALITY_ATTESTATION`
+  always.
 - **Time claims carry their source.** `declaration.timeClaims[]` entries have `kind`
   (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value`,
   `assertedBy` and `assurance`; `times.observedAt` is not allowed on a Tier 1 predicate, because an
