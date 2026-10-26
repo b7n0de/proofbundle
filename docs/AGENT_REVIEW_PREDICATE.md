@@ -1,8 +1,8 @@
 # Agent review predicate `agent-review/v0.1` and `agent-review/v0.2`
 
 Status: **v0.1, Tier 1 — a signed self-declaration.** Emitted and verified by
-`src/proofbundle/agent_review.py`; that module is the normative implementation, this document
-explains it. Conformance vectors live in `conformance/agent_review/`. **Since 6.0.0 the emitter
+`src/proofbundle/agent_review.py`; that module is the reference implementation, and this document,
+not the module, is normative (SPEC.md §7l). Conformance vectors live in `conformance/agent_review/`. **Since 6.0.0 the emitter
 produces `agent-review/v0.2` without an argument**; v0.1 stays readable and its verifier is
 byte-pinned. What v0.2 adds is in the section *Version 0.2* at the end of this page; everything
 above it holds for both versions unless that section says otherwise.
