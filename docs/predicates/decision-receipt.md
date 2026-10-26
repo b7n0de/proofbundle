@@ -112,7 +112,9 @@ content-root `digest` is one finding; each other rule of this section that a mem
 RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `policyBoundary.policyEngine`,
 `policyId` and `decisionPath` as a non-empty string, the `proposedAction` digest or reference, the `id`
 of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
-member inside one of these objects) is one finding per member. An empty list is a valid predicate.
+member inside one of these objects) is one finding per member. A required member that is missing, or that
+is not an object where this section expects one, is that one finding, and the rules of its own members are
+not judged. An empty list is a valid predicate.
 
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`

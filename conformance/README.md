@@ -53,9 +53,9 @@ in-toto Statements `decision_receipt.json` and `evidence_eval_result.json`, thei
 producer's `MANIFEST.json` and, when anchored, the OpenTimestamps proof `decision_receipt.jcs.ots`. The
 axes:
 
-- `jcs_byte_identical`: each `.jcs` file is byte-identical with the RFC 8785 bytes of its `.json`
-  Statement;
-- `decision_content_root`, `evidence_content_root`: the `jcs-sha256-v1` content roots of the two
+- `jcs_byte_identical`: one boolean for the pair, `true` when each `.jcs` file is byte-identical with the
+  RFC 8785 bytes of its `.json` Statement;
+- `decision_content_root`, `evidence_content_root`: the `jcs-sha256-v1` content roots of the two `.json`
   Statements (ADR 0002), 64 lowercase hex; `content_roots_match_manifest`: they equal
   `decision_content_root_sha256` and `evidence_content_root_sha256` of `MANIFEST.json`;
 - `evidence_ref_binds_content_root`: at least one `predicate.evidenceRefs[].digest.sha256` of the
