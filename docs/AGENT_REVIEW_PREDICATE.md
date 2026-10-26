@@ -288,6 +288,53 @@ Three classifications, and the difference between the last two is the substance:
 | `invalid` | produced, then rejected by the verifier |
 | `refused` | the producer would not build it at all |
 
+## Fields per version
+
+The validator of each version applies these closed field sets; a member outside the set of its object is
+an `unknown field` error, a missing required member a `missing` error. v0.2 is v0.1 with the members
+marked v0.2, and v0.3 is v0.2 with `producer.verifier`. A *digest object* is an object whose member
+`sha256` is 64 lowercase hex; an *RFC 3339 time* is `YYYY-MM-DDTHH:MM:SS`, an optional fraction, and `Z`.
+"Required" without a version means required in all three.
+
+| Object | Member | Required | Value |
+|---|---|---|---|
+| predicate | `schemaVersion` | yes | a string matching `0.1.x`, in all three versions |
+| predicate | `reviewId` | yes | a non-empty string |
+| predicate | `subjectContext` | yes | an object, see below |
+| predicate | `declaration` | yes | an object, see below |
+| predicate | `coverage` | yes | an object, see below |
+| predicate | `times` | yes | an object, see below |
+| predicate | `limitations` | yes | a non-empty array of non-empty strings |
+| predicate | `limitationCodes` | v0.2, v0.3 | an array of the five codes, each once |
+| predicate | `producer` | no | an object of `id` and `keyId`, each a string; v0.3 adds `verifier` (`docs/VERIFIER_BLOCK.md`) |
+| predicate | `observations` | no | an array, and it must be empty |
+| predicate | `supersession` | no | an object of `supersedes`, `corrects` and `withdraws`, each an array of objects with a digest object `priorDigest` and a non-empty string `reason` |
+| predicate | `planRef` | no | a digest object |
+| `subjectContext`, kind `githubPullRequest` | `kind`, `forge`, `repositoryId`, `pullRequestNodeId`, `headSha`, `baseSha`, `reviewedDiffDigest`, `bodyCoreDigest` | yes | `forge`, `repositoryId`, `pullRequestNodeId` non-empty strings; `headSha`, `baseSha` 40 lowercase hex; the two digests 64 lowercase hex |
+| `subjectContext`, kind `githubPullRequest` | `renderedDisclosureDigest`, `humanRef` | no | `renderedDisclosureDigest` 64 lowercase hex; `humanRef` not checked |
+| `subjectContext`, kind `githubIssue` | `kind`, `forge`, `repositoryId`, `issueNodeId`, `bodyCoreDigest`, `revisedAt` | yes | non-empty strings, `bodyCoreDigest` 64 lowercase hex, `revisedAt` an RFC 3339 time |
+| `subjectContext`, kind `githubIssue` | `commentNodeId`, `renderedDisclosureDigest`, `humanRef` | no | `commentNodeId` a non-empty string, the digest 64 lowercase hex, `humanRef` not checked |
+| `subjectContext`, both kinds | `disclosureCoreDigest` | v0.2, v0.3 | a string; its form is not checked |
+| `declaration` | `authoring`, `reviewRuns` | yes | arrays of entries with a non-empty string `assertedBy` and an `assurance` that must be `selfDeclared`; optional `observedBy` (a string or null) and `evidenceRef` (a digest object or null); further members of an entry are not checked |
+| `declaration` | `findings` | yes | an array of findings, see below; ids unique |
+| `declaration` | `findingsTotal` | yes | a non-negative integer, not below the number of findings; above it only with a non-empty `coverage.knownGaps` |
+| `declaration` | `findingsRoot` | once a finding is listed | 64 lowercase hex, the root of section *Findings* |
+| `declaration` | `nonClaims` | yes | a non-empty array of non-empty strings |
+| `declaration` | `timeClaims` | no, v0.2 and v0.3 only | an array of objects with `kind` (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value` and `assertedBy` (non-empty strings), `assurance` (must be `selfDeclared`), optional `evidenceRef` (a digest object or null); closed |
+| finding | `id`, `severity`, `title`, `disposition` | yes | `id` and `title` non-empty strings; `severity` one of `critical`, `high`, `medium`, `low`, `info`; `disposition` one of `fixed`, `dismissed`, `deferred`, `open` |
+| finding | `fixCommit`, `reason`, `evidenceRef` | no | `fixCommit` a non-empty string, required when `fixed`, and from v0.2 on, when not null, 40 lowercase hex; `reason` a non-empty string, required when `dismissed`; `evidenceRef` a digest object or null |
+| `coverage` | `status` | yes | `COMPLETE`, `PARTIAL` or `UNKNOWN` |
+| `coverage` | `window`, `sources`, `observedRuns`, `expectedRuns`, `knownGaps`, `collectionMethod` | no | `sources` and `knownGaps` arrays of strings; `observedRuns` and `expectedRuns` non-negative integers or null; `window` and `collectionMethod` not checked except under `COMPLETE` |
+| `coverage` | `strata`, `integrity`, `absenceAssertions` | no, v0.2 and v0.3 only | judged by the CAP-1 rules (SPEC.md §7l) |
+| `times` | `declaredAt` | yes | an RFC 3339 time |
+| `times` | `observedAt`, `signedAt`, `anchoredAt` | no | each an RFC 3339 time or null; `anchoredAt` must be null, and from v0.2 on `observedAt` too |
+
+Without the CAP-1 members, `COMPLETE` requires integer `observedRuns` and `expectedRuns` with
+`observedRuns` not below `expectedRuns` and `expectedRuns` not 0, a non-empty `sources`, `window` and
+`collectionMethod`, and no non-empty `knownGaps`; `PARTIAL` requires a non-empty `knownGaps`. With a
+CAP-1 member present, `COMPLETE` is refuted only by those counters and by a non-empty `knownGaps`, and the
+CAP-1 rules judge the rest.
+
 ## Version rule
 
 `v0.1` is `0.1.x`. A change that alters what a receipt asserts, or what a verifier must reject, is a
