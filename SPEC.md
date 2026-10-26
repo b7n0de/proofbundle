@@ -736,6 +736,9 @@ narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
 into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet
 (distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending**
 anchor does NOT satisfy `--require-anchor` unless `--allow-pending` is given.
+A FAIL of a present anchor never changes the crypto verdict: without `--require-anchor` the exit is the
+one the bundle has without its anchors, and under `--require-anchor` the anchor leaves the gate unmet,
+exit 3.
 
 **Target gate (WP-A1).** `--anchor-target receipt|preRegistration|statement`
 (implies `--require-anchor`) additionally requires the verifying anchor to
