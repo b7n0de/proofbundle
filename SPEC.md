@@ -187,7 +187,11 @@ SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
 Check **sd-jwt-disclosures**: the compact string is well formed and every
 presented disclosure is committed (its digest appears in the issuer-signed
 payload's `_sd` array). This is self-consistency only — it proves nothing about
-provenance and is forgeable without any key.
+provenance and is forgeable without any key. Committed means placed as RFC 9901 places
+it: an object-property disclosure in the `_sd` array of any object of the issuer-signed
+payload or of a value disclosed in turn, an array-element disclosure as `{"...": digest}`
+in an array, in any order of the presented disclosures; a disclosure placed nowhere, or
+in the place of the other kind, fails the check.
 
 Check **sd-jwt-issuer-signature**: the issuer JWT signature verifies under
 `issuer_public_key_b64`, using the algorithm-specific primitive named by the
