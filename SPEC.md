@@ -446,6 +446,14 @@ raw TEMPLATE until instantiated with a signer overlay) and `valid_until` (an ISO
 The same template-not-instantiated and expiry gates are ALSO enforced on the `decision verify` path
 (over `decision_receipt.trusted_decision_makers`), so a raw or expired decision policy cannot authorise a
 decision (exit 3).
+On the receipt verify paths a policy constrains the signer only through that section: on the `decision
+verify` path a policy without a `decision_receipt` section, or with one that pins no
+`trusted_decision_makers`, constrains no signer, and a pin that does not match the key the receipt
+verified under fails the policy (exit 3); the `outcome verify` and `relation-statement verify` paths
+judge a policy by its `relations` section alone, so a policy without one, or one that sets a rule the
+path does not apply, a `decision_receipt` section among them, is refused (exit 2). On all three paths
+`valid_from`, `valid_until`, `requiresIdentityOverlay`, `policyPurpose` and the `relations` section
+apply, and an unmet one fails the policy (exit 3).
 
 ## 7a. Scope guardrail (honest)
 
