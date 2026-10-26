@@ -213,7 +213,9 @@ Rust verifier `pb_verify_rs` recomputes the ten pinned roots through its `conten
 (`tools/pb_verify_rs/crosscheck.py`), and the two `binding` vectors pin a verdict of the Python binding
 that has no Rust subcommand, so they are Python-only.
 A verifier reports per mode, each root as the SHA-256 of the RFC 8785 bytes of a Statement, written as
-64 lowercase hex characters, and refuses a Statement that is no full in-toto Statement. In `canonical`,
+64 lowercase hex characters, and refuses a Statement that is no full in-toto Statement. A full in-toto
+Statement is a JSON object with the members `_type`, `subject`, `predicateType` and `predicate`; their values
+are not checked here, and further members are allowed. In `canonical`,
 `contentRoot` is the root of the Statement the case names as `input`, and `objectAndBytesAgree` is
 `true` when the RFC 8785 bytes of that Statement equal the `jcsFile` byte for byte and the SHA-256 of
 those file bytes is the same root. In `pair_reference`, `decisionRoot` and `evidenceRoot` are the roots
