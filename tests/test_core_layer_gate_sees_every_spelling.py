@@ -1300,7 +1300,101 @@ def test_RED_a_namespace_handed_by_keyword_to_a_helper_of_another_module(tmp_pat
     assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
 
 
-_DIAMOND_CORE ="from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
+_GUARDED_AFTER = "VALUE = factory()\nif typing.TYPE_CHECKING:\n    import subprocess\n"
+_NAMESPACE_WRITE = "a namespace that may be a module's, used other than by reading"
+#: foxtrot's lens on 3b1058c9 (P2) and its neighbours: a name of a postponed annotation the module binds to no module
+#: or to another string, and the factory to `typing`, to a writer or to the flag. Each (the source, the guard change
+#: at the line of the annotation, its line). The guarded import runs in every one of them.
+READ_AS_A_WHOLE_IN_EACH_READING = {
+    "vars of a name the module binds to a list": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(vars(o).update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o, 'd': d})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "__dict__ of a name the module binds to a list": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(o.__dict__.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o, 'd': d})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "the names of the factory handed with locals()": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(o.__dict__.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns=locals())\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "a namespace the factory binds, written in the annotation": (
+        "from __future__ import annotations\nimport typing\ndef factory():\n    ns = vars(typing)\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(ns.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns=locals())\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 4),
+    "the other operand of a comparison, sys.modules in the module": (
+        "from __future__ import annotations\nimport sys\nimport typing\nclass W:\n    def __eq__(self, other):\n"
+        "        other['TYPE_CHECKING'] = True\n        return True\no = sys.modules\ndef factory():\n    o = W()\n"
+        "    def inner(x: type(vars(typing) == o)):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 11),
+    "a dotted name the factory binds, handed to patch": (
+        "from __future__ import annotations\nimport typing\nimport unittest.mock\nN = 'x'\ndef factory():\n"
+        "    N = 'typing.TYPE_CHECKING'\n    def inner(x: type(unittest.mock.patch(N, True).start())):\n"
+        "        return x\n    return typing.get_type_hints(inner, localns={'N': N})\n" + _GUARDED_AFTER,
+        "TYPE_CHECKING named by a write", 7),
+}
+
+
+@pytest.mark.parametrize("code, form, line", list(READ_AS_A_WHOLE_IN_EACH_READING.values()),
+                         ids=list(READ_AS_A_WHOLE_IN_EACH_READING))
+def test_RED_a_postponed_annotation_is_judged_as_a_whole_in_each_reading(tmp_path, code, form, line):
+    """foxtrot's lens on 3b1058c9 (P2): the scope around the def was read for what the names stand for only, and
+    every other judgment saw the module. `o = []` in the module made the `o = typing` of a factory no module, so the
+    write in the annotation was no change of the guard, where main reports it. A review of the guard names each form
+    with its lines, so a lost line is a write nobody reviewed. Adding the second scope to each judgment was no fix,
+    since a judgment that asks whether ALL a name may be is answered wrongly by the union (the comparison case). The
+    gate reads the module twice, the annotation in the module scope and in the scope around its def."""
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_THE_BLOCK) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("subprocess", "import subprocess") in found(report), report["measured"]["findings"]
+    assert [form, line] in report["measured"]["type_checking_changes"]["probepkg.core"], \
+        report["measured"]["type_checking_changes"]
+
+
+def _postponed_sources() -> dict[str, str]:
+    """Every postponed source of the cases on postponed annotations in this file."""
+    out = {f"whole: {k}": v[0] for k, v in READ_AS_A_WHOLE_IN_EACH_READING.items()}
+    out["FD-4"] = _POSTPONED + _ANNOTATED
+    for call in ("inspect.get_annotations(inner, eval_str=True, locals={'o': o})",
+                 "typing.get_type_hints(inner, localns={'o': o})", "typing.get_type_hints(inner, None, {'o': o})"):
+        out[f"handed: {call}"] = _HANDED.replace("    return {}\n", f"    return {call}\n")
+    for table in (HANDED_ELSEWHERE, HANDED_OUTSIDE_THE_LIST):
+        for k, (before, body, after, _) in table.items():
+            out[f"factory: {k}"] = _FACTORY.format(before=before, body=body, after=after)
+    return out
+
+
+@pytest.mark.parametrize("source", list(_postponed_sources().values()), ids=list(_postponed_sources()))
+def test_a_postponed_annotation_reports_at_least_what_main_reads(source):
+    """The class of the lens on 3b1058c9 as a property, not one form: for every postponed source of these cases, the
+    gate reports at least what it reports for the same source with the annotations evaluated, where they run in the
+    scope around their def as main reads them. Findings and guard changes, counted per line."""
+    import ast
+    from collections import Counter
+    m = _gate_module()
+    assert source.startswith(_POSTPONED)
+    evaluated = source.replace(_POSTPONED, "from __future__ import division\n", 1)
+    for read in (lambda t: m.findings_of(t, "probepkg.core", False),
+                 lambda t: m.type_checking_changes(t, "probepkg.core", False)):
+        lost = Counter(read(ast.parse(evaluated))) - Counter(read(ast.parse(source)))
+        assert not lost, sorted(lost)
+
+
+def test_a_finding_both_readings_make_counts_once(tmp_path):
+    """Read twice, the module does not count a finding twice: an exception of the core and a review of the guard bind
+    a count, and a count that grew by the second reading would be red without a change."""
+    code = _POSTPONED + "import os\ndef outer():\n    def inner(x: os.getenv('X')) -> None:\n        return None\n" \
+        "    return inner\nVALUE = outer()\n"
+    args = build(tmp_path, {"core.py": code})
+    rc, report = gate(args)
+    counts = [f["count"] for f in report["measured"]["findings"] if (f["rule"], f["operation"]) == ("environment",
+                                                                                                    "os.getenv")]
+    assert counts == [1], report["measured"]["findings"]
+
+
+_DIAMOND_CORE = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
 
 
 @pytest.mark.parametrize("helper, verdict", [

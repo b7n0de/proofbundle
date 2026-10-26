@@ -59,6 +59,7 @@ import builtins
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -416,8 +417,9 @@ class _ChangeScan:
     too, because the gate does not see where they go.
     """
 
-    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool, package: "_Package | None") -> None:
-        self.names = _Names(tree, modname, is_pkg, _NO_GUARDS, package)
+    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool, package: "_Package | None",
+                 around_def: bool = False) -> None:
+        self.names = _Names(tree, modname, is_pkg, _NO_GUARDS, package, around_def)
         self.package = package
         self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         self.tree = tree
@@ -882,8 +884,40 @@ class _ChangeScan:
 
 def type_checking_changes(tree: ast.AST, modname: str = "", is_pkg: bool = False,
                           package: "_Package | None" = None) -> list[tuple[str, int]]:
-    """Every form by which this module may change `typing.TYPE_CHECKING`, as (form, line); see _ChangeScan."""
-    return _ChangeScan(tree, modname, is_pkg, package).changes()
+    """Every form by which this module may change `typing.TYPE_CHECKING`, as (form, line); see _ChangeScan. A
+    postponed annotation is read in the module scope and in the scope around its def (`_in_both_readings`)."""
+    scan = _ChangeScan(tree, modname, is_pkg, package)
+    found = scan.changes()
+    if scan.names.read_twice:
+        found = _in_both_readings(found, _ChangeScan(tree, modname, is_pkg, package, around_def=True).changes())
+    return found
+
+
+def _in_both_readings(first: list, second: list) -> list:
+    """What the two readings of a module report, each entry as often as the reading that reports it more often: the
+    entries of the first reading in its order, then the ones the second adds. A finding both readings make is one
+    finding, so no count of the module grows by being read twice.
+
+    A POSTPONED ANNOTATION IS READ AS A WHOLE IN EACH SCOPE IT MAY BE READ IN (foxtrot's lens on 3b1058c9, P2, owner
+    card OA-2d52c8b607, option A): an evaluator takes the names of the string from the globals of the module, or from
+    a namespace a caller hands it, and the gate does not follow which namespace reaches which def (F3 of the
+    counter-reading of pull request 420 and the lenses on 93c21dda and ec754b36 found ten ways). Read in the module
+    scope, with the scope around the def added for `quals` only, every other judgment still saw the module: `o = []`
+    in the module made the `o = typing` of a factory no module, and `type(o.__dict__.update(d))` changed the guard
+    unseen, where main reports it. Adding the second scope to each judgment was no fix either, since a judgment that
+    asks whether ALL a name may be is answered wrongly by the union: `o = sys.modules` in the module made
+    `vars(typing) == o` a read in the factory where `o = W()` writes its argument. So the module is read twice, once
+    with the annotation in the module scope and once in the scope around its def, as main reads it, and a finding
+    counts when either reading makes it. What neither reading sees: one annotation whose names come from both
+    namespaces at once, a name from the namespace handed in and another from the module."""
+    extra = Counter(second)
+    extra.subtract(Counter(first))
+    out = list(first)
+    for entry in second:
+        if extra[entry] > 0:
+            out.append(entry)
+            extra[entry] -= 1
+    return out
 
 
 def type_checking_may_change(tree: ast.AST, modname: str = "", is_pkg: bool = False,
@@ -1076,7 +1110,8 @@ class _Names:
     """
 
     def __init__(self, tree: ast.AST, modname: str, is_pkg: bool,
-                 guards: tuple[frozenset[str], frozenset[str]], package: "_Package | None" = None) -> None:
+                 guards: tuple[frozenset[str], frozenset[str]], package: "_Package | None" = None,
+                 around_def: bool = False) -> None:
         self._modname, self._is_pkg, self._guards, self._package = modname, is_pkg, guards, package
         self.module = _Scope("module", None)
         self.scope_of: dict[int, _Scope] = {}
@@ -1087,15 +1122,14 @@ class _Names:
         self._deferred: list[tuple[_Scope, str, object]] = []
         #: What an expression resolves to in a scope, kept once the aliases are final (None while they grow).
         self._memo: dict[tuple[int, int, bool], set[str]] | None = None
-        #: `from __future__ import annotations`: the annotations of a function stay strings (PEP 563).
-        self._postponed = isinstance(tree, ast.Module) and any(
+        #: `from __future__ import annotations`: the annotations of a function stay strings (PEP 563). Read in the
+        #: module scope, unless this reading reads them in the scope around their def, as main does (`_annotations`).
+        self._postponed = not around_def and isinstance(tree, ast.Module) and any(
             isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
             for s in tree.body)
-        #: Postponed annotations with the scope around their def, the def that opens each function scope, and the
-        #: scope a node of a postponed annotation is read in as well (`_annotations_in_handed_namespaces`).
-        self._pending: list[tuple[ast.expr, _Scope]] = []
-        self._def_of: dict[int, ast.AST] = {}
-        self._also: dict[int, _Scope] = {}
+        #: Whether a postponed annotation stands in another scope than the module's, so that the scope around its
+        #: def gives a reading of its own (`_in_both_readings`).
+        self.read_twice = False
         self._visit(tree, self.module)
         for scope, name, apply in self._deferred:
             apply(self._nonlocal_owner(scope, name))
@@ -1138,7 +1172,6 @@ class _Names:
                 del s.alias[name]
         # The aliases are final here, so each answer is kept from now on.
         self._memo = {}
-        self._annotations_in_handed_namespaces(tree)
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
         s = _Scope(kind, parent)
@@ -1202,34 +1235,18 @@ class _Names:
 
         POSTPONED, AN ANNOTATION IS A STRING (second counter-reading of pull request 395, F-D, P3): under
         `from __future__ import annotations` nothing runs where the def runs, and `typing.get_type_hints` evaluates
-        the string in the globals of the module, so it is read in the module scope, and in the scope around the
-        function as well (`_annotations_in_handed_namespaces`), where a caller may hand an evaluator its names."""
+        the string in the globals of the module, so this reading reads it in the module scope. Where that is another
+        scope than the one around the def, the module has a second reading that reads it there (`read_twice`,
+        `_in_both_readings`)."""
         where = self.module if self._postponed else scope
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             if a.annotation is not None:
                 self._visit(a.annotation, where)
-                if where is not scope:
-                    self._pending.append((a.annotation, scope))
+                self.read_twice = self.read_twice or where is not scope
         if returns is not None:
             self._visit(returns, where)
-            if where is not scope:
-                self._pending.append((returns, scope))
-
-    def _annotations_in_handed_namespaces(self, tree: ast.AST) -> None:
-        """A POSTPONED ANNOTATION IS READ IN THE SCOPE AROUND ITS DEF AS WELL, ALWAYS, AS MAIN READS IT (owner card
-        OA-2d52c8b607, option A). Read in the module scope only, `o = os` in a factory that calls
-        `typing.get_type_hints(inner, localns={"o": o})` read the environment while the gate reported nothing (Codex
-        thread 4370601943 on pull request 420). Read there only where the module may hand an evaluator a namespace,
-        every way of telling that came out open three times on one day: F3 of the counter-reading of pull request 420
-        (seven forms), foxtrot's lens on 93c21dda (four) and on ec754b36 (three by position, `typing._eval_type`,
-        `getattr(ref, "_evaluate")`, `operator.methodcaller`), and a namespace that maps the name to the module's `os`
-        reads no alias at all. Which namespace reaches which def is data flow the gate does not follow, so it does not
-        guess. The cost is FD-4 of the second counter-reading of pull request 395: an alias of the enclosing function
-        in an annotation nobody evaluates is a finding again, as on main."""
-        for annotation, scope in self._pending:
-            for n in ast.walk(annotation):
-                self._also[id(n)] = scope
+            self.read_twice = self.read_twice or where is not scope
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -1246,7 +1263,6 @@ class _Names:
                 self._visit(d, scope)
             self._annotations(node.args, node.returns, scope)
             inner = self._new("function", scope)
-            self._def_of[id(inner)] = node
             self._args(node.args, inner)
             positional = (*node.args.posonlyargs, *node.args.args)
             static = any(isinstance(d, ast.Name) and d.id == "staticmethod" for d in node.decorator_list)
@@ -1495,9 +1511,6 @@ class _Names:
         that another module of the package binds is followed there (_Package.expand). Without `guesses`, a name a
         star import from outside the package might bind does not count (see _star_bound)."""
         found = self._quals(node, self.scope_of.get(id(node), self.module), guesses)
-        also = self._also.get(id(node))
-        if also is not None:
-            found = found | self._quals(node, also, guesses)
         if self._package is not None:
             found = set().union(*(self._package.expand(q) for q in found)) if found else found
         return sorted(found)
@@ -1613,10 +1626,20 @@ class _Package:
 def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
                 guards: tuple[frozenset[str], frozenset[str]] | None = None,
                 package: _Package | None = None) -> list[tuple[str, str, int]]:
-    """(rule, operation, line) for one core module."""
+    """(rule, operation, line) for one core module, in both readings of a postponed annotation (`_in_both_readings`)."""
     if guards is None:
         guards = type_checking_guards(tree, modname, is_pkg, package)
     names = _Names(tree, modname, is_pkg, guards, package)
+    out = _findings_in(tree, guards, names)
+    if names.read_twice:
+        out = _in_both_readings(out, _findings_in(tree, guards, _Names(tree, modname, is_pkg, guards, package,
+                                                                       around_def=True)))
+    return out
+
+
+def _findings_in(tree: ast.AST, guards: tuple[frozenset[str], frozenset[str]],
+                 names: _Names) -> list[tuple[str, str, int]]:
+    """The findings of one reading of the module."""
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
     for node in ast.walk(tree):
