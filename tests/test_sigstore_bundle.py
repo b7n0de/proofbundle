@@ -265,3 +265,70 @@ def test_no_sigstore_client_is_imported() -> None:
                 names = [node.module]
             for name in names:
                 assert name.split(".")[0] not in forbidden, f"{path.name} imports {name}"
+
+
+# --------------------------------------------------------------------------------------------
+# The command line, `proofbundle verify-sigstore` (owner answer 8 of 2026-10-26): every vector through
+# the command gives the reader's exit code and, with --json, the reader's verdict.
+# --------------------------------------------------------------------------------------------
+
+#: The file options of the command, by the manifest key that names the file.
+_CLI_FILES = {"registryKeys": "--registry-keys", "versionDocument": "--version-document",
+              "packageJson": "--package-json"}
+
+
+def _argv(case: dict) -> list:
+    argv = ["verify-sigstore", str(FIX / case["input"]), "--trusted-root", str(FIX / case["trustedRoot"]),
+            "--artifact-digest", case["artifactDigest"], "--profile", case["profile"]]
+    for key, value in sorted(case.get("identity", {}).items()):
+        argv += ["--identity", f"{key}={value}"]
+    for key, flag in _CLI_FILES.items():
+        if key in case:
+            argv += [flag, str(FIX / case[key])]
+    if "expectedSubjectName" in case:
+        argv += ["--subject-name", case["expectedSubjectName"]]
+    if "tlogThreshold" in case:
+        argv += ["--tlog-threshold", str(case["tlogThreshold"])]
+    return argv
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c["caseId"] for c in CASES])
+def test_the_command_gives_the_readers_exit_code_and_verdict(case: dict, capsys: pytest.CaptureFixture) -> None:
+    from proofbundle.cli import main
+    expected = case["expected"]["exitCode"]
+    assert main(_argv(case) + ["--json"]) == expected
+    out = json.loads(capsys.readouterr().out)
+    assert out == verify_sigstore_bundle((FIX / case["input"]).read_bytes(), **_arguments(case)).as_dict()
+    assert main(_argv(case)) == expected
+    lines = capsys.readouterr().out.splitlines()
+    assert f"=> {'OK' if expected == 0 else 'FAILED'} (exit {expected})" in lines
+    if case["expected"]["failedCheck"] is not None:
+        assert any(line.startswith(f"[FAIL] {case['expected']['failedCheck']}: ") for line in lines), lines
+    assert "AUTOMATION: safeForAutomation=false" in " ".join(lines)
+
+
+def test_the_command_prints_checks_notes_and_what_it_never_checks(capsys: pytest.CaptureFixture) -> None:
+    from proofbundle.cli import main
+    case = next(c for c in CASES if c["caseId"] == "pub-npm-sigstore-3.0.0-package-json")
+    assert main(_argv(case)) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "PROFILE: npm-provenance (bundle 0.2)"
+    assert "[PASS] package-json: package.json of 'pkg:npm/sigstore@3.0.0' names " \
+           "'https://github.com/sigstore/sigstore-js', the repository the certificate names" in lines
+    assert any(line.startswith("NOTE: predicate-binding: agrees") for line in lines)
+    assert sum(line.startswith("NOT CHECKED: ") for line in lines) == len(NOT_CHECKED)
+    assert any(line.startswith("SIGNING TIME: 2024-10-14T") for line in lines)
+
+
+@pytest.mark.parametrize("extra, why", [
+    (["--identity", "source_repository_uri"], "KEY=VALUE"),
+    (["--identity", "source_repository_uri=a", "--identity", "source_repository_uri=b"], "twice"),
+    (["--version-document", "/nonexistent/version.json"], "/nonexistent/version.json"),
+])
+def test_the_command_refuses_unusable_options_with_exit_2(extra: list, why: str,
+                                                          capsys: pytest.CaptureFixture) -> None:
+    from proofbundle.cli import main
+    case = next(c for c in CASES if c["caseId"] == "pos-github-v03-dsse")
+    assert main(_argv(case) + extra) == 2
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 1 and err[0].startswith("ERROR: ") and why in err[0], err

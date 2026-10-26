@@ -7,7 +7,25 @@ Attestations (`actions/attest-build-provenance`, `actions/attest`) and npm prove
 the specifications pinned in `SPEC_PIN` and imports no Sigstore client library.
 
 Status: PROPOSED, Python only. The Rust second verifier has no counterpart yet
-(`scripts/rust_parity_registry.json`, PENDING), and there is no CLI command yet.
+(`scripts/rust_parity_registry.json`, PENDING).
+
+## Command line
+
+`proofbundle verify-sigstore` calls the reader with files and prints its verdict; its exit code is
+the reader's (`exit_code`), and `--json` prints `SigstoreVerdict.as_dict()`.
+
+```
+proofbundle verify-sigstore sigstore-3.0.0.provenance.sigstore.json \
+    --trusted-root trusted_root.json --profile npm-provenance \
+    --artifact-digest sha512-PHMifhh3EN4loMcHCz6l3v/luzgT3za+9f8subGgeMNjbJjzH4Ij/YoX3Gvu+kaouJRIlVdTHHCREADYf+ZteA== \
+    --identity source_repository_uri=https://github.com/sigstore/sigstore-js \
+    --package-json package/package.json
+```
+
+`--identity KEY=VALUE` is repeatable and builds `identity`; a pair without `=` or a key given twice
+is refused with exit 2. `--registry-keys`, `--version-document` and `--package-json` name the files
+of the arguments of the same names; `--subject-name` and `--tlog-threshold` pass
+`expected_subject_name` and `tlog_threshold`. An unreadable file is exit 2.
 
 ## What it reads
 
