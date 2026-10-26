@@ -238,6 +238,8 @@ prune tools
 prune audit_artifacts
 prune .github
 prune target
+# The Claude Code plugin installs the package from PyPI; the package never carries the plugin.
+prune plugins
 # OUT, and deliberately decided (2026-10-11): examples/verdict_contract/. It is a worked example for an
 # issue in a third-party repository, linked there commit-pinned from this repository, and its files stay
 # byte for byte as they were reviewed. Its producer make_example.py loads an Ed25519 private key from a

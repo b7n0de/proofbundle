@@ -1,0 +1,77 @@
+{
+  "name": "proofbundle",
+  "version": "0.3.0",
+  "description": "Verify decision and outcome receipts in Codex against your chosen issuer key, check evidence bundles, and review verification results separately from recorded claims. After you trust the hooks, they check declared repository evidence before supported push, pull request or release actions. Receipt signing is experimental and requires an explicit user request. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
+  "keywords": [
+    "proofbundle",
+    "receipts",
+    "dsse",
+    "ed25519",
+    "verification",
+    "supply-chain"
+  ],
+  "skills": "./skills",
+  "mcpServers": {
+    "proofbundle": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--quiet",
+        "--no-config",
+        "--script",
+        "server/proofbundle_mcp.py"
+      ],
+      "cwd": ".",
+      "env": {
+        "PROOFBUNDLE_PLUGIN_HOST": "codex"
+      }
+    }
+  },
+  "hooks": {
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        },
+        {
+          "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        },
+        {
+          "matcher": "^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" stop --host codex || { echo 'proofbundle done check: the check could not run, so the session goes on' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "proofbundle-plugin/evidence/v0.2",
+  "evidence": [
+    {
+      "kind": "bundle",
+      "path": ".proofbundle/build.bundle.json",
+      "policy": ".proofbundle/policy.json",
+      "subject": {
+        "algorithm": "proofbundle-tree-sha256/v1",
+        "digest": "ce97e4507660203d647b60b304f351ea6680276a26014b117cbc4e8dea402f31"
+      }
+    }
+  ]
+}

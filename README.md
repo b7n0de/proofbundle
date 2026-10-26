@@ -108,6 +108,7 @@ A PASS means: the signature is valid, the explicitly checked artefacts match the
 | Verify a receipt | [Quick start](#quick-start) |
 | Create evaluation evidence | [Evaluation walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/DEMO.md) |
 | Add receipts to Inspect AI | [Inspect plugin](#plugins) |
+| Gate a push or pull request from an AI coding agent | [Plugin catalog](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Assess proofbundle for adoption | [Adversarial review guide](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/REVIEWERS.md) |
 
 <details>
@@ -165,7 +166,7 @@ Receipts go to the current directory by default, and the plugin prints the outpu
 | Your question | Reference |
 |---|---|
 | How do I implement the format? | [Specification](https://github.com/b7n0de/proofbundle/blob/v6.3.1/SPEC.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.3.1/CONFORMANCE.md) |
-| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.3.1/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/GLOSSARY.md) |
+| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.3.1/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/GLOSSARY.md) · [Plugins](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Which keys and claims should I accept? | [Policies](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/POLICY_PROFILES.md) · [Trust anchors](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/TRUST_ANCHORS.md) |
 | How is security assessed? | [Threat model](https://github.com/b7n0de/proofbundle/blob/v6.3.1/THREAT_MODEL.md) · [Security policy](https://github.com/b7n0de/proofbundle/blob/v6.3.1/SECURITY.md) |
 | How was this release prepared? | [Release process](https://github.com/b7n0de/proofbundle/blob/v6.3.1/RELEASE.md) · [Pre tag audit](https://github.com/b7n0de/proofbundle/blob/v6.3.1/docs/PRE_TAG_AUDIT.md) |

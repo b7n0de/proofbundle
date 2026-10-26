@@ -1,0 +1,227 @@
+name: proofbundle-evidence
+
+# A template of the proofbundle plugin (plugins/proofbundle/ci, DECISIONS.md D22), not a workflow of
+# proofbundle itself. Copy it to .github/workflows/proofbundle-evidence.yml of the repository whose
+# evidence it checks, and call it from a workflow that runs on pull requests and pushes (ci/README.md).
+#
+# It runs the CI mode of the plugin gate on the commit under review: the gate's evaluation of HEAD,
+# without the rules comparison a push makes (that review is CODEOWNERS' part here). CI fails every
+# required check that is NOT MEASURED. With require-declaration false and no declaration it returns
+# not_required, not verified. Whether the repository must declare evidence is the input
+# require-declaration of this workflow, not anything in the declaration, so deleting the declaration
+# cannot switch the check off. The gate code is taken from a released tag of b7n0de/proofbundle.
+#
+# Exit 0: every declared item verified and names the tree of the commit, or nothing is declared and
+# require-declaration is false. Exit 1: everything else. Exit 2: the gate was called wrongly.
+#
+# With done-check true a second job, done, runs the tests of the commit under review with a signed receipt
+# and requires the declared done check (DECISIONS.md, D26) on that tree: the receipt verifies under the
+# done policy at the commit, says that every test passed, and names the tree of the checkout. The receipt
+# is made in CI, with a CI key from the secret PROOFBUNDLE_DONE_KEY whose public key the done policy pins.
+# The tests run the code under review with that key file present; GitHub passes no secret to a pull request
+# from a fork, and code owners review the tests (ci/README.md, "The done check in CI").
+#
+# Actions are pinned to full commit SHAs, copied from proofbundle's own workflows. Check them against
+# your own supply-chain policy before you rely on them.
+
+on:
+  workflow_call:
+    inputs:
+      require-declaration:
+        description: "true: the repository must declare evidence in .proofbundle/evidence.json, and a missing declaration fails. false: a repository that declares nothing passes, as NOT MEASURED."
+        type: boolean
+        required: true
+      proofbundle-ref:
+        description: "The full 40-character commit SHA of b7n0de/proofbundle whose plugin gate runs the check."
+        type: string
+        required: true
+      done-check:
+        description: "true: the job done runs the tests of the commit under review with a signed receipt and requires the done check of the declaration to pass on that tree. false: no done job."
+        type: boolean
+        required: false
+        default: false
+      done-test-command:
+        description: "The pytest command the job done runs in the checkout."
+        type: string
+        required: false
+        default: "python -m pytest -q"
+      done-proofbundle-version:
+        description: "The exact version, as ==X.Y.Z, of the proofbundle release whose pytest plugin names the git state; the job done installs it with the pytest and eval extras."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      PROOFBUNDLE_DONE_KEY:
+        description: "The CI signing key of the done receipt: the 32-byte Ed25519 seed in base64. The done policy at HEAD pins its public key."
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: The gate is pinned to a full commit SHA
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          if [[ ! "$GATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "proofbundle-ref must be a full 40-character commit SHA, not: $GATE_REF" >&2
+            exit 1
+          fi
+
+      # The commit under review. On a pull request that is its head, not the merge commit GitHub
+      # builds, because the declaration names the tree of the commit that is pushed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: checked
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: b7n0de/proofbundle
+          ref: ${{ inputs.proofbundle-ref }}
+          path: gate
+          persist-credentials: false
+          fetch-depth: 0       # the whole history and
+          fetch-tags: true     # the tags, so the containment check below can see them
+
+      # The gate code must come from a released tag of b7n0de/proofbundle, not from any commit that
+      # happens to carry that SHA. `git tag --contains` lists the release tags the ref is an ancestor of
+      # (owner's choice); a non-empty set is required, so an unreleased or unknown SHA stops the check
+      # before the gate runs. It does not prove the SHA is itself the tagged commit.
+      - name: The gate commit is in a released tag of b7n0de/proofbundle
+        working-directory: gate
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          tags="$(git tag --list 'v*' --contains "$GATE_REF")"
+          if [ -z "$tags" ]; then
+            echo "proofbundle-ref $GATE_REF is in no v* release tag of b7n0de/proofbundle; refusing to run it" >&2
+            exit 1
+          fi
+          printf 'gate ref is contained in: %s\n' "$tags"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The gate starts the plugin's verifier with uv, which installs the proofbundle version the
+      # server pins. Pin uv by hash as well if your policy requires it.
+      - name: Install uv
+        run: python -m pip install "uv==0.8.17"
+
+      - name: Check the declared evidence
+        env:
+          REQUIRE_DECLARATION: ${{ inputs.require-declaration }}
+        run: |
+          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
+            --repo checked --require-declaration "$REQUIRE_DECLARATION"
+
+  done:
+    if: ${{ inputs.done-check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: The gate is pinned to a full commit SHA and the package to an exact version
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+          PB_VERSION: ${{ inputs.done-proofbundle-version }}
+        run: |
+          if [[ ! "$GATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "proofbundle-ref must be a full 40-character commit SHA, not: $GATE_REF" >&2
+            exit 1
+          fi
+          if [[ ! "$PB_VERSION" =~ ^==[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "done-proofbundle-version must be an exact version ==X.Y.Z, not: $PB_VERSION" >&2
+            exit 1
+          fi
+
+      # The commit under review, as in the job evidence: on a pull request its head, not the merge commit. With its
+      # whole history: an order that names paths is compared with the commit that declared it, and a checkout of one
+      # commit leaves that NOT MEASURED (review 2026-10-09, F4).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: checked
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: b7n0de/proofbundle
+          ref: ${{ inputs.proofbundle-ref }}
+          path: gate
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The gate commit is in a released tag of b7n0de/proofbundle
+        working-directory: gate
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          tags="$(git tag --list 'v*' --contains "$GATE_REF")"
+          if [ -z "$tags" ]; then
+            echo "proofbundle-ref $GATE_REF is in no v* release tag of b7n0de/proofbundle; refusing to run it" >&2
+            exit 1
+          fi
+          printf 'gate ref is contained in: %s\n' "$tags"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the package that writes the receipt, and uv for the gate's verifier
+        env:
+          PB_VERSION: ${{ inputs.done-proofbundle-version }}
+        run: python -m pip install "proofbundle[pytest,eval]${PB_VERSION}" "uv==0.8.17"
+
+      # The receipts are written outside the checkout, so writing them does not change the tree they name: one per
+      # check of the done section, $PROOFBUNDLE_RECEIPT_DIR/<id>.json. PROOFBUNDLE_OUT names tests.json, the receipt
+      # of the one-check form; for an order the test command sets PROOFBUNDLE_OUT per check (README). The key file
+      # exists only for the test run; the test command decides nothing, the done check below does.
+      - name: Run the tests with a receipt
+        working-directory: checked
+        env:
+          DONE_KEY: ${{ secrets.PROOFBUNDLE_DONE_KEY }}
+          DONE_TEST_COMMAND: ${{ inputs.done-test-command }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/done"
+          if [ -z "$DONE_KEY" ]; then
+            echo "the secret PROOFBUNDLE_DONE_KEY is not set, so no receipt can be signed" >&2
+            exit 1
+          fi
+          printf '%s' "$DONE_KEY" | base64 -d > "$RUNNER_TEMP/done/key"
+          set +e
+          PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_RECEIPT_DIR="$RUNNER_TEMP/done" \
+            PROOFBUNDLE_OUT="$RUNNER_TEMP/done/tests.json" PROOFBUNDLE_KEY="$RUNNER_TEMP/done/key" \
+            bash -c "$DONE_TEST_COMMAND"
+          status=$?
+          rm -f "$RUNNER_TEMP/done/key"
+          echo "the test command exited $status; the done check decides"
+
+      # The verdict is for the commit checked out above, named from the event, never HEAD: the test command can change
+      # the working tree and move HEAD, and at a commit only a clean run on its own tree counts (review 2026-10-09 F1).
+      - name: Check the receipt for the tree of the commit
+        env:
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          for receipt in "$RUNNER_TEMP"/done/*.json; do
+            if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
+          done
+          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked \
+            --at-commit "$COMMIT" --receipt-dir "$RUNNER_TEMP/done"
+
