@@ -122,6 +122,12 @@ absent, the empty and a numeric identifier; the unit tests also pin a list and n
 identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`, and a consumer
 that treats a refusal as acceptance is wrong whatever the reason for it.
 
+The declaration rule is the envelope's: it reads the bundle's top-level `schema` and nothing else. The
+signed claim inside a bundle that verifies is read by its own identifier, and a claim whose `schema`
+member is absent, empty, not a string or any value other than exactly `proofbundle/eval-claim/v0.1` is
+`refused_unknown_schema` (step 5 of the classification below): a signed payload that does not name our
+claim format is not a claim this verifier knows, and it is not `invalid` either.
+
 ## R3 — a reported binding is a binding that was performed
 
 `binding_checked` is set only when the binding was complete. A binding of type content-hash without
