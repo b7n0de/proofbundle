@@ -198,7 +198,10 @@ digests are sorted, and the root covers their concatenation. Two producers listi
 in a different order must not disagree, or the root would report tampering where there is none.
 When the signature verifies and `findingsRoot` is present, the verifier recomputes the root over
 `declaration.findings`; a root that does not match makes the verification fail, so a receipt whose list
-was changed after signing is `invalid`, not merely annotated.
+was changed after signing is `invalid`, not merely annotated. Issuing checks only that the root is present
+once a finding is listed and that it has the form of the field table; its value is checked at
+verification, so a predicate with a well-formed root that does not cover its list is issued and then
+verifies as `invalid`.
 Precisely: each leaf is the lowercase hex sha256 of one finding's RFC 8785 bytes, and the root is the lowercase hex sha256 over the ASCII bytes of the sorted leaves, concatenated as hex strings without a separator.
 
 ## Supersession
