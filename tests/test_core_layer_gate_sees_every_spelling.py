@@ -433,7 +433,6 @@ READS_THE_LENS_FOUND = {
     "a truth test of sys.modules.get": "import sys\ndef _p():\n    if sys.modules.get('typing'):\n        return 1\n",
     "inspect.getmembers of the module": "import inspect, typing\ndef _p():\n    return inspect.getmembers(typing)\n",
     "a string method on the name": "def _p(s):\n    return s.startswith('TYPE_CHECKING')\n",
-    "a dict union with a module's namespace": "import json\ndef _p(extra):\n    return vars(json) | extra\n",
     "a module's namespace formatted": "import json\ndef _p():\n    return '%s' % vars(json)\n",
     "the names of a module joined": "import json\ndef _p():\n    return ','.join(vars(json))\n",
     "the names of a module yielded": "import json\ndef _p():\n    yield from vars(json)\n",
@@ -466,6 +465,9 @@ COUNTS_ON_PURPOSE = {
     "setattr on an imported object": "from .settings import config\ndef put(k, v):\n    setattr(config, k, v)\n",
     # The reader of round two is resolved, not matched by spelling: a parameter's method and a print the module
     # defines itself may set what the dotted name says.
+    # F7 of the counter-reading of pull request 395: a union with an operand the gate does not know hands the namespace to
+    # that operand's `__ror__`. A read of the lens on the first fix until then; the union with a dict written out stays one.
+    "a dict union with a module's namespace and a parameter": "import json\ndef _p(extra):\n    return vars(json) | extra\n",
     "a dotted name handed to a parameter's method": (
         "def t(monkeypatch):\n    monkeypatch.setattr('typing.TYPE_CHECKING', True)\n"),
     "a dotted name handed to a print the module defines": (
@@ -497,8 +499,8 @@ _FILL = COUNTS_ON_PURPOSE["the namespace of a parameter filled by name"]
 
 
 def _review(count=1, reason="fills the namespace of objects this module builds; no module is ever a target",
-            form=_REVIEWED_FORM):
-    entry = {"module": "probepkg.demo", "form": form, "count": count}
+            form=_REVIEWED_FORM, source=('own = object.__getattribute__(target, "__dict__")',)):
+    entry = {"module": "probepkg.demo", "form": form, "count": count, "source": list(source)}
     if reason is not None:
         entry["reason"] = reason
     return [entry]
@@ -775,3 +777,641 @@ def test_CONTROL_a_method_that_re_binds_self_keeps_the_guards(tmp_path):
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
     assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
     assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+# ── the follow-up of the first counter-reading of pull request 395 (report at 159c75dd): F6 to F15 ───────────────────
+
+_RUNS_AFTER_DEMO = "import probepkg.demo\n" + _RUNS_THE_BLOCK
+
+#: F6 (P2): a dotted name for a patch helper that is not one literal. Each one runs the guarded block.
+DOTTED_NAMES_BUILT_FROM_CONSTANTS = {
+    "a name bound to the literal": (
+        {"demo.py": "import unittest.mock\nTARGET = 'typing.TYPE_CHECKING'\nunittest.mock.patch(TARGET, True).start()\n"}),
+    "a concatenation": (
+        {"demo.py": "import unittest.mock\nunittest.mock.patch('typing.' + 'TYPE_CHECKING', True).start()\n"}),
+    "a join of literals": (
+        {"demo.py": "import unittest.mock\nunittest.mock.patch('.'.join(['typing', 'TYPE_CHECKING']), True).start()\n"}),
+    "an f-string over a bound literal": (
+        {"demo.py": "import unittest.mock\nflag = 'TYPE_CHECKING'\nunittest.mock.patch(f'typing.{flag}', True).start()\n"}),
+    "a literal bound in another module": (
+        {"demo.py": "import unittest.mock\nfrom .consts import TARGET\nunittest.mock.patch(TARGET, True).start()\n",
+         "consts.py": "TARGET = 'typing.TYPE_CHECKING'\n"}),
+}
+
+
+@pytest.mark.parametrize("files", list(DOTTED_NAMES_BUILT_FROM_CONSTANTS.values()),
+                         ids=list(DOTTED_NAMES_BUILT_FROM_CONSTANTS))
+def test_RED_F6_a_dotted_name_built_from_constants_names_the_flag(tmp_path, files):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, **files})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert "probepkg.demo" in report["measured"]["type_checking_changed_by"]
+
+
+def test_CONTROL_F6_a_dotted_name_built_from_other_constants_writes_nothing(tmp_path):
+    demo = ("import unittest.mock\nTARGET = 'json.' + 'dumps'\ndef _p():\n    return unittest.mock.patch(TARGET)\n"
+            "NAMES = '.'.join(['typing', 'Any'])\n")
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+_W = ("import typing\nname = 'TYPE_' + 'CHECKING'\nclass W:\n"
+      "    def __eq__(self, other):\n        other[name] = True\n        return True\n"
+      "    def __or__(self, other):\n        other[name] = True\n        return other\n"
+      "    __ror__ = __or__\n    __hash__ = None\n")
+
+#: F7 (a) (P2): an operand with operators of its own receives the namespace; the operator builds nothing new there.
+OPERATORS_OF_THE_OTHER_OPERAND = {
+    "== with a class of the module": _W + "W() == vars(typing)\n",
+    "| with __ror__": _W + "vars(typing) | W()\n",
+    "| with __or__ on __dict__": _W + "W() | typing.__dict__\n",
+}
+
+
+@pytest.mark.parametrize("demo", list(OPERATORS_OF_THE_OTHER_OPERAND.values()), ids=list(OPERATORS_OF_THE_OTHER_OPERAND))
+def test_RED_F7_an_operator_of_the_other_operand_may_write_the_namespace(tmp_path, demo):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+
+
+#: The other direction of F7 (a): an operand the gate knows builds a new value and hands the namespace to nobody.
+OPERATORS_OF_KNOWN_OPERANDS = {
+    "a union with a dict written out": "import json\ndef _p():\n    return vars(json) | {'a': 1}\n",
+    "a union with a dict a builtin builds": "import json\ndef _p():\n    return vars(json) | dict(a=1)\n",
+    "a membership test in the namespace": "import json\ndef _p(x):\n    return x in vars(json)\n",
+    "a comparison with a literal": "import json\ndef _p():\n    return vars(json) == {}\n",
+}
+
+
+@pytest.mark.parametrize("demo", list(OPERATORS_OF_KNOWN_OPERANDS.values()), ids=list(OPERATORS_OF_KNOWN_OPERANDS))
+def test_CONTROL_F7_an_operator_of_a_known_operand_reads(tmp_path, demo):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+_MODULE_BY_CLASS = "import inspect, typing\nname = 'TYPE_' + 'CHECKING'\n"
+
+#: F7 (b) (P2), the limit the CHANGELOG of 7046cbfb names: a class of the module that builds something else than an
+#: object of its own.
+CLASSES_THAT_BUILD_A_MODULE = {
+    "__new__": _MODULE_BY_CLASS + (
+        "class C:\n    def __new__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "x = C()\nsetattr(x, name, True)\n"),
+    "a metaclass": _MODULE_BY_CLASS + (
+        "class M(type):\n    def __call__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "class C(metaclass=M):\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+    "a base with __new__": _MODULE_BY_CLASS + (
+        "class B:\n    def __new__(cls):\n        return inspect.getmodule(typing.Any)\n"
+        "class C(B):\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+    "a class decorator": _MODULE_BY_CLASS + (
+        "def deco(cls):\n    return lambda: inspect.getmodule(typing.Any)\n"
+        "@deco\nclass C:\n    pass\nx = C()\nsetattr(x, name, True)\n"),
+}
+
+
+@pytest.mark.parametrize("demo", list(CLASSES_THAT_BUILD_A_MODULE.values()), ids=list(CLASSES_THAT_BUILD_A_MODULE))
+def test_RED_F7_a_class_that_builds_a_module_is_no_proof_of_no_module(tmp_path, demo):
+    args = build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo})
+    assert run_core(tmp_path, _RUNS_AFTER_DEMO) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_changes")
+    assert report["measured"]["type_checking_changed_by"] == ["probepkg.demo"]
+
+
+def test_CONTROL_F7_a_plain_class_of_the_module_builds_no_module(tmp_path):
+    """K3 of the report: a class with no `__new__`, no metaclass, no decorator and a plain base builds its object."""
+    demo = ("class B:\n    pass\nclass C(B):\n    def __init__(self):\n        self.v = 1\n"
+            "def fill(k, v):\n    c = C()\n    setattr(c, k, v)\n")
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": demo}))
+    assert report["measured"]["type_checking_changed_by"] == [], report["measured"].get("type_checking_changes")
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set())
+
+
+def test_RED_F8_a_reviewed_change_is_bound_to_its_source(tmp_path):
+    """F8 (P2): the review bound (module, form, count), so the write could be pointed at another object at the same
+    count and stay approved. It is bound to the source of each line the form occurs on now."""
+    other = _FILL.replace("object.__getattribute__(target,", "object.__getattribute__(__import__('typing'),")
+    assert other != _FILL
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": other}, reviewed=_review()))
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"].get("type_checking_reviewed")
+    assert report["stale_reviewed_changes"], report
+
+
+def test_the_reason_of_the_reviewed_change_names_the_lines_it_stands_on():
+    """F8, the text: the reason named canonical.py:739 and :668, one line before the write and the `object.__new__`."""
+    spec = json.loads((ROOT / "scripts" / "core_layer_modules.json").read_text(encoding="utf-8"))
+    reason = spec["type_checking_reviewed"][0]["reason"]
+    lines = (ROOT / "src" / "proofbundle" / "canonical.py").read_text(encoding="utf-8").splitlines()
+    import re
+    for n in (int(x) for x in re.findall(r"canonical\.py:(\d+)", reason)):
+        assert any(word in lines[n - 1] for word in ("__getattribute__", "object.__new__", "_paketklasse")), (
+            n, lines[n - 1])
+
+
+@pytest.mark.parametrize("bad", ["except E, ValueError:\n    pass\n", "x = = 1\n"], ids=["3.14 syntax", "no syntax"])
+def test_F9_a_module_outside_the_core_the_gate_cannot_parse_is_not_measurable(tmp_path, bad):
+    """F9 (P2): a module outside the core that did not parse was passed over with exit 0 and no trace in the report;
+    under another Python it may run and change the guard."""
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": bad}))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE"), report
+
+
+@pytest.mark.parametrize("spelling", ["Path('x').cwd()", "Path('x').home()"])
+def test_RED_F10_a_listed_directory_read_through_an_instance_is_seen(tmp_path, spelling):
+    """F10 (P2): `pathlib.Path.cwd` and `pathlib.Path.home` are listed, the same read through an instance was not."""
+    code = f"from pathlib import Path\nVALUE = {spelling}\n"
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE.is_absolute())") == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert any(rule == "environment" for rule, _ in found(report)), report["measured"]["findings"]
+
+
+@pytest.mark.parametrize("where", ["core.py", "demo.py"])
+def test_F11_a_module_too_deep_for_the_parser_is_not_measurable(tmp_path, where):
+    """F11 (P3): `ast.parse` raised RecursionError on a long expression, and the gate stopped with a traceback and
+    exit 1 instead of exit 2 with its report."""
+    files = {"core.py": _HONEST_CORE, where: "X = " + "+".join(["1"] * 100000) + "\n"}
+    rc, report = gate(build(tmp_path, files))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE"), report
+
+
+def test_RED_F12_a_long_alias_chain_in_reverse_order_is_followed(tmp_path):
+    """F12 (P3): the aliases were resolved for eight rounds and then left as they stood, so a chain of nine or more
+    assignments written last link first read the environment unseen. The loop runs the chain until it holds."""
+    k = 14
+    names = " = ".join(f"a{i}" for i in range(k))
+    chain = "".join(f"    a{i} = a{i - 1}\n" for i in range(k - 1, 0, -1))
+    code = f"import os\n{names} = None\nfor _ in range({k + 2}):\n{chain}    a0 = os\nVALUE = a{k - 1}.getenv('X')\n"
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE)") == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report)
+
+
+def test_F8_a_review_without_the_source_it_binds_is_not_measurable(tmp_path):
+    """F8: the source of each line is part of the review, as the reason is."""
+    entry = [{k: v for k, v in _review()[0].items() if k != "source"}]
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": _FILL}, reviewed=entry))
+    assert (rc, report["verdict"]) == (2, "NOT_MEASURABLE")
+
+
+# ── the follow-up of the second counter-reading of pull request 395 (report at 7046cbfb): F-B, F-C and F-D ───────────
+
+_RUNS_VALUE = "import probepkg.core as c; print(c.VALUE)"
+_C = "c = len('a') == 1\n"
+
+#: F-B (P2): the literal attribute read knew fewer spellings than `_attribute_call`, so these reads stood for nothing
+#: and the expansion of `$X` read the environment unseen. The first three are the lens's FB-1 to FB-3, the other four
+#: the same gap in the spellings `_attribute_call` reads under a name or through `__call__`.
+LITERAL_READS_OF_EVERY_SPELLING = {
+    "FB-1 getattr through __call__": "import os\nVALUE = getattr.__call__(os, 'path').expandvars('$X')\n",
+    "FB-2 the __getattribute__ of type(x)": "import os\nVALUE = type(os).__getattribute__(os, 'path').expandvars('$X')\n",
+    "FB-3 the __getattribute__ of ModuleType": (
+        "import os\nimport types\nVALUE = types.ModuleType.__getattribute__(os, 'path').expandvars('$X')\n"),
+    "a bound __getattribute__ through __call__": "import os\nVALUE = os.__getattribute__.__call__('path').expandvars('$X')\n",
+    "a bound __getattribute__ bound to a name": "import os\nga = os.__getattribute__\nVALUE = ga('path').expandvars('$X')\n",
+    "object.__getattribute__ bound to a name": (
+        "import os\nga = object.__getattribute__\nVALUE = ga(os, 'path').expandvars('$X')\n"),
+    "__getattribute__ imported from the module": (
+        "import os\nfrom os import __getattribute__ as ga\nVALUE = ga('path').expandvars('$X')\n"),
+}
+
+
+@pytest.mark.parametrize("code", list(LITERAL_READS_OF_EVERY_SPELLING.values()), ids=list(LITERAL_READS_OF_EVERY_SPELLING))
+def test_RED_FB_every_spelling_of_a_literal_read_carries_its_name_on(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_VALUE) == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.path.expandvars") in found(report), report["measured"]["findings"]
+
+
+def test_FB_a_module_as_the_default_of_a_getattr_is_the_clock_it_reads(tmp_path):
+    """FB-5 of the second reading: red at 7046cbfb, held since c3eb4c09 (Codex round three), kept here as the lens wrote it."""
+    args = build(tmp_path, {"core.py": "import time\nimport types\nVALUE = getattr(types, 'nonexistent_attr', time).time()\n"})
+    assert float(run_core(tmp_path, _RUNS_VALUE)) > 0
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("clock", "time.time") in found(report)
+
+
+#: F-C (P3): a conditional, a boolean and an assignment expression give one of their values, and a binding or a receiver
+#: written as one of them stood for nothing.
+VALUES_AN_EXPRESSION_GIVES = {
+    "FC-1 a conditional expression bound to a name": "import math\nimport os\n" + _C + "o = os if c else math\nVALUE = o.getenv('X')\n",
+    "FC-2 a boolean expression bound to a name": "import os\no = None or os\nVALUE = o.getenv('X')\n",
+    "FC-3 an assignment expression bound to a name": "import os\no = (p := os)\nVALUE = o.getenv('X')\n",
+    "FC-4 an assignment expression as the receiver": "import os\nVALUE = (p := os).getenv('X')\n",
+    "a conditional expression as the receiver": "import math\nimport os\n" + _C + "VALUE = (os if c else math).getenv('X')\n",
+    "a boolean and as the receiver": "import os\n" + _C + "VALUE = (c and os).getenv('X')\n",
+}
+
+
+@pytest.mark.parametrize("code", list(VALUES_AN_EXPRESSION_GIVES.values()), ids=list(VALUES_AN_EXPRESSION_GIVES))
+def test_RED_FC_a_value_an_expression_may_give_is_resolved(tmp_path, code):
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_VALUE) == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+@pytest.mark.parametrize("code", [
+    "import math\nVALUE = (math if len('a') else None).floor(1.5)\n",
+    "import math\nVALUE = (None or math).floor(1.5)\n",
+    "import math\nVALUE = (m := math).floor(1.5)\n",
+], ids=["a conditional", "a boolean", "an assignment expression"])
+def test_CONTROL_FC_an_expression_of_harmless_objects_stays_green(tmp_path, code):
+    rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + code}))
+    assert (rc, report["verdict"], found(report)) == (0, "GREEN", set()), report["measured"]["findings"]
+
+
+#: F-D (P3): a receiver the gate reads through a call counted as resolved once `_quals` read literal attribute calls, and
+#: the file finding main makes on a receiver it cannot resolve was lost (FD-1, FD-3). The same held through a binding,
+#: and would hold for the expressions F-C reads; each one reads a file object or names a method that opens one.
+RECEIVERS_MAIN_JUDGED_BY_THE_METHOD = {
+    "FD-1 getattr(sys, 'stdin').read": ("import sys\nVALUE = getattr(sys, 'stdin').read(0)\n", "repr(c.VALUE)", "''",
+                                        ("file", ".read")),
+    "FD-3 getattr(zipfile, 'ZipFile').open": ("import zipfile\nVALUE = getattr(zipfile, 'ZipFile').open\n",
+                                              "c.VALUE.__qualname__", "ZipFile.open", ("file", ".open")),
+    "the getattr result bound to a name": ("import sys\ns = getattr(sys, 'stdin')\nVALUE = s.read(0)\n", "repr(c.VALUE)",
+                                           "''", ("file", ".read")),
+    "a conditional expression as the receiver": (
+        "import sys\n" + _C + "s = sys.stdout if c else sys.stderr\nVALUE = s.write('')\n", "repr(c.VALUE)", "0",
+        ("file", ".write")),
+    "an assignment expression as the receiver": ("import sys\nVALUE = (s := sys.stdin).read(0)\n", "repr(c.VALUE)", "''",
+                                                 ("file", ".read")),
+}
+
+
+@pytest.mark.parametrize("case", list(RECEIVERS_MAIN_JUDGED_BY_THE_METHOD.values()), ids=list(RECEIVERS_MAIN_JUDGED_BY_THE_METHOD))
+def test_RED_FD_a_receiver_read_through_an_expression_keeps_the_finding_of_main(tmp_path, case):
+    code, show, shown, finding = case
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, f"import probepkg.core as c; print({show})") == shown
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert finding in found(report), report["measured"]["findings"]
+
+
+_ANNOTATED = ("import os\ndef outer():\n    o = os\n    def inner(x: o.getenv('X')) -> None:\n        return None\n"
+              "    return inner\nVALUE = outer()\n")
+_POSTPONED = "from __future__ import annotations\n"
+
+
+@pytest.mark.parametrize("code, shown, verdict", [
+    (_POSTPONED + _ANNOTATED, "o.getenv('X')", "RED"),
+    (_ANNOTATED, "TEST_ONLY", "RED"),
+    (_POSTPONED + "import os\ndef inner(x: os.getenv('X')) -> None:\n    return None\nVALUE = inner\n", "os.getenv('X')", "RED"),
+], ids=["postponed, a name of the enclosing function", "evaluated, where the def runs",
+        "postponed, a name of the module that get_type_hints reads"])
+def test_FD_an_annotation_under_postponed_evaluation_is_read_where_its_string_is_read(tmp_path, code, shown, verdict):
+    """FD-4 (P3) of the second counter-reading of pull request 395: under `from __future__ import annotations` the
+    annotation of a nested function stays a string, and nothing evaluates it here. It is a finding all the same, as on
+    main (owner card OA-2d52c8b607, option A): every way of telling that no caller hands its names to an evaluator came
+    out open, so the gate reads it in the scope around the def as well. Evaluated, it runs where the def runs.
+    Postponed, `typing.get_type_hints` reads the string in the globals of the module, so a name of the module scope
+    counts too."""
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE.__annotations__['x'])") == shown
+    rc, report = gate(args)
+    assert report["verdict"] == verdict, report["measured"]["findings"]
+    assert (("environment", "os.getenv") in found(report)) == (verdict == "RED")
+
+
+# ── Codex, round one on pull request 420: three places where this branch judged an input weaker than main ──────────
+
+
+def _gate_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_clg_420", GATE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_name_that_grows_around_a_cycle_stays_bounded():
+    """Codex thread 4370601942 (P2): `p = os; p = p.path; p = p.os` doubled the names of `p` in every round, and the
+    rounds count every name the module binds, so twelve unrelated assignments ran the gate out of memory without its
+    report, where main reports GREEN. The names stay bounded, and past the bound `p` stands for an unresolved value."""
+    import ast
+    m = _gate_module()
+    source = "import os\np = os\np = p.path\np = p.os\n" + "".join(f"a{i} = {i}\n" for i in range(12))
+    names = m._Names(ast.parse(source), "probepkg.helper", False, m._NO_GUARDS)
+    held = names.module.alias["p"]
+    # The bound is the limit and the marker, not a number of its own (the counter-reading of pull request 420, F2,
+    # raised the limit from 64 to 4096).
+    assert len(held) <= m._ALIAS_LIMIT + 1, len(held)
+    assert m._UNRESOLVED in held
+    assert {"os", "os.path"} <= held, "the names the gate can follow are kept"
+
+
+def test_a_reading_that_runs_out_of_memory_is_not_measurable(monkeypatch, tmp_path):
+    """The same thread, the class: no input ends the gate without its report. A MemoryError of the reading is NOT
+    MEASURABLE, exit 2 with the JSON verdict, as every other unreadable input is."""
+    import contextlib
+    import io
+    m = _gate_module()
+
+    def _out_of_memory(*_a, **_k):
+        raise MemoryError("planted")
+    monkeypatch.setattr(m, "_measure", _out_of_memory)
+    args = build(tmp_path, {"core.py": ""})
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        rc = m.main([*args, "--json"])
+    assert rc == 2
+    assert json.loads(out.getvalue())["verdict"] == "NOT_MEASURABLE"
+
+
+_HANDED = ("from __future__ import annotations\nimport inspect\nimport os\nimport typing\n"
+           "def factory():\n    o = os\n    def inner(x: o.getenv('X')):\n        return x\n    return {}\n"
+           "VALUE = factory()\n")
+
+
+@pytest.mark.parametrize("call", [
+    "inspect.get_annotations(inner, eval_str=True, locals={'o': o})",
+    "typing.get_type_hints(inner, localns={'o': o})",
+    "typing.get_type_hints(inner, None, {'o': o})",
+], ids=["inspect, locals", "get_type_hints, localns", "get_type_hints, positional"])
+def test_RED_a_postponed_annotation_read_in_a_namespace_the_function_hands_in(tmp_path, call):
+    """Codex thread 4370601943 (P2): read in the module scope only, a postponed annotation that the function around
+    the def evaluates in a namespace of its own read the environment while the gate reported nothing, and main
+    reported it. FD-4 above keeps its verdict: without such a call the alias of the function is never met."""
+    code = _HANDED.replace("    return {}\n", f"    return {call}\n")
+    args = build(tmp_path, {"core.py": code})
+    if call.startswith("inspect"):
+        assert run_core(tmp_path, "import probepkg.core as c; print(c.VALUE['x'])") == "TEST_ONLY"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+#: Counts the calls of `os.getenv` while the package is imported, without a read of its own in the module.
+_COUNTED = ("import os; calls = []; real = os.getenv; os.getenv = lambda *a: (calls.append(a), real(*a))[1]; "
+            "import probepkg.core; print(len(calls))")
+_FACTORY = ("from __future__ import annotations\nimport functools, inspect, os, typing\n{before}def factory():\n"
+            "    o = os\n    def inner(x: type(o.getenv('X'))):\n        return x\n{body}{after}")
+#: (lines before the factory, the end of the factory, lines after it, the first Python that runs the form).
+HANDED_ELSEWHERE = {
+    "inspect.signature with locals": (
+        "", "    return inspect.signature(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n", (3, 10)),
+    "inspect.Signature.from_callable with locals": (
+        "", "    return inspect.Signature.from_callable(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n",
+        (3, 10)),
+    "functools.partial of get_type_hints": (
+        "", "    return functools.partial(typing.get_type_hints, localns={'o': o})(inner)\n", "VALUE = factory()\n",
+        (3, 10)),
+    "a helper of the module hands the namespace": (
+        "def hints(f, ns):\n    return typing.get_type_hints(f, localns=ns)\n", "    return hints(inner, {'o': o})\n",
+        "VALUE = factory()\n", (3, 10)),
+    "the caller of the factory hands it": (
+        "", "    return inner, {'o': o}\n", "f, ns = factory()\nVALUE = typing.get_type_hints(f, localns=ns)\n", (3, 10)),
+    "annotationlib.ForwardRef.evaluate with locals": (
+        "import annotationlib\n",
+        "    return annotationlib.ForwardRef(inner.__annotations__['x']).evaluate(locals={'o': o})\n",
+        "VALUE = factory()\n", (3, 14)),
+    "typing.evaluate_forward_ref with locals": (
+        "", "    return typing.evaluate_forward_ref(typing.ForwardRef(inner.__annotations__['x']), locals={'o': o})\n",
+        "VALUE = factory()\n", (3, 14)),
+}
+
+
+@pytest.mark.parametrize("before, body, after, since", list(HANDED_ELSEWHERE.values()), ids=list(HANDED_ELSEWHERE))
+def test_RED_a_postponed_annotation_read_in_a_namespace_handed_in_any_way(tmp_path, before, body, after, since):
+    """The counter-reading of pull request 420, F3 (P2): the namespace was seen only where the function around the def
+    calls `get_type_hints`, `inspect.get_annotations` or `annotationlib.get_annotations` with it. Seven more ways read
+    the environment where the gate reported GREEN and main reports `os.getenv`: `inspect.signature` and
+    `inspect.Signature.from_callable`, `functools.partial` of an evaluator, a helper of the module, the caller of the
+    factory, and on 3.14 `ForwardRef.evaluate` and `typing.evaluate_forward_ref`. The gate reads the source only, so
+    each form is judged under every Python; it runs where the Python has the function."""
+    args = build(tmp_path, {"core.py": _FACTORY.format(before=before, body=body, after=after)})
+    if sys.version_info >= since:
+        assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+def _has_typing_extensions_get_annotations() -> bool:
+    import importlib.util
+    if importlib.util.find_spec("typing_extensions") is None:
+        return False
+    import typing_extensions
+    return hasattr(typing_extensions, "get_annotations")
+
+
+#: foxtrot's lens on 93c21dda: forms outside the list of the gate, each (lines before the factory, the end of the
+#: factory, lines after it, whether this Python runs the form). The evaluation in the frame of the factory is a
+#: neighbour of the same class.
+HANDED_OUTSIDE_THE_LIST = {
+    "a ForwardRef in a list, evaluated by position": (
+        "", "    refs = [typing.ForwardRef(inner.__annotations__['x'])]\n"
+            "    return refs[0]._evaluate(None, {'o': o}, frozenset())\n", "VALUE = factory()\n",
+        sys.version_info < (3, 12)),
+    "a ForwardRef from a helper of the module, evaluated by position": (
+        "def mk(s):\n    return typing.ForwardRef(s)\n",
+        "    return mk(inner.__annotations__['x'])._evaluate(None, {'o': o}, frozenset())\n", "VALUE = factory()\n",
+        sys.version_info < (3, 12)),
+    "typing_extensions.get_annotations with locals": (
+        "import typing_extensions\n",
+        "    return typing_extensions.get_annotations(inner, eval_str=True, locals={'o': o})\n", "VALUE = factory()\n",
+        _has_typing_extensions_get_annotations()),
+    # Unpacked from a dict, the namespace has no keyword the gate reads; only the name of the evaluator counts.
+    "typing_extensions.get_annotations with the namespace unpacked from a dict": (
+        "import typing_extensions\n",
+        "    return typing_extensions.get_annotations(inner, **{'eval_str': True, 'locals': {'o': o}})\n",
+        "VALUE = factory()\n", _has_typing_extensions_get_annotations()),
+    "eval of the annotation with a namespace": (
+        "", "    return eval(inner.__annotations__['x'], None, {'o': o})\n", "VALUE = factory()\n", True),
+    "eval of the annotation in the frame of the factory": (
+        "", "    return eval(inner.__annotations__['x'])\n", "VALUE = factory()\n", True),
+    "eval taken as a value": (
+        "", "    return functools.partial(eval, inner.__annotations__['x'])({'o': o})\n", "VALUE = factory()\n", True),
+    "get_type_hints with the namespace unpacked from a dict": (
+        "", "    return typing.get_type_hints(inner, **{'localns': {'o': o}})\n", "VALUE = factory()\n", True),
+    # foxtrot's lens on ec754b36: a namespace by position to a callee no list names.
+    "typing._eval_type with the namespace by position": (
+        "", "    return typing._eval_type(typing.ForwardRef(inner.__annotations__['x']), None, {'o': o})\n",
+        "VALUE = factory()\n", sys.version_info < (3, 14)),
+    "getattr of _evaluate with the namespace by position": (
+        "", "    return getattr(typing.ForwardRef(inner.__annotations__['x']), '_evaluate')(None, {'o': o}, frozenset())\n",
+        "VALUE = factory()\n", sys.version_info < (3, 12)),
+    "operator.methodcaller of _evaluate": (
+        "import operator\n",
+        "    return operator.methodcaller('_evaluate', None, {'o': o}, frozenset())"
+        "(typing.ForwardRef(inner.__annotations__['x']))\n", "VALUE = factory()\n", sys.version_info < (3, 12)),
+    # A namespace that maps the name to the module's own `os`: the alias of the factory is never read.
+    "get_type_hints with the module's os under the name of the alias": (
+        "", "    return typing.get_type_hints(inner, localns={'o': os})\n", "VALUE = factory()\n", True),
+}
+
+
+@pytest.mark.parametrize("before, body, after, runs", list(HANDED_OUTSIDE_THE_LIST.values()),
+                         ids=list(HANDED_OUTSIDE_THE_LIST))
+def test_RED_a_postponed_annotation_read_by_a_callee_the_list_did_not_name(tmp_path, before, body, after, runs):
+    """foxtrot's lenses on 93c21dda and ec754b36, the class of F3: whether a namespace reaches an evaluator was decided
+    by the spelling of the callee, and then by what the call hands. A ForwardRef the gate cannot trace to its class,
+    `typing_extensions.get_annotations`, `eval`, a namespace by position to `typing._eval_type`, `getattr` or
+    `operator.methodcaller`, and a namespace that maps the name to the module's `os` read the environment where main
+    reports `os.getenv`, and the gate said GREEN or lost the finding. The gate now reads the annotation in the scope
+    around the def always (owner card OA-2d52c8b607, option A)."""
+    args = build(tmp_path, {"core.py": _FACTORY.format(before=before, body=body, after=after)})
+    if runs:
+        assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+def test_reading_postponed_annotations_leaves_the_names_of_every_call_as_they_were():
+    """A search over the module once narrowed the set `_quals` keeps in `_memo` in place (`quals &= ...`, at
+    3d3cd280), so afterwards `len` stood for nothing, `len(sys.modules)` became a use of a namespace other than by
+    reading, and the gate was RED on this tree. Whatever reads the postponed annotations reads names, it never
+    changes them."""
+    import ast
+    m = _gate_module()
+    source = ("from __future__ import annotations\nimport sys\ndef outer():\n    def inner(x: int) -> None:\n"
+              "        return None\n    return inner\nN = len(sys.modules)\n")
+    tree = ast.parse(source)
+    names = m._Names(tree, "probepkg.core", False, m._NO_GUARDS)
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "len")
+    assert names.quals(call.func) == ["builtins.len"]
+
+
+def test_RED_a_namespace_handed_by_keyword_to_a_helper_of_another_module(tmp_path):
+    """The class itself: no callee needs to be recognised, here a helper in another module of the package that hands
+    the namespace on to `typing.get_type_hints`. The annotation is read in the scope around the def always."""
+    helper = "import typing\ndef hints(f, localns):\n    return typing.get_type_hints(f, localns=localns)\n"
+    core = _FACTORY.format(before="from .hints import hints\n", body="    return hints(inner, localns={'o': o})\n",
+                           after="VALUE = factory()\n")
+    args = build(tmp_path, {"core.py": core, "hints.py": helper})
+    assert run_core(tmp_path, _COUNTED) == "1"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("environment", "os.getenv") in found(report), report["measured"]["findings"]
+
+
+_GUARDED_AFTER = "VALUE = factory()\nif typing.TYPE_CHECKING:\n    import subprocess\n"
+_NAMESPACE_WRITE = "a namespace that may be a module's, used other than by reading"
+#: foxtrot's lens on 3b1058c9 (P2) and its neighbours: a name of a postponed annotation the module binds to no module
+#: or to another string, and the factory to `typing`, to a writer or to the flag. Each (the source, the guard change
+#: at the line of the annotation, its line). The guarded import runs in every one of them.
+READ_AS_A_WHOLE_IN_EACH_READING = {
+    "vars of a name the module binds to a list": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(vars(o).update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o, 'd': d})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "__dict__ of a name the module binds to a list": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(o.__dict__.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o, 'd': d})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "the names of the factory handed with locals()": (
+        "from __future__ import annotations\nimport typing\no = []\ndef factory():\n    o = typing\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(o.__dict__.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns=locals())\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 7),
+    "a namespace the factory binds, written in the annotation": (
+        "from __future__ import annotations\nimport typing\ndef factory():\n    ns = vars(typing)\n"
+        "    d = {'TYPE_CHECKING': True}\n    def inner(x: type(ns.update(d))):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns=locals())\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 4),
+    "the other operand of a comparison, sys.modules in the module": (
+        "from __future__ import annotations\nimport sys\nimport typing\nclass W:\n    def __eq__(self, other):\n"
+        "        other['TYPE_CHECKING'] = True\n        return True\no = sys.modules\ndef factory():\n    o = W()\n"
+        "    def inner(x: type(vars(typing) == o)):\n        return x\n"
+        "    return typing.get_type_hints(inner, localns={'o': o})\n" + _GUARDED_AFTER, _NAMESPACE_WRITE, 11),
+    "a dotted name the factory binds, handed to patch": (
+        "from __future__ import annotations\nimport typing\nimport unittest.mock\nN = 'x'\ndef factory():\n"
+        "    N = 'typing.TYPE_CHECKING'\n    def inner(x: type(unittest.mock.patch(N, True).start())):\n"
+        "        return x\n    return typing.get_type_hints(inner, localns={'N': N})\n" + _GUARDED_AFTER,
+        "TYPE_CHECKING named by a write", 7),
+}
+
+
+@pytest.mark.parametrize("code, form, line", list(READ_AS_A_WHOLE_IN_EACH_READING.values()),
+                         ids=list(READ_AS_A_WHOLE_IN_EACH_READING))
+def test_RED_a_postponed_annotation_is_judged_as_a_whole_in_each_reading(tmp_path, code, form, line):
+    """foxtrot's lens on 3b1058c9 (P2): the scope around the def was read for what the names stand for only, and
+    every other judgment saw the module. `o = []` in the module made the `o = typing` of a factory no module, so the
+    write in the annotation was no change of the guard, where main reports it. A review of the guard names each form
+    with its lines, so a lost line is a write nobody reviewed. Adding the second scope to each judgment was no fix,
+    since a judgment that asks whether ALL a name may be is answered wrongly by the union (the comparison case). The
+    gate reads the module twice, the annotation in the module scope and in the scope around its def."""
+    args = build(tmp_path, {"core.py": code})
+    assert run_core(tmp_path, _RUNS_THE_BLOCK) == "True"
+    rc, report = gate(args)
+    assert (rc, report["verdict"]) == (1, "RED"), report["measured"]["findings"]
+    assert ("subprocess", "import subprocess") in found(report), report["measured"]["findings"]
+    assert [form, line] in report["measured"]["type_checking_changes"]["probepkg.core"], \
+        report["measured"]["type_checking_changes"]
+
+
+def _postponed_sources() -> dict[str, str]:
+    """Every postponed source of the cases on postponed annotations in this file."""
+    out = {f"whole: {k}": v[0] for k, v in READ_AS_A_WHOLE_IN_EACH_READING.items()}
+    out["FD-4"] = _POSTPONED + _ANNOTATED
+    for call in ("inspect.get_annotations(inner, eval_str=True, locals={'o': o})",
+                 "typing.get_type_hints(inner, localns={'o': o})", "typing.get_type_hints(inner, None, {'o': o})"):
+        out[f"handed: {call}"] = _HANDED.replace("    return {}\n", f"    return {call}\n")
+    for table in (HANDED_ELSEWHERE, HANDED_OUTSIDE_THE_LIST):
+        for k, (before, body, after, _) in table.items():
+            out[f"factory: {k}"] = _FACTORY.format(before=before, body=body, after=after)
+    return out
+
+
+@pytest.mark.parametrize("source", list(_postponed_sources().values()), ids=list(_postponed_sources()))
+def test_a_postponed_annotation_reports_at_least_what_main_reads(source):
+    """The class of the lens on 3b1058c9 as a property, not one form: for every postponed source of these cases, the
+    gate reports at least what it reports for the same source with the annotations evaluated, where they run in the
+    scope around their def as main reads them. Findings and guard changes, counted per line. Both sides run through
+    this gate, so the case holds the two readings in place and cannot find a fault they share; the independent oracle
+    is the gate of main (foxtrot's lens on dcae71f9, P3), as in the probes of the lens and in zweig_gegen_main."""
+    import ast
+    from collections import Counter
+    m = _gate_module()
+    assert source.startswith(_POSTPONED)
+    evaluated = source.replace(_POSTPONED, "from __future__ import division\n", 1)
+    for read in (lambda t: m.findings_of(t, "probepkg.core", False),
+                 lambda t: m.type_checking_changes(t, "probepkg.core", False)):
+        lost = Counter(read(ast.parse(evaluated))) - Counter(read(ast.parse(source)))
+        assert not lost, sorted(lost)
+
+
+def test_a_finding_both_readings_make_counts_once(tmp_path):
+    """Read twice, the module does not count a finding twice: an exception of the core and a review of the guard bind
+    a count, and a count that grew by the second reading would be red without a change."""
+    code = _POSTPONED + "import os\ndef outer():\n    def inner(x: os.getenv('X')) -> None:\n        return None\n" \
+        "    return inner\nVALUE = outer()\n"
+    args = build(tmp_path, {"core.py": code})
+    rc, report = gate(args)
+    counts = [f["count"] for f in report["measured"]["findings"] if (f["rule"], f["operation"]) == ("environment",
+                                                                                                    "os.getenv")]
+    assert counts == [1], report["measured"]["findings"]
+
+
+_DIAMOND_CORE = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import subprocess\n"
+
+
+@pytest.mark.parametrize("helper, verdict", [
+    ("class B:\n    pass\nclass C(B):\n    pass\nclass D(B):\n    pass\nclass E(C, D):\n    pass\n"
+     "def f(k, v):\n    setattr(E(), k, v)\n", "GREEN"),
+    ("class B:\n    pass\nclass C(B):\n    pass\nclass D(B):\n    def __new__(cls):\n        return object.__new__(cls)\n"
+     "class E(C, D):\n    pass\ndef f(k, v):\n    setattr(E(), k, v)\n", "RED"),
+], ids=["a diamond of plain classes", "the same diamond, one side with __new__"])
+def test_a_shared_base_is_no_cycle(tmp_path, helper, verdict):
+    """Codex thread 4370601946 (P2): one set for all bases made the second edge to a shared base a cycle, so a diamond
+    of plain classes built a possible module, a setattr on it turned every guard of the package off, and the guarded
+    import that never runs was red, where main is GREEN. The other direction: a side with its own `__new__` keeps the
+    class a possible module."""
+    args = build(tmp_path, {"core.py": _DIAMOND_CORE, "helper.py": helper})
+    shown = run_core(tmp_path, "import probepkg.core as c, probepkg.helper as h; print(hasattr(c, 'subprocess'))")
+    assert shown == "False"
+    rc, report = gate(args)
+    assert report["verdict"] == verdict, report["measured"]
