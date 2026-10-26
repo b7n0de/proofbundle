@@ -254,7 +254,8 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
 - predicateType `https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`; predicate
   `{schemaVersion, statementId, relationships:[edge]}` with exactly one edge (the same edge schema
   as above). The predicate is closed: any other member is malformed (exit 2), and the report names
-  it as `unknown field '<name>' (additionalProperties:false)`. The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
+  it as `unknown field '<name>' (additionalProperties:false)`; its `lineage` is still computed from its
+  edge, so such a statement whose target is not attached reports DECLARED_UNRESOLVED. The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
   the same functions as the in-receipt path — there is no second implementation of the logic.
 - Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
   DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
