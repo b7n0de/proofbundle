@@ -324,6 +324,12 @@ A conforming verifier MUST perform, in this order, and report each result:
    eval-binding `receipt.root_b64` commitment (N1, since 3.1.1; fail-closed against
    grafting a signed eval SD-JWT onto an arbitrary payload). A generic SD-JWT-VC with
    no `receipt.root_b64` is out of scope.
+7a. **sd-jwt-issuer-trust** — only if sd-jwt-key-binding was performed and passed: the
+   SD-JWT is trusted when its issuer signature verified and either the relying party pinned
+   an issuer key (a trust policy's `sd_jwt.issuer_key_pin`) that matches the key that
+   verified the SD-JWT, or, with no pin, sd-jwt-bundle-binding passed and the key that
+   verified the SD-JWT is the key under which ed25519-signature verified the bundle. A
+   supplied pin decides alone. The check is reported only when it FAILS.
 8. **root-authenticity** and **tree-size** — additive relying-party root
    authentication (ADR 0004, since the root is NOT in the signature input, §5).
    Performed ONLY when the relying party supplies an expected value: a given
