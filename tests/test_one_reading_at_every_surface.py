@@ -905,6 +905,7 @@ def _flaechen():
                              verification_summary as vs)
     from proofbundle.adapters import agt_receipt as agt  # noqa: PLC0415
     from proofbundle.adapters import trace_record as tr  # noqa: PLC0415
+    from proofbundle.adapters import sigstore_bundle as sb  # noqa: PLC0415
 
     pub = _raw(_T)
     ev_bundle = ec.emit_eval_receipt(_claim("0.10"), _T)
@@ -997,6 +998,15 @@ def _flaechen():
     p384_pub = p384.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
     _r, _s = decode_dss_signature(p384.sign(b"message", _ec.ECDSA(_hashes.SHA384())))
     p384_sig = _r.to_bytes(48, "big") + _s.to_bytes(48, "big")
+    # npm provenance of sigstore@3.0.0 as the registry serves it, for `adapters.sigstore_bundle`.
+    sig_fix = _WURZEL / "tests" / "fixtures"
+    sig_bundle = (sig_fix / "sigstore_bundle" / "public" / "npm-sigstore-3.0.0-provenance.sigstore.json").read_bytes()
+    sig_root = (sig_fix / "checkpoint" / "trusted_root.json").read_bytes()
+    sig_digest = ("sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6be"
+                  "efa46a8b894489557531c70911000d87fe66d78")
+    sig_identity = {"source_repository_uri": "https://github.com/sigstore/sigstore-js",
+                    "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml"
+                                        "@refs/heads/main"}
     # A TRACE v0.2 Trust Record in the embedded form, signed by _T, for `adapters.trace_record`.
     import rfc8785  # noqa: PLC0415
     trace_jwk = {"kty": "OKP", "crv": "Ed25519", "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}
@@ -1130,6 +1140,9 @@ def _flaechen():
             expected_subjects=w(["spiffe://example.org/agent/sweep"]),
             expected_transcript_hash=w("sha256:" + "d" * 64),
             accepted_profiles=w(["tag:agentrust-io.com,2026:trace-v0.2"]))),
+        ("adapters.sigstore_bundle.verify_sigstore_bundle", lambda w: sb.verify_sigstore_bundle(
+            w(sig_bundle), trusted_root=w(sig_root), artifact_digest=w(sig_digest), profile=w("npm-provenance"),
+            identity=w(sig_identity), expected_subject_name=w("pkg:npm/sigstore@3.0.0"), tlog_threshold=w(1))),
         # emit surfaces
         ("evalclaim.emit_eval_receipt", lambda w: ec.emit_eval_receipt(w(_claim("0.10")), _T)),
         ("decision.emit_decision_receipt", lambda w: decision.emit_decision_receipt(w(dec_pred), _T)),
@@ -1386,6 +1399,11 @@ class EverySurfaceReadsTheCallersObjectsByWhatTheyStore(unittest.TestCase):
 #: `verifier`; the rewrite-during-a-callback property is measured for the receipt verifiers in
 #: tests/test_one_reading_reaches_every_argument.py, and not for the other callbacks).
 _NICHT_IM_SWEEP = {
+    "adapters.sigstore_bundle.verify_sigstore_bundle": {
+        "registry_keys": "read only by the npm-publish profile; the sweep's base case is npm-provenance, under which a "
+                         "given registry_keys is refused at verifier-config. Read once as wire bytes (_wire, by what "
+                         "they store); the npm-publish vectors of tests/test_sigstore_bundle.py pass it",
+    },
     "public_transparency.evaluate_public_transparency": {
         "consistency_confirmed": "a bool or None the relying party computed; a bool cannot be subclassed",
         "consistency_result": "an object of this package's own ConsistencyVerificationResult type, no JSON value",

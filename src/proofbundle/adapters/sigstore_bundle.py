@@ -326,6 +326,26 @@ def _parse_json_bytes(raw: bytes, what: str) -> Any:
         raise _Unreadable(f"{what} is not strict JSON: {exc}") from None
 
 
+def _plain(value: Any, depth: int = 0) -> Any:
+    """A caller's JSON-shaped argument with every text read by what it stores (`canonical._zeichen_von`)
+    and every container read through its base type, so no method of the caller's values decides what the
+    checks compare (the reading the TRACE reader gives its arguments). ``canonical._ein_stand`` has
+    already copied the containers; it hands text subclasses on as they are. A value nested deeper than the
+    parser's depth bound is None, which every reader refuses."""
+    if depth > DEFAULT_BUDGET.json_depth:
+        return None
+    typ = type(value)
+    if issubclass(typ, str):
+        return _zeichen_von(value)
+    if issubclass(typ, dict):
+        return {(_zeichen_von(k) if issubclass(type(k), str) else k): _plain(v, depth + 1)
+                for k, v in dict.items(value)}
+    if issubclass(typ, (list, tuple)):
+        return [_plain(v, depth + 1) for v in (list.__iter__(value) if issubclass(typ, list)
+                                                else tuple.__iter__(value))]
+    return value
+
+
 def _wire(value: Any, what: str) -> bytes:
     """The wire bytes of a caller's ``bytes`` or ``str``, read by what it stores. A parsed object is
     refused: duplicate members and number spellings are lost in it."""
@@ -1537,7 +1557,8 @@ def verify_sigstore_bundle(
     (``canonical._ein_stand``, like every public function of this package)."""
     res = VerificationResult()
     try:
-        cfg = _read_config(profile, identity, artifact_digest, expected_subject_name, tlog_threshold)
+        cfg = _read_config(_plain(profile), _plain(identity), _plain(artifact_digest), _plain(expected_subject_name),
+                           tlog_threshold)
     except ValueError as exc:
         res.add("verifier-config", False, str(exc))
         return _finish(res)
