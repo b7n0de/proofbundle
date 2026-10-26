@@ -919,7 +919,7 @@ for the bundle schema at the top of this document.
 | [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
 | [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
 | [`docs/AGENT_REVIEW_PREDICATE.md`](docs/AGENT_REVIEW_PREDICATE.md), [`docs/VERIFIER_BLOCK.md`](docs/VERIFIER_BLOCK.md) | the agent-review predicate v0.1 to v0.3, its verifier block, receipt chains and policy decisions | `agent_review_predicate` |
-| [`conformance/cap1/draft-hillier-coverage-attestation-00.txt`](conformance/cap1/draft-hillier-coverage-attestation-00.txt) | the CAP-1 coverage-attestation document (its Section 4), the rules R0 to R8 a verifier enforces (its Section 5) and the closed disposition vocabulary (its Section 6) | `cap1_document` |
+| [`conformance/cap1/draft-hillier-coverage-attestation-00.txt`](conformance/cap1/draft-hillier-coverage-attestation-00.txt), [`conformance/cap1/CAP-1.schema.json`](conformance/cap1/CAP-1.schema.json) | the CAP-1 coverage-attestation document (its Section 4, and the members and their forms in the JSON Schema it names), the rules R0 to R8 a verifier enforces (its Section 5) and the closed disposition vocabulary (its Section 6) | `cap1_document` |
 
 The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json),
 [`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
@@ -942,7 +942,11 @@ sha256 `7a9eeb1fbdb1fee95697622546d2ae7efba762fff193d6ee34765233539ac353`, fetch
 [`conformance/cap1/LICENSE-SPEC`](conformance/cap1/LICENSE-SPEC) (sha256
 `b32b9706f7067c7f51ed74f9d75562a89518839d322b15fa7f5546ff12482161`) and [`conformance/cap1/NOTICE`](conformance/cap1/NOTICE)
 (sha256 `2f95eb9b1220b57f8992de1bae36e8c1c48c088e369910f1ab77be2d53463092`) are the files of the same name at that commit.
-The draft text is licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0,
+[`conformance/cap1/CAP-1.schema.json`](conformance/cap1/CAP-1.schema.json) is the file `cap-1/src/CAP-1.schema.json`
+at the same commit, 4921 bytes, sha256 `4453f216089543780bfecc4295cc4a61462fdc585b88d1e35b7d1aba79716b4a`, the JSON
+Schema that Section 4 of the draft names as the normative shape of a document; `LICENSE-SPEC` places it under the same
+licence as the draft text. Which parts of it the rules read is stated in `conformance/README.md` (`cap1_document`).
+The draft text and its schema are licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0,
 https://creativecommons.org/licenses/by/4.0/) with attribution to Dr Joel David Hillier, Certisyn, Inc.; the vectors
 are under the Apache License 2.0 (`conformance/cap1/vectors/LICENSE.author`, the `LICENSE` that `LICENSE-SPEC` names).
 The MIT licence of this repository does not replace CC BY 4.0 for these files. The citation `LICENSE-SPEC` asks for:

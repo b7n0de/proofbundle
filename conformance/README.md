@@ -145,6 +145,20 @@ conformance run, including NC-05 firing R1 and R5 together. They are generated b
 ones identical. The draft's text is vendored byte for byte as
 `conformance/cap1/draft-hillier-coverage-attestation-00.txt`, under CC BY 4.0 (SPEC.md §7l).
 
+The members the rules read and their forms are those of the draft's JSON Schema, vendored as
+`conformance/cap1/CAP-1.schema.json` (SPEC.md §7l): `subject` with `ref`; `strata`, each with `id`, `basis`
+(`kind`, `catalogue_digest`, `enumeration_method`), `eligible`, `examined`, `unexamined` (each entry with `unit`,
+`disposition`, `withheld_digest`) and `supports`; `absence_assertions`, each with `stratum`; and `integrity` with
+`complete` and `capped_to`. A verifier judges the rules R0 to R8 and nothing else of the schema: a part of it that
+no rule reads (an unknown member, a missing `population`, `statement` or `assertion`, the pattern of a stratum
+`id`, `subject.kind`, `subject.digest`) fires no rule. Where the draft's prose leaves a form open, the corpus reads
+the schema's, outside the fifteen cases as well: a `withheld_digest` or `catalogue_digest` that is not 32 to 128
+lowercase hexadecimal characters fires R3 or R4; a stratum whose `unexamined` is missing or not an array fires R1;
+an entry of `unexamined` without a non-empty string `unit` fires R2 and is not an accounted unit of R1; a `subject`
+that is not an object with a non-empty string `ref` fires R0; an `absence_assertions` that is present and not an
+array of objects fires R6; and a `capped_to` that is `null` or empty states no verdict, so it fires R7 when
+`complete` is false.
+
 ## Cases today
 
 | caseId | proves | does NOT prove |

@@ -25,8 +25,9 @@ examples/verdict_contract/out/* -text
 examples/verdict_contract/reply.txt -text
 examples/verdict_contract/verdict_contract.py -text
 
-# conformance/cap1/ (2026-10-26): SPEC.md §7l binds the vendored CAP-1 draft and its licence files by sha256,
-# so a checkout that rewrote line ends would no longer hold the author's bytes.
+# conformance/cap1/ (2026-10-26): SPEC.md §7l binds the vendored CAP-1 draft, its schema and its licence files by
+# sha256, so a checkout that rewrote line ends would no longer hold the author's bytes.
 conformance/cap1/draft-hillier-coverage-attestation-00.txt -text
 conformance/cap1/LICENSE-SPEC -text
 conformance/cap1/NOTICE -text
+conformance/cap1/CAP-1.schema.json -text
