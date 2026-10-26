@@ -900,7 +900,8 @@ for the bundle schema at the top of this document.
 | [`EVAL_CLAIM.md`](EVAL_CLAIM.md) | the `proofbundle/eval-claim/v0.1` claim a payload carries (§6), its canonicalization, its issuer binding and the reported-version status rule | `native_bundle`, `envelope_profile_rule`, `provenance_version_status` |
 | [`docs/RECEIPT_ENVELOPE_PROFILE.md`](docs/RECEIPT_ENVELOPE_PROFILE.md) | the receipt-envelope rules R1 to R4 and how their vectors are read | `envelope_profile_rule` |
 | [`docs/adr/0002-universal-content-root.md`](docs/adr/0002-universal-content-root.md) | the `jcs-sha256-v1` content root, the two-part rule, `contentRootAlg` and `legacy-sortkeys-json-v0` | `content_root_vector`, the content roots of §7j |
-| [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) | the decision-receipt predicate and its verify path | `decision_relation`, `relation_statement`, `content_root_vector` |
+| [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) | the decision-receipt predicate, its default-mode and strict validation and its verify path | `decision_relation`, `relation_statement`, `content_root_vector`, `decision_crossimpl` |
+| [`docs/ANCHORS.md`](docs/ANCHORS.md) | anchors, their trust model and the OpenTimestamps proof format and verdict | `native_bundle`, `decision_crossimpl` |
 | [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
 | [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
 | [`docs/AGENT_REVIEW_PREDICATE.md`](docs/AGENT_REVIEW_PREDICATE.md), [`docs/VERIFIER_BLOCK.md`](docs/VERIFIER_BLOCK.md) | the agent-review predicate v0.1 to v0.3, its verifier block, receipt chains and policy decisions | `agent_review_predicate` |
@@ -911,11 +912,9 @@ The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/ev
 they never gate a verdict (`docs/predicates/relation.md` §2), and where a mirror and its text disagree the
 text governs the corpus.
 
-Not yet backed by a text in this repository, and recorded rather than implied: the literals and encodings
-of the agent-review vectors that `docs/AGENT_REVIEW_PREDICATE.md` leaves open (twelve of its 35 vectors), the CAP-1 rules R0 to R8
-of `draft-hillier-coverage-attestation-00` (`cap1_document`), the default-mode rule list of the
-decision-receipt validator that the `decision_predicate_findings` counts of `decision_crossimpl` depend
-on, and the OpenTimestamps proof format behind the `anchor` axis of `decision_crossimpl`.
+Not yet backed by a text in this repository, and recorded rather than implied: the CAP-1 rules R0 to R8
+of `draft-hillier-coverage-attestation-00` (`cap1_document`); the draft is not vendored until its licence
+is settled.
 
 ## 8. References
 
