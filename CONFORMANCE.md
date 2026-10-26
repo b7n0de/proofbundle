@@ -70,7 +70,10 @@ A conformant implementation writes, beside every harness-reported version field,
 `<field>_status` drawn from exactly `reported`, `not_reported`, `not_bound`, and a
 `<field>_status_reason` whenever that status is not `reported`. It rejects a provenance block
 that uses a fourth literal, that omits a mandatory reason, or in which status and field
-contradict each other in either direction.
+contradict each other in either direction. The judged fields, the order of the checks and the
+exact issue sentences the vectors compare are defined in [EVAL_CLAIM.md](EVAL_CLAIM.md)
+§Reported-version status; that definition is the text the `provenance_version_status` vectors
+are read against.
 
 The corpus carries one vector per status value and one per rejection class under
 `conformance/provenance/`. A rule with no rejection vector is not conformance-testable: an

@@ -97,6 +97,33 @@ either direction (`reported` without the field, or the field present while the s
 Conformance vectors: `conformance/provenance/version-status-*` — one per status value plus one
 per rejection class.
 
+**What the verifier checks, exactly.** The rule judges the three fields named above and nothing
+else: a member whose name ends in `_status` but whose field is not one of them (`run_status`,
+`scorer_status`, or `schema_version_status`, whose `schema_version` is not a harness-reported
+version) never produces an issue, whatever its value. A block that carries a version field and no
+`<field>_status` is not rejected; the status is additive, and receipts issued before 5.0.0 carry
+none. For each `<field>_status` of a judged field, in ascending order of the member names:
+
+1. a value outside the three literals is one issue, and nothing else is checked for that field;
+2. otherwise a status other than `reported` whose `<field>_status_reason` is absent, `null` or
+   empty after trimming whitespace is one issue;
+3. `reported` while the field is absent, `null` or the empty string is one issue;
+4. `not_reported` or `not_bound` while the field is present (not absent, `null` or the empty string)
+   is one issue.
+
+Each issue is reported as one sentence, built from these templates, where `{key}` is the name of
+the status member, `{field}` the name of the version field, `{status}` the status value as written,
+and `{repr(x)}` Python's `repr` of a value (a string in single quotes); the literal list is written
+as Python writes a list of strings:
+
+- `{key}={repr(status)} is not one of ['reported', 'not_reported', 'not_bound']`
+- `{key}={status} without {field}_status_reason (reason is mandatory)`
+- `{key}=reported but {field} is absent`
+- `{key}={status} but {field} is present ({repr(value)})`
+
+The conformance vectors compare the issue sentences as a set; an empty set means the block is
+consistent in this respect, never that the versions are trustworthy.
+
 | `samples` | no | object | per-sample Merkle commitment `{root_b64, n, leaf_alg}` — SIGNED; `samples.n` MUST equal `n`; enables the forced-random-sample audit (SPEC §7g, `proofbundle audit-challenge` / `verify-opening`) |
 
 Machine-readable: [`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json).
