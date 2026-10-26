@@ -116,6 +116,7 @@ Milestone 6.4.0. The lines of `docs/release_scope/6.4.0.md` land here as they ar
   order mark no longer hides a mutant, a NUL and a damaged base object make the guard exit 2, a
   file system monitor no longer hides a change from the working-tree form, and the text report of
   the language gate escapes a CR or LF in a name or a line.
+- Repository tools, outside the installed package, after the counter-reading of pull request 371. A captured block of the mutation gate closes only at a separator with a title, so a line of the run's width that a test prints without one no longer puts the next line back on the top level; the text fallback reads `Interrupted` and `INTERNALERROR` outside captured output as well; and the head of a captured block is read in linear time (`scripts/mutation_check.py`). The token reader of the test-manifest gate reads a module name after NFKC, as the syntax tree does, and counts a source with a NUL byte as importing instead of stopping with `SystemError` under CPython 3.12. Both readers leave out a test source that does not decode as UTF-8, and the syntax tree also one its parser refuses with `ValueError` (a NUL byte under 3.10), `RecursionError` (a long chain from 3.11 on) or `MemoryError` (a source that overflows the parser's stack, on every version); each of these stopped the gate with a traceback (`scripts/test_manifest_gate.py`, `tests/test_codex_199_banner_and_import_path.py`).
 
 ## [6.3.1] - 2026-10-21
 
