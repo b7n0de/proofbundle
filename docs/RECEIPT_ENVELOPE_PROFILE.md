@@ -272,7 +272,20 @@ the case input as follows, and this section is the text those vectors are read a
      `refused_unknown_schema`;
   6. a claim that breaks a rule of `EVAL_CLAIM.md` is `invalid`; among them the issuer binding of
      §5 (the bundle's signing key must equal the claim's `issuer`, the R4 vectors) and
-     `samples.n` equal to `n` (§3, the R3 vectors);
+     `samples.n` equal to `n` (§3, the R3 vectors). The rules this step judges are exactly these:
+     every required member of §3 present and no member outside the required and optional ones;
+     `comparator` one of the four; `threshold` and each of exactly two `ci95` entries a plain
+     decimal string (`-?[0-9]+(\.[0-9]+)?`, no exponent); `assurance_level` one of the four
+     levels; `passed` a boolean; `n` an integer in 0..2^53−1; `suite` and `metric` non-empty
+     strings; `commit_alg` exactly `sha256-salted-v1`; `model_id_commit` and `dataset_id_commit`
+     `sha256:` followed by 64 lowercase hex; `suite_version`, `timestamp`, `context_binding`,
+     `multiple_testing`, `prereg_sha256` and `evaluation_card_sha256` strings, whatever their
+     form; `provenance` and `samples` objects, `samples` with exactly `root_b64`, `n` and
+     `leaf_alg`, `leaf_alg` `sha256-rfc6962-sdjwt-v1`, `samples.n` an integer equal to `n` and at
+     least 1, `root_b64` standard Base64 of 32 bytes; no integer outside ±(2^53−1) anywhere in
+     the claim; and the issuer binding. This step does not judge the form of `timestamp` or of a
+     digest member, whether `passed` follows from a score, the reported-version status of §3, the
+     NFC rule or the float ban of §4 (both emit-only);
   7. otherwise `valid`.
 
 ## What this profile deliberately does NOT say
