@@ -256,7 +256,9 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
 
 - predicateType `https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`; predicate
   `{schemaVersion, statementId, relationships:[edge]}` with exactly one edge (the same edge schema
-  as above). The predicate is closed: any other member is malformed (exit 2), and the report names
+  as above). All three members are required: `schemaVersion` a string of the form `0.1.x`,
+  `statementId` a non-empty string and `relationships` an array of exactly one edge; a missing member,
+  or one of another form, is malformed (exit 2). The predicate is closed: any other member is malformed (exit 2), and the report names
   it as `unknown field '<name>' (additionalProperties:false)`; its `lineage` is still computed from its
   edge, so such a statement whose target is not attached reports DECLARED_UNRESOLVED. The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
   the same functions as the in-receipt path — there is no second implementation of the logic.
