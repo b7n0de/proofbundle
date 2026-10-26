@@ -1678,6 +1678,152 @@
         "source_repository_uri": "https://github.com/octo-org/octo-repo",
         "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
       }
+    },
+    {
+      "caseId": "pos-npm-registry-signature",
+      "input": "synthetic/pos-npm-registry-signature.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-10",
+        "NP-11",
+        "NP-14"
+      ],
+      "rationale": "The registry's signature over name@version:integrity verifies under the registry key the keys document lists, valid at the publish attestation's verified time.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/pos-npm-registry-signature.version.json",
+      "versionDocumentSha256": "ea3d56d58b8318bc034b2438dc929311891182a1c83ae1c64c5a3efbb1cebff8"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-over-other-text",
+      "input": "synthetic/neg-npm-registry-signature-over-other-text.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10"
+      ],
+      "rationale": "The signature is the registry key's, but over another version than the document names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-over-other-text.version.json",
+      "versionDocumentSha256": "d61b19f9e5de7185eaa13ef862aeb995279fdf385754d91a1171111714b23207"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-unknown-keyid",
+      "input": "synthetic/neg-npm-registry-signature-unknown-keyid.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-11"
+      ],
+      "rationale": "The signature's keyid names no key of the registry keys document (pacote: EMISSINGSIGNATUREKEY).",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-unknown-keyid.version.json",
+      "versionDocumentSha256": "85b6f2925cb7a941298f1f8492d615a6bf795ba01ef40450d6807a77210dc5ac"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-expired-key",
+      "input": "synthetic/neg-npm-registry-signature-expired-key.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-12"
+      ],
+      "rationale": "Signed by a registry key that expired 2026-01-01, before the publish attestation's verified time 2026-01-15 (pacote: EEXPIREDSIGNATUREKEY).",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-expired-key.version.json",
+      "versionDocumentSha256": "88da1405408332676816958b9e0d55862d4256a95e692c9225b271004aed5de4"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-missing",
+      "input": "synthetic/neg-npm-registry-signature-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-14"
+      ],
+      "rationale": "No dist.signatures although the registry publishes signing keys.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-missing.version.json",
+      "versionDocumentSha256": "6a656d96e82dfaaffb5082a02fb1c8c1907606f433c0da174bc96b65e3e90f71"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-other-integrity",
+      "input": "synthetic/neg-npm-registry-signature-other-integrity.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-09"
+      ],
+      "rationale": "A sound registry signature over another tarball's integrity than the publish attestation names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-other-integrity.version.json",
+      "versionDocumentSha256": "70a86b65bc24108dbfaf3ff302c88c74f6b0f0fdc988a946f8a10e3dc9ad9404"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-other-version",
+      "input": "synthetic/neg-npm-registry-signature-other-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-03"
+      ],
+      "rationale": "A sound registry signature for another version than the publish attestation names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-other-version.version.json",
+      "versionDocumentSha256": "3f7f81cbc437c3cee6c97553dd0a6b562d47a74d932fa5b5f53d54a369202b1e"
     }
   ]
 }

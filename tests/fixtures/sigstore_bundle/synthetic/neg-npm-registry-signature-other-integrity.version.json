@@ -1,0 +1,15 @@
+{
+  "name": "octo-pkg",
+  "version": "1.0.0",
+  "dist": {
+    "integrity": "sha512-5R6Kh0il9NBtSOeFk5EFTR7DWWCr50v7Ygw57LFXJBJuvJ8Bif8K+KT+V3gbu65nQL54itcLpjDaWPX5aM86AA==",
+    "shasum": "1ef664c6235dd241f0d1266c78e99633dfdaed17",
+    "tarball": "https://registry.npmjs.org/octo-pkg/-/octo-pkg-1.0.0.tgz",
+    "signatures": [
+      {
+        "sig": "MEUCIEmUnJwS4+nsLxgNm5809Ztvb4xv0+q1iJx2lM03LHIQAiEA8lCEcK70KKwXI7ZOaHsjuAKzpMRBOFdnkoQkAMiJym0=",
+        "keyid": "SHA256:rM2uyJBEclTZLn1tnDS3Cnh1aAst/C4OkZkuSwsGBNk"
+      }
+    ]
+  }
+}

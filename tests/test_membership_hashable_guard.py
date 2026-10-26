@@ -1214,6 +1214,8 @@ _LOOKUPS_CLASSIFIED = {
         (1, "guarded: details is the exact str that _string returned"),
     ("proofbundle/adapters/sigstore_bundle.py", "verify_sigstore_bundle", "_BUNDLE_MEDIA_TYPES", "media"):
         (1, "guarded: `type(media) is str` in the same expression, before the lookup"),
+    ("proofbundle/adapters/sigstore_bundle.py", "_check_registry_signature", "_DIGEST_LEN", "alg"):
+        (1, "own value: alg is group 1 of a match of _SRI_ARG, one of the literals sha256, sha384, sha512"),
     # Seen once the scitt-ccf/v1 reader of ADR 0009 (the r2 stack, pull request 406) met this guard; each was
     # read at its source and at every caller.
     ("proofbundle/scitt_ccf.py", "_key_from_spki", "_EC_CURVES", "params[c:c_end]"):

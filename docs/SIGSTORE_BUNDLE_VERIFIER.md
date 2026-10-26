@@ -40,6 +40,10 @@ Only from the relying party:
   certificate is issued to anyone with an OIDC token. `issuer` defaults to
   `https://token.actions.githubusercontent.com`.
 - `registry_keys` (npm-publish): the registry's keys document (`/-/npm/v1/keys`) as wire bytes.
+- `version_document` (npm-publish, optional): the registry's version document of the package
+  (`https://registry.npmjs.org/<name>/<version>`) as wire bytes. With it, the registry signatures in
+  `dist.signatures` are checked (`registry-signature`, contract NP-10 and NP-14); without it, a note
+  says they were not.
 
 The `gh attestation verify` flags map onto `identity` as follows: `--repo` to
 `source_repository_uri`, `--owner` to `source_repository_owner_uri`, `--cert-identity` to `san`,
@@ -67,8 +71,17 @@ Each check is reported by name; the first integrity failure ends the run.
 4. `signing-time`: at least one verified time (an SET or an RFC 3161 timestamp; an unsigned
    `integratedTime` is none), inside the leaf's validity or before the registry key's expiry
 5. `certificate-chain` at every verified time (hybrid model), `sct`
-6. `statement`, `predicate-type`, `predicate`
+6. `statement`, `predicate-type`, `predicate`, and for npm-publish with a version document
+   `registry-signature`
 7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name` (exit 3)
+
+`registry-signature` reads the version document as npm's open manifest and uses `name`, `version`
+and `dist`. It must name the publish attestation's package and version, and `dist.integrity` must be
+a digest of the attestation's subject. Every signature in `dist.signatures` (at least one, at most
+32) must name a key of the keys document by `keyid` and verify, ECDSA P-256 with SHA-256, over
+`${name}@${version}:${dist.integrity}` (npm docs, "About registry signatures"). Its key must not have
+expired at the publish attestation's verified time. npm's own client compares the expiry with the
+registry's unsigned `time` field instead.
 
 `predicate` holds the predicate to SLSA Provenance v1 and to its buildType's own rules. The external
 parameters are read closed, as both buildTypes ask of a consumer: `workflow` for the actions.github.io

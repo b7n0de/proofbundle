@@ -25,6 +25,7 @@ Public bundles, vendored as data and never edited, retrieved 2026-10-26 (UTC):
 |---|---|---|
 | `public/npm-sigstore-3.0.0-attestations.json` | https://registry.npmjs.org/-/npm/v1/attestations/sigstore@3.0.0 | `aa241f27d54d28ac4ec967d626ce5473418962c54bebf7019531e0e808a22c40` |
 | `public/npm-registry-keys.json` | https://registry.npmjs.org/-/npm/v1/keys | `faf23d8753d5bb79df250f10391ac89b63ecf7743e48487a544a99c847f9c8df` |
+| `public/npm-sigstore-3.0.0-version.json` | https://registry.npmjs.org/sigstore/3.0.0 (retrieved 2026-10-26T12:16:32Z) | `748c34bed7317ea5c28425726f4e2c1245054cdb88e34941409e1c7cfcf457e2` |
 | `public/ghcli-custom-issuer.sigstore.json` | cli/cli@4f2cfe92e3499f8581bf39db77e0a1431fa7b55c pkg/cmd/attestation/test/data/custom-issuer.sigstore.json (MIT) | `c4ce45401067b13850e76fabc1b23e018a0187f0529d435af829b83f26bc5fca` |
 | `public/ghcli-reusable-workflow-attestation.sigstore.json` | same commit, reusable-workflow-attestation.sigstore.json (MIT) | see `public_cases.json` |
 | `public/ghcli-sigstore-js-2.1.0-bundle.json` | same commit, sigstore-js-2.1.0-bundle.json (MIT) | see `public_cases.json` |

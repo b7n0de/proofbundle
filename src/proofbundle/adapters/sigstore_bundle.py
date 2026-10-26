@@ -196,7 +196,7 @@ _UNREADABLE = frozenset({"verifier-config", "readable", "media-type", "unsupport
 _INTEGRITY = frozenset({"bundle-structure", "certificate", "public-key", "signature", "tlog-entry",
                         "tlog-body", "tlog-set", "tlog-inclusion", "tlog-checkpoint", "tlog-threshold",
                         "timestamp-authority", "signing-time", "certificate-chain", "sct", "statement",
-                        "predicate-type", "predicate"})
+                        "predicate-type", "predicate", "registry-signature"})
 #: Check names whose failure is an unmet relying-party requirement (exit 3).
 _REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name"})
 
@@ -1429,17 +1429,87 @@ def _check_slsa_binding(pred: Dict[str, Any], leaf: _Leaf) -> str:
             + f" ({rules})")
 
 
-def _check_npm_publish(pred: Any, statement: Dict[str, Any]) -> None:
+def _npm_purl(name: str, version: str) -> str:
+    return "pkg:npm/" + (("%40" + name[1:]) if name.startswith("@") else name) + "@" + version
+
+
+def _check_npm_publish(pred: Any, statement: Dict[str, Any]) -> Tuple[str, str]:
+    """The publish predicate's name and version, once it is well formed and names its one subject."""
     obj = _object(pred, "predicate", ("name", "version", "registry"))
     name = _string(obj["name"], "predicate.name", "predicate")
     version = _string(obj["version"], "predicate.version", "predicate")
     if obj["registry"] != NPM_REGISTRY:
         raise _Fail("predicate", f"predicate.registry is {render_safe(obj['registry'])}, not {NPM_REGISTRY}")
-    purl = "pkg:npm/" + (("%40" + name[1:]) if name.startswith("@") else name) + "@" + version
+    purl = _npm_purl(name, version)
     names = [s.get("name") for s in statement["subject"]]
     if names != [purl]:
         raise _Fail("predicate", f"the publish attestation's one subject must be {render_safe(purl)}, got "
                                  f"{render_safe(names)}")
+    return name, version
+
+
+def _check_registry_signature(doc: Dict[str, Any], name: str, version: str, statement: Dict[str, Any],
+                              keys: Dict[str, _RegistryKey], times: Sequence[int]) -> str:
+    """The registry's signatures in the version document's ``dist.signatures`` (contract NP-10, NP-14).
+
+    npm docs ("About registry signatures"): the registry signs ``${package.name}@${package.version}:
+    ${package.dist.integrity}`` with ECDSA P-256 and SHA-256, and ``keyid`` names a key of the keys
+    document. As npm's pacote does, every signature must verify under a listed key that had not expired
+    at publish time; the publish time here is the publish attestation's verified time, not the
+    registry's unsigned ``time`` field. The document must name the attestation's package and version,
+    and its ``dist.integrity`` a digest of the attestation's subject, so the signature covers the same
+    tarball. Members of the version document the reader does not use are ignored: it is the registry's
+    open manifest, not a closed message."""
+    if doc.get("name") != name or doc.get("version") != version:
+        raise _Fail("registry-signature", f"the version document is of {render_safe(doc.get('name'))} "
+                                          f"{render_safe(doc.get('version'))}, the publish attestation of "
+                                          f"{render_safe(name)} {render_safe(version)}")
+    dist = doc.get("dist")
+    if type(dist) is not dict:
+        raise _Fail("registry-signature", "the version document carries no dist object")
+    integrity = dist.get("integrity")
+    m = _SRI_ARG.match(integrity) if type(integrity) is str else None
+    if m is None:
+        raise _Fail("registry-signature", "dist.integrity is not one SRI digest (sha256-, sha384- or sha512-<base64>)")
+    alg = m.group(1)
+    try:
+        digest = decode_b64(m.group(2)).hex()
+    except ValueError:
+        raise _Fail("registry-signature", "dist.integrity's digest is not canonical base64") from None
+    if len(digest) != 2 * _DIGEST_LEN[alg] or not any(
+            type(s["digest"].get(alg)) is str and hmac.compare_digest(s["digest"][alg], digest)
+            for s in statement["subject"]):
+        raise _Fail("registry-signature", "dist.integrity names another tarball than the publish attestation's "
+                                          "subject")
+    sigs = dist.get("signatures")
+    if type(sigs) is not list or not sigs:
+        raise _Fail("registry-signature", "dist.signatures is missing or empty, and the registry publishes signing "
+                                          "keys (contract NP-14)")
+    if len(sigs) > _MAX_ENTRIES:
+        raise _Fail("registry-signature", f"dist.signatures holds {len(sigs)} signatures, over the bound of "
+                                          f"{_MAX_ENTRIES}")
+    message = f"{name}@{version}:{integrity}"
+    used = []
+    for i, s in enumerate(sigs):
+        p = f"dist.signatures[{i}]"
+        if type(s) is not dict:
+            raise _Fail("registry-signature", f"{p} must be an object")
+        keyid = _string(s.get("keyid"), p + ".keyid", "registry-signature")
+        sig = _b64(s.get("sig"), p + ".sig", "registry-signature")
+        reg = keys.get(keyid)
+        if reg is None:
+            raise _Fail("registry-signature", f"{p}.keyid {render_safe(keyid)} names no key of the registry keys "
+                                              "document")
+        for at in times:
+            if reg.expires is not None and at > reg.expires:
+                raise _Fail("registry-signature", f"{p}: key {render_safe(keyid)} had expired at the publish "
+                                                  f"attestation's verified time {_iso(at)}")
+        if not _verify(reg.key, sig, message.encode("utf-8")):
+            raise _Fail("registry-signature", f"{p} does not verify under key {render_safe(keyid)} over "
+                                              f"{render_safe(message)}")
+        used.append(render_safe(keyid))
+    return (f"{len(sigs)} registry signature(s) over {render_safe(message)} verify under " + ", ".join(used)
+            + ", valid at the publish attestation's verified time")
 
 
 # --------------------------------------------------------------------------------------------
@@ -1590,6 +1660,7 @@ def verify_sigstore_bundle(
     registry_keys: Any = None,
     expected_subject_name: Optional[str] = None,
     tlog_threshold: int = 1,
+    version_document: Any = None,
 ) -> SigstoreVerdict:
     """Verify one Sigstore bundle (wire bytes, ``bytes`` or ``str``) under one profile of :data:`PROFILES`.
 
@@ -1607,6 +1678,10 @@ def verify_sigstore_bundle(
     (default 1) is the number of distinct trusted logs whose entries must verify; 0 is for an instance
     without a transparency log (GitHub's private-repository instance), which then needs a verified
     RFC 3161 timestamp.
+
+    ``version_document`` (npm-publish) is the registry's version document of the package
+    (``https://registry.npmjs.org/<name>/<version>``) as wire bytes; when given, the registry signatures
+    in its ``dist.signatures`` are checked (``registry-signature``), and when not, a note says so.
 
     The body never raises: unusable trust material and unreadable bytes come back as failing checks
     (exit 2), every other outcome as a check of its own. The arguments are read once at the call
@@ -1630,6 +1705,9 @@ def verify_sigstore_bundle(
             keys = _read_registry_keys(_wire(registry_keys, "the registry keys document"))
         elif registry_keys is not None:
             raise _Unreadable(f"profile {prof} is certificate-signed; registry_keys does not apply")
+        for what, value, profiles in (("version_document", version_document, ("npm-publish",)),):
+            if value is not None and not is_member(prof, profiles):
+                raise _Unreadable(f"profile {prof} has no use for it; {what} does not apply")
     except _Unreadable as exc:
         res.add("verifier-config", False, str(exc))
         return _finish(res, profile=prof)
@@ -1639,17 +1717,24 @@ def verify_sigstore_bundle(
         return _finish(res, profile=prof, notes=notes)
     res.add("verifier-config", True, f"profile {prof}")
 
-    # Read.
+    # Read: the bundle, and the further documents the profile takes.
+    read = []
     try:
-        raw = _wire(bundle, "the bundle")
-        doc = _parse_json_bytes(raw, "the bundle")
+        for key, value, what in (("bundle", bundle, "the bundle"),
+                                 ("version_document", version_document, "the npm version document")):
+            if value is None and key != "bundle":
+                cfg[key] = None
+                continue
+            raw = _wire(value, what)
+            cfg[key] = _parse_json_bytes(raw, what)
+            if type(cfg[key]) is not dict:
+                raise _Unreadable(f"{what} is not a JSON object")
+            read.append(f"{what}: {len(raw)} bytes of strict JSON")
     except _Unreadable as exc:
         res.add("readable", False, str(exc))
         return _finish(res, profile=prof, notes=notes)
-    if type(doc) is not dict:
-        res.add("readable", False, "the bundle is not a JSON object")
-        return _finish(res, profile=prof, notes=notes)
-    res.add("readable", True, f"{len(raw)} bytes of strict JSON")
+    doc = cfg.pop("bundle")
+    res.add("readable", True, "; ".join(read))
     media = doc.get("mediaType")
     version = _BUNDLE_MEDIA_TYPES.get(media) if type(media) is str else None
     if version is None:
@@ -1822,8 +1907,15 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         res.add("predicate", True, f"SLSA Provenance v1, buildType {build_type}")
         notes.append(_check_slsa_binding(slsa, leaf))
     elif spec["predicate_type"] == NPM_PUBLISH_V0_1:
-        _check_npm_publish(pred, statement)
+        package, package_version = _check_npm_publish(pred, statement)
         res.add("predicate", True, "npm publish attestation v0.1")
+        if cfg["version_document"] is not None:
+            assert keys is not None
+            res.add("registry-signature", True, _check_registry_signature(
+                cfg["version_document"], package, package_version, statement, keys, times))
+        else:
+            notes.append("registry-signature: not checked, no version document given (dist.signatures, "
+                         "contract NP-10)")
     else:
         raise _Fail("predicate-type", f"profile {prof} names a predicate type this module does not read")
 

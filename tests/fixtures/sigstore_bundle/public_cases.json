@@ -278,6 +278,48 @@
       "expectedSubjectName": "pkg:npm/sigstore@3.0.0"
     },
     {
+      "caseId": "pub-npm-sigstore-3.0.0-registry-signature",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-10",
+        "NP-11",
+        "NP-12"
+      ],
+      "rationale": "The registry's signature of sigstore@3.0.0 in dist.signatures, as the registry serves the version document, under the key that expired 2025-01-29.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "public/npm-registry-keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0",
+      "versionDocument": "public/npm-sigstore-3.0.0-version.json",
+      "versionDocumentSha256": "748c34bed7317ea5c28425726f4e2c1245054cdb88e34941409e1c7cfcf457e2"
+    },
+    {
+      "caseId": "pub-neg-npm-registry-signature-changed",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10"
+      ],
+      "rationale": "One base64 character of the registry signature changed.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "public/npm-registry-keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0",
+      "versionDocument": "public/neg-npm-sigstore-3.0.0-version-signature-changed.json",
+      "versionDocumentSha256": "5b34df3f92b9f06a0878a656a1cb14d46c3f50f1437422b7fe9f07c4170c479e"
+    },
+    {
       "caseId": "pub-unsupported-message-signature",
       "input": "public/sigstore-python-bundle-v3-github.whl.sigstore.json",
       "trustedRoot": "../checkpoint/trusted_root.json",

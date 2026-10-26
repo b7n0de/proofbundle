@@ -45,13 +45,23 @@ def _arguments(case: dict) -> dict:
         kwargs["expected_subject_name"] = case["expectedSubjectName"]
     if "tlogThreshold" in case:
         kwargs["tlog_threshold"] = case["tlogThreshold"]
+    for key, argument in EXTRA_INPUTS.items():
+        if key in case:
+            kwargs[argument] = (FIX / case[key]).read_bytes()
     return kwargs
+
+
+#: Inputs beside the bundle, by manifest key and the argument that takes them.
+EXTRA_INPUTS = {"versionDocument": "version_document"}
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c["caseId"] for c in CASES])
 def test_vector(case: dict) -> None:
     data = (FIX / case["input"]).read_bytes()
     assert hashlib.sha256(data).hexdigest() == case["sha256"], "a vendored vector changed (CONFORMANCE.md rule 1)"
+    for key in EXTRA_INPUTS:
+        if key in case:
+            assert hashlib.sha256((FIX / case[key]).read_bytes()).hexdigest() == case[key + "Sha256"], key
     kwargs = _arguments(case)
     first = verify_sigstore_bundle(data, **kwargs).as_dict()
     second = verify_sigstore_bundle(data, **kwargs).as_dict()
@@ -174,6 +184,7 @@ def test_text_and_bytes_read_alike() -> None:
                       b'"mediaType": "x"}'}, "duplicate"),
     ({"tlog_threshold": True}, "tlog_threshold"),
     ({"tlog_threshold": 2}, "exceeds the trusted logs"),
+    ({"version_document": b"{}"}, "version_document does not apply"),
 ])
 def test_unusable_trust_material_is_exit_2(change: dict, why: str) -> None:
     data, kwargs = _positive()
@@ -181,6 +192,23 @@ def test_unusable_trust_material_is_exit_2(change: dict, why: str) -> None:
     verdict = verify_sigstore_bundle(data, **kwargs)
     assert exit_code(verdict) == 2
     assert verdict.result.checks[-1].name == "verifier-config" and why in verdict.result.checks[-1].detail
+
+
+def _case(case_id: str) -> tuple:
+    case = next(c for c in CASES if c["caseId"] == case_id)
+    return (FIX / case["input"]).read_bytes(), _arguments(case)
+
+
+def test_an_unreadable_version_document_is_exit_2_and_a_missing_one_is_named() -> None:
+    data, kwargs = _case("pos-npm-registry-signature")
+    kwargs["version_document"] = b'{"name": "octo-pkg", "name": "x"}'
+    verdict = verify_sigstore_bundle(data, **kwargs)
+    assert exit_code(verdict) == 2
+    assert verdict.result.checks[-1].name == "readable" and "the npm version document" in verdict.result.checks[-1].detail
+    del kwargs["version_document"]
+    out = verify_sigstore_bundle(data, **kwargs).as_dict()
+    assert out["exit_code"] == 0 and all(c["name"] != "registry-signature" for c in out["checks"])
+    assert any(n.startswith("registry-signature: not checked") for n in out["notes"]), out["notes"]
 
 
 def test_the_verdict_names_what_it_never_checks() -> None:
@@ -211,6 +239,9 @@ def test_the_synthetic_vectors_are_what_the_generator_writes() -> None:
         if "raw" in case:
             data = gen._raw_edit(data, case["raw"])
         assert hashlib.sha256(data).hexdigest() == by_id[case["caseId"]]["sha256"], case["caseId"]
+        if "versionDoc" in case:
+            assert gen.version_document(**case["versionDoc"]) == \
+                (FIX / by_id[case["caseId"]]["versionDocument"]).read_bytes(), case["caseId"]
     assert gen.trusted_root() == (FIX / "trust" / "test_trusted_root.json").read_bytes()
     assert gen.trusted_root(log_id_of=gen.FOREIGN_REKOR_KEY) == \
         (FIX / "trust" / "test_trusted_root_bad_log_id.json").read_bytes()

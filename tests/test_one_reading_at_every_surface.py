@@ -1403,6 +1403,9 @@ _NICHT_IM_SWEEP = {
         "registry_keys": "read only by the npm-publish profile; the sweep's base case is npm-provenance, under which a "
                          "given registry_keys is refused at verifier-config. Read once as wire bytes (_wire, by what "
                          "they store); the npm-publish vectors of tests/test_sigstore_bundle.py pass it",
+        "version_document": "read only by the npm-publish profile, like registry_keys, and refused at verifier-config "
+                            "under the sweep's npm-provenance base case. Read once as wire bytes (_wire); the "
+                            "registry-signature vectors of tests/test_sigstore_bundle.py pass it",
     },
     "public_transparency.evaluate_public_transparency": {
         "consistency_confirmed": "a bool or None the relying party computed; a bool cannot be subclassed",

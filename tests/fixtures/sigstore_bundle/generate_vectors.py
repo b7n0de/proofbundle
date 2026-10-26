@@ -474,6 +474,21 @@ SHA512_TARBALL = "sha512:" + hashlib.sha512(NPM_TARBALL).hexdigest()
 SRI_TARBALL = "sha512-" + _b64(hashlib.sha512(NPM_TARBALL).digest())
 
 
+def version_document(*, name: str = "octo-pkg", version: str = "1.0.0", integrity: str = SRI_TARBALL,
+                     key: Any = REGISTRY_KEY, keyid: Optional[str] = None, message: Optional[str] = None,
+                     signatures: bool = True) -> bytes:
+    """The registry's version document (``https://registry.npmjs.org/<name>/<version>``), cut to the
+    members the reader uses, with a registry signature in dist.signatures over
+    ``${name}@${version}:${dist.integrity}`` (npm docs, "About registry signatures") unless ``message``
+    names another signed text."""
+    dist: Dict[str, Any] = {"integrity": integrity, "shasum": hashlib.sha1(NPM_TARBALL).hexdigest(),
+                            "tarball": f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz"}
+    if signatures:
+        signed = (message if message is not None else f"{name}@{version}:{integrity}").encode("utf-8")
+        dist["signatures"] = [{"sig": _b64(_sign(key, signed)), "keyid": keyid or registry_keyid(key)}]
+    return json.dumps({"name": name, "version": version, "dist": dist}, indent=2).encode("utf-8") + b"\n"
+
+
 def _with(base: Dict[str, Any], **changes: Any) -> Dict[str, Any]:
     out = copy.deepcopy(base)
     out.update(changes)
@@ -919,6 +934,35 @@ def cases() -> List[Dict[str, Any]]:
              "statement": _statement_edit(_event("workflow_dispatch")),
              "cert": leaf_cert(dict(EXTENSIONS, build_trigger="workflow_dispatch"), WORKFLOW_URI)}, steps=["GH-05"],
              exitCode=0, failedCheck=None, rationale="workflow_dispatch is one of the four events the buildType names."),
+
+        # The registry signature in dist.signatures (NP-10, owner answer 8 of 2026-10-26).
+        dict(pub, caseId="pos-npm-registry-signature", versionDoc={}, steps=["NP-10", "NP-11", "NP-14"],
+             exitCode=0, failedCheck=None,
+             rationale="The registry's signature over name@version:integrity verifies under the registry key "
+                       "the keys document lists, valid at the publish attestation's verified time."),
+        dict(pub, caseId="neg-npm-registry-signature-over-other-text", versionDoc={
+             "message": "octo-pkg@1.0.1:" + SRI_TARBALL}, steps=["NP-10"], exitCode=1,
+             failedCheck="registry-signature",
+             rationale="The signature is the registry key's, but over another version than the document names."),
+        dict(pub, caseId="neg-npm-registry-signature-unknown-keyid", versionDoc={"keyid": "SHA256:not-a-registry-key"},
+             steps=["NP-10", "NP-11"], exitCode=1, failedCheck="registry-signature",
+             rationale="The signature's keyid names no key of the registry keys document (pacote: "
+                       "EMISSINGSIGNATUREKEY)."),
+        dict(pub, caseId="neg-npm-registry-signature-expired-key", versionDoc={"key": FOREIGN_REGISTRY_KEY},
+             steps=["NP-10", "NP-12"], exitCode=1, failedCheck="registry-signature",
+             rationale="Signed by a registry key that expired 2026-01-01, before the publish attestation's "
+                       "verified time 2026-01-15 (pacote: EEXPIREDSIGNATUREKEY)."),
+        dict(pub, caseId="neg-npm-registry-signature-missing", versionDoc={"signatures": False}, steps=["NP-14"],
+             exitCode=1, failedCheck="registry-signature",
+             rationale="No dist.signatures although the registry publishes signing keys."),
+        dict(pub, caseId="neg-npm-registry-signature-other-integrity", versionDoc={
+             "integrity": "sha512-" + _b64(hashlib.sha512(b"other tarball").digest())}, steps=["NP-10", "NP-09"],
+             exitCode=1, failedCheck="registry-signature",
+             rationale="A sound registry signature over another tarball's integrity than the publish attestation "
+                       "names."),
+        dict(pub, caseId="neg-npm-registry-signature-other-version", versionDoc={"version": "1.0.1"},
+             steps=["NP-10", "NP-03"], exitCode=1, failedCheck="registry-signature",
+             rationale="A sound registry signature for another version than the publish attestation names."),
     ]
 
 
@@ -954,8 +998,19 @@ def write() -> List[Dict[str, Any]]:
         for key in ("identity", "registryKeys", "expectedSubjectName", "tlogThreshold", "expectedNotes"):
             if key in case:
                 entry[key] = case[key]
+        for key, suffix, make in (("versionDoc", "version", version_document),):
+            if key in case:
+                extra = make(**case[key])
+                path = f"synthetic/{case['caseId']}.{suffix}.json"
+                (HERE / path).write_bytes(extra)
+                entry[EXTRA_INPUTS[key]] = path
+                entry[EXTRA_INPUTS[key] + "Sha256"] = hashlib.sha256(extra).hexdigest()
         manifest.append(entry)
     return manifest
+
+
+#: Further inputs of a case beside the bundle, by the key a case names them under and the manifest key.
+EXTRA_INPUTS = {"versionDoc": "versionDocument"}
 
 
 
@@ -1041,6 +1096,15 @@ def _public_cases() -> List[Dict[str, Any]]:
         dict(npm_pub, caseId="pub-neg-publish-with-test-registry-keys", registryKeys="trust/test_registry_keys.json",
              exitCode=1, failedCheck="public-key", steps=["NP-04", "NP-11"],
              rationale="The registry keys document of the test instance does not list npm's key."),
+        dict(npm_pub, caseId="pub-npm-sigstore-3.0.0-registry-signature",
+             versionDocument="public/npm-sigstore-3.0.0-version.json", exitCode=0, failedCheck=None,
+             steps=["NP-10", "NP-11", "NP-12"],
+             rationale="The registry's signature of sigstore@3.0.0 in dist.signatures, as the registry serves the "
+                       "version document, under the key that expired 2025-01-29."),
+        dict(npm_pub, caseId="pub-neg-npm-registry-signature-changed",
+             versionDocument="public/neg-npm-sigstore-3.0.0-version-signature-changed.json", exitCode=1,
+             failedCheck="registry-signature", steps=["NP-10"],
+             rationale="One base64 character of the registry signature changed."),
         dict(caseId="pub-unsupported-message-signature", input="public/sigstore-python-bundle-v3-github.whl.sigstore.json",
              trustedRoot=PUBLIC_GOOD_ROOT, profile="github-artifact-attestation",
              artifactDigest="sha256:" + "00" * 32, identity={"source_repository_uri": "https://github.com/x/y"},
@@ -1065,6 +1129,11 @@ def write_public() -> List[Dict[str, Any]]:
     (HERE / "public" / "neg-npm-sigstore-3.0.0-provenance-duplicate-key.sigstore.json").write_bytes(
         prov.replace(b'{\n  "mediaType": ', b'{\n  "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",\n'
                                             b'  "mediaType": ', 1))
+    version = (HERE / "public" / "npm-sigstore-3.0.0-version.json").read_bytes()
+    sig = json.loads(version)["dist"]["signatures"][0]["sig"]
+    changed = sig[:20] + ("A" if sig[20] != "A" else "B") + sig[21:]
+    (HERE / "public" / "neg-npm-sigstore-3.0.0-version-signature-changed.json").write_bytes(
+        version.replace(sig.encode("ascii"), changed.encode("ascii"), 1))
     manifest = []
     for case in _public_cases():
         data = (HERE / case["input"]).read_bytes()
@@ -1074,6 +1143,10 @@ def write_public() -> List[Dict[str, Any]]:
         for key in ("identity", "registryKeys", "expectedSubjectName"):
             if case.get(key) is not None:
                 entry[key] = case[key]
+        for key in EXTRA_INPUTS.values():
+            if case.get(key) is not None:
+                entry[key] = case[key]
+                entry[key + "Sha256"] = hashlib.sha256((HERE / case[key]).read_bytes()).hexdigest()
         manifest.append(entry)
     return manifest
 
