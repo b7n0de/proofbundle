@@ -1036,6 +1036,8 @@ def _parse_note(text: str) -> Tuple[str, int, bytes, bytes, List[Tuple[str, byte
         raise _Fail("tlog-checkpoint", "the checkpoint's signature block does not end in a newline")
     sigs: List[Tuple[str, bytes]] = []
     for line in sig_block[:-1].split("\n"):
+        if len(sigs) >= DEFAULT_BUDGET.signatures:
+            raise _Fail("tlog-checkpoint", "the checkpoint carries more signature lines than the budget allows")
         parts = line.split(" ")
         if len(parts) != 3 or parts[0] != _EM_DASH or not parts[1]:
             raise _Fail("tlog-checkpoint", "a checkpoint signature line is not 'EM DASH, name, base64'")

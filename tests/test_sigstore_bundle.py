@@ -467,6 +467,32 @@ def test_unsupported_general_name_is_a_certificate_failure(san_tag: int) -> None
     assert caught.value.check == "certificate"
 
 
+def test_checkpoint_stops_at_the_signature_budget_before_decoding_more(monkeypatch: pytest.MonkeyPatch) -> None:
+    import base64
+    from types import SimpleNamespace
+
+    limit = 32
+    monkeypatch.setattr(sb, "DEFAULT_BUDGET", SimpleNamespace(signatures=limit))
+    original = sb.decode_b64
+    decoded = []
+
+    def counted(value):
+        decoded.append(value)
+        return original(value)
+
+    monkeypatch.setattr(sb, "decode_b64", counted)
+    head = "test-origin\n1\n" + base64.b64encode(b"0" * 32).decode("ascii") + "\n\n"
+    lines = ["— key" + str(i) + " " + base64.b64encode(
+        i.to_bytes(4, "big") + b"s").decode("ascii") + "\n" for i in range(limit + 1)]
+    assert len(sb._parse_note(head + "".join(lines[:limit]))[-1]) == limit
+    decoded.clear()
+    with pytest.raises(sb._Fail) as caught:
+        sb._parse_note(head + "".join(lines))
+    assert caught.value.check == "tlog-checkpoint"
+    # One root hash plus at most the configured number of signatures may be decoded.
+    assert len(decoded) <= limit + 1
+
+
 def test_npm_publish_subject_requires_sha512_even_when_sha256_matches() -> None:
     gen = _generator()
     data, kwargs = _case("pos-npm-publish-v02")
