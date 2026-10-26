@@ -1491,6 +1491,10 @@ def _check_npm_publish(pred: Any, statement: Dict[str, Any]) -> Tuple[str, str]:
     if names != [purl]:
         raise _Fail("predicate", f"the publish attestation's one subject must be {render_safe(purl)}, got "
                                  f"{render_safe(names)}")
+    sha512 = statement["subject"][0]["digest"].get("sha512")
+    if type(sha512) is not str or len(sha512) != 128 or not _LOWER_HEX.fullmatch(sha512):
+        raise _Fail("predicate", "the npm publish attestation's subject must carry the tarball's "
+                                 "SHA-512 digest as 128 lowercase hexadecimal characters (contract NP-03)")
     return name, version
 
 
