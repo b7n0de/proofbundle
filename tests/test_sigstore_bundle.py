@@ -337,6 +337,30 @@ def test_the_command_refuses_unusable_options_with_exit_2(extra: list, why: str,
 # Review regressions. These cases supplement the 110 manifest vectors.
 
 
+@pytest.mark.parametrize("site", ["publish-signer", "dist-signature"])
+@pytest.mark.parametrize("expiry_offset", [-1, 0, 1])
+def test_registry_expiry_is_exclusive_at_both_signature_checks(site: str, expiry_offset: int) -> None:
+    gen = _generator()
+    data, kwargs = _case("pos-npm-publish-v02")
+    key = gen.REGISTRY_KEY if site == "publish-signer" else gen.FOREIGN_REGISTRY_KEY
+    keyid = gen.registry_keyid(key)
+    keys = json.loads(gen.registry_keys())
+    for entry in keys["keys"]:
+        if entry["keyid"] == keyid:
+            entry["expires"] = sb._iso((gen.INTEGRATED + expiry_offset) * 1_000_000_000)
+    kwargs["registry_keys"] = json.dumps(keys).encode("utf-8")
+    if site == "dist-signature":
+        # The publish signer remains unexpired; only the second signing key reaches its boundary.
+        kwargs["version_document"] = gen.version_document(key=gen.FOREIGN_REGISTRY_KEY)
+    out = verify_sigstore_bundle(data, **kwargs).as_dict()
+    if expiry_offset > 0:
+        assert out["exit_code"] == 0, out["checks"]
+    else:
+        assert out["exit_code"] == 1, out["checks"]
+        failed = [c["name"] for c in out["checks"] if c["ok"] is not True]
+        assert failed == ["signing-time" if site == "publish-signer" else "registry-signature"]
+
+
 def _certificate_builder_from(cert):
     from cryptography import x509
     return (x509.CertificateBuilder().subject_name(cert.subject).issuer_name(cert.issuer)

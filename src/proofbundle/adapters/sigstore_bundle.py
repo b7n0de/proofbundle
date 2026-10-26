@@ -1584,7 +1584,7 @@ def _check_registry_signature(doc: Dict[str, Any], name: str, version: str, stat
             raise _Fail("registry-signature", f"{p}.keyid {render_safe(keyid)} names no key of the registry keys "
                                               "document")
         for at in times:
-            if reg.expires is not None and at > reg.expires:
+            if reg.expires is not None and at >= reg.expires:
                 raise _Fail("registry-signature", f"{p}: key {render_safe(keyid)} had expired at the publish "
                                                   f"attestation's verified time {_iso(at)}")
         if not _verify(reg.key, sig, message.encode("utf-8")):
@@ -1944,7 +1944,7 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
     for at in times:
         if leaf is not None and not leaf.not_before <= at <= leaf.not_after:
             raise _Fail("signing-time", f"the leaf certificate was not valid at the verified time {_iso(at)}")
-        if reg is not None and reg.expires is not None and at > reg.expires:
+        if reg is not None and reg.expires is not None and at >= reg.expires:
             raise _Fail("signing-time", f"the registry key had expired at the verified time {_iso(at)}")
     res.add("signing-time", True, ", ".join(_iso(t) for t in times))
 
