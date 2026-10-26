@@ -430,6 +430,10 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     if args.expect_backend_from is not None and not args.with_wheel:
         p.error("--expect-backend-from needs --with-wheel: only a wheel names its build backend")
+    # `--check` and `--check-wheel` return below before any wheel is read, so beside them the switch
+    # would pass without checking anything (lens on PR 424, F5).
+    if args.expect_backend_from is not None and (args.check or args.check_wheel):
+        p.error("--expect-backend-from reads the wheel of a build, not of --check or --check-wheel")
     epoch = args.epoch if args.epoch is not None else head_commit_epoch()
     if args.check_wheel:
         return check_wheel_from_sdist(epoch, no_isolation=args.no_isolation, as_json=args.json)

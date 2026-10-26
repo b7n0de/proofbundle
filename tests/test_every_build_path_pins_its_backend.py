@@ -205,6 +205,90 @@ def test_the_read_back_accepts_the_pinned_backend_and_refuses_every_other(tmp_pa
     assert "pins no setuptools" in mod.backend_mismatch(gut, ohne_pin)
 
 
+def test_the_read_back_refuses_the_neighbours_of_the_pinned_version(tmp_path):
+    """[COUNTS] The counterexamples next to the pin, not only the obviously other version.
+
+    Found by the lens on PR 424 (F2): with 80.9.0 as the only wrong version, a prefix or substring
+    comparison and a looser pin reader passed every case. 84.2.10 starts with 84.2.1, 84.2 is a prefix
+    of it, and a line with a marker or another package ending in setuptools is not an unconditional
+    pin of setuptools."""
+    mod = _lade_bauskript()
+    c = tmp_path / "c.txt"
+    c.write_text("setuptools==84.2.1\n")
+    kopf = "Wheel-Version: 1.0\nGenerator: {}\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    for generator in ("setuptools (84.2.10)", "setuptools (84.2)", "setuptools 84.2.1",
+                      "setuptools (84.2.1.post1)", "flit-setuptools (84.2.1)"):
+        whl = _wheel(tmp_path / "w.whl", kopf.format(generator))
+        assert mod.backend_mismatch(whl, c) is not None, generator
+    for zeile, soll in (("setuptools==84.2.1\n", "84.2.1"), ("Setuptools == 84.2.1  # c\n", "84.2.1"),
+                        ('setuptools==84.2.1 ; python_version>"3"\n', None),
+                        ("flit-setuptools==1.0\nwheel==1\n", None), ("setuptools[core]==84.2.1\n", None),
+                        ("# setuptools==84.2.1\n", None)):
+        c.write_text(zeile)
+        assert mod.backend_pin(c) == soll, zeile
+
+
+def test_the_generator_is_read_from_the_top_level_wheel_file_only(tmp_path):
+    """[COUNTS] A WHEEL file below the top, a file that only ends in WHEEL, and a `Generator:` that is
+    not at the start of its line name nothing (lens on PR 424, F2)."""
+    mod = _lade_bauskript()
+    kopf = "Wheel-Version: 1.0\nGenerator: setuptools (84.2.1)\nTag: py3-none-any\n"
+    for name, text in (("a/b/c.dist-info/WHEEL", kopf), ("x/WHEEL", kopf),
+                       ("proofbundle-6.4.0.dist-info/WHEEL", "Tag: x Generator: setuptools (84.2.1)\n")):
+        pfad = tmp_path / "w.whl"
+        with zipfile.ZipFile(pfad, "w") as z:
+            z.writestr("proofbundle/__init__.py", "")
+            z.writestr(name, text)
+        assert mod.wheel_generator(pfad) is None, name
+
+
+def _main_mit_ersetztem_bau(mod, tmp_path, wheel_text, argv, monkeypatch, capsys):
+    """Run `main(argv)` with the two build steps replaced by finished files, so that what is measured is
+    what `main` does with the result of the read-back, not the build."""
+    sdist = tmp_path / "proofbundle-6.4.0.tar.gz"
+    sdist.write_bytes(b"not an archive")
+    wheel = _wheel(tmp_path / "proofbundle-6.4.0-py3-none-any.whl", wheel_text)
+    monkeypatch.setattr(mod, "head_commit_epoch", lambda *a, **k: 1700000000)
+    monkeypatch.setattr(mod, "build_normalized", lambda *a, **k: (sdist, "00"))
+    monkeypatch.setattr(mod, "build_normalized_wheel", lambda *a, **k: (wheel, "11"))
+    monkeypatch.setattr(mod, "check_reproducible", lambda *a, **k: 0)
+    monkeypatch.setattr(mod, "check_wheel_from_sdist", lambda *a, **k: 0)
+    try:
+        rc = mod.main(argv)
+    except SystemExit as e:
+        rc = ("exit", e.code)
+    return rc, capsys.readouterr().out
+
+
+def test_main_exits_1_when_the_built_wheel_names_another_backend(tmp_path, monkeypatch, capsys):
+    """[COUNTS] The wiring of `--expect-backend-from` in `main` (lens on PR 424, F1): the pinned
+    generator gives 0, another one gives 1 with the refusal, and the read-back reads the wheel."""
+    mod = _lade_bauskript()
+    c = tmp_path / "c.txt"
+    c.write_text("setuptools==84.2.1\n")
+    kopf = "Wheel-Version: 1.0\nGenerator: setuptools ({})\nTag: py3-none-any\n"
+    argv = ["--with-wheel", "--expect-backend-from", str(c), "--outdir", str(tmp_path / "o")]
+    rc, out = _main_mit_ersetztem_bau(mod, tmp_path, kopf.format("84.2.1"), argv, monkeypatch, capsys)
+    assert rc == 0 and "build backend as pinned: setuptools (84.2.1)" in out, (rc, out)
+    rc, out = _main_mit_ersetztem_bau(mod, tmp_path, kopf.format("80.9.0"), argv, monkeypatch, capsys)
+    assert rc == 1 and "BUILD BACKEND NOT THE PINNED ONE" in out, (rc, out)
+
+
+def test_main_refuses_the_switch_where_it_would_check_nothing(tmp_path, monkeypatch, capsys):
+    """[COUNTS] Without `--with-wheel`, without a value, or beside `--check` or `--check-wheel`, which
+    return before any wheel is read, the switch is refused instead of passing silently (F5)."""
+    mod = _lade_bauskript()
+    c = tmp_path / "c.txt"
+    c.write_text("setuptools==84.2.1\n")
+    gut = "Wheel-Version: 1.0\nGenerator: setuptools (84.2.1)\nTag: py3-none-any\n"
+    for argv in (["--expect-backend-from", str(c)],
+                 ["--with-wheel", "--expect-backend-from"],
+                 ["--check", "--with-wheel", "--expect-backend-from", str(c)],
+                 ["--check-wheel", "--with-wheel", "--expect-backend-from", str(c)]):
+        rc, _ = _main_mit_ersetztem_bau(mod, tmp_path, gut, argv, monkeypatch, capsys)
+        assert rc == ("exit", 2), (argv, rc)
+
+
 def test_FANG_the_step_predicate_counts_installs_and_builds_and_nothing_else():
     """[COUNTS] Counter-direction: the predicate must not miss a form and must not count prose."""
     assert _baut_oder_installiert("python -m pip install build")
