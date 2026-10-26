@@ -190,7 +190,8 @@ bound is depth-exceeded.
   alias). Unmet → `RELATION_SIGNER_UNAUTHORIZED`, exit 3. This is what makes cross-issuer
   chains verifiable: attach a predecessor of a foreign ring with `--with-related PATH
   --related-pub B64` (position-paired), and the check runs against the key the target
-  ACTUALLY verified under, never a claim.
+  ACTUALLY verified under, never a claim. On an edge whose target is not attached there is no target key:
+  `same-key` is then met, and `pinned` judges the successor's key as on a resolved edge.
 - `require_relation_target` (since 3.4.0, WHICH parent): per relation, an expected parent
   content root or a list of them. A supersedes-like edge that resolves to any OTHER parent
   — even a valid, attached, verified one — → `RELATION_TARGET_MISMATCH`, exit 3. This fires
