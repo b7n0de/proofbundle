@@ -1558,6 +1558,85 @@
         "predicate-binding: differs",
         "resolvedDependencies names the source 0 times"
       ]
+    },
+    {
+      "caseId": "neg-github-event-pull-request",
+      "input": "synthetic/neg-github-event-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The actions.github.io buildType MUST NOT be used for an event other than create, release, push or workflow_dispatch; predicate and certificate agree on pull_request.",
+      "sha256": "c6611c24db596c5b8d3473a45f70ae506f4c57ea264dea234f345d1b70b22721",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-github-event-certificate-pull-request-target",
+      "input": "synthetic/neg-github-event-certificate-pull-request-target.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The predicate says push, the certificate Fulcio issued says the run was triggered by pull_request_target: the run's event is the certificate's, and the buildType must not describe it.",
+      "sha256": "6318aec2c695982763b1554ea4810148c07b9d4ff087c5d4e628f133c0fc2579",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-slsa-buildtype-event-schedule",
+      "input": "synthetic/neg-slsa-buildtype-event-schedule.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The slsa-framework buildType carries the same rule in the same words (github-actions-buildtypes workflow/v1).",
+      "sha256": "7343169a8de3b547b1511eb32353e09c61f5846a3bb5c06e1d5506e0369f8f20",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "pos-github-event-workflow-dispatch",
+      "input": "synthetic/pos-github-event-workflow-dispatch.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "workflow_dispatch is one of the four events the buildType names.",
+      "sha256": "507efa19c9a445d8a17c6b4e203b2042348892e3a84ac41a950053e380a350f7",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
     }
   ]
 }

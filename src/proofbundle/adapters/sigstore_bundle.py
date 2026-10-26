@@ -86,6 +86,8 @@ SPEC_PIN: Dict[str, str] = {
     "intoto_statement": "in-toto/attestation@50bf01716982189898823e90586075f37cd9bb7d:spec/v1/statement.md",
     "slsa_provenance_v1": "slsa-framework/slsa@7b05aeb8ce7722d4c55849370dc903dca1de0933:docs/spec/v1.0/provenance.md",
     "github_buildtype": "actions/buildtypes@055cb51e699272e4928520287e99d91fd8e9cca2:workflow/v1/README.md",
+    "slsa_github_buildtype":
+        "slsa-framework/github-actions-buildtypes@5f855ef0106dad3ee0e0f1046dc31b3b65152956:workflow/v1/README.md",
     "github_producer": "actions/toolkit@0c3a9c332b678ff1e776f93d728a4ad279803abe:packages/attest/src/provenance.ts",
     "npm_producer": "npm/cli@311ff5effbb1f96181c89a1ce6ebfe0c369e1ec1:lib/utils/provenance.js",
     "npm_publish_predicate": "npm/attestation@34f164c30ea75a364646e2439d9d1408bea57585:specs/publish/v0.1/README.md",
@@ -202,6 +204,8 @@ _REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name"})
 #: body parse, two signature checks and a Merkle walk, and the input budget alone admitted 1500 copies
 #: of one entry (2.56 s, measured 2026-10-26 before this bound); a threshold above 8 is refused anyway.
 _MAX_ENTRIES = 32
+#: The events a GitHub workflow buildType may describe (both workflow/v1 specifications, contract GH-05).
+_GITHUB_EVENTS = frozenset({"create", "release", "push", "workflow_dispatch"})
 _INT64_MAX = 2 ** 63 - 1
 _DECIMAL = re.compile(r"\A(0|[1-9][0-9]{0,18})\Z")
 _RFC3339 = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,9})?Z\Z")
@@ -1337,6 +1341,30 @@ def _github_build_type(bd: Dict[str, Any]) -> None:
             "buildType)")
 
 
+def _github_event(bd: Dict[str, Any], leaf: _Leaf) -> None:
+    """The event that triggered the run is one of the four both GitHub workflow buildTypes name: "This
+    build type MUST NOT be used for any other event type unless this specification is first updated"
+    (actions/buildtypes and slsa-framework/github-actions-buildtypes workflow/v1, contract GH-05, owner
+    decision of 2026-10-26). The predicate states the event in internalParameters.github.event_name, the
+    certificate in its build trigger, which Fulcio copied from the OIDC token; each that is stated must
+    be one of the four, so a predicate cannot hide the run's event, and at least one must be stated."""
+    ip = _present(bd, "internalParameters")
+    gh = ip["github"] if type(ip) is dict and type(ip.get("github")) is dict else {}
+    stated = [(where, value) for where, value in (
+        ("the predicate's internalParameters.github.event_name", gh.get("event_name")),
+        ("the certificate's build trigger (1.3.6.1.4.1.57264.1.20)", leaf.extensions.get("build_trigger")))
+        if value is not None]
+    if not stated:
+        raise _Fail("predicate", "neither the predicate nor the certificate names the event that triggered the "
+                                 "run, and the buildType may describe only create, release, push or "
+                                 "workflow_dispatch")
+    for where, value in stated:
+        if type(value) is not str or not is_member(value, _GITHUB_EVENTS):
+            raise _Fail("predicate", f"{where} is {render_safe(value)}; the buildType "
+                                     f"{render_safe(bd['buildType'])} MUST NOT be used for an event other than "
+                                     "create, release, push or workflow_dispatch")
+
+
 def _binding(checks: List[Tuple[str, Any, Optional[str]]]) -> List[str]:
     """Each (what, predicate value, certificate value) that disagrees, or that the certificate lacks."""
     out = []
@@ -1780,6 +1808,7 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         _workflow_params(slsa["buildDefinition"])
         if build_type == GITHUB_BUILD_TYPE:
             _github_build_type(slsa["buildDefinition"])
+        _github_event(slsa["buildDefinition"], leaf)
         res.add("predicate", True, f"SLSA Provenance v1, buildType {build_type}")
         notes.append(_check_slsa_binding(slsa, leaf))
     elif spec["predicate_type"] == NPM_PUBLISH_V0_1:

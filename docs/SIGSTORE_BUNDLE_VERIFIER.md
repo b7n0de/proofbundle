@@ -73,7 +73,13 @@ Each check is reported by name; the first integrity failure ends the run.
 `predicate` holds the predicate to SLSA Provenance v1 and to its buildType's own rules. For the
 actions.github.io buildType these include the four internal parameters and a resolved dependency
 naming the source commit, both MUST in that specification; the slsa-framework buildType makes them
-optional.
+optional. Both buildTypes "MUST NOT be used for any other event type" than `create`, `release`,
+`push` and `workflow_dispatch` (contract GH-05, enforced since the owner decision of 2026-10-26):
+the event the predicate states (`internalParameters.github.event_name`) and the build trigger in the
+certificate must each, where stated, be one of the four, and at least one must be stated. The
+certificate is read too, because Fulcio copied its trigger from the OIDC token and the predicate
+could hide the run's event. An attestation that `actions/attest-build-provenance` wrote for a run
+of another event, such as `pull_request` or `schedule`, therefore fails here with exit 1.
 
 `predicate-binding` is a note, not a check (owner decision of 2026-10-26). It compares the predicate
 with the certificate: repository, ref, commit, build config, run invocation, trigger, repository and

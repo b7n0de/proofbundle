@@ -480,10 +480,17 @@ def _with(base: Dict[str, Any], **changes: Any) -> Dict[str, Any]:
     return out
 
 
-def _statement_edit(fn: Callable[[Dict[str, Any]], None], build_type: str = GITHUB_BUILD_TYPE) -> Dict[str, Any]:
-    st = provenance_statement(build_type)
+def _statement_edit(fn: Callable[[Dict[str, Any]], None], build_type: str = GITHUB_BUILD_TYPE, *,
+                    npm: bool = False) -> Dict[str, Any]:
+    st = provenance_statement(build_type, npm=npm)
     fn(st)
     return st
+
+
+def _event(name: str) -> Callable[[Dict[str, Any]], None]:
+    def fn(st: Dict[str, Any]) -> None:
+        st["predicate"]["buildDefinition"]["internalParameters"]["github"]["event_name"] = name
+    return fn
 
 
 def _other_repository(st: Dict[str, Any]) -> None:
@@ -871,6 +878,28 @@ def cases() -> List[Dict[str, Any]]:
              expectedNotes=["predicate-binding: differs", "resolvedDependencies names the source 0 times"],
              rationale="The slsa-framework buildType says resolvedDependencies SHOULD contain the source commit; "
                        "its absence is reported in the binding note and decides no verdict."),
+        dict(gh, caseId="neg-github-event-pull-request", build={
+             "statement": _statement_edit(_event("pull_request")),
+             "cert": leaf_cert(dict(EXTENSIONS, build_trigger="pull_request"), WORKFLOW_URI)}, steps=["GH-05"],
+             exitCode=1, failedCheck="predicate",
+             rationale="The actions.github.io buildType MUST NOT be used for an event other than create, release, "
+                       "push or workflow_dispatch; predicate and certificate agree on pull_request."),
+        dict(gh, caseId="neg-github-event-certificate-pull-request-target", build={
+             "cert": leaf_cert(dict(EXTENSIONS, build_trigger="pull_request_target"), WORKFLOW_URI)},
+             steps=["GH-05"], exitCode=1, failedCheck="predicate",
+             rationale="The predicate says push, the certificate Fulcio issued says the run was triggered by "
+                       "pull_request_target: the run's event is the certificate's, and the buildType must not "
+                       "describe it."),
+        dict(npm, caseId="neg-slsa-buildtype-event-schedule", build=_with(npm["build"], statement=_statement_edit(
+             _event("schedule"), NPM_BUILD_TYPE, npm=True), cert=leaf_cert(dict(EXTENSIONS, build_trigger="schedule"),
+                                                                           WORKFLOW_URI)),
+             steps=["GH-05"], exitCode=1, failedCheck="predicate",
+             rationale="The slsa-framework buildType carries the same rule in the same words "
+                       "(github-actions-buildtypes workflow/v1)."),
+        dict(gh, caseId="pos-github-event-workflow-dispatch", build={
+             "statement": _statement_edit(_event("workflow_dispatch")),
+             "cert": leaf_cert(dict(EXTENSIONS, build_trigger="workflow_dispatch"), WORKFLOW_URI)}, steps=["GH-05"],
+             exitCode=0, failedCheck=None, rationale="workflow_dispatch is one of the four events the buildType names."),
     ]
 
 
