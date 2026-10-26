@@ -1618,11 +1618,11 @@ class SigstoreVerdict:
     """The outcome of :func:`verify_sigstore_bundle`.
 
     ``result`` holds the named checks in the house vocabulary (:class:`VerificationResult`).
-    ``signing_times`` are the verified times (Unix seconds) the certificate chain was judged at;
-    ``identity`` the SAN and Fulcio extensions read from the leaf (set once the certificate check
-    passed); ``predicate_type`` and ``subjects`` what the statement names (set once the signature
-    verified). ``notes`` names what was read but deliberately not counted (a superfluous chain
-    certificate, a trusted-root entry this module cannot use, a checkpoint origin).
+    ``signing_times`` holds verified observer timestamps (Unix seconds) once available; signer-validity
+    and certificate-chain checks may still fail or may not have run. ``identity`` holds the SAN and
+    Fulcio extensions read from the leaf once the certificate check passed. ``predicate_type`` and
+    ``subjects`` hold the fields reached while reading the statement. ``notes`` records observations
+    that do not decide the verdict, including predicate-binding comparisons where reached.
     ``not_checked`` names what this module never does (:data:`NOT_CHECKED`)."""
 
     result: VerificationResult
@@ -1663,10 +1663,10 @@ class SigstoreVerdict:
 @_ein_stand
 def exit_code(verdict: SigstoreVerdict) -> int:
     """0 verified · 1 cryptographic or structural failure · 2 unreadable input, an unimplemented
-    feature or unusable trust material · 3 sound bundle, unmet relying-party requirement. Unreadable
-    dominates: nothing else was judged. A cryptographic or structural failure dominates an unmet
-    requirement. A failed check of a name in none of the three classes counts as structural, so a
-    check added without a class can never read as a mere requirement."""
+    feature or unusable trust material · 3 sound bundle, unmet relying-party requirement. An unreadable
+    or unsupported-input check takes precedence even if earlier checks ran. A cryptographic or structural
+    failure dominates an unmet requirement. A failed check of a name in none of the three classes counts
+    as structural, so a check added without a class can never read as a mere requirement."""
     if verdict.ok:
         return 0
     failed = [c.name for c in verdict.result.checks if c.ok is not True]
