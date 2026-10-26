@@ -192,7 +192,9 @@ historical green run stays reproducible).
 Relation vectors (`relation/`) run the `decision verify`, `outcome verify` or `relation-statement
 verify` path of SPEC.md §7j and §7k on `input`, with `--pub` read from the file named by `pub`, one
 `--with-related` per entry of `related` (each followed by `--related-pub` with the key at the same
-position of `relatedPubs`, when given), and `--policy` when `policy` is given. A `decision_relation`
+position of `relatedPubs`, when given), and `--policy` when `policy` is given. Each attached target is
+verified standalone under the key at its position of `relatedPubs`; where `relatedPubs` is absent, or the
+entry at that position is the empty string, it is verified under the `--pub` key. A `decision_relation`
 case is evaluated at the receipt's own `predicate.recordedAt` (else `decidedAt`) as
 `--verification-time`, so a fixed-date `validity.expiresAt` in a fixture cannot move the verdict as
 the wall clock advances. `exitCode` is the CLI exit contract; `lineage` is the reported lineage
