@@ -480,6 +480,17 @@ def test_npm_publish_subject_requires_sha512_even_when_sha256_matches() -> None:
     assert out["exit_code"] == 1, out["checks"]
     assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["predicate"]
 
+
+def test_registry_bundle_requires_the_dsse_keyid_to_match_its_hint() -> None:
+    data, kwargs = _case("pos-npm-publish-v02")
+    assert verify_sigstore_bundle(data, **kwargs).as_dict()["exit_code"] == 0
+    bundle = json.loads(data)
+    del bundle["dsseEnvelope"]["signatures"][0]["keyid"]
+    out = verify_sigstore_bundle(json.dumps(bundle).encode("utf-8"), **kwargs).as_dict()
+    assert out["exit_code"] == 1, out["checks"]
+    assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["public-key"]
+
+
 @pytest.mark.parametrize("usage, expected_exit", [
     ("codeSigning", 0), ("anyExtendedKeyUsage", 0), ("serverAuth", 1)])
 def test_a_ca_extended_key_usage_must_permit_code_signing(usage: str, expected_exit: int) -> None:

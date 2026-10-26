@@ -1886,7 +1886,7 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         reg = keys.get(b.key_hint)
         if reg is None:
             raise _Fail("public-key", f"key hint {render_safe(b.key_hint)} names no key of the registry document")
-        if b.keyid is not None and b.keyid != b.key_hint:
+        if (b.keyid or "") != b.key_hint:
             raise _Fail("public-key", "the DSSE signature's keyid and the bundle's key hint differ "
                                       "(sigstore_bundle.proto: they MUST be exactly the same)")
         signer_key, verifier_der = reg.key, reg.der
