@@ -901,6 +901,7 @@ the companion texts below. Each of them is normative for the part it names.
 | [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) | the decision-receipt predicate and its verify path | `decision_relation`, `relation_statement`, `content_root_vector` |
 | [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
 | [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
+| [`docs/AGENT_REVIEW_PREDICATE.md`](docs/AGENT_REVIEW_PREDICATE.md), [`docs/VERIFIER_BLOCK.md`](docs/VERIFIER_BLOCK.md) | the agent-review predicate v0.1 to v0.3, its verifier block, receipt chains and policy decisions | `agent_review_predicate` |
 
 The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json),
 [`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
@@ -908,7 +909,8 @@ The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/ev
 they never gate a verdict (`docs/predicates/relation.md` §2), and where a mirror and its text disagree the
 text governs the corpus.
 
-Not yet backed by a text in this repository, and recorded rather than implied: the CAP-1 rules R0 to R8
+Not yet backed by a text in this repository, and recorded rather than implied: the literals and encodings
+of the agent-review vectors that `docs/AGENT_REVIEW_PREDICATE.md` leaves open (twelve of its 35 vectors), the CAP-1 rules R0 to R8
 of `draft-hillier-coverage-attestation-00` (`cap1_document`), the default-mode rule list of the
 decision-receipt validator that the `decision_predicate_findings` counts of `decision_crossimpl` depend
 on, and the OpenTimestamps proof format behind the `anchor` axis of `decision_crossimpl`.

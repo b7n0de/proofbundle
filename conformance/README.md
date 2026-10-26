@@ -70,6 +70,47 @@ floor requires a `native_bundle` case to declare `exitCode`. These lock core ver
 onto the gate — a valid bundle verifies, a **duplicate JSON key** is rejected as malformed (the C1
 Bishop-Fox parser-differential defense), a single flipped payload byte fails the signature.
 
+### `agent_review_predicate`
+
+Agent-review vectors (`agent_review/`) are read against `docs/AGENT_REVIEW_PREDICATE.md` and
+`docs/VERIFIER_BLOCK.md`. The corpus test key is the Ed25519 key with the 32 seed bytes 0x00, 0x01, …,
+0x1f; it must never sign anything a reader takes as evidence, and its raw public key, hex-encoded, is
+`agent_review/publickey.hex`. To *issue* a predicate is to build its in-toto Statement, refuse it when it
+breaks a rule of its version, and sign it as a DSSE envelope with the corpus key; to *verify as* a version
+is that version's verification under the corpus public key. A case reads only its own `input`, and its one
+axis decides the use:
+
+- `classification`, input `predicate.json`: the version is the case's `predicateVersion`, `v0.1` when it
+  names none; a `v0.2` predicate that carries `producer.verifier` is a `v0.3` predicate. A predicate that
+  breaks a rule of its version is `refused`. Otherwise it is issued and verified as its version, with the
+  predicate's own subject digest as the expected subject digest and, for `v0.2` and `v0.3`, the default
+  policy `agent_review/policies/default_v1.json`; it is `valid` when that verification is ok, else `invalid`.
+- `classification`, input `body.json`: `refused` when the body core digest of the file's `body` cannot be
+  computed (a malformed or duplicated disclosure block), else `valid`.
+- `classification`, input `envelope.json`: the envelope is verified as `v0.1`, with `params.expectedSubjectDigest`
+  as the expected subject digest when the case gives one; `valid` when ok, else `invalid`.
+- `bodyCoreStable`: the input holds `bodyBefore` and `bodyAfter`; the value is true exactly when both have
+  the same body core digest.
+- `subjectExpectation`: the envelope is verified as `v0.1` without an expected subject digest; the value is
+  the reported subject expectation, and an absent expectation is reported as a warning that names
+  `expected_subject_digest`.
+- `currentReceipt`, `chainIntegrity`, `unverifiedSupersessionClaim`: the input holds `envelopes`; each is
+  verified as `v0.1`, the receipt digests of those whose signature verifies form the verified set, and the
+  receipt chain of all envelopes is resolved with that set: `currentReceipt` is the current receipt,
+  `chainIntegrity` the chain's integrity, and `unverifiedSupersessionClaim` holds when the named digest is
+  among the reported unverified supersession claims and no receipt was marked corrected.
+- `versionStatus`: the envelope goes through the version dispatcher with `params.expectedSubjectDigest` when
+  given; the value is its `predicateVersionStatus` (`legacy`, `current` or `unknown`). `legacy` carries
+  `AGENT_REVIEW_LEGACY_V01` as an advisory code, never as a reason code, with the same `ok` the `v0.1`
+  verification gives; `current` never carries it; `unknown` is not ok and carries
+  `AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN` as a reason code.
+- `policyDecision`: a `v0.2` or `v0.3` case; the predicate is issued and verified as its version with its own
+  subject digest and the policy `params.policy` names: `default`, or no value, is the default policy, `none`
+  is no policy, any other value is that file in the case directory. The value is the policy decision:
+  `accept`, `reject`, `insufficient_evidence`, or `null` without a policy. `null` carries `POLICY_NOT_EVALUATED`
+  as an advisory code and not as a reason code; every other decision reports the digest of its policy;
+  `accept` comes with ok, `reject` and `insufficient_evidence` without.
+
 ### `cap1_document`
 
 A coverage-attestation document of `draft-hillier-coverage-attestation-00` (profile `cap/1`),

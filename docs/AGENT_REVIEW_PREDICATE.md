@@ -154,7 +154,10 @@ time value, not that the value is externally true, and this predicate carries no
 
 `COMPLETE` requires an integer `observedRuns` and an integer `expectedRuns`, and forbids
 `knownGaps`. Without a stated expectation, "complete" means "I saw everything I happened to see" and
-cannot be falsified. Unobserved work appears as a gap, never as a zero count.
+cannot be falsified. Unobserved work appears as a gap, never as a zero count. `PARTIAL` requires a
+non-empty `knownGaps`: an incomplete coverage that names no gap cannot be checked against anything. In
+v0.2 and v0.3 both demands apply whenever `coverage` carries none of `strata`, `integrity` and
+`absenceAssertions`.
 
 **Coverage in the language of CAP-1 (v0.2).** A v0.2 predicate may carry the accounting of
 `draft-hillier-coverage-attestation-00` under `coverage`: `strata[]` (one denominator each, with its
@@ -179,17 +182,29 @@ three fields and rejects them as unknown.
 Aggregates like "3 findings, 2 fixed, 1 dismissed" are not a reviewable record — anyone can rewrite
 them. Each finding carries `id`, `severity`, `title` and `disposition`; a finding marked `fixed` must
 name its `fixCommit`, and one marked `dismissed` must carry a one-sentence reason. `findingsRoot`
-digests the canonical list so that removing or altering one finding is detectable.
+digests the canonical list so that removing or altering one finding is detectable. `findingsTotal` is
+required: a non-negative integer, never smaller than the number of findings listed, and when it is
+larger, `coverage.knownGaps` must be non-empty, because an unlisted finding has to be named as a gap. A
+predicate without it is refused when issued, so the gap duty cannot be switched off by leaving the field
+out.
 
 The root is **order-independent by construction**: each finding is canonicalized on its own, the leaf
 digests are sorted, and the root covers their concatenation. Two producers listing the same findings
 in a different order must not disagree, or the root would report tampering where there is none.
+When the signature verifies and `findingsRoot` is present, the verifier recomputes the root over
+`declaration.findings`; a root that does not match makes the verification fail, so a receipt whose list
+was changed after signing is `invalid`, not merely annotated.
 
 ## Supersession
 
 A wrong or outdated receipt is not deleted. `supersedes`, `corrects` and `withdraws` each require the
 predecessor's digest **and** a reason — a silent replacement is exactly what supersession exists to
 prevent.
+
+Resolving a receipt chain orders the receipts by these relations and checks no signature itself: only an
+envelope whose receipt digest the caller has verified may mark a predecessor as corrected. The chain's
+integrity fails when such an envelope names a `priorDigest` that is not the receipt digest of any envelope
+in the set, because a correction whose predecessor has disappeared can no longer be followed.
 
 ## The human block
 
