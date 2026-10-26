@@ -1370,7 +1370,9 @@ def _postponed_sources() -> dict[str, str]:
 def test_a_postponed_annotation_reports_at_least_what_main_reads(source):
     """The class of the lens on 3b1058c9 as a property, not one form: for every postponed source of these cases, the
     gate reports at least what it reports for the same source with the annotations evaluated, where they run in the
-    scope around their def as main reads them. Findings and guard changes, counted per line."""
+    scope around their def as main reads them. Findings and guard changes, counted per line. Both sides run through
+    this gate, so the case holds the two readings in place and cannot find a fault they share; the independent oracle
+    is the gate of main (foxtrot's lens on dcae71f9, P3), as in the probes of the lens and in zweig_gegen_main."""
     import ast
     from collections import Counter
     m = _gate_module()
