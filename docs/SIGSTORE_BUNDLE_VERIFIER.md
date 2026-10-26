@@ -156,11 +156,14 @@ reader ignores while another reads it gives the same bytes two meanings. The own
 
 ## What a pass does not say
 
-The predicate is written by the workflow that signed it. A pass says who signed what and when, as
-far as the trusted root vouches for it. It does not say the build was honest. Not checked, and
-named in every verdict: revocation, log consistency over time, freshness of the trusted root, and
-Rekor's `envelopeHash` and `content.hash`, whose preimage no specification pins. `safeForAutomation`
-is false in every verdict.
+A pass verifies the attestation's signature under the supplied trust material and checks the
+requirements of the selected profile. Certificate-signed profiles also check the supplied identity;
+npm-publish uses a registry key instead. Verified log or TSA timestamps supply observer times for
+validity checks, not the exact instant of signing. The predicate remains a claim by its signer;
+a pass does not establish that a build was honest. Not checked, and named in every verdict:
+revocation, log consistency over time, freshness of the trusted root, and Rekor's `envelopeHash`
+and `content.hash`, whose preimage no specification pins. `safeForAutomation` is false in every
+verdict.
 
 ## Vectors
 

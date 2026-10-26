@@ -2118,7 +2118,7 @@ def _cmd_verify_sigstore(args: argparse.Namespace) -> int:
     if verdict.signing_times:
         times = ", ".join(datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                           for t in verdict.signing_times)
-        print(f"SIGNING TIME: {times} (verified)")
+        print(f"VERIFIED TIME: {times} (log integration or TSA timestamp)")
     if verdict.policy == "NOT_EVALUATED":
         print("POLICY: NOT_EVALUATED (an integrity check failed before the requirements were judged)")
     else:
@@ -2132,9 +2132,10 @@ def _cmd_verify_sigstore(args: argparse.Namespace) -> int:
           f" ({blockers})")
     print(f"=> {'OK' if code == 0 else 'FAILED'} (exit {code})")
     if code == 0:
-        print("\nThis proves who signed the attestation and when, as far as your trusted root vouches for it, "
-              "and that it names the artifact digest and identity you supplied. It does not prove that the "
-              "build was honest: the predicate is written by the workflow that signed it.")
+        print("\nThe attestation's signature verified under your supplied trust material, and the selected "
+              "profile and supplied requirements passed. A subject names the artifact digest you supplied. "
+              "Verified log or TSA timestamps are observer times, not the exact instant of signing. "
+              "The predicate remains a claim by its signer; this does not establish that a build was honest.")
     return code
 
 
@@ -3572,8 +3573,8 @@ def build_parser() -> argparse.ArgumentParser:
              "against your trusted root",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Exit codes:\n"
-               "  0  verified: well formed, signed by a Fulcio leaf (or the npm registry key) your trusted\n"
-               "     root vouches for, at a verified time, and every supplied requirement holds\n"
+               "  0  verified under the supplied trust material and selected profile; every supplied\n"
+               "     requirement holds. Verified times are log integration or TSA timestamps.\n"
                "  1  cryptographic or structural failure (signature, log entry, certificate chain, SCT,\n"
                "     statement, predicate, registry signature)\n"
                "  2  unreadable input, a feature not implemented, or unusable trust material or options\n"

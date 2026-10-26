@@ -317,7 +317,7 @@ def test_the_command_prints_checks_notes_and_what_it_never_checks(capsys: pytest
            "'https://github.com/sigstore/sigstore-js', the repository the certificate names" in lines
     assert any(line.startswith("NOTE: predicate-binding: agrees") for line in lines)
     assert sum(line.startswith("NOT CHECKED: ") for line in lines) == len(NOT_CHECKED)
-    assert any(line.startswith("SIGNING TIME: 2024-10-14T") for line in lines)
+    assert any(line.startswith("VERIFIED TIME: 2024-10-14T") for line in lines)
 
 
 @pytest.mark.parametrize("extra, why", [

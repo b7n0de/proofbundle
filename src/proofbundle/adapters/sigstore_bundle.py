@@ -17,15 +17,16 @@ this module import none. Where a rule comes from a producer's source code rather
 (the cross-checks between the predicate and the certificate, ``predicate-binding``), it is reported as a
 note and decides no verdict (owner decision of 2026-10-26), and :data:`SPEC_PIN` names the file.
 
-WHAT A PASS MEANS. A pass says: the bundle is well formed under its media type, its one signature verifies
-under the key of a leaf certificate that a trusted Fulcio CA issued and a trusted CT log logged, at a time
-that a trusted transparency log (or TSA) vouches for and at which every certificate of the chain was
-valid; the log entry commits to exactly this signature and certificate; the payload is an in-toto
-Statement v1 of the profile's predicate type whose predicate is well formed under its buildType; the
-certificate names the identity the relying party expects; and a subject names the artifact digest the
-relying party holds. It does NOT say that the build was honest, that the workflow is benign, or that a
-predicate field is true: the predicate is written by the workflow that signed it, and whether it agrees
-with the certificate is a note (``predicate-binding: agrees`` or ``predicate-binding: differs``).
+WHAT A PASS MEANS. The bundle and its statement pass the selected profile's checks, its signature
+verifies under the supplied trust material, and the relying-party requirements are met. For the
+certificate-signed profiles, this includes the Fulcio certificate chain, an embedded SCT, the expected
+certificate identity and an in-toto Statement v1 with SLSA Provenance v1. For npm-publish, the signer is
+a registry key from ``registry_keys`` and the statement may be v0.1 or v1 with the npm publish predicate;
+there is no Fulcio certificate identity check. The artifact digest must occur in a statement subject.
+A verified SET or RFC 3161 timestamp supplies an observer time for the signer's validity checks, not
+the exact instant the signature was created. Optional registry-signature and package-json checks run
+only when the corresponding documents are supplied. A pass does not establish that a build was honest
+or that a predicate field is true. For SLSA, predicate-to-certificate agreement is a note, not a check.
 Revocation, log consistency over time and freshness are not judged (:data:`NOT_CHECKED`), so the
 automation verdict never reads safe.
 
