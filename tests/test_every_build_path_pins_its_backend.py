@@ -144,12 +144,33 @@ def test_every_step_that_builds_a_wheel_reads_the_pin_back_from_it():
     assert not ohne, ohne
 
 
-def test_the_byte_freeze_job_takes_the_epoch_from_the_full_history():
-    """[COUNTS] Its digest is the commit's digest only with the epoch release.yml uses."""
-    d = yaml.safe_load((ABLAEUFE / "published-artifact-gate.yml").read_text(encoding="utf-8"))
-    schritte = d["jobs"]["reproducible-sdist"]["steps"]
-    checkout = [s for s in schritte if str(s.get("uses") or "").startswith("actions/checkout@")]
-    assert len(checkout) == 1 and (checkout[0].get("with") or {}).get("fetch-depth") == 0, checkout
+def _jobs():
+    if not ABLAEUFE.is_dir():
+        pytest.skip(f"NOT MEASURABLE: {ABLAEUFE} is missing")
+    for datei in sorted(ABLAEUFE.glob("*.yml")):
+        d = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
+        for name, job in (d.get("jobs") or {}).items():
+            yield datei.name, name, job.get("steps") or []
+
+
+def test_every_job_that_builds_takes_the_epoch_from_the_full_history():
+    """[COUNTS] The bytes a job builds are the bytes of the commit only with the epoch release.yml uses.
+
+    `head_commit_epoch` needs the history back to the last shipped change, and a clone of depth 1
+    returns the time of its boundary instead. This stood on the byte-freeze job alone at first, while
+    reusable-build-attest.yml attests and uploads what it builds and hermetic-cleanroom tests what it
+    calls the published bytes, both from a clone of depth 1 (2026-10-26). So it is a rule about every
+    job that builds, as the pin rule is."""
+    gefunden, flach = [], []
+    for datei, job, schritte in _jobs():
+        if not any(any(b in _befehle(str(s.get("run") or "")) for b in BAUT) for s in schritte):
+            continue
+        gefunden.append(f"{datei}:{job}")
+        checkout = [s for s in schritte if str(s.get("uses") or "").startswith("actions/checkout@")]
+        if len(checkout) != 1 or (checkout[0].get("with") or {}).get("fetch-depth") != 0:
+            flach.append(f"{datei}:{job}: checkout {[s.get('with') for s in checkout]!r}")
+    assert len(gefunden) >= 4, gefunden
+    assert not flach, flach
 
 
 def _wheel(pfad: pathlib.Path, wheel_text: str | None, *, zweites: bool = False) -> pathlib.Path:

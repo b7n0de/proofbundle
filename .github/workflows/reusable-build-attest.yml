@@ -69,7 +69,12 @@ jobs:
     outputs:
       sdist-sha256: ${{ steps.digests.outputs.sdist }}
     steps:
+      # The full history, as in release.yml: `head_commit_epoch` takes the time of the last commit that
+      # touches a shipped path, and a clone of depth 1 returns the time of its boundary, so the sdist
+      # attested here would not be the one the tag run builds from the same commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:

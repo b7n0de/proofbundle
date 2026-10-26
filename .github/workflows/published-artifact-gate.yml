@@ -86,7 +86,11 @@ jobs:
     # at d388ed3d, 16 min at 110cdad9, cut at 20 at 6b02d9f7 without a failing test.
     timeout-minutes: 75
     steps:
+      # The full history, for the epoch of the tag run: the sdist this job tests is the published one
+      # only with the epoch `head_commit_epoch` takes from the full history (see reproducible-sdist).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
