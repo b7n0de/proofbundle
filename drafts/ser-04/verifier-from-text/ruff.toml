@@ -1,0 +1,7 @@
+# The verifier in this folder is kept byte for byte as delivered, so that each file's SHA-256 is the one the README
+# lists. Its run script imports after it sets sys.path and names one lambda; for that file alone these two rules are
+# waived. Every other rule of the repository applies here as everywhere.
+extend = "../../../pyproject.toml"
+
+[lint.per-file-ignores]
+"ser04/lauf_ser.py" = ["E402", "E731"]
