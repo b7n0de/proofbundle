@@ -61,6 +61,8 @@ def test_vector(case: dict) -> None:
     assert (failed[0]["name"] if failed else None) == case["expected"]["failedCheck"], first["checks"]
     assert len(failed) <= 1 or failed[0]["name"] in sb._REQUIREMENT, "a run continued past an integrity failure"
     assert first["automation"]["safeForAutomation"] is False, "no revocation and no log consistency is judged"
+    for note in case.get("expectedNotes", ()):
+        assert any(note in line for line in first["notes"]), (note, first["notes"])
     if case["expected"]["exitCode"] == 0:
         assert first["ok"] is True and first["policy"] == "OK"
         assert first["signing_times"], "a pass names the verified time it judged the chain at"
@@ -101,6 +103,22 @@ def test_the_refusal_of_unknown_dsse_members_is_a_documented_deviation() -> None
     for case in ds03:
         assert case["caseId"] in text
         assert case["expected"] == {"exitCode": 1, "failedCheck": "bundle-structure"}
+
+
+def test_predicate_binding_is_a_note_and_decides_no_verdict() -> None:
+    """Owner decision of 2026-10-26: the comparison of the predicate with the certificate follows the
+    producers' code, not a specification, so it is a note in the verdict and never a check. Every verdict
+    that read an SLSA predicate carries exactly one such note, every other verdict none."""
+    assert "predicate-binding" not in sb._UNREADABLE | sb._INTEGRITY | sb._REQUIREMENT
+    for case in CASES:
+        out = verify_sigstore_bundle((FIX / case["input"]).read_bytes(), **_arguments(case)).as_dict()
+        assert all(c["name"] != "predicate-binding" for c in out["checks"]), case["caseId"]
+        read = PROFILES[case["profile"]]["predicate_type"] == sb.SLSA_PROVENANCE_V1 and any(
+            c["name"] == "predicate" and c["ok"] is True for c in out["checks"])
+        notes = [n for n in out["notes"] if n.startswith("predicate-binding: ")]
+        assert len(notes) == (1 if read else 0), (case["caseId"], out["notes"])
+        if read and "expectedNotes" not in case:
+            assert notes[0].startswith("predicate-binding: agrees"), (case["caseId"], notes)
 
 
 def test_the_three_classes_are_disjoint_and_an_unclassified_failure_is_structural() -> None:

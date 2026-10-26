@@ -67,14 +67,21 @@ Each check is reported by name; the first integrity failure ends the run.
 4. `signing-time`: at least one verified time (an SET or an RFC 3161 timestamp; an unsigned
    `integratedTime` is none), inside the leaf's validity or before the registry key's expiry
 5. `certificate-chain` at every verified time (hybrid model), `sct`
-6. `statement`, `predicate-type`, `predicate`, `predicate-binding`
+6. `statement`, `predicate-type`, `predicate`
 7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name` (exit 3)
 
-`predicate-binding` compares the predicate with the certificate: repository, ref, commit, build
-config, run invocation, trigger, repository and owner IDs, and the builder (the signer workflow for
-the actions.github.io buildType, `https://github.com/actions/runner/<runner_environment>` for the
-slsa-framework one). These equalities come from the producers' source code, not from a
-specification; they are pinned in `SPEC_PIN`.
+`predicate` holds the predicate to SLSA Provenance v1 and to its buildType's own rules. For the
+actions.github.io buildType these include the four internal parameters and a resolved dependency
+naming the source commit, both MUST in that specification; the slsa-framework buildType makes them
+optional.
+
+`predicate-binding` is a note, not a check (owner decision of 2026-10-26). It compares the predicate
+with the certificate: repository, ref, commit, build config, run invocation, trigger, repository and
+owner IDs, and the builder (the signer workflow for the actions.github.io buildType,
+`https://github.com/actions/runner/<runner_environment>` for the slsa-framework one). These
+equalities come from the producers' source code, not from a specification; they are pinned in
+`SPEC_PIN`. Every verdict that read an SLSA predicate carries one note beginning
+`predicate-binding: agrees` or `predicate-binding: differs`, and no exit code depends on it.
 
 ## Deviations from the specifications
 

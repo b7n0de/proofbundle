@@ -14,19 +14,20 @@ material, and nothing is fetched.
 WRITTEN FROM THE SPECIFICATIONS, NOT FROM A CLIENT. The rules below were read from the documents pinned
 in :data:`SPEC_PIN` (each by commit). No Sigstore client library is imported or copied, and the tests of
 this module import none. Where a rule comes from a producer's source code rather than a specification
-(the cross-checks between the predicate and the certificate, ``predicate-binding``), the check says so in
-its detail and :data:`SPEC_PIN` names the file.
+(the cross-checks between the predicate and the certificate, ``predicate-binding``), it is reported as a
+note and decides no verdict (owner decision of 2026-10-26), and :data:`SPEC_PIN` names the file.
 
 WHAT A PASS MEANS. A pass says: the bundle is well formed under its media type, its one signature verifies
 under the key of a leaf certificate that a trusted Fulcio CA issued and a trusted CT log logged, at a time
 that a trusted transparency log (or TSA) vouches for and at which every certificate of the chain was
 valid; the log entry commits to exactly this signature and certificate; the payload is an in-toto
-Statement v1 of the profile's predicate type whose predicate is well formed and consistent with the
-certificate; the certificate names the identity the relying party expects; and a subject names the
-artifact digest the relying party holds. It does NOT say that the build was honest, that the workflow is
-benign, or that a predicate field beyond those cross-checked against the certificate is true: the
-predicate is written by the workflow that signed it. Revocation, log consistency over time and freshness
-are not judged (:data:`NOT_CHECKED`), so the automation verdict never reads safe.
+Statement v1 of the profile's predicate type whose predicate is well formed under its buildType; the
+certificate names the identity the relying party expects; and a subject names the artifact digest the
+relying party holds. It does NOT say that the build was honest, that the workflow is benign, or that a
+predicate field is true: the predicate is written by the workflow that signed it, and whether it agrees
+with the certificate is a note (``predicate-binding: agrees`` or ``predicate-binding: differs``).
+Revocation, log consistency over time and freshness are not judged (:data:`NOT_CHECKED`), so the
+automation verdict never reads safe.
 
 EXIT CODES follow the house contract of the TRACE and AGT readers: 0 verified; 1 a cryptographic or
 structural failure; 2 input that could not be read under this profile, a feature this module does not
@@ -101,7 +102,8 @@ NOT_CHECKED: Tuple[str, ...] = (
     "dsse envelopeHash (Rekor dsse v0.0.1) and intoto content.hash (Rekor intoto v0.0.2): the preimage "
     "is the envelope as Rekor canonicalized it, which no specification pins; payloadHash, the signature "
     "and the verifier ARE compared",
-    "predicate fields not cross-checked against the certificate are producer testimony, not facts",
+    "predicate fields are producer testimony, not facts; their agreement with the certificate follows "
+    "the producers' code and is a note (predicate-binding), never a check",
     "Rekor v2 entries, messageSignature bundles and the GitLab variant of npm provenance are refused as "
     "not implemented (exit 2), never read",
 )
@@ -192,7 +194,7 @@ _UNREADABLE = frozenset({"verifier-config", "readable", "media-type", "unsupport
 _INTEGRITY = frozenset({"bundle-structure", "certificate", "public-key", "signature", "tlog-entry",
                         "tlog-body", "tlog-set", "tlog-inclusion", "tlog-checkpoint", "tlog-threshold",
                         "timestamp-authority", "signing-time", "certificate-chain", "sct", "statement",
-                        "predicate-type", "predicate", "predicate-binding"})
+                        "predicate-type", "predicate"})
 #: Check names whose failure is an unmet relying-party requirement (exit 3).
 _REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name"})
 
@@ -1316,63 +1318,77 @@ def _github_internal(bd: Dict[str, Any], required: Sequence[str]) -> Dict[str, s
     return gh
 
 
-def _binding(checks: List[Tuple[str, Optional[str], Optional[str]]]) -> None:
-    """Each (what, predicate value, certificate value) must agree, and the certificate must carry it."""
+def _source_commits(bd: Dict[str, Any], wf: Dict[str, str]) -> List[Any]:
+    """The gitCommit of each resolved dependency that names the workflow's source, in order."""
+    uri = "git+" + wf["repository"] + "@" + wf["ref"]
+    return [d["digest"].get("gitCommit") for d in _present(bd, "resolvedDependencies") or []
+            if type(d) is dict and d.get("uri") == uri and type(d.get("digest")) is dict]
+
+
+def _github_build_type(bd: Dict[str, Any]) -> None:
+    """What the actions.github.io buildType itself requires (actions/buildtypes workflow/v1, :data:`SPEC_PIN`):
+    the four internal parameters (MUST, contract GH-08) and a resolved dependency naming the source commit
+    (MUST, GH-09). The slsa-framework buildType makes both optional, so it is not held to them."""
+    wf = _workflow_params(bd)
+    _github_internal(bd, ("event_name", "repository_id", "repository_owner_id", "runner_environment"))
+    if not any(type(c) is str and c for c in _source_commits(bd, wf)):
+        raise _Fail("predicate", "resolvedDependencies must name the source git+" + render_safe(
+            wf["repository"] + "@" + wf["ref"], quote=False) + " with a gitCommit digest (actions.github.io "
+            "buildType)")
+
+
+def _binding(checks: List[Tuple[str, Any, Optional[str]]]) -> List[str]:
+    """Each (what, predicate value, certificate value) that disagrees, or that the certificate lacks."""
+    out = []
     for what, in_predicate, in_certificate in checks:
         if in_certificate is None:
-            raise _Fail("predicate-binding", f"the certificate carries no {what}, so the predicate's cannot be "
-                                             "checked against it")
-        if in_predicate != in_certificate:
-            raise _Fail("predicate-binding", f"{what}: the predicate says {render_safe(in_predicate)}, the "
-                                             f"certificate says {render_safe(in_certificate)}")
+            out.append(f"the certificate carries no {what}")
+        elif in_predicate != in_certificate:
+            out.append(f"{what}: the predicate says {render_safe(in_predicate)}, the certificate says "
+                       f"{render_safe(in_certificate)}")
+    return out
 
 
-def _check_slsa_binding(pred: Dict[str, Any], leaf: _Leaf) -> None:
-    """The predicate agrees with what Fulcio wrote into the certificate from the OIDC token.
+def _check_slsa_binding(pred: Dict[str, Any], leaf: _Leaf) -> str:
+    """Whether the predicate agrees with what Fulcio wrote into the certificate from the OIDC token, as a
+    note that decides no verdict.
 
     These equalities come from the PRODUCERS (actions/toolkit attest provenance.ts and npm/cli
     lib/utils/provenance.js, :data:`SPEC_PIN`), which build both from the same token claims; no
-    specification states them. A disagreement means the signed predicate describes another run than
-    the one the certificate was issued to."""
+    specification states them, so a disagreement is reported and not judged (owner decision of
+    2026-10-26). A disagreement says the signed predicate describes another run than the one the
+    certificate was issued to, or that a producer changed its rules."""
     bd, rd = pred["buildDefinition"], pred["runDetails"]
     wf = _workflow_params(bd)
     e = leaf.extensions
-    deps = _present(bd, "resolvedDependencies") or []
-    source_uri = "git+" + wf["repository"] + "@" + wf["ref"]
-    commits = [d["digest"].get("gitCommit") for d in deps
-               if type(d) is dict and d.get("uri") == source_uri and type(d.get("digest")) is dict]
-    if len(commits) != 1:
-        raise _Fail("predicate-binding", f"resolvedDependencies must name the source {render_safe(source_uri)} "
-                                         f"exactly once, it names it {len(commits)} times")
-    checks: List[Tuple[str, Optional[str], Optional[str]]] = [
+    ip = _present(bd, "internalParameters")
+    gh: Dict[str, Any] = ip["github"] if type(ip) is dict and type(ip.get("github")) is dict else {}
+    commits = _source_commits(bd, wf)
+    problems = [] if len(commits) == 1 else [f"resolvedDependencies names the source {len(commits)} times"]
+    checks: List[Tuple[str, Any, Optional[str]]] = [
         ("source repository", wf["repository"], e.get("source_repository_uri")),
         ("source ref", wf["ref"], e.get("source_repository_ref")),
-        ("source commit", commits[0], e.get("source_repository_digest")),
         ("build config", wf["repository"] + "/" + wf["path"] + "@" + wf["ref"], e.get("build_config_uri")),
         ("run invocation", (_present(rd, "metadata") or {}).get("invocationId"), e.get("run_invocation_uri")),
+        ("trigger", gh.get("event_name"), e.get("build_trigger")),
+        ("repository id", gh.get("repository_id"), e.get("source_repository_identifier")),
+        ("repository owner id", gh.get("repository_owner_id"), e.get("source_repository_owner_identifier")),
     ]
+    if len(commits) == 1:
+        checks.insert(2, ("source commit", commits[0], e.get("source_repository_digest")))
     if bd["buildType"] == GITHUB_BUILD_TYPE:
-        gh = _github_internal(bd, ("event_name", "repository_id", "repository_owner_id", "runner_environment"))
-        checks += [
-            ("builder (signer workflow)", rd["builder"]["id"], e.get("build_signer_uri")),
-            ("trigger", gh["event_name"], e.get("build_trigger")),
-            ("repository id", gh["repository_id"], e.get("source_repository_identifier")),
-            ("repository owner id", gh["repository_owner_id"], e.get("source_repository_owner_identifier")),
-            ("runner environment", gh["runner_environment"], e.get("runner_environment")),
-        ]
-    elif bd["buildType"] == NPM_GITHUB_BUILD_TYPE:
-        gh = _github_internal(bd, ("event_name", "repository_id", "repository_owner_id"))
-        runner = e.get("runner_environment")
-        checks += [
-            ("builder (runner)", rd["builder"]["id"],
-             None if runner is None else "https://github.com/actions/runner/" + runner),
-            ("trigger", gh["event_name"], e.get("build_trigger")),
-            ("repository id", gh["repository_id"], e.get("source_repository_identifier")),
-            ("repository owner id", gh["repository_owner_id"], e.get("source_repository_owner_identifier")),
-        ]
+        checks += [("builder (signer workflow)", rd["builder"]["id"], e.get("build_signer_uri")),
+                   ("runner environment", gh.get("runner_environment"), e.get("runner_environment"))]
     else:
-        raise _Fail("predicate-binding", f"no binding rules for buildType {render_safe(bd['buildType'])}")
-    _binding(checks)
+        runner = e.get("runner_environment")
+        checks.append(("builder (runner)", rd["builder"]["id"],
+                       None if runner is None else "https://github.com/actions/runner/" + runner))
+    problems += _binding(checks)
+    rules = "producer rules, SPEC_PIN github_producer and npm_producer; a note, no verdict depends on it"
+    if problems:
+        return "predicate-binding: differs from the certificate: " + "; ".join(problems) + f" ({rules})"
+    return ("predicate-binding: agrees with the certificate in " + ", ".join(what for what, _, _ in checks)
+            + f" ({rules})")
 
 
 def _check_npm_publish(pred: Any, statement: Dict[str, Any]) -> None:
@@ -1762,9 +1778,10 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         if not is_member(build_type, spec["build_types"]):
             raise _Fail("predicate", f"buildType {render_safe(build_type)} is not one of {list(spec['build_types'])}")
         _workflow_params(slsa["buildDefinition"])
+        if build_type == GITHUB_BUILD_TYPE:
+            _github_build_type(slsa["buildDefinition"])
         res.add("predicate", True, f"SLSA Provenance v1, buildType {build_type}")
-        _check_slsa_binding(slsa, leaf)
-        res.add("predicate-binding", True, "the predicate agrees with the certificate (producer rules, see SPEC_PIN)")
+        notes.append(_check_slsa_binding(slsa, leaf))
     elif spec["predicate_type"] == NPM_PUBLISH_V0_1:
         _check_npm_publish(pred, statement)
         res.add("predicate", True, "npm publish attestation v0.1")

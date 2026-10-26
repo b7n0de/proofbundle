@@ -486,6 +486,14 @@ def _statement_edit(fn: Callable[[Dict[str, Any]], None], build_type: str = GITH
     return st
 
 
+def _other_repository(st: Dict[str, Any]) -> None:
+    """The predicate names another repository than the certificate, consistently with itself."""
+    other = "https://github.com/octo-org/other-repo"
+    bd = st["predicate"]["buildDefinition"]
+    bd["externalParameters"]["workflow"]["repository"] = other
+    bd["resolvedDependencies"][0]["uri"] = f"git+{other}@{REF}"
+
+
 def _dup_key_payload() -> bytes:
     text = json.dumps(provenance_statement(), indent=2)
     # A second predicateType member: two parsers can read two statements from these signed bytes.
@@ -733,11 +741,13 @@ def cases() -> List[Dict[str, Any]]:
         dict(gh, caseId="neg-foreign-issuer", identity=dict(GITHUB_IDENTITY, issuer="https://issuer.example.com"),
              build={}, steps=["SV-21", "GH-21"], exitCode=3, failedCheck="identity",
              rationale="The relying party expects another OIDC issuer."),
-        dict(gh, caseId="neg-predicate-other-repository", build={"statement": _statement_edit(
-             lambda st: st["predicate"]["buildDefinition"]["externalParameters"]["workflow"].update(
-                 repository="https://github.com/octo-org/other-repo"))}, steps=["SP-13", "GH-09", "SP-12"], exitCode=1,
-             failedCheck="predicate-binding",
-             rationale="The signed predicate names another repository than the certificate Fulcio issued."),
+        dict(gh, caseId="pos-binding-note-other-repository", build={"statement": _statement_edit(
+             _other_repository)}, steps=["SP-13", "GH-09", "SP-12"], exitCode=0,
+             failedCheck=None, expectedNotes=["predicate-binding: differs", "source repository: the predicate says "
+                                              "'https://github.com/octo-org/other-repo'"],
+             rationale="The signed predicate names another repository than the certificate Fulcio issued. The "
+                       "comparison follows the producers' code, not a specification, so it is a note and the "
+                       "verdict stands (owner decision 2026-10-26)."),
 
         # Statement and predicate.
         dict(gh, caseId="neg-wrong-predicate-type", build={"statement": _statement_edit(
@@ -850,6 +860,17 @@ def cases() -> List[Dict[str, Any]]:
              "signatures"][0].update(extra="unsigned")}, steps=["DS-03", "SB-34"], exitCode=1,
              failedCheck="bundle-structure",
              rationale="The same deviation for a member of the envelope's one signature."),
+        dict(gh, caseId="neg-github-source-dependency-missing", build={"statement": _statement_edit(
+             lambda st: st["predicate"]["buildDefinition"].update(resolvedDependencies=[]))}, steps=["GH-09"],
+             exitCode=1, failedCheck="predicate",
+             rationale="The actions.github.io buildType says resolvedDependencies MUST contain the source commit; "
+                       "a rule of the specification, so a failing check and not a note."),
+        dict(gh, caseId="pos-slsa-buildtype-without-source-dependency", build={"version": "0.2", "statement":
+             _statement_edit(lambda st: st["predicate"]["buildDefinition"].update(resolvedDependencies=[]),
+                             NPM_BUILD_TYPE)}, steps=["SP-13"], exitCode=0, failedCheck=None,
+             expectedNotes=["predicate-binding: differs", "resolvedDependencies names the source 0 times"],
+             rationale="The slsa-framework buildType says resolvedDependencies SHOULD contain the source commit; "
+                       "its absence is reported in the binding note and decides no verdict."),
     ]
 
 
@@ -882,7 +903,7 @@ def write() -> List[Dict[str, Any]]:
                  "expected": {"exitCode": case["exitCode"], "failedCheck": case["failedCheck"]},
                  "steps": case["steps"], "rationale": case["rationale"],
                  "sha256": hashlib.sha256(data).hexdigest()}
-        for key in ("identity", "registryKeys", "expectedSubjectName", "tlogThreshold"):
+        for key in ("identity", "registryKeys", "expectedSubjectName", "tlogThreshold", "expectedNotes"):
             if key in case:
                 entry[key] = case[key]
         manifest.append(entry)

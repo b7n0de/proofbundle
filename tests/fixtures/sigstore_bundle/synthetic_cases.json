@@ -871,26 +871,30 @@
       }
     },
     {
-      "caseId": "neg-predicate-other-repository",
-      "input": "synthetic/neg-predicate-other-repository.json",
+      "caseId": "pos-binding-note-other-repository",
+      "input": "synthetic/pos-binding-note-other-repository.json",
       "trustedRoot": "trust/test_trusted_root.json",
       "profile": "github-artifact-attestation",
       "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
       "expected": {
-        "exitCode": 1,
-        "failedCheck": "predicate-binding"
+        "exitCode": 0,
+        "failedCheck": null
       },
       "steps": [
         "SP-13",
         "GH-09",
         "SP-12"
       ],
-      "rationale": "The signed predicate names another repository than the certificate Fulcio issued.",
-      "sha256": "0e541e493ff6bcc2856d6f6281c0391cc766dedf5b64ff2690109e6cba7e6082",
+      "rationale": "The signed predicate names another repository than the certificate Fulcio issued. The comparison follows the producers' code, not a specification, so it is a note and the verdict stands (owner decision 2026-10-26).",
+      "sha256": "185306de1f30baa605b7e0e59f214ed9421e02c2a7b1682e8117c0f1fb6a1e68",
       "identity": {
         "source_repository_uri": "https://github.com/octo-org/octo-repo",
         "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
-      }
+      },
+      "expectedNotes": [
+        "predicate-binding: differs",
+        "source repository: the predicate says 'https://github.com/octo-org/other-repo'"
+      ]
     },
     {
       "caseId": "neg-wrong-predicate-type",
@@ -1510,6 +1514,50 @@
         "source_repository_uri": "https://github.com/octo-org/octo-repo",
         "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
       }
+    },
+    {
+      "caseId": "neg-github-source-dependency-missing",
+      "input": "synthetic/neg-github-source-dependency-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-09"
+      ],
+      "rationale": "The actions.github.io buildType says resolvedDependencies MUST contain the source commit; a rule of the specification, so a failing check and not a note.",
+      "sha256": "44aef72c167abd59e4b279a97407a9a4c7882b26262675357c93aaf85ff9a125",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-slsa-buildtype-without-source-dependency",
+      "input": "synthetic/pos-slsa-buildtype-without-source-dependency.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SP-13"
+      ],
+      "rationale": "The slsa-framework buildType says resolvedDependencies SHOULD contain the source commit; its absence is reported in the binding note and decides no verdict.",
+      "sha256": "7d7457d0b025742cafb0c16b3a848ef64eb4f670931518a652e4cbf1345f0571",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedNotes": [
+        "predicate-binding: differs",
+        "resolvedDependencies names the source 0 times"
+      ]
     }
   ]
 }
