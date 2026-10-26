@@ -840,7 +840,10 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
   [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) §4 to §7 and
   [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) §5: the DSSE envelope
   carries `payloadType` `application/vnd.in-toto+json` and its signature is checked over the PAE of
-  §7b (another `payloadType` fails the signature check, exit 1); the Statement carries the
+  §7b (another `payloadType` fails the signature check, exit 1); the check passes when one entry of
+  `signatures` carries a `sig` that verifies under the key, and the other entries, an entry that is no
+  object, every `keyid` and any further envelope member are not read for the verdict; an envelope
+  without such an entry, an empty or missing `signatures` included, fails it (exit 1); the Statement carries the
   predicateType `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` or
   `https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1` (another is malformed, exit 2);
   an unknown predicate member is malformed (exit 2); and a present `validity.expiresAt` of the
