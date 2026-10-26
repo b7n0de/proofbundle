@@ -918,7 +918,15 @@ The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/ev
 [`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
 [`schemas/action-outcome-v0.1.schema.json`](schemas/action-outcome-v0.1.schema.json)) are informative mirrors:
 they never gate a verdict (`docs/predicates/relation.md` §2), and where a mirror and its text disagree the
-text governs the corpus.
+text governs the corpus. Five relation fixtures do not validate against the decision-receipt mirror, each
+on purpose: two counter-proofs carry the malformed value they test
+(`conformance/relation/malformed-digest/receipt.json`,
+`conformance/relation/malformed-relationships-successor/related_n.json`); the targets
+`conformance/relation/target-subject-ambiguous/related_r0.json` and
+`conformance/relation/target-subject-missing/related_r0.json` carry only `schemaVersion` and a `note` in
+their predicate, because those cases test the subject shape of a target; and the attachment
+`conformance/relation/null-relationships-successor/related_n.json` carries `relationships: null`, which
+the mirror does not allow and `docs/predicates/relation.md` §4 reads as absent on an attachment.
 
 Not yet backed by a text in this repository, and recorded rather than implied: the CAP-1 rules R0 to R8
 of `draft-hillier-coverage-attestation-00` (`cap1_document`); the draft is not vendored until its licence
