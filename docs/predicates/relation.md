@@ -133,7 +133,10 @@ malformed (exit 2, lineage NOT_EVALUATED), and one that is only not its own RFC 
 too (exit 2), its edges judged as usual.
 
 **Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
-below; a conformance vector's `errorContains` names one of them.
+below. A finding of the predicate validation of the receipt under verification is reported in `errors`,
+in the words the section of its predicate gives where it gives any (for a relation statement, an unknown
+member, section *Standalone profile*). A conformance vector's `errorContains` is one of these strings or
+its start.
 
 | situation | string in the report | exit |
 |---|---|---|
