@@ -75,6 +75,13 @@ def _importiert_unittest_lexikalisch(text: str) -> bool:
     """
     import io  # noqa: PLC0415
     import tokenize  # noqa: PLC0415
+    import unicodedata  # noqa: PLC0415
+    # A NUL BYTE IS ANSWERED BEFORE THE TOKENIZER (counter-reading of pull request 371, F5, P3). No
+    # Python compiles a source that holds one, but `tokenize` answers it by version: 3.11 reads on,
+    # 3.13 raises `TokenError`, and 3.12 raises `SystemError` (measured on 3.12.3 and 3.12.13, in
+    # the report on 3.12.15), which stopped the gate with a traceback.
+    if "\x00" in text:
+        return True
     try:
         toks = [t for t in tokenize.generate_tokens(io.StringIO(text).readline)
                 if t.type not in (tokenize.COMMENT, tokenize.NL)]
@@ -82,8 +89,13 @@ def _importiert_unittest_lexikalisch(text: str) -> bool:
         return True
 
     def name_at(i: int) -> tuple[str, int]:
-        """A dotted name from position i: (its first part, the position after it)."""
-        erster = toks[i].string if i < len(toks) and toks[i].type == tokenize.NAME else ""
+        """A dotted name from position i: (its first part, the position after it).
+
+        The part is read after NFKC, as Python reads an identifier and the syntax tree names it: a
+        name written with the full-width `u` (U+FF55) imports unittest (counter-reading of pull
+        request 371, F4, P3)."""
+        erster = (unicodedata.normalize("NFKC", toks[i].string)
+                  if i < len(toks) and toks[i].type == tokenize.NAME else "")
         while i < len(toks) and toks[i].type == tokenize.NAME:
             i += 1
             if i < len(toks) and toks[i].type == tokenize.OP and toks[i].string == ".":
@@ -142,7 +154,12 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
     for path in sorted(tests_dir.glob("test_*.py")):
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # A source that does not decode as UTF-8 is left out here as in the syntax tree, which reads it
+            # as UTF-8 as well; before, it stopped the gate with a traceback (measured on 3.10.12 to 3.14.8).
+            # LIMIT (lens 371b on pull request 422, F2): Python reads the bytes, so a coding cookie, and up
+            # to 3.13 an invalid byte in a comment, compile where both readers leave the source out, and a
+            # byte order mark makes the syntax tree refuse a source the token reader reads.
             continue
         # EVERY NAME OF THE STATEMENT, not only the first. Codex r3999288389, measured and
         # confirmed: the old pattern required `unittest` DIRECTLY after `import` and did not see
@@ -167,7 +184,7 @@ def pytest_only_modules(tests_dir: Path) -> list[str]:
 
 
 def pytest_only_modules_ast(tests_dir: Path) -> list[str]:
-    """DIESELBE Menge, auf einem UNABHAENGIGEN Weg: der Syntaxbaum statt eines Regex.
+    """THE SAME set on an INDEPENDENT path: the syntax tree instead of the token stream.
 
     WARUM ES DIESE ZWEITE ABLEITUNG GIBT (Owner-Anordnung 2026-09-07, Riegel-Sweep P1): die
     Zusicherung ueber die pytest-only-Menge war ein BODEN — `len(pyonly) >= floor`, Boden 5 bei 62
@@ -176,21 +193,30 @@ def pytest_only_modules_ast(tests_dir: Path) -> list[str]:
     `evaluate()` meldet weiter `ok=True`, weil 199 den Boden mit Leichtigkeit nimmt. Gemessen am
     selben Tag; alle Faelle blieben gruen.
 
-    DIE REGEL IST DIE DES MUTATIONSLAUFS: die Erwartung kommt aus dem BAUM, nicht aus einer
-    getippten Zahl, und zwei unabhaengige Ableitungen muessen EINIG sein. Hier liest die eine den
-    Quelltext als Zeichenkette (Regex), die andere als Syntaxbaum (`ast`) — ein Import ist im Baum
-    ein `Import`/`ImportFrom`-Knoten und kein Textmuster. Ein Fehler in der einen Lesart kann die
-    andere nicht mitreissen; ihre Differenz ist der Riegel, und sie braucht keine Zahl.
+    THE RULE IS THAT OF THE MUTATION RUN: the expectation comes from the TREE, not from a typed
+    number, and two independent derivations must AGREE. One reads the source as a token stream
+    (`tokenize`; until Codex on pull request 371 it was a regex), the other as a syntax tree (`ast`),
+    where an import is an `Import` or `ImportFrom` node and no text pattern. An error in one reading
+    cannot drag the other along; their difference is the bar, and it needs no number.
 
-    Eine Datei, die nicht parst, gilt hier als NICHT pytest-only und faellt damit in die Differenz
-    auf — ein Sammelfehler ist ohnehin ein harter FAIL im selben Tor.
+    A file that does not parse counts as NOT pytest-only here. It falls into the difference only when
+    the token reader reads it (`x = = 1`); a source the tokenizer refuses counts as importing there as
+    well, and both paths leave it out (counter-reading of pull request 371, F7). A collection error is
+    a hard FAIL in the same gate anyway.
     """
     import ast  # noqa: PLC0415
     out: list[str] = []
     for path in sorted(tests_dir.glob("test_*.py")):
         try:
             baum = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError, ValueError, RecursionError, MemoryError):
+            # Which error a source the parser refuses raises depends on the Python and the stage (measured
+            # on 3.10.12 to 3.14.8): a NUL byte is a ValueError under 3.10 and a SyntaxError from 3.11 on, a
+            # source that is not UTF-8 a UnicodeDecodeError, a ValueError, on every version, a chain of
+            # 65000 additions a RecursionError from 3.11 on, and a chain of 20000 unary minus signs a
+            # MemoryError on every version, the parser's stack overflowing (lens 371b on pull request 422,
+            # F1). Each counts as not parsed, as a SyntaxError always did; before, each stopped the gate
+            # with a traceback.
             continue
         traegt_unittest = False
         for knoten in ast.walk(baum):
@@ -318,12 +344,13 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
     # nicht bemerken. Zwei unabhaengige Ableitungen — Zeichenkette und Syntaxbaum — muessen
     # dieselben Module nennen. Ihre DIFFERENZ ist der Riegel und braucht keine getippte Zahl.
     pyonly_ast = pytest_only_modules_ast(tests_dir)
-    nur_regex = sorted(set(pyonly) - set(pyonly_ast))
+    nur_token = sorted(set(pyonly) - set(pyonly_ast))
     nur_ast = sorted(set(pyonly_ast) - set(pyonly))
-    if nur_regex or nur_ast:
+    if nur_token or nur_ast:
         problems.append(
-            f"die zwei Ableitungen der pytest-only-Menge sind UNEINIG: Regex nennt {len(pyonly)} "
-            f"Module, der Syntaxbaum {len(pyonly_ast)}. Nur im Regex: {nur_regex[:8]}; nur im "
+            f"die zwei Ableitungen der pytest-only-Menge sind UNEINIG: der Tokenleser nennt "
+            f"{len(pyonly)} Module, der Syntaxbaum {len(pyonly_ast)}. Nur im Tokenleser: "
+            f"{nur_token[:8]}; nur im "
             f"Syntaxbaum: {nur_ast[:8]}. Eine Klassifikation, die sich selbst widerspricht, ist "
             f"keine Klassifikation — und ein Boden ueber der Groesse haette es nicht bemerkt")
 

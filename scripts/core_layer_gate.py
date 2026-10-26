@@ -8,7 +8,8 @@ WHAT IT MEASURES, at the tree it runs in:
    scripts/core_layer_modules.json (today proofbundle.bundle for verify_bundle and proofbundle.decision
    for verify_decision_receipt). Every import statement counts, at any depth of a function, except the
    ones under `if TYPE_CHECKING:`, and those only while no module of the package can change
-   `typing.TYPE_CHECKING`. A reached module brings its package initialisation with it, because
+   `typing.TYPE_CHECKING`, or a change is reviewed by name, form, count and source in the core list
+   file (`type_checking_reviewed`). A reached module brings its package initialisation with it, because
    Python runs `__init__.py` before the submodule. The lazy package map of proofbundle/__init__.py is
    not followed: it loads through `importlib` on attribute access, and that access is itself reported
    as a dynamic import of the package initialisation. The computed closure must EQUAL the fixed list.
@@ -17,8 +18,8 @@ WHAT IT MEASURES, at the tree it runs in:
 
 2. FORBIDDEN OPERATIONS IN THE CORE: file access, network, clock, environment, subprocess, randomness,
    eval and exec, dynamic import, and dynamic access that cannot be resolved statically. Every name is
-   resolved in its own lexical scope, as Python resolves it, and alias forms are resolved before the
-   check: `import os as o`, `from os import getenv as g`, `import builtins`,
+   resolved in its own lexical scope, as Python resolves it, for the bindings the gate reads (see
+   `_Names` for the ones it does not follow), and alias forms are resolved before the check: `import os as o`, `from os import getenv as g`, `import builtins`,
    `reader = open`, and `getattr(x, "read_bytes")` with a literal name. A name that another module of
    the package binds is followed there, so a re-export (`from .other import os`) and a star import
    resolve to what the other module bound. A `getattr`, `setattr`, `delattr` or `hasattr` with a
@@ -28,7 +29,9 @@ WHAT IT MEASURES, at the tree it runs in:
    (`read_bytes`, `open`, `read`, ...) on a receiver the gate cannot resolve is a file finding: the
    gate cannot prove the receiver is no file.
    The same holds for the path methods that read the working or the home directory (`resolve`,
-   `absolute`, `expanduser`): on such a receiver they are an environment finding.
+   `absolute`, `expanduser`, `cwd`, `home`): on such a receiver they are an environment finding.
+   The lists of operations are finite: an operation they do not name (`os.utime`, `os.cpu_count`,
+   `sqlite3.connect`, `ctypes`, reading `sys.stdin`, ...) is not seen, whatever it reaches.
 
 3. IMPORT EDGES. Every module a core module imports is on the core list, in the standard library, or a
    named trust boundary, an external distribution listed with a reason in the core list file. A
@@ -56,6 +59,7 @@ import builtins
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -127,10 +131,16 @@ _FILE_METHODS = frozenset((
     "chmod", "symlink_to", "hardlink_to"))
 # Path methods that read the working directory or the home directory, judged the same way on a receiver
 # the gate cannot resolve: `Path("x").resolve()` names no qualified receiver.
-_ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser"))
+#: `cwd` and `home` as well (counter-reading of pull request 395, F10, P2): `pathlib.Path.cwd` and `pathlib.Path.home`
+#: are listed, and `Path("x").cwd()` and `Path("x").home()` read the same directories unseen.
+_ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser", "cwd", "home"))
 _BUILTIN_NAMES = frozenset(dir(builtins))
 #: What an expression may stand for that the gate cannot name, beside the names it can (`getattr(os, "path", h)`
 #: is `os.path` or whatever `h` is). It matches no rule, and a receiver that may be it counts as unresolved.
+#: A call, a conditional, a boolean and an assignment expression carry it beside every name they are read as (second
+#: counter-reading of pull request 395, F-D, P3): the names serve the rules, and the receiver stays unresolved, so
+#: `getattr(sys, "stdin").read()` is a file finding. That is stricter than main, which reports none there (the
+#: counter-reading of pull request 420, F8).
 _UNRESOLVED = "<unresolved>"
 
 
@@ -211,10 +221,12 @@ def discover(src: Path, package: str) -> dict[str, tuple[Path, bool]]:
 
 
 def parse(path: Path) -> ast.Module:
+    # RecursionError and MemoryError as well (counter-reading of pull request 395, F11, P3): a long expression made
+    # `ast.parse` raise RecursionError, and the gate stopped with a traceback and exit 1, without its report.
     try:
         return ast.parse(path.read_bytes(), filename=str(path))
-    except (OSError, SyntaxError, ValueError) as exc:
-        raise NotMeasurable(f"{path}: {exc}") from exc
+    except (OSError, SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+        raise NotMeasurable(f"{path}: {type(exc).__name__}: {exc}") from exc
 
 
 _TYPING_MODULES = ("typing", "typing_extensions")
@@ -405,11 +417,19 @@ class _ChangeScan:
     too, because the gate does not see where they go.
     """
 
-    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool, package: "_Package | None") -> None:
-        self.names = _Names(tree, modname, is_pkg, _NO_GUARDS, package)
+    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool, package: "_Package | None",
+                 around_def: bool = False) -> None:
+        self.names = _Names(tree, modname, is_pkg, _NO_GUARDS, package, around_def)
+        self.package = package
         self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         self.tree = tree
         self._shown: dict[int, bool] = {}
+        #: Whether calling a class of the module builds an object of that class, once per class (`_builds_its_own`).
+        self._built: dict[int, bool] = {}
+        #: The string a name always is, once per scope, name and depth (`_one_string`).
+        self._strings: dict[tuple[int, str, int], str | None] = {}
+        #: Whether the module writes an attribute `__new__` anywhere (`_new_written`), None until asked.
+        self._new: bool | None = None
         self._loads: dict[tuple[int, str], list[ast.Name]] = {}
         for n in ast.walk(tree):
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
@@ -419,7 +439,8 @@ class _ChangeScan:
 
     def no_module(self, expr: ast.expr | None, _open: set[int] | None = None) -> bool:
         """Whether the object `expr` evaluates to is shown to be no module: a literal or a display, a lambda, an
-        object a builtin type or a class of this module builds, the first parameter of a method (`self`, `cls`), a
+        object a builtin type or a plain class of this module builds (`_builds_its_own`), the first parameter of a
+        method (`self`, `cls`), a
         def or a class, or a name every binding of which is one of these. Everything else may be a module. A cycle
         of assignments shows nothing; each expression is judged once."""
         if expr is None:
@@ -445,8 +466,7 @@ class _ChangeScan:
                 return True
             if isinstance(expr.func, ast.Name):
                 s = self.names.binding_scope_of(expr.func)
-                return s is not None and expr.func.id in s.classes and s.stores.get(expr.func.id, 0) == 1 \
-                    and expr.func.id not in s.alias
+                return s is not None and self._builds_its_own(s, expr.func.id, set())
             return False
         if isinstance(expr, ast.Name):
             s = self.names.binding_scope_of(expr)
@@ -467,6 +487,76 @@ class _ChangeScan:
             values = [v for n, v in s.assigns if n == expr.id]
             return bool(values) and len(values) == stores and all(self.no_module(v, opened) for v in values)
         return False
+
+    def _builds_its_own(self, scope: _Scope, name: str, seen: set[int]) -> bool:
+        """Whether calling the class `name` of `scope` builds an object of that class, and so no module.
+
+        A CLASS OF THE MODULE BUILDS WHAT ITS `__new__`, ITS METACLASS OR ITS DECORATOR SAYS (counter-reading of
+        pull request 395, F7, P2, named as a limit at 7046cbfb and closed here): `class C: def __new__(cls): return
+        inspect.getmodule(typing.Any)` made `C()` a module, and `setattr(C(), name, True)` changed the guard unseen;
+        a metaclass with its own `__call__`, a base with `__new__` and a decorator that returns a function did the
+        same. The class counts only when it is bound once, has no decorator and no keyword in its bases (a
+        metaclass among them), binds no `__new__` anywhere in its body while the module sets no attribute `__new__`
+        (`_plain_class`), and every base is `object` or such a class of the module.
+
+        A SHARED BASE IS NO CYCLE (Codex thread 4370601946 on pull request 420, P2): one set for all bases made the
+        second edge to a shared base a cycle, so in `E(C, D)` with `C(B)` and `D(B)` the class `D` built a possible
+        module, and a setattr on `E()` turned every guard of the package off. Each class is judged once and its verdict
+        kept (`_built`), so a base reached a second time gives the verdict it got the first time; `seen` then holds only
+        the classes whose verdict is still being made, and meeting one of them is a cycle, which builds no object."""
+        c = scope.class_defs.get(name)
+        if c is None or scope.stores.get(name, 0) != 1 or name in scope.alias or c.decorator_list or c.keywords:
+            return False
+        if id(c) in self._built:
+            return self._built[id(c)]
+        if id(c) in seen:
+            return False
+        seen.add(id(c))
+        # A class in or above a cycle builds no object of its own on any way, so its verdict is the same on every way.
+        verdict = self._built[id(c)] = self._plain_class(c, seen)
+        return verdict
+
+    def _plain_class(self, c: ast.ClassDef, seen: set[int]) -> bool:
+        # `__new__` IN ANY FORM (counter-reading of pull request 420, F4, P2): only a def or a plain name target at the
+        # top of the body counted, so a `__new__` under `if` or `try`, in a tuple or loop target, set as `C.__new__`
+        # after the class or by `setattr(C, "__new__", ...)` built a module while the class counted as plain. Now a
+        # binding of `__new__` anywhere in the body counts, in every form `_binds` knows, and so does a write of an
+        # attribute `__new__` anywhere in the module that `_new_written` reads: then no class of the module is plain.
+        # THE BINDERS OF THE GATE, NOT A SHORTER LIST (second counter-reading of pull request 420, F1, P2): the body was
+        # read with a list of its own, so `case __new__:` in a match of the body built a module unseen; it reads every
+        # binder `_binds` knows now, a match capture, a starred capture and a mapping rest among them.
+        if self._new_written():
+            return False
+        for n in (n for st in c.body for n in ast.walk(st)):
+            if "__new__" in _binds(n):
+                return False
+            if isinstance(n, ast.alias) and (n.asname or n.name) == "__new__":
+                return False
+        for base in c.bases:
+            if isinstance(base, ast.Name):
+                bs = self.names.binding_scope_of(base)
+                if bs is not None and self._builds_its_own(bs, base.id, seen):
+                    continue
+            if self.names.quals(base) != ["builtins.object"]:
+                return False
+        return True
+
+    def _new_written(self) -> bool:
+        """Whether the module writes an attribute `__new__` anywhere: `C.__new__ = f`, `del C.__new__`, or a setattr or
+        delattr in any spelling `_attribute_call` reads, with the name `__new__` as `string_of` reads it, or with
+        arguments the gate cannot assign. Asked once.
+
+        A BUILT NAME AS WELL (a sibling of the counter-reading of pull request 420, F4): only the literal counted, so
+        `setattr(C, "__ne" + "w__", f)` and `N = "__new__"; setattr(C, N, f)` built a module while the class counted as
+        plain. What stays out of reach: a name the gate cannot read, such as a parameter of a helper."""
+        if self._new is None:
+            self._new = any(
+                (isinstance(n, ast.Attribute) and n.attr == "__new__" and isinstance(n.ctx, (ast.Store, ast.Del)))
+                or (isinstance(n, ast.Call) and (call := _attribute_call(n, self.names.quals)) is not None
+                    and call[0] in ("set", "del") and (call[4] or (call[3] is not None
+                                                                   and self.string_of(call[3]) == "__new__")))
+                for n in ast.walk(self.tree))
+        return self._new
 
     def may_be_module(self, expr: ast.expr | None) -> bool:
         return not self.no_module(expr)
@@ -512,11 +602,24 @@ class _ChangeScan:
             return isinstance(up.ctx, ast.Load)
         if isinstance(up, ast.Attribute) and up.value is node:
             return up.attr in _NAMESPACE_READS
-        # An operator builds a new value from its operands (`vars(m) | extra`, `"%s" % vars(m)`), `yield from`
-        # hands on the keys, not the mapping.
-        if isinstance(up, (ast.Compare, ast.UnaryOp, ast.FormattedValue, ast.Expr, ast.Starred, ast.BinOp,
-                           ast.YieldFrom)):
+        # `yield from` hands on the keys, not the mapping; a unary operator and a format call the mapping's own method.
+        if isinstance(up, (ast.UnaryOp, ast.FormattedValue, ast.Expr, ast.Starred, ast.YieldFrom)):
             return True
+        # AN OPERATOR MAY CALL A METHOD OF THE OTHER OPERAND (counter-reading of pull request 395, F7, P2): `==`, `|` and
+        # the other operators hand the mapping to `__eq__`, `__ror__` or `__or__` of the other side, and a class of
+        # the module that wrote into its argument there changed the guard unseen (`W() == vars(typing)`). The
+        # operator reads only when every other operand runs no code of the module: a literal, a display, a
+        # namespace, or what a builtin type or a reader builds. `is` and `is not` call nothing, and `x in ns` asks
+        # the mapping itself.
+        if isinstance(up, ast.BinOp):
+            return self._runs_no_code(up.right if up.left is node else up.left)
+        if isinstance(up, ast.Compare):
+            operands = [up.left, *up.comparators]
+            if all(isinstance(op, (ast.Is, ast.IsNot)) for op in up.ops):
+                return True
+            if len(operands) == 2 and operands[1] is node and isinstance(up.ops[0], (ast.In, ast.NotIn)):
+                return True
+            return all(self._runs_no_code(o) for o in operands if o is not node)
         if isinstance(up, (ast.If, ast.While, ast.Assert)):
             return up.test is node
         if isinstance(up, ast.IfExp):
@@ -538,6 +641,21 @@ class _ChangeScan:
             targets = up.targets if isinstance(up, ast.Assign) else [up.target]
             if len(targets) == 1 and isinstance(targets[0], ast.Name):
                 return self._alias_reads_only(targets[0], _seen)
+        return False
+
+    def _runs_no_code(self, expr: ast.expr) -> bool:
+        """An operand whose operators are those of a builtin type: a literal, a display or a comprehension, a namespace,
+        an operation over such operands, or what a builtin type or a reading call returns."""
+        if isinstance(expr, (ast.Constant, ast.JoinedStr, ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp,
+                             ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            return True
+        if isinstance(expr, ast.BinOp):
+            return self._runs_no_code(expr.left) and self._runs_no_code(expr.right)
+        if self.namespace_owner(expr) is not None:
+            return True
+        if isinstance(expr, ast.Call):
+            quals = self.names.quals(expr.func)
+            return bool(quals) and all(q in _BUILTIN_TYPES or q in _READING_CALLS for q in quals)
         return False
 
     def _alias_reads_only(self, target: ast.Name, _seen: set[int] | None) -> bool:
@@ -563,7 +681,76 @@ class _ChangeScan:
         """A call of a method that writes the mapping it is called on: `m.update(...)`, `m.setdefault(...)`."""
         return isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr in _MAPPING_WRITES
 
-    def writes_the_flag(self, node: ast.Constant) -> bool:
+    def string_of(self, expr: ast.expr, names: "_Names | None" = None, depth: int = 0) -> str | None:
+        """The string `expr` always is, read from constants: a literal, a concatenation, an f-string, a literal's
+        `join` of a list or tuple written out, and a name every binding of which is such a string, in this module or
+        bound at module level in another module of the package. None when the gate cannot read it.
+
+        A DOTTED NAME IS NAMED ALSO WHEN IT IS BUILT (counter-reading of pull request 395, F6, P2): only a literal was
+        read, so `TARGET = "typing.TYPE_CHECKING"` followed by `patch(TARGET, True)`, `"typing." + "TYPE_CHECKING"`,
+        `".".join([...])`, an f-string over a bound literal and a name imported from another module ran the guarded
+        block unseen. A string computed from anything else, input or a call, stays out of reach."""
+        names = names or self.names
+        if depth > 16:
+            return None
+        if isinstance(expr, ast.Constant):
+            return expr.value if isinstance(expr.value, str) else None
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
+            a, b = self.string_of(expr.left, names, depth + 1), self.string_of(expr.right, names, depth + 1)
+            return a + b if a is not None and b is not None else None
+        if isinstance(expr, ast.JoinedStr):
+            parts = []
+            for v in expr.values:
+                t = v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else \
+                    self.string_of(v.value, names, depth + 1) if isinstance(v, ast.FormattedValue) \
+                    and v.conversion in (-1, 115) and v.format_spec is None else None
+                if t is None:
+                    return None
+                parts.append(t)
+            return "".join(parts)
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and expr.func.attr == "join" \
+                and _literal(expr.func.value) is not None and len(expr.args) == 1 and not expr.keywords \
+                and isinstance(expr.args[0], (ast.List, ast.Tuple)):
+            items = [self.string_of(e, names, depth + 1) for e in expr.args[0].elts]
+            return None if any(i is None for i in items) else expr.func.value.value.join(items)
+        if isinstance(expr, ast.Name):
+            scope = names.binding_scope_of(expr)
+            if scope is None:
+                return None
+            if expr.id in scope.alias:
+                return self._bound_elsewhere(scope.alias[expr.id], depth)
+            return self._one_string(scope, expr.id, names, depth)
+        return None
+
+    def _one_string(self, scope: _Scope, name: str, names: "_Names", depth: int) -> str | None:
+        """The string every binding of `name` in `scope` is. ONCE PER SCOPE, NAME AND DEPTH (counter-reading of pull
+        request 420, F1, P1): each binding was read again at every use, so `i = 0` followed by eight `i = i + 1` and
+        `code[i]` took 66 s, and `idlelib/pyparse.py` 203 s, where main takes 0.1 s. The depth is part of the key, so
+        an answer the depth limit cut short at one depth is never handed to a shallower one, and each answer is the one
+        the reading without the record gives. The depth grows on every step, so no path meets its own key again."""
+        key = (id(scope), name, depth)
+        if key in self._strings:
+            return self._strings[key]
+        self._strings[key] = None
+        values = [v for n, v in scope.assigns if n == name]
+        if not values or len(values) != scope.stores.get(name, 0):
+            return None
+        texts = {self.string_of(v, names, depth + 1) for v in values}
+        text = texts.pop() if len(texts) == 1 and None not in texts else None
+        self._strings[key] = text
+        return text
+
+    def _bound_elsewhere(self, quals: set[str], depth: int) -> str | None:
+        texts = set()
+        for q in quals:
+            module, _, attr = q.rpartition(".")
+            other = self.package._names_of(module) if self.package is not None and self.package.knows(module) else None
+            if other is None or attr in other.module.alias:
+                return None
+            texts.add(self._one_string(other.module, attr, other, depth + 1))
+        return texts.pop() if len(texts) == 1 and None not in texts else None
+
+    def writes_the_flag(self, node: ast.expr, text: str | None = None) -> bool:
         """Whether a string that names the flag stands where it is written: the key of an item set or deleted, the
         name of an attribute set or deleted, a key handed to a method that writes a mapping (`m.update({...})`), or
         a dotted name handed to any call (`patch("typing.TYPE_CHECKING", True)`). The same string as data, in a
@@ -571,7 +758,9 @@ class _ChangeScan:
         mapping that carries it into a module's namespace is judged where that namespace is used. A dotted name handed
         to a callable that resolves to a reader (`print`, `json.dumps`) or to a text sink (`logging.info`,
         `warnings.warn`) is text as well (round two, P2); any other callable, a parameter's method among them
-        (`monkeypatch.setattr("typing.TYPE_CHECKING", True)`), may set what it names."""
+        (`monkeypatch.setattr("typing.TYPE_CHECKING", True)`), may set what it names. `text` is the string a built
+        expression stands for (`string_of`); a literal brings its own."""
+        text = node.value if text is None else text
         up = self.parents.get(node)
         if isinstance(up, ast.Subscript) and up.slice is node:
             return isinstance(up.ctx, (ast.Store, ast.Del))
@@ -583,7 +772,7 @@ class _ChangeScan:
             quals = self.names.quals(up.func)
             if self.calls_a_reader(up) or (bool(quals) and all(q in _TEXT_SINKS for q in quals)):
                 return False
-            return "." in node.value or ":" in node.value or self._writes_a_mapping(up)
+            return "." in text or ":" in text or self._writes_a_mapping(up)
         if isinstance(up, ast.Dict) and any(k is node for k in up.keys):
             holder = self.parents.get(up)
             return self._writes_a_mapping(holder)
@@ -630,6 +819,11 @@ class _ChangeScan:
             elif isinstance(node, ast.Constant) and isinstance(node.value, str) and _FLAG.fullmatch(node.value) \
                     and self.writes_the_flag(node):
                 out.append(("TYPE_CHECKING named by a write", line))
+            elif isinstance(node, (ast.Name, ast.BinOp, ast.JoinedStr, ast.Call)) \
+                    and isinstance(up, (ast.Call, ast.Subscript, ast.Dict, ast.Tuple)) \
+                    and (text := self.string_of(node)) is not None and _FLAG.fullmatch(text) \
+                    and self.writes_the_flag(node, text):
+                out.append(("TYPE_CHECKING named by a write", line))
             owner = self.namespace_owner(node)
             if owner is not None and (owner[0] or self.may_be_module(owner[1])) and not self.reads_only(node) \
                     and not (not owner[0] and self._handed_back(node, up, owner[1])):
@@ -642,9 +836,14 @@ class _ChangeScan:
                     if kind in ("set", "del") and attr is None and self.setter_reaches_a_module(receiver):
                         out.append((f"{label} with a name the gate cannot read, on an object that may be a module",
                                     line))
-                    elif kind == "get" and attr in ("__setattr__", "__delattr__", "__getattribute__") \
+                    # The name of a getattr is read as `string_of` reads it, built from constants too (a neighbour of
+                    # F1 of the second counter-reading of pull request 420: `getattr(m, "__set" + "attr__")` changed
+                    # the guard unseen, on main as well). A name computed from anything else stays out of reach.
+                    elif kind == "get" and (read := attr if attr is not None or name is None else self.string_of(name)) \
+                            in ("__setattr__", "__delattr__", "__getattribute__") \
                             and self.setter_reaches_a_module(receiver):
-                        out.append((f"getattr of {attr}, on an object that may be a module", line))
+                        # The finding names the name as read (foxtrot's lens on 93c21dda, P3: it named None).
+                        out.append((f"getattr of {read}, on an object that may be a module", line))
                 if self.is_typing(node) and self.handed_on(node, up) and not self._judged_elsewhere(node, up):
                     out.append(("the typing module handed on", line))
             elif isinstance(node, (ast.Name, ast.Attribute, ast.Subscript)) and isinstance(node.ctx, ast.Load):
@@ -685,8 +884,40 @@ class _ChangeScan:
 
 def type_checking_changes(tree: ast.AST, modname: str = "", is_pkg: bool = False,
                           package: "_Package | None" = None) -> list[tuple[str, int]]:
-    """Every form by which this module may change `typing.TYPE_CHECKING`, as (form, line); see _ChangeScan."""
-    return _ChangeScan(tree, modname, is_pkg, package).changes()
+    """Every form by which this module may change `typing.TYPE_CHECKING`, as (form, line); see _ChangeScan. A
+    postponed annotation is read in the module scope and in the scope around its def (`_in_both_readings`)."""
+    scan = _ChangeScan(tree, modname, is_pkg, package)
+    found = scan.changes()
+    if scan.names.read_twice:
+        found = _in_both_readings(found, _ChangeScan(tree, modname, is_pkg, package, around_def=True).changes())
+    return found
+
+
+def _in_both_readings(first: list, second: list) -> list:
+    """What the two readings of a module report, each entry as often as the reading that reports it more often: the
+    entries of the first reading in its order, then the ones the second adds. A finding both readings make is one
+    finding, so no count of the module grows by being read twice.
+
+    A POSTPONED ANNOTATION IS READ AS A WHOLE IN EACH SCOPE IT MAY BE READ IN (foxtrot's lens on 3b1058c9, P2, owner
+    card OA-2d52c8b607, option A): an evaluator takes the names of the string from the globals of the module, or from
+    a namespace a caller hands it, and the gate does not follow which namespace reaches which def (F3 of the
+    counter-reading of pull request 420 and the lenses on 93c21dda and ec754b36 found ten ways). Read in the module
+    scope, with the scope around the def added for `quals` only, every other judgment still saw the module: `o = []`
+    in the module made the `o = typing` of a factory no module, and `type(o.__dict__.update(d))` changed the guard
+    unseen, where main reports it. Adding the second scope to each judgment was no fix either, since a judgment that
+    asks whether ALL a name may be is answered wrongly by the union: `o = sys.modules` in the module made
+    `vars(typing) == o` a read in the factory where `o = W()` writes its argument. So the module is read twice, once
+    with the annotation in the module scope and once in the scope around its def, as main reads it, and a finding
+    counts when either reading makes it. What neither reading sees: one annotation whose names come from both
+    namespaces at once, a name from the namespace handed in and another from the module."""
+    extra = Counter(second)
+    extra.subtract(Counter(first))
+    out = list(first)
+    for entry in second:
+        if extra[entry] > 0:
+            out.append(entry)
+            extra[entry] -= 1
+    return out
 
 
 def type_checking_may_change(tree: ast.AST, modname: str = "", is_pkg: bool = False,
@@ -707,7 +938,9 @@ def type_checking_may_change(tree: ast.AST, modname: str = "", is_pkg: bool = Fa
     What stays out of reach: an attribute read by a computed name from a module, `getattr(module, name)`, which
     may hand out its namespace or its setter (the lazy table of proofbundle/__init__.py reads a module attribute
     this way); a method called through its class with a module as its first argument (`C.f(typing)`, where `self`
-    counts as no module); and code the gate does not parse, such as a string run by exec.
+    counts as no module); a module that reaches a name in one of the ways `_Names` does not follow, a capture in a
+    class pattern among them (`_match_binds`); a dotted name computed from anything but constants (`string_of`);
+    and code the gate does not parse, such as a string run by exec.
     """
     return bool(type_checking_changes(tree, modname, is_pkg, package))
 
@@ -724,17 +957,34 @@ def _is_type_checking(test: ast.expr, guards: tuple[frozenset[str], frozenset[st
 
 
 def runtime_nodes(tree: ast.AST, guards: tuple[frozenset[str], frozenset[str]] | None = None):
-    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:` for the real one only."""
+    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:` for the real one only, and the annotation of
+    an annotated assignment in a function body.
+
+    AN ANNOTATION IN A FUNCTION BODY NEVER RUNS (PEP 526; FD-4l, measured in the follow-up of pull request 395):
+    `x: o.getenv("X") = 1` in a function evaluates the value and not the annotation, and the gate reported a read of
+    the environment that never happens. The annotations of a module and of a class body run when their statement
+    runs, and those of a function's parameters where the def runs or when `typing.get_type_hints` reads them; all of
+    these stay."""
     if guards is None:
         guards = type_checking_guards(tree)
-    stack = [tree]
+    stack: list[tuple[ast.AST, bool]] = [(tree, False)]
     while stack:
-        node = stack.pop()
+        node, in_function = stack.pop()
         yield node
         if isinstance(node, ast.If) and _is_type_checking(node.test, guards):
-            stack.extend(reversed(node.orelse))
+            stack.extend((child, in_function) for child in reversed(node.orelse))
             continue
-        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        children = list(ast.iter_child_nodes(node))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # The body is the scope of the def or the class; its decorators, bases and parameters belong to the one
+            # around it.
+            body = {id(stmt) for stmt in node.body}
+            inner = not isinstance(node, ast.ClassDef)
+            stack.extend((child, inner if id(child) in body else in_function) for child in reversed(children))
+            continue
+        if in_function and isinstance(node, ast.AnnAssign):
+            children = [child for child in children if child is not node.annotation]
+        stack.extend((child, in_function) for child in reversed(children))
 
 
 def _package_of(modname: str, is_pkg: bool) -> str:
@@ -816,7 +1066,7 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
 # ── names and their resolution ─────────────────────────────────────────────────────────────────
 class _Scope:
     __slots__ = ("kind", "parent", "alias", "local", "globals", "nonlocals", "assigns", "stores", "defs",
-                 "classes", "self_name", "params", "comprehension")
+                 "classes", "class_defs", "self_name", "params", "comprehension")
 
     def __init__(self, kind: str, parent: "_Scope | None") -> None:
         self.kind = kind
@@ -830,6 +1080,8 @@ class _Scope:
         self.stores: dict[str, int] = {}
         self.defs: set[str] = set()
         self.classes: set[str] = set()
+        #: The statement of each class defined here, to read what calling it builds.
+        self.class_defs: dict[str, ast.ClassDef] = {}
         #: The first parameter of a method defined directly in a class body (`self`, `cls`), None elsewhere.
         self.self_name: str | None = None
         #: The parameters of a function scope: each holds what the caller handed in.
@@ -837,6 +1089,12 @@ class _Scope:
         #: A comprehension: a function scope of its own, except for an assignment expression (PEP 572).
         self.comprehension = False
 
+
+#: How many qualified names one binding of a name may stand for before it stands for an unresolved value (`_Names`).
+#: 4096, not 64 (counter-reading of pull request 420, F2, P2): at 64 an `os` bound after 64 other names of the same
+#: binding fell out of the set, and `x.getenv("X")` read the environment unseen where main reports it. The bound input
+#: of Codex thread 4370601942 stays bounded at 4096 (0.5 s under a limit of 256 MiB).
+_ALIAS_LIMIT = 4096
 
 _FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
@@ -857,11 +1115,20 @@ class _Names:
     (PEP 572); the annotations of a function are read where they run, in the scope around it (the
     counter-reading of pull request 395, F1, F2 and F5). Where a scope binds a name both ways, the alias wins,
     so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
-    builtin that a rule names, because there the builtin is used whenever the binding has not run.
+    builtin that a rule names, because there the builtin is used whenever the binding has not run. A conditional,
+    a boolean and an assignment expression stand for every value they may give, as a value bound and as a
+    receiver (the second counter-reading, F-C).
+
+    WHAT IS NOT FOLLOWED (counter-reading of pull request 395, F13, P3): a value that reaches a name through a loop
+    or comprehension variable, a parameter, unpacking, `with ... as` or `except ... as`, a container written out
+    (follow-up item CL1 after 6.4.0), `operator.attrgetter` or `operator.methodcaller`, a class attribute, or a
+    capture of a class pattern. Such a name stands for nothing the rules know: an operation on it is judged by its
+    method name where a list names it (a file or an environment method), and otherwise not at all.
     """
 
     def __init__(self, tree: ast.AST, modname: str, is_pkg: bool,
-                 guards: tuple[frozenset[str], frozenset[str]], package: "_Package | None" = None) -> None:
+                 guards: tuple[frozenset[str], frozenset[str]], package: "_Package | None" = None,
+                 around_def: bool = False) -> None:
         self._modname, self._is_pkg, self._guards, self._package = modname, is_pkg, guards, package
         self.module = _Scope("module", None)
         self.scope_of: dict[int, _Scope] = {}
@@ -872,10 +1139,22 @@ class _Names:
         self._deferred: list[tuple[_Scope, str, object]] = []
         #: What an expression resolves to in a scope, kept once the aliases are final (None while they grow).
         self._memo: dict[tuple[int, int, bool], set[str]] | None = None
+        #: `from __future__ import annotations`: the annotations of a function stay strings (PEP 563). Read in the
+        #: module scope, unless this reading reads them in the scope around their def, as main does (`_annotations`).
+        self._postponed = not around_def and isinstance(tree, ast.Module) and any(
+            isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
+            for s in tree.body)
+        #: Whether a postponed annotation stands in another scope than the module's, so that the scope around its
+        #: def gives a reading of its own (`_in_both_readings`).
+        self.read_twice = False
         self._visit(tree, self.module)
         for scope, name, apply in self._deferred:
             apply(self._nonlocal_owner(scope, name))
-        for _ in range(8):
+        # AS MANY ROUNDS AS THERE ARE NAMES TO BIND, NOT EIGHT (counter-reading of pull request 395, F12, P3): a chain
+        # of nine or more assignments written last link first stopped half resolved, and read the environment
+        # unseen. A chain that binds each name once is resolved in as many rounds as it has links; a value that
+        # only grows around a cycle (`p = p.path`) is followed that far and no further.
+        for _ in range(len({(id(s), n) for s in self._scopes for n, _ in s.assigns}) + 1):
             changed = False
             for s in self._scopes:
                 for name, value in s.assigns:
@@ -884,11 +1163,31 @@ class _Names:
                     # a name only the inner function binds is nothing. `global _os; import os; _os = os` read the
                     # environment unseen.
                     new = self._quals(value, self.scope_of.get(id(value), s)) - s.alias.get(name, set())
-                    if new:
-                        s.alias.setdefault(name, set()).update(new)
-                        changed = True
+                    if not new:
+                        continue
+                    held = s.alias.setdefault(name, set())
+                    # A NAME STANDS FOR AT MOST _ALIAS_LIMIT NAMES (Codex thread 4370601942 on pull request 420, P2):
+                    # `p = os; p = p.path; p = p.os` doubles the names of `p` in every round, and the rounds count
+                    # every name the module binds, so twelve unrelated assignments ran the gate out of memory without
+                    # its report. Past the limit the names the binding holds stay, the new names of this assignment
+                    # are dropped, and the name stands for what the gate cannot name as well; a name that comes only
+                    # after the limit is not seen (the limit of the counter-reading of pull request 420, F2). A chain
+                    # that binds each name once holds one name per link and is not touched.
+                    if len(held) + len(new) > _ALIAS_LIMIT:
+                        if _UNRESOLVED not in held:
+                            held.add(_UNRESOLVED)
+                            changed = True
+                        continue
+                    held.update(new)
+                    changed = True
             if not changed:
                 break
+        # The marker alone names nothing: a name it is all of stays a plain binding, not an alias (F-D of the second
+        # reading; `eigen = object.__getattribute__(x, "__dict__")` is a name its uses are read through).
+        for s in self._scopes:
+            for name in [n for n, held in s.alias.items() if held == {_UNRESOLVED}]:
+                del s.alias[name]
+        # The aliases are final here, so each answer is kept from now on.
         self._memo = {}
 
     def _new(self, kind: str, parent: _Scope) -> _Scope:
@@ -949,13 +1248,22 @@ class _Names:
 
     def _annotations(self, args: ast.arguments, returns: ast.expr | None, scope: _Scope) -> None:
         """The annotations of a function run where the def runs, in the scope around it (F5 of the counter-reading
-        of pull request 395: they were resolved in the module scope)."""
+        of pull request 395: they were resolved in the module scope).
+
+        POSTPONED, AN ANNOTATION IS A STRING (second counter-reading of pull request 395, F-D, P3): under
+        `from __future__ import annotations` nothing runs where the def runs, and `typing.get_type_hints` evaluates
+        the string in the globals of the module, so this reading reads it in the module scope. Where that is another
+        scope than the one around the def, the module has a second reading that reads it there (`read_twice`,
+        `_in_both_readings`)."""
+        where = self.module if self._postponed else scope
         for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
                   *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
             if a.annotation is not None:
-                self._visit(a.annotation, scope)
+                self._visit(a.annotation, where)
+                self.read_twice = self.read_twice or where is not scope
         if returns is not None:
-            self._visit(returns, scope)
+            self._visit(returns, where)
+            self.read_twice = self.read_twice or where is not scope
 
     def _visit(self, node: ast.AST, scope: _Scope) -> None:
         self.scope_of[id(node)] = scope
@@ -989,7 +1297,8 @@ class _Names:
             return
         if isinstance(node, ast.ClassDef):
             self._bind(scope, node.name)
-            self._on(scope, node.name, lambda t, n=node.name: (t.defs.add(n), t.classes.add(n)))
+            self._on(scope, node.name, lambda t, n=node.name, c=node: (t.defs.add(n), t.classes.add(n),
+                                                                       t.class_defs.__setitem__(n, c)))
             for d in (*node.decorator_list, *node.bases, *[k.value for k in node.keywords]):
                 self._visit(d, scope)
             inner = self._new("class", scope)
@@ -1156,43 +1465,62 @@ class _Names:
             held = self._literal_attribute(node, scope, guesses)
             if held is not None:
                 receiver, attr = held
-                found = {base if base == _UNRESOLVED else f"{base}.{attr}" for base in self._quals(receiver, scope, guesses)}
+                bases = receiver if isinstance(receiver, set) else self._quals(receiver, scope, guesses)
+                # The marker stands beside the names a call is read as (F-D of the second reading, see _UNRESOLVED).
+                found = {_UNRESOLVED} | {base if base == _UNRESOLVED else f"{base}.{attr}" for base in bases}
                 if len(node.args) == 3:
                     # THE DEFAULT IS A POSSIBLE RESULT (Codex on pull request 395, round three, P1): `getattr(math,
                     # "missing", handle)` returns `handle`, and reading it as `math.missing` made the receiver of
                     # `.read()` count as resolved, so the file finding of an unresolved receiver was lost. A default
                     # the gate cannot resolve stands beside the names it can as `_UNRESOLVED`: dropping those names
-                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1).
-                    default = self._quals(node.args[2], scope, guesses)
-                    # Either branch may be the one the gate cannot name: an unknown receiver with a known default
-                    # (`getattr(holder, "stream", math)`) keeps the marker as well (round five, P1).
-                    return (found or {_UNRESOLVED}) | (default or {_UNRESOLVED})
+                    # instead lost `getattr(os, "path", None).abspath(".")` (round four, P1). Either branch may be the
+                    # one the gate cannot name: an unknown receiver with a known default (`getattr(holder, "stream",
+                    # math)`) keeps the marker as well (round five, P1).
+                    found |= self._quals(node.args[2], scope, guesses)
                 return found
+        # AN EXPRESSION THAT GIVES ONE OF ITS VALUES STANDS FOR EACH (second counter-reading of pull request 395, F-C,
+        # P3): `o = os if c else math`, `o = None or os` and `(p := os).getenv("X")` read the environment unseen.
+        if isinstance(node, ast.NamedExpr):
+            return {_UNRESOLVED} | self._quals(node.value, scope, guesses)
+        if isinstance(node, (ast.IfExp, ast.BoolOp)):
+            values = (node.body, node.orelse) if isinstance(node, ast.IfExp) else node.values
+            return {_UNRESOLVED}.union(*(self._quals(v, scope, guesses) for v in values))
         return set()
 
-    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr, str] | None:
-        """(receiver, name) when the call reads an attribute by a literal name: `getattr(x, "name")` with or without
-        a default, `x.__getattribute__("name")` and `object.__getattribute__(x, "name")`. It stands for `x.name`, and
-        with a default for `x.name` or the default (`_resolve`).
+    def _literal_attribute(self, node: ast.Call, scope: _Scope, guesses: bool) -> tuple[ast.expr | set[str], str] | None:
+        """(receiver, name) when the call reads an attribute by a literal name, in each spelling `_attribute_call`
+        reads: `getattr(x, "name")` with or without a default and under any name it is bound to,
+        `x.__getattribute__("name")`, `C.__getattribute__(x, "name")` for any class `C`, each of them through
+        `__call__`, and a `__getattribute__` taken from an object as a value (`ga = os.__getattribute__`), where the
+        receiver is the set of names it was taken from. It stands for `x.name`, and with a default for `x.name` or
+        the default (`_resolve`).
 
         A LITERAL GETATTR CARRIES ITS NAME ON (counter-reading of pull request 395, F3, P1): it was resolved one
         level, as the last attribute of a chain, so `getattr(os, "path").abspath(".")` read the working directory
-        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing."""
+        and `getattr(datetime, "datetime").now()` the clock while the gate saw nothing.
+
+        IN EVERY SPELLING `_attribute_call` READS (second counter-reading of pull request 395, F-B, P2): only getattr,
+        the bound method and the method of `object` and `type` were read, so `getattr.__call__(os, "path")`,
+        `type(os).__getattribute__(os, "path")` and `types.ModuleType.__getattribute__(os, "path")` stood for nothing,
+        and `.expandvars("$X")` on them read the environment unseen."""
         if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
             return None
-        f = node.func
-        # A `__getattribute__` is never getattr: resolving its receiver here as well as below doubled the work at every
-        # link of a chain (twenty links, 69 s; F-E of the second reading).
-        if len(node.args) in (2, 3) and _literal(node.args[1]) is not None \
-                and not (isinstance(f, ast.Attribute) and f.attr == "__getattribute__") \
-                and "builtins.getattr" in self._quals(f, scope, guesses):
-            return node.args[0], node.args[1].value
+        f, count = node.func, len(node.args)
+        while isinstance(f, ast.Attribute) and f.attr == "__call__":    # `getattr.__call__(x, n)` is the same call
+            f = f.value
+        name = _literal(node.args[1]) if count in (2, 3) else _literal(node.args[0]) if count == 1 else None
+        if name is None:
+            return None
         if isinstance(f, ast.Attribute) and f.attr == "__getattribute__":
-            if len(node.args) == 1 and _literal(node.args[0]) is not None:
-                return f.value, node.args[0].value
-            if len(node.args) == 2 and _literal(node.args[1]) is not None and any(
-                    q in ("builtins.object", "builtins.type") for q in self._quals(f.value, scope, guesses)):
-                return node.args[0], node.args[1].value
+            # A `__getattribute__` is never getattr: resolving its receiver as both doubled the work at every link of a
+            # chain (twenty links, 69 s; F-E of the second reading). On a class, any class, the object comes first.
+            return (f.value, name) if count == 1 else (node.args[0], name) if count == 2 else None
+        found = self._quals(f, scope, guesses)
+        if count in (2, 3) and "builtins.getattr" in found:
+            return node.args[0], name
+        taken = {q.rpartition(".")[0] for q in found if q.endswith(".__getattribute__")}
+        if taken and count in (1, 2):
+            return (taken, name) if count == 1 else (node.args[0], name)
         return None
 
     def quals(self, node: ast.expr, guesses: bool = True) -> list[str]:
@@ -1315,10 +1643,20 @@ class _Package:
 def findings_of(tree: ast.AST, modname: str, is_pkg: bool,
                 guards: tuple[frozenset[str], frozenset[str]] | None = None,
                 package: _Package | None = None) -> list[tuple[str, str, int]]:
-    """(rule, operation, line) for one core module."""
+    """(rule, operation, line) for one core module, in both readings of a postponed annotation (`_in_both_readings`)."""
     if guards is None:
         guards = type_checking_guards(tree, modname, is_pkg, package)
     names = _Names(tree, modname, is_pkg, guards, package)
+    out = _findings_in(tree, guards, names)
+    if names.read_twice:
+        out = _in_both_readings(out, _findings_in(tree, guards, _Names(tree, modname, is_pkg, guards, package,
+                                                                       around_def=True)))
+    return out
+
+
+def _findings_in(tree: ast.AST, guards: tuple[frozenset[str], frozenset[str]],
+                 names: _Names) -> list[tuple[str, str, int]]:
+    """The findings of one reading of the module."""
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
     for node in ast.walk(tree):
@@ -1419,9 +1757,11 @@ def external_and_edges(edges: dict[str, list[int]], core: set[str], package: str
 
 # ── the verdict ────────────────────────────────────────────────────────────────────────────────
 def _read_json(path: Path) -> dict:
+    # RecursionError as well (counter-reading of pull request 420, F7, P3): a file nested deeper than the decoder reads
+    # stopped the gate with a traceback and exit 1, the exit code of a red verdict, and no report.
     try:
         data = json.loads(path.read_bytes())
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise NotMeasurable(f"{path}: {exc}") from exc
     if not isinstance(data, dict):
         raise NotMeasurable(f"{path}: not a JSON object")
@@ -1431,28 +1771,36 @@ def _read_json(path: Path) -> dict:
 _RECURSION_LIMIT = 6000
 
 
-def _reviewed_changes(spec: dict, modules_file: Path) -> dict[tuple[str, str], tuple[int, str]]:
-    """The reviewed changes of the guard: (module, form) -> (count, reason).
+def _reviewed_changes(spec: dict, modules_file: Path) -> dict[tuple[str, str], tuple[int, str, list[str]]]:
+    """The reviewed changes of the guard: (module, form) -> (count, reason, source).
 
     The gate cannot show of every object that it is no module, so a write with a computed name into an object it
     cannot place counts as a possible change of TYPE_CHECKING, and one such module turns every guard off. A reviewer
     who has read the write and knows its object is no module names it here, bound to its module, its form and the
     number of times the form occurs, with the reason. One more occurrence, one fewer, or a form that is gone, is
-    red until the entry is edited, as the exceptions file works. An entry without a reason is not measurable."""
+    red until the entry is edited, as the exceptions file works. An entry without a reason is not measurable.
+
+    THE REVIEW IS BOUND TO THE SOURCE IT READ (counter-reading of pull request 395, F8, P2): it bound the module, the
+    form and the count, so the write could be pointed at another object, the namespace of `typing` among them, at
+    the same count, and stayed approved. `source` holds the text of each line the form occurs on, stripped, in the
+    order of the lines; a line that reads otherwise is red until the entry is edited. An entry without it is not
+    measurable."""
     entries = spec.get("type_checking_reviewed", [])
     if not isinstance(entries, list):
         raise NotMeasurable(f"{modules_file}: type_checking_reviewed must be a list")
-    out: dict[tuple[str, str], tuple[int, str]] = {}
+    out: dict[tuple[str, str], tuple[int, str, list[str]]] = {}
     for e in entries:
         ok = isinstance(e, dict) and all(isinstance(e.get(k), str) and e[k].strip() for k in ("module", "form", "reason"))
         n = e.get("count") if isinstance(e, dict) else None
-        if not ok or not (isinstance(n, int) and not isinstance(n, bool) and n >= 1):
+        src = e.get("source") if isinstance(e, dict) else None
+        if not ok or not (isinstance(n, int) and not isinstance(n, bool) and n >= 1) \
+                or not (isinstance(src, list) and len(src) == n and all(isinstance(x, str) and x.strip() for x in src)):
             raise NotMeasurable(f"{modules_file}: every reviewed guard change needs module, form, a count of at "
-                                f"least 1 and a reason")
+                                f"least 1, a reason and the source of each line")
         key = (e["module"], e["form"])
         if key in out:
             raise NotMeasurable(f"{modules_file}: reviewed guard change named twice: {key}")
-        out[key] = (n, e["reason"])
+        out[key] = (n, e["reason"], [x.strip() for x in src])
     return out
 
 
@@ -1464,6 +1812,15 @@ def measure(root: Path, modules_file: Path) -> dict:
     limit = sys.getrecursionlimit()
     try:
         return _measure(root, modules_file)
+    except MemoryError as exc:
+        # NO INPUT ENDS THE GATE WITHOUT ITS REPORT (Codex thread 4370601942 on pull request 420, P2): a reading that
+        # ran out of memory stopped with a traceback and exit 1, the exit code of a red verdict, and no JSON.
+        raise NotMeasurable(f"the reading ran out of memory: {exc}") from exc
+    except RecursionError as exc:
+        # The same for a reading nested deeper than the gate reads (second counter-reading of pull request 420, F2,
+        # P3): the closure ran the analysis again outside the catches of `_measure`, so a chain of 1995 conditionals
+        # ended with a traceback and exit 1 where main is GREEN.
+        raise NotMeasurable(f"nested deeper than the gate reads: {exc}") from exc
     finally:
         sys.setrecursionlimit(limit)
 
@@ -1485,7 +1842,9 @@ def _measure(root: Path, modules_file: Path) -> dict:
     trees: dict[str, ast.Module] = {}
     # typing is one module for the whole process: a module of the package that changes TYPE_CHECKING
     # changes it for every core module run after it, so then no guard anywhere skips a body (CODEX-630-K6).
-    # A module that does not parse cannot run and changes nothing.
+    # A MODULE THE GATE CANNOT READ OR PARSE IS NOT MEASURABLE, also outside the core (counter-reading of pull
+    # request 395, F9, P2). It was passed over as "cannot run and changes nothing", with exit 0 and no trace in the
+    # report; but the package runs on Python 3.10 to 3.14, and a module in the syntax of a later version runs there.
     reviewed = _reviewed_changes(spec, modules_file)
     # The reading of names recurses with the nesting of the source; a module nested deeper than the gate can
     # read is not measurable, never a crash and never a pass (the lens on the class fix, G-3).
@@ -1493,12 +1852,9 @@ def _measure(root: Path, modules_file: Path) -> dict:
     changes: dict[str, list[list]] = {}
     changers: list[str] = []
     approved: list[dict] = []
-    seen_reviews: dict[tuple[str, str], int] = {}
+    seen_reviews: dict[tuple[str, str], tuple[int, list[str]]] = {}
     for m in sorted(mods):
-        try:
-            trees.setdefault(m, parse(mods[m][0]))
-        except NotMeasurable:
-            continue
+        trees.setdefault(m, parse(mods[m][0]))
     whole = _Package(mods, trees)
     for m in sorted(trees):
         try:
@@ -1512,16 +1868,22 @@ def _measure(root: Path, modules_file: Path) -> dict:
         for form, line in found:
             per_form.setdefault(form, []).append(line)
         unreviewed = False
+        # THE LINES `ast` COUNTS (counter-reading of pull request 420, F6, P3): `splitlines` also cuts at a form feed
+        # and at FS, GS, RS, NEL and the two Unicode separators, so a form feed before the reviewed line moved the line
+        # read, and an edited write stayed approved. `read_text` turns CRLF and CR into a line feed, as `ast` counts.
+        text = mods[m][0].read_text(encoding="utf-8", errors="replace").split("\n")
         for form, lines in sorted(per_form.items()):
-            seen_reviews[(m, form)] = len(lines)
-            if (m, form) in reviewed and reviewed[(m, form)][0] == len(lines):
+            source = [text[n - 1].strip() if 0 < n <= len(text) else "" for n in sorted(lines)]
+            seen_reviews[(m, form)] = (len(lines), source)
+            if (m, form) in reviewed and reviewed[(m, form)][0] == len(lines) and reviewed[(m, form)][2] == source:
                 approved.append({"module": m, "form": form, "count": len(lines), "lines": lines[:10]})
             else:
                 unreviewed = True
         if unreviewed:
             changers.append(m)
-    stale_reviews = [{"module": m, "form": f, "count": n, "found": seen_reviews.get((m, f), 0)}
-                     for (m, f), (n, _) in sorted(reviewed.items()) if seen_reviews.get((m, f), 0) != n]
+    stale_reviews = [{"module": m, "form": f, "count": n, "found": seen_reviews.get((m, f), (0, []))[0],
+                      "source": src, "found_source": seen_reviews.get((m, f), (0, []))[1]}
+                     for (m, f), (n, _, src) in sorted(reviewed.items()) if seen_reviews.get((m, f), (0, [])) != (n, src)]
     guards = _NO_GUARDS if changers else None
     reached, edges = closure(sorted(roots), mods, package, trees, guards, whole)
     listed = spec.get("modules")
@@ -1689,7 +2051,8 @@ def main(argv: list[str] | None = None) -> int:
         for m in report["core_list_stale"]:
             print(f"  STALE core member, no longer reached (remove it): {m}")
         for r in report["stale_reviewed_changes"]:
-            print(f"  STALE reviewed guard change ({r['count']} reviewed, {r['found']} found): {r['module']} · "
+            moved = "" if r["source"] == r["found_source"] else ", the source of its lines reads otherwise"
+            print(f"  STALE reviewed guard change ({r['count']} reviewed, {r['found']} found{moved}): {r['module']} · "
                   f"{r['form']}")
     return 0 if report["verdict"] == "GREEN" else 1
 
