@@ -96,6 +96,29 @@ never "verified with no edges". Before that, a failing ancestry hidden behind a 
 verified as VERIFIED in both shipped verifiers while the same bytes failed standalone: the chain's verdict
 depended on which parser read a hop, and the hop's author chooses the bytes.
 
+**The statement oracle.** A signed payload is a well-formed statement iff it is a JSON object
+under the strict reader, its bytes are its own RFC 8785 canonical form, its `_type` is exactly
+`https://in-toto.io/Statement/v1`, and its `subject` is a non-empty array whose every entry is
+an object carrying a non-empty `digest` object with non-empty string values (a `sha256` value is
+64 lowercase hex). A `relationships` member whose value is `null` declares nothing and is treated
+exactly as an absent member, on the receipt under verification and on every attachment.
+
+**Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
+below; a conformance vector's `errorContains` names one of them.
+
+| situation | string in the report | exit |
+|---|---|---|
+| structural error of an edge (shape, unknown field, unknown relation, digest not 64 lowercase hex, missing `digestAlgorithm`) | `relation:malformed:` followed by the detail | 2 |
+| attached target named by an edge that does not verify standalone (signature, key, `payloadType`) | `relation:target_verification_failed` | 2 |
+| attached target whose payload is not a well-formed statement | `RELATION_TARGET_MALFORMED` | 2 |
+| attached ancestry deeper than 32 | `relation:depth_exceeded` | 2 |
+| a cycle | `relation:cycle` | 2 |
+| `targetSubjectDigest` against several subjects, a malformed or a wrong one (§5) | `RELATION_TARGET_SUBJECT_AMBIGUOUS`, `RELATION_TARGET_SUBJECT_MALFORMED`, `RELATION_TARGET_SUBJECT_MISMATCH` | 2 |
+| `require_relation_resolution` unmet, and a `reject_superseded` or `reject_retracted` block | `LINEAGE_REQUIREMENT_FAILED` | 3 |
+| `relation_signer` unmet | `RELATION_SIGNER_UNAUTHORIZED` | 3 |
+| `require_relation_target` unmet | `RELATION_TARGET_MISMATCH` | 3 |
+| an attached receipt whose own `relationships` block is unreadable, under `reject_superseded` | `RELATION_MALFORMED_SUCCESSOR` | 3 |
+
 Invariants: `lineage` NEVER feeds `cryptoValid` in either direction (proven by test — a
 forged envelope never computes lineage, and a lineage FAIL never flips `crypto_ok`).
 A REQUESTED check that FAILs exits 2 at the CLI, never a silent 0.
@@ -213,7 +236,8 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
 
 - predicateType `https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`; predicate
   `{schemaVersion, statementId, relationships:[edge]}` with exactly one edge (the same edge schema
-  as above). The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
+  as above). The predicate is closed: any other member is malformed (exit 2), and the report names
+  it as `unknown field '<name>' (additionalProperties:false)`. The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
   the same functions as the in-receipt path — there is no second implementation of the logic.
 - Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
   DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
@@ -227,6 +251,9 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
   relations): a relying party who knows BOTH the target and a verified retracts statement of a pinned
   signer can treat continued automated use of the target as an exit-3 block. Without the policy the
   verified statement is pure visibility. `relation_signer` decides WHO may declare it, unchanged.
+  On this path `reject_retracted` blocks on the statement's own VERIFIED `retracts` edge and
+  `reject_superseded` on its own VERIFIED `supersedes`, `revises` or `corrects` edge; both report
+  `LINEAGE_REQUIREMENT_FAILED`, exit 3.
 - Rust parity: the independent Rust verifier carries this profile since 3.5.0
   (`verify-relation-statement`); `crosscheck.py` drives the statement vectors differentially and
   asserts Python and Rust land on the same exit class + lineage. Differential agreement on these
