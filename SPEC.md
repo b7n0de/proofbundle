@@ -857,7 +857,8 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
   without such an entry, an empty or missing `signatures` included, fails it (exit 1); the Statement carries the
   predicateType `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` or
   `https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1` (another is malformed, exit 2);
-  an unknown predicate member is malformed (exit 2); and a present `validity.expiresAt` of the
+  an unknown predicate member is malformed (exit 2), as is every other finding of the
+  default-mode validation of the receipt under verification; and a present `validity.expiresAt` of the
   receipt under verification is judged at one evaluation time, `--verification-time` when given,
   else the wall clock (expired is exit 2). An attached target is verified STANDALONE by its own
   signature under its key, its `payloadType` and the statement oracle of
