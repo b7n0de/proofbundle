@@ -1191,12 +1191,17 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
         return None, f"git is not usable here ({type(exc).__name__})"
     pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
+    # THE PRE-TAG RECEIPT IS EVIDENCE OF THE SAME COMMIT (owner choice A on card OA-c04430c2ea,
+    # 2026-10-26, release plan P7): it binds the candidate's `subject_tree_digest`, which leaves it out,
+    # and `sra.tree_digest` now leaves it out by the same pattern. One evidence commit on the candidate
+    # may therefore carry the receipt beside the mutable evidence; any other path still stops here.
+    fremd = [p for p in fremd if not sra.ist_quittungspfad(p)]
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
                        f"{', '.join(fremd[:5])}"
                        + (f" (and {len(fremd) - 5} more)" if len(fremd) > 5 else ""))
     return True, ("HEAD is a later evidence commit: an ancestor relation plus changes confined to "
-                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)}")
+                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)} and the pre-tag receipt")
 
 
 def _candidate_binding_error(body: dict, repo: Path,

@@ -28,7 +28,9 @@ foreign instance inside the signed body — so this script cannot COMPOSE one: i
 ``tree_digest`` is the same quantity a pre-tag receipt binds, narrowed for the deliberately-mutable
 release-evidence files: sha256 over the sorted ``git ls-tree -r HEAD`` lines EXCLUDING exactly the
 paths in :data:`MUTABLE_EVIDENCE_RELS` — the artifacts a release run writes AS PART of measuring
-them. Everything else under ``audit_artifacts/`` (the trust anchor, the class ledger, prior
+them — and the pre-tag receipt, by the one pattern ``pre_tag_receipt_lib._RECEIPT_MUSTER`` that the
+receipt's own ``subject_tree_digest`` excludes it with (owner choice A on card OA-c04430c2ea,
+2026-10-26; see :func:`ist_quittungspfad`). Everything else under ``audit_artifacts/`` (the trust anchor, the class ledger, prior
 releases' historical records) IS part of the bound tree (deep gate 2026-09-05, NACHTRAG2 Teil C
 Auflage C3: "audit_artifacts nicht pauschal aus dem Baumdigest ausschliessen" — a whole-directory
 exclusion let a key be introduced in the very build path it would go on to authorise, invisibly to
@@ -138,9 +140,40 @@ def head_commit(repo: Path) -> str:
     return r.stdout.strip()
 
 
+def _quittungsmuster():
+    """The pattern of the pre-tag receipt path, read from ``scripts/pre_tag_receipt_lib.py`` BY ITS PATH.
+
+    ONE RULE FOR BOTH BINDINGS (external review of the 6.4.0 preparation, release plan P7; owner choice A
+    on card OA-c04430c2ea, 2026-10-26). The receipt binds ``subject_tree_digest``, which leaves out the
+    mutable evidence AND the receipt; this module's ``tree_digest`` left out only the mutable evidence.
+    No commit after the candidate could then carry the receipt and the evidence together: the signed
+    soak and differential were unbound by the receipt, or the receipt was missing. The pattern is taken
+    from the receipt library, not copied, and by path, as that library loads this module by path, so
+    that a file on the search path cannot answer for it. ``MUTABLE_EVIDENCE_RELS`` is not widened (the
+    owner boundary in ``pre_tag_receipt_lib.subject_tree_digest``)."""
+    import importlib.util as _ilu  # noqa: PLC0415
+    nachbar = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
+    try:
+        spec = _ilu.spec_from_file_location("_sra_pre_tag_receipt_lib", nachbar)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {nachbar}")
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod._RECEIPT_MUSTER
+    except Exception as e:  # noqa: BLE001 — without the pattern there is no digest, not a guessed one
+        raise SystemExit(f"the pre-tag receipt pattern is not loadable from {nachbar} — a digest over "
+                         f"a guessed exclusion set binds nothing: {type(e).__name__}: {e}") from e
+
+
+def ist_quittungspfad(pfad: str) -> bool:
+    """True when ``pfad`` (repository-relative) is a pre-tag receipt path in the receipt's own sense."""
+    return bool(_quittungsmuster().search("\t" + pfad))
+
+
 def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS) -> str:
     """The quantity the gate recomputes: sha256 over sorted, RECURSIVE `git ls-tree HEAD`, minus
-    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) — never a whole directory.
+    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) and the pre-tag receipt (see
+    :func:`ist_quittungspfad`) — never a whole directory.
 
     A tree that names a path twice on any level gets no digest (R13-3, external review round 13):
     the sorted lines of two entries of one name are the same for both orders, while `git show` and a
@@ -164,7 +197,9 @@ def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS)
                              "and a checkout read two contents there, and no digest stands for both")
         gesehen.add(pfad)
     suffixe = tuple(f"\t{p}" for p in exclude)
-    zeilen = [ln for ln in alle if ln.split(" ", 2)[1:2] != ["tree"] and not ln.endswith(suffixe)]
+    quittung = _quittungsmuster()
+    zeilen = [ln for ln in alle if ln.split(" ", 2)[1:2] != ["tree"] and not ln.endswith(suffixe)
+              and not quittung.search(ln)]
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
