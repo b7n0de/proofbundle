@@ -313,7 +313,7 @@ marked v0.2, and v0.3 is v0.2 with `producer.verifier`. A *digest object* is an 
 | predicate | `coverage` | yes | an object, see below |
 | predicate | `times` | yes | an object, see below |
 | predicate | `limitations` | yes | a non-empty array of non-empty strings |
-| predicate | `limitationCodes` | v0.2, v0.3 | an array of the five codes, each once |
+| predicate | `limitationCodes` | v0.2, v0.3 | an array of codes taken from the five, each at most once; it may be empty and need not hold `NOT_QUALITY_ATTESTATION` |
 | predicate | `producer` | no | an object whose members `id` and `keyId` are each optional and a string when present, and no other member; v0.3 adds `verifier` (`docs/VERIFIER_BLOCK.md`) |
 | predicate | `observations` | no | an array, and it must be empty |
 | predicate | `supersession` | no | an object of `supersedes`, `corrects` and `withdraws`, each an array of objects with a digest object `priorDigest` and a non-empty string `reason` |
