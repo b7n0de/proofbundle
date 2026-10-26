@@ -102,7 +102,11 @@ far as targets are attached. The direct targets of the receipt under verificatio
 resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). An attached
 ancestor that an edge of the ancestry names and that does not verify standalone makes the receipt's edge
 FAIL as well (`relation:ancestor_verification_failed`). An edge of an ancestor whose target is not
-attached ends the walk there and does not lower VERIFIED.
+attached ends the walk there and does not lower VERIFIED. A target the walk reaches, a direct target
+included, whose own `relationships` member is present, not `null`, and not a non-empty array of edges
+that each meet the edge table (an empty array, a value that is no array, an edge that breaks the table)
+makes the receipt's edge FAIL (`relation:malformed_ancestor`, exit 2); an absent member and `null`
+declare nothing, and the walk ends there.
 
 "Verified STANDALONE" covers the payload as well as the signature, and it binds at every hop
 (deep gate 2026-09-05, finding L4-01): the resolver parses an attached target's payload with the SAME
@@ -120,7 +124,9 @@ an object carrying a non-empty `digest` object with non-empty string values (a `
 and is treated exactly as an absent member. On the receipt under verification it is malformed (exit 2,
 lineage NOT_EVALUATED, `relationships must be a JSON array of edge objects`), and so is an empty array
 (exit 2, lineage FAIL, `relation:malformed:`): there the predicate carries a non-empty array or no
-`relationships` member.
+`relationships` member. Any other value there that is not a non-empty array of edges that each meet the
+edge table, a value that is no array included, is malformed in the same way as the empty array (exit 2,
+lineage FAIL, `relation:malformed:`).
 
 **Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
 below; a conformance vector's `errorContains` names one of them.
@@ -178,7 +184,10 @@ bound is depth-exceeded.
   attacker only had to place one deliberately malformed edge next to the `retracts` edge, and
   `safeForAutomation` flipped false→true, exit 3→0. A receipt that carries NO `relationships`
   field still stays silent (it declared nothing); one that carries an unreadable block now
-  reports (it declared something this verifier cannot evaluate).
+  reports (it declared something this verifier cannot evaluate). Unreadable means present, not
+  `null`, and not a non-empty array of edges that each meet the edge table: an empty array is
+  unreadable here, `null` declares nothing as an absent field does. Without the policy such an
+  attachment, when no edge names it, changes neither the lineage nor the exit code.
 
   **Widened reach, stated plainly:** the block is unreadable, so we cannot know whether one of
   its edges points at the receipt under verification. A malformed block whose READABLE edges all
