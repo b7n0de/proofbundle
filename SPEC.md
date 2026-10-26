@@ -191,7 +191,11 @@ provenance and is forgeable without any key. Committed means placed as RFC 9901 
 it: an object-property disclosure in the `_sd` array of any object of the issuer-signed
 payload or of a value disclosed in turn, an array-element disclosure as `{"...": digest}`
 in an array, in any order of the presented disclosures; a disclosure placed nowhere, or
-in the place of the other kind, fails the check.
+in the place of the other kind, fails the check. A disclosure's digest is the base64url
+encoding without padding of the hash that the issuer-signed payload's `_sd_alg` names
+(`sha-256`, `sha-384` or `sha-512`; `sha-256` when the member is absent; any other name
+fails the check), taken over the US-ASCII bytes of the disclosure as it stands in the
+compact string, never over its decoded JSON (RFC 9901 §4.2.3).
 
 Check **sd-jwt-issuer-signature**: the issuer JWT signature verifies under
 `issuer_public_key_b64`, using the algorithm-specific primitive named by the
