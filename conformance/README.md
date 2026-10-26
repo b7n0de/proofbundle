@@ -102,7 +102,9 @@ historical green run stays reproducible).
 Action-chain content-root vectors (`action_chain_content_roots/`, Phase 1 / R51): language-neutral
 golden pins for the ONE statement content-root primitive (ADR 0002, `jcs-sha256-v1`). Four modes —
 `canonical` (pinned .jcs bytes + root on both sides of the two-part rule), `pair_reference`
-(a decision binds an evidence statement by its root), `binding` (algorithm confusion rejected,
+(a decision binds an evidence statement by its root: at least one `predicate.evidenceRefs[].digest.sha256`
+of the decision equals the evidence content root, see `docs/predicates/decision-receipt.md` §3; the
+`*JcsFile` and `secondEnvelope` members of `expected` name fixtures and are not compared), `binding` (algorithm confusion rejected,
 named legacy `legacy-sortkeys-json-v0` accepted when undeclared; the declaration is the top-level
 `contentRootAlg` of the payload, `expected.alg` is the algorithm the payload was judged under, and
 `expected.bindingOk` is whether the payload bytes equal that algorithm's serialization, both as
