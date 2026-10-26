@@ -76,7 +76,10 @@ axes:
 A native proofbundle bundle checked against the CLI **verify exit-code contract**
 (`0` crypto OK · `1` verification failure · `2` malformed · `3` policy unmet). The exit code is
 the conformance contract, so each case declares the exact code it must produce; the fail-closed
-floor requires a `native_bundle` case to declare `exitCode`. These lock core verifier properties
+floor requires a `native_bundle` case to declare `exitCode`. A verifier reports `rejected` as `true`
+exactly when its verify exit code is not `0`, so an exit `3` (a relying-party gate unmet over a
+crypto-OK bundle) is a rejection; a case that declares `rejected` holds when that value equals the
+declared one, which pins the exit contract a second time. These lock core verifier properties
 onto the gate — a valid bundle verifies, a **duplicate JSON key** is rejected as malformed (the C1
 Bishop-Fox parser-differential defense), a single flipped payload byte fails the signature.
 
