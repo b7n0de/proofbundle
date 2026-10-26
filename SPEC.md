@@ -241,7 +241,12 @@ the alg that verified: `"ed25519:" + issuer_public_key_b64 == disclosed issuer` 
 `alg: EdDSA`, `"es256:" + issuer_public_key_b64 == disclosed issuer` for
 `alg: ES256`. A signature that verifies under an **attacker-chosen** key while the
 always-open `issuer` names a *trusted* party is a forged identity (valid signature,
-wrong signer) and **FAILS** (reason: `issuer-key-mismatch`).
+wrong signer) and **FAILS** (reason: `issuer-key-mismatch`). The disclosed `issuer` is the
+member named exactly `issuer` of the issuer-signed JWT payload, the part of
+`sd_jwt_vc.compact` before the first `~`; the registered JWT claim `iss` is not an issuer
+identity for this check, and a value carried only in a selective disclosure does not trigger
+it. An SD-JWT whose issuer-signed payload has no member `issuer` performs no
+sd-jwt-issuer-identity check.
 
 Check **sd-jwt-bundle-binding** (WP-C1 + N1): performed when `sd_jwt_vc` is present
 and its issuer signature verified, in **two** cases:
