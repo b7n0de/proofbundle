@@ -20,6 +20,10 @@ Status: PROPOSED, Python only. The Rust second verifier has no counterpart yet
   implemented (exit 2).
 - RFC 3161 timestamps, only with `rfc3161-client` installed (the `[anchors]` extra). Without it, a
   bundle that carries one is refused as not verified (exit 2), never passed.
+- At most 32 log entries and 32 timestamps per bundle.
+- Keys in exactly one encoding each: the SubjectPublicKeyInfo of ECDSA P-256 or P-384 with an
+  uncompressed point, or of Ed25519. No generic key loader runs, and an Ed25519 key is checked
+  through `signature.verify_ed25519_pinned`, which refuses a weak trust anchor.
 
 ## Where trust comes from
 

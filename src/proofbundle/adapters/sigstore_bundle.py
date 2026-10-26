@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from cryptography.exceptions import UnsupportedAlgorithm
+
 from .. import merkle
 from .._membership import is_member
 from .._statement_payload import STATEMENT_TYPE, load_statement_strict, statement_subject_problem
@@ -55,6 +57,7 @@ from ..budget import DEFAULT_BUDGET, render_safe
 from ..canonical import _bytes_von, _ein_stand, _zeichen_von
 from ..dsse import pae
 from ..errors import ProofBundleError, VerificationResult
+from ..signature import verify_ed25519_pinned
 
 __all__ = [
     "NOT_CHECKED",
@@ -193,6 +196,10 @@ _INTEGRITY = frozenset({"bundle-structure", "certificate", "public-key", "signat
 #: Check names whose failure is an unmet relying-party requirement (exit 3).
 _REQUIREMENT = frozenset({"identity", "subject-digest", "subject-name"})
 
+#: The most transparency-log entries and RFC 3161 timestamps one bundle may carry. Each entry costs a
+#: body parse, two signature checks and a Merkle walk, and the input budget alone admitted 1500 copies
+#: of one entry (2.56 s, measured 2026-10-26 before this bound); a threshold above 8 is refused anyway.
+_MAX_ENTRIES = 32
 _INT64_MAX = 2 ** 63 - 1
 _DECIMAL = re.compile(r"\A(0|[1-9][0-9]{0,18})\Z")
 _RFC3339 = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,9})?Z\Z")
@@ -341,9 +348,36 @@ def _wire(value: Any, what: str) -> bytes:
 # Keys, signatures and certificates. `cryptography` is a core dependency of the package.
 # --------------------------------------------------------------------------------------------
 
-def _load_spki(der: bytes) -> Any:
-    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
-    return serialization.load_der_public_key(der)
+@dataclass(frozen=True)
+class _Key:
+    """A verification key read from its SubjectPublicKeyInfo DER: ``kind`` is 'p256', 'p384' or
+    'ed25519', ``material`` the uncompressed EC point or the 32 raw Ed25519 bytes, ``der`` the SPKI."""
+    kind: str
+    material: bytes
+    der: bytes
+
+
+#: The one DER prefix of each SubjectPublicKeyInfo this module reads, and the length of what follows:
+#: id-ecPublicKey on prime256v1 or secp384r1 with an uncompressed point (RFC 5480), and id-Ed25519 (RFC
+#: 8410). A key in any other encoding, a compressed point included, is not read. No generic key loader
+#: of `cryptography` is called: it builds whatever type the bytes name, and an Ed25519 key built that way
+#: would bypass the package's refusal of weak trust anchors (`signature.verify_ed25519_pinned`).
+_SPKI_PREFIXES = (
+    ("p256", bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200"), 65),
+    ("p384", bytes.fromhex("3076301006072a8648ce3d020106052b81040022036200"), 97),
+    ("ed25519", bytes.fromhex("302a300506032b6570032100"), 32),
+)
+
+
+def _read_key(der: bytes) -> _Key:
+    """The key of ``der``, or ValueError when it is no SPKI of the three kinds above."""
+    for kind, prefix, length in _SPKI_PREFIXES:
+        if der.startswith(prefix) and len(der) == len(prefix) + length:
+            material = der[len(prefix):]
+            if kind != "ed25519" and material[:1] != b"\x04":
+                raise ValueError("an EC point that is not uncompressed")
+            return _Key(kind=kind, material=material, der=der)
+    raise ValueError("not a SubjectPublicKeyInfo of an ECDSA P-256, ECDSA P-384 or Ed25519 key")
 
 
 def _spki_der(key: Any) -> bytes:
@@ -351,38 +385,26 @@ def _spki_der(key: Any) -> bytes:
     return key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
 
 
-def _key_kind(key: Any) -> str:
-    """'p256', 'p384', 'ed25519', or '' for a key this module does not verify with."""
-    from cryptography.hazmat.primitives.asymmetric import ec, ed25519  # noqa: PLC0415
-    if isinstance(key, ec.EllipticCurvePublicKey):
-        if isinstance(key.curve, ec.SECP256R1):
-            return "p256"
-        if isinstance(key.curve, ec.SECP384R1):
-            return "p384"
-        return ""
-    if isinstance(key, ed25519.Ed25519PublicKey):
-        return "ed25519"
-    return ""
-
-
 #: keyDetails of the trusted root, by the key kind each names.
 _KEY_DETAILS = {"PKIX_ECDSA_P256_SHA_256": "p256", "PKIX_ECDSA_P384_SHA_384": "p384", "PKIX_ED25519": "ed25519"}
 
 
-def _verify(key: Any, signature: bytes, message: bytes) -> bool:
-    """One signature under one key: ECDSA (DER, SHA-256 on P-256, SHA-384 on P-384) or Ed25519. A key
+def _verify(key: _Key, signature: bytes, message: bytes) -> bool:
+    """One signature under one key: ECDSA (DER, SHA-256 on P-256, SHA-384 on P-384), built from its
+    point, or Ed25519 through `signature.verify_ed25519_pinned`, which refuses a weak trust anchor. A key
     of any other kind verifies nothing."""
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
     from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
     from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
-    kind = _key_kind(key)
     try:
-        if kind == "p256":
-            key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
-        elif kind == "p384":
-            key.verify(signature, message, ec.ECDSA(hashes.SHA384()))
-        elif kind == "ed25519":
-            key.verify(signature, message)
+        if key.kind == "p256":
+            ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), key.material).verify(
+                signature, message, ec.ECDSA(hashes.SHA256()))
+        elif key.kind == "p384":
+            ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP384R1(), key.material).verify(
+                signature, message, ec.ECDSA(hashes.SHA384()))
+        elif key.kind == "ed25519":
+            return verify_ed25519_pinned(key.material, signature, message)
         else:
             return False
         return True
@@ -419,7 +441,7 @@ def _der_utf8string(raw: bytes) -> Optional[str]:
 class _Leaf:
     cert: Any
     der: bytes
-    key: Any
+    key: _Key
     san: str
     extensions: Dict[str, str]
     not_before: int
@@ -433,9 +455,10 @@ def _read_leaf(der: bytes) -> _Leaf:
     try:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
-    except (ValueError, x509.DuplicateExtension) as exc:
+        version = cert.version
+    except (ValueError, x509.DuplicateExtension, x509.InvalidVersion) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
-    if cert.version is not x509.Version.v3:
+    if version is not x509.Version.v3:
         raise _Fail("certificate", "the leaf certificate is not X.509 v3")
     known_critical = {ExtensionOID.KEY_USAGE, ExtensionOID.BASIC_CONSTRAINTS, ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
                       ExtensionOID.EXTENDED_KEY_USAGE}
@@ -503,10 +526,11 @@ def _read_leaf(der: bytes) -> _Leaf:
         values["issuer"] = values["issuer_v1"]
     if "issuer" not in values:
         raise _Fail("certificate", "the leaf names no OIDC issuer (1.3.6.1.4.1.57264.1.8)")
-    key = cert.public_key()
-    if not _key_kind(key):
-        raise _Fail("unsupported", f"the leaf key is a {type(key).__name__}; this module verifies ECDSA "
-                                   "P-256, P-384 and Ed25519 only")
+    try:
+        key = _read_key(_spki_der(cert.public_key()))
+    except (ValueError, UnsupportedAlgorithm) as exc:
+        raise _Fail("unsupported", f"the leaf key is not one this module verifies with (ECDSA P-256, P-384, "
+                                   f"Ed25519): {exc}") from None
     nb, na = _dt_ns(_not_before(cert)), _dt_ns(_not_after(cert))
     if nb > na:
         raise _Fail("certificate", "the leaf's validity period is empty")
@@ -528,7 +552,7 @@ def _not_after(cert: Any) -> datetime:
 @dataclass(frozen=True)
 class _Log:
     base_url: str
-    key: Any
+    key: _Key
     key_der: bytes
     log_id: bytes
     checkpoint_key_id: Optional[bytes]
@@ -603,12 +627,11 @@ def _read_logs(entries: Any, path: str, skipped: List[str]) -> Tuple[_Log, ...]:
             skipped.append(f"{p}: key details {render_safe(details)} are not implemented")
             continue
         try:
-            key = _load_spki(raw)
-        except (ValueError, TypeError) as exc:
-            raise _Unreadable(f"{p}.publicKey.rawBytes is no SubjectPublicKeyInfo: {exc}") from None
-        if _key_kind(key) != kind:
-            raise _Unreadable(f"{p}.publicKey is a {_key_kind(key) or type(key).__name__} key, but keyDetails "
-                              f"says {details}")
+            key = _read_key(raw)
+        except ValueError as exc:
+            raise _Unreadable(f"{p}.publicKey.rawBytes: {exc}") from None
+        if key.kind != kind:
+            raise _Unreadable(f"{p}.publicKey is a {key.kind} key, but keyDetails says {details}")
         # A Rekor v1 log and a CT log are identified by SHA-256 over the DER SubjectPublicKeyInfo of their
         # key (contract SV-19); a Rekor v2 (Ed25519) log carries its checkpoint key ID there instead.
         if kind != "ed25519" and not hmac.compare_digest(log_id, hashlib.sha256(raw).digest()):
@@ -640,7 +663,9 @@ def _read_authorities(entries: Any, path: str) -> Tuple[_Authority, ...]:
             raise _Unreadable(str(exc)) from None
         try:
             chain = tuple(x509.load_der_x509_certificate(d) for d in ders)
-        except ValueError as exc:
+            for cert in chain:
+                cert.public_key()
+        except (ValueError, UnsupportedAlgorithm) as exc:
             raise _Unreadable(f"{p}.certChain holds a certificate that does not parse: {exc}") from None
         start, end = _valid_for(obj["validFor"], p + ".validFor")
         out.append(_Authority(uri=uri, chain=chain, start=start, end=end))
@@ -672,7 +697,7 @@ def _read_trusted_root(raw: bytes) -> _TrustedRoot:
 @dataclass(frozen=True)
 class _RegistryKey:
     keyid: str
-    key: Any
+    key: _Key
     der: bytes
     expires: Optional[int]
 
@@ -697,10 +722,10 @@ def _read_registry_keys(raw: bytes) -> Dict[str, _RegistryKey]:
             if keyid in out:
                 raise _Fail("verifier-config", f"{p}: keyid {render_safe(keyid)} is listed twice")
             try:
-                key = _load_spki(der)
-            except (ValueError, TypeError) as exc:
-                raise _Fail("verifier-config", f"{p}.key is no SubjectPublicKeyInfo: {exc}") from None
-            if _key_kind(key) != "p256":
+                key = _read_key(der)
+            except ValueError as exc:
+                raise _Fail("verifier-config", f"{p}.key: {exc}") from None
+            if key.kind != "p256":
                 raise _Fail("verifier-config", f"{p}.key is not a P-256 key")
             out[keyid] = _RegistryKey(keyid=keyid, key=key, der=der, expires=expires)
     except _Fail as exc:
@@ -817,14 +842,22 @@ def _read_bundle(doc: Any, version: int) -> _Bundle:
     else:
         pk = _members(vm["publicKey"], "bundle.verificationMaterial.publicKey", ("hint",))
         hint = _string(pk.get("hint", ""), "bundle.verificationMaterial.publicKey.hint", empty=True)
+    raw_entries = _list(vm.get("tlogEntries", []), "bundle.verificationMaterial.tlogEntries")
+    if len(raw_entries) > _MAX_ENTRIES:
+        raise _Fail("bundle-structure", f"the bundle carries {len(raw_entries)} log entries, over the bound of "
+                                        f"{_MAX_ENTRIES}")
     entries = tuple(_read_entry(e, f"bundle.verificationMaterial.tlogEntries[{i}]", i, version)
-                    for i, e in enumerate(_list(vm.get("tlogEntries", []), "bundle.verificationMaterial.tlogEntries")))
+                    for i, e in enumerate(raw_entries))
     stamps: List[bytes] = []
     if "timestampVerificationData" in vm:
         tvd = _members(vm["timestampVerificationData"], "bundle.verificationMaterial.timestampVerificationData",
                        ("rfc3161Timestamps",))
-        for i, t in enumerate(_list(tvd.get("rfc3161Timestamps", []),
-                                    "bundle.verificationMaterial.timestampVerificationData.rfc3161Timestamps")):
+        raw_stamps = _list(tvd.get("rfc3161Timestamps", []),
+                           "bundle.verificationMaterial.timestampVerificationData.rfc3161Timestamps")
+        if len(raw_stamps) > _MAX_ENTRIES:
+            raise _Fail("bundle-structure", f"the bundle carries {len(raw_stamps)} RFC 3161 timestamps, over the "
+                                            f"bound of {_MAX_ENTRIES}")
+        for i, t in enumerate(raw_stamps):
             p = f"bundle.verificationMaterial.timestampVerificationData.rfc3161Timestamps[{i}]"
             stamps.append(_b64(_members(t, p, ("signedTimestamp",), ("signedTimestamp",))["signedTimestamp"],
                                p + ".signedTimestamp"))
@@ -854,19 +887,21 @@ def _read_bundle(doc: Any, version: int) -> _Bundle:
 # --------------------------------------------------------------------------------------------
 
 def _pem_der(text: Any, what: str, check: str) -> bytes:
-    """The DER inside one PEM block (certificate or public key), compared by DER, never by text."""
-    from cryptography import x509  # noqa: PLC0415
-    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+    """The DER inside the one PEM block of ``text`` (RFC 7468: a CERTIFICATE or a PUBLIC KEY), compared by
+    DER, never by text. The base64 lines are joined and read as canonical standard base64."""
     if type(text) is not bytes:
         raise _Fail(check, f"{what} is not PEM")
     try:
-        if text.lstrip().startswith(b"-----BEGIN CERTIFICATE-----"):
-            return x509.load_pem_x509_certificate(text).public_bytes(serialization.Encoding.DER)
-        if text.lstrip().startswith(b"-----BEGIN PUBLIC KEY-----"):
-            return _spki_der(serialization.load_pem_public_key(text))
-    except ValueError as exc:
-        raise _Fail(check, f"{what} is not a PEM certificate or public key: {exc}") from None
-    raise _Fail(check, f"{what} is neither a PEM certificate nor a PEM public key")
+        lines = text.decode("ascii").strip().split("\n")
+    except UnicodeDecodeError:
+        raise _Fail(check, f"{what} is not ASCII PEM") from None
+    for label in ("CERTIFICATE", "PUBLIC KEY"):
+        if lines[0] == f"-----BEGIN {label}-----" and lines[-1] == f"-----END {label}-----" and len(lines) > 2:
+            try:
+                return decode_b64("".join(lines[1:-1]))
+            except ValueError:
+                raise _Fail(check, f"{what} holds a {label} block that is not canonical base64") from None
+    raise _Fail(check, f"{what} is not exactly one PEM CERTIFICATE or PUBLIC KEY block")
 
 
 def _hash_member(obj: Any, p: str) -> str:
@@ -993,10 +1028,8 @@ def _parse_note(text: str) -> Tuple[str, int, bytes, bytes, List[Tuple[str, byte
 def _checkpoint_hint(log: _Log, name: str) -> bytes:
     """The 4-byte key hint a signature line of ``log`` carries: SHA-256 of the SPKI DER for an ECDSA
     log (Rekor v1, trustroot proto), SHA-256(name || 0x0A || 0x01 || key) for an Ed25519 log (C2SP)."""
-    if _key_kind(log.key) == "ed25519":
-        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
-        raw = log.key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-        return hashlib.sha256(name.encode("utf-8") + b"\n\x01" + raw).digest()[:4]
+    if log.key.kind == "ed25519":
+        return hashlib.sha256(name.encode("utf-8") + b"\n\x01" + log.key.material).digest()[:4]
     return hashlib.sha256(log.key_der).digest()[:4]
 
 
@@ -1162,7 +1195,9 @@ def _load_statement(payload: bytes, accepted: Tuple[str, ...]) -> Dict[str, Any]
     return doc
 
 
-_URI = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z")
+#: A URI as a scheme, a colon and no whitespace or control character, in ASCII classes only: `\s` is a
+#: Unicode class in Python and another one in ECMA-262, so a schema validator would read it differently.
+_URI = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\x00-\x20\x7f]+\Z")
 
 
 def _descriptor(v: Any, p: str) -> None:
@@ -1580,7 +1615,7 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
             raise _Fail("bundle-structure", f"profile {prof} needs a Fulcio certificate; the bundle carries a key hint")
         leaf = _read_leaf(b.leaf_der)
         signer_key, verifier_der = leaf.key, leaf.der
-        res.add("certificate", True, f"Fulcio leaf, {_key_kind(leaf.key)}, SAN {render_safe(leaf.san)}")
+        res.add("certificate", True, f"Fulcio leaf, {leaf.key.kind}, SAN {render_safe(leaf.san)}")
         state["identity"] = dict(leaf.extensions, san=leaf.san)
     elif spec["signer"] == "key":
         assert keys is not None
@@ -1612,7 +1647,7 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         if log is None:
             raise _Fail("tlog-entry", f"{where} names a log the trusted root does not list "
                                       f"({entry.log_id.hex()[:16]}...)")
-        if (entry.kind, entry.version) not in _KINDS:
+        if not is_member((entry.kind, entry.version), _KINDS):
             raise _Fail("unsupported", f"{where} is a Rekor {render_safe(entry.kind)} {render_safe(entry.version)} "
                                        "entry; this module reads dsse 0.0.1 and intoto 0.0.2 (Rekor v1)")
         if entry.body is None:

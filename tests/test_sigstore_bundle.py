@@ -161,6 +161,9 @@ def test_the_synthetic_vectors_are_what_the_generator_writes() -> None:
             data = gen._raw_edit(data, case["raw"])
         assert hashlib.sha256(data).hexdigest() == by_id[case["caseId"]]["sha256"], case["caseId"]
     assert gen.trusted_root() == (FIX / "trust" / "test_trusted_root.json").read_bytes()
+    assert gen.trusted_root(log_id_of=gen.FOREIGN_REKOR_KEY) == \
+        (FIX / "trust" / "test_trusted_root_bad_log_id.json").read_bytes()
+    assert gen.trusted_root_unknown_curve() == (FIX / "trust" / "test_trusted_root_unknown_curve.json").read_bytes()
     assert gen.registry_keys() == (FIX / "trust" / "test_registry_keys.json").read_bytes()
 
 

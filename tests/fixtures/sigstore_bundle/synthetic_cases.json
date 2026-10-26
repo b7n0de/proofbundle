@@ -1390,6 +1390,66 @@
       }
     },
     {
+      "caseId": "neg-leaf-unknown-x509-version",
+      "input": "synthetic/neg-leaf-unknown-x509-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "SV-25"
+      ],
+      "rationale": "A leaf whose version field is not v1, v2 or v3 is malformed, not an exception.",
+      "sha256": "25923535dd0eef0e61d44ef1303aec7f45af01caf036809745fcb7a5b2517e46",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-trusted-root-unknown-curve",
+      "input": "synthetic/neg-trusted-root-unknown-curve.json",
+      "trustedRoot": "trust/test_trusted_root_unknown_curve.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "verifier-config"
+      },
+      "steps": [
+        "SV-58"
+      ],
+      "rationale": "A trusted-root key on a curve the module cannot load is unusable trust material.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-too-many-log-entries",
+      "input": "synthetic/neg-too-many-log-entries.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SV-56"
+      ],
+      "rationale": "More log entries than the count bound of 32.",
+      "sha256": "fa8876777ff3c00a848c4a57eef988d8bbc5ec8d1619aeaf61fb919a02abeb11",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
       "caseId": "neg-identity-issuer-only",
       "input": "synthetic/neg-identity-issuer-only.json",
       "trustedRoot": "trust/test_trusted_root.json",

@@ -385,7 +385,7 @@ def bundle(*, version: str = "0.3", statement: Optional[Dict[str, Any]] = None, 
            bad_checkpoint_line: bool = False,
            body_edit: Optional[Callable[[Dict[str, Any]], None]] = None,
            body_cert: Optional[x509.Certificate] = None, timestamps: bool = True,
-           registry_key: Any = REGISTRY_KEY,
+           registry_key: Any = REGISTRY_KEY, cert_edit: Optional[Callable[[bytes], bytes]] = None,
            edit: Optional[Callable[[Dict[str, Any]], None]] = None) -> bytes:
     """An intact bundle unless a keyword says otherwise. ``dsse_key`` signs the envelope (default: the
     leaf key, or the registry key for ``signer="registry"``); ``set_key`` signs the SET (default: the log
@@ -447,7 +447,8 @@ def bundle(*, version: str = "0.3", statement: Optional[Dict[str, Any]] = None, 
     if leaf is None:
         material["publicKey"] = {"hint": registry_keyid(registry_key)}
     elif version == "0.3":
-        material["certificate"] = {"rawBytes": _b64(leaf.public_bytes(der))}
+        leaf_der = leaf.public_bytes(der)
+        material["certificate"] = {"rawBytes": _b64(cert_edit(leaf_der) if cert_edit else leaf_der)}
     else:
         material["x509CertificateChain"] = {"certificates": [{"rawBytes": _b64(leaf.public_bytes(der))}]}
     material["tlogEntries"] = [entry]
@@ -553,6 +554,22 @@ def _url_safe_without_keyid(doc: Dict[str, Any]) -> None:
     env["signatures"][0]["sig"] = env["signatures"][0]["sig"].replace("+", "-").replace("/", "_")
     del env["signatures"][0]["keyid"]
 
+
+def _leaf_version_5(der: bytes) -> bytes:
+    """The leaf's DER with the version field set to 5: no X.509 version, so no certificate."""
+    marker = bytes([0xA0, 0x03, 0x02, 0x01, 0x02])
+    i = der.index(marker)
+    return der[:i + 4] + b"\x05" + der[i + 5:]
+
+
+def trusted_root_unknown_curve() -> bytes:
+    """The test root with the Rekor key's curve OID changed to one no library knows (1.2.840.10045.3.1.9)."""
+    doc = json.loads(trusted_root())
+    spki = bytearray(base64.b64decode(doc["tlogs"][0]["publicKey"]["rawBytes"]))
+    i = spki.index(bytes.fromhex("2a8648ce3d030107"))
+    spki[i + 7] = 0x09
+    doc["tlogs"][0]["publicKey"]["rawBytes"] = _b64(bytes(spki))
+    return json.dumps(doc, indent=2).encode("utf-8") + b"\n"
 
 def cases() -> List[Dict[str, Any]]:
     gh = {"profile": "github-artifact-attestation", "artifactDigest": SHA256_ARTIFACT, "identity": GITHUB_IDENTITY}
@@ -807,6 +824,18 @@ def cases() -> List[Dict[str, Any]]:
              steps=["IT-14", "IT-04", "IT-13"], exitCode=0, failedCheck=None,
              rationale="Two DigestSets match if any field the relying party accepts matches."),
 
+        # Found by the self-review of 2026-10-26 (measured before the fix: a raw InvalidVersion, a raw
+        # UnsupportedAlgorithm, and exit 0 after 2.56 s for 1500 copies of one entry).
+        dict(gh, caseId="neg-leaf-unknown-x509-version", build={"cert_edit": _leaf_version_5}, steps=["SV-25"],
+             exitCode=1, failedCheck="certificate",
+             rationale="A leaf whose version field is not v1, v2 or v3 is malformed, not an exception."),
+        dict(gh, caseId="neg-trusted-root-unknown-curve", trustedRoot="trust/test_trusted_root_unknown_curve.json",
+             build={}, steps=["SV-58"], exitCode=2, failedCheck="verifier-config",
+             rationale="A trusted-root key on a curve the module cannot load is unusable trust material."),
+        dict(gh, caseId="neg-too-many-log-entries", build={"edit": lambda d: d["verificationMaterial"].update(
+             tlogEntries=d["verificationMaterial"]["tlogEntries"] * 33)}, steps=["SV-56"], exitCode=1,
+             failedCheck="bundle-structure", rationale="More log entries than the count bound of 32."),
+
         # Relying-party configuration.
         dict(gh, caseId="neg-identity-issuer-only", identity={"issuer": ISSUER}, build={}, steps=["SV-20", "GH-20"],
              exitCode=2, failedCheck="verifier-config",
@@ -829,6 +858,7 @@ def write() -> List[Dict[str, Any]]:
     (HERE / "trust" / "test_trusted_root.json").write_bytes(trusted_root())
     (HERE / "trust" / "test_registry_keys.json").write_bytes(registry_keys())
     (HERE / "trust" / "test_trusted_root_bad_log_id.json").write_bytes(trusted_root(log_id_of=FOREIGN_REKOR_KEY))
+    (HERE / "trust" / "test_trusted_root_unknown_curve.json").write_bytes(trusted_root_unknown_curve())
     manifest = []
     for case in cases():
         data = bundle(**case.get("build", {}))
