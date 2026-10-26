@@ -337,6 +337,21 @@ def test_the_command_refuses_unusable_options_with_exit_2(extra: list, why: str,
 # Review regressions. These cases supplement the 110 manifest vectors.
 
 
+@pytest.mark.parametrize("field", ["resolvedDependencies", "byproducts"])
+@pytest.mark.parametrize("invalid", [False, 0])
+def test_slsa_optional_arrays_refuse_boolean_and_number(field: str, invalid: object) -> None:
+    gen = _generator()
+    pred = gen.provenance_statement(gen.NPM_BUILD_TYPE)["predicate"]
+    parent = pred["buildDefinition"] if field == "resolvedDependencies" else pred["runDetails"]
+    for allowed in (None, []):
+        parent[field] = allowed
+        sb._slsa_v1(pred)
+    parent[field] = invalid
+    with pytest.raises(sb._Fail) as caught:
+        sb._slsa_v1(pred)
+    assert caught.value.check == "predicate"
+
+
 @pytest.mark.parametrize("site", ["publish-signer", "dist-signature"])
 @pytest.mark.parametrize("expiry_offset", [-1, 0, 1])
 def test_registry_expiry_is_exclusive_at_both_signature_checks(site: str, expiry_offset: int) -> None:

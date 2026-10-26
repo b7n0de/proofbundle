@@ -1312,7 +1312,9 @@ def _slsa_v1(pred: Any) -> Dict[str, Any]:
     internal = _present(bd, "internalParameters")
     if internal is not None and type(internal) is not dict:
         raise _Fail("predicate", "predicate.buildDefinition.internalParameters must be an object")
-    deps = _present(bd, "resolvedDependencies") or []
+    deps = _present(bd, "resolvedDependencies")
+    if deps is None:
+        deps = []
     for i, d in enumerate(_list(deps, "predicate.buildDefinition.resolvedDependencies", "predicate")):
         _descriptor(d, f"predicate.buildDefinition.resolvedDependencies[{i}]")
     rd = _object(obj["runDetails"], "predicate.runDetails", ("builder",))
@@ -1330,7 +1332,10 @@ def _slsa_v1(pred: Any) -> Dict[str, Any]:
                     raise _Fail("predicate", str(exc)) from None
         if _present(md, "invocationId") is not None and type(md["invocationId"]) is not str:
             raise _Fail("predicate", "predicate.runDetails.metadata.invocationId must be a string")
-    for i, d in enumerate(_list(_present(rd, "byproducts") or [], "predicate.runDetails.byproducts", "predicate")):
+    byproducts = _present(rd, "byproducts")
+    if byproducts is None:
+        byproducts = []
+    for i, d in enumerate(_list(byproducts, "predicate.runDetails.byproducts", "predicate")):
         _descriptor(d, f"predicate.runDetails.byproducts[{i}]")
     return obj
 
