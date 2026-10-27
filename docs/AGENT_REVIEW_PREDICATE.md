@@ -302,6 +302,9 @@ The validator of each version applies these closed field sets; a member outside 
 an `unknown field` error, a missing required member a `missing` error. v0.2 is v0.1 with the members
 marked v0.2, and v0.3 is v0.2 with `producer.verifier`. A *digest object* is an object whose member
 `sha256` is 64 lowercase hex; an *RFC 3339 time* is `YYYY-MM-DDTHH:MM:SS`, an optional fraction, and `Z`.
+Two kinds of object are open: a digest object may carry further members, and so may an entry of
+`supersedes`, `corrects` or `withdraws`; such further members are not checked. Inside `producer.verifier`
+a digest object carries `sha256` alone (`docs/VERIFIER_BLOCK.md`).
 "Required" without a version means required in all three.
 
 | Object | Member | Required | Value |
