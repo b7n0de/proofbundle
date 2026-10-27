@@ -1,0 +1,24 @@
+{
+  "schema": "certisyn/containment-public/v1",
+  "kind": "channel",
+  "subject_ref": "synthetic-pilot host-B: sandbox-3 to sandbox-4 (no channel planted)",
+  "verdict": "NO_DEPENDENCE_DETECTED",
+  "input_digest": "fca682a46746d22f686d86ca384e007c6ba5d1dab15714950e4bf458573325c7",
+  "result": {
+    "n": 1024,
+    "interval_ms": 10,
+    "statement": "Channels carrying more than 0.220 bits per second between these domains over this window would have been detected at this sample size. Channels below that rate are outside what this run could see: at the floor, 793 bits per hour could cross undetected, enough to move a 256-bit key in 0.32 hours. A negative result covers this pair, this window and this telemetry only.",
+    "detection_floor_bits_per_second": 0.22019362439610854,
+    "leakage_lower_bound_bits_per_second": 0,
+    "undetected_budget": {
+      "bits_per_hour_at_floor": 792.6970478259907,
+      "hours_to_move_256_bits": 0.32
+    }
+  },
+  "withheld": {
+    "internal_result_digest": "9c968359383002969256c594b18ac4f9f3a168944f3a32e1d461abd641e49e65",
+    "internal_result_sha256": "328f60042aa3c27915f09829f3c0fd0385a1a93e2aa4a2ed0e3bbf7a1b517d0c",
+    "disclosure": "method internals withheld, committed by digest"
+  },
+  "result_digest": "845719a74c56e9dac39f17c72c5c2c269a9695a6cd7f42240a34fe4ffb2b51e1"
+}

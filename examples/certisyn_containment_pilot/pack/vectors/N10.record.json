@@ -1,0 +1,25 @@
+{
+  "schema": "certisyn/containment-public/v1",
+  "schema": "certisyn/containment-public/v0",
+  "kind": "channel",
+  "subject_ref": "synthetic-pilot host-A: sandbox-1 to sandbox-2 (planted channel)",
+  "verdict": "CHANNEL_DETECTED",
+  "input_digest": "5f59f1c2c4ac4f3c854a9f5fd5e27e83ebb8ffa4abd9bd0777a60895de58cdd3",
+  "result": {
+    "n": 1024,
+    "interval_ms": 10,
+    "statement": "Lower bound on information flow between the declared-isolated domains: 34.8 bits per second.",
+    "detection_floor_bits_per_second": 0.3404146199546963,
+    "leakage_lower_bound_bits_per_second": 34.816508027579516,
+    "undetected_budget": {
+      "bits_per_hour_at_floor": 1225.4926318369066,
+      "hours_to_move_256_bits": 0.21
+    }
+  },
+  "withheld": {
+    "internal_result_digest": "c699c662dc81cade268faeb9227ae5f31d4717a554422c1f9ddb03a33a1e9faa",
+    "internal_result_sha256": "0238f15d40dbb2d2d9c42635a3d4443dca8a1a8b7edb9519637cf490beb8c931",
+    "disclosure": "method internals withheld, committed by digest"
+  },
+  "result_digest": "699905ad1380a1dd27c2e4b8494b22de8f0397d131fa2a17533c47977abcc931"
+}
