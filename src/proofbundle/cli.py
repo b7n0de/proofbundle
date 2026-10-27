@@ -717,8 +717,10 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
                 raise ValueError(f"--bitcoin-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
             height, _, root_hex = spec.partition(":")
             height, root_hex = height.strip(), root_hex.strip().lower()
-            if not height.isdigit():
-                raise ValueError(f"--bitcoin-header {spec!r}: height must be a non-negative integer")
+            # ASCII DIGITS ONLY (OQ-20), as the policy loader takes them: isdigit() alone also holds for "٣", "８００"
+            # and "²", and such a height went into the map, where no attested height can match it.
+            if not (height.isascii() and height.isdigit()):
+                raise ValueError(f"--bitcoin-header {spec!r}: height must be a non-negative integer in ASCII digits")
             try:
                 if len(bytes.fromhex(root_hex)) != 32:
                     raise ValueError
