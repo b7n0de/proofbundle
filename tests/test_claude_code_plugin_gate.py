@@ -1709,3 +1709,12 @@ def test_every_skill_and_the_server_carry_the_rule_never_to_weaken(shim):
                           env=shim, timeout=60, check=True)
     assert json.loads(proc.stdout.splitlines()[0])["result"]["instructions"].count(WEAKEN_RULE) == 1
     assert gate.WEAKEN_RULE == WEAKEN_RULE
+
+
+def test_the_gate_version_is_the_version_of_both_manifests():
+    """The gate writes GATE_VERSION into its log, its receipts and the Level 2 hand-over as the plugin's version.
+    The verify slices raise the plugin to 0.4.0 (Nachtrag 8; owner answer A of 2026-10-27), and the gate follows
+    them from the slice that brings it; tests/test_plugin_gate_log.py holds the same for every plugin.json later."""
+    for host in (".claude-plugin", ".codex-plugin"):
+        manifest = json.loads((PLUGIN / host / "plugin.json").read_text(encoding="utf-8"))
+        assert manifest["version"] == gate.GATE_VERSION, (host, manifest["version"], gate.GATE_VERSION)
