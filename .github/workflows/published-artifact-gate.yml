@@ -56,31 +56,52 @@ jobs:
   reproducible-sdist:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # This job uses the same version constraints and full-history epoch rule as
+    # release.yml. Its digest identifies the sdist built from this checked-out
+    # revision; equality with another run requires comparing the artifact hashes.
+    # A pull_request run checks out GitHub's merge commit, not the PR head.
+    # The epoch excludes only release_notes/ and audit_artifacts/; changes to
+    # other paths can change it even when those paths are not shipped.
+    # Full history avoids treating a shallow boundary as the last source change.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
       - name: Two sdist builds must be byte-identical (deterministic packaging)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --check
 
   hermetic-cleanroom:
     runs-on: ubuntu-latest
-    # 75, NOT 45 (owner decision of 2026-10-21 on card OA-97a73a0ac7, option A): three of the last ten
-    # jobs ran into 45, the longest complete one took 43.4 min, and almost all of it is the serial run of
-    # the shipped suite from the unpacked sdist. 45 replaced 20 on card OA-52e183ce21 (2026-10-01): 8 min
-    # at d388ed3d, 16 min at 110cdad9, cut at 20 at 6b02d9f7 without a failing test.
+    # Three of the last ten measured jobs reached the former 45-minute timeout; the longest completed
+    # run took 43.4 minutes, mainly in the serial suite from the unpacked sdist. Allow 75 minutes.
     timeout-minutes: 75
     steps:
+      # The full history, for the epoch of the tag run: the sdist this job tests is the published one
+      # only with the epoch `head_commit_epoch` takes from the full history (see reproducible-sdist).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
+      # Pinned on the two build steps only: the installs into /tmp/clean below are what a reader does,
+      # and they must resolve the package's own requirements, not the build pins.
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
       - name: Build the reproducible sdist
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --outdir dist
       # OA-7186ff7a75 (13.09.2026), Weg A: der Bau bricht ab, wenn Schluesselmaterial im Paket
       # liegt. VOR der Cleanroom-Installation, weil ein Geheimnis, das erst nach dem Auspacken

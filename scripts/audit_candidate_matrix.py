@@ -1136,10 +1136,10 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
     1. ``gebunden`` ist ein Vorfahr von ``live`` (``git merge-base --is-ancestor``). Ein fremder
        Commit aus einem anderen Zweig faellt hier — er ist kein "spaeterer Evidenzcommit", er ist
        ein anderer Baustand.
-    2. Die Pfadmenge von ``gebunden`` nach ``live`` liegt vollstaendig in
-       ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS``. Ein Commit, der irgendetwas anderes
-       anfasst — Quelltext, Vertrauensanker, Klassen-Ledger — faellt hier, auch wenn er ein
-       Vorfahr-Nachfahr-Verhaeltnis hat.
+    2. Every path changed from ``gebunden`` to ``live`` belongs to
+       ``sign_readiness_artifact.MUTABLE_EVIDENCE_RELS`` or is the canonical receipt path for
+       the version in the bound commit. Receipts for other versions or in other folders are
+       refused. An ancestor relation does not authorize any other changed path.
 
     Die Richtung ist bewusst eng: das Tor laesst den dokumentierten Ablauf zu und sonst nichts. Es
     ist KEIN Freibrief fuer "HEAD ist irgendwie weiter" — genau das waere die Luecke, die die
@@ -1191,12 +1191,32 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
         return None, f"git is not usable here ({type(exc).__name__})"
     pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
+    # Both tree digests exclude every receipt-shaped path. The transition from the candidate
+    # is narrower: only the canonical receipt path of that candidate's version may change.
+    # Read that version from the bound commit, never from a mutable working-tree file.
+    quittungen = [p for p in fremd if sra.ist_quittungspfad(p)]
+    if quittungen:
+        try:
+            projekt = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{gebunden}:pyproject.toml"],
+                capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+            return None, f"the candidate version cannot be read here ({type(exc).__name__})"
+        if projekt.returncode != 0:
+            return False, "the bound commit carries no readable pyproject.toml"
+        versionen = re.findall(r'''(?m)^\s*version\s*=\s*["']([^"']+)["']''', projekt.stdout)
+        if len(versionen) != 1 or not re.fullmatch(r"[0-9][0-9A-Za-z.+!_\-]*", versionen[0]):
+            return False, "the bound commit names no unambiguous receipt-compatible version"
+        version = versionen[0]
+        quittung = (f"audit_artifacts/{version.replace('.', '')}/"
+                    f"pre_tag_receipt_v{version}.json")
+        fremd = [p for p in fremd if p != quittung]
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
                        f"{', '.join(fremd[:5])}"
                        + (f" (and {len(fremd) - 5} more)" if len(fremd) > 5 else ""))
     return True, ("HEAD is a later evidence commit: an ancestor relation plus changes confined to "
-                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)}")
+                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)} and the pre-tag receipt")
 
 
 def _candidate_binding_error(body: dict, repo: Path,
@@ -1272,8 +1292,12 @@ def _candidate_binding_error(body: dict, repo: Path,
     sdist_p, wheel_p, dist_grund = _dist_files(repo, version)
     if sdist_p is None or wheel_p is None:
         return ART_UNMEASURABLE_HERE, (
-            f"the candidate sdist/wheel digests cannot be recomputed here: {dist_grund} — build the "
-            "candidate first (`python scripts/build_reproducible.py --outdir dist`); an "
+            f"the candidate sdist/wheel digests cannot be recomputed here: {dist_grund} — "
+            "install the pinned frontend with `python -m pip install --constraint "
+            ".github/build-constraints.txt build`, then build the candidate with "
+            "`PIP_CONSTRAINT=\"$PWD/.github/build-constraints.txt\" python "
+            "scripts/build_reproducible.py --outdir dist --with-wheel "
+            "--expect-backend-from .github/build-constraints.txt`; an "
             "un-recomputed digest is not evidence")
     live_sdist = hashlib.sha256(sdist_p.read_bytes()).hexdigest()
     live_wheel = hashlib.sha256(wheel_p.read_bytes()).hexdigest()

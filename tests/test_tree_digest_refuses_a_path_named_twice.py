@@ -31,13 +31,19 @@ SCRIPTS = REPO / "scripts"
 
 #: Digests at f6ea5cc3 of the trees `_vector_repo` builds, before the fix: (subject_tree_digest,
 #: tree_digest). Each tree names every path once, so the fix must leave both unchanged.
+#:
+#: ONE VALUE MOVED ON PURPOSE (owner choice A on card OA-c04430c2ea, 2026-10-26). The tree "excluded"
+#: carries a pre-tag receipt. Its readiness digest was c7da9ede…, the digest WITH the receipt inside,
+#: while its subject digest left the receipt out. `sign_readiness_artifact.tree_digest` now leaves the
+#: receipt out by the same pattern, so both digests of that tree are bab2c96f…. "plain" and "names"
+#: carry no receipt and keep both values: the change reaches the receipt and nothing else.
 VECTORS = {
     "plain": ("f7b07c572b04dc8a467739482133375ce9a9960731a0924cb60c2543f75b60b6",
               "f7b07c572b04dc8a467739482133375ce9a9960731a0924cb60c2543f75b60b6"),
     "names": ("7d0f763a4f32724a625e01ab69ca475b93eca3c22cb0e6467bfe3e074647cf32",
               "7d0f763a4f32724a625e01ab69ca475b93eca3c22cb0e6467bfe3e074647cf32"),
     "excluded": ("bab2c96fba851a69d1cbb9fed41126d8bfa35d540e8c5c0ac5d7493d2e7f704c",
-                 "c7da9ede6337ebff989fdc19fe9e704a857da20a1494f846426bb8a560a27405"),
+                 "bab2c96fba851a69d1cbb9fed41126d8bfa35d540e8c5c0ac5d7493d2e7f704c"),
 }
 
 

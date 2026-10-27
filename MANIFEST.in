@@ -221,6 +221,13 @@ include scripts/pre_tag_receipt_lib.py
 include scripts/readiness_pack_gate.py
 include scripts/readiness_pack_manifest.py
 include scripts/release_text_hygiene.py
+# IN (2026-10-26): scripts/release_dist_matches_signed_candidate.py, beside audit_candidate_matrix.py and
+# sign_readiness_artifact.py, whose checks it calls. release.yml runs it from the checkout. Its workflow
+# contract test skips when .github/workflows/release.yml is absent; the pair-comparison tests use their
+# own temporary repositories. In the tested archive tree with the repository markers removed,
+# tests/conftest.py skips the whole module as repo-context because it names the pruned workflow file.
+# The tool reads public keys, signed evidence and dist/ and holds no key.
+include scripts/release_dist_matches_signed_candidate.py
 include scripts/render_demo.py
 include scripts/rust_parity_gate.py
 include scripts/shipped_docs_check.py

@@ -45,7 +45,7 @@ additionally means this box had the full toolchain (cargo + build backend + a re
 #   emit/verify/tamper round-trip using only the published bytes, and prove two
 #   independent sdist builds are byte-identical.
 python3 scripts/build_reproducible.py --check          # two sdists byte-identical (needs `build`)
-python3 scripts/build_reproducible.py --check-wheel    # the wheel FROM the shipped sdist equals the direct one
+python3 scripts/build_reproducible.py --check-wheel --json  # compares two newly built wheels; does not check their backend or bind its sdist to a previously frozen artifact
 ```
 
 ## 3. Test manifest (no silent test shrink)

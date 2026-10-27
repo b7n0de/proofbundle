@@ -8,10 +8,10 @@ name: reusable-build-attest
 # github.blog 2026-01-20). This is that workflow: build ONCE, deterministically, then attest THOSE
 # exact bytes. Every release inherits L3 by calling it — no per-release rebuild of the attest logic.
 #
-# Determinism: the sdist is built via scripts/build_reproducible.py, which normalises the tarball to a
-# byte-reproducible canonical form (SOURCE_DATE_EPOCH + canonical member metadata + zeroed gzip mtime).
-# The determinism proof is sdist-only (the normaliser targets the sdist); the wheel is built and
-# attested but NOT claimed byte-identical here (honest scope).
+# Both the sdist and the wheel are normalised by scripts/build_reproducible.py.
+# This workflow compares two sdist builds and checks the release wheel's setuptools
+# Generator against the constraints. It does not compare the wheel with a wheel
+# built from the sdist or compare either final artifact with a separate release run.
 #
 # dry_run=true exercises the BUILD + determinism half on a PR without producing (throwaway)
 # attestations — so this workflow is live-tested by published-artifact-gate.yml, not a paper anchor.
@@ -69,22 +69,37 @@ jobs:
     outputs:
       sdist-sha256: ${{ steps.digests.outputs.sdist }}
     steps:
+      # The full history, as in release.yml: `head_commit_epoch` takes the time of the last commit that
+      # touches a shipped path, and a clone of depth 1 returns the time of its boundary, so the sdist
+      # attested here would not be the one the tag run builds from the same commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
 
+      # The frontend and the backend at the versions of .github/build-constraints.txt, as in release.yml.
       - name: Install the build frontend
-        run: python -m pip install --upgrade build
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: python -m pip install build
 
       - name: Prove the sdist is byte-reproducible (two builds, byte-identical)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: python scripts/build_reproducible.py --check
 
+      # The same build command as release.yml. This job attests and uploads its wheel too, so the wheel
+      # is normalised there in the same way and its generator is read back against the pins; a direct
+      # `python -m build --wheel` here built a wheel that no check compared with the file.
       - name: Build the reproducible sdist + the wheel (the ONLY build here)
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
         run: |
-          python scripts/build_reproducible.py --outdir dist
-          python -m build --wheel --outdir dist
+          python scripts/build_reproducible.py --outdir dist --with-wheel \
+            --expect-backend-from .github/build-constraints.txt
 
       # DERSELBE RIEGEL WIE IM RELEASE-WEG (Codex 3999892822, P1 — Nachbar, selbst gefunden).
       # Dieser Auftrag baut sdist UND wheel, attestiert sie danach und laedt sie hoch. Das ist ein

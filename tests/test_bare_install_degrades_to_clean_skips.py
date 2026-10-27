@@ -824,8 +824,13 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         # and its two data files in, and the measurement was redone the same way on that tree: an sdist
         # built through setuptools 69.5.1's `build_meta.build_sdist` carries 41 files under scripts/, the
         # directive reader reads 41, symmetric difference zero.
-        self.assertEqual(len(alt), 41,
-                         "41 shipped scripts were measured against a real build; a different number "
+        # 42 SINCE THE COMPARISON BEFORE UPLOAD (6.4.0 preparation, 2026-10-26): MANIFEST.in decided
+        # scripts/release_dist_matches_signed_candidate.py in, and the measurement was redone on that
+        # tree: an sdist built by `build_reproducible.py` under the pins of .github/build-constraints.txt
+        # (build 1.6.1, setuptools 84.2.1) carries 42 files under scripts/, the include lines read 42,
+        # symmetric difference zero.
+        self.assertEqual(len(alt), 42,
+                         "42 shipped scripts were measured against a real build; a different number "
                          "here means the file moved and that measurement needs redoing")
 
     def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):
