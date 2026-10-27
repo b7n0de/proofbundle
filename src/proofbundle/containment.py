@@ -31,8 +31,11 @@ steps running, so a refusal names each failure it reaches, not only the first. A
 ``not_reached``. An input that was not supplied is ``not_supplied``: the record can still be accepted, and the result
 says that its input_digest was not recomputed.
 
-NEVER RAISES on what a sender controls (record, seal, input) or on an unusable trusted key: each such case is a
-refusal with its reason. ``load_trusted_key`` reads the caller's own configuration and raises ``ValueError``.
+INVALID FILE INPUTS RETURN A REFUSAL. Invalid record, seal or input bytes/text and an unusable trusted key
+produce a refusal from the verification body. Before that body, the package's argument-reading guard may raise
+ProofBundleError for Python objects it cannot capture as one state; JSON files cannot supply such objects.
+load_trusted_key reads the caller's own configuration and raises ValueError for an unusable configuration,
+including a refusal by that argument-reading guard.
 """
 from __future__ import annotations
 
@@ -124,14 +127,18 @@ def load_trusted_key(raw: Any) -> bytes:
 
 @_ein_stand
 def verify_containment_record(record: Any, seal: Any, *, trusted_key: Any, input_series: Any = None) -> dict:
-    """Run the seven steps of FORMAT.md section 6 over a record and its seal; never raises.
+    """Run the seven steps of FORMAT.md section 6; invalid JSON file inputs return a refusal.
 
     ``record``, ``seal`` and ``input_series`` are the bytes or the text of the files. ``trusted_key`` is the raw 32-byte
     Ed25519 key of the caller's trust configuration (``load_trusted_key``). The result is a dict: ``format``, ``scope``
     (``integrity``), ``scope_note``, ``outcome`` (``ACCEPT`` or ``REFUSE``), ``steps`` (each of ``STEPS`` with
     ``pass``, ``fail``, ``not_reached`` or, for the input, ``not_supplied``), ``failures`` (one entry with ``step`` and
     ``reason`` per failed check) and ``trusted_key_sha256`` (the key the signature was checked under, or None when the
-    trusted key is unusable)."""
+    trusted key is unusable).
+
+    The package's argument-reading guard runs before this body. Python objects that cannot be captured as
+    one state can raise ProofBundleError there; this does not apply to ordinary bytes or text from JSON files.
+    """
     steps: dict = {name: "not_reached" for name in STEPS}
     failures: list = []
 

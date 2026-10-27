@@ -12,7 +12,7 @@ What is measured here:
     record and the seal for sandbox-1 to sandbox-2 with the input of the other record, refused at input_digest alone;
   * the key printed in a seal is never used, and a small-order trusted key is refused before any signature arithmetic;
   * the canonical bytes the pack publishes are the bytes this reader digests;
-  * a refusal names every failed step it reaches, the reader never raises on what a sender controls, and every result
+  * a refusal names every failed step it reaches, invalid file bytes or text produce a refusal, and every result
     says that its scope is integrity;
   * the reproducible example prints exactly expected_output.txt and exits 0.
 """
