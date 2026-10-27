@@ -39,7 +39,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
 from .canonical import _ein_stand, canonicalize_statement
@@ -80,7 +80,7 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonicalize_statement(value)).hexdigest()
 
 
-def _is_str(value: Any) -> bool:
+def _is_str(value: Any) -> TypeGuard[str]:
     return type(value) is str
 
 
