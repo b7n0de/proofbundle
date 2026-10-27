@@ -64,6 +64,11 @@ key that decodes to the wrong length and a `tree_size` that admits no leaf inclu
 field: a bundle carrying it is not malformed, but the core verifier (§7) does
 NOT verify it — anchors are a separate, opt-in relying-party step (§7i), so a
 bundle's crypto verdict is identical whether or not it carries `anchors`.
+`signature`, `merkle` and `sd_jwt_vc` are closed like the top level: a member outside their tables (§4 to
+§6) is malformed (exit 2). Of an `anchors` entry the core verifier reads only that it is an object whose
+`target` is `receipt` or `preRegistration` (else malformed, exit 2); a further or a missing member does not
+change its verdict. When anchors are verified (§7i), an entry with a member outside the table there makes
+the anchor verification FAIL, so `--require-anchor` is unmet (exit 3).
 
 ### 4. `signature`
 
