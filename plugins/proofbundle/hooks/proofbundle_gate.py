@@ -155,7 +155,7 @@ CODEX_PUSH_WARNING = ("Under Codex the gate warns about a git push and does not 
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
 #: The plugin's version, the one of every manifest; a test holds them equal.
-GATE_VERSION = "0.3.0"
+GATE_VERSION = "0.4.0"
 #: The local log of every gate call (DECISIONS.md, D21): one JSON line each, in the first named plugin data
 #: directory the host gives the hook that is a writable directory. Measured: Claude Code 2.1.285 gives a
 #: PreToolUse hook CLAUDE_PLUGIN_DATA; Codex 0.159.2 gives PLUGIN_DATA and CLAUDE_PLUGIN_DATA
