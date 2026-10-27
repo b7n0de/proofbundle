@@ -88,7 +88,13 @@ Datatracker.)
 
 Targets are attached OFFLINE (`decision verify --with-related PATH`, repeatable; never
 fetched). Each attached target is verified STANDALONE first, then keyed by its COMPUTED
-content root. Per edge:
+content root. A `--with-related` file that cannot be read as a DSSE envelope with a decodable payload
+(no JSON, no envelope, a payload that is no Base64, a file that does not exist) is malformed input
+(exit 2, `cannot read --with-related <path>`), and nothing is verified; so is a `--related-pub` that
+is no Base64. An envelope that is read is an attachment, whatever its payload holds. `--pub`, the key
+of the receipt under verification, is a usage error (exit 2) when it is no Base64; a Base64 value that
+is no usable key, not 32 bytes or refused by §4b of `SPEC.md`, verifies nothing, as another valid key
+does (exit 1). Per edge:
 
 - **VERIFIED** — target attached AND standalone-verified AND the edge digest names it.
 - **DECLARED_UNRESOLVED** — edge well-formed, target not attached. Explicitly NOT an error,
