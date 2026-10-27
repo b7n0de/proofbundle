@@ -42,6 +42,14 @@ bytes* were signed and anchored, not what they mean.
   same bytes — an interoperating implementation that silently keeps either
   occurrence is non-conforming. (RFC 8785 forbids duplicates outright; this
   extends the rule to the non-canonical inputs too.)
+- The strict reader that refuses them refuses as well `NaN`, `Infinity` and `-Infinity`, a number with no
+  finite IEEE 754 double, an integer literal outside ±(2^53 − 1), a lone surrogate in a string, and input
+  beyond the verification budget (200,000 keys and items, nesting depth 64; `docs/ANCHORS.md`). The command
+  line reads with it every bundle, envelope and trust policy it is given, a refusal being malformed (exit 2).
+  The agent-review policy file is read by Python's `json` with the duplicate-key rule alone
+  (`agent_review.load_policy`), so the other refusals do not apply to it. Every JSON file of the
+  conformance corpus passes the strict reader except one bundle that carries a duplicate key; for every
+  other case file the choice of reader changes nothing.
 
 ## 3. Object fields
 
