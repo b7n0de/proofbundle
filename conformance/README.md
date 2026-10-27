@@ -134,7 +134,9 @@ axis decides the use:
   is no policy, any other value is that file in the case directory. The value is the policy decision:
   `accept`, `reject`, `insufficient_evidence`, or `null` without a policy. `null` carries `POLICY_NOT_EVALUATED`
   as an advisory code and not as a reason code; every other decision reports the digest of its policy;
-  `accept` comes with ok, `reject` and `insufficient_evidence` without.
+  `accept` comes with ok, `reject` and `insufficient_evidence` without. A predicate that issuing refuses has
+  no policy decision: a case whose predicate is refused is no valid vector of this axis and does not pass,
+  whatever it pins.
 
 ### `cap1_document`
 
