@@ -51,6 +51,15 @@ import pathlib
 
 import pytest
 
+# A plugin test module runs without its caller's environment, see tests/_plugin_env.py. Tests of the library copy
+# this file alone into a throwaway tree; there no plugin test module runs, so a missing _plugin_env is no error, and
+# any other failure to import it still is.
+try:
+    from _plugin_env import withhold_caller_environment  # noqa: F401
+except ModuleNotFoundError as exc:
+    if exc.name != "_plugin_env":
+        raise
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 # A git checkout always carries these; the sdist prunes/omits them (.github, the Rust tree, the spec
 # source). Their ABSENCE means we are running from a distributed artifact, not the repo.

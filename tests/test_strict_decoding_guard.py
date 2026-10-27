@@ -5,7 +5,8 @@ evidential bytes in the scope below refuses duplicate keys, invalid encoding and
 test finds a new decode site that bypasses the strict helpers. Readers outside that scope are named at the end.
 
 WHAT IT READS. The Python source under ``src/``, ``plugins/``, ``tools/`` and ``docs/scitt/``, parsed with ``ast``.
-``plugins/`` is not in the tree yet (``NOT_YET_IN_THE_TREE``).
+``plugins/`` came into the tree with the plugin line; its readers outside a verify
+path are listed below like every other.
 
 A DECODE REFERENCE, BY A POSITIVE LIST. ``NOT_DECODING`` names the members of ``json`` and ``cbor2`` that do not
 decode (the encoders, the tag and simple-value types, the error classes). Every other reference to either library
@@ -111,9 +112,7 @@ IN_THE_PACKAGE = {"src", "scripts", "conformance", "examples"}
 #: A root this guard reads that is not in the tree yet, with the reason. It is NOT MEASURED until it lands, and the
 #: day it lands its entry turns red, so the list never outlives what it describes. Found by the presence test below:
 #: before it, a root that did not exist was passed over in silence.
-NOT_YET_IN_THE_TREE = {
-    "plugins": "it comes with the plugin line (branch claude/codex-plugin); main at 94741b79 has no plugins/",
-}
+NOT_YET_IN_THE_TREE: dict = {}
 
 
 def _conftest():
@@ -291,6 +290,11 @@ EXCEPTIONS = {
         4, "standalone checker for external readers; every cbor2 call runs behind its own pre-scan item_end, "
            "which refuses duplicate keys and bytes after the item, and decodes each map once more to refuse one that "
            "cbor2 reads with fewer entries than it has pairs; its decoding is held by test_strict_cbor"),
+    "plugins/proofbundle/evals/_fixtures/make.py": (
+        1, "builds the eval fixtures from the package's own template output; it judges nothing"),
+    "plugins/proofbundle/server/proofbundle_mcp.py": (
+        2, "reads the host's JSON-RPC messages and the package's own JSON output; every "
+           "verdict is the package's"),
 }
 
 _SEQ, _MAP = {"tuple", "Sequence"}, {"Mapping", "frozendict", "FrozenDict"}
