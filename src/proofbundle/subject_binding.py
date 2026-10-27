@@ -149,6 +149,53 @@ def require_derived_subject(statement: Any) -> None:
             "trust it only via a policy that pins the external attester")
 
 
+def _declared_prefixes(paths: Any) -> "frozenset | None":
+    """Every declared dotted path and every path that leads to one, cut at member and item boundaries.
+
+    THE PATH TEXT IS KEPT ONLY WHERE IT CAN MATCH (deep gate 6.4.0, iteration 1, the neighbours of finding
+    C1). Both walks below gave every child the text of its whole path. Measured at e29a2683 with 73190 bytes
+    of input, fifty nested members with names of 1000 characters over 2000 members: about 100 MB of traced
+    memory for each walk, 1375 times the input, against 5 times for a flat input of the same size. A path is
+    looked up only to compare it with a declared one, and a path that is no prefix of a declared one cannot
+    lead to one, so below it the walks carry a link instead of text.
+
+    None for a map that is no dict: then nothing is cut, and the walk looks every path up as it did before,
+    so such a map is refused where it was refused before, at its first lookup."""
+    if not isinstance(paths, dict):
+        return None
+    out = {""}
+    for p in paths:
+        if not isinstance(p, str):
+            continue
+        p = str.__str__(p)
+        out.add(p)
+        for j, ch in enumerate(p):
+            if ch == "." or p.startswith("[]", j):
+                out.add(p[:j])
+    return frozenset(out)
+
+
+def _dotted_step(text: str, step: Any) -> str:
+    """One step of a dotted path (``None`` = each item of an array), for `budget._chain_text`."""
+    if step is None:
+        return f"{text}[]"
+    return f"{text}.{step}" if text else step
+
+
+def _kept(declared: Any, text: Any) -> Any:
+    """``text`` while it can still match a declared path (`_declared_prefixes`), else None."""
+    if text is None or (declared is not None and text not in declared):
+        return None
+    return text
+
+
+def _child_text(declared: Any, parent: Any, name: str) -> Any:
+    """The text of a child's path while it can still match a declared path, else None."""
+    if parent is None:
+        return None
+    return _kept(declared, f"{parent}.{name}" if parent else name)
+
+
 @_ein_stand
 def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]], *, path: str = "") -> list[str]:
     """Walk ``obj`` and report nested objects with keys not in ``allowed_map`` for their dotted path.
@@ -166,25 +213,29 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     # closes the direct-primitive path. Bounded at the same json_depth / json_nodes budget so a hostile deep or
     # node-heavy structure is a FAIL-CLOSED violation (a returned error string), never a crash. DFS pre-order is
     # preserved (children pushed reversed) so the reported violation order is unchanged for legitimate inputs.
-    from .budget import DEFAULT_BUDGET, render_safe, render_text  # noqa: PLC0415 - avoids an import cycle
+    from .budget import DEFAULT_BUDGET, _chain_text, render_safe, render_text  # noqa: PLC0415 - avoids an import cycle
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
     # THE START PATH IS TEXT TOO, and it comes from the caller: `path=10**5000` raised ValueError
     # from the f-strings below (lens run 10 generator). A str path is itself, as a key is.
-    stack: list[tuple[Any, str, int]] = [(obj, render_text(path), 0)]
+    start = render_text(path)
+    declared = _declared_prefixes(allowed_map)
+    # (value, path text or None below the declared prefixes, link for a message, depth): `_declared_prefixes`.
+    stack: list[tuple[Any, Any, Any, int]] = [(obj, _kept(declared, start), None, 0)]
     nodes = 0
     while stack:
-        cur, cur_path, depth = stack.pop()
+        cur, cur_path, chain, depth = stack.pop()
         nodes += 1
         if nodes > max_nodes:
             out.append("<root>: structure exceeds the validation node budget (nested closure fail-closed)")
             break
         if depth > max_depth:
-            out.append(f"{cur_path or '<root>'}: nesting exceeds the validation depth budget "
+            shown = cur_path if cur_path is not None else _chain_text(start, chain, _dotted_step)
+            out.append(f"{shown or '<root>'}: nesting exceeds the validation depth budget "
                        "(nested closure fail-closed)")
             continue  # do not descend past the depth bound
         if isinstance(cur, dict):
-            allowed = allowed_map.get(cur_path)
+            allowed = allowed_map.get(cur_path) if cur_path is not None else None
             if allowed is not None:
                 for k in cur:
                     if k not in allowed:
@@ -195,12 +246,12 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
                 # caller) raised ValueError here and in the message above (the public-surface generator on
                 # main 570dd164 and five carried commits: 36 of 189 calls). A str key is itself.
                 name = k if isinstance(k, str) else render_safe(k, quote=False)
-                child = f"{cur_path}.{name}" if cur_path else name
-                stack.append((v, child, depth + 1))
+                stack.append((v, _child_text(declared, cur_path, name), (chain, name), depth + 1))
         elif isinstance(cur, list):
-            item_path = f"{cur_path}[]"
+            item_path = _kept(declared, f"{cur_path}[]" if cur_path is not None else None)
+            link = (chain, None)
             for v in reversed(cur):
-                stack.append((v, item_path, depth + 1))
+                stack.append((v, item_path, link, depth + 1))
     return out
 
 
@@ -240,21 +291,24 @@ def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"
     Iterative and bounded by the same budget as the closure walk, so a hostile structure is a returned
     violation, never a RecursionError."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
-    from .budget import render_safe  # noqa: PLC0415
+    from .budget import _chain_text, render_safe  # noqa: PLC0415
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
-    stack: list[tuple[Any, str, int]] = [(obj, "", 0)]
+    declared = _declared_prefixes(type_map)
+    # (value, path text or None below the declared prefixes, link for a message, depth): `_declared_prefixes`.
+    stack: list[tuple[Any, Any, Any, int]] = [(obj, "", None, 0)]
     nodes = 0
     while stack:
-        cur, cur_path, depth = stack.pop()
+        cur, cur_path, chain, depth = stack.pop()
         nodes += 1
         if nodes > max_nodes:
             out.append("<root>: structure exceeds the validation node budget (type check fail-closed)")
             break
         if depth > max_depth:
-            out.append(f"{cur_path or '<root>'}: nesting exceeds the validation depth budget (type check fail-closed)")
+            shown = cur_path if cur_path is not None else _chain_text("", chain, _dotted_step)
+            out.append(f"{shown or '<root>'}: nesting exceeds the validation depth budget (type check fail-closed)")
             continue
-        want = type_map.get(cur_path)
+        want = type_map.get(cur_path) if cur_path is not None else None
         if want is not None:
             kinds = (want,) if isinstance(want, str) else want
             if not any(_has_type(cur, k) for k in kinds):
@@ -263,8 +317,10 @@ def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"
         if isinstance(cur, dict):
             for k, v in reversed(list(cur.items())):
                 if isinstance(k, str):
-                    stack.append((v, f"{cur_path}.{k}" if cur_path else k, depth + 1))
+                    stack.append((v, _child_text(declared, cur_path, k), (chain, k), depth + 1))
         elif isinstance(cur, list):
+            item_path = _kept(declared, f"{cur_path}[]" if cur_path is not None else None)
+            link = (chain, None)
             for v in reversed(cur):
-                stack.append((v, f"{cur_path}[]", depth + 1))
+                stack.append((v, item_path, link, depth + 1))
     return out
