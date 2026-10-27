@@ -6,8 +6,8 @@ recorded bytes and that they have not changed since, not that any recorded value
 
 | Host | What it does | Plugin | Version | Maturity |
 |---|---|---|---|---|
-| Claude Code | Verify decision and outcome receipts and evidence bundles, and review verification results separately from recorded claims. Receipt signing is experimental and requires an explicit user request | [proofbundle](proofbundle/README.md) | 0.3.0 | Experimental |
-| Codex | Verify decision and outcome receipts and evidence bundles, and review verification results separately from recorded claims. Receipt signing is experimental and requires an explicit user request | [proofbundle](proofbundle/README.md) | 0.3.0 | Experimental |
+| Claude Code | Verify decision and outcome receipts and evidence bundles, and review verification results separately from recorded claims. Receipt signing is experimental and requires an explicit user request | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |
+| Codex | Verify decision and outcome receipts and evidence bundles, and review verification results separately from recorded claims. Receipt signing is experimental and requires an explicit user request | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |
 
 The version is the one in the plugin's manifest for that host. The maturity is copied from the status
 line of the plugin's README.
