@@ -39,6 +39,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 | G-CC-11 | the signer service reads the hook's records across accounts (precondition of A1) | the hooks write both records with mode 0600; no other account reads them; with the files written 0640 and a setgid group the service reads them (V6, a copy, not delivered) | FAILED (as delivered), VERIFIED (V6 copy), both in the container | 49219d5c; edfb9ace for the V6 script | PLUGIN_N44, point 2; the script v6_farmer_n45.py run in the container (PLUGIN_N45) |
 | G-CC-12 | the same on the operator's machine | not run | BLOCKED until the owner runs v6_farmer_n45.py on the operator's machine | n/a | n/a |
 | G-CC-13 | the pilot runs on the operator's machine with three accounts | not started | NOT MEASURED | n/a | n/a |
+| G-CC-14 | the signer service decides a handed-over push as the hook's Level 2 did, across accounts | the hand-over is written with handover/ 0700 and its record and pointer 0600, which another account does not read; Level 2 consumes it before the service decides | BLOCKED/NOT MEASURED | n/a | the writer modes measured in the container on 3.12 and 3.14 for P-2 of the external review of 2026-10-26; the consumption before the service read in the code, not measured |
 
 ## Codex
 
