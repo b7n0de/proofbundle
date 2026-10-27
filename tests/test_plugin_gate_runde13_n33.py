@@ -23,6 +23,7 @@ import base64
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -159,7 +160,8 @@ def test_k1_plain_non_git_commands_are_untouched(tmp_path, command):
 
 
 # --- K1: the decoder matches bash, and the net never misses a git bash would run (differential) --------------------
-_HAS_BASH = subprocess.run(["bash", "-c", "exit 0"], capture_output=True).returncode == 0
+_HAS_BASH = shutil.which("bash") is not None and \
+    subprocess.run(["bash", "-c", "exit 0"], capture_output=True).returncode == 0   # finding 9: absent, not an error
 
 
 @pytest.mark.parametrize("body, expected", [

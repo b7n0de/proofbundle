@@ -21,9 +21,11 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
+import warnings
 
 import pytest
 from _plugin_env import plugin_env
@@ -156,7 +158,19 @@ def test_the_literal_push_control_is_resolved_by_the_gate(tmp_path):
 
 # --- the net sees every git/gh bash and zsh actually run (differential, not only decoder values) -------------------
 _STUB = pathlib.Path(__file__).resolve().parent.parent  # replaced per test with a temp stub dir
-_HAS_BASH = subprocess.run(["bash", "-c", "exit 0"], capture_output=True).returncode == 0
+
+def _runs(program: str) -> bool:
+    """Whether `program -c 'exit 0'` runs here, the program found on PATH. A program that is not installed is no
+    failure of a test: it drops out of the differential with a warning that its reading is NOT MEASURED, as a program
+    that does not start already did (finding 9 of review package -1)."""
+    path = shutil.which(program)
+    if path is None:
+        warnings.warn(f"{program} is not installed here; its reading is NOT MEASURED", stacklevel=2)
+        return False
+    return subprocess.run([path, "-c", "exit 0"], capture_output=True).returncode == 0
+
+
+_HAS_BASH = _runs("bash")
 
 
 def _stub_dir(tmp_path):
@@ -177,10 +191,10 @@ def test_net_covers_every_git_bash_or_zsh_runs(tmp_path, command):
     d = _stub_dir(tmp_path)
     env = plugin_env(PATH=str(d) + os.pathsep + os.environ["PATH"])
     ran = False
-    for shell in (["bash", "-c"], ["/usr/bin/zsh", "-c"]):
-        if subprocess.run([shell[0], "-c", "exit 0"], capture_output=True).returncode != 0:
+    for name in ("bash", "zsh"):
+        if not _runs(name):
             continue
-        out = subprocess.run(shell + [command], capture_output=True, text=True, env=env, cwd=str(d), timeout=30).stdout
+        out = subprocess.run([shutil.which(name), "-c", command], capture_output=True, text=True, env=env, cwd=str(d), timeout=30).stdout
         ran = ran or "RAN:git" in out or "RAN:gh" in out
     if ran:
         assert gate._net_words(command) >= 1 or gate._net_unresolved(command), command
