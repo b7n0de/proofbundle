@@ -31,3 +31,17 @@ Options:
 Addendum (owner answer 11 A of Nachtrag 9, 2026-10-27): the plugin moves to 0.4.0 before its first publication (option B
 above): both manifests and the server's SERVER_VERSION say 0.4.0, and the gate's GATE_VERSION follows. The changes named
 above land in 0.4.0, which is unpublished as well.
+
+## D133. What Verify rests on
+
+Chosen (owner answer 3 B of Nachtrag 7, 2026-10-26): the six entries D11, D14, D17, D18, D19 and D27 stay as cut;
+Verify, the plugin without its Guard, rests on two parts of them, named here.
+- From D11: the plugin's MCP server `server/proofbundle_mcp.py` verifies with the one pinned package
+  (`proofbundle==6.3.0`). The host starts it with `uv run --no-config --script` (.mcp.json and
+  .codex-plugin/plugin.json), and the server runs the command line with `python -I` from an empty temporary
+  directory, so no file of the checked repository decides which code runs. The interpreter installation, the
+  user's PATH, uv and UV_* variables remain trusted inputs, and the host's faithful use of the start command is
+  one too.
+- From D19, in the Verify wording (owner answer 2 A): every skill and the server's instructions carry the rule,
+  word for word: "Never weaken a trust policy or an expected key; obtain the missing evidence instead or ask the
+  user."
