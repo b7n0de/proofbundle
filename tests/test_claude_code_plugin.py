@@ -429,8 +429,9 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
 
 #: The owner's texts of 2026-09-30, word for word. Texts 8 to 10 (the emit mark, the data rule, the exit 1
 #: text) are held by the tests above and below.
-#: Delivery -2 (Nachtrag 3, point 4): texts 1, 2, 4, 5 and 6 are held as proposals, the owner's text with its
-#: sentences on hooks deleted, until the owner chooses; the Guard slice 02c restores the owner's wording here.
+#: Delivery -2 (Nachtrag 3, point 4): texts 1, 2, 4, 5 and 6 are held as the owner chose them (answer 1 A of
+#: Nachtrag 7, 2026-10-26), the owner's text with its sentences on hooks deleted; the Guard slice 02c restores
+#: the owner's wording here.
 OWNER_TEXTS = {
     "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
           "evidence bundles, and review verification results separately from recorded claims. Receipt "
