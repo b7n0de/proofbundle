@@ -49,6 +49,16 @@ schema files — gate verdicts.
 - `declaredAt` is issuer testimony, INFORMATIVE only (the `anchoredAt` honesty rule).
 - WHO may declare WHICH relation is trust-policy terrain, never format terrain.
 - Hard caps: 64 edges per receipt, attached-ancestry depth 32.
+- **The edge table.** An edge is a JSON object of the members above and no other: `relation`
+  (required, from the vocabulary of §3), `targetReceiptDigest` (required), `targetSubjectDigest`,
+  `reasonCode`, `reason` and `declaredAt`. Each digest is an object of exactly `digestAlgorithm`
+  (`jcs-sha256-v1`) and `digest` (64 lowercase hex). `reasonCode` is one of `correction`, `rerun`,
+  `data-update`, `methodology-update`, `policy-change`, `withdrawal` and `other`; `reason` is a string,
+  the empty one included; `declaredAt` is a string `YYYY-MM-DDTHH:MM:SS`, an optional fraction of a
+  second and a trailing `Z`, in ASCII digits, its fields not checked for range. A member that is present
+  is judged by its value, so `null` breaks the table like any other wrong value. An edge that breaks the
+  table is a structural error of the edge (§4: `relation:malformed:` on the receipt under verification,
+  `relation:malformed_ancestor` on a target the walk reaches; exit 2).
 
 ## 3. Vocabulary and interop mapping
 
