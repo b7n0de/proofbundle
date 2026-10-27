@@ -234,7 +234,9 @@ of `decision.json` and `evidence.json`, each `.jcs` file being the RFC 8785 byte
 `evidenceRefBindsRoot` is `true` when at least one `predicate.evidenceRefs[].digest.sha256` of the
 decision equals `evidenceRoot`; the other members of that reference are not compared. In
 `envelope_invariance`, `contentRoot` is the SHA-256 of the payload bytes both envelopes carry, as they
-stand. Each axis holds when the reported value equals the pinned one. `objectAndBytesAgree` and
+stand; the two envelopes carry the same payload bytes, a full in-toto Statement, under signature blocks that
+differ, and a case whose envelopes do not is no valid vector of its mode and does not pass, whatever root it
+pins. Each axis holds when the reported value equals the pinned one. `objectAndBytesAgree` and
 `evidenceRefBindsRoot` are pinned `true` in every case: a case whose two sides disagree, or whose pair
 does not bind, is no valid vector of its mode.
 Catch proofs: `tests/test_conformance_content_root_vectors.py`.
