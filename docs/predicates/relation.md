@@ -111,7 +111,12 @@ not verify standalone. An attachment that no edge names changes nothing, whether
 far as targets are attached. The direct targets of the receipt under verification are at depth 1;
 resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). An attached
 ancestor that an edge of the ancestry names and that does not verify standalone makes the receipt's edge
-FAIL as well (`relation:ancestor_verification_failed`). An edge of an ancestor whose target is not
+FAIL as well (`relation:ancestor_verification_failed`). An ancestor whose payload the statement oracle
+below refuses makes it FAIL with `relation:ancestor_edge:` followed by `relation:attached_target_malformed
+(RELATION_TARGET_MALFORMED)`, at any hop from depth 2 on; at every hop the payload is judged before the
+signature, so an ancestor whose signature fails as well reports this code, as a direct target reports
+`relation:attached_target_malformed (RELATION_TARGET_MALFORMED)` before
+`relation:target_verification_failed`. An edge of an ancestor whose target is not
 attached ends the walk there and does not lower VERIFIED. A target the walk reaches, a direct target
 included, whose own `relationships` member is present, not `null`, and not a non-empty array of edges
 that each meet the edge table (an empty array, a value that is no array, an edge that breaks the table)
