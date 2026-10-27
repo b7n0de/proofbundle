@@ -432,18 +432,18 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
 
 
 #: The owner's texts of 2026-09-30, word for word; text 6 in the
-#: (Texts 1 and 2 without their hooks sentence: owner answer 1 of 2026-10-26 moves the hooks of the Codex
-#: manifest and the hooks sentence of both manifests into the Guard slice 02c, which restores them here.)
 #: owner's wording of 2026-10-08 (owner choice K5-3 A). Texts 8 to 10 (the emit mark, the data rule, the exit 1
 #: text) are held by the tests above and below.
 OWNER_TEXTS = {
     "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
-          "evidence bundles, and review verification results separately from recorded claims. Receipt "
-          "signing is experimental and requires an explicit user request. Verification "
+          "evidence bundles, and review verification results separately from recorded claims. Active "
+          "hooks check declared repository evidence before supported push, pull request or release "
+          "actions. Receipt signing is experimental and requires an explicit user request. Verification "
           "proves authorship and integrity of what was recorded, not that any recorded value is true."),
     "2": ("Verify decision and outcome receipts in Codex against your chosen issuer key, check evidence "
-          "bundles, and review verification results separately from recorded claims. Receipt signing "
-          "is experimental and requires an explicit user request. "
+          "bundles, and review verification results separately from recorded claims. After you trust "
+          "the hooks, they check declared repository evidence before supported push, pull request or "
+          "release actions. Receipt signing is experimental and requires an explicit user request. "
           "Verification proves authorship and integrity of what was recorded, not that any recorded "
           "value is true."),
     "3": ("This marketplace contains the proofbundle plugin for receipt and evidence verification."),

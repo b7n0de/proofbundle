@@ -713,6 +713,15 @@ def test_the_task_completed_hook_wraps_the_check_and_blocks_when_it_cannot_run(e
 CODEX_STOP_FIELDS = {"continue", "stopReason", "suppressOutput", "systemMessage", "decision", "reason"}
 
 
+def test_codex_runs_the_same_stop_hook_from_the_same_folder():
+    manifest = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+    (entry,) = manifest["hooks"]["hooks"]["Stop"]
+    (hook,) = entry["hooks"]
+    assert hook["type"] == "command" and "matcher" not in entry
+    assert hook["command"].startswith('python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop --host codex ||')
+    assert "exit 2" in hook["command"]
+
+
 def test_every_stop_answer_is_one_codex_reads_and_none_sets_continue(env, repo, keys):
     _declare_order(repo, keys.public, checks=(UNIT,), max_blocks=1)
     _commit(repo, "the order")
