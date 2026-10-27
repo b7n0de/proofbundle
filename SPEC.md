@@ -734,8 +734,9 @@ target has no root.
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or
 reject a type by its SHAPE. It cannot, and no anchor type this project ships has that shape.
 Measured 2026-09-20 over every name that reaches `register_anchor_type`: `rfc3161-tsa` and
-`opentimestamps` (the two built-ins this document itself names as valid), `chia-datalayer/v1` and
-`markovian-provenance/v1` (the shipped first-party extensions). All four fail
+`opentimestamps` (the two built-ins this document itself names as valid), `chia-datalayer/v1` (the
+shipped first-party extension, which always registers) and `markovian-provenance/v1` (a shipped
+third-party example, registered only when a caller registers it). All four fail
 `^[^/]+/[^/]+/v[0-9]+$`, the two built-ins most obviously of all. The decision is a membership test
 and nothing else: the reference verifier asks whether `type` is a key of its registry, and the
 bundle schema puts no `pattern` on the field. A conforming verifier MUST therefore match `type` as
