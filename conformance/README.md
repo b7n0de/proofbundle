@@ -136,7 +136,10 @@ axis decides the use:
   as an advisory code and not as a reason code; every other decision reports the digest of its policy;
   `accept` comes with ok, `reject` and `insufficient_evidence` without. A predicate that issuing refuses has
   no policy decision: a case whose predicate is refused is no valid vector of this axis and does not pass,
-  whatever it pins.
+  whatever it pins. Its report carries no value on the axis: the reference runner records such a case as a
+  FAIL whose detail is the refusal of issuing (`AgentReviewError: invalid agent-review/<version> predicate:
+  …`); `null` stays the decision of a case run without a policy, and no string stands in for a refused
+  predicate.
 
 ### `cap1_document`
 
