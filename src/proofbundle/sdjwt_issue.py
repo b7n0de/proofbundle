@@ -31,7 +31,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import _ein_stand, _feld_von, _plain_for_jcs, _zeichen_von, canonicalize_statement
+from .canonical import (NOT_CANONICALIZABLE, _ein_stand, _feld_von, _plain_for_jcs, _zeichen_von,
+                        canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
@@ -404,6 +405,24 @@ def _jwt_payload(compact: str) -> dict:
     return entschluesselt
 
 
+def _rfc8785_bytes(obj: Any) -> bytes:
+    """RFC 8785 (JCS) bytes of one always-open member, the form check_binds_bundle compares (OQ-22).
+
+    Everything the shared path refuses leaves as the documented BundleFormatError, as
+    ``anchors.receipt_canonical_root`` answers it: the canonicalizer's own refusal (an integer outside
+    I-JSON, NaN or Infinity in a caller's own claim) and the structural budget's, which runs first. One
+    wrapper for the one call site, so that the wrapper table of
+    tests/test_a_value_jcs_cannot_represent_is_a_typed_refusal.py holds its answer (B151: the binding check
+    called the canonicalizer itself and was missing there)."""
+    try:
+        return canonicalize_statement(obj)
+    except BundleFormatError:
+        raise
+    except NOT_CANONICALIZABLE as exc:
+        raise BundleFormatError(
+            f"an SD-JWT binding member is not RFC 8785 canonicalizable (fail-closed): {exc}") from exc
+
+
 @_ein_stand
 def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     """No-Fake binding: the SD-JWT's always-open claims MUST match the signed bundle payload, each present on
@@ -448,14 +467,14 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # read a field the SD-JWT does not carry as None, so it matched a claim's `null`. A field now binds only
     # when both sides carry it and both values write the same canonical bytes; `1` and `1.0` stay one value,
     # as RFC 8785 writes both `1`. A value the canonicalizer refuses (an integer outside I-JSON in a caller's
-    # own claim) cannot bind either.
+    # own claim) cannot bind either: `_rfc8785_bytes` answers it with BundleFormatError (B151).
     for field in ("passed", "threshold", "comparator", "suite", "issuer"):
         if field not in gelesen or field not in p:
             return False
         try:
-            if canonicalize_statement(p[field]) != canonicalize_statement(gelesen[field]):
+            if _rfc8785_bytes(p[field]) != _rfc8785_bytes(gelesen[field]):
                 return False
-        except (ProofBundleError, ValueError, RecursionError):
+        except BundleFormatError:
             return False
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the
