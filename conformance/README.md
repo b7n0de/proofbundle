@@ -66,7 +66,11 @@ axes:
 - `anchor`, when the case ships a proof: the verdict of `decision_receipt.jcs.ots` against the SHA-256 of
   `decision_receipt.jcs` (`docs/ANCHORS.md`, *The proof format and the verdict, exactly*), with the
   relying-party header the case supplies in `anchor.rpTrust.bitcoinBlockHeaderMerkleRootsByHeight`; that
-  header is an input, and `anchor.frozen` is producer evidence that never enters the verdict. The value is
+  header is an input, and `anchor.frozen` is producer evidence that never enters the verdict. A case that
+  declares no `anchor.rpTrust`, or an empty header map there, is judged with no relying-party header: the
+  axis carries the verdict step 4 gives without one (`pending` for a proof without a Bitcoin attestation,
+  `needs_rp_trust` for an upgraded one) and is not left out; a case that pins `confirmed` supplies the
+  header, and without one it is no valid vector of this axis and does not pass. The value is
   the status, `confirmed` or `pending`. A confirmation is not a blind pass: a wrong relying-party root gives
   `block_mismatch`, a negative exercised by `tests/test_anchors_ots.py`; the corpus itself runs the
   positive check.

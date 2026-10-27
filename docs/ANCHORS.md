@@ -217,7 +217,7 @@ to, for a receipt its content root) is read from the detached proof file alone, 
 4. **The verdict**, in this order. The file digest is not `R`: `unbound`. No Bitcoin attestation anywhere
    in the tree: `pending` when a pending attestation exists, else `empty`. The relying party supplied no
    block header (a map from height to `hashMerkleRoot` hex, `--bitcoin-header` or the policy's
-   `anchors.bitcoin_block_headers`): `needs_rp_trust`. Otherwise each Bitcoin attestation whose height
+   `anchors.bitcoin_block_headers`; an empty map is none): `needs_rp_trust`. Otherwise each Bitcoin attestation whose height
    the map covers is compared: its message equal to the supplied root, with at least one of the hash
    operations `08`, `02`, `03` on the path from the file digest down to it, is `confirmed`. When none
    confirms, the status is `null_op` when a matching attestation had no such hash operation on its path,
