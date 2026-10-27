@@ -134,7 +134,7 @@ def test_a_gated_call_leaves_one_line_with_what_was_checked_and_nothing_else(env
     assert answer["hookSpecificOutput"]["permissionDecision"] == "ask"
     (line,) = _lines(data)
     assert set(line) == ENTRY_KEYS
-    assert (line["host"], line["gate_version"], line["session_id"], line["tool"]) == ("claude", "0.3.0", "s-1", "Bash")
+    assert (line["host"], line["gate_version"], line["session_id"], line["tool"]) == ("claude", gate.GATE_VERSION, "s-1", "Bash")
     assert (line["actions"], line["decision"], line["verdict"], line["reason_ids"]) == (
         ["git push"], "ask", "ask", ["push_not_measured"])
     (entry,) = line["repos"]
