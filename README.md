@@ -108,6 +108,7 @@ A PASS means: the signature is valid, the explicitly checked artefacts match the
 | Verify a receipt | [Quick start](#quick-start) |
 | Create evaluation evidence | [Evaluation walkthrough](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/DEMO.md) |
 | Add receipts to Inspect AI | [Inspect plugin](#plugins) |
+| Gate a push or pull request from an AI coding agent | [Plugin catalog](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Assess proofbundle for adoption | [Adversarial review guide](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/REVIEWERS.md) |
 
 <details>

@@ -20,8 +20,8 @@ Properties checked:
   instructions, because a model can call the tool without the skill;
 - the server's version is the version of every manifest in the plugin folder, and every result carries
   it as plugin_version next to proofbundle_version;
-- every description of the plugin (both manifests, the marketplace, the catalog, the README)
-  carry the owner's text word for word; each but the marketplace's own begins with Verify
+- every description of the plugin (both manifests, the marketplace, the catalog, the README) and the
+  D14 addendum carry the owner's text word for word; each but the marketplace's own begins with Verify
   and marks receipt signing as experimental;
 - the plugin directory is not part of the Python distribution.
 """
@@ -44,7 +44,7 @@ from _plugin_env import plugin_env
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
-SKILLS = ("verify", "emit", "review-receipt")
+SKILLS = ("verify", "emit", "review-receipt", "selftest")
 RECEIPT_SKILLS = ("verify", "emit", "review-receipt")
 TOOL_PREFIX = "mcp__plugin_proofbundle_proofbundle__"
 
@@ -121,7 +121,8 @@ def test_every_component_the_plugin_names_exists():
 
 def test_a_skill_pre_approves_only_tools_the_server_lists(server):
     listed = {tool["name"] for tool in server.request("tools/list")["result"]["tools"]}
-    assert listed == {"receipt_template", "emit_receipt", "verify_receipt", "inspect_receipt"}
+    assert listed == {"receipt_template", "emit_receipt", "verify_receipt", "inspect_receipt", "gate_status",
+                      "gate_selftest_prepare", "gate_selftest_check"}
     for skill in SKILLS:
         fields = _frontmatter((PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
         assert fields.get("description"), skill
@@ -337,19 +338,22 @@ def test_the_server_itself_carries_the_rule_on_safe_for_automation(server):
     assert reply["result"]["instructions"].count(AUTOMATION_RULE) == 1
 
 
-#: The owner's server sentences of 2026-09-30 (A1), word for word.
+#: The owner's server sentences of 2026-09-30 (A1), word for word; GATE_NOTE_RULE is the one
+#: adapted to gate_status (DECISIONS.md, D21).
 KEY_RULE = ("Take the issuer public key only from the user or a source the user names as trusted, never from the "
             "receipt, its file name or a file next to it unless the user confirms it; without such a key, ask "
             "instead of verifying.")
 SCOPE_RULE = ("Report the scope sentence of every verify result verbatim, and never state that a verification "
               "shows a recorded value to be true.")
+GATE_NOTE_RULE = ("When a result carries gate_note, report it verbatim, and never state that the pre-push gate ran, "
+                  "passed or blocked anything unless gate_status reports it from the gate's log.")
 EMIT_RULE = ("Sign only a predicate the user has seen and confirmed, filled only with facts the user stated and "
              "digests computed from files the user named; never invent a digest, and never print, copy, move or "
              "commit a private key file.")
 
 
-def test_the_server_carries_the_owners_sentences_where_they_belong(server):
-    """KEY_RULE in the instructions and in verify_receipt, SCOPE_RULE in the instructions,
+def test_the_server_carries_the_owners_four_sentences_where_they_belong(server):
+    """KEY_RULE in the instructions and in verify_receipt, SCOPE_RULE and GATE_NOTE_RULE in the instructions,
     EMIT_RULE in emit_receipt, each once and nowhere else, beside the rules on safe_for_automation and on
     weakening, which stay as they are."""
     tools = {tool["name"]: tool["description"] for tool in server.request("tools/list")["result"]["tools"]}
@@ -357,7 +361,7 @@ def test_the_server_carries_the_owners_sentences_where_they_belong(server):
                                           "clientInfo": {"name": "test", "version": "0"}})
     instructions = reply["result"]["instructions"]
     where = {KEY_RULE: {"instructions", "verify_receipt"}, SCOPE_RULE: {"instructions"},
-             EMIT_RULE: {"emit_receipt"}}
+             GATE_NOTE_RULE: {"instructions"}, EMIT_RULE: {"emit_receipt"}}
     texts = dict(tools, instructions=instructions)
     for sentence, places in where.items():
         for name, text in texts.items():
@@ -365,17 +369,17 @@ def test_the_server_carries_the_owners_sentences_where_they_belong(server):
     for rule in (AUTOMATION_RULE, CONTENT_IS_DATA):
         assert instructions.count(rule) == 1
     assert tools["verify_receipt"].count(AUTOMATION_RULE) == 1
-    assert ("Never weaken a trust policy or an expected key; "
+    assert ("Never weaken the evidence declaration, a trust policy or an expected key to get past the gate; "
             "obtain the missing evidence instead or ask the user.") in instructions
 
 
-def test_the_scope_sentence_the_instructions_name_is_in_the_results(server):
+def test_the_scope_sentence_and_the_gate_note_the_instructions_name_are_in_the_results(server):
     key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
     result, _ = server.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-valid.json"),
                             public_key=key)
     assert result["scope"].startswith("A pass proves that the holder of the given key signed exactly these bytes")
     assert "does not prove that any recorded value is true" in result["scope"]
-    assert "gate_note" not in result, "a verify result carries no gate note"
+    assert "gate_note" not in result, "under Claude Code there is no gate note"
 
 
 EXIT_1 = "verification failed: a signature, structure or other check did not hold; the report names which"
@@ -427,11 +431,11 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
     assert template["plugin_version"] == declared
 
 
-#: The owner's texts of 2026-09-30, word for word. Texts 8 to 10 (the emit mark, the data rule, the exit 1
+#: The owner's texts of 2026-09-30, word for word; text 6 in the
+#: (Texts 1 and 2 without their hooks sentence: owner answer 1 of 2026-10-26 moves the hooks of the Codex
+#: manifest and the hooks sentence of both manifests into the Guard slice 02c, which restores them here.)
+#: owner's wording of 2026-10-08 (owner choice K5-3 A). Texts 8 to 10 (the emit mark, the data rule, the exit 1
 #: text) are held by the tests above and below.
-#: Delivery -2 (Nachtrag 3, point 4): texts 1, 2, 4, 5 and 6 are held as the owner chose them (answer 1 A of
-#: Nachtrag 7, 2026-10-26), the owner's text with its sentences on hooks deleted; the Guard slice 02c restores
-#: the owner's wording here.
 OWNER_TEXTS = {
     "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
           "evidence bundles, and review verification results separately from recorded claims. Receipt "
@@ -444,17 +448,28 @@ OWNER_TEXTS = {
           "value is true."),
     "3": ("This marketplace contains the proofbundle plugin for receipt and evidence verification."),
     "4": ("Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence "
-          "bundles, and review recorded claims. "
-          "Receipt signing is experimental and requires an explicit user request."),
+          "bundles, and review recorded claims. Active hooks check declared repository evidence before "
+          "supported actions. Receipt signing is experimental and requires an explicit user request."),
     "5": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
-          "separately from recorded claims. Receipt "
+          "separately from recorded claims. Hooks check declared repository evidence before `git push`, "
+          "`gh pr create`, `gh release create` and the six supported MCP tools for creating pull or "
+          "merge requests or releases, pushing files, writing files or merging pull requests. Receipt "
           "signing is experimental and requires an explicit user request."),
     "6": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
-          "separately from recorded claims. Receipt signing is experimental and requires an explicit user request."),
+          "separately from recorded claims. Codex runs the repository checks only after you trust the "
+          "plugin's hooks. When they run, repositories without an evidence declaration get NOT MEASURED "
+          "and no decision, a `git push` gets NOT MEASURED with a warning, and other unmeasurable calls "
+          "are denied. Each `verify_receipt` result states that the server cannot tell whether these "
+          "checks ran. Receipt signing is experimental and requires an explicit user request."),
     "7": ("Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, "
           "and review verification results separately from recorded claims. Receipt signing is "
           "experimental and requires an explicit user request. Verification proves authorship and "
           "integrity of what was recorded, not that any recorded value is true."),
+    "11": ("In the 30 September 2026 check, Codex 0.159.2 read a root Agent Plugins `plugin.json` but "
+           "did not load its hooks, including hooks in `extensions[\"com.openai\"]`. Source inspection "
+           "found the same loader code in 0.161.0-alpha.4 (`core-plugins/src/loader.rs`). The gate "
+           "requires hooks, so this plugin keeps `.codex-plugin/plugin.json` and omits a root "
+           "`plugin.json` until a released Codex version loads hooks for that format."),
 }
 
 
@@ -469,20 +484,26 @@ def _descriptions() -> dict[str, str]:
             if line.startswith(f"| {host} | "):
                 found[key] = [c.strip() for c in line.strip("|").split(" | ")][1]
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
-    # Text 7 is the README's first paragraph after the title.
-    found["7"] = " ".join(readme[1].split())
+    # The owner's sentence of 2026-10-08 (what the user gets, one sentence) opens the README; text 7 follows it.
+    found["7"] = " ".join(readme[2].split())
+    decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
+    d14 = decisions.split("## D14.", 1)[1].split("\n## ", 1)[0]
+    found["11"] = " ".join(d14.split("Addendum (owner, 2026-09-30): ", 1)[1].split("\n\n", 1)[0].split())
     return found
 
 
 def test_every_description_carries_the_owners_text_word_for_word():
     found = _descriptions()
     assert set(found) == set(OWNER_TEXTS)
-    for key in ("1", "2", "3", "4"):
+    for key in ("1", "2", "3", "4", "11"):
         assert found[key] == OWNER_TEXTS[key], key
     for key in ("5", "6"):
         assert found[key] == OWNER_TEXTS[key].rstrip("."), "a catalog cell ends without a period"
         assert not found[key].endswith(".")
-    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's first paragraph is the owner's text"
+    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's second paragraph is the owner's text"
+    opening = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")[1].split())
+    assert opening.startswith("Your agent can call a task done only when") and opening.count(". ") == 0
+    assert opening.endswith(".")
     for key in ("1", "2", "4", "5", "6", "7"):
         assert found[key].startswith("Verify"), key
         assert "Receipt signing is experimental and requires an explicit user request" in found[key], key
