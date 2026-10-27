@@ -200,6 +200,9 @@ bare context-free `OK`.
 2. **Anchoring / verify:** an anchor binds SHA-256 over the **exact DSSE payload bytes as transmitted**; the
    verifier **never** re-canonicalizes (DSSE rule: verify exact bytes). If the received payload deviates from
    its own RFC-8785 canonicalization, that is a fail-closed error, not a repair case.
+   On the receipt under verification, on the decision, outcome and relation-statement paths alike, that error
+   is malformed (exit 2) once the signature verifies, and the receipt's edges are still judged; a signature
+   that fails is exit 1 first (`docs/predicates/relation.md`, the statement oracle).
 
 So `hash(exact bytes) == hash(RFC-8785 form)`, consistent with the enclave binding and with the
 `RFC 8785 → sha256 → anchored root` path. proofbundle does **not** adopt the field-subset canonicalization
