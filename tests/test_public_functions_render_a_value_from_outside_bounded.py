@@ -115,6 +115,9 @@ _DOCUMENTED_BUILTIN = {
     # One function, not the module: verify_trace_record never raises in its body, and a module-wide
     # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
     "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
+    # One function again: load_trusted_key raises ValueError for a trust configuration it cannot use, and
+    # verify_containment_record answers every record and seal with a refusal.
+    "proofbundle.containment.load_trusted_key": (ValueError,),
 }
 
 #: Per-call time limit in seconds, and the functions with a shorter one because a planted number is
@@ -536,6 +539,18 @@ def _trace_verdict(tmp: Path):
     return [((verify_trace_record(*a, **k),), {})]
 
 
+_CONTAINMENT_PACK = REPO / "examples" / "certisyn_containment_pilot" / "pack"
+
+
+def _containment_call(tmp: Path):
+    """P01 of the Certisyn containment pilot pack with its own input, under the key of the pack's KEY.json,
+    so a seed reaches all seven steps and is accepted."""
+    from proofbundle.containment import load_trusted_key
+    record, seal, key, eingabe = ((_CONTAINMENT_PACK / name).read_bytes() for name in (
+        "vectors/P01.record.json", "vectors/P01.seal.json", "KEY.json", "inputs/P01.input.json"))
+    return [((record, seal), {"trusted_key": load_trusted_key(key), "input_series": eingabe})]
+
+
 def _p384_call(tmp: Path):
     """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
     from cryptography.hazmat.primitives import hashes
@@ -635,6 +650,11 @@ _HAND_SEEDS = {
     "proofbundle.adapters.trace_record.exit_code": _trace_verdict,
     "proofbundle.adapters.trace_record.jwk_thumbprint": lambda tmp: [((_trace_jwk(),), {})],
     "proofbundle.adapters.trace_record.verify_trace_record": lambda tmp: [_trace_record_call()],
+    # The reader of Certisyn's sealed containment records (2026-10-27): the pilot pack's own files, read at
+    # run time from examples/, which the sdist carries.
+    "proofbundle.containment.load_trusted_key": lambda tmp: [(((_CONTAINMENT_PACK / "KEY.json").read_bytes(),),
+                                                              {})],
+    "proofbundle.containment.verify_containment_record": _containment_call,
     "proofbundle.signature.verify_ecdsa_p384": _p384_call,
 }
 

@@ -372,3 +372,58 @@ def test_a_trust_configuration_refused_before_the_body_still_raises_value_error(
         value.release()
     with pytest.raises(ValueError):
         reader.load_trusted_key(value)
+
+
+# ── one wire form, and the classes of the pack's Node verifier asked of this reader ─────────────────────────────────
+
+_STD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def _padbit_spelling(text: str) -> str:
+    """The same bytes with non-zero pad bits in the last symbol, a second spelling RFC 4648 section 3.5 lets a
+    decoder refuse."""
+    core = text.rstrip("=")
+    frei = {1: 2, 2: 4}[len(text) - len(core)]
+    index = _STD_ALPHABET.index(core[-1])
+    assert index & ((1 << frei) - 1) == 0, "the input is not canonical"
+    return core[:-1] + _STD_ALPHABET[index | 1] + text[len(core):]
+
+
+def test_a_second_spelling_of_the_signature_is_refused_at_signature(reader):
+    # Non-zero pad bits decode to the same 64 bytes. A reader that took them would accept a second, byte-distinct
+    # seal for P01, so a seal has one accepted wire form, the canonical one.
+    original = json.loads(_read("vectors/P01.seal.json"))["signature_b64"]
+    variant = _padbit_spelling(original)
+    assert variant != original and base64.b64decode(variant) == base64.b64decode(original)
+    result = _verify(reader, "P01", input_id="P01", seal=_seal_with("P01", signature_b64=variant))
+    assert result["outcome"] == "REFUSE"
+    assert _failed(result) == {"signature"}
+
+
+def test_a_second_spelling_of_the_trusted_key_is_refused(reader):
+    config = json.loads(_read("KEY.json"))
+    config["ed25519_pub_b64"] = _padbit_spelling(config["ed25519_pub_b64"])
+    assert base64.b64decode(config["ed25519_pub_b64"]) == PINNED_KEY
+    with pytest.raises(ValueError):
+        reader.load_trusted_key(json.dumps(config))
+
+
+@pytest.mark.parametrize("text", [b"null", b"false", b"0", b'""'])
+def test_a_supplied_input_that_parses_to_a_false_value_is_still_compared(reader, text):
+    # The pack's Node verifier skips the comparison for such a value (Codex on pull request 426). A supplied input
+    # is compared whatever it parses to, and none of these is P01's input.
+    result = reader.verify_containment_record(_read("vectors/P01.record.json"), _read("vectors/P01.seal.json"),
+                                              trusted_key=PINNED_KEY, input_series=text)
+    assert result["outcome"] == "REFUSE"
+    assert _failed(result) == {"input_digest"}
+
+
+def test_a_member_named_proto_is_digested_like_every_other_member(reader):
+    # In the pack's Node verifier `__proto__` sets the prototype and leaves the record before the digest (Codex on
+    # pull request 426). Here it stays a member, so the record no longer recomputes its result_digest.
+    record = _read("vectors/P01.record.json")
+    start = record.index(b"{") + 1
+    planted = record[:start] + b'"__proto__":{"verdict":"ATTACKER"},' + record[start:]
+    result = reader.verify_containment_record(planted, _read("vectors/P01.seal.json"), trusted_key=PINNED_KEY)
+    assert result["outcome"] == "REFUSE"
+    assert _failed(result) == {"result_digest"}

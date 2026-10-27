@@ -39,12 +39,12 @@ including a refusal by that argument-reading guard.
 """
 from __future__ import annotations
 
-import base64
 import binascii
 import hashlib
 from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
+from ._wire_b64 import decode_b64
 from .canonical import _ein_stand, canonicalize_statement
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text, verify_ed25519_pinned
 
@@ -110,11 +110,9 @@ def load_trusted_key(raw: Any) -> bytes:
     if not _is_str(b64):
         raise ValueError("the trust configuration carries no ed25519_pub_b64 text")
     try:
-        key = base64.b64decode(b64.encode("ascii"), validate=True)
-    except (binascii.Error, UnicodeEncodeError):
-        raise ValueError("ed25519_pub_b64 is not base64") from None
-    if base64.b64encode(key).decode("ascii") != b64:
-        raise ValueError("ed25519_pub_b64 is not the canonical base64 of its bytes")
+        key = decode_b64(b64)
+    except binascii.Error:
+        raise ValueError("ed25519_pub_b64 is not canonical base64") from None
     weakness = ed25519_trust_anchor_weakness(key)
     if weakness is not None:
         raise ValueError(f"the trusted key cannot stand as an Ed25519 trust anchor ({weakness})")
@@ -257,9 +255,9 @@ def verify_containment_record(record: Any, seal: Any, *, trusted_key: Any, input
             fail("signature", "the seal carries no signed_message or signature_b64 text")
             return
         try:
-            signature = base64.b64decode(signature_b64.encode("ascii"), validate=True)
-        except (binascii.Error, UnicodeEncodeError):
-            fail("signature", "signature_b64 is not base64")
+            signature = decode_b64(signature_b64)
+        except binascii.Error:
+            fail("signature", "signature_b64 is not canonical base64")
             return
         if verify_ed25519_pinned(key, signature, message.encode("utf-8")):
             passed("signature")

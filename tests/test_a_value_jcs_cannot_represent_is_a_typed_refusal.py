@@ -199,8 +199,8 @@ def _wrappers() -> dict:
     """(module, function) -> (call with one value, what it answers). One entry for every function
     under src/proofbundle that calls the canonicalizer itself; the inventory test holds the list
     complete."""
-    from proofbundle import (anchors, canonical, decision, evalclaim, intoto, outcome,  # noqa: PLC0415
-                             relation_statement, run_ledger, subject_binding, trust_pack,
+    from proofbundle import (anchors, canonical, containment, decision, evalclaim, intoto,  # noqa: PLC0415
+                             outcome, relation_statement, run_ledger, subject_binding, trust_pack,
                              verification_summary, verifier_block)
     from proofbundle._statement_payload import load_statement_strict  # noqa: PLC0415
     from proofbundle.adapters import _provenance, eee, trace_record  # noqa: PLC0415
@@ -239,6 +239,10 @@ def _wrappers() -> dict:
         # have read, and those refuse each of these values first, as an unreadable record with exit 2
         # (tests/test_trace_record.py).
         ("adapters.trace_record", "_jcs"): (trace_record._jcs, ValueError),
+        # The containment reader's digest passes the refusal on too: `verify_containment_record` hands it
+        # only what the strict parser has read, which refuses each of these values first, and runs every
+        # step that digests under its guard, so a refusal there is a failed step, never a raise.
+        ("containment", "_digest"): (containment._digest, ValueError),
         # The primitives pass the canonicalizer's refusal on unchanged: that is their documented
         # contract (canonical.canonicalize_statement), and every caller above maps it.
         ("canonical", "canonicalize_statement"): (canonical.canonicalize_statement, ValueError),
@@ -391,6 +395,11 @@ _BUDGET_ANSWERS: dict = {
     # strict parser in front of it refuses all three, so no record that reaches it holds one.
     ("adapters.trace_record", "_jcs"): {"lone surrogate": ValueError, "nesting 70 deep": b'{"x":[',
                                         "2**8194": ValueError},
+    # `containment._digest` goes through `canonicalize_statement` and passes the budget's refusal on as the
+    # primitives do (measured 2026-10-27: BundleFormatError twice, BudgetExceeded once). The strict parser in
+    # front of it refuses all three, and `verify_containment_record` runs every digesting step under its
+    # guard, so a refusal there is a failed step.
+    ("containment", "_digest"): ProofBundleError,
 }
 
 #: Entries of `_wrappers` this section does not ask, each with the reason.
