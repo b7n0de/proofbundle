@@ -1,0 +1,30 @@
+{
+  "name": "proofbundle",
+  "version": "0.3.0",
+  "description": "Verify decision and outcome receipts in Codex against your chosen issuer key, check evidence bundles, and review verification results separately from recorded claims. Receipt signing is experimental and requires an explicit user request. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
+  "keywords": [
+    "proofbundle",
+    "receipts",
+    "dsse",
+    "ed25519",
+    "verification",
+    "supply-chain"
+  ],
+  "skills": "./skills",
+  "mcpServers": {
+    "proofbundle": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--quiet",
+        "--no-config",
+        "--script",
+        "server/proofbundle_mcp.py"
+      ],
+      "cwd": ".",
+      "env": {
+        "PROOFBUNDLE_PLUGIN_HOST": "codex"
+      }
+    }
+  }
+}
