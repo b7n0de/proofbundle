@@ -1,0 +1,8 @@
+{
+  "schema": "proofbundle-plugin/evidence/v0.2",
+  "evidence": [],
+  "done": {
+    "receipt": ".proofbundle/proofbundle_pytest_receipt.json",
+    "policy": ".proofbundle/done-policy.json"
+  }
+}
