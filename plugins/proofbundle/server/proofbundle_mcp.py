@@ -23,7 +23,7 @@ import uuid
 
 SERVER_NAME = "proofbundle"
 #: The plugin's version, the one in every manifest of this folder; a test holds them equal.
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 CLI_TIMEOUT_SECONDS = 120
 KINDS_SIGNED = ("decision", "outcome")
