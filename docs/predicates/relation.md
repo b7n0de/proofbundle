@@ -219,7 +219,12 @@ bound is depth-exceeded.
   edge's declared target digest is compared with the expected roots in the same way.
 - `targetSubjectDigest` (edge field): when PRESENT it is now binding — gegengeprueft against
   the resolved target's real subject digest; a mismatch is a lineage FAIL
-  (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break.
+  (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break. It binds at every hop
+  of the attached ancestry: an edge of an attached ancestor whose target is attached is checked against
+  that target in the same way, before the walk descends into it, and a failure there makes the receipt's
+  own edge FAIL (exit 2) with the error `relation:ancestor_edge:` followed by the pin's code; on the
+  receipt's own edge the walk into the target's ancestry comes first and the pin after it. An ancestor
+  edge whose target is not attached is not checked.
   **What is compared.** The field has the object form of `targetReceiptDigest`, and its
   `digestAlgorithm` MUST be a registered content-root algorithm (today only `jcs-sha256-v1`),
   but its `digest` is NOT a content root: it is compared, as 64 lowercase hex, with the `sha256`
