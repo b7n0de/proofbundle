@@ -109,7 +109,10 @@ not verify standalone. An attachment that no edge names changes nothing, whether
 
 **The attached ancestry.** A VERIFIED edge is followed into the edges its target declares, and on, as
 far as targets are attached. The direct targets of the receipt under verification are at depth 1;
-resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). An attached
+resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). The depth of
+an attached target is checked before anything else about it, so an attached target at depth 33 gives
+this code whether it verifies and whether its payload is well formed; a target at depth 33 that is not
+attached ends the walk there, as at any depth. An attached
 ancestor that an edge of the ancestry names and that does not verify standalone makes the receipt's edge
 FAIL as well (`relation:ancestor_verification_failed`). An ancestor whose payload the statement oracle
 below refuses makes it FAIL with `relation:ancestor_edge:` followed by `relation:attached_target_malformed
