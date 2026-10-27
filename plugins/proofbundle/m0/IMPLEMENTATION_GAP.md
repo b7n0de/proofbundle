@@ -1,11 +1,14 @@
 # proofbundle plugin: target and actual state per host (stage M0)
 
-Each row: the property as [PRODUCT_SPEC.md](PRODUCT_SPEC.md) wants it, what stands today, its status, the commit the
-statement is about, and the measurement behind it. A harness measurement starts the hook or the server as a process with
-a recorded event or request; a host measurement runs the real host. Where nothing was measured, the row says NOT
-MEASURED and claims nothing. Written for follow-up note 45 (2026-10-20); the head of this delivery carries the gate blob
-1c4b7810, the same as commit edfb9ace. Follow-up note 48 adds the owner answers O45-1 to O45-3 as decided and the triage of
-PRODUCT_SPEC.md; the measurements of the rows stay those named in them.
+Each row identifies a property, its actual state, a revision and the measurement behind it. A harness runs recorded
+events or requests; a host measurement runs the real host. This table preserves the historical measurements cited in its
+rows. A VERIFIED row applies only to the revision and environment named in that row; it is not a VERIFIED result for a
+later gate. The earlier delivery used gate blob 1c4b7810 at edfb9ace. The Guard Preview stack reviewed on 2026-10-26 has
+tree 229062a870ef002c8ad1fccba08100bc684abf69 and gate blob e3300f49. The harness results of that stack are those of the
+supplied Guard Preview measurement package; they are not results for a later gate, whose harness results are those of
+the tests at its own commit. Clean installation, update, removal and operation with real models at this stack are NOT
+MEASURED. The external D28 host runs remain historical observations, including rows G-CC-5 and G-CX-3. Follow-up note 48
+adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.md.
 
 ## Claude Code
 
