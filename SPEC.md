@@ -283,7 +283,13 @@ and its issuer signature verified, in **two** cases:
    (members such as `passed`, `threshold` or `suite` do not make a payload an eval
    claim; only `schema` does), and the bundle carries `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
    `comparator`, `suite`, `issuer`) and its committed `receipt.root_b64` MUST match
-   the bundle payload bit-exact and bind **this** bundle's Merkle root. A valid
+   the bundle payload and bind **this** bundle's Merkle root. The five members are read from the
+   issuer-signed payload of the SD-JWT (the part of `sd_jwt_vc.compact` before the first `~`; a value
+   carried only in a selective disclosure does not count) and from the bundle payload; each must be
+   present in the bundle payload, and one absent from the SD-JWT counts as `null`. Two values match when
+   they are equal as parsed JSON values: strings and object members exactly, numbers by value (`1` equals
+   `1.0`), and `true` and `false` equal to the numbers `1` and `0`. `receipt.root_b64` of the
+   issuer-signed payload must be a string equal, character for character, to `merkle.root_b64`. A valid
    issuer signature over disclosures that describe a *different* bundle (a receipt
    lifted and grafted on — cross-receipt substitution) **FAILS** (reason:
    `unbound`/`mismatch`).
