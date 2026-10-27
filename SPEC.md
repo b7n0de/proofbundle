@@ -751,6 +751,16 @@ different in kind. And the identifiers of the C2SP checkpoint machinery (§7c/§
 row: they name a signature block on a checkpoint, never a member of `anchors[]`, and they are
 listed here only so a reader does not go looking for them in the registry.
 
+**What the reference registers.** Its `verify` command line carries `chia-datalayer/v1` always, and
+`rfc3161-tsa` and `opentimestamps` when the `[anchors]` extra is installed; `markovian-provenance/v1`
+is carried only once a caller registers it (`anchors_markovian.register()`), which the command line
+does not do. An entry whose `canonicalRoot` is not its target's root FAILs before the verifier of its
+type runs; an entry of a type that is not registered FAILs with `no verifier registered for anchor
+type '<type>'`, exactly as an unknown type, so to a verifier that does not carry a type an entry of
+that type is an unknown type. The one anchored case of the conformance corpus is marked
+`requiresAnchorsExtra`: it is read with the extra installed, and without it a run with
+`--require-anchors` fails and any other run does not run the case.
+
 `canonicalRoot` is compared to the root of the anchor's OWN `target`: a
 `preRegistration` anchor can never validate a `receipt` target and vice versa
 (the roots differ, and a mismatch is a FAIL). A future `statement` target — for
