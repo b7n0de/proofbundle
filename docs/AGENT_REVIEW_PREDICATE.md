@@ -348,9 +348,11 @@ number 0, the empty string, the empty array or the empty object, and as given ot
 type (`true`, `" "` and `[""]` included); `sources` must still be an array of strings. With a
 CAP-1 member present, `COMPLETE` is refuted only by those counters (integer `observedRuns` below integer
 `expectedRuns`, or `expectedRuns` 0) and by a non-empty `knownGaps`, and the CAP-1 rules judge the rest.
-They judge a cap/1 document built from the coverage: `profile` `cap/1`, a `subject` the predicate
-supplies (the coverage carries neither), and `strata`, `integrity` and `absenceAssertions`, the last under
-its profile name `absence_assertions`; the members inside them keep the names of the profile. Each rule of
+They judge a cap/1 document built from the coverage: `profile` `cap/1`, the fixed `subject`
+`{"kind": "agentReviewSubject", "ref": "subjectContext"}` (the coverage carries neither; the subject is the
+same for every predicate, no member of the predicate enters it, and rule R0 never fires for it), and
+`strata`, `integrity` and `absenceAssertions`, the last under its profile name `absence_assertions`; the
+members inside them keep the names of the profile. Each rule of
 R0 to R8 that fires is a finding of the predicate with its own code beginning with `COVERAGE_CAP1_`
 (`COVERAGE_CAP1_SHAPE` for R0, `COVERAGE_CAP1_ABSENCE_UNSCOPED` for R6), and so is, with a non-empty
 `strata`, a `status` other than the one `integrity.complete` derives (`true` derives `COMPLETE`, anything
