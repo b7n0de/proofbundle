@@ -236,14 +236,18 @@ bound is depth-exceeded.
   `same-key` is then met, and `pinned` judges the successor's key as on a resolved edge. `same-key` is
   judged only on a VERIFIED edge; on an edge whose attached target does not verify (its signature, its key
   or a payload the statement oracle refuses) the edge is FAIL, `same-key` adds no
-  `RELATION_SIGNER_UNAUTHORIZED`, and the lineage FAIL decides (exit 2).
+  `RELATION_SIGNER_UNAUTHORIZED`, and the lineage FAIL decides (exit 2). `pinned` is judged on every
+  edge of its relation, an edge that is FAIL included: there a successor key outside the pinned set adds
+  `RELATION_SIGNER_UNAUTHORIZED` to the report, and the lineage FAIL still decides the exit (2).
 - `require_relation_target` (since 3.4.0, WHICH parent): per relation, an expected parent
   content root or a list of them. A supersedes-like edge that resolves to any OTHER parent
   — even a valid, attached, verified one — → `RELATION_TARGET_MISMATCH`, exit 3. This fires
   on EVERY such edge, the accept path (T2) included: it closes the decoy-parent gap where
   `require_relation_resolution` alone only proved that SOME edge resolves, not that it
   resolves to the parent the relying party named. On an edge whose target is not attached, the
-  edge's declared target digest is compared with the expected roots in the same way.
+  edge's declared target digest is compared with the expected roots in the same way, and so it is on an
+  edge that is FAIL: there a target outside the expected roots adds `RELATION_TARGET_MISMATCH` to the
+  report, and the lineage FAIL still decides the exit (2).
 - `targetSubjectDigest` (edge field): when PRESENT it is now binding — gegengeprueft against
   the resolved target's real subject digest; a mismatch is a lineage FAIL
   (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break. It binds at every hop
