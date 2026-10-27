@@ -233,7 +233,10 @@ bound is depth-exceeded.
   chains verifiable: attach a predecessor of a foreign ring with `--with-related PATH
   --related-pub B64` (position-paired), and the check runs against the key the target
   ACTUALLY verified under, never a claim. On an edge whose target is not attached there is no target key:
-  `same-key` is then met, and `pinned` judges the successor's key as on a resolved edge.
+  `same-key` is then met, and `pinned` judges the successor's key as on a resolved edge. `same-key` is
+  judged only on a VERIFIED edge; on an edge whose attached target does not verify (its signature, its key
+  or a payload the statement oracle refuses) the edge is FAIL, `same-key` adds no
+  `RELATION_SIGNER_UNAUTHORIZED`, and the lineage FAIL decides (exit 2).
 - `require_relation_target` (since 3.4.0, WHICH parent): per relation, an expected parent
   content root or a list of them. A supersedes-like edge that resolves to any OTHER parent
   — even a valid, attached, verified one — → `RELATION_TARGET_MISMATCH`, exit 3. This fires
