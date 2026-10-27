@@ -352,3 +352,14 @@ def test_the_steps_are_the_seven_of_format_md_section_6_in_their_order(reader):
     assert reader.STEPS == ("parse", "schema", "result_digest", "input_digest", "seal_domain", "signed_message",
                             "signature")
     assert list(_verify(reader, "P01")["steps"]) == list(reader.STEPS)
+
+
+@pytest.mark.parametrize("kind", ["iterator", "released_memoryview"])
+def test_a_trust_configuration_refused_before_the_body_still_raises_value_error(reader, kind):
+    if kind == "iterator":
+        value = iter([b"{}"])
+    else:
+        value = memoryview(b"{}")
+        value.release()
+    with pytest.raises(ValueError):
+        reader.load_trusted_key(value)

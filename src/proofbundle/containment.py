@@ -84,7 +84,7 @@ def _is_str(value: Any) -> TypeGuard[str]:
     return type(value) is str
 
 
-@_ein_stand
+@_ein_stand(fehler=ValueError)
 def load_trusted_key(raw: Any) -> bytes:
     """The raw 32-byte Ed25519 key of a trust configuration in the pack's KEY.json form.
 
