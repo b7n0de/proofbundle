@@ -88,7 +88,12 @@ Datatracker.)
 
 Targets are attached OFFLINE (`decision verify --with-related PATH`, repeatable; never
 fetched). Each attached target is verified STANDALONE first, then keyed by its COMPUTED
-content root. A `--with-related` file that cannot be read as a DSSE envelope with a decodable payload
+content root. Attachments whose computed content roots are equal are one target: copies that verify
+alike under the same key (the same envelope given twice, or copies that all fail under it) are judged
+as one, and copies that differ in whether they verify, or that verify under different keys, are a
+contradiction, malformed input (exit 2, `attachments share content root … but verify differently`),
+and nothing is verified; no copy is chosen, by order or otherwise. A `--with-related` file that cannot
+be read as a DSSE envelope with a decodable payload
 (no JSON, no envelope, a payload that is no Base64, a file that does not exist) is malformed input
 (exit 2, `cannot read --with-related <path>`), and nothing is verified; so is a `--related-pub` that
 is no Base64. An envelope that is read is an attachment, whatever its payload holds. `--pub`, the key
