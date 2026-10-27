@@ -2,9 +2,15 @@ Certisyn containment pilot pack
 
 The directory pack/ is copied unchanged from the repository Certisyn-Inc/certisyn-drafts, pull request 12,
 commit 8c01cd7a543d9e7359238958355d491f7923cf58, directory interop/containment-pilot/: MANIFEST.sha256 and the
-36 files it lists. The README.md of that directory states that the verifier and the vectors are licensed under the
-Apache License, Version 2.0. A copy of the license is LICENSE.author in this directory.
+36 files it lists. Its README.md licenses the verifier and the vectors under the Apache License, Version 2.0.
+A copy of that license is LICENSE.author in this directory.
 
-Everything outside pack/ was added by proofbundle and is not part of the copied pack. proofbundle does not run
-pack/verify.mjs or pack/run-all.mjs; they are kept so that pack/ is the pack as published.
+The upstream repository README at the same commit licenses its supporting material under MIT and reserves
+other rights to Certisyn, Inc.:
+https://github.com/Certisyn-Inc/certisyn-drafts/blob/8c01cd7a543d9e7359238958355d491f7923cf58/README.md#licence
+The MIT license terms accompany proofbundle in ../../LICENSE. Attribution for the copied supporting material
+remains with Certisyn, Inc.; proofbundle's copyright notice applies to proofbundle's own work.
+
+proofbundle's own additions beside pack/ are MIT-licensed. LICENSE.author preserves the Apache license text.
+proofbundle does not run pack/verify.mjs or pack/run-all.mjs; they are kept so that pack/ is the pack as published.
 tests/test_certisyn_containment_reader.py checks every line of pack/MANIFEST.sha256.

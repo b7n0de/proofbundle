@@ -1,8 +1,8 @@
 """The reader of Certisyn's sealed containment records (``certisyn/containment-public/v1``), against the pilot pack.
 
 The pack is copied unchanged from Certisyn-Inc/certisyn-drafts pull request 12 (commit 8c01cd7a, directory
-interop/containment-pilot, Apache-2.0, see the NOTICE beside it) into examples/certisyn_containment_pilot/pack/. Its
-FORMAT.md is the specification. The scope of the reader is integrity, and nothing in this file claims more.
+interop/containment-pilot) into examples/certisyn_containment_pilot/pack/. See the NOTICE beside it for the upstream
+licences. FORMAT.md is the specification. The scope of the reader is integrity, and nothing in this file claims more.
 
 What is measured here:
   * every line of MANIFEST.sha256 holds, and pack/ holds nothing else;
@@ -118,8 +118,17 @@ def test_the_provenance_names_the_pull_request_the_commit_the_path_and_the_licen
     assert (provenance["copied_files"], provenance["listed_in_manifest"]) == (37, 36)
     assert hashlib.sha256((EXAMPLE / "LICENSE.author").read_bytes()).hexdigest() == APACHE_2_0_SHA256
     assert "Apache-2.0 for the verifier and vectors" in _read("README.md").decode("utf-8")
+    # The Apache statement covers the verifier and the vectors; the upstream README at the same commit licenses the
+    # supporting material under MIT, whose terms are proofbundle's own LICENSE.
+    assert provenance["license_scope"] == "verifier and vectors"
+    assert provenance["supporting_material_license"] == "MIT"
+    assert (EXAMPLE / provenance["supporting_material_license_text"]).resolve() == REPO / "LICENSE"
+    assert (REPO / "LICENSE").read_text(encoding="utf-8").startswith("MIT License")
+    assert provenance["supporting_material_license_stated_in"].startswith(
+        "https://github.com/Certisyn-Inc/certisyn-drafts/blob/8c01cd7a543d9e7359238958355d491f7923cf58/")
     notice = (EXAMPLE / "NOTICE").read_text(encoding="utf-8")
     assert "8c01cd7a543d9e7359238958355d491f7923cf58" in notice and "Apache License, Version 2.0" in notice
+    assert "under MIT" in notice and "../../LICENSE" in notice
 
 
 # ── the trust configuration ────────────────────────────────────────────────────────────────────────────────────────

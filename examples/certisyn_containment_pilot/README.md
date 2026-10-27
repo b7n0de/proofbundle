@@ -35,5 +35,7 @@ The script needs no network. It prints `expected_output.txt` byte for byte and e
 
 ## License
 
-`pack/` is Apache-2.0, as its `README.md` states; the license text is `LICENSE.author`, the provenance is in `NOTICE`
-and `PROVENANCE.json`. The files beside `pack/` are proofbundle's, under its MIT license.
+The verifier and vectors in `pack/` are Apache-2.0, as `pack/README.md` states. The upstream repository README at the
+recorded commit licenses its supporting material under MIT. `LICENSE.author` contains the Apache License 2.0 text;
+the MIT terms are in `../../LICENSE`. `NOTICE` and `PROVENANCE.json` record both licence sources and the attribution
+to Certisyn. proofbundle's own additions are MIT-licensed; `LICENSE.author` preserves the Apache licence text.
