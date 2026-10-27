@@ -169,12 +169,12 @@ repository, `GIT_DIR`, `GIT_WORK_TREE` or `GIT_COMMON_DIR` in the environment, a
 did not write (it names that hook's path and leaves it as it is). Running it again replaces only its own hook.
 Under Codex's `workspace-write` sandbox with the network off the hook runs, but the verifier cannot start (uv has no
 writable cache and no network), so it denies every push that needs the verifier; measured with Codex 0.161.0 (D24B).
-It then says so in a text of its own (owner choice K02-A C), reason `sandbox_verifier_unavailable`: "NOT MEASURED:
-the verifier cannot start here, so this push was not checked", with what it measured, and "The push belongs to a
-person outside the sandbox; the boundary is the required CI check". It names this only when uv's own answer reports
-a failed write or a failed name resolution and a probe of the gate's own confirms it (a write in uv's cache, a name
-resolution, or a connection to an address-literal proxy), never from an environment name; otherwise the start
-failure keeps its generic text. Either way the push is denied (exit 1).
+Where the verifier cannot start under that sandbox, the hook says so in a text of its own (owner choice K02-A C), reason
+`sandbox_verifier_unavailable`: "NOT MEASURED: the verifier cannot start here, so this push was not checked", with what
+it measured, and "The push belongs to a person outside the sandbox; the boundary is the required CI check". It names
+this only when uv's own answer reports a failed write or a failed name resolution and a probe of the gate's own confirms
+it (a write in uv's cache, a name resolution, or a connection to an address-literal proxy), never from an environment
+name; otherwise the start failure keeps its generic text. Either way the push is denied (exit 1).
 
 **A push handed over to Level 2** (owner adoption of review round 18, D35). Level 1 does not read the remote, so a
 push asks at the destination check. Where you want such a push to need no question from the gate, you set up three
@@ -186,15 +186,16 @@ printf 'with-approvals\n' > <gate directory>/mode
 python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
 ```
 
-The gate directory is `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else
-`~/.config/proofbundle`. The last command prints a digest and an entry; put the entry into `transports.json` there, a
-JSON array. It approves the transport of that remote at that URL, with the programs, credentials and proxy it uses,
-which start before Level 2 judges. A change of that configuration, of those environment names or of a program file they
-name asks again at the next push; the program behind a wrapper word such as `env`, what such a program reads or starts
-in turn, and an `Include` of the ssh configuration are not bound (D35). A remote helper transport, a path remote git
-reaches only by another name (a `.git` suffix, a git file), a configured command with shell syntax or an assignment in
-front of its program, and a program the gate resolves to no file it can hash keep the ask; the command above names the
-reason. Run it in the environment your agent's pushes run in.
+The gate directory is `$PROOFBUNDLE_GATE_DIR` when it is set: an absolute path names the gate directory, and a relative
+one names none, so the gate then reads no file of one and stays strict; where it is unset,
+`$XDG_CONFIG_HOME/proofbundle`, else `~/.config/proofbundle`. The last command prints a digest and an entry; put the
+entry into `transports.json` there, a JSON array. It approves the transport of that remote at that URL, with the
+programs, credentials and proxy it uses, which start before Level 2 judges. A change of that configuration, of those
+environment names or of a program file they name asks again at the next push; the program behind a wrapper word such as
+`env`, what such a program reads or starts in turn, and an `Include` of the ssh configuration are not bound (D35). A
+remote helper transport, a path remote git reaches only by another name (a `.git` suffix, a git file), a configured
+command with shell syntax or an assignment in front of its program, and a program the gate resolves to no file it can
+hash keep the ask; the command above names the reason. Run it in the environment your agent's pushes run in.
 
 Then a `git push` in its strict form whose evidence at the commits it sends verifies (or whose done check passes where
 only a done check is declared), whose one open reason is the destination, with no force, lease, dry run, signed push or
@@ -398,13 +399,13 @@ gate"). Claude Code also runs the same check as a `TaskCompleted` hook. In a
 repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
 required check has a receipt that
 
-- verifies under the trust policy the declaration names at HEAD, with the key that policy pins,
-- says that every test passed: a pytest pass rate with comparator `>=` and threshold `1`, `passed: true`, at
+- verify under the trust policy the declaration names at HEAD, with the key that policy pins,
+- say that every test passed: a pytest pass rate with comparator `>=` and threshold `1`, `passed: true`, at
   least one test and pytest's exit status 0,
-- was run with the check's selection: exactly its pytest arguments, an empty `PYTEST_ADDOPTS` and no deselected
+- be run with the check's selection: exactly its pytest arguments, an empty `PYTEST_ADDOPTS` and no deselected
   test (the receipt names them as `pytest_args`, `pytest_addopts` and `n_deselected`),
-- names HEAD's commit and tree (`git_hash`, `git_tree`),
-- and names the tree of the working state now: the receipt's `git_tree` for a run on a clean tree, its
+- name HEAD's commit and tree (`git_hash`, `git_tree`),
+- and name the tree of the working state now: the receipt's `git_tree` for a run on a clean tree, its
   `git_worktree_tree` for a run on uncommitted changes, compared with the tree id of the files in the working
   tree, read as raw bytes without filters.
 

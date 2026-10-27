@@ -3549,7 +3549,8 @@ The rule (O405-1):
   gate_file_differs, pilot_config_unread, ids_differ, outside_window, workdir_unreadable, out_of_time,
   not_a_pilot_write, no_receipt_for_this_decision, action_differs, repository_not_safe, verdict_differs,
   reasons_differ, policy_differs, statement_differs, internal_error. The gate journals `signer_refused_<name>`, `signer_timeout` for a service it
-  stopped after PILOT_SIGNER_SECONDS, and answers the call as before: a receipt never changes the answer (D55).
+  stopped after PILOT_SIGNER_SECONDS, and answers the call as before: ordinary receipt attempts are observational and
+  must not change the answer (D55); a D119 owner release waits for its signed ALLOW.
 - What the service cannot see gives no signature with its reason, never a guessed one: a working directory its
   account does not read is workdir_unreadable; a repository git refuses for its account (owned by another account and
   not named as safe.directory in the service's git configuration), where the decision then came out otherwise, is
@@ -5455,8 +5456,8 @@ Found in PLUGIN_N28B_KETTE (finding 2) and measured end to end in follow-up note
 with --autonomous (hooks.json, D85), and the signer service decides the call again with tool_outcome, without the
 autonomous answer (D58), and signs only where both decisions are the same. For a GitHub write the pilot reads and the
 autonomous answer changes (a pass under the standing GO of D87 or D92, a release on a card of D111, a block of a card of
-D93 or of a push target of D86) it refuses with verdict_differs, and that write gets no receipt of Level 1. The answer of
-the hook stays as it was: a receipt never changes the answer (D55).
+D93 or of a push target of D86) it refuses with verdict_differs, and that write gets no receipt of Level 1. The answer
+of the hook stays as it was: an ordinary receipt attempt must not change the answer (D55).
 
 Owner choice O28B-1 of 2026-10-20: measure first, and until then the window says so. The rule: the reconciliation of
 every window carries under window_notes one sentence (LEVEL1_UNDER_AUTONOMY in reconcile.py) and prints it after M5
