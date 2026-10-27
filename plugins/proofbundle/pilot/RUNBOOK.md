@@ -81,6 +81,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
      - read access for the deciding account to every repository the agents work in, to the gate directory and to the
        records, and its own uv cache for the verifier the gate runs on an approval; what it cannot read gets no
        signature (workdir_unreadable, pilot_config_unread), never a guessed one;
+     - the hand-over (D35) is not reached by that access (handover/ 0700, record and pointer 0600, measured);
+       Level 2 consumes it before the service decides; a handed-over push across accounts is BLOCKED/NOT
+       MEASURED until that path is built and measured;
      - each pilot repository of step 8 as one `safe.directory` line in the git configuration the service's
        `environment` names (GIT_CONFIG_GLOBAL), the list of the pilot repositories and never `*` (O405S-5): git
        refuses a repository another account owns without it, and a push decided there gets no signature
