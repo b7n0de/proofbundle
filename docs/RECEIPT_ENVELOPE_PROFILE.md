@@ -261,7 +261,11 @@ the case input as follows, and this section is the text those vectors are read a
 - **`classification` (R2 to R4).** The input is one bundle. The outcome is exactly one of the
   strings `valid`, `invalid` and `refused_unknown_schema`, decided in this order, and the first step
   that decides ends the classification:
-  1. a document over the verifier's resource limits is `invalid`;
+  1. a bundle file is read with the strict reader of `SPEC.md` §2, and a document it refuses is
+     `invalid`, whatever its `schema` names: one over the budget (8 MiB of input, 200,000 keys and
+     items, nesting depth 64, 1,000,000 characters in a string), one with a duplicate key, `NaN`,
+     `Infinity`, a number with no finite double or an integer outside ±(2^53−1), and one that is no
+     JSON at all; step 2 reads `schema` only from a document the strict reader accepts;
   2. a top-level `schema` that is a present, non-empty string other than `proofbundle/v0.1` is
      `refused_unknown_schema`;
   3. a bundle that does not verify under `SPEC.md` §2 to §7 is `invalid`; this includes an absent,
