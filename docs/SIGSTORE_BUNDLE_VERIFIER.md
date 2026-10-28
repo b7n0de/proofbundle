@@ -101,11 +101,12 @@ Each check is reported by name; the first integrity failure ends the run.
 6. `statement`, `predicate-type`, `predicate`, and for npm-publish with a version document
    `registry-signature`
 7. relying-party requirements, each judged: `identity`, `subject-digest`, `subject-name`, and with
-   a package.json `package-json` (exit 3)
+   a package.json `package-json` (exit 3). `subject-name` and `package-json` are judged on the subjects
+   that carry `artifact_digest`, so that a name cannot come from another subject of the same statement.
 
 `package-json` holds npm's provenance requirement that package.json carry "a public `repository`
 that matches (case-sensitive) where you are publishing with provenance from" (contract NP-15). The
-package.json must name the package of a subject of the statement (`pkg:npm/<name>@<version>`) and a
+package.json must name the package of a subject that carries the tarball's digest (`pkg:npm/<name>@<version>`) and a
 repository that reads as the certificate's `source_repository_uri`, compared case-sensitively. Read
 as a GitHub repository are npm's normalized object form `{"type": "git", "url":
 "git+https://github.com/<owner>/<repo>.git"}`, the shortcut forms `<owner>/<repo>` and
@@ -132,7 +133,9 @@ slsa-framework buildType makes them optional. Both buildTypes "MUST NOT be used 
 the event the predicate states (`internalParameters.github.event_name`) and the build trigger in the
 certificate must each, where stated, be one of the four, and at least one must be stated. The
 certificate is read too, because Fulcio copied its trigger from the OIDC token and the predicate
-could hide the run's event. An attestation that `actions/attest-build-provenance` wrote for a run
+could hide the run's event. Its trigger is the extension 1.20, or the deprecated 1.2 on a leaf that
+carries only that one; a leaf whose 1.2 and 1.20 differ names two events and is refused as
+`certificate` (vectors `neg-github-legacy-trigger-pull-request`, `neg-trigger-extensions-disagree`). An attestation that `actions/attest-build-provenance` wrote for a run
 of another event, such as `pull_request` or `schedule`, therefore fails here with exit 1.
 
 `predicate-binding` is a note, not a check (owner decision of 2026-10-26). It compares the predicate

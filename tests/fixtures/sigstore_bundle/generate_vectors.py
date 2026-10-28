@@ -150,6 +150,9 @@ FULCIO_OIDS = {
     "build_trigger": "1.3.6.1.4.1.57264.1.20", "run_invocation_uri": "1.3.6.1.4.1.57264.1.21",
     "source_repository_visibility_at_signing": "1.3.6.1.4.1.57264.1.22",
 }
+#: The deprecated extensions a vector writes. Their value is the raw UTF-8 bytes, without DER (fulcio
+#: docs/oid-info.md, 1.1 to 1.6).
+LEGACY_OIDS = {"github_workflow_trigger": "1.3.6.1.4.1.57264.1.2"}
 SCT_LIST_OID = ObjectIdentifier("1.3.6.1.4.1.11129.2.4.2")
 
 
@@ -185,8 +188,11 @@ def leaf_cert(extensions: Dict[str, str], san: str, *, issuer_key: Any = INTERME
              .add_extension(x509.SubjectAlternativeName([x509.UniformResourceIdentifier(u) for u in (san,) + extra_sans]),
                             critical=True))
         for name, value in extensions.items():
-            b = b.add_extension(x509.UnrecognizedExtension(ObjectIdentifier(FULCIO_OIDS[name]), der_utf8(value)),
-                                critical=False)
+            if name in LEGACY_OIDS:
+                ext = x509.UnrecognizedExtension(ObjectIdentifier(LEGACY_OIDS[name]), value.encode("utf-8"))
+            else:
+                ext = x509.UnrecognizedExtension(ObjectIdentifier(FULCIO_OIDS[name]), der_utf8(value))
+            b = b.add_extension(ext, critical=False)
         return b
 
     if ct_key is None:
@@ -522,6 +528,31 @@ def _event(name: str) -> Callable[[Dict[str, Any]], None]:
     def fn(st: Dict[str, Any]) -> None:
         st["predicate"]["buildDefinition"]["internalParameters"]["github"]["event_name"] = name
     return fn
+
+
+def _legacy_trigger(event: str, *, modern: Optional[str] = None) -> Dict[str, str]:
+    """EXTENSIONS with the run's event in the deprecated extension 1.2 instead of the build trigger 1.20, or
+    with ``modern`` in 1.20 beside it. Fulcio copies both from the token's event_name claim."""
+    out = {k: v for k, v in EXTENSIONS.items() if k != "build_trigger"}
+    if modern is not None:
+        out["build_trigger"] = modern
+    out["github_workflow_trigger"] = event
+    return out
+
+
+def _two_subjects(digest_name: str, other_name: str) -> Callable[[Dict[str, Any]], None]:
+    """Two subjects: ``digest_name`` carries the artifact's digest, ``other_name`` another digest."""
+    def fn(st: Dict[str, Any]) -> None:
+        st["subject"] = [{"name": digest_name, "digest": {"sha256": hashlib.sha256(ARTIFACT).hexdigest()}},
+                         {"name": other_name, "digest": {"sha256": hashlib.sha256(b"other artifact").hexdigest()}}]
+    return fn
+
+
+def _two_npm_subjects(st: Dict[str, Any]) -> None:
+    """octo-pkg@1.0.0 with another digest, and the tarball's digest under another package."""
+    st["subject"] = [
+        {"name": "pkg:npm/octo-pkg@1.0.0", "digest": {"sha512": hashlib.sha512(b"other tarball").hexdigest()}},
+        {"name": "pkg:npm/other-pkg@1.0.0", "digest": {"sha512": hashlib.sha512(NPM_TARBALL).hexdigest()}}]
 
 
 def _other_repository(st: Dict[str, Any]) -> None:
@@ -996,6 +1027,42 @@ def cases() -> List[Dict[str, Any]]:
         dict(npm, caseId="neg-npm-package-json-other-version", packageJsonDoc={"version": "1.0.1"},
              steps=["NP-15", "NP-08"], exitCode=3, failedCheck="package-json",
              rationale="The package.json is of another version than the provenance's subject."),
+
+        # Review of pull request 429, round 1 (2026-10-28). Measured before the fix: each negative here was
+        # exit 0, and the positive control of the deprecated trigger carried a binding note that differed.
+        dict(gh, caseId="neg-github-legacy-trigger-pull-request", build={
+             "cert": leaf_cert(_legacy_trigger("pull_request"), WORKFLOW_URI)}, steps=["GH-05"], exitCode=1,
+             failedCheck="predicate",
+             rationale="The predicate says push, the certificate carries the run's event only in the deprecated "
+                       "extension 1.2, as pull_request. Fulcio copies 1.2 and 1.20 from the same claim of the token, "
+                       "so the run's event is the certificate's whichever of the two carries it."),
+        dict(npm, caseId="neg-slsa-buildtype-legacy-trigger-pull-request", build=_with(npm["build"], cert=leaf_cert(
+             _legacy_trigger("pull_request"), WORKFLOW_URI)), steps=["GH-05"], exitCode=1, failedCheck="predicate",
+             rationale="The same for npm provenance under the slsa-framework buildType."),
+        dict(gh, caseId="neg-trigger-extensions-disagree", build={
+             "cert": leaf_cert(_legacy_trigger("pull_request", modern="push"), WORKFLOW_URI)},
+             steps=["GH-05", "SV-25"], exitCode=1, failedCheck="certificate",
+             rationale="The deprecated extension 1.2 says pull_request, the build trigger 1.20 says push. Both copy "
+                       "one claim of the token, so a leaf naming two events is malformed, like one naming two "
+                       "issuers."),
+        dict(gh, caseId="pos-github-legacy-trigger-push", build={
+             "cert": leaf_cert(_legacy_trigger("push"), WORKFLOW_URI)}, steps=["GH-05"], exitCode=0, failedCheck=None,
+             rationale="The run's event only in the deprecated extension 1.2, as push: allowed, and the binding note "
+                       "compares the predicate's event with it."),
+        dict(gh, caseId="neg-subject-name-on-another-subject", expectedSubjectName="octo-artifact.tar.gz",
+             build={"statement": _statement_edit(_two_subjects("unrelated.bin", "octo-artifact.tar.gz"))},
+             steps=["IT-18", "SV-53"], exitCode=3, failedCheck="subject-name",
+             rationale="The subject that carries the artifact's digest is unrelated.bin. The expected name belongs to "
+                       "another subject with another digest, so it does not name the artifact."),
+        dict(gh, caseId="pos-subject-name-on-the-digest-subject", expectedSubjectName="octo-artifact.tar.gz",
+             build={"statement": _statement_edit(_two_subjects("octo-artifact.tar.gz", "other.bin"))},
+             steps=["IT-18"], exitCode=0, failedCheck=None,
+             rationale="Two subjects, and the one that carries the artifact's digest has the expected name."),
+        dict(npm, caseId="neg-npm-package-json-on-another-subject", packageJsonDoc={}, build=_with(npm["build"],
+             statement=_statement_edit(_two_npm_subjects, NPM_BUILD_TYPE, npm=True)), steps=["NP-15", "NP-08"],
+             exitCode=3, failedCheck="package-json",
+             rationale="package.json names octo-pkg@1.0.0, a subject of the provenance with another digest. The "
+                       "subject that carries the tarball's digest is another package."),
     ]
 
 

@@ -334,7 +334,7 @@ def test_the_command_refuses_unusable_options_with_exit_2(extra: list, why: str,
     assert len(err) == 1 and err[0].startswith("ERROR: ") and why in err[0], err
 
 
-# Review regressions. These cases supplement the 110 manifest vectors.
+# Review regressions. These cases supplement the 117 manifest vectors.
 
 
 @pytest.mark.parametrize("field", ["resolvedDependencies", "byproducts"])

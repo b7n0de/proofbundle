@@ -1952,6 +1952,151 @@
       },
       "packageJson": "synthetic/neg-npm-package-json-other-version.package.json",
       "packageJsonSha256": "6b319f176ce1947e5be827085454924c9276cc4652ec8306fd25b0827b439123"
+    },
+    {
+      "caseId": "neg-github-legacy-trigger-pull-request",
+      "input": "synthetic/neg-github-legacy-trigger-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The predicate says push, the certificate carries the run's event only in the deprecated extension 1.2, as pull_request. Fulcio copies 1.2 and 1.20 from the same claim of the token, so the run's event is the certificate's whichever of the two carries it.",
+      "sha256": "9fb4712e6f0bbed21a0b8c8bd87eeeaef24c30fe93caccc1fb08a018ff449a7d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-slsa-buildtype-legacy-trigger-pull-request",
+      "input": "synthetic/neg-slsa-buildtype-legacy-trigger-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The same for npm provenance under the slsa-framework buildType.",
+      "sha256": "f7ba865a238102d9eb937e1457b510acf6dfcf5c25c8595462f1541c336be8ae",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "neg-trigger-extensions-disagree",
+      "input": "synthetic/neg-trigger-extensions-disagree.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "GH-05",
+        "SV-25"
+      ],
+      "rationale": "The deprecated extension 1.2 says pull_request, the build trigger 1.20 says push. Both copy one claim of the token, so a leaf naming two events is malformed, like one naming two issuers.",
+      "sha256": "02070094fb3785e6c595449f2c51505f8a722c41b4b1dee405200d436b465d63",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-github-legacy-trigger-push",
+      "input": "synthetic/pos-github-legacy-trigger-push.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The run's event only in the deprecated extension 1.2, as push: allowed, and the binding note compares the predicate's event with it.",
+      "sha256": "656e33c94694559a5b23b8ee3de0182c65f71eed76e0e624dab8c9290b96c034",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-subject-name-on-another-subject",
+      "input": "synthetic/neg-subject-name-on-another-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "subject-name"
+      },
+      "steps": [
+        "IT-18",
+        "SV-53"
+      ],
+      "rationale": "The subject that carries the artifact's digest is unrelated.bin. The expected name belongs to another subject with another digest, so it does not name the artifact.",
+      "sha256": "bc436ba54cbe1ad22007dc58d9a45cad6ac5537d500d7786272645c1f4f3e827",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedSubjectName": "octo-artifact.tar.gz"
+    },
+    {
+      "caseId": "pos-subject-name-on-the-digest-subject",
+      "input": "synthetic/pos-subject-name-on-the-digest-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "IT-18"
+      ],
+      "rationale": "Two subjects, and the one that carries the artifact's digest has the expected name.",
+      "sha256": "ddca5ed604d32ca8c17658c55e1fe73ebedc467d80c48e05158e56ec52c7c84f",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedSubjectName": "octo-artifact.tar.gz"
+    },
+    {
+      "caseId": "neg-npm-package-json-on-another-subject",
+      "input": "synthetic/neg-npm-package-json-on-another-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "package.json names octo-pkg@1.0.0, a subject of the provenance with another digest. The subject that carries the tarball's digest is another package.",
+      "sha256": "abb19e07236c27eb2828d46b844070ae6ff851c525cbbcb21c4001144a82fc12",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-on-another-subject.package.json",
+      "packageJsonSha256": "346f2c2b5baffb57bf58ae91cf6121da8bfc5f7bf656c6742a7e5c2d617721dd"
     }
   ]
 }

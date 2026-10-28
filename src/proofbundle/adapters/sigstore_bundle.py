@@ -555,6 +555,11 @@ def _read_leaf(der: bytes) -> _Leaf:
         values["issuer"] = values["issuer_v1"]
     if "issuer" not in values:
         raise _Fail("certificate", "the leaf names no OIDC issuer (1.3.6.1.4.1.57264.1.8)")
+    # The run's event has two extensions, the deprecated 1.2 and the build trigger 1.20, both copied from the
+    # token's event_name claim (fulcio docs/oid-info.md). Two values would be two events (`_certified_trigger`).
+    if "github_workflow_trigger" in values and "build_trigger" in values \
+            and values["github_workflow_trigger"] != values["build_trigger"]:
+        raise _Fail("certificate", "the leaf names two different build triggers (1.3.6.1.4.1.57264.1.2 and .1.20)")
     try:
         key = _read_key(_spki_der(cert.public_key()))
     except (ValueError, UnsupportedAlgorithm) as exc:
@@ -564,6 +569,14 @@ def _read_leaf(der: bytes) -> _Leaf:
     if nb > na:
         raise _Fail("certificate", "the leaf's validity period is empty")
     return _Leaf(cert=cert, der=der, key=key, san=san, extensions=values, not_before=nb, not_after=na)
+
+
+def _certified_trigger(leaf: _Leaf) -> Optional[str]:
+    """The run's event as the certificate states it: the build trigger 1.20, or the deprecated 1.2 when the
+    leaf carries only that one. A reader of 1.20 alone left a certificate with only 1.2 to the predicate's
+    word (review of pull request 429, round 1); `_read_leaf` refuses a leaf on which the two differ."""
+    e = leaf.extensions
+    return e["build_trigger"] if "build_trigger" in e else e.get("github_workflow_trigger")
 
 
 def _not_before(cert: Any) -> datetime:
@@ -1407,13 +1420,14 @@ def _github_event(bd: Dict[str, Any], leaf: _Leaf) -> None:
     build type MUST NOT be used for any other event type unless this specification is first updated"
     (actions/buildtypes and slsa-framework/github-actions-buildtypes workflow/v1, contract GH-05, owner
     decision of 2026-10-26). The predicate states the event in internalParameters.github.event_name, the
-    certificate in its build trigger, which Fulcio copied from the OIDC token; each that is stated must
-    be one of the four, so a predicate cannot hide the run's event, and at least one must be stated."""
+    certificate in its build trigger, which Fulcio copied from the OIDC token (1.20, or the deprecated 1.2
+    on a leaf without 1.20, `_certified_trigger`); each that is stated must be one of the four, so a
+    predicate cannot hide the run's event, and at least one must be stated."""
     ip = _present(bd, "internalParameters")
     gh = ip["github"] if type(ip) is dict and type(ip.get("github")) is dict else {}
     stated = [(where, value) for where, value in (
         ("the predicate's internalParameters.github.event_name", gh.get("event_name")),
-        ("the certificate's build trigger (1.3.6.1.4.1.57264.1.20)", leaf.extensions.get("build_trigger")))
+        ("the certificate's build trigger (1.3.6.1.4.1.57264.1.20, or the deprecated .1.2)", _certified_trigger(leaf)))
         if value is not None]
     if not stated:
         raise _Fail("predicate", "neither the predicate nor the certificate names the event that triggered the "
@@ -1459,7 +1473,7 @@ def _check_slsa_binding(pred: Dict[str, Any], leaf: _Leaf) -> str:
         ("source ref", wf["ref"], e.get("source_repository_ref")),
         ("build config", wf["repository"] + "/" + wf["path"] + "@" + wf["ref"], e.get("build_config_uri")),
         ("run invocation", (_present(rd, "metadata") or {}).get("invocationId"), e.get("run_invocation_uri")),
-        ("trigger", gh.get("event_name"), e.get("build_trigger")),
+        ("trigger", gh.get("event_name"), _certified_trigger(leaf)),
         ("repository id", gh.get("repository_id"), e.get("source_repository_identifier")),
         ("repository owner id", gh.get("repository_owner_id"), e.get("source_repository_owner_identifier")),
     ]
@@ -1513,21 +1527,23 @@ _GITHUB_REPOSITORY = re.compile(
     r"|github:)?([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\Z")
 
 
-def _check_package_json(doc: Dict[str, Any], statement: Dict[str, Any], leaf: _Leaf) -> Tuple[bool, str]:
+def _check_package_json(doc: Dict[str, Any], subjects: Sequence[Dict[str, Any]], leaf: _Leaf) -> Tuple[bool, str]:
     """The package.json of the tarball against the provenance (contract NP-15): "Ensure your
     `package.json` is configured with a public `repository` that matches (case-sensitive) where you are
     publishing with provenance from" (npm docs, "Generating provenance statements"). It must name the
-    package of a subject of the statement, and a repository that reads as the one the certificate names
-    (``source_repository_uri``, Fulcio 1.12), compared case-sensitively. How the registry compares at
-    publish time is not published; the forms read (:data:`_GITHUB_REPOSITORY`) are this module's, taken
-    from npm's package.json documentation. Members the reader does not use are ignored."""
+    package of one of ``subjects``, the subjects that carry the tarball's digest, and a repository that
+    reads as the one the certificate names (``source_repository_uri``, Fulcio 1.12), compared
+    case-sensitively. How the registry compares at publish time is not published; the forms read
+    (:data:`_GITHUB_REPOSITORY`) are this module's, taken from npm's package.json documentation. Members
+    the reader does not use are ignored."""
     name, version = doc.get("name"), doc.get("version")
     if type(name) is not str or type(version) is not str or not name or not version:
         return False, "package.json names no package: name and version must be non-empty strings"
     purl = _npm_purl(name, version)
-    subjects = [s.get("name") for s in statement["subject"]]
-    if not any(s == purl for s in subjects):
-        return False, f"package.json is of {render_safe(purl)}, the provenance's subjects are {render_safe(subjects)}"
+    names = [s.get("name") for s in subjects]
+    if not any(s == purl for s in names):
+        return False, (f"package.json is of {render_safe(purl)}, the subjects that carry the tarball's digest are "
+                       f"{render_safe(names)}")
     repository = doc.get("repository")
     url = repository
     if type(repository) is dict:
@@ -1774,7 +1790,8 @@ def verify_sigstore_bundle(
     (``build_signer_uri``, ``source_repository_uri``, ``runner_environment``, ...) to the EXACT values
     expected; ``issuer`` defaults to the profile's issuer, and at least one key must name a workflow or
     repository. ``registry_keys`` (npm-publish) is the registry's keys document as wire bytes.
-    ``expected_subject_name`` is compared with every subject's name when given. ``tlog_threshold``
+    ``expected_subject_name`` is compared, when given, with the name of each subject that carries
+    ``artifact_digest``. ``tlog_threshold``
     (default 1) is the number of distinct trusted logs whose entries must verify; 0 is for an instance
     without a transparency log (GitHub's private-repository instance), which then needs a verified
     RFC 3161 timestamp.
@@ -1783,8 +1800,8 @@ def verify_sigstore_bundle(
     (``https://registry.npmjs.org/<name>/<version>``) as wire bytes; when given, the registry signatures
     in its ``dist.signatures`` are checked (``registry-signature``), and when not, a note says so.
     ``package_json`` (npm-provenance) is the package.json of the tarball the relying party holds, as wire
-    bytes; when given, it must name the package of a subject and the repository the certificate names
-    (``package-json``, a requirement). The reader does not open the tarball.
+    bytes; when given, it must name the package of a subject that carries ``artifact_digest`` and the
+    repository the certificate names (``package-json``, a requirement). The reader does not open the tarball.
 
     The body never raises: unusable trust material and unreadable bytes come back as failing checks
     (exit 2), every other outcome as a check of its own. The arguments are read once at the call
@@ -2036,10 +2053,15 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
             if type(s["digest"].get(alg)) is str and hmac.compare_digest(s["digest"][alg], want)]
     res.add("subject-digest", bool(hits), f"subject[{hits[0]}] carries {alg}:{want[:16]}..." if hits else
             f"no subject carries {alg}:{want[:16]}... (the attestation is about another artifact)")
+    # The name and the package.json are judged on the subjects that carry the digest, so that each names
+    # the artifact the relying party holds and not another subject of the same statement (review of pull
+    # request 429, round 1: two subjects passed the digest and the name check one each).
+    carrying = [statement["subject"][i] for i in hits]
     if cfg["subject_name"] is not None:
-        named = [s.get("name") for s in statement["subject"]]
+        named = [s.get("name") for s in carrying]
         res.add("subject-name", cfg["subject_name"] in named,
-                f"subject names {render_safe(named)}, expected {render_safe(cfg['subject_name'])}")
+                f"the subjects that carry the artifact's digest are named {render_safe(named)}, expected "
+                f"{render_safe(cfg['subject_name'])}")
     if cfg["package_json"] is not None:
         assert leaf is not None
-        res.add("package-json", *_check_package_json(cfg["package_json"], statement, leaf))
+        res.add("package-json", *_check_package_json(cfg["package_json"], carrying, leaf))
