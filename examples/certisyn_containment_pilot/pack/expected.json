@@ -1,0 +1,54 @@
+{
+  "accept": [
+    "P01",
+    "P02"
+  ],
+  "refuse": [
+    {
+      "id": "N01",
+      "what": "verdict changed after sealing"
+    },
+    {
+      "id": "N02",
+      "what": "result figure changed after sealing"
+    },
+    {
+      "id": "N03",
+      "what": "input digest swapped for another record input digest"
+    },
+    {
+      "id": "N04",
+      "what": "valid structure signed by a key other than the pinned key"
+    },
+    {
+      "id": "N05",
+      "what": "one bit flipped in the signature"
+    },
+    {
+      "id": "N06",
+      "what": "seal domain replaced by another seal domain"
+    },
+    {
+      "id": "N07",
+      "what": "the seal of a different record presented with this record"
+    },
+    {
+      "id": "N08",
+      "what": "duplicate member name, identical value (verdict repeated)"
+    },
+    {
+      "id": "N09",
+      "what": "duplicate member name through an escaped spelling (verdict then \\u0076erdict)"
+    },
+    {
+      "id": "N10",
+      "what": "duplicate member name with a different value, first occurrence sealed (schema repeated)"
+    },
+    {
+      "id": "N11",
+      "what": "record and seal of P01 presented with the input file of P02: input_digest recomputed from the supplied input differs",
+      "record": "P01",
+      "input": "P02"
+    }
+  ]
+}

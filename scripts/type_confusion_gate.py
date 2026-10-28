@@ -138,6 +138,9 @@ def _benign_fixtures() -> dict[str, object]:
         # Ed25519 JWK, so the call reaches the fuzzed record.
         "trusted_keys": [{"kty": "OKP", "crv": "Ed25519",
                           "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}],
+        # The containment reader (containment.verify_containment_record): the bytes of a seal file beside
+        # the fuzzed record, and the relying party's raw 32-byte Ed25519 key, so the call reaches the record.
+        "seal": b"{}", "trusted_key": pub,
     }
 
 

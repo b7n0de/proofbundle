@@ -56,7 +56,7 @@ examples:  ## run every offline example (those without optional extras)
 	@for f in examples/make_example.py examples/lm_eval_receipt.py examples/eee_receipt.py \
 	          examples/intoto_dsse_export.py examples/checkpoint_example.py \
 	          examples/tlog_proof_example.py examples/rekor_interop.py \
-	          examples/persample_audit.py; do \
+	          examples/persample_audit.py examples/certisyn_containment_pilot/verify_all.py; do \
 		echo "== $$f =="; PYTHONPATH=src $(PYTHON) $$f || exit 1; done
 
 conformance:  ## offline conformance corpus (anchor sub-checks need the [anchors] extra)

@@ -224,7 +224,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     from pathlib import Path
 
     from proofbundle import (agent_review as ar, anchors, assurance, automation_verdict as av, bundle as bm, cap1,
-                             checkpoint as cp, decision, emit, hf_evals, intoto, kbjwt, merkle, outcome, persample,
+                             checkpoint as cp, containment as ct, decision, emit, hf_evals, intoto, kbjwt, merkle,
+                             outcome, persample,
                              public_transparency as pt, relation, relation_statement as rs, run_ledger as rl, sdjwt,
                              sdjwt_issue, sdjwt_vc, signature, subject_binding as sb, trust_pack as tp,
                              verification_summary as vs, verifier_block as vb)
@@ -322,6 +323,13 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     rootcommit = (fixturen / "tlog_bitcoin_anchor" / "rootcommit" / "vectors_sig" / "v2sig-01-valid.txt")
 
     cap1_pv = wurzel / "conformance" / "cap1" / "vectors" / "PV-01.json"
+    # The Certisyn containment pilot pack as examples/ carries it: P01 with its own input, accepted under the key of
+    # the pack's KEY.json, so a change of any argument reaches the verdict.
+    ct_pack = wurzel / "examples" / "certisyn_containment_pilot" / "pack"
+    ct_schluessel = (ct_pack / "KEY.json").read_bytes()
+    ct_record = (ct_pack / "vectors" / "P01.record.json").read_bytes()
+    ct_siegel = (ct_pack / "vectors" / "P01.seal.json").read_bytes()
+    ct_eingabe = (ct_pack / "inputs" / "P01.input.json").read_bytes()
     signer_pfad = ablage / "signer.key"
     emit.save_signer(_sweep.Ed25519PrivateKey.from_private_bytes(b"\x0c" * 32), str(signer_pfad))
     bundle_pfad = ablage / "bundle.json"
@@ -425,6 +433,10 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("checkpoint.cosign_key_id", lambda w: cp.cosign_key_id(w("witness.example"), w(zeuge))),
         ("checkpoint.cosign_vkey", lambda w: cp.cosign_vkey(w("witness.example"), w(zeuge))),
         ("checkpoint.expected_origin_wellformed", lambda w: cp.expected_origin_wellformed(w(origin))),
+        ("containment.load_trusted_key", lambda w: ct.load_trusted_key(w(ct_schluessel))),
+        ("containment.verify_containment_record", lambda w: ct.verify_containment_record(
+            w(ct_record), w(ct_siegel), trusted_key=w(ct.load_trusted_key(ct_schluessel)),
+            input_series=w(ct_eingabe))),
         ("decision.require_valid_decision_predicate", lambda w: decision.require_valid_decision_predicate(w(dec_pred))),
         ("decision.verify_decision_receipt_or_raise", lambda w: decision.verify_decision_receipt_or_raise(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),

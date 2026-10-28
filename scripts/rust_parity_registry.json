@@ -161,6 +161,12 @@
       "crosscheck_refs": [],
       "notes": "Checkpoint verify requiring BOTH log signature and a witness-quorum threshold."
     },
+    "proofbundle.containment.verify_containment_record": {
+      "status": "PENDING",
+      "rust_subcommands": [],
+      "crosscheck_refs": [],
+      "notes": "The reader of Certisyn's sealed containment records (certisyn/containment-public/v1, the pilot pack of Certisyn-Inc/certisyn-drafts pull request 12 at 8c01cd7a): the seven steps of its FORMAT.md section 6, RFC 8785 digests over the record body and the input, the seal domain and signed message, Ed25519 under the relying party's pinned key only. Integrity only. Python-only; no Rust implementation. PENDING. The pack's own Node verifier is kept unchanged beside the vectors and is not run by proofbundle, so it is no second reading here."
+    },
     "proofbundle.decision.validate_decision_predicate": {
       "status": "PENDING",
       "rust_subcommands": [],

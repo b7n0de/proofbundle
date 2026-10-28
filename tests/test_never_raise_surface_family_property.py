@@ -82,6 +82,11 @@ _MODULES = [
     # reported `verify_trace_record` outside the property, and it belongs inside for the reason above:
     # the record bytes arrive from a producer we do not control.
     "adapters.trace_record",
+    # 2026-10-27: the reader of Certisyn's sealed containment records, a third FOREIGN format. The
+    # population guard reported `verify_containment_record` and `load_trusted_key` outside the property.
+    # The first returns a refusal for every record, seal and input; the second reads the relying party's
+    # own trust configuration and raises ValueError for one it cannot use, which `_ACCEPTED` admits.
+    "containment",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.

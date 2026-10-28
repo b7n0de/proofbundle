@@ -1,0 +1,9 @@
+{
+  "algorithm": "ed25519",
+  "domain": "certisyn/containment-seal/v1",
+  "signed_message": "certisyn/containment-seal/v1\ncertisyn/containment-public/v1\n845719a74c56e9dac39f17c72c5c2c269a9695a6cd7f42240a34fe4ffb2b51e1",
+  "signed_message_sha256": "2aa1357a7347f4a10af6d2769445695621931940075670bd6745bba2a0abef4c",
+  "signature_b64": "bbn3eemiGp5anSe42/LMqet6e1JVAcwTaTMBaY+TtXGRufFSZVe363Ts8jpx2w/vfMa7kypPMotayPqsjH8vAg==",
+  "key_id": "pilot-6d6ead37c11a2f09",
+  "ed25519_pub_b64": "eW00ut110zNXQqgrLjoiFnAezY/OlQM9frgUFeAjzzc="
+}

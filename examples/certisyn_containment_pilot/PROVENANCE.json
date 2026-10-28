@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/Certisyn-Inc/certisyn-drafts",
+  "pull_request": 12,
+  "commit": "8c01cd7a543d9e7359238958355d491f7923cf58",
+  "path": "interop/containment-pilot",
+  "copied_to": "pack",
+  "license": "Apache-2.0",
+  "license_text": "LICENSE.author",
+  "license_stated_in": "pack/README.md",
+  "copied_files": 37,
+  "listed_in_manifest": 36,
+  "copied_unchanged": true,
+  "manifest": "pack/MANIFEST.sha256",
+  "not_run_by_proofbundle": [
+    "pack/run-all.mjs",
+    "pack/verify.mjs"
+  ],
+  "copied_on": "2026-10-27",
+  "license_scope": "verifier and vectors",
+  "supporting_material_license": "MIT",
+  "supporting_material_license_text": "../../LICENSE",
+  "supporting_material_license_stated_in": "https://github.com/Certisyn-Inc/certisyn-drafts/blob/8c01cd7a543d9e7359238958355d491f7923cf58/README.md#licence"
+}

@@ -24,3 +24,9 @@ RESTRISIKO_600_OBJEKTKLASSEN.json -text
 examples/verdict_contract/out/* -text
 examples/verdict_contract/reply.txt -text
 examples/verdict_contract/verdict_contract.py -text
+
+# examples/certisyn_containment_pilot/ (2026-10-27): MANIFEST.sha256 of the copied pilot pack binds every file
+# of pack/ by its sha256, and the reader's test checks each line and compares the example's output byte for byte
+# with expected_output.txt, so the bytes are pinned here too.
+examples/certisyn_containment_pilot/pack/** -text
+examples/certisyn_containment_pilot/expected_output.txt -text

@@ -1266,6 +1266,13 @@ _LOOKUPS_CLASSIFIED = {
     # c3bd89a4, `allowed = set(_T)`): `daten = {f: receipt[f] for f in _PFLICHTFELDER}`.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "f"):
         (1, "own value: f runs over _WAHLFELDER, a tuple of two string literals of the module"),
+    # Seen once the reader of Certisyn's sealed containment records met this guard (2026-10-27); read at its
+    # source, `steps` being the dict the function builds over STEPS.
+    ("proofbundle/containment.py", "verify_containment_record", "steps", "name"):
+        (1, "own value: name runs over STEPS, a tuple of seven string literals of the module"),
+    ("proofbundle/containment.py", "verify_containment_record", "steps", "step"):
+        (3, "own value: step is the parameter of the nested fail and passed, and every call of them, and of "
+         "guarded, which hands its own on, passes a string literal of STEPS"),
 }
 
 
@@ -1503,6 +1510,9 @@ _OTHER_USES_CLASSIFIED = {
         (1, _OWN_SET.format(x="obj", what="a dict (isinstance(obj, dict) returns before it)")),
     ("proofbundle/relation.py", "validate_relationships", "set(_EDGE_ALLOWED)", "Sub set(edge)"):
         (1, _OWN_SET.format(x="edge", what="a dict (a non-dict edge is skipped by `continue` before it)")),
+    ("proofbundle/containment.py", "verify_containment_record", "steps", "Dict"):
+        (1, "own value: keyed by the string literals of STEPS, every value a literal the function writes "
+         "(pass, fail, not_reached, not_supplied), returned in the result dict"),
 }
 
 

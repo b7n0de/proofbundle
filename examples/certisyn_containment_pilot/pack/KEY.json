@@ -1,0 +1,8 @@
+{
+  "key_id": "pilot-6d6ead37c11a2f09",
+  "algorithm": "ed25519",
+  "ed25519_pub_b64": "eW00ut110zNXQqgrLjoiFnAezY/OlQM9frgUFeAjzzc=",
+  "ed25519_pub_hex": "796d34badd75d3335742a82b2e3a2216701ecd8fce95033d7eb81415e023cf37",
+  "pub_sha256": "6d6ead37c11a2f09a6ec4d17b38d8ea0e9227234a27f6316e7c8e2bcbe0758b6",
+  "purpose": "pilot-only key; never used for any Certisyn production seal"
+}

@@ -14,6 +14,7 @@ examples/<file>` (or `make examples` to run all that need no optional extras). E
 | `tlog_proof_example.py` | Build + verify a C2SP `.tlog-proof` with Ed25519 (and ML-DSA-44 if available) witnesses | none (`[pq]` enables the PQ witness) |
 | `rekor_interop.py` | Verify a REAL Sigstore Rekor inclusion proof offline (committed fixture) | none |
 | `persample_audit.py` | Per-sample Merkle receipt + forced-random-sample audit; a swapped sample is rejected | none |
+| `certisyn_containment_pilot/verify_all.py` | Check the thirteen vectors of Certisyn's sealed containment pilot pack under the pinned key (integrity only) | none |
 | `inspect_receipt.py` | inspect_ai `.eval` log → signed receipt via the stable API | `[inspect]` + the binary fixture |
 | `inspect_hook_example.py` | The opt-in end-of-task hook auto-emitting a receipt | `[inspect]` |
 | `pytest_plugin_example.py` | The opt-in pytest plugin emitting a run receipt | `pytest` |

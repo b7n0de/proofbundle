@@ -1,0 +1,29 @@
+pack: 36 of 36 files match MANIFEST.sha256
+trusted key: sha256 6d6ead37c11a2f09a6ec4d17b38d8ea0e9227234a27f6316e7c8e2bcbe0758b6 (the pinned key)
+scope: integrity only: an accepted pair proves that the record is the record that was sealed by the holder of the pinned key; whether the result in the record is right is a separate question
+P01 expected ACCEPT got ACCEPT  input_digest pass
+P02 expected ACCEPT got ACCEPT  input_digest pass
+N01 expected REFUSE got REFUSE  input_digest not_supplied
+    failed result_digest: result_digest does not recompute from the record body
+N02 expected REFUSE got REFUSE  input_digest not_supplied
+    failed result_digest: result_digest does not recompute from the record body
+N03 expected REFUSE got REFUSE  input_digest not_supplied
+    failed result_digest: result_digest does not recompute from the record body
+N04 expected REFUSE got REFUSE  input_digest not_supplied
+    failed signature: the signature does not verify under the pinned key
+N05 expected REFUSE got REFUSE  input_digest not_supplied
+    failed signature: the signature does not verify under the pinned key
+N06 expected REFUSE got REFUSE  input_digest not_supplied
+    failed seal_domain: the seal domain or algorithm is not the containment seal
+N07 expected REFUSE got REFUSE  input_digest not_supplied
+    failed signed_message: signed_message does not match the record digest
+N08 expected REFUSE got REFUSE  input_digest not_supplied
+    failed parse: record: duplicate JSON key 'verdict' — rejected fail-closed (a duplicated key parses differently across JSON implementations; parser-differential guard, WP-C1)
+N09 expected REFUSE got REFUSE  input_digest not_supplied
+    failed parse: record: duplicate JSON key 'verdict' — rejected fail-closed (a duplicated key parses differently across JSON implementations; parser-differential guard, WP-C1)
+N10 expected REFUSE got REFUSE  input_digest not_supplied
+    failed parse: record: duplicate JSON key 'schema' — rejected fail-closed (a duplicated key parses differently across JSON implementations; parser-differential guard, WP-C1)
+N11 expected REFUSE got REFUSE  input_digest fail
+    failed input_digest: input_digest does not recompute from the input file
+limit: pack/README.md withdraws the record bc1b1b5e by a note and says it verifies under the pilot key; the format carries no withdrawal, so this reader cannot see one (that record is not in pack/, not run here)
+=> OK (13 of 13 vectors behave as pack/expected.json says)

@@ -694,6 +694,13 @@ _RULE_SITES = {
     ("src/proofbundle/checkpoint.py", "_parse_witness_vkey"): (1, "verifier: the same"),
     ("src/proofbundle/cli.py", "_refuse_weak_issuer_pins"): (1, "a pin from argv, plain text; compared, "
                                                               "never written"),
+    ("src/proofbundle/containment.py", "load_trusted_key"): (1, "the loader of the relying party's own "
+                                                                "configuration: bytes it decoded itself from "
+                                                                "text the strict reader parsed; compared and "
+                                                                "returned, never written"),
+    ("src/proofbundle/containment.py", "verify_containment_record"): (1, "verifier: the trusted key read once "
+                                                                         "by plain_bytes; checked under and "
+                                                                         "hashed for the result, never written"),
     ("src/proofbundle/evalclaim.py", "_issuer_key_weakness"): (1, "the issuer parser, reads plain_text"),
     ("src/proofbundle/intoto.py", "_refuse_to_vouch_for_a_key_nobody_holds"): (
         1, "PRODUCER that writes no key, TheExportsJudgeTheIssuerTheClaimHolds"),
