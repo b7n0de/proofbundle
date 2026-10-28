@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- **Five walks over a JSON value keep their memory in proportion to the input.** `trace_record._canonicalizable` and `trace_record._canonicalizable_value`, `_plain_value.plain_json`, `subject_binding.nested_closure_violations` and `subject_binding.nested_type_violations` gave every child a path string that copied the text of all its ancestors, so a deep input with long member names cost memory in proportion to its children times the length of the path above them. A trace record of 64301 bytes needed 120 MB of traced memory, and under a 600 MiB address-space limit `verify_trace_record` raised a raw `MemoryError` before any signature was checked, since its structure check runs first. Each walk now carries the path as a link and renders it only for a message, through `budget._chain_text`, at most 256 characters with a cut marked `…`. A message about a short path is the message it was before. The open member walk of a trace record names at most 64 values without an RFC 8785 form and counts the rest in one finding. `tests/test_walk_paths_are_links_until_a_message_needs_them.py` holds all five walks under 50 times the input and compares 1200 generated inputs with a recursive reference walk.
+
 ## [6.4.0] - 2026-10-27
 
 6.4.0 is a feature release following 6.3.1. It adds an experimental reader for SCITT Transparent Statements with CCF receipts under the narrow profile `scitt-ccf/v1` (`proofbundle.scitt_ccf`, with the `[scitt]` extra), which follows draft -06 of the CCF profile, and a verifier for TRACE v0.2 Trust Records (`proofbundle verify-trace`). The strict JSON reader now rejects non-finite numbers, limits integer literals to the inclusive range -(2^53 - 1) to 2^53 - 1, and refuses JSON bytes with a UTF-8 byte order mark or encoded as UTF-16 or UTF-32. With an `sd_jwt_vc` whose issuer signature verifies, `verify_bundle` demands and fails the `sd-jwt-bundle-binding` check when the strict reader refuses the signed payload. The Rust cross verifier `pb_verify_rs`, repository tools and the release workflows change as described below; the Rust verifier is not part of the Python package.
