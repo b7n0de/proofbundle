@@ -551,7 +551,9 @@ jobs:
     runs-on: ubuntu-latest
     # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
     # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
-    timeout-minutes: 45
+    # 60, NOT 45 (owner decision of 2026-10-28 on card OA-fa42936426, option A): 42m53s at 47fcb770,
+    # cut at 45 at 8381beb7 after 43m49s of the suite step without a failing test.
+    timeout-minutes: 60
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
     # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
