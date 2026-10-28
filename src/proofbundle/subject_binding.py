@@ -21,6 +21,7 @@ predicate's claim is true. ``EXTERNAL_ATTESTED`` is reported honestly, never sil
 from __future__ import annotations
 
 import hashlib
+from bisect import bisect_left, bisect_right
 from typing import Any
 
 from .canonical import _ein_stand, _pruefkopie
@@ -149,7 +150,7 @@ def require_derived_subject(statement: Any) -> None:
             "trust it only via a policy that pins the external attester")
 
 
-def _declared_prefixes(paths: Any) -> "frozenset | None":
+def _declared_prefixes(paths: Any) -> "frozenset | tuple | None":
     """Every declared dotted path and every path that leads to one, cut at member and item boundaries.
 
     THE PATH TEXT IS KEPT ONLY WHERE IT CAN MATCH (deep gate 6.4.0, iteration 1, the neighbours of finding
@@ -160,9 +161,18 @@ def _declared_prefixes(paths: Any) -> "frozenset | None":
     lead to one, so below it the walks carry a link instead of text.
 
     None for a map that is no dict: then nothing is cut, and the walk looks every path up as it did before,
-    so such a map is refused where it was refused before, at its first lookup."""
+    so such a map is refused where it was refused before, at its first lookup.
+
+    A PLAIN DICT GETS NO PREFIX TEXT AT ALL (the counter-reading of C1, finding F1). The set above holds every
+    prefix of every declared path as a string of its own, so a declared path of k names costs memory in
+    proportion to k times its length, and the walk built the text of every node on a declared prefix. For a
+    map whose type is exactly dict the walks read the sorted declared paths instead (`_declared_sorted`) and
+    carry a position in them, three integers (`_position`). A dict subclass keeps the text: its own ``get``
+    may answer for a prefix that is no key, and the walk looks every kept prefix up with it."""
     if not isinstance(paths, dict):
         return None
+    if type(paths) is dict:
+        return _declared_sorted(paths)
     out = {""}
     for p in paths:
         if not isinstance(p, str):
@@ -175,6 +185,38 @@ def _declared_prefixes(paths: Any) -> "frozenset | None":
     return frozenset(out)
 
 
+def _declared_sorted(paths: dict) -> tuple:
+    """The declared str paths of a plain dict, each as plain text, sorted and without repeats."""
+    return tuple(sorted({str.__str__(p) for p in paths if isinstance(p, str)}))
+
+
+def _at_boundary(declared: tuple, lo: int, hi: int, off: int) -> bool:
+    """Whether the common prefix of length ``off`` of ``declared[lo:hi]`` is in the set of `_declared_prefixes`:
+    a declared path itself, or cut before a member (``.``) or an item (``[]``) of one."""
+    if len(declared[lo]) == off:     # sorted, so a path equal to the prefix comes first
+        return True
+    for mark in (".", "[]"):
+        end = off + len(mark)
+        i = bisect_left(declared, mark, lo, hi, key=lambda p: p[off:end])
+        if i < hi and declared[i][off:end] == mark:
+            return True
+    return False
+
+
+def _position(declared: tuple, lo: int, hi: int, off: int, step: str) -> Any:
+    """The position of ``step`` appended to the text at ``(lo, hi, off)``: the declared paths that start with the
+    longer text, kept only at a boundary (`_at_boundary`), else None. No text is built for it."""
+    end = off + len(step)
+    if end == 0:
+        # A member named "" below the root: its path is "" again, which the set always holds, declared or not.
+        return (lo, hi, 0)
+    lo = bisect_left(declared, step, lo, hi, key=lambda p: p[off:end])
+    hi = bisect_right(declared, step, lo, hi, key=lambda p: p[off:end])
+    if lo == hi or not _at_boundary(declared, lo, hi, end):
+        return None
+    return (lo, hi, end)
+
+
 def _dotted_step(text: str, step: Any) -> str:
     """One step of a dotted path (``None`` = each item of an array), for `budget._chain_text`."""
     if step is None:
@@ -183,17 +225,48 @@ def _dotted_step(text: str, step: Any) -> str:
 
 
 def _kept(declared: Any, text: Any) -> Any:
-    """``text`` while it can still match a declared path (`_declared_prefixes`), else None."""
-    if text is None or (declared is not None and text not in declared):
+    """Where a walk stands while its path can still match a declared path (`_declared_prefixes`), else None:
+    the text itself, or for a plain dict its position in the sorted declared paths."""
+    if text is None:
+        return None
+    if type(declared) is tuple:
+        if text == "":
+            return (0, len(declared), 0)
+        return _position(declared, 0, len(declared), 0, text) if declared else None
+    if declared is not None and text not in declared:
         return None
     return text
 
 
 def _child_text(declared: Any, parent: Any, name: str) -> Any:
-    """The text of a child's path while it can still match a declared path, else None."""
+    """Where a child stands while its path can still match a declared path, else None."""
     if parent is None:
         return None
+    if type(declared) is tuple:
+        lo, hi, off = parent
+        return _position(declared, lo, hi, off, f".{name}" if off else name)
     return _kept(declared, f"{parent}.{name}" if parent else name)
+
+
+def _item_text(declared: Any, parent: Any) -> Any:
+    """Where each item of an array stands while its path can still match a declared path, else None."""
+    if parent is None:
+        return None
+    if type(declared) is tuple:
+        lo, hi, off = parent
+        return _position(declared, lo, hi, off, "[]")
+    return _kept(declared, f"{parent}[]")
+
+
+def _lookup_text(declared: Any, cur: Any) -> Any:
+    """The text a walk looks up in its map where it stands: for a plain dict only a declared path, since a plain
+    dict has nothing else to answer; for any other map the kept text, as before."""
+    if cur is None:
+        return None
+    if type(declared) is tuple:
+        lo, hi, off = cur
+        return declared[lo] if lo < hi and len(declared[lo]) == off else None
+    return cur
 
 
 @_ein_stand
@@ -220,7 +293,7 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
     # from the f-strings below (lens run 10 generator). A str path is itself, as a key is.
     start = render_text(path)
     declared = _declared_prefixes(allowed_map)
-    # (value, path text or None below the declared prefixes, link for a message, depth): `_declared_prefixes`.
+    # (value, where it stands or None below the declared prefixes, link for a message, depth): `_kept`.
     stack: list[tuple[Any, Any, Any, int]] = [(obj, _kept(declared, start), None, 0)]
     nodes = 0
     while stack:
@@ -230,17 +303,19 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
             out.append("<root>: structure exceeds the validation node budget (nested closure fail-closed)")
             break
         if depth > max_depth:
-            shown = cur_path if cur_path is not None else _chain_text(start, chain, _dotted_step)
-            out.append(f"{shown or '<root>'}: nesting exceeds the validation depth budget "
-                       "(nested closure fail-closed)")
+            # A MESSAGE NAMES THE PATH THROUGH `_chain_text` ON A DECLARED PATH TOO (F1): the kept text was
+            # written whole, so a long declared path gave a message longer than the limit of the others.
+            out.append(f"{_chain_text(start, chain, _dotted_step) or '<root>'}: nesting exceeds the validation "
+                       "depth budget (nested closure fail-closed)")
             continue  # do not descend past the depth bound
         if isinstance(cur, dict):
-            allowed = allowed_map.get(cur_path) if cur_path is not None else None
+            look = _lookup_text(declared, cur_path)
+            allowed = allowed_map.get(look) if look is not None else None
             if allowed is not None:
                 for k in cur:
                     if k not in allowed:
-                        out.append(f"{cur_path or '<root>'}.{render_safe(k, quote=False)}: undeclared nested "
-                                   "key (nested closure violated)")
+                        out.append(f"{_chain_text(start, chain, _dotted_step) or '<root>'}."
+                                   f"{render_safe(k, quote=False)}: undeclared nested key (nested closure violated)")
             for k, v in reversed(list(cur.items())):
                 # A PATH IS TEXT, built from a key rendered bounded: a key of `10**5000` (a direct-dict
                 # caller) raised ValueError here and in the message above (the public-surface generator on
@@ -248,7 +323,7 @@ def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]],
                 name = k if isinstance(k, str) else render_safe(k, quote=False)
                 stack.append((v, _child_text(declared, cur_path, name), (chain, name), depth + 1))
         elif isinstance(cur, list):
-            item_path = _kept(declared, f"{cur_path}[]" if cur_path is not None else None)
+            item_path = _item_text(declared, cur_path)
             link = (chain, None)
             for v in reversed(cur):
                 stack.append((v, item_path, link, depth + 1))
@@ -295,8 +370,8 @@ def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"
     max_depth, max_nodes = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes
     out: list[str] = []
     declared = _declared_prefixes(type_map)
-    # (value, path text or None below the declared prefixes, link for a message, depth): `_declared_prefixes`.
-    stack: list[tuple[Any, Any, Any, int]] = [(obj, "", None, 0)]
+    # (value, where it stands or None below the declared prefixes, link for a message, depth): `_kept`.
+    stack: list[tuple[Any, Any, Any, int]] = [(obj, _kept(declared, ""), None, 0)]
     nodes = 0
     while stack:
         cur, cur_path, chain, depth = stack.pop()
@@ -305,21 +380,23 @@ def nested_type_violations(obj: Any, type_map: dict[str, "str | tuple[str, ...]"
             out.append("<root>: structure exceeds the validation node budget (type check fail-closed)")
             break
         if depth > max_depth:
-            shown = cur_path if cur_path is not None else _chain_text("", chain, _dotted_step)
-            out.append(f"{shown or '<root>'}: nesting exceeds the validation depth budget (type check fail-closed)")
+            out.append(f"{_chain_text('', chain, _dotted_step) or '<root>'}: nesting exceeds the validation depth "
+                       "budget (type check fail-closed)")
             continue
-        want = type_map.get(cur_path) if cur_path is not None else None
+        look = _lookup_text(declared, cur_path)
+        want = type_map.get(look) if look is not None else None
         if want is not None:
             kinds = (want,) if isinstance(want, str) else want
             if not any(_has_type(cur, k) for k in kinds):
-                out.append(f"{cur_path}: must be {' or '.join(kinds)}, got {render_safe(cur)}")
+                out.append(f"{_chain_text('', chain, _dotted_step)}: must be {' or '.join(kinds)}, "
+                           f"got {render_safe(cur)}")
                 continue   # a wrong container is not descended into; its own type is the finding
         if isinstance(cur, dict):
             for k, v in reversed(list(cur.items())):
                 if isinstance(k, str):
                     stack.append((v, _child_text(declared, cur_path, k), (chain, k), depth + 1))
         elif isinstance(cur, list):
-            item_path = _kept(declared, f"{cur_path}[]" if cur_path is not None else None)
+            item_path = _item_text(declared, cur_path)
             link = (chain, None)
             for v in reversed(cur):
                 stack.append((v, item_path, link, depth + 1))
