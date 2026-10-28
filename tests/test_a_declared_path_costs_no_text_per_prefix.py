@@ -21,6 +21,7 @@ import random
 import tracemalloc
 
 import pytest
+from _lastdeckel import gedeckelt
 
 from proofbundle.budget import _PATH_TEXT_LIMIT, DEFAULT_BUDGET
 from proofbundle.subject_binding import (
@@ -41,6 +42,9 @@ from test_walk_paths_are_links_until_a_message_needs_them import (
 
 _NAMES = 400
 _NAME = "a" * 100
+# The depth budget, capped as a test load (tests/_lastdeckel.py): the dearest level built here is a dict with a member
+# of 300 characters, and the declared path of the depth test adds 301 characters per level.
+_DEPTH = gedeckelt(DEFAULT_BUDGET.json_depth, bytes_je_element=700)
 
 
 def _peak(call) -> int:
@@ -57,7 +61,7 @@ def _long_declaration() -> "tuple[object, str]":
     """A declared path of 400 names of 100 characters, and an input that follows it as deep as the budget allows."""
     path = ".".join([_NAME] * _NAMES)
     value: object = {"x": 1}
-    for _ in range(DEFAULT_BUDGET.json_depth - 1):
+    for _ in range(_DEPTH - 1):
         value = {_NAME: value}
     return value, path
 
@@ -90,9 +94,9 @@ def test_a_message_on_a_long_declared_path_is_cut_at_the_limit():
 
 def test_a_depth_message_on_a_long_declared_prefix_is_cut_at_the_limit():
     value: object = 0
-    for _ in range(DEFAULT_BUDGET.json_depth + 2):
+    for _ in range(_DEPTH + 2):
         value = {"c" * 300: value}
-    declared = ".".join(["c" * 300] * (DEFAULT_BUDGET.json_depth + 3))
+    declared = ".".join(["c" * 300] * (_DEPTH + 3))
     depth = [m for m in nested_closure_violations(value, {declared: ()}) + nested_type_violations(
         value, {declared: "object"}) if "nesting exceeds the validation depth budget" in m]
     assert len(depth) == 2, depth
