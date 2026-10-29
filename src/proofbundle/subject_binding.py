@@ -167,8 +167,11 @@ def _declared_prefixes(paths: Any) -> "frozenset | tuple | None":
     prefix of every declared path as a string of its own, so a declared path of k names costs memory in
     proportion to k times its length, and the walk built the text of every node on a declared prefix. For a
     map whose type is exactly dict the walks read the sorted declared paths instead (`_declared_sorted`) and
-    carry a position in them, three integers (`_position`). A dict subclass keeps the text: its own ``get``
-    may answer for a prefix that is no key, and the walk looks every kept prefix up with it."""
+    carry a position in them, three integers (`_position`). Every map a public call hands the walks is such a
+    dict: the reading at the call (`_ein_stand`) copies a dict subclass into a plain dict first, so its own
+    ``get`` is never asked (the counter-reading of pull request 433, measured at main 5767dc3c and at 843cfa0f).
+    The text form stays for a dict subclass that reaches this function past that reading, and it is the oracle
+    the position is tested against."""
     if not isinstance(paths, dict):
         return None
     if type(paths) is dict:
@@ -260,7 +263,8 @@ def _item_text(declared: Any, parent: Any) -> Any:
 
 def _lookup_text(declared: Any, cur: Any) -> Any:
     """The text a walk looks up in its map where it stands: for a plain dict only a declared path, since a plain
-    dict has nothing else to answer; for any other map the kept text, as before."""
+    dict has nothing else to answer; for the text form, which only a call past the reading of `_ein_stand`
+    reaches, the kept text, as before."""
     if cur is None:
         return None
     if type(declared) is tuple:

@@ -11,8 +11,9 @@ THE PROPERTY:
 * for a plain dict map the walks keep a position in the sorted declared paths, three integers, and build no path text
   until a message needs it, so a long declaration costs memory in proportion to its own size;
 * a message on a declared path renders at most `budget._PATH_TEXT_LIMIT` characters of it and marks the cut with "…";
-* the position keeps exactly the paths the set of `_declared_prefixes` keeps, measured against that set itself, and a
-  dict subclass, which keeps the text, reports what a recursive reference walk reports.
+* the position keeps exactly the paths the set of `_declared_prefixes` keeps, measured against that set itself;
+* a dict subclass is copied into a plain dict by the reading at the call (`canonical._ein_stand`) before either walk
+  sees it, so its own ``get`` is never asked, and it reports what a recursive reference walk reports.
 """
 from __future__ import annotations
 
@@ -105,11 +106,14 @@ def test_a_depth_message_on_a_long_declared_prefix_is_cut_at_the_limit():
 
 
 class _Map(dict):
-    """A dict subclass: the walks keep the text for it and look every kept prefix up with its own ``get``."""
+    """A dict subclass whose own ``get`` refuses to answer, so a walk that asked it fails the test."""
+
+    def get(self, *args):
+        raise AssertionError("a walk asked the own get of a dict subclass")
 
 
 @pytest.mark.parametrize("seed", range(0, 600, 3))
-def test_a_dict_subclass_reports_what_a_recursive_walk_reports(seed):
+def test_a_dict_subclass_is_read_as_a_plain_dict_and_reports_what_a_recursive_walk_reports(seed):
     rng = random.Random(seed)
     value = _value(rng)
     start = rng.choice(["", "", "x"])
@@ -119,6 +123,15 @@ def test_a_dict_subclass_reports_what_a_recursive_walk_reports(seed):
     assert nested_closure_violations(value, allowed, path=start) == _reference_closure(value, allowed, start)
     assert nested_type_violations(value, _Map(kinds)) == _reference_types(value, kinds)
     assert nested_type_violations(value, kinds) == _reference_types(value, kinds)
+
+
+def test_past_the_reading_at_the_call_a_walk_asks_the_own_get_of_a_dict_subclass():
+    """Gate meta for the test above: past the reading of `canonical._ein_stand` the subclass reaches the walk, which
+    keeps the text for it and looks the declared path up with its own ``get``, so the refusing ``get`` is seen."""
+    with pytest.raises(AssertionError, match="own get"):
+        nested_closure_violations.__wrapped__({"a": 1}, _Map({"": ("a",)}))
+    with pytest.raises(AssertionError, match="own get"):
+        nested_type_violations.__wrapped__({"a": 1}, _Map({"": "object"}))
 
 
 _PIECES = ("a", "b", "", ".", "[]", "a.b", "b[]", "[", "]", "ab")
