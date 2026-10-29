@@ -21,11 +21,17 @@ WHAT IS MEASURED, per environment:
     rows NOT MEASURABLE instead of reporting them.
 
 Needs cbor2 and cryptography; pycose is optional. Reads ./fetched (fetch_external.py).
+
+WHAT A RUN WAS MADE FROM. Before anything is measured, each file the run reads is held against the size and sha256
+pin of fetch_external.py, and a file that differs stops the run before it writes. The run records the size and
+digest of each of these files under `inputs`, so the record names the bytes it was made from. Runs before
+2026-10-29 carry no `inputs`.
 """
 from __future__ import annotations
 
 import hashlib
 import importlib.metadata as md
+import importlib.util
 import inspect
 import io
 import json
@@ -39,6 +45,26 @@ OUT = HERE / "reader_crosscheck.json"
 STATEMENTS = ("transparent-statement.cose", "cbor-header.cose", "nested-sign1.cose")
 #: the production statement is checked for its data-hash only; its key lives in a JSON trust store
 DATAHASH_STATEMENTS = (*STATEMENTS, "uvm_0.2.10.cose")
+#: every file a run reads
+INPUTS = (*DATAHASH_STATEMENTS, "mst-test-scitt-keys.cbor")
+
+
+def pinned_inputs(files: dict) -> dict:
+    """Size and sha256 of each file in INPUTS, after holding it against the pin of fetch_external.py.
+
+    Raises ValueError naming the first file whose bytes are not the pinned ones."""
+    spec = importlib.util.spec_from_file_location("_fetch_external_pins", HERE / "fetch_external.py")
+    pins = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pins)
+    out = {}
+    for name in INPUTS:
+        _source, _path, size, digest = pins.EXPECTED[name]
+        raw = files[name]
+        got = hashlib.sha256(raw).hexdigest()
+        if len(raw) != size or got != digest:
+            raise ValueError(f"{name}: {len(raw)} B / {got}, the pin of fetch_external.py is {size} B / {digest}")
+        out[name] = {"size": len(raw), "sha256": got}
+    return out
 
 
 def _version(dist: str):
@@ -190,13 +216,18 @@ def main() -> int:
         print("NOT MEASURABLE: cbor2 is not installed in this environment.", file=sys.stderr)
         return 2
     files = {p.name: p.read_bytes() for p in FETCHED.glob("*") if p.is_file()}
-    missing = [n for n in (*DATAHASH_STATEMENTS, "mst-test-scitt-keys.cbor") if n not in files]
+    missing = [n for n in INPUTS if n not in files]
     if missing:
         print(f"NOT MEASURABLE: {missing} missing; run fetch_external.py first.", file=sys.stderr)
         return 2
+    try:
+        inputs = pinned_inputs(files)
+    except ValueError as exc:
+        print(f"MISMATCH, nothing written: {exc}", file=sys.stderr)
+        return 1
     env = {"python": platform.python_version(), "cbor2": _version("cbor2"),
            "pycose": _version("pycose"), "cryptography": _version("cryptography")}
-    entry = {"environment": env, "cbor2": cbor2_facts(cbor2),
+    entry = {"environment": env, "inputs": inputs, "cbor2": cbor2_facts(cbor2),
              "datahash_via_cbor2": {n: datahash_via_cbor2(cbor2, files[n])
                                     for n in DATAHASH_STATEMENTS},
              "production_statement_iat_in_protected_header": _try(
