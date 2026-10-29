@@ -1,7 +1,7 @@
 # Decision Receipt predicate `decision-receipt/v0.1`
 
 Status: shipped in proofbundle 2.1.0 (vendored `decision-receipt/v0.1`, stable). Vendored predicate under the b7n0de namespace. Design of record:
-[`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
+[`docs/adr/0001-decision-receipt-separate-predicate.md`](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0001-decision-receipt-separate-predicate.md).
 
 **Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
 is the consensus reached with an external collaborator on
