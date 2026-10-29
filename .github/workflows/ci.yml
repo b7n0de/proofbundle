@@ -548,6 +548,19 @@ jobs:
     # v1.7: prove the declared dependency FLOOR actually works, not just the latest. `cryptography`
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
     # so a future floor bump can't silently break the trusted core.
+    #
+    # FIVE PARTS, SO THE JOB GETS FASTER (owner choice of 2026-10-28: faster, rather than a limit that
+    # stays raised). One serial `unittest discover` took 43m40s at 4e333f8e (run 40887037072,
+    # `Ran 5378 tests in 2529.946s`). Measured test by test on the floor (Python 3.10, cryptography
+    # 42.0.8) at the same head, five tests of test_audit_candidate_360.TestAuditCandidateMatrix each run
+    # the whole audit matrix: 175 to 188 s apiece, 896 of 1645 s. In the log of that run they are the
+    # five pauses of 271 to 282 s, 1389 of 2530 s. They live in one file, so no split by file name gets
+    # below them. Each part runs the same command with its own `-k` selection instead: one of the five
+    # tests and a share of the other modules by the first letters of their names. `-k` is unittest's own
+    # filter over `module.Class.method`; the loader, the runner and every test stay as they were. The
+    # five parts side by side on the floor took 292 to 400 s each. A contract holds the selections as a
+    # partition of the whole suite, test for test (tests/test_crypto_floor_shards_cover_the_suite.py).
+    name: crypto-floor (${{ matrix.part }} of 5)
     runs-on: ubuntu-latest
     # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
     # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
@@ -560,6 +573,32 @@ jobs:
     env:
       PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
       PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
+    strategy:
+      fail-fast: false          # one red part must not cancel the others and hide their verdicts
+      matrix:
+        part: [1, 2, 3, 4, 5]
+        include:
+          - part: 1
+            selection: >-
+              -k test_a_*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_external_is_the_single_open_gate
+          - part: 2
+            selection: >-
+              -k test_r* -k test_l* -k test_t*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_data_blocked_is_not_a_pass
+          - part: 3
+            selection: >-
+              -k test_m* -k test_e* -k test_n* -k test_b*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_matrix_is_ready_and_has_33_checks
+          - part: 4
+            selection: >-
+              -k test_p* -k test_s* -k test_[0-9dfghijkoquvwxyz]*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_an_erroring_check_is_honest_fail_not_crash
+          - part: 5
+            selection: >-
+              -k test_c* -k test_a[!_u]* -k test_au[!d]* -k test_audit_[!c]* -k test_audit_candidate_[!3]*
+              -k test_audit_candidate_360.Test[!A]*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_a_fail_flips_ready_off
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
@@ -571,8 +610,12 @@ jobs:
           python -m pip install "cryptography==42.*"
       - name: Build the Rust second verifier the suite requires (pinned above)
         run: cd tools/pb_verify_rs && cargo build --release
-      - name: Core test suite on the floor
-        run: python -m unittest discover -s tests
+      # `set -f`: the selection is a list of fnmatch patterns, and the shell hands them over as they
+      # stand instead of expanding them against the files of the checkout.
+      - name: Core test suite on the floor, the tests this part selects
+        env:
+          SELECTION: ${{ matrix.selection }}
+        run: set -f; python -m unittest discover -s tests $SELECTION
       - name: Dependency-free verify must hold on the floor (trusted-core verify path)
         run: python -m proofbundle.cli verify examples/example_bundle.json
       - name: Offline tamper demo must hold on the floor (needs the [eval] JCS canonicalizer)
