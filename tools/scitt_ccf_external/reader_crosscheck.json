@@ -302,6 +302,170 @@
         "installed": true,
         "statements": "NOT MEASURABLE: the control failed, so no row below would mean anything"
       }
+    },
+    "cbor2-6.1.5": {
+      "cbor2": {
+        "decoder_position_after_first_item": {
+          "input": 2,
+          "tell": 1,
+          "value": 1
+        },
+        "default_tag_handling": {
+          "tag 1 epoch time": {
+            "outcome": "returned",
+            "value": "datetime.datetime(2020, 9, 13, 12, 26, 40, tzinfo=datetime.timezone.utc)"
+          },
+          "tag 2 bignum": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 24 embedded CBOR": {
+            "outcome": "returned",
+            "value": "CBORTag(24, b'\\xf6')"
+          },
+          "tag 55799 self-describe": {
+            "outcome": "returned",
+            "value": "1"
+          },
+          "tag 99999 unregistered": {
+            "outcome": "returned",
+            "value": "CBORTag(99999, 1)"
+          },
+          "tags 256/25 string reference": {
+            "outcome": "returned",
+            "value": "[b'abc', b'abc']"
+          },
+          "tags 28/29 shared reference": {
+            "outcome": "returned",
+            "value": "[[1], [1]]"
+          }
+        },
+        "duplicate_key_default": {
+          "outcome": "returned",
+          "value": "{1: 2}"
+        },
+        "duplicate_key_rejected_on_request": {
+          "detail": "error decoding map: Duplicate map key: 1",
+          "outcome": "CBORDecodeError"
+        },
+        "indefinite_default": {
+          "outcome": "returned",
+          "value": "[1, 2]"
+        },
+        "indefinite_rejected_on_request": {
+          "detail": "error decoding array: encountered indefinite length but it has been disabled",
+          "outcome": "CBORDecodeError"
+        },
+        "loads_signature": "(data, *, tag_hook=None, object_hook=None, semantic_decoders=None, str_errors='strict', max_depth=400, allow_indefinite=True, allow_duplicate_keys=True, immutable=False)",
+        "max_depth_16_on_depth_20": {
+          "detail": "maximum container nesting depth (16) exceeded",
+          "outcome": "CBORDecodeError"
+        },
+        "non_shortest_head_0x1801": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "semantic_decoders_refuses_tag_2": {
+          "detail": "error decoding semantic tag 2",
+          "outcome": "CBORDecodeError"
+        },
+        "tag_hook_called_for_tag_2": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "tag_hook_called_for_tag_99999": {
+          "detail": "error decoding semantic tag 99999",
+          "outcome": "CBORDecodeError"
+        },
+        "trailing_byte_after_item": {
+          "outcome": "returned",
+          "value": "1"
+        },
+        "type_of_map_inside_tag18": "frozendict",
+        "type_of_tag18_content": "tuple"
+      },
+      "datahash_via_cbor2": {
+        "cbor-header.cose": {
+          "equal": true,
+          "rebuilt_length": 2783,
+          "rebuilt_sha256": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "receipt_data_hash": "8e465c29f7f7c15147083073553e02999e5de63ba0df146812a336ffc33e1392",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        },
+        "nested-sign1.cose": {
+          "equal": true,
+          "rebuilt_length": 2725,
+          "rebuilt_sha256": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "receipt_data_hash": "40bd53ef001c449bab4460f000eb3a4dc47c12d413688f530009960b1d2795f0",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        },
+        "transparent-statement.cose": {
+          "equal": true,
+          "rebuilt_length": 4809,
+          "rebuilt_sha256": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "receipt_data_hash": "6f7607e4d68fd01298c47897357a093944de8c033c99bbb3284b8243aa0e6d11",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        },
+        "uvm_0.2.10.cose": {
+          "equal": true,
+          "rebuilt_length": 5519,
+          "rebuilt_sha256": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "receipt_data_hash": "a60138fb1591fe6c433b41128b0349cf3636bce74fc8c2e7140bc13b74612649",
+          "strict_options_used": [
+            "allow_duplicate_keys",
+            "allow_indefinite"
+          ]
+        }
+      },
+      "environment": {
+        "cbor2": "6.1.5",
+        "cryptography": "50.0.1",
+        "pycose": "1.1.0",
+        "python": "3.11.15"
+      },
+      "inputs": {
+        "cbor-header.cose": {
+          "sha256": "78c91991c8a92aa169da7a6e2ad43e5d5c7bd5165d0f306c3fca6af92a5bcb46",
+          "size": 3411
+        },
+        "mst-test-scitt-keys.cbor": {
+          "sha256": "b146b954b2ba79eec5e59748d96064b5f18dfe4b13f90cf5868207985d6faf0e",
+          "size": 175
+        },
+        "nested-sign1.cose": {
+          "sha256": "9f04814fd5d21c4e921c72369d3b68ed01cdeef4dfed00965160dd56c88c42c1",
+          "size": 3353
+        },
+        "transparent-statement.cose": {
+          "sha256": "4bb50fe1a92f74cd85405a15508f560f1bfd77a43e1d00d4b3d718cf5d112377",
+          "size": 5401
+        },
+        "uvm_0.2.10.cose": {
+          "sha256": "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc",
+          "size": 6145
+        }
+      },
+      "production_statement_iat_in_protected_header": {
+        "outcome": "returned",
+        "value": "'datetime'"
+      },
+      "pycose": {
+        "control_read_back_own_message": {
+          "detail": "Bytes cannot be decoded as COSE message",
+          "outcome": "TypeError"
+        },
+        "installed": true,
+        "statements": "NOT MEASURABLE: the control failed, so no row below would mean anything"
+      }
     }
   },
   "tool": "tools/scitt_ccf_external/reader_crosscheck.py"

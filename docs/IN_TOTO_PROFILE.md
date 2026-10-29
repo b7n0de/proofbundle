@@ -185,7 +185,9 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
   versions emitted, under `tests/fixtures/eval_result_v0_1`. The calls the suite makes to every public
   function, recorded as seeds in `tests/fixtures/public_surface_seeds.json`, hold the test receipts as
   the suite passed them, and those carry no keyid either. The sdist ships all four as regression
-  inputs, and a reader that requires a keyid refuses them.
+  inputs, and a reader that requires a keyid refuses them. The Sigstore bundle vectors under
+  `tests/fixtures/sigstore_bundle` hold envelopes as GitHub and the cli/cli test data published them,
+  some without a keyid, and synthetic ones that test its absence; DSSE makes the keyid optional.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension
   fields to any JSON object" and "Consumers MUST ignore unrecognized fields". The default strict parse

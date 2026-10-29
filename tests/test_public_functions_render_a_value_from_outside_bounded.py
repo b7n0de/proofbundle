@@ -536,6 +536,23 @@ def _trace_verdict(tmp: Path):
     return [((verify_trace_record(*a, **k),), {})]
 
 
+def _sigstore_call():
+    """The npm provenance of sigstore@3.0.0 as the registry serves it, against the public-good trusted root:
+    a call that passes every check of `adapters.sigstore_bundle` (tests/fixtures/sigstore_bundle)."""
+    fix = Path(__file__).resolve().parent / "fixtures"
+    case = next(c for c in json.loads((fix / "sigstore_bundle" / "public_cases.json").read_text(encoding="utf-8"))["cases"]
+                if c["caseId"] == "pub-npm-sigstore-3.0.0-provenance")
+    return ((fix / "sigstore_bundle" / case["input"]).read_bytes(),), dict(
+        trusted_root=(fix / "checkpoint" / "trusted_root.json").read_bytes(), artifact_digest=case["artifactDigest"],
+        profile=case["profile"], identity=case["identity"])
+
+
+def _sigstore_verdict(tmp: Path):
+    from proofbundle.adapters.sigstore_bundle import verify_sigstore_bundle
+    a, k = _sigstore_call()
+    return [((verify_sigstore_bundle(*a, **k),), {})]
+
+
 def _p384_call(tmp: Path):
     """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
     from cryptography.hazmat.primitives import hashes
@@ -636,6 +653,9 @@ _HAND_SEEDS = {
     "proofbundle.adapters.trace_record.jwk_thumbprint": lambda tmp: [((_trace_jwk(),), {})],
     "proofbundle.adapters.trace_record.verify_trace_record": lambda tmp: [_trace_record_call()],
     "proofbundle.signature.verify_ecdsa_p384": _p384_call,
+    # The Sigstore bundle reader for GitHub Artifact Attestations and npm provenance (2026-10-26).
+    "proofbundle.adapters.sigstore_bundle.exit_code": _sigstore_verdict,
+    "proofbundle.adapters.sigstore_bundle.verify_sigstore_bundle": lambda tmp: [_sigstore_call()],
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
@@ -956,6 +976,7 @@ _WRONG_TYPE_GAPS: dict = {
     },
     "adapters.agt_receipt.exit_code": {"adapters/agt_receipt.py:exit_code AttributeError"},
     "adapters.trace_record.exit_code": {"adapters/trace_record.py:exit_code AttributeError"},
+    "adapters.sigstore_bundle.exit_code": {"adapters/sigstore_bundle.py:exit_code AttributeError"},
     "adapters.eee.from_eee_dataset": {
         "adapters/eee.py:_extract_score TypeError", "adapters/eee.py:_load TypeError",
         "adapters/eee.py:_pick_metric AttributeError", "adapters/eee.py:from_eee_dataset AttributeError",
