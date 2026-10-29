@@ -51,6 +51,11 @@ include docs/AGENT_REVIEW_PREDICATE.md
 # Luecke, die conformance/unshipped_spec_refs_baseline.json festschreibt. Keine lokalen Links
 # auf geprunte Dateien, damit test_docs_truth aus der sdist besteht.
 include docs/VERIFIER_BLOCK.md
+# IN, by owner decision (2026-10-29, answer A on card OA-fdc1548a26): docs/predicates/decision-receipt.md. The
+# successor cases cross-predicate-ref-predicates-path and envelope-invariance-predicates-path under
+# conformance/action_chain_content_roots/ cite it normatively, and conformance/unshipped_spec_refs_baseline.json lets
+# no new document into the gap. Its one local link, to ADR 0001, is absolute, so test_docs_truth holds from the sdist.
+include docs/predicates/decision-receipt.md
 # PB-2026-0902-01: der sdist enthielt `conformance/` (94 Faelle, `graft conformance`), aber NICHT
 # das Makefile, ueber das die Doku den Korpus fahren laesst. Wer den sdist auspackt und
 # `make conformance` ruft, bekommt "No rule to make target" — der Korpus ist da und
