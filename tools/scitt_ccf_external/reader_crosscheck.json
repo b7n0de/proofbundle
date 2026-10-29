@@ -432,6 +432,28 @@
         "pycose": "1.1.0",
         "python": "3.11.15"
       },
+      "inputs": {
+        "cbor-header.cose": {
+          "sha256": "78c91991c8a92aa169da7a6e2ad43e5d5c7bd5165d0f306c3fca6af92a5bcb46",
+          "size": 3411
+        },
+        "mst-test-scitt-keys.cbor": {
+          "sha256": "b146b954b2ba79eec5e59748d96064b5f18dfe4b13f90cf5868207985d6faf0e",
+          "size": 175
+        },
+        "nested-sign1.cose": {
+          "sha256": "9f04814fd5d21c4e921c72369d3b68ed01cdeef4dfed00965160dd56c88c42c1",
+          "size": 3353
+        },
+        "transparent-statement.cose": {
+          "sha256": "4bb50fe1a92f74cd85405a15508f560f1bfd77a43e1d00d4b3d718cf5d112377",
+          "size": 5401
+        },
+        "uvm_0.2.10.cose": {
+          "sha256": "f4f5321316ac3cf876292f41cb7bdcd1056aef3a815fb137887a4ef93c3210bc",
+          "size": 6145
+        }
+      },
       "production_statement_iat_in_protected_header": {
         "outcome": "returned",
         "value": "'datetime'"
