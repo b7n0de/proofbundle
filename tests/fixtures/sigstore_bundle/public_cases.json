@@ -1,0 +1,389 @@
+{
+  "generator": "tests/fixtures/sigstore_bundle/generate_vectors.py",
+  "cases": [
+    {
+      "caseId": "pub-npm-sigstore-3.0.0-provenance",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-01",
+        "NP-05",
+        "NP-16",
+        "SV-09",
+        "SV-17",
+        "SV-34",
+        "SV-48"
+      ],
+      "rationale": "npm provenance of sigstore@3.0.0 as the registry serves it, against the public-good root.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pub-npm-sigstore-3.0.0-publish",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-03",
+        "NP-04",
+        "NP-11",
+        "NP-12",
+        "IT-19"
+      ],
+      "rationale": "The registry's publish attestation of sigstore@3.0.0, signed by the registry key that expired 2025-01-29, logged 2024-10-14.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "public/npm-registry-keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0"
+    },
+    {
+      "caseId": "pub-ghcli-custom-issuer",
+      "input": "public/ghcli-custom-issuer.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:afa27b44d43b02a9fea41d13cedc2e4016cfcf87c5dbf990e593669aa8ce286d",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-04",
+        "GH-10",
+        "GH-16",
+        "SB-03",
+        "SV-33"
+      ],
+      "rationale": "A GitHub Artifact Attestation (v0.3, dsse) with an enterprise issuer, cli/cli test data.",
+      "sha256": "c4ce45401067b13850e76fabc1b23e018a0187f0529d435af829b83f26bc5fca",
+      "identity": {
+        "issuer": "https://token.actions.githubusercontent.com/hammer-time",
+        "source_repository_uri": "https://github.com/too-legit/attest"
+      }
+    },
+    {
+      "caseId": "pub-ghcli-reusable-workflow",
+      "input": "public/ghcli-reusable-workflow-attestation.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:49a3aa6075e0f49f82843e74b5baa614ad2a588e6675612bf108a0a008c5ac25",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-10",
+        "GH-22",
+        "SP-13"
+      ],
+      "rationale": "A GitHub Artifact Attestation signed by a reusable workflow, slsa-framework buildType.",
+      "sha256": "88e35c3496fc9b9bd29629b69271bd32738e170f0d85a12d67da0c72c743f3bd",
+      "identity": {
+        "source_repository_owner_uri": "https://github.com/malancas",
+        "build_signer_uri": "https://github.com/github/artifact-attestations-workflows/.github/workflows/attest.yml@09b495c3f12c7881b3cc17209a327792065c1a1d"
+      }
+    },
+    {
+      "caseId": "pub-ghcli-sigstore-js-2.1.0",
+      "input": "public/ghcli-sigstore-js-2.1.0-bundle.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:90f223f992e4c88dd068cd2a5fc57f9d2b30798343dd6e38f29c240e04ba090ef831f84490847c4e82b9232c78e8a258463b1e55c0f7469f730265008fa6633f",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-05",
+        "SB-01",
+        "SV-37"
+      ],
+      "rationale": "npm provenance of sigstore@2.1.0 in a v0.3 bundle (intoto 0.0.2), cli/cli test data.",
+      "sha256": "cfadddd579b9fb45947530cd0e860986ec610a28f7fa6de3ef31cc051f07f761",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js"
+      }
+    },
+    {
+      "caseId": "pub-neg-npm-provenance-other-artifact",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:90f223f992e4c88dd068cd2a5fc57f9d2b30798343dd6e38f29c240e04ba090ef831f84490847c4e82b9232c78e8a258463b1e55c0f7469f730265008fa6633f",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "subject-digest"
+      },
+      "steps": [
+        "IT-18",
+        "SV-53"
+      ],
+      "rationale": "A sound attestation of sigstore@3.0.0 offered for the sigstore@2.1.0 tarball.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pub-neg-custom-issuer-default-issuer",
+      "input": "public/ghcli-custom-issuer.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:afa27b44d43b02a9fea41d13cedc2e4016cfcf87c5dbf990e593669aa8ce286d",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "identity"
+      },
+      "steps": [
+        "SV-21",
+        "GH-21"
+      ],
+      "rationale": "Without an explicit issuer the GitHub profile expects token.actions.githubusercontent.com; the certificate names another issuer.",
+      "sha256": "c4ce45401067b13850e76fabc1b23e018a0187f0529d435af829b83f26bc5fca",
+      "identity": {
+        "source_repository_uri": "https://github.com/too-legit/attest"
+      }
+    },
+    {
+      "caseId": "pub-neg-reusable-caller-as-signer",
+      "input": "public/ghcli-reusable-workflow-attestation.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:49a3aa6075e0f49f82843e74b5baa614ad2a588e6675612bf108a0a008c5ac25",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "identity"
+      },
+      "steps": [
+        "GH-22",
+        "GH-10"
+      ],
+      "rationale": "Foreign workflow identity: the relying party expects the caller's workflow as the signer, the certificate names the reusable workflow.",
+      "sha256": "88e35c3496fc9b9bd29629b69271bd32738e170f0d85a12d67da0c72c743f3bd",
+      "identity": {
+        "build_signer_uri": "https://github.com/malancas/attest-demo/.github/workflows/attest-reusable.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pub-neg-npm-provenance-payload-byte-changed",
+      "input": "public/neg-npm-sigstore-3.0.0-provenance-payload-byte-changed.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signature"
+      },
+      "steps": [
+        "DS-09"
+      ],
+      "rationale": "One payload byte changed.",
+      "sha256": "b1fdfce0bd60136040374ce5e10a4a722861a2d8e50f46122c68493b60c8c2a5",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pub-neg-npm-provenance-duplicate-key",
+      "input": "public/neg-npm-sigstore-3.0.0-provenance-duplicate-key.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "readable"
+      },
+      "steps": [
+        "SB-35"
+      ],
+      "rationale": "A duplicated mediaType member.",
+      "sha256": "951033c4658b2959207f42893724f33471ced91879911f8c0e4347c94d422221",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pub-neg-publish-under-provenance-profile",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-12",
+        "NP-04"
+      ],
+      "rationale": "The registry-key bundle offered where a Fulcio-signed provenance is expected.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js"
+      }
+    },
+    {
+      "caseId": "pub-neg-reusable-under-test-root",
+      "input": "public/ghcli-reusable-workflow-attestation.sigstore.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:49a3aa6075e0f49f82843e74b5baa614ad2a588e6675612bf108a0a008c5ac25",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-entry"
+      },
+      "steps": [
+        "SV-19",
+        "SV-58"
+      ],
+      "rationale": "Foreign trust root: the relying party trusts the test instance, not the public-good one.",
+      "sha256": "88e35c3496fc9b9bd29629b69271bd32738e170f0d85a12d67da0c72c743f3bd",
+      "identity": {
+        "source_repository_owner_uri": "https://github.com/malancas",
+        "build_signer_uri": "https://github.com/github/artifact-attestations-workflows/.github/workflows/attest.yml@09b495c3f12c7881b3cc17209a327792065c1a1d"
+      }
+    },
+    {
+      "caseId": "pub-neg-publish-with-test-registry-keys",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "public-key"
+      },
+      "steps": [
+        "NP-04",
+        "NP-11"
+      ],
+      "rationale": "The registry keys document of the test instance does not list npm's key.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0"
+    },
+    {
+      "caseId": "pub-npm-sigstore-3.0.0-registry-signature",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-10",
+        "NP-11",
+        "NP-12"
+      ],
+      "rationale": "The registry's signature of sigstore@3.0.0 in dist.signatures, as the registry serves the version document, under the key that expired 2025-01-29.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "public/npm-registry-keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0",
+      "versionDocument": "public/npm-sigstore-3.0.0-version.json",
+      "versionDocumentSha256": "748c34bed7317ea5c28425726f4e2c1245054cdb88e34941409e1c7cfcf457e2"
+    },
+    {
+      "caseId": "pub-neg-npm-registry-signature-changed",
+      "input": "public/npm-sigstore-3.0.0-publish.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10"
+      ],
+      "rationale": "One base64 character of the registry signature changed.",
+      "sha256": "49e06d4ba695f3266d08c0b1daa35f6cd264a30a93d7bc43f4cc3814ffaae325",
+      "registryKeys": "public/npm-registry-keys.json",
+      "expectedSubjectName": "pkg:npm/sigstore@3.0.0",
+      "versionDocument": "public/neg-npm-sigstore-3.0.0-version-signature-changed.json",
+      "versionDocumentSha256": "5b34df3f92b9f06a0878a656a1cb14d46c3f50f1437422b7fe9f07c4170c479e"
+    },
+    {
+      "caseId": "pub-npm-sigstore-3.0.0-package-json",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json inside sigstore-3.0.0.tgz names git+https://github.com/sigstore/sigstore-js.git, the repository the provenance's certificate names.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      },
+      "packageJson": "public/npm-sigstore-3.0.0-package.json",
+      "packageJsonSha256": "cf6e7d2ff547dab9745b5bda76ec33b90b21c6be44a7bbee2430a771b8311e66"
+    },
+    {
+      "caseId": "pub-neg-npm-package-json-of-2.1.0",
+      "input": "public/npm-sigstore-3.0.0-provenance.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:3c73227e187710de25a0c7070b3ea5deffe5bb3813df36bef5ff2cb9b1a078c3636c98f31f8223fd8a17dc6beefa46a8b894489557531c70911000d87fe66d78",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json of sigstore@2.1.0 offered with the provenance of sigstore@3.0.0.",
+      "sha256": "e3bdaa6da391b95c3c52ceb13a1b5355220278681dcaaa99301800cde31d41f6",
+      "identity": {
+        "source_repository_uri": "https://github.com/sigstore/sigstore-js",
+        "build_signer_uri": "https://github.com/sigstore/sigstore-js/.github/workflows/release.yml@refs/heads/main"
+      },
+      "packageJson": "public/ghcli-sigstore-js-2.1.0-package.json",
+      "packageJsonSha256": "770215c9a2d5a6a0bfd210494d953628708e9e070a50a710e031cba7f9243565"
+    },
+    {
+      "caseId": "pub-unsupported-message-signature",
+      "input": "public/sigstore-python-bundle-v3-github.whl.sigstore.json",
+      "trustedRoot": "../checkpoint/trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "unsupported"
+      },
+      "steps": [
+        "SB-14",
+        "SV-27"
+      ],
+      "rationale": "A hashedrekord messageSignature bundle (sigstore-python test asset) is refused as not implemented, never read.",
+      "sha256": "b49e7c6b452af421e5965321fc31e004d7554af3acd89f661f8c2f0f94c37e9d",
+      "identity": {
+        "source_repository_uri": "https://github.com/x/y"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2102 @@
+{
+  "generator": "tests/fixtures/sigstore_bundle/generate_vectors.py",
+  "cases": [
+    {
+      "caseId": "pos-github-v03-dsse",
+      "input": "synthetic/pos-github-v03-dsse.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SB-01",
+        "SB-03",
+        "SB-06",
+        "SB-11",
+        "SB-26",
+        "SV-01",
+        "SV-08",
+        "SV-09",
+        "SV-13",
+        "SV-14",
+        "SV-15",
+        "SV-17",
+        "SV-21",
+        "SV-26",
+        "SV-38",
+        "SV-41",
+        "SV-48",
+        "DS-06",
+        "IT-01",
+        "SP-04",
+        "GH-02",
+        "GH-04",
+        "GH-06",
+        "GH-08",
+        "GH-09",
+        "GH-10",
+        "GH-11",
+        "GH-16"
+      ],
+      "rationale": "An intact v0.3 bundle as actions/attest-build-provenance writes it, signed by the test instance: every check passes.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-github-v02-chain-slsa-buildtype",
+      "input": "synthetic/pos-github-v02-chain-slsa-buildtype.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SB-06",
+        "SB-13",
+        "SB-22",
+        "SB-27",
+        "SV-37",
+        "GH-17",
+        "GH-18"
+      ],
+      "rationale": "A v0.2 bundle with an x509CertificateChain and the slsa-framework buildType that GitHub attestations of 2024 carry.",
+      "sha256": "45e5fb04d803729227b532380786081d3ac6049e8a91fd4d52f9ba21f8f1b9fc",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-github-v01-promise-only",
+      "input": "synthetic/pos-github-v01-promise-only.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SB-20",
+        "SV-08"
+      ],
+      "rationale": "A v0.1 bundle carries the inclusion promise and no inclusion proof; the client MUST validate the promise (sigstore_bundle.proto, VerificationMaterial.tlog_entries).",
+      "sha256": "63ee09cfb2e40b4134c7545fd5ef49fb82835c19222fba65b95d49ddcba1c33d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-npm-provenance-v02-intoto",
+      "input": "synthetic/pos-npm-provenance-v02-intoto.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-05",
+        "NP-06",
+        "NP-08",
+        "NP-16",
+        "SV-34",
+        "SP-01"
+      ],
+      "rationale": "npm provenance as npm publish --provenance writes it: a v0.2 bundle, a Rekor intoto 0.0.2 entry, a sha512 subject.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "pos-npm-provenance-sri-digest",
+      "input": "synthetic/pos-npm-provenance-sri-digest.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512-Vdabn9UlO3wGYVkZzgeRSPbj11/Oju01JAR2fOvzkzIwRTnBCfu4q3TaN3CgS5k82aG1pGfsmxj1HY5m5PpR7Q==",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-09",
+        "NP-08"
+      ],
+      "rationale": "The relying party passes npm's dist.integrity (SRI) as the digest.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "pos-npm-publish-v02",
+      "input": "synthetic/pos-npm-publish-v02.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-03",
+        "NP-04",
+        "NP-11",
+        "IT-09",
+        "IT-19",
+        "SB-17"
+      ],
+      "rationale": "The npm publish attestation: a v0.1 Statement signed by the registry key named by hint.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0"
+    },
+    {
+      "caseId": "pos-github-unknown-and-null-predicate-fields",
+      "input": "synthetic/pos-github-unknown-and-null-predicate-fields.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SP-02",
+        "SP-03",
+        "IT-07"
+      ],
+      "rationale": "Unrecognized predicate fields are ignored (SP-02) and null reads as unset (SP-03).",
+      "sha256": "7a338be28748e6beeb83a350b111972ebc497278fcd58fd771474e15afc80097",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-duplicate-key-in-bundle",
+      "input": "synthetic/neg-duplicate-key-in-bundle.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "readable"
+      },
+      "steps": [
+        "SB-35"
+      ],
+      "rationale": "Ambiguous JSON: a second mediaType member. A last-wins parser and a first-wins parser read two bundles; the strict parser refuses it.",
+      "sha256": "ce424c0e107d9286c2fa756fd4d964a90bd8d05cd34ca7ec5d5451e3b5aee64d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-proto-field-name",
+      "input": "synthetic/neg-proto-field-name.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-31",
+        "SB-32"
+      ],
+      "rationale": "protojson reads verification_material as verificationMaterial; two spellings of one field are refused by name.",
+      "sha256": "bb596c01619d39fb2408e0c61b4b091c41efa220456cfb1bd3c9287053f3daa2",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-unknown-media-type",
+      "input": "synthetic/neg-unknown-media-type.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "media-type"
+      },
+      "steps": [
+        "SB-01",
+        "SB-02"
+      ],
+      "rationale": "An unknown bundle version is not read.",
+      "sha256": "62bfe215ee13943bdeface8cc467df6145257c9eb6c1151f8eef52938072db10",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-two-dsse-signatures",
+      "input": "synthetic/neg-two-dsse-signatures.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-15",
+        "DS-15"
+      ],
+      "rationale": "A DSSE envelope in a bundle MUST have exactly one signature.",
+      "sha256": "ca46881ddec536797829c54e1de125193debb7bcbb2cae7338c9c5e4c2838457",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-v02-without-inclusion-proof",
+      "input": "synthetic/neg-v02-without-inclusion-proof.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-21"
+      ],
+      "rationale": "From bundle version 0.2 on, every log entry carries an inclusion proof.",
+      "sha256": "0fd0bf9f3ec818a5b25d49fee530a79260ec4a3d68d2007f3e40ea87306e2bdf",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-v01-without-promise",
+      "input": "synthetic/neg-v01-without-promise.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-20"
+      ],
+      "rationale": "A v0.1 log entry needs its inclusion promise.",
+      "sha256": "85705068463990094b253c3abc26d365a92d86530df894ab83ac4afb7327cf54",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-certificate-field-in-v02",
+      "input": "synthetic/neg-certificate-field-in-v02.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-05",
+        "SB-11"
+      ],
+      "rationale": "The single-certificate form exists from version 0.3 on.",
+      "sha256": "3d810c3bbf3b0c469a2842af1b626d1ee1534aa1b5332590803c8c8abbd71458",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-payload-byte-changed",
+      "input": "synthetic/neg-payload-byte-changed.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signature"
+      },
+      "steps": [
+        "DS-09",
+        "SV-54"
+      ],
+      "rationale": "One payload byte changed after signing.",
+      "sha256": "247fcf0d093f48952fc75ec1daa5f0aca63f8dd2bbdaba31e5cb87479b07791c",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-duplicate-key-in-signed-payload",
+      "input": "synthetic/neg-duplicate-key-in-signed-payload.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "statement"
+      },
+      "steps": [
+        "DS-11",
+        "DS-14"
+      ],
+      "rationale": "Ambiguous JSON inside the signed payload: the signature covers it, the statement is refused.",
+      "sha256": "c9f720cfe3f2ceb6051fc10b10b6a73894fb312ef8607ca79806f56f604ff3f3",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-foreign-ca",
+      "input": "synthetic/neg-foreign-ca.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate-chain"
+      },
+      "steps": [
+        "SV-13",
+        "SB-09",
+        "SV-22"
+      ],
+      "rationale": "The leaf is issued by a CA outside the trusted root that carries the trusted intermediate's name; the log entry and SCT are otherwise intact.",
+      "sha256": "d9aa7dd50500734ede0575a1d91b3469ef836c48ecc86853980ad2d084caf2e9",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-envelope-signed-by-other-key",
+      "input": "synthetic/neg-envelope-signed-by-other-key.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signature"
+      },
+      "steps": [
+        "DS-09",
+        "SV-54"
+      ],
+      "rationale": "The envelope is signed by a key that is not the leaf's.",
+      "sha256": "098f62ec50e97f9065ff5476325ece758fde36dff52a9e8254f96d8b6d3108f0",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-unknown-log",
+      "input": "synthetic/neg-unknown-log.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-entry"
+      },
+      "steps": [
+        "SV-19"
+      ],
+      "rationale": "The entry names a log the trusted root does not list.",
+      "sha256": "521561f8e350564e35cc92c896d44a988f56728272441588499ba33d00696ba4",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-set-by-foreign-key",
+      "input": "synthetic/neg-set-by-foreign-key.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-set"
+      },
+      "steps": [
+        "SV-08",
+        "SB-25"
+      ],
+      "rationale": "The signed entry timestamp names the trusted log but is signed by another key.",
+      "sha256": "b8aaf0a229e41a6adb8ce38b85c3a24799682f05d9fe25d1bf73fff6ee403237",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-by-foreign-key",
+      "input": "synthetic/neg-checkpoint-by-foreign-key.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-41",
+        "SV-46",
+        "SB-28"
+      ],
+      "rationale": "The checkpoint over the proof's root is not signed by the log.",
+      "sha256": "8586a49befb72909f14f9ec827e88091376967fd69189d34d7cd07769b62046f",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-inclusion-proof-hash-changed",
+      "input": "synthetic/neg-inclusion-proof-hash-changed.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-inclusion"
+      },
+      "steps": [
+        "SV-38",
+        "SV-40",
+        "SB-27"
+      ],
+      "rationale": "One audit-path hash changed: the proof no longer leads from the body to the root.",
+      "sha256": "f502df75e5edb294a5ab497cbbef094d6440f89f5b41a4915c4305498df0bffe",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-names-other-root",
+      "input": "synthetic/neg-checkpoint-names-other-root.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-41"
+      ],
+      "rationale": "The log signed a checkpoint, but over another root than the proof's.",
+      "sha256": "ffcb7c436c69d2236b8b84b79070c52a3b29328cd810b54f56692dabf4f4c0c6",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-no-sct",
+      "input": "synthetic/neg-no-sct.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "sct"
+      },
+      "steps": [
+        "SV-17",
+        "SV-18"
+      ],
+      "rationale": "The leaf carries no SCT: it was not logged in a trusted CT log.",
+      "sha256": "28a4f653cfb93e46524541035f9d9884b78124c72053f4bb7dc4f3530c9ddffa",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-sct-from-unknown-ct-log",
+      "input": "synthetic/neg-sct-from-unknown-ct-log.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "sct"
+      },
+      "steps": [
+        "SV-17",
+        "SV-19"
+      ],
+      "rationale": "The only SCT comes from a CT log the trusted root does not list.",
+      "sha256": "6c33aa25ed830679f25164477d2e3e4dc5a11d13365f84a0985a2d23cacb38df",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-log-body-other-certificate",
+      "input": "synthetic/neg-log-body-other-certificate.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-body"
+      },
+      "steps": [
+        "SV-29",
+        "SB-26"
+      ],
+      "rationale": "The log entry commits to another certificate than the bundle's.",
+      "sha256": "4d107b9360599ad69d67afc7895f8c28d63551fd23571b931cd5ed36aa483d37",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-log-body-other-payload-hash",
+      "input": "synthetic/neg-log-body-other-payload-hash.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-body"
+      },
+      "steps": [
+        "SV-30",
+        "SV-33"
+      ],
+      "rationale": "The log entry commits to another payload than the envelope's.",
+      "sha256": "2c2a4395262565ab106479dc47137e5650855b73c2b612fbee3ad81869489358",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-no-time-source",
+      "input": "synthetic/neg-no-time-source.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signing-time"
+      },
+      "steps": [
+        "SB-24",
+        "SV-01"
+      ],
+      "rationale": "A v0.3 bundle with an inclusion proof but no signed entry timestamp and no RFC 3161 timestamp: integratedTime is unsigned and MUST NOT be trusted.",
+      "sha256": "1392bddf7d85dbe375e9e3020e2d8efdd3a3fa4650bd5671b6909400a273e669",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-no-log-entry",
+      "input": "synthetic/neg-no-log-entry.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-threshold"
+      },
+      "steps": [
+        "SV-57",
+        "SV-55"
+      ],
+      "rationale": "No transparency-log entry where the relying party requires one log (the default).",
+      "sha256": "4ac69393568787f960a4d04c88b6d31addec87c0327bdaea42b79f696044bba7",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-time-after-certificate-expiry",
+      "input": "synthetic/neg-time-after-certificate-expiry.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signing-time"
+      },
+      "steps": [
+        "SB-30",
+        "SV-14"
+      ],
+      "rationale": "The log signed a time one hour after the signing, when the ten-minute leaf had expired.",
+      "sha256": "50fa09725c26f78a98f27b5e798867d9d63dcf80f9176019945aef3e27b60266",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-integrated-time-changed",
+      "input": "synthetic/neg-integrated-time-changed.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-set"
+      },
+      "steps": [
+        "SV-08",
+        "SV-09"
+      ],
+      "rationale": "integratedTime was changed after the log signed the entry timestamp.",
+      "sha256": "fe86963171443f55f9aec6094bce23a4d81def28c7171a726d7a54539a891a0d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-registry-key-expired",
+      "input": "synthetic/neg-registry-key-expired.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signing-time"
+      },
+      "steps": [
+        "NP-12"
+      ],
+      "rationale": "Signed and logged consistently under the registry's retired key, whose expiry (2026-01-01) precedes the log's signed time (2026-01-15).",
+      "sha256": "bef65cd1fa867173a21ff4eac3701d4ec241fcc26b77524b21eacfd3b0c8b933",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0"
+    },
+    {
+      "caseId": "neg-no-time-source-without-log",
+      "input": "synthetic/neg-no-time-source-without-log.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "signing-time"
+      },
+      "steps": [
+        "SV-12",
+        "SB-24"
+      ],
+      "rationale": "With no log required (GitHub's private instance), a bundle still needs a verified time; an unsigned integratedTime is none.",
+      "sha256": "1392bddf7d85dbe375e9e3020e2d8efdd3a3fa4650bd5671b6909400a273e669",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "tlogThreshold": 0
+    },
+    {
+      "caseId": "neg-leaf-with-subject",
+      "input": "synthetic/neg-leaf-with-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "SV-25"
+      ],
+      "rationale": "A Fulcio leaf has an empty subject; the identity is the SAN.",
+      "sha256": "9ee226c62b43e28f4885f4981141053d2e114cff3431d2f0a470eb92489ee480",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-second-line-of-log-key-fails",
+      "input": "synthetic/neg-checkpoint-second-line-of-log-key-fails.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-46",
+        "SV-43"
+      ],
+      "rationale": "One line under the log's key verifies, a second under the same key does not: rejected.",
+      "sha256": "56e13488011dd3e2bc52be25cb4fd93c3e3e7d90a348fa034579db2128b3db0f",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-trusted-root-log-id-not-key-hash",
+      "input": "synthetic/neg-trusted-root-log-id-not-key-hash.json",
+      "trustedRoot": "trust/test_trusted_root_bad_log_id.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "verifier-config"
+      },
+      "steps": [
+        "SV-19"
+      ],
+      "rationale": "A trusted root whose Rekor logId is not the SHA-256 of the log key is unusable trust material.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-npm-gitlab-provenance-not-implemented",
+      "input": "synthetic/neg-npm-gitlab-provenance-not-implemented.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "unsupported"
+      },
+      "steps": [
+        "NP-07"
+      ],
+      "rationale": "npm's GitLab provenance (Statement v0.1, SLSA v0.2) is refused as not implemented, never read.",
+      "sha256": "b2b553794e9e08d316a339fc035a59beb9616e8fcae0798e3a4251488ea27df2",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "neg-leaf-two-sans",
+      "input": "synthetic/neg-leaf-two-sans.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "SV-25"
+      ],
+      "rationale": "Two subject alternative names are two identities; a Fulcio leaf names one.",
+      "sha256": "14eadaec469021a7f8203409701514a3ead568da52f0117ed2d744bad678c68d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-foreign-workflow-identity",
+      "input": "synthetic/neg-foreign-workflow-identity.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "identity"
+      },
+      "steps": [
+        "SV-21",
+        "GH-20",
+        "GH-22"
+      ],
+      "rationale": "A sound attestation from another workflow of the same repository than the one expected.",
+      "sha256": "f3016fb705942bf118cfe95736dbd9ce750ff1614e93397bc21e4cfa23000dee",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-foreign-issuer",
+      "input": "synthetic/neg-foreign-issuer.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "identity"
+      },
+      "steps": [
+        "SV-21",
+        "GH-21"
+      ],
+      "rationale": "The relying party expects another OIDC issuer.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main",
+        "issuer": "https://issuer.example.com"
+      }
+    },
+    {
+      "caseId": "pos-binding-note-other-repository",
+      "input": "synthetic/pos-binding-note-other-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SP-13",
+        "GH-09",
+        "SP-12"
+      ],
+      "rationale": "The signed predicate names another repository than the certificate Fulcio issued. The comparison follows the producers' code, not a specification, so it is a note and the verdict stands (owner decision 2026-10-26).",
+      "sha256": "185306de1f30baa605b7e0e59f214ed9421e02c2a7b1682e8117c0f1fb6a1e68",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedNotes": [
+        "predicate-binding: differs",
+        "source repository: the predicate says 'https://github.com/octo-org/other-repo'"
+      ]
+    },
+    {
+      "caseId": "neg-wrong-predicate-type",
+      "input": "synthetic/neg-wrong-predicate-type.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate-type"
+      },
+      "steps": [
+        "IT-05",
+        "SP-17",
+        "SP-01"
+      ],
+      "rationale": "A sound statement of another predicate type.",
+      "sha256": "25d80e9d6570498c91e9e85e692c8b0d9b420960ae78059e5a7e3ea935557dc7",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-statement-v01-under-github",
+      "input": "synthetic/neg-statement-v01-under-github.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "statement"
+      },
+      "steps": [
+        "IT-01",
+        "IT-09",
+        "IT-17"
+      ],
+      "rationale": "The GitHub profile reads in-toto Statement v1 only.",
+      "sha256": "b8da7c638eac850e0d886f68ec0dbd0f7c435833126bc3f3e3019c67dd91f0d5",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-payload-type-not-in-toto",
+      "input": "synthetic/neg-payload-type-not-in-toto.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "statement"
+      },
+      "steps": [
+        "SB-16",
+        "DS-10",
+        "SV-52"
+      ],
+      "rationale": "The envelope's payloadType is not application/vnd.in-toto+json.",
+      "sha256": "e223063473341350128514f824bb93b458d151df334faaaf4ea9830b79a35419",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-empty-subject",
+      "input": "synthetic/neg-empty-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "statement"
+      },
+      "steps": [
+        "IT-02"
+      ],
+      "rationale": "A statement without a subject names no artifact.",
+      "sha256": "dea2d0c911fea24d3e2d6e188aca90cb7e8ce264e8b5d425b3b464c39736c4cd",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-builder-id-missing",
+      "input": "synthetic/neg-builder-id-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "SP-11"
+      ],
+      "rationale": "runDetails.builder.id is REQUIRED in SLSA Provenance v1.",
+      "sha256": "bcc0a54707b6ce55f6c2dab56aa9ff6ee67bea566601100376138f56766dc3f4",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-unknown-build-type",
+      "input": "synthetic/neg-unknown-build-type.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "SP-06",
+        "GH-03"
+      ],
+      "rationale": "A buildType the profile does not read.",
+      "sha256": "076319c142862f687696038d14dfa014fbdd4051eb9463b7238b970031e2b58d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-unrecognized-external-parameter",
+      "input": "synthetic/neg-unrecognized-external-parameter.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "SP-08",
+        "GH-07"
+      ],
+      "rationale": "Consumers SHOULD reject unrecognized external parameters (actions/buildtypes workflow/v1).",
+      "sha256": "f3b3c74678029814f3b51eabac1c4a0198319703654895e6615d66d3edcf16bb",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-wrong-subject-digest",
+      "input": "synthetic/neg-wrong-subject-digest.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "subject-digest"
+      },
+      "steps": [
+        "IT-18",
+        "SV-53",
+        "SP-16"
+      ],
+      "rationale": "A sound attestation about another artifact than the one the relying party holds.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-npm-subject-name",
+      "input": "synthetic/neg-npm-subject-name.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "subject-name"
+      },
+      "steps": [
+        "NP-03",
+        "NP-08"
+      ],
+      "rationale": "The relying party expects another package version.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.1"
+    },
+    {
+      "caseId": "neg-npm-publish-v01-subject-without-name",
+      "input": "synthetic/neg-npm-publish-v01-subject-without-name.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "statement"
+      },
+      "steps": [
+        "IT-19"
+      ],
+      "rationale": "A v0.1 Statement requires a name on every subject.",
+      "sha256": "f929ed2be9911be7f033ad179c4a5cd4f0bc1870ec3781a8a2ff0bf0ee91d410",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0"
+    },
+    {
+      "caseId": "neg-npm-key-not-in-registry",
+      "input": "synthetic/neg-npm-key-not-in-registry.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "public-key"
+      },
+      "steps": [
+        "NP-04",
+        "SB-17"
+      ],
+      "rationale": "The key hint names no key of the registry document.",
+      "sha256": "5115d34bd0a696cd45b4adc4ef67c4c30cbfa073038227607d0ee1250b0fd1b3",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0"
+    },
+    {
+      "caseId": "neg-kind-version-not-the-body",
+      "input": "synthetic/neg-kind-version-not-the-body.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-body"
+      },
+      "steps": [
+        "SB-23",
+        "SV-31"
+      ],
+      "rationale": "kindVersion names another kind than the logged body has.",
+      "sha256": "d4b02b3afda3e0c024eb83110d92c1afbfff4ad049ac2cec6b6a855352b4dffd",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-control-character",
+      "input": "synthetic/neg-checkpoint-control-character.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-44"
+      ],
+      "rationale": "A note holds no control character but the newline.",
+      "sha256": "3d4a09e64cf02f4ba38326fd020db0353d8bd45bfeb59eb4b0abd1020e55d51a",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-non-canonical-base64",
+      "input": "synthetic/neg-checkpoint-non-canonical-base64.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-45"
+      ],
+      "rationale": "A pad bit set in the root: the same bytes to a lenient decoder, refused as non-canonical.",
+      "sha256": "fa3df19183cd8fa42c8133e73311fa93aa294f8e6489daba27ebd9a7a55993d1",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-checkpoint-duplicate-signature-line",
+      "input": "synthetic/neg-checkpoint-duplicate-signature-line.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-checkpoint"
+      },
+      "steps": [
+        "SV-47"
+      ],
+      "rationale": "Two signature lines with one key name and one key ID.",
+      "sha256": "ed52724851362bc1fab3f750749970b44b94a672f1f3df6505f82fae83194935",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-proof-index-outside-tree",
+      "input": "synthetic/neg-proof-index-outside-tree.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "tlog-inclusion"
+      },
+      "steps": [
+        "SV-39"
+      ],
+      "rationale": "The proof's leaf index equals the tree size.",
+      "sha256": "94b14f68e86bca194f8a77be100b311df9743bc04d3fbc7592f7081cb112d673",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-unknown-member-in-log-entry",
+      "input": "synthetic/neg-unknown-member-in-log-entry.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SB-34"
+      ],
+      "rationale": "A member the TransparencyLogEntry message does not define.",
+      "sha256": "ebf720c8a34cd67e8dd25f63077c9fe3d9f9cf3ab3e90f72eef33faa2148641e",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-chain-with-superfluous-intermediate-and-root",
+      "input": "synthetic/pos-chain-with-superfluous-intermediate-and-root.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SB-08",
+        "SB-10",
+        "SV-22",
+        "SV-23",
+        "SV-24"
+      ],
+      "rationale": "A v0.2 chain that also carries the intermediate and the root: they are ignored, the chain is built from the trusted root.",
+      "sha256": "9699a8ad0f49ce475141e6b7c4c5df176e786f9ea598d3bb16bb5a5a7796175b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-dsse-url-safe-base64-without-keyid",
+      "input": "synthetic/pos-dsse-url-safe-base64-without-keyid.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "DS-02",
+        "DS-04",
+        "DS-05"
+      ],
+      "rationale": "DSSE fields in the URL-safe alphabet and no keyid: both are allowed.",
+      "sha256": "a4b02595b42ab46f463c0bbcf814a85e0de9ebcff3da49fd2a14710cbb66147d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-resolved-dependency-without-locator",
+      "input": "synthetic/neg-resolved-dependency-without-locator.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "IT-15",
+        "SP-10"
+      ],
+      "rationale": "A ResourceDescriptor needs one of uri, digest, content.",
+      "sha256": "f80d7f0273a0364da129bb12e289b9f9304556b3a8a611da1de286d986c441b7",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-external-parameters-missing",
+      "input": "synthetic/neg-external-parameters-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "SP-05"
+      ],
+      "rationale": "buildDefinition.externalParameters is REQUIRED.",
+      "sha256": "b8a025785742f943c48181cabf970ebafda0fc3543268ff11634ea796e9ff576",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-started-on-not-rfc3339",
+      "input": "synthetic/neg-started-on-not-rfc3339.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "SP-14",
+        "IT-11"
+      ],
+      "rationale": "A Timestamp field is an RFC 3339 string in UTC.",
+      "sha256": "8adbf9b1e3fb7dc2498ee20a01b5f72e962ea67ce9210574b3d1d80337388ea8",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-identity-by-repository-id",
+      "input": "synthetic/pos-identity-by-repository-id.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-23",
+        "GH-19"
+      ],
+      "rationale": "The relying party pins the numeric repository ID, which survives a rename.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_identifier": "123456"
+      }
+    },
+    {
+      "caseId": "pos-subject-with-two-algorithms",
+      "input": "synthetic/pos-subject-with-two-algorithms.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "IT-14",
+        "IT-04",
+        "IT-13"
+      ],
+      "rationale": "Two DigestSets match if any field the relying party accepts matches.",
+      "sha256": "f1ad4653341d207dde6992cf8890fa0e9d7b263429b963ed6ac5e15185b08497",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-leaf-unknown-x509-version",
+      "input": "synthetic/neg-leaf-unknown-x509-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "SV-25"
+      ],
+      "rationale": "A leaf whose version field is not v1, v2 or v3 is malformed, not an exception.",
+      "sha256": "25923535dd0eef0e61d44ef1303aec7f45af01caf036809745fcb7a5b2517e46",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-trusted-root-unknown-curve",
+      "input": "synthetic/neg-trusted-root-unknown-curve.json",
+      "trustedRoot": "trust/test_trusted_root_unknown_curve.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "verifier-config"
+      },
+      "steps": [
+        "SV-58"
+      ],
+      "rationale": "A trusted-root key on a curve the module cannot load is unusable trust material.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-too-many-log-entries",
+      "input": "synthetic/neg-too-many-log-entries.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "SV-56"
+      ],
+      "rationale": "More log entries than the count bound of 32: 33 empty entries, refused before any is read (owner decision of 2026-10-26: empty entries instead of copies, under 10 KB).",
+      "sha256": "348b3180432f8b589750f34f1b5c7aafd9de60c3b560af5f0da23caf045ca723",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-identity-issuer-only",
+      "input": "synthetic/neg-identity-issuer-only.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 2,
+        "failedCheck": "verifier-config"
+      },
+      "steps": [
+        "SV-20",
+        "GH-20"
+      ],
+      "rationale": "An issuer alone accepts every GitHub workflow; the policy must name a workflow or repository.",
+      "sha256": "5315ec89bb50ce8b59acf5803f37bde63e1c784da06b436f45e677809190079b",
+      "identity": {
+        "issuer": "https://token.actions.githubusercontent.com"
+      }
+    },
+    {
+      "caseId": "neg-dsse-envelope-unknown-member",
+      "input": "synthetic/neg-dsse-envelope-unknown-member.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "DS-03",
+        "SB-34"
+      ],
+      "rationale": "DSSE says to ignore an unrecognized envelope field; in a bundle the envelope is read closed like every other message (a deviation from DSSE, named in the documentation).",
+      "sha256": "300a909cf5d1e112aa8baba07979e05b3292d40b523178e482a43a2f1d45fb13",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-dsse-signature-unknown-member",
+      "input": "synthetic/neg-dsse-signature-unknown-member.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "bundle-structure"
+      },
+      "steps": [
+        "DS-03",
+        "SB-34"
+      ],
+      "rationale": "The same deviation for a member of the envelope's one signature.",
+      "sha256": "4bb598c66eda4701925dd5356953a196d421cf9dc7d0fc30d6209cb4dcf7740e",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-github-source-dependency-missing",
+      "input": "synthetic/neg-github-source-dependency-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-09"
+      ],
+      "rationale": "The actions.github.io buildType says resolvedDependencies MUST contain the source commit; a rule of the specification, so a failing check and not a note.",
+      "sha256": "44aef72c167abd59e4b279a97407a9a4c7882b26262675357c93aaf85ff9a125",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-slsa-buildtype-without-source-dependency",
+      "input": "synthetic/pos-slsa-buildtype-without-source-dependency.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "SP-13"
+      ],
+      "rationale": "The slsa-framework buildType says resolvedDependencies SHOULD contain the source commit; its absence is reported in the binding note and decides no verdict.",
+      "sha256": "7d7457d0b025742cafb0c16b3a848ef64eb4f670931518a652e4cbf1345f0571",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedNotes": [
+        "predicate-binding: differs",
+        "resolvedDependencies names the source 0 times"
+      ]
+    },
+    {
+      "caseId": "neg-github-event-pull-request",
+      "input": "synthetic/neg-github-event-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The actions.github.io buildType MUST NOT be used for an event other than create, release, push or workflow_dispatch; predicate and certificate agree on pull_request.",
+      "sha256": "c6611c24db596c5b8d3473a45f70ae506f4c57ea264dea234f345d1b70b22721",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-github-event-certificate-pull-request-target",
+      "input": "synthetic/neg-github-event-certificate-pull-request-target.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The predicate says push, the certificate Fulcio issued says the run was triggered by pull_request_target: the run's event is the certificate's, and the buildType must not describe it.",
+      "sha256": "6318aec2c695982763b1554ea4810148c07b9d4ff087c5d4e628f133c0fc2579",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-slsa-buildtype-event-schedule",
+      "input": "synthetic/neg-slsa-buildtype-event-schedule.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The slsa-framework buildType carries the same rule in the same words (github-actions-buildtypes workflow/v1).",
+      "sha256": "7343169a8de3b547b1511eb32353e09c61f5846a3bb5c06e1d5506e0369f8f20",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "pos-slsa-buildtype-dispatch-inputs-and-vars",
+      "input": "synthetic/pos-slsa-buildtype-dispatch-inputs-and-vars.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-07",
+        "SP-08"
+      ],
+      "rationale": "The slsa-framework buildType defines the external parameters inputs, release and vars beside workflow; a run of workflow_dispatch with inputs and vars is well formed.",
+      "sha256": "36936c031d4006495974dc1f0458c76d3362f7649acd7fc4718a76ff8d4645a1",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-slsa-buildtype-inputs-and-release",
+      "input": "synthetic/neg-slsa-buildtype-inputs-and-release.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-07"
+      ],
+      "rationale": "At most one of inputs or release can be set (slsa-framework buildType).",
+      "sha256": "9bbeb378f7de84b3d3a2411caf32c3ca29d9a952e7608b7cb87061289a2e17df",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-github-event-workflow-dispatch",
+      "input": "synthetic/pos-github-event-workflow-dispatch.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "workflow_dispatch is one of the four events the buildType names.",
+      "sha256": "507efa19c9a445d8a17c6b4e203b2042348892e3a84ac41a950053e380a350f7",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-npm-registry-signature",
+      "input": "synthetic/pos-npm-registry-signature.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-10",
+        "NP-11",
+        "NP-14"
+      ],
+      "rationale": "The registry's signature over name@version:integrity verifies under the registry key the keys document lists, valid at the publish attestation's verified time.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/pos-npm-registry-signature.version.json",
+      "versionDocumentSha256": "ea3d56d58b8318bc034b2438dc929311891182a1c83ae1c64c5a3efbb1cebff8"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-over-other-text",
+      "input": "synthetic/neg-npm-registry-signature-over-other-text.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10"
+      ],
+      "rationale": "The signature is the registry key's, but over another version than the document names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-over-other-text.version.json",
+      "versionDocumentSha256": "d61b19f9e5de7185eaa13ef862aeb995279fdf385754d91a1171111714b23207"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-unknown-keyid",
+      "input": "synthetic/neg-npm-registry-signature-unknown-keyid.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-11"
+      ],
+      "rationale": "The signature's keyid names no key of the registry keys document (pacote: EMISSINGSIGNATUREKEY).",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-unknown-keyid.version.json",
+      "versionDocumentSha256": "85b6f2925cb7a941298f1f8492d615a6bf795ba01ef40450d6807a77210dc5ac"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-expired-key",
+      "input": "synthetic/neg-npm-registry-signature-expired-key.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-12"
+      ],
+      "rationale": "Signed by a registry key that expired 2026-01-01, before the publish attestation's verified time 2026-01-15 (pacote: EEXPIREDSIGNATUREKEY).",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-expired-key.version.json",
+      "versionDocumentSha256": "88da1405408332676816958b9e0d55862d4256a95e692c9225b271004aed5de4"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-missing",
+      "input": "synthetic/neg-npm-registry-signature-missing.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-14"
+      ],
+      "rationale": "No dist.signatures although the registry publishes signing keys.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-missing.version.json",
+      "versionDocumentSha256": "6a656d96e82dfaaffb5082a02fb1c8c1907606f433c0da174bc96b65e3e90f71"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-other-integrity",
+      "input": "synthetic/neg-npm-registry-signature-other-integrity.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-09"
+      ],
+      "rationale": "A sound registry signature over another tarball's integrity than the publish attestation names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-other-integrity.version.json",
+      "versionDocumentSha256": "70a86b65bc24108dbfaf3ff302c88c74f6b0f0fdc988a946f8a10e3dc9ad9404"
+    },
+    {
+      "caseId": "neg-npm-registry-signature-other-version",
+      "input": "synthetic/neg-npm-registry-signature-other-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-publish",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "registry-signature"
+      },
+      "steps": [
+        "NP-10",
+        "NP-03"
+      ],
+      "rationale": "A sound registry signature for another version than the publish attestation names.",
+      "sha256": "e3172e6e862dbe929aedf7ff86f055c72d6e1c46f5ce24c00efe1d4c73159428",
+      "registryKeys": "trust/test_registry_keys.json",
+      "expectedSubjectName": "pkg:npm/octo-pkg@1.0.0",
+      "versionDocument": "synthetic/neg-npm-registry-signature-other-version.version.json",
+      "versionDocumentSha256": "3f7f81cbc437c3cee6c97553dd0a6b562d47a74d932fa5b5f53d54a369202b1e"
+    },
+    {
+      "caseId": "pos-npm-package-json-repository",
+      "input": "synthetic/pos-npm-package-json-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "package.json names the package of the provenance's subject and, in npm's normalized object form, the repository the certificate names.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/pos-npm-package-json-repository.package.json",
+      "packageJsonSha256": "346f2c2b5baffb57bf58ae91cf6121da8bfc5f7bf656c6742a7e5c2d617721dd"
+    },
+    {
+      "caseId": "pos-npm-package-json-shorthand",
+      "input": "synthetic/pos-npm-package-json-shorthand.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "The shortcut form github:<owner>/<repo> of npm's package.json documentation.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/pos-npm-package-json-shorthand.package.json",
+      "packageJsonSha256": "9d183305349dd96db5cedeb405cb97e4750ca0443319f285e824e070f25d8925"
+    },
+    {
+      "caseId": "neg-npm-package-json-other-repository",
+      "input": "synthetic/neg-npm-package-json-other-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "package.json names another repository than the one the provenance was built from.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-other-repository.package.json",
+      "packageJsonSha256": "075d737d9503d9f9f7121cc87402a827bd4221bb535ba24f0b2f5ae64100c0e1"
+    },
+    {
+      "caseId": "neg-npm-package-json-repository-case",
+      "input": "synthetic/neg-npm-package-json-repository-case.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "The repository must match case-sensitively (npm docs, generating provenance statements).",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-repository-case.package.json",
+      "packageJsonSha256": "b9b3e53edb3f99e17ce4b5e717fadcdd9503ef464f521cce458b87d853f253d8"
+    },
+    {
+      "caseId": "neg-npm-package-json-no-repository",
+      "input": "synthetic/neg-npm-package-json-no-repository.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15"
+      ],
+      "rationale": "Provenance requires a public repository in package.json.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-no-repository.package.json",
+      "packageJsonSha256": "218736fc2128b1e929e55d61fe9653ea211bb322e5a28b5d7d6cc4956c56bf6d"
+    },
+    {
+      "caseId": "neg-npm-package-json-other-version",
+      "input": "synthetic/neg-npm-package-json-other-version.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "The package.json is of another version than the provenance's subject.",
+      "sha256": "014d1fa5ca819313c60d0ba05f38023aeff0e328f099297d6a86dbde0e0fdd1d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-other-version.package.json",
+      "packageJsonSha256": "6b319f176ce1947e5be827085454924c9276cc4652ec8306fd25b0827b439123"
+    },
+    {
+      "caseId": "neg-github-legacy-trigger-pull-request",
+      "input": "synthetic/neg-github-legacy-trigger-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The predicate says push, the certificate carries the run's event only in the deprecated extension 1.2, as pull_request. Fulcio copies 1.2 and 1.20 from the same claim of the token, so the run's event is the certificate's whichever of the two carries it.",
+      "sha256": "9fb4712e6f0bbed21a0b8c8bd87eeeaef24c30fe93caccc1fb08a018ff449a7d",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-slsa-buildtype-legacy-trigger-pull-request",
+      "input": "synthetic/neg-slsa-buildtype-legacy-trigger-pull-request.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "predicate"
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The same for npm provenance under the slsa-framework buildType.",
+      "sha256": "f7ba865a238102d9eb937e1457b510acf6dfcf5c25c8595462f1541c336be8ae",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      }
+    },
+    {
+      "caseId": "neg-trigger-extensions-disagree",
+      "input": "synthetic/neg-trigger-extensions-disagree.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 1,
+        "failedCheck": "certificate"
+      },
+      "steps": [
+        "GH-05",
+        "SV-25"
+      ],
+      "rationale": "The deprecated extension 1.2 says pull_request, the build trigger 1.20 says push. Both copy one claim of the token, so a leaf naming two events is malformed, like one naming two issuers.",
+      "sha256": "02070094fb3785e6c595449f2c51505f8a722c41b4b1dee405200d436b465d63",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "pos-github-legacy-trigger-push",
+      "input": "synthetic/pos-github-legacy-trigger-push.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "GH-05"
+      ],
+      "rationale": "The run's event only in the deprecated extension 1.2, as push: allowed, and the binding note compares the predicate's event with it.",
+      "sha256": "656e33c94694559a5b23b8ee3de0182c65f71eed76e0e624dab8c9290b96c034",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      }
+    },
+    {
+      "caseId": "neg-subject-name-on-another-subject",
+      "input": "synthetic/neg-subject-name-on-another-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "subject-name"
+      },
+      "steps": [
+        "IT-18",
+        "SV-53"
+      ],
+      "rationale": "The subject that carries the artifact's digest is unrelated.bin. The expected name belongs to another subject with another digest, so it does not name the artifact.",
+      "sha256": "bc436ba54cbe1ad22007dc58d9a45cad6ac5537d500d7786272645c1f4f3e827",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedSubjectName": "octo-artifact.tar.gz"
+    },
+    {
+      "caseId": "pos-subject-name-on-the-digest-subject",
+      "input": "synthetic/pos-subject-name-on-the-digest-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "github-artifact-attestation",
+      "artifactDigest": "sha256:ed1d90aa310f5629d62ef95038df817b6ddeb0b6dce007fe5fdc02fff8700afa",
+      "expected": {
+        "exitCode": 0,
+        "failedCheck": null
+      },
+      "steps": [
+        "IT-18"
+      ],
+      "rationale": "Two subjects, and the one that carries the artifact's digest has the expected name.",
+      "sha256": "ddca5ed604d32ca8c17658c55e1fe73ebedc467d80c48e05158e56ec52c7c84f",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo",
+        "build_signer_uri": "https://github.com/octo-org/octo-repo/.github/workflows/release.yml@refs/heads/main"
+      },
+      "expectedSubjectName": "octo-artifact.tar.gz"
+    },
+    {
+      "caseId": "neg-npm-package-json-on-another-subject",
+      "input": "synthetic/neg-npm-package-json-on-another-subject.json",
+      "trustedRoot": "trust/test_trusted_root.json",
+      "profile": "npm-provenance",
+      "artifactDigest": "sha512:55d69b9fd5253b7c06615919ce079148f6e3d75fce8eed352404767cebf39332304539c109fbb8ab74da3770a04b993cd9a1b5a467ec9b18f51d8e66e4fa51ed",
+      "expected": {
+        "exitCode": 3,
+        "failedCheck": "package-json"
+      },
+      "steps": [
+        "NP-15",
+        "NP-08"
+      ],
+      "rationale": "package.json names octo-pkg@1.0.0, a subject of the provenance with another digest. The subject that carries the tarball's digest is another package.",
+      "sha256": "abb19e07236c27eb2828d46b844070ae6ff851c525cbbcb21c4001144a82fc12",
+      "identity": {
+        "source_repository_uri": "https://github.com/octo-org/octo-repo"
+      },
+      "packageJson": "synthetic/neg-npm-package-json-on-another-subject.package.json",
+      "packageJsonSha256": "346f2c2b5baffb57bf58ae91cf6121da8bfc5f7bf656c6742a7e5c2d617721dd"
+    }
+  ]
+}

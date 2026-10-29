@@ -400,6 +400,7 @@ _COMMAND_GROUPS = (
         ("verify-opening", "verify one sample opening against a samples root"),
         ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
         ("verify-trace", "verify a TRACE v0.2 Trust Record against your keys"),
+        ("verify-sigstore", "verify a GitHub or npm Sigstore attestation offline  (proposed)"),
         ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
     )),
     ("Emit and commit", (
@@ -2067,6 +2068,77 @@ def _cmd_verify_trace(args: argparse.Namespace) -> int:
     return code
 
 
+def _sigstore_identity(pairs) -> dict | None:
+    """The relying party's ``--identity KEY=VALUE`` options as one mapping, or None when none is given. A
+    pair without ``=`` and a key given twice are refused here; the reader judges the keys and values."""
+    if pairs is None:
+        return None
+    identity: dict = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise ValueError(f"--identity {pair!r} is not KEY=VALUE")
+        if key in identity:
+            raise ValueError(f"--identity names {key!r} twice")
+        identity[key] = value
+    return identity
+
+
+#: The file options of `verify-sigstore`, by dest: each names a file read as wire bytes.
+_SIGSTORE_FILES = ("bundle", "trusted_root", "registry_keys", "version_document", "package_json")
+
+
+def _cmd_verify_sigstore(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    from .adapters.sigstore_bundle import exit_code, verify_sigstore_bundle  # noqa: PLC0415
+    try:
+        identity = _sigstore_identity(args.identity)
+        files: dict = {}
+        for dest in _SIGSTORE_FILES:
+            path = getattr(args, dest)
+            if path is not None:
+                with _open_input(path, binary=True) as handle:
+                    files[dest] = _read_capped_bytes(handle)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        _err(exc)
+        return 2
+    verdict = verify_sigstore_bundle(
+        files["bundle"], trusted_root=files["trusted_root"], artifact_digest=args.artifact_digest,
+        profile=args.profile, identity=identity, registry_keys=files.get("registry_keys"),
+        expected_subject_name=args.subject_name, tlog_threshold=args.tlog_threshold,
+        version_document=files.get("version_document"), package_json=files.get("package_json"))
+    code = exit_code(verdict)
+    if args.json:
+        print(json.dumps(verdict.as_dict(), indent=2))
+        return code
+    print(f"PROFILE: {_safe_line(str(verdict.profile))} (bundle {_safe_line(str(verdict.bundle_version))})")
+    for check in verdict.result.checks:
+        print(f"[{'PASS' if check.ok is True else 'FAIL'}] {check.name}: {_safe_line(str(check.detail))}")
+    if verdict.signing_times:
+        times = ", ".join(datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                          for t in verdict.signing_times)
+        print(f"VERIFIED TIME: {times} (log integration or TSA timestamp)")
+    if verdict.policy == "NOT_EVALUATED":
+        print("POLICY: NOT_EVALUATED (an integrity check failed before the requirements were judged)")
+    else:
+        print(f"POLICY: {verdict.policy}")
+    for note in verdict.notes:
+        print(f"NOTE: {_safe_line(note)}")
+    for item in verdict.not_checked:
+        print(f"NOT CHECKED: {item}")
+    blockers = ", ".join(verdict.automation.get("automationBlockers", []))
+    print(f"AUTOMATION: safeForAutomation={'true' if verdict.automation.get('safeForAutomation') else 'false'}"
+          f" ({blockers})")
+    print(f"=> {'OK' if code == 0 else 'FAILED'} (exit {code})")
+    if code == 0:
+        print("\nThe attestation's signature verified under your supplied trust material, and the selected "
+              "profile and supplied requirements passed. A subject names the artifact digest you supplied. "
+              "Verified log or TSA timestamps are observer times, not the exact instant of signing. "
+              "The predicate remains a claim by its signer; this does not establish that a build was honest.")
+    return code
+
+
 #: The options of `intoto` and `svr` that only one of their two modes reads, by dest and spelling. A mode refuses
 #: an option it does not read instead of dropping it (631 part 2, P2 group 1, measured at 063b4e22: `intoto
 #: --verify --predicate-version v0.2`, `--evaluator`, `--receipt-uri not-a-uri` and every other export option
@@ -3494,6 +3566,49 @@ def build_parser() -> argparse.ArgumentParser:
                               help="the tool_transcript.hash of the transcript you hold")
     verify_trace.add_argument("--json", action="store_true", help="machine readable output")
     verify_trace.set_defaults(func=_cmd_verify_trace)
+
+    verify_sigstore = sub.add_parser(
+        "verify-sigstore",
+        help="[PROPOSED] verify a Sigstore bundle of a GitHub Artifact Attestation or npm provenance offline, "
+             "against your trusted root",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes:\n"
+               "  0  verified under the supplied trust material and selected profile; every supplied\n"
+               "     requirement holds. Verified times are log integration or TSA timestamps.\n"
+               "  1  cryptographic or structural failure (signature, log entry, certificate chain, SCT,\n"
+               "     statement, predicate, registry signature)\n"
+               "  2  unreadable input, a feature not implemented, or unusable trust material or options\n"
+               "  3  sound bundle, but a relying-party requirement is unmet (identity, artifact digest,\n"
+               "     subject name, package.json)\n"
+               "Trust comes only from the options: nothing is fetched, and nothing the bundle says about\n"
+               "itself is trusted. Profiles: github-artifact-attestation, npm-provenance, npm-publish.\n"
+               "A verified attestation is evidence for a policy, never safeForAutomation: revocation and\n"
+               "log consistency over time are not checked (docs/SIGSTORE_BUNDLE_VERIFIER.md).")
+    verify_sigstore.add_argument("bundle", help="path to the Sigstore bundle (JSON)")
+    verify_sigstore.add_argument("--trusted-root", dest="trusted_root", required=True, metavar="FILE",
+                                 help="the trusted_root.json of the Sigstore instance you trust")
+    verify_sigstore.add_argument("--artifact-digest", dest="artifact_digest", required=True, metavar="DIGEST",
+                                 help="the digest of the artifact you hold: sha256:<hex>, sha512:<hex> or an "
+                                      "SRI string such as npm's dist.integrity")
+    verify_sigstore.add_argument("--profile", required=True,
+                                 help="github-artifact-attestation, npm-provenance or npm-publish")
+    verify_sigstore.add_argument("--identity", action="append", default=None, metavar="KEY=VALUE",
+                                 help="an exact value the certificate must carry: san, issuer or a Fulcio "
+                                      "extension such as source_repository_uri or build_signer_uri; repeatable")
+    verify_sigstore.add_argument("--registry-keys", dest="registry_keys", default=None, metavar="FILE",
+                                 help="npm-publish: the registry's keys document (/-/npm/v1/keys)")
+    verify_sigstore.add_argument("--version-document", dest="version_document", default=None, metavar="FILE",
+                                 help="npm-publish: the registry's version document of the package, to check "
+                                      "the registry signature in dist.signatures")
+    verify_sigstore.add_argument("--package-json", dest="package_json", default=None, metavar="FILE",
+                                 help="npm-provenance: the package.json of the tarball you hold, to match its "
+                                      "repository against the certificate")
+    verify_sigstore.add_argument("--subject-name", dest="subject_name", default=None,
+                                 help="a name a subject of the statement must carry")
+    verify_sigstore.add_argument("--tlog-threshold", dest="tlog_threshold", type=int, default=1,
+                                 help="trusted transparency logs whose entries must verify, 0 to 8 (default 1)")
+    verify_sigstore.add_argument("--json", action="store_true", help="machine readable output")
+    verify_sigstore.set_defaults(func=_cmd_verify_sigstore)
 
     demo = sub.add_parser(
         "demo",
