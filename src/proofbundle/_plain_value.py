@@ -80,6 +80,18 @@ def _depth_and_nodes(budget: Any) -> "tuple[int, int]":
     return budget.json_depth, budget.json_nodes
 
 
+def _json_step(text: str, step: Any) -> str:
+    return f"{text}[{step}]" if type(step) is int else f"{text}.{step}"
+
+
+def _where(label: str, chain: Any) -> str:
+    """The parameter and the path of a link, rendered only for a refusal and bounded (`budget._chain_text`,
+    deep gate 6.4.0, iteration 1, a neighbour of finding C1: each node built this text from all its
+    ancestors, 73190 bytes of input to about 100 MB, a refusal or not)."""
+    from .budget import _chain_text  # noqa: PLC0415 - local import avoids an import cycle
+    return label + _chain_text("", chain, _json_step)
+
+
 def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
                budget: Optional[Any] = None) -> Any:
     """The caller's JSON value ``value`` read ONCE from its own storage, as exact built-in types.
@@ -97,14 +109,13 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
     from .budget import render_text  # noqa: PLC0415 - local import avoids an import cycle
     label = render_text(what)
     box: list = [None]
-    stack: list = [(value, box, 0, 1, "")]
+    stack: list = [(value, box, 0, 1, None)]   # the last field is the link of the path (`_where`)
     tuples: list = []                    # (parent, slot, list) to turn into tuples, deepest last
     nodes = 0
     while stack:
-        cur, parent, slot, depth, path = stack.pop()
-        where = f"{label}{path}"
+        cur, parent, slot, depth, chain = stack.pop()
         if depth > max_depth:
-            raise error(f"{where} nests deeper than {max_depth} levels")
+            raise error(f"{_where(label, chain)} nests deeper than {max_depth} levels")
         t = type(cur)
         if cur is None or t is bool or t is int or t is float:
             parent[slot] = cur
@@ -119,40 +130,40 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
                 try:
                     items = _in_eigener_reihenfolge(cur, items)
                 except _Abweisung as abweisung:
-                    raise error(f"{where}: {abweisung.grund}") from None
+                    raise error(f"{_where(label, chain)}: {abweisung.grund}") from None
             nodes += len(items)
             if nodes > max_nodes:
-                raise error(f"{where} holds more than {max_nodes} entries")
+                raise error(f"{_where(label, chain)} holds more than {max_nodes} entries")
             new: dict = {}
             parent[slot] = new
             pending = []
             for key, val in items:
                 text = plain_text(key)
                 if text is None:
-                    raise error(f"{where} has a key of type {type_name(key)}; a JSON key is text")
+                    raise error(f"{_where(label, chain)} has a key of type {type_name(key)}; a JSON key is text")
                 if text in new:
-                    raise error(f"{where} names the key {text!r} twice")
+                    raise error(f"{_where(label, chain)} names the key {text!r} twice")
                 new[text] = None             # the slot, in the stored order
-                pending.append((val, new, text, depth + 1, f"{path}.{text}"))
+                pending.append((val, new, text, depth + 1, (chain, text)))
             stack.extend(reversed(pending))
             continue
         if issubclass(t, (list, tuple)):
             seq = list.copy(cur) if issubclass(t, list) else list(tuple.__iter__(cur))
             nodes += len(seq)
             if nodes > max_nodes:
-                raise error(f"{where} holds more than {max_nodes} entries")
+                raise error(f"{_where(label, chain)} holds more than {max_nodes} entries")
             lst: list = [None] * len(seq)
             parent[slot] = lst
             if issubclass(t, tuple):
                 tuples.append((parent, slot, lst))
-            stack.extend(reversed([(v, lst, i, depth + 1, f"{path}[{i}]") for i, v in enumerate(seq)]))
+            stack.extend(reversed([(v, lst, i, depth + 1, (chain, i)) for i, v in enumerate(seq)]))
             continue
         if issubclass(t, (int, float)):
             base = "float" if issubclass(t, float) else "int"
-            raise error(f"{where} is of type {type_name(cur)}, a subclass of {base}; a number must be an exact "
-                        "int or float, so that no method of the caller's class decides its value")
-        raise error(f"{where} is of type {type_name(cur)}; a JSON value is null, a boolean, an exact int or float, "
-                    "text, a list, a tuple or a dict")
+            raise error(f"{_where(label, chain)} is of type {type_name(cur)}, a subclass of {base}; a number must "
+                        "be an exact int or float, so that no method of the caller's class decides its value")
+        raise error(f"{_where(label, chain)} is of type {type_name(cur)}; a JSON value is null, a boolean, an exact "
+                    "int or float, text, a list, a tuple or a dict")
     for parent, slot, lst in reversed(tuples):
         parent[slot] = tuple(lst)
     return box[0]

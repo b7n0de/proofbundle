@@ -138,6 +138,12 @@ def _benign_fixtures() -> dict[str, object]:
         # Ed25519 JWK, so the call reaches the fuzzed record.
         "trusted_keys": [{"kty": "OKP", "crv": "Ed25519",
                           "x": base64.urlsafe_b64encode(pub).rstrip(b"=").decode()}],
+        # The Sigstore bundle reader (adapters.sigstore_bundle): an empty but well-formed trusted root, a
+        # digest and a profile. Context only; the fuzzed primary is the bundle. Without an identity the
+        # call is refused at verifier-config, which is a verdict, so the never-raise contract is what is
+        # measured here; the parser itself is fuzzed by tests/test_never_raise_surface_family_property.py.
+        "trusted_root": b'{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"}',
+        "artifact_digest": "sha256:" + "00" * 32, "profile": "github-artifact-attestation",
     }
 
 

@@ -1,0 +1,18 @@
+{
+  "keys": [
+    {
+      "expires": "2026-01-01T00:00:00.000Z",
+      "keyid": "SHA256:LBqLZmZW5jJJHs/mn8W5V8rbFuXFJ9JJQeeJbOFerNA",
+      "keytype": "ecdsa-sha2-nistp256",
+      "scheme": "ecdsa-sha2-nistp256",
+      "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECxpOc38DcLoT4BqD0GDRf3XXHIsBiVvgmiKbe8PPnTVfEYtDq4O1qjx2toAosYPRIMjgg7Du8uJyDi49k3DKrg=="
+    },
+    {
+      "expires": null,
+      "keyid": "SHA256:rM2uyJBEclTZLn1tnDS3Cnh1aAst/C4OkZkuSwsGBNk",
+      "keytype": "ecdsa-sha2-nistp256",
+      "scheme": "ecdsa-sha2-nistp256",
+      "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBhEsVnPbRw5odowueP784zNo7VFzgtGrMfx6fnLcRXCOB1NpSqvtePvEt7aBA7Nehg2+QUyWnaDvF8jNOnzYVw=="
+    }
+  ]
+}

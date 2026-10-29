@@ -1204,6 +1204,18 @@ _LOOKUPS_CLASSIFIED = {
     ("proofbundle/adapters/trace_record.py", "verify_trace_record", "_ALGS", "alg"):
         (1, "guarded: alg is the literal \"EdDSA\" of the embedded form or what _read_jws returns, and it "
          "returns alg only after is_member(alg, _ALGS)"),
+    # Seen once the Sigstore bundle reader (2026-10-26) met this guard. Each was read at its source.
+    ("proofbundle/adapters/sigstore_bundle.py", "_read_config", "PROFILES", "profile"):
+        (1, "guarded: is_member(profile, PROFILES) raises ValueError before it"),
+    ("proofbundle/adapters/sigstore_bundle.py", "_read_config", "_DIGEST_LEN", "alg"):
+        (2, "own value: alg is group 1 of a match of _DIGEST_ARG or _SRI_ARG, one of the literals sha256, "
+         "sha384, sha512"),
+    ("proofbundle/adapters/sigstore_bundle.py", "_read_logs", "_KEY_DETAILS", "details"):
+        (1, "guarded: details is the exact str that _string returned"),
+    ("proofbundle/adapters/sigstore_bundle.py", "verify_sigstore_bundle", "_BUNDLE_MEDIA_TYPES", "media"):
+        (1, "guarded: `type(media) is str` in the same expression, before the lookup"),
+    ("proofbundle/adapters/sigstore_bundle.py", "_check_registry_signature", "_DIGEST_LEN", "alg"):
+        (1, "own value: alg is group 1 of a match of _SRI_ARG, one of the literals sha256, sha384, sha512"),
     # Seen once the scitt-ccf/v1 reader of ADR 0009 (the r2 stack, pull request 406) met this guard; each was
     # read at its source and at every caller.
     ("proofbundle/scitt_ccf.py", "_key_from_spki", "_EC_CURVES", "params[c:c_end]"):
@@ -1488,6 +1500,10 @@ _OTHER_USES_CLASSIFIED = {
     ("proofbundle/adapters/trace_record.py", "TraceVerdict", "dict(SPEC_PIN)", "Dict"):
         (1, "own value: a copy of SPEC_PIN, a dict of string literals of this package naming the pinned "
          "specification, put into the verdict as its `specification`"),
+    # Seen once the Sigstore bundle reader (2026-10-26) met this guard.
+    ("proofbundle/adapters/sigstore_bundle.py", "SigstoreVerdict", "dict(SPEC_PIN)", "Dict"):
+        (1, "own value: a copy of SPEC_PIN, a dict of string literals of this package naming the pinned "
+         "documents, put into the verdict as its `specification`"),
     # Seen once a set or dict built over a module-level tuple constant is a container (the lens on
     # c3bd89a4). Each was read at its source.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "_kanonisch(argument 1)"):
