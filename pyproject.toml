@@ -85,14 +85,16 @@ rootcommit = ["ecdsa>=0.18"]
 # yet: no verify path reaches it.
 #
 # PINNED TO THE MEASURED VERSION, as the `inspect` extra is (owner decision Q1 b, 2026-09-25).
-# cbor2 6.1.4 was measured on 2026-09-25, CPython 3.11.15, in
+# cbor2 6.1.4 was measured on 2026-09-25 and 6.1.5 on 2026-10-29, both on CPython 3.11.15, in
 # tools/scitt_ccf_external/reader_crosscheck.json: `allow_duplicate_keys=False` and
 # `allow_indefinite=False` reject, and the data-hash recomputed from its values equals the receipt's
-# on 4 of 4 real statements. 6.1.0 is the first release with `allow_duplicate_keys`, 6.0.0 the first
-# with `allow_indefinite`; 5.9.0 has neither and is refused at run time. A bump needs the same
-# measurement again. `dev` carries the same pin so the reader's tests run in CI; `test` does not, so
-# the sdist run of `[test]` shows the suite without the extra.
-scitt = ["cbor2==6.1.4"]
+# on 4 of 4 real statements; every value recorded for 6.1.5 equals the one for 6.1.4 but the version.
+# 6.1.0 is the first release with `allow_duplicate_keys`, 6.0.0 the first with `allow_indefinite`;
+# 5.9.0 has neither and is refused at run time. A bump needs the same measurement again, and
+# tests/test_scitt_pin_has_a_measured_run.py holds the pin to a run of exactly that version. `dev`
+# carries the same pin so the reader's tests run in CI; `test` does not, so the sdist run of `[test]`
+# shows the suite without the extra.
+scitt = ["cbor2==6.1.5"]
 # EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
 # z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
 # reach). Without it the model still runs a complete bounded-enumeration proof — the extra only adds the
@@ -245,7 +247,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.18", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
        "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.281',
-       "cbor2==6.1.4"]
+       "cbor2==6.1.5"]
 
 [project.urls]
 Homepage = "https://b7n0de.com"
