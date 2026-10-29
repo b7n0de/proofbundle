@@ -48,7 +48,10 @@ decision-receipt statement  (verdict + boundary + notChecked; own detached ancho
 
 `evidenceRefs[].digest` is the **content root** of the referenced evidence statement — SHA-256 over its
 RFC-8785 canonical Statement bytes, the same rule an anchor root uses — not an envelope/file hash and not the
-bare predicate hash. Binding the content root binds the claim's identity (including its `subject` and
+bare predicate hash. It is written as the in-toto digest object `{"sha256": "<64 lowercase hex>"}`
+(`$defs/sha256Digest` in `schemas/decision-receipt-v0.1.schema.json`), and a decision binds an evidence
+statement when at least one entry of its `predicate.evidenceRefs` carries `digest.sha256` equal to that
+statement's content root. Binding the content root binds the claim's identity (including its `subject` and
 `predicateType`) and survives counter-signing / key rotation of the evidence; WHO signed it is a separate
 Trust-Policy question. An optional `artifactDigest` pins an exact stored blob for retrieval. The evidence is
 anchored independently of the decision that cites it (both sides on content roots), so a reviewer can

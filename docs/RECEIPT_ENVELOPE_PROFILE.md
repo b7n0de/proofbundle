@@ -122,6 +122,12 @@ absent, the empty and a numeric identifier; the unit tests also pin a list and n
 identifier buys a forger is therefore a refusal instead of `invalid`, never `valid`, and a consumer
 that treats a refusal as acceptance is wrong whatever the reason for it.
 
+The declaration rule is the envelope's: it reads the bundle's top-level `schema` and nothing else. The
+signed claim inside a bundle that verifies is read by its own identifier, and a claim whose `schema`
+member is absent, empty, not a string or any value other than exactly `proofbundle/eval-claim/v0.1` is
+`refused_unknown_schema` (step 5 of the classification below): a signed payload that does not name our
+claim format is not a claim this verifier knows, and it is not `invalid` either.
+
 ## R3 — a reported binding is a binding that was performed
 
 `binding_checked` is set only when the binding was complete. A binding of type content-hash without
@@ -136,6 +142,11 @@ while the receipt carries that field. Fail-closed is expected.
 **Provenance.** Measured 2026-08-26 against `inspect-receipts@397ae3ad`: the same probe returns
 `valid=True, binding_checked=content-hash`.
 
+The counter-proof and the provenance above describe the measurement against inspect-receipts.
+proofbundle's own R3 vectors read the rule as the section *How the conformance vectors read the rules*
+maps it: a present `samples` commitment must carry a `samples.n` equal to `n` (`EVAL_CLAIM.md` §3), and
+a mismatch is `invalid`.
+
 ## R4 — key resolution fails closed
 
 An unresolvable `kid` is invalid, not valid-with-reservation. A key shipped inside the receipt alone
@@ -145,6 +156,12 @@ never carries a `valid=True`.
 All three must come out invalid.
 
 **Provenance.** Measured 2026-08-26 against `inspect-receipts@397ae3ad`: holds in all three cases.
+
+These three cases and their provenance describe the measurement against inspect-receipts.
+proofbundle's own R4 vectors read the rule as the section *How the conformance vectors read the rules*
+maps it: the bundle's signing key must equal the claim's `issuer` (`EVAL_CLAIM.md` §5), so the R4
+positive control, whose key ships inside the bundle and is the claim's issuer, is `valid`, and the
+counter-proof, whose claim names another key as `issuer`, is `invalid`.
 
 ## R5 — coverage does not follow from integrity
 
@@ -223,6 +240,40 @@ own on purpose: a case asserting "the cases exist" would be the tautology this r
 **Provenance.** House governance rule, first written in the 2026-08-26 draft. It has **no external
 source**, and we do not claim one. Its standing against us is recorded: at the time of writing this
 page our own `mutation` gate is not green, which is precisely the state R6 declares unmet.
+
+## How the conformance vectors read the rules
+
+`conformance/envelope_profile/` declares exactly one axis per case. The axes are computed from
+the case input as follows, and this section is the text those vectors are read against.
+
+- **`contentRootHex` (R1).** The input is one JSON object. The value is the lowercase hex SHA-256
+  of its eval-claim canonical bytes: RFC 8785 under the profile of `EVAL_CLAIM.md` §4 (object keys
+  sorted by UTF-16 code units, compact separators, UTF-8).
+- **`nonConformantDiffers` (R1).** The input is one JSON object. The non-conformant serializer is
+  the escaping alias measured above, pinned as `json.dumps(obj, sort_keys=True, ensure_ascii=True,
+  separators=(",", ":"))`: keys sorted by code point and every non-ASCII character escaped as
+  `\uXXXX`. The value is `true` iff the SHA-256 of its UTF-8 bytes differs from `contentRootHex` of
+  the same object.
+- **`canonicalizeRefuses` (R1).** The input is a non-empty JSON array of objects. The value is `true`
+  iff the eval-claim canonicalization refuses every one of them. It refuses a JSON number written
+  with a fraction or an exponent, which a JSON reader returns as a float (`2.0` and `1e-7` alike),
+  a string that is not NFC, and an integer outside ±(2^53−1) (`EVAL_CLAIM.md` §4).
+- **`classification` (R2 to R4).** The input is one bundle. The outcome is exactly one of the
+  strings `valid`, `invalid` and `refused_unknown_schema`, decided in this order, and the first step
+  that decides ends the classification:
+  1. a document over the verifier's resource limits is `invalid`;
+  2. a top-level `schema` that is a present, non-empty string other than `proofbundle/v0.1` is
+     `refused_unknown_schema`;
+  3. a bundle that does not verify under `SPEC.md` §2 to §7 is `invalid`; this includes an absent,
+     empty or non-string `schema` and an unsupported `signature.alg` or `merkle.hash_alg` under our
+     own identifier;
+  4. a payload that is not a JSON object under the strict reader is `invalid`;
+  5. a payload whose `schema` member is not exactly `proofbundle/eval-claim/v0.1` is
+     `refused_unknown_schema`;
+  6. a claim that breaks a rule of `EVAL_CLAIM.md` is `invalid`; among them the issuer binding of
+     §5 (the bundle's signing key must equal the claim's `issuer`, the R4 vectors) and
+     `samples.n` equal to `n` (§3, the R3 vectors);
+  7. otherwise `valid`.
 
 ## What this profile deliberately does NOT say
 

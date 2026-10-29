@@ -88,6 +88,22 @@ content root. Per edge:
   PAYLOAD is not a well-formed statement (`RELATION_TARGET_MALFORMED`), cycle, or depth > 32.
 - **NOT_EVALUATED** — no profile present.
 
+**Which edges set `lineage`.** `lineage` is computed from the edges the receipt under verification
+declares in its own `relationships`. A receipt that declares none is NOT_EVALUATED, also when an
+attachment declares an edge over it; such edges feed only the `relations` policy of §5
+(`reject_superseded`, `RELATION_MALFORMED_SUCCESSOR`). The states of its own edges combine as: FAIL if
+any edge is FAIL, else DECLARED_UNRESOLVED if any edge is DECLARED_UNRESOLVED, else VERIFIED. An edge
+whose digest names no attached receipt is DECLARED_UNRESOLVED, whatever else is attached;
+"attached-but-unverified" means an attachment whose computed content root the edge names and that does
+not verify standalone. An attachment that no edge names changes nothing, whether it verifies or not.
+
+**The attached ancestry.** A VERIFIED edge is followed into the edges its target declares, and on, as
+far as targets are attached. The direct targets of the receipt under verification are at depth 1;
+resolving a target at depth 33 makes the receipt's edge FAIL (`relation:depth_exceeded`). An attached
+ancestor that an edge of the ancestry names and that does not verify standalone makes the receipt's edge
+FAIL as well (`relation:ancestor_verification_failed`). An edge of an ancestor whose target is not
+attached ends the walk there and does not lower VERIFIED.
+
 "Verified STANDALONE" covers the payload as well as the signature, and it binds at every hop
 (deep gate 2026-09-05, finding L4-01): the resolver parses an attached target's payload with the SAME
 strict, canonical oracle the standalone verify path uses. A payload the oracle refuses — a duplicate JSON
@@ -95,6 +111,33 @@ key, NaN, a BOM, a non-canonical spelling, a non-object — makes the target `at
 never "verified with no edges". Before that, a failing ancestry hidden behind a duplicated `predicate` key
 verified as VERIFIED in both shipped verifiers while the same bytes failed standalone: the chain's verdict
 depended on which parser read a hop, and the hop's author chooses the bytes.
+
+**The statement oracle.** A signed payload is a well-formed statement iff it is a JSON object
+under the strict reader, its bytes are its own RFC 8785 canonical form, its `_type` is exactly
+`https://in-toto.io/Statement/v1`, and its `subject` is a non-empty array whose every entry is
+an object carrying a non-empty `digest` object with non-empty string values (a `sha256` value is
+64 lowercase hex). On an attachment, a `relationships` member whose value is `null` declares nothing
+and is treated exactly as an absent member. On the receipt under verification it is malformed (exit 2,
+lineage NOT_EVALUATED, `relationships must be a JSON array of edge objects`), and so is an empty array
+(exit 2, lineage FAIL, `relation:malformed:`): there the predicate carries a non-empty array or no
+`relationships` member.
+
+**Stable codes.** The JSON report carries, for each FAIL reason and each policy block, the string
+below; a conformance vector's `errorContains` names one of them.
+
+| situation | string in the report | exit |
+|---|---|---|
+| structural error of an edge (shape, unknown field, unknown relation, digest not 64 lowercase hex, missing `digestAlgorithm`) | `relation:malformed:` followed by the detail | 2 |
+| attached target named by an edge that does not verify standalone (signature, key, `payloadType`) | `relation:target_verification_failed` | 2 |
+| attached ancestor, named by an edge of the ancestry, that does not verify standalone | `relation:ancestor_verification_failed` | 2 |
+| attached target whose payload is not a well-formed statement | `RELATION_TARGET_MALFORMED` | 2 |
+| attached ancestry deeper than 32 | `relation:depth_exceeded` | 2 |
+| a cycle | `relation:cycle` | 2 |
+| `targetSubjectDigest` against several subjects, a malformed or a wrong one (§5) | `RELATION_TARGET_SUBJECT_AMBIGUOUS`, `RELATION_TARGET_SUBJECT_MALFORMED`, `RELATION_TARGET_SUBJECT_MISMATCH` | 2 |
+| `require_relation_resolution` unmet, and a `reject_superseded` or `reject_retracted` block | `LINEAGE_REQUIREMENT_FAILED` | 3 |
+| `relation_signer` unmet | `RELATION_SIGNER_UNAUTHORIZED` | 3 |
+| `require_relation_target` unmet | `RELATION_TARGET_MISMATCH` | 3 |
+| an attached receipt whose own `relationships` block is unreadable, under `reject_superseded` | `RELATION_MALFORMED_SUCCESSOR` | 3 |
 
 Invariants: `lineage` NEVER feeds `cryptoValid` in either direction (proven by test — a
 forged envelope never computes lineage, and a lineage FAIL never flips `crypto_ok`).
@@ -157,6 +200,15 @@ bound is depth-exceeded.
 - `targetSubjectDigest` (edge field): when PRESENT it is now binding — gegengeprueft against
   the resolved target's real subject digest; a mismatch is a lineage FAIL
   (`RELATION_TARGET_SUBJECT_MISMATCH`, exit 2). Absent = optional, no wire-break.
+  **What is compared.** The field has the object form of `targetReceiptDigest`, and its
+  `digestAlgorithm` MUST be a registered content-root algorithm (today only `jcs-sha256-v1`),
+  but its `digest` is NOT a content root: it is compared, as 64 lowercase hex, with the `sha256`
+  entry of the `digest` of the resolved target's only `subject` entry (the in-toto subject
+  digest, `subject[0].digest.sha256`). A target with more than one subject entry fails with
+  `RELATION_TARGET_SUBJECT_AMBIGUOUS` (the verifier never binds `subject[0]` of several), a single
+  entry without a well-formed `sha256` digest with `RELATION_TARGET_SUBJECT_MALFORMED`; each is a
+  lineage FAIL, exit 2. A target with no subject entry is not a well-formed statement and fails
+  earlier with `RELATION_TARGET_MALFORMED` (§4).
 - Authorization and parent-pinning are RELYING-PARTY POLICY, never format truth: a passing
   check proves set membership / the named parent under the verifier's pins, not that anyone
   is "really" authorized or in the right.
@@ -204,7 +256,9 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
 
 - predicateType `https://b7n0de.com/proofbundle/predicates/relation-statement/v0.1`; predicate
   `{schemaVersion, statementId, relationships:[edge]}` with exactly one edge (the same edge schema
-  as above). The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
+  as above). The predicate is closed: any other member is malformed (exit 2), and the report names
+  it as `unknown field '<name>' (additionalProperties:false)`; its `lineage` is still computed from its
+  edge, so such a statement whose target is not attached reports DECLARED_UNRESOLVED. The edge validation, lineage resolution and the `relations` trust-policy gate REUSE
   the same functions as the in-receipt path — there is no second implementation of the logic.
 - Honesty boundary (verbatim, claims-hygiene enforced): a relation statement proves the issuer
   DECLARED the relation over exact bytes; it does not retract the target's cryptographic validity,
@@ -218,6 +272,9 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
   relations): a relying party who knows BOTH the target and a verified retracts statement of a pinned
   signer can treat continued automated use of the target as an exit-3 block. Without the policy the
   verified statement is pure visibility. `relation_signer` decides WHO may declare it, unchanged.
+  On this path `reject_retracted` blocks on the statement's own VERIFIED `retracts` edge and
+  `reject_superseded` on its own VERIFIED `supersedes`, `revises` or `corrects` edge; both report
+  `LINEAGE_REQUIREMENT_FAILED`, exit 3.
 - Rust parity: the independent Rust verifier carries this profile since 3.5.0
   (`verify-relation-statement`); `crosscheck.py` drives the statement vectors differentially and
   asserts Python and Rust land on the same exit class + lineage. Differential agreement on these

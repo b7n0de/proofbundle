@@ -70,6 +70,50 @@ floor requires a `native_bundle` case to declare `exitCode`. These lock core ver
 onto the gate — a valid bundle verifies, a **duplicate JSON key** is rejected as malformed (the C1
 Bishop-Fox parser-differential defense), a single flipped payload byte fails the signature.
 
+### `agent_review_predicate`
+
+Agent-review vectors (`agent_review/`) are read against `docs/AGENT_REVIEW_PREDICATE.md` and
+`docs/VERIFIER_BLOCK.md`. The corpus test key is the Ed25519 key with the 32 seed bytes 0x00, 0x01, …,
+0x1f; it must never sign anything a reader takes as evidence, and its raw public key, hex-encoded, is
+`agent_review/publickey.hex`. To *issue* a predicate is to build its in-toto Statement, refuse it when it
+breaks a rule of its version, and sign it as a DSSE envelope with the corpus key; to *verify as* a version
+is that version's verification under the corpus public key. A case reads only its own `input`, and its one
+axis decides the use:
+
+- `classification`, input `predicate.json`: the version is the case's `predicateVersion`, `v0.1` when it
+  names none; a `v0.2` predicate that carries `producer.verifier` is a `v0.3` predicate. A predicate that
+  breaks a rule of its version is `refused`. Otherwise it is issued and verified as its version, with the
+  predicate's own subject digest as the expected subject digest and, for `v0.2` and `v0.3`, the default
+  policy `agent_review/policies/default_v1.json`; it is `valid` when that verification is ok, else `invalid`.
+- `classification`, input `body.json`: `refused` when the body core digest of the file's `body` cannot be
+  computed (a malformed or duplicated disclosure block), else `valid`.
+- `classification`, input `envelope.json`: the envelope is verified as `v0.1`, with `params.expectedSubjectDigest`
+  as the expected subject digest when the case gives one; `valid` when ok, else `invalid`.
+- `bodyCoreStable`: the input holds `bodyBefore` and `bodyAfter`; the value is true exactly when both have
+  the same body core digest.
+- `subjectExpectation`: the envelope is verified as `v0.1` without an expected subject digest; the value is
+  the reported subject expectation, and an absent expectation is reported as a warning that names
+  `expected_subject_digest`.
+- `currentReceipt`, `chainIntegrity`, `unverifiedSupersessionClaim`: the input holds `envelopes`; each is
+  verified as `v0.1`, the receipt digests of those whose signature verifies form the verified set, and the
+  receipt chain of all envelopes is resolved with that set: `currentReceipt` is the receipt digest of the
+  current receipt, 64 lowercase hex, or `null` when there is none; `chainIntegrity` is a boolean, `false`
+  when the chain's integrity fails; and `unverifiedSupersessionClaim` holds when the receipt digest the
+  vector names is in the reported list of unverified supersession claims (a list of receipt digests,
+  empty when there are none) and no receipt was marked corrected. A verifier reports that list, not a
+  single value.
+- `versionStatus`: the envelope goes through the version dispatcher with `params.expectedSubjectDigest` when
+  given; the value is its `predicateVersionStatus` (`legacy`, `current` or `unknown`). `legacy` carries
+  `AGENT_REVIEW_LEGACY_V01` as an advisory code, never as a reason code, with the same `ok` the `v0.1`
+  verification gives; `current` never carries it; `unknown` is not ok and carries
+  `AGENT_REVIEW_PREDICATE_TYPE_UNKNOWN` as a reason code.
+- `policyDecision`: a `v0.2` or `v0.3` case; the predicate is issued and verified as its version with its own
+  subject digest and the policy `params.policy` names: `default`, or no value, is the default policy, `none`
+  is no policy, any other value is that file in the case directory. The value is the policy decision:
+  `accept`, `reject`, `insufficient_evidence`, or `null` without a policy. `null` carries `POLICY_NOT_EVALUATED`
+  as an advisory code and not as a reason code; every other decision reports the digest of its policy;
+  `accept` comes with ok, `reject` and `insufficient_evidence` without.
+
 ### `cap1_document`
 
 A coverage-attestation document of `draft-hillier-coverage-attestation-00` (profile `cap/1`),
@@ -97,13 +141,30 @@ decision-receipt/v0.1 conformance: done (graduated 2026-07-19, block 958761)** w
 case (CONFORMANCE.md rule 5, no silent changes: a regeneration is a new case, the old one kept, so its
 historical green run stays reproducible).
 
+### `decision_relation`, `outcome_relation`, `relation_statement`
+
+Relation vectors (`relation/`) run the `decision verify`, `outcome verify` or `relation-statement
+verify` path of SPEC.md §7j and §7k on `input`, with `--pub` read from the file named by `pub`, one
+`--with-related` per entry of `related` (each followed by `--related-pub` with the key at the same
+position of `relatedPubs`, when given), and `--policy` when `policy` is given. A `decision_relation`
+case is evaluated at the receipt's own `predicate.recordedAt` (else `decidedAt`) as
+`--verification-time`, so a fixed-date `validity.expiresAt` in a fixture cannot move the verdict as
+the wall clock advances. `exitCode` is the CLI exit contract; `lineage` is the reported lineage
+state, where `null` and `NOT_EVALUATED` are the same observation; `errorContains` holds when the
+string occurs in the verifier's JSON report or its error output.
+
 ### `content_root_vector`
 
 Action-chain content-root vectors (`action_chain_content_roots/`, Phase 1 / R51): language-neutral
 golden pins for the ONE statement content-root primitive (ADR 0002, `jcs-sha256-v1`). Four modes —
 `canonical` (pinned .jcs bytes + root on both sides of the two-part rule), `pair_reference`
-(a decision binds an evidence statement by its root), `binding` (algorithm confusion rejected,
-named legacy `legacy-sortkeys-json-v0` accepted when undeclared), `envelope_invariance` (signature
+(a decision binds an evidence statement by its root: at least one `predicate.evidenceRefs[].digest.sha256`
+of the decision equals the evidence content root, see `docs/predicates/decision-receipt.md` §3; the
+`*JcsFile` and `secondEnvelope` members of `expected` name fixtures and are not compared), `binding` (algorithm confusion rejected,
+named legacy `legacy-sortkeys-json-v0` accepted when undeclared; the declaration is the top-level
+`contentRootAlg` of the payload, `expected.alg` is the algorithm the payload was judged under, and
+`expected.bindingOk` is whether the payload bytes equal that algorithm's serialization, both as
+defined in [ADR 0002](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0002-universal-content-root.md) §Activation), `envelope_invariance` (signature
 blocks never move the root). Honest scope: these pins are **generated by this implementation**; the
 Rust verifier `pb_verify_rs` recomputes the eight pinned roots through its `content-root` subcommand
 (`tools/pb_verify_rs/crosscheck.py`), and the two `binding` vectors pin a verdict of the Python binding
