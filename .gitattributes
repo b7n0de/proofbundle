@@ -24,3 +24,7 @@ RESTRISIKO_600_OBJEKTKLASSEN.json -text
 examples/verdict_contract/out/* -text
 examples/verdict_contract/reply.txt -text
 examples/verdict_contract/verdict_contract.py -text
+
+# drafts/ser-04/ (2026-10-26): its README and tests/test_ser04_verifier_from_text.py bind the draft text, its XML, the
+# vector file and the verifier files by their sha256, so a checkout that rewrote line ends would fail them.
+drafts/ser-04/** -text
