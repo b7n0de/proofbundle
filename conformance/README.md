@@ -171,9 +171,10 @@ no rule reads (an unknown member, a missing `population`, `statement` or `assert
 the schema's, outside the fifteen cases as well: a `withheld_digest` or `catalogue_digest` that is not 32 to 128
 lowercase hexadecimal characters fires R3 or R4; a stratum whose `unexamined` is missing or not an array fires R1;
 an entry of `unexamined` without a non-empty string `unit` fires R2 and is not an accounted unit of R1; a `subject`
-that is not an object with a non-empty string `ref` fires R0; an `absence_assertions` that is present and not an
-array of objects fires R6; and a `capped_to` that is `null` or empty states no verdict, so it fires R7 when
-`complete` is false.
+that is not an object with a non-empty string `ref` fires R0; an `absence_assertions` that is present, other than
+`null`, and not an array of objects fires R6, while `null` reads as an absent member, fires no rule and names no
+stratum for R8; and a `capped_to` that is `null` or empty states no verdict, so it fires R7 when `complete` is
+false.
 
 Every rule is judged on every document on its own, and the set holds every rule the document breaks, so one
 document can fire several rules; a document that is not a JSON object fires R0 alone. The draft's demand that each
