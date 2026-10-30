@@ -293,8 +293,8 @@ EXCEPTIONS = {
     "plugins/proofbundle/evals/_fixtures/make.py": (
         1, "builds the eval fixtures from the package's own template output; it judges nothing"),
     "plugins/proofbundle/server/proofbundle_mcp.py": (
-        2, "reads the host's JSON-RPC messages and the package's own JSON output; every "
-           "verdict is the package's"),
+        2, "reads the host's JSON-RPC messages and the package's own JSON output; both reads refuse a member named "
+           "twice and the non-JSON constants (held by test_claude_code_plugin), and every verdict is the package's"),
 }
 
 _SEQ, _MAP = {"tuple", "Sequence"}, {"Mapping", "frozendict", "FrozenDict"}
