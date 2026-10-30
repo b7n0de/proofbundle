@@ -199,17 +199,6 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         scripts/rust_parity_gate.py, whose default paths read tools/ (as test_rust_parity_gate). Only
         the seven failing functions are listed; the other 52 tests of these modules run from the sdist.
         Teaching the derivation these forms is the class fix, and it is not part of this branch.
-
-        THE SEVENTH REASON, 2026-10-30, owner card OA-38fc199f16. hermetic-cleanroom on head 6527a024
-        of PR 441 (G-2) showed 1 failed and 9509 passed, the one failure
-        test_plugin_verify_carries_no_guard::test_the_tree_is_a_clean_verify_state_or_a_whole_guard. The
-        test reads the plugin's state from the tree: without plugins/proofbundle/hooks/hooks.json it is a
-        Verify state, in which the README lines that link the plugin catalog may name no Guard word. The
-        sdist prunes plugins/, so it reads as a Verify state whatever the repository is, and G-2's README
-        task row "Gate a push or pull request from an AI coding agent" became a finding. The module reaches
-        the plugin through ROOT / PLUGIN, a Path constant, which the derivation cannot bind. Measured in a
-        copy of the extracted sdist: 1 failed without the entry, 1 skipped with it; in the checkout the
-        test runs unchanged and measures the Guard state.
         """
         rueckfall = {"test_audit_candidate_360", "test_claims_hygiene", "test_fork_pr_secret_isolation",
                      "test_roadmap_frontload_foundations", "test_rust_parity_gate",
@@ -218,8 +207,7 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
                      "test_mutationstor_sammler_sieht_die_freigabeflaeche",
                      "test_a_mode_refuses_the_options_it_does_not_read", "test_a_form_rule_reads_one_spelling",
                      "test_audit_matrix_differential_cell_recomputes_agreement",
-                     "test_rust_parity_gate_refuses_invalid_coverage_evidence",
-                     "test_plugin_verify_carries_no_guard"}
+                     "test_rust_parity_gate_refuses_invalid_coverage_evidence"}
         gelistet = {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS}
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
