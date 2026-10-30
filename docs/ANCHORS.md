@@ -13,8 +13,11 @@ not control.
 | target | claim | why |
 |---|---|---|
 | `preRegistration` | the commitment existed **before** the run | backdating protection (the point raised in in-toto/attestation#565) |
-| `receipt` | the receipt existed **from** time T | publication proof |
-| `statement` | this in-toto Statement's content existed **from** time T | the content root of a DSSE Statement (used by decision receipts); kept **detached** — an anchor cannot live inside the signed bytes whose hash it commits (proofbundle#7 consensus, 2026-07-10) |
+| `receipt` | the receipt existed **at or before** time T | publication proof |
+| `statement` | this in-toto Statement's content existed **at or before** time T | the content root of a DSSE Statement (used by decision receipts); kept **detached** — an anchor cannot live inside the signed bytes whose hash it commits (proofbundle#7 consensus, 2026-07-10) |
+
+An anchor bounds the time from above, as `proofbundle.anchors` states it: its target existed at or before the time the
+proof carries, and nothing in the anchor says how long before.
 
 > **Note — `statement` is NOT a valid target inside a `proofbundle/v0.1` bundle's own `anchors[]`.** The
 > bundle schema's `target` enum is `receipt` | `preRegistration` only (`schemas/proofbundle_v0_1.schema.json`;
