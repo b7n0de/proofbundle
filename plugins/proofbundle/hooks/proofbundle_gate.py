@@ -17982,10 +17982,10 @@ _RELEASE_JOIN = re.compile(r"[\\'\"]")
 #: bash's ANSI-C quoting, `$'…'`, whose escapes it decodes (`$'\x73udo'` runs sudo); its locale quoting, `$"…"`, it reads
 #: as `"…"` (re-reading of the fixes at 21fead88, line 3, P1).
 _RELEASE_ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.S)
-#: The expansions the gate does not resolve in a word: a parameter, a command substitution, an arithmetic expansion and
-#: a backquoted command.
+#: The expansions the gate does not resolve in a word: a parameter, a command substitution, an arithmetic expansion, a
+#: backquoted command and a process substitution.
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
-                                r"`[^`]*`")
+                                r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
 
 
@@ -18006,36 +18006,66 @@ def _release_door_words(command: str) -> str | None:
     door = _release_door_words_split(command)
     if door is not None:
         return door
-    assembled = _RELEASE_JOIN.sub("", _RELEASE_ANSI_C.sub(_release_ansi_c, command).replace('$"', '"'))
-    if assembled != command:
-        door = _release_door_words_split(assembled)
-        if door is not None:
-            return door
-    return "root" if _release_unresolved_root(assembled) else None
+    # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
+    # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
+    continued = command.replace("\\\n", "")
+    assembled = _RELEASE_JOIN.sub("", _RELEASE_ANSI_C.sub(_release_ansi_c, continued).replace('$"', '"'))
+    for text in dict.fromkeys([assembled, _release_braced(assembled)]):
+        if text != command:
+            door = _release_door_words_split(text)
+            if door is not None:
+                return door
+    return _release_unresolved_door(assembled)
 
 
-def _release_unresolved_root(assembled: str) -> bool:
-    """Whether a program word of a line (behind its prefix assignments and wrappers, _guard_program) holds an expansion
-    the gate does not resolve while what is written of it may still be a program of _RELEASE_ROOT: `s${E}udo`, `$x`
-    after `x=sudo`, `$(printf s)udo`. A program word that is a path counts by its last part."""
+def _release_braced(text: str) -> str:
+    """The text with each blank-separated word replaced by the words of its brace expansion (D100, _sh_brace_expand),
+    where the gate can expand it: `{s,x}udo` runs sudo."""
+    return "".join(" ".join(_sh_brace_expand(w) or [w]) if "{" in w else w for w in re.split(r"(\s+)", text))
+
+
+#: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.
+_RELEASE_TEXT_RUNNERS = frozenset({"eval", "source", ".", "sh", "bash", "zsh", "dash", "ksh", "watch", "runuser"})
+#: The shells, which also run the text they read from a pipe.
+_RELEASE_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+
+
+def _release_unresolved_door(assembled: str) -> str | None:
+    """The door root or signatur where a program word of a line (behind its prefix assignments and wrappers,
+    _guard_program) may still be one of their programs though the gate does not resolve it: a word with an expansion
+    (read as `*`) or a pattern (`/usr/bin/su[d]o`), compared without case with _RELEASE_ROOT and _RELEASE_SIGNERS by
+    the comparison of D102 (proofbundle_secrets.may_match). The door root also where a program that runs text
+    (_RELEASE_TEXT_RUNNERS: eval, `bash -c`) gets an expansion the gate does not resolve, and where a shell reads its
+    commands from a pipe (`printf 'su%s' do | sh`). A program word that is a path counts by its last part. Not known to
+    the gate: aliases and functions defined outside the line, and the text of a file a line sources or a shell runs."""
     marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
-    for segment in re.split(r"[;&|()\n]+", marked):
-        words = segment.split()
+    sec = _secrets()
+    parts = re.split(r"([;&|()\n]+)", marked)
+    for i in range(0, len(parts), 2):
+        words = parts[i].split()
         if not words:
             continue
-        word = words[_guard_program(words)]
-        name = word.rsplit("/", 1)[-1]
-        if _RELEASE_UNKNOWN not in name:
-            continue
-        shape = re.compile(".*".join(re.escape(p) for p in name.split(_RELEASE_UNKNOWN)))
-        if any(shape.fullmatch(root) for root in _RELEASE_ROOT):
-            return True
-    return False
+        k = _guard_program(words)
+        runners = [os.path.basename(w).lower() for w in words[:k + 1]]
+        if any(r in _RELEASE_TEXT_RUNNERS for r in runners) and any(_RELEASE_UNKNOWN in w for w in words[k + 1:]):
+            return "root"
+        before = parts[i - 1] if i else ""
+        if runners[-1] in _RELEASE_SHELLS and before.strip() == "|":
+            return "root"
+        name = words[k].rsplit("/", 1)[-1].lower()
+        if _RELEASE_UNKNOWN in name or _SH_GLOB_CHARS.search(name):
+            pattern = name.replace(_RELEASE_UNKNOWN, "*")
+            if any(sec.may_match(pattern, root) for root in _RELEASE_ROOT):
+                return "root"
+            if any(sec.may_match(pattern, signer) for signer in _RELEASE_SIGNERS):
+                return "signatur"
+    return None
 
 
 def _release_door_words_split(command: str) -> str | None:
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
-    names = [os.path.basename(w) for w in words]
+    # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
+    names = [os.path.basename(w).lower() for w in words]
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
     for i, name in enumerate(names):
         if name in ("git", "gh"):

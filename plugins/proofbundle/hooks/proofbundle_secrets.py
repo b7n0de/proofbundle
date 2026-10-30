@@ -207,6 +207,12 @@ def _may_match(tokens: list, name: str) -> bool:
     return any(all(tok == ("run",) for tok in tokens[t:]) for t in reach)
 
 
+def may_match(pattern: str, name: str) -> bool:
+    """Whether the shell's pattern may match the file name, by _pattern_tokens and _may_match; for the gate's root door
+    (D119), which reads a program word with a pattern the same way D102 reads a path."""
+    return _may_match(_pattern_tokens(pattern), name)
+
+
 def _may_end_with(tokens: list, ending: str) -> bool:
     """Whether a pattern of _pattern_tokens may match a name that ends with `ending`, letters compared without case as
     _role compares the endings: read from the end of both, a `*` may take the rest of the ending and everything

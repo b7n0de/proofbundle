@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -293,3 +294,59 @@ def test_a_root_program_the_shell_assembles_is_the_door_root(gate, line):
                                   "printf '%s' $'\\x41'"])
 def test_control_a_line_whose_program_names_no_root_is_no_root_door(gate, line):
     assert gate._release_door_words(line) != "root"
+
+
+# --- Third reading at 097cedad, line 3: the steps of bash's word formation for a program word ---------------------------
+
+ROOT_FORMS = ["s\\\nu\\\ndo -n true", "{s,x}udo -n true", "su{d,}o -n true", "eval \"$(printf 's%s' udo)\" -n true",
+              "bash -c \"$(printf s)udo -n true\"", "/usr/bin/su[d]o -n true", "/usr/bin/s?do -n true"]
+
+
+@pytest.mark.parametrize("line", ROOT_FORMS)
+def test_every_step_of_word_formation_that_makes_a_root_program_is_the_door_root(gate, line):
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ["echo a\\\nb", "ls {a,b}.txt", "cat *.md", "eval echo hi", "bash -c 'echo hi'",
+                                  "printf '%s' 'a\\b'", "/usr/bin/[a-c]at x"])
+def test_control_word_formation_without_a_root_program_is_no_root_door(gate, line):
+    assert gate._release_door_words(line) != "root"
+
+
+NEIGHBOUR_FORMS = [("SUDO -n true", "root"), ("printf 'su%s' do | sh", "root"), ("bash <(printf 's%s' udo)", "root"),
+                   ("/usr/bin/gp[g] --sign f", "signatur")]
+
+
+@pytest.mark.parametrize("line,door", NEIGHBOUR_FORMS)
+def test_the_neighbours_kraxo_measured_are_their_doors(gate, line, door):
+    """A name in other case (a file system without case, as on macOS, finds the program), text a shell reads from a
+    pipe or a process substitution, and the same class at the door of a signer. An alias the line itself defines is
+    no neighbour: measured, neither `bash -c` nor `zsh -f -c` expands it in the same line."""
+    assert gate._release_door_words(line) == door
+
+
+@pytest.mark.parametrize("line", ["cat x | grep y", "printf hi | wc -l", "Git status", "export LANG=C",
+                                  "bash script.sh", "x=ls; echo $x | sort"])
+def test_control_neighbour_shapes_without_a_door_are_no_door(gate, line):
+    assert gate._release_door_words(line) is None
+
+
+@pytest.mark.parametrize("line", ROOT_FORMS[:5] + ["printf 'su%s' do | sh", "bash <(printf 's%s' udo)"])
+def test_bash_runs_sudo_for_the_forms_above(line, tmp_path):
+    """The premise, measured on bash with a stand-in in place of the program: an exported function and a script of the
+    same name first on PATH, so that no form reaches the real program, also not in a child shell; the path forms need
+    a file and are measured in the probe of the third reading."""
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("no bash")
+    stand_in = tmp_path / "bin" / "sudo"
+    stand_in.parent.mkdir()
+    stand_in.write_text("#!/bin/sh\nprintf 'SUDO\\n'\n", encoding="utf-8")
+    stand_in.chmod(0o755)
+    script = "sudo() { printf 'SUDO\\n'; }\nexport -f sudo\n" + line
+    env = {"PATH": f"{stand_in.parent}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    r = subprocess.run([bash, "--norc", "--noprofile", "-c", script], capture_output=True, text=True, timeout=20,
+                       cwd=str(tmp_path), env=env)
+    assert r.stdout.startswith("SUDO"), (r.stdout, r.stderr)
+
+
