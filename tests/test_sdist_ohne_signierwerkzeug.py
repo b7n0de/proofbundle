@@ -414,6 +414,12 @@ AUSGESCHLOSSEN = {
     # request, and pr-form.yml runs it on every pull request. An installed package has no pull request.
     # Same reasoning as `b7_pr_form_gate.py` above.
     "pr_language_check.py": "checks the language of one pull request's texts; no pull request inside a package",
+    # 2026-10-30: the part plugin of the CI job `test` and the weights it balances the parts with,
+    # measured on this repository's suite. An installed package has no CI matrix to split, and the
+    # weights name files of this checkout. The contract that reads both,
+    # tests/test_ci_test_parts_cover_the_suite.py, names .github/ and skips outside a checkout.
+    "ci_test_part.py": "splits the suite of the CI job `test` into parts; no CI matrix inside a package",
+    "ci_test_part_weights.json": "the measured weights of ci_test_part.py; they name files of this checkout",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

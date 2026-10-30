@@ -285,6 +285,8 @@ jobs:
     # 97 at a1d5a815, 94 at 52c7e634 and 105 at 53bbb94c, with src/ unchanged between 198af5c5 and
     # 53bbb94c; the spread is the speed of the runner, and 105 with the reserve of
     # tests/test_der_ci_schnitt_haelt.py needs 132.
+    # The limit stays at 180 for the first runs in parts (see the matrix below). It comes down once
+    # three runs on main have measured how long a part takes, as planned for crypto-floor.
     timeout-minutes: 180
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
@@ -326,6 +328,18 @@ jobs:
               || github.event_name == 'merge_group' )
             && '["3.10","3.11","3.12","3.13","3.14"]'
             || '["3.12"]' ) }}
+        # IN PARTS (owner order of 2026-10-30, accelerator first; the same way as crypto-floor in pull
+        # request 436). Measured through the GitHub API, the suite step alone took 42 to 99 min at
+        # 1e050a1d and 37 to 82 min at f407cfea, and test (3.14) set the end of both runs. Each leg now
+        # runs in parts side by side. Every part collects the whole suite with the same command and
+        # keeps only the test files of its part (scripts/ci_test_part.py, with the measured weights
+        # beside it); what one part leaves out, another part of the same leg runs. The checks that are
+        # not the suite run once per version, in part 1. The parts run in separate jobs, so module and
+        # class fixtures and any state global to a process apply per part. all-checks-passed needs
+        # `test`, and `needs.test.result` is success only when every part of every version succeeded.
+        # A contract holds the parts as a partition of the collected suite and this job in its shape
+        # (tests/test_ci_test_parts_cover_the_suite.py).
+        part: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -344,12 +358,16 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]" pytest-xdist==3.8.0
       - name: Lint
+        if: matrix.part == 1
         run: ruff check .
       - name: Type check
+        if: matrix.part == 1
         run: mypy src
       - name: Claims hygiene (no un-negated overclaims in docs)
+        if: matrix.part == 1
         run: python scripts/claims_hygiene_check.py
       - name: Doc links (no broken internal Markdown links)
+        if: matrix.part == 1
         run: python scripts/doc_link_check.py
       # LAUF11-L6: DER NORMATIVE RUNNER, auf ALLEN fuenf Pflicht-Versionen.
       # Vorher stand hier `python -m unittest discover -s tests -v`. `unittest discover` sammelt nur
@@ -368,25 +386,39 @@ jobs:
       # PARALLEL (owner decision 2026-09-28, Z281): the whole suite, one pytest call, on every worker
       # the runner has. Written with `=` so the normative-runner guard reads the values as option
       # values, not as path selections; it still collects exactly what `pytest tests` collects.
+      # IN PARTS (2026-10-30): the same call plus the part plugin. CI_PART comes from the matrix as
+      # `<part>/<number of parts>`; the plugin refuses anything else, so a broken value fails the step
+      # instead of running the whole suite or nothing.
       - name: Test
-        run: python -m pytest -q --numprocesses=auto --dist=worksteal
+        env:
+          CI_PART: ${{ matrix.part }}/7
+        run: python -m pytest -q --numprocesses=auto --dist=worksteal -p scripts.ci_test_part --ci-part=$CI_PART
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
+        if: matrix.part == 1
         run: python conformance/run_conformance.py
       - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)
+        if: matrix.part == 1
         run: python conformance/cross_format.py
       - name: F4 type-confusion matrix (public verifiers never raw-crash on JSON confusion)
+        if: matrix.part == 1
         run: python scripts/type_confusion_gate.py --strict
       - name: F3 formal lineage-ladder model (bounded enumeration; z3-extended with the [formal] extra)
+        if: matrix.part == 1
         run: python formal/model.py
       - name: F5 readiness-pack integrity (evidence grounded in real artifacts)
+        if: matrix.part == 1
         run: python scripts/readiness_pack_gate.py
       - name: WP-B locked test manifest (no silent test shrink; pytest is the normative runner)
+        if: matrix.part == 1
         run: python scripts/test_manifest_gate.py
       - name: WP-D fuzz-soak smoke (never-raise + never-false-accept over every parser class)
+        if: matrix.part == 1
         run: python scripts/fuzz_soak.py --duration-seconds 20 --no-write
       - name: WP-G readiness-pack manifest + self-receipt integrity
+        if: matrix.part == 1
         run: python scripts/readiness_pack_manifest.py --check
       - name: Verify the example bundle end to end
+        if: matrix.part == 1
         run: |
           python examples/make_example.py
           proofbundle verify examples/example_bundle.json
@@ -557,9 +589,12 @@ jobs:
     # five pauses of 271 to 282 s, 1389 of 2530 s. They live in one file, so no split by file name gets
     # below them. Each part runs the same command with its own `-k` selection instead: one of the five
     # tests and a share of the other modules by the first letters of their names. `-k` is unittest's own
-    # filter over `module.Class.method`; the loader, the runner and every test stay as they were. The
-    # five parts side by side on the floor took 292 to 400 s each. A contract holds the selections as a
-    # partition of the whole suite, test for test (tests/test_crypto_floor_shards_cover_the_suite.py).
+    # filter over `module.Class.method`. Each part uses unittest discovery with its own selection, and
+    # every currently loaded test ID is assigned to exactly one part. The parts run in separate
+    # processes, so module fixtures, class fixtures, execution order, and process-global state are not
+    # preserved across parts. The five parts side by side on the floor took 292 to 400 s each. A
+    # contract holds the selections as a partition of the whole suite, test for test
+    # (tests/test_crypto_floor_shards_cover_the_suite.py).
     name: crypto-floor (${{ matrix.part }} of 5)
     runs-on: ubuntu-latest
     # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
