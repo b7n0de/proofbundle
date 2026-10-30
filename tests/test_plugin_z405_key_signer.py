@@ -63,8 +63,8 @@ def _clean_git_environment(monkeypatch):
 
 
 @pytest.fixture
-def env(tmp_path):
-    return pd.env.__wrapped__(tmp_path)
+def env(tmp_path, monkeypatch):
+    return pd.env.__wrapped__(tmp_path, monkeypatch)
 
 
 def run_key_signer(config: pathlib.Path, request: object, cwd: pathlib.Path | None = None):
@@ -92,6 +92,7 @@ class Key:
         self.folder.mkdir()
         (self.folder / "key.hex").write_text(o.probe_signer.probe_key(label).private_bytes_raw().hex() + "\n",
                                              encoding="ascii")
+        (self.folder / "key.hex").chmod(0o600)   # the key signer reads no key file another account may read
         self.config = self.folder / "config.json"
         self.journal = self.folder / "journal.jsonl"
         self.config.write_text(json.dumps({"schema": "proofbundle/pilot-key-config/v1",

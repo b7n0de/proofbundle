@@ -101,8 +101,8 @@ def _clean_git_environment(monkeypatch):
 
 
 @pytest.fixture
-def env(tmp_path):
-    return o.pd.env.__wrapped__(tmp_path)
+def env(tmp_path, monkeypatch):
+    return o.pd.env.__wrapped__(tmp_path, monkeypatch)
 
 
 def _six_digit(text: str) -> str:

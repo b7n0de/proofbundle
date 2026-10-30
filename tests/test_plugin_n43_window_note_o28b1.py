@@ -87,7 +87,7 @@ def test_O28B1_a_go_push_without_its_receipt_counts_under_m5_and_the_window_says
 def test_O28B1_the_sentence_stands_in_every_window_also_without_a_write(tmp_path, monkeypatch):
     """The sentence is the window's, not a decision's: the reconciliation carries it once, also where nothing arrived."""
     pd._clean_git_environment.__wrapped__(monkeypatch)
-    env = pd.env.__wrapped__(tmp_path)
+    env = pd.env.__wrapped__(tmp_path, monkeypatch)
     start = o.now_plus(-60)
     records = o.start_records(env, tmp_path)
     observe(records, tmp_path, [], start)

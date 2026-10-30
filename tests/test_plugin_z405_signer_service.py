@@ -45,8 +45,8 @@ def _clean_git_environment(monkeypatch):
 
 
 @pytest.fixture
-def env(tmp_path):
-    return pd.env.__wrapped__(tmp_path)
+def env(tmp_path, monkeypatch):
+    return pd.env.__wrapped__(tmp_path, monkeypatch)
 
 
 class Service:
@@ -61,6 +61,7 @@ class Service:
         self.key_folder.mkdir()
         seed = o.probe_signer.probe_key(SERVICE_LABEL).private_bytes_raw()
         (self.key_folder / "key.hex").write_text(seed.hex() + "\n", encoding="ascii")
+        (self.key_folder / "key.hex").chmod(0o600)   # the key signer reads no key file another account may read
         self.key_config = self.key_folder / "config.json"
         self.key_journal = self.key_folder / "journal.jsonl"
         self.key_config.write_text(json.dumps({

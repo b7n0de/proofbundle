@@ -54,7 +54,7 @@ LITERAL_MERGE = f"gh pr merge 7 -R {o.REPO}"
 
 def test_O28_4_a_merge_in_the_form_of_d67_has_no_receipt_and_counts_under_m5(tmp_path, monkeypatch):
     pd._clean_git_environment.__wrapped__(monkeypatch)
-    env = pd.env.__wrapped__(tmp_path)
+    env = pd.env.__wrapped__(tmp_path, monkeypatch)
     start = o.now_plus(-60)
     records = o.start_records(env, tmp_path)
     r = pd.Repo(tmp_path)
@@ -70,7 +70,7 @@ def test_O28_4_a_merge_in_the_form_of_d67_has_no_receipt_and_counts_under_m5(tmp
 
 def test_O28_4_control_the_merge_written_out_gets_its_receipt(tmp_path, monkeypatch):
     pd._clean_git_environment.__wrapped__(monkeypatch)
-    env = pd.env.__wrapped__(tmp_path)
+    env = pd.env.__wrapped__(tmp_path, monkeypatch)
     start = o.now_plus(-60)
     records = o.start_records(env, tmp_path)
     r = pd.Repo(tmp_path)

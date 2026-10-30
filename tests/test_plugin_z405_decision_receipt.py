@@ -47,8 +47,8 @@ def _clean_git_environment(monkeypatch):
 
 
 @pytest.fixture
-def env(tmp_path):
-    return pd.env.__wrapped__(tmp_path)
+def env(tmp_path, monkeypatch):
+    return pd.env.__wrapped__(tmp_path, monkeypatch)
 
 
 def public_key(label: str = GATE_LABEL) -> str:
