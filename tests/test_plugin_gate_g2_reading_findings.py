@@ -7,6 +7,8 @@ code as read.
   the line at the quotes and saw `s` and `udo`.
 - Part 9: the key signer read the private key file through a plain open, so a symbolic link or a file that other
   accounts may read or write was taken as the key.
+- Part 10: the secrets hook normalised `..` away before it walked the links, so `<link>/../config` with the link into
+  a folder of keys read `.ssh/config` while the check looked at `<folder>/config` (owner answer A on OA-0e0ebea093).
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
 SIGNER = ROOT / "plugins" / "proofbundle" / "pilot" / "key_signer.py"
+SECRETS = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_secrets.py"
 
 
 def _load(path: pathlib.Path, name: str):
@@ -121,3 +124,44 @@ def test_a_key_path_that_is_a_fifo_is_refused_without_blocking(signer, tmp_path)
     except subprocess.TimeoutExpired:
         pytest.fail("reading a FIFO as the key file blocked")
     assert r.returncode == 3, r.stderr
+
+
+@pytest.fixture(scope="module")
+def secrets():
+    return _load(SECRETS, "proofbundle_secrets_under_test")
+
+
+def _tree(tmp_path: pathlib.Path) -> pathlib.Path:
+    """<tmp>/.ssh/child/, <tmp>/.ssh/config, <tmp>/other/, and the links alias -> .ssh/child, plain -> other."""
+    (tmp_path / ".ssh" / "child").mkdir(parents=True)
+    (tmp_path / ".ssh" / "config").write_text("Host x\n", encoding="utf-8")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path / ".ssh" / "child")
+    (tmp_path / "plain").symlink_to(tmp_path / "other")
+    return tmp_path
+
+
+def test_a_link_followed_by_dotdot_into_a_folder_of_keys_is_found(secrets, tmp_path):
+    root = _tree(tmp_path)
+    path = f"{root}/alias/../config"
+    assert os.path.realpath(path) == str(root / ".ssh" / "config")
+    assert secrets.secret_problem(path, "/", str(root / "home")) is not None
+
+
+def test_a_relative_link_and_dotdot_from_cwd_is_found(secrets, tmp_path):
+    root = _tree(tmp_path)
+    assert secrets.secret_problem("alias/../config", str(root), str(root / "home")) is not None
+
+
+def test_control_a_link_and_dotdot_outside_any_folder_of_keys_stays_free(secrets, tmp_path):
+    root = _tree(tmp_path)
+    (root / "x").write_text("x", encoding="utf-8")
+    assert secrets.secret_problem(f"{root}/plain/../x", "/", str(root / "home")) is None
+    assert secrets.secret_problem(f"{root}/other/../x", "/", str(root / "home")) is None
+
+
+def test_control_the_direct_paths_keep_their_answer(secrets, tmp_path):
+    root = _tree(tmp_path)
+    assert secrets.secret_problem(f"{root}/.ssh/config", "/", str(root / "home")) is not None
+    assert secrets.secret_problem(f"{root}/alias/key", "/", str(root / "home")) is not None
+    assert secrets.secret_problem(f"{root}/other/notes.txt", "/", str(root / "home")) is None

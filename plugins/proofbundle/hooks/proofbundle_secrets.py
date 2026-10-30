@@ -54,8 +54,10 @@ def _role(parts: list[str], final: bool) -> str | None:
     return None
 
 
-def named_path(path: str, cwd: str | None, home: str | None) -> str | None:
-    """The absolute path a word names: `~` and `~/x` from home, a relative one from cwd; None where it cannot be told."""
+def named_path(path: str, cwd: str | None, home: str | None, *, normalise: bool = True) -> str | None:
+    """The absolute path a word names: `~` and `~/x` from home, a relative one from cwd; None where it cannot be told.
+    With normalise=False the `..` parts stay where they are written: the operating system applies them only after it has
+    followed a link before them, and so must the walk in secret_problem (reading of G-2, part 10, P1)."""
     if path == "~" or path.startswith("~/"):
         if not home or not os.path.isabs(home):
             return None
@@ -64,7 +66,7 @@ def named_path(path: str, cwd: str | None, home: str | None) -> str | None:
         if not cwd or not os.path.isabs(cwd):
             return None
         path = os.path.join(cwd, path)
-    return os.path.normpath(path)
+    return os.path.normpath(path) if normalise else path
 
 
 def relative_role(path: str) -> str | None:
@@ -80,11 +82,12 @@ def secret_problem(path: str, cwd: str | None, home: str | None) -> str | None:
     named = named_path(path, cwd, home)
     if named is None:
         return None
-    parts = [p for p in named.split(os.sep) if p]
-    role = _role(parts, True)
+    role = _role([p for p in named.split(os.sep) if p], True)
     if role:
         return role
-    links, done, todo = 0, [], list(parts)
+    # The walk takes the parts as written, `..` included: `<link>/../x` is the parent of the link's target, not of the
+    # link, and a lexical normalisation before the walk would have looked at the wrong folder.
+    links, done, todo = 0, [], [p for p in named_path(path, cwd, home, normalise=False).split(os.sep) if p]
     while todo:
         part = todo.pop(0)
         if part == "..":
