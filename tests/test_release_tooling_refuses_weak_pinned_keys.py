@@ -257,6 +257,8 @@ THIRD_PARTY = {
     "tomli": "a TOML parser, tomllib before Python 3.11; it verifies no signature",
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+    "pytest": "the test runner, for the part plugin of the CI job test (scripts/ci_test_part.py); it verifies no "
+              "signature",
     "markdown_it": "a CommonMark parser, for reading what a Markdown text renders; it verifies no signature",
     "ccf": "UNMODELLED",
 }
