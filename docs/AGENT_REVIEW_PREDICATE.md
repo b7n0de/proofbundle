@@ -155,7 +155,7 @@ predicate exists to avoid.
 Time is likewise four separate questions, never one field: `declaredAt`, `observedAt`, `signedAt`,
 `anchoredAt`. **`anchoredAt` must be null in v0.1.** A signature proves the signed bytes contain a
 time value, not that the value is externally true, and this predicate carries no anchor evidence.
-Of the four, only `declaredAt` is required. An absent time field reads as null, so `anchoredAt` may be absent or null, and in v0.2 and v0.3 "`times.observedAt` is not allowed" means that it is absent or null. `observations` may likewise be absent, which reads as empty.
+Of the four, only `declaredAt` is required, as a member: its value may be null, like that of the other three. An absent time field reads as null, so `anchoredAt` may be absent or null, and in v0.2 and v0.3 "`times.observedAt` is not allowed" means that it is absent or null. `observations` may likewise be absent, which reads as empty.
 
 ## Coverage
 
@@ -164,7 +164,7 @@ Of the four, only `declaredAt` is required. An absent time field reads as null, 
 cannot be falsified. Unobserved work appears as a gap, never as a zero count. `PARTIAL` requires a
 non-empty `knownGaps`: an incomplete coverage that names no gap cannot be checked against anything. In
 v0.2 and v0.3 both demands apply whenever `coverage` carries none of `strata`, `integrity` and
-`absenceAssertions`.
+`absenceAssertions`; a member whose value is `null` counts as carried, so the CAP-1 rules judge the coverage then.
 
 **Coverage in the language of CAP-1 (v0.2).** A v0.2 predicate may carry the accounting of
 `draft-hillier-coverage-attestation-00` under `coverage`: `strata[]` (one denominator each, with its
@@ -337,7 +337,7 @@ a digest object carries `sha256` alone (`docs/VERIFIER_BLOCK.md`).
 | `coverage` | `status` | yes | `COMPLETE`, `PARTIAL` or `UNKNOWN` |
 | `coverage` | `window`, `sources`, `observedRuns`, `expectedRuns`, `knownGaps`, `collectionMethod` | no | `sources` and `knownGaps` arrays of strings; `observedRuns` and `expectedRuns` non-negative integers or null; `window` and `collectionMethod` not checked except under `COMPLETE` |
 | `coverage` | `strata`, `integrity`, `absenceAssertions` | no, v0.2 and v0.3 only | judged by the CAP-1 rules (SPEC.md §7l) |
-| `times` | `declaredAt` | yes | an RFC 3339 time |
+| `times` | `declaredAt` | yes | an RFC 3339 time or null; the member must be present |
 | `times` | `observedAt`, `signedAt`, `anchoredAt` | no | each an RFC 3339 time or null; `anchoredAt` must be null, and from v0.2 on `observedAt` too |
 
 Without the CAP-1 members, `COMPLETE` requires integer `observedRuns` and `expectedRuns` with
