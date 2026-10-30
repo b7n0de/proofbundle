@@ -120,6 +120,28 @@ The migration designed above is now implemented for the released `intoto.py` exp
    after signing. New default: `jcs-sha256-v1`. Historic serializer: `legacy-sortkeys-json-v0`
    (`json.dumps(sort_keys=True)`), retained as a named mode. **Absent ⇒ legacy** — this is exactly how
    already-signed 2.0.0 receipts (which carry no field) keep verifying; absence is never silently jcs.
+   **The legacy byte form, exactly.** `legacy-sortkeys-json-v0` is the UTF-8 encoding of Python's
+   `json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, stated here for
+   implementations in other languages: no whitespace between tokens; object members sorted by key in
+   Unicode code-point order at every level; strings in double quotes with `"` and `\` escaped as `\"` and
+   `\\`, the controls U+0008, U+0009, U+000A, U+000C, U+000D as `\b`, `\t`, `\n`, `\f`, `\r`, every other
+   code point below U+0020 as `\u00xx` with lowercase hex, and every other character, non-ASCII included,
+   written raw; integers in decimal; a number that was read as a float written as Python's shortest
+   round-trip `repr` (so `1.0` stays `1.0`, `1e-7` becomes `1e-07`); `true`, `false`, `null`. Under
+   `jcs-sha256-v1` the serialization is RFC 8785, which writes every token as the legacy form does except
+   two: object members are sorted by the UTF-16 code units of their keys, and a number is written as
+   ECMAScript writes the IEEE 754 double it denotes (RFC 8785 §3.2.2.3), whatever the spelling of the
+   literal: with the shortest digits that read back to the same double; an integral value below 10^21 in
+   magnitude as those digits followed by zeros, without fraction or exponent (`1.0` becomes `1`, `-0.0`
+   becomes `0`, `1.2345678901234568e20` becomes `123456789012345680000`); any other value from 10^-6 up
+   to 10^21 as a plain decimal fraction (`0.000001`); below 10^-6 and from 10^21 up in exponent form
+   with an explicit sign (`1e-7`, `1e+21`, `1.5e+300`).
+   **The binding check, exactly.** A verifier reads `contentRootAlg` from the top level of the Statement
+   parsed from the payload; absent selects `legacy-sortkeys-json-v0`; any other value that is not a
+   registered algorithm id (an unknown string, `null`, a number) is not usable and the binding is not ok.
+   The binding holds iff the payload bytes are byte-identical to the declared algorithm's serialization
+   of the parsed Statement; the reported algorithm is the declared one (or legacy when absent), and
+   there is no fallback to the other algorithm in either direction.
 
 2. **Producer.** `export_intoto_dsse` / `export_eval_result_dsse` / `export_svr_dsse` default to
    `jcs-sha256-v1` via `canonical.canonicalize_statement`. The old `json.dumps` path is retained as the

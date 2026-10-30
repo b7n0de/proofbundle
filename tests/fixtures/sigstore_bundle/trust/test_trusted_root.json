@@ -1,0 +1,58 @@
+{
+  "mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+  "tlogs": [
+    {
+      "baseUrl": "https://rekor.test.example",
+      "hashAlgorithm": "SHA2_256",
+      "publicKey": {
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEz1UP7/y09GDzAt9J5Kc0ySg/1Cys5ZQ0AdlmX+Sy3cbPgKJdLsPfD02zQEmJhUrTN1GbUZISRx3x/7em0UCiUA==",
+        "keyDetails": "PKIX_ECDSA_P256_SHA_256",
+        "validFor": {
+          "start": "2025-01-01T00:00:00Z"
+        }
+      },
+      "logId": {
+        "keyId": "GyPQdVSFs6QJT1ceyzuenGXRsOpM8AmxDzS99pf570o="
+      }
+    }
+  ],
+  "certificateAuthorities": [
+    {
+      "subject": {
+        "organization": "proofbundle test",
+        "commonName": "test-fulcio"
+      },
+      "uri": "https://fulcio.test.example",
+      "certChain": {
+        "certificates": [
+          {
+            "rawBytes": "MIIB5jCCAWugAwIBAgIBAjAKBggqhkjOPQQDAzA2MRkwFwYDVQQKDBBwcm9vZmJ1bmRsZSB0ZXN0MRkwFwYDVQQDDBB0ZXN0LWZ1bGNpby1yb290MB4XDTI1MDEwMTAwMDAwMFoXDTM1MDEwMTAwMDAwMFowPjEZMBcGA1UECgwQcHJvb2ZidW5kbGUgdGVzdDEhMB8GA1UEAwwYdGVzdC1mdWxjaW8taW50ZXJtZWRpYXRlMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEbL4yKYr4rCxVY8Ou8MJBT2i5ej+q+cQb/eQxIVgODFg18lhKTgrhyGw4khY4gFwW7S+qqKpVxoEGSaGy378lPGTiUmm+/VBrXAEkVOkts5ZFp0hI1FjBjQRp8G7HNm49o0UwQzASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIBBjAdBgNVHQ4EFgQU4vLdLo9GIwCeYzTZ1WiZdjLxCI8wCgYIKoZIzj0EAwMDaQAwZgIxALHH9Ozd1RkSyWDNgxRVhrO7ixVfoMdL40TFlyEf4qj7kA6DWYDXAIbtPZWTHgJZjQIxAJDavj9DIQdwABTa0wxIOIRT2auHuVqpXDDaCItMm/RCf10e64ZSytRBflnzoD8NUQ=="
+          },
+          {
+            "rawBytes": "MIIB3jCCAWOgAwIBAgIBATAKBggqhkjOPQQDAzA2MRkwFwYDVQQKDBBwcm9vZmJ1bmRsZSB0ZXN0MRkwFwYDVQQDDBB0ZXN0LWZ1bGNpby1yb290MB4XDTI1MDEwMTAwMDAwMFoXDTM1MDEwMTAwMDAwMFowNjEZMBcGA1UECgwQcHJvb2ZidW5kbGUgdGVzdDEZMBcGA1UEAwwQdGVzdC1mdWxjaW8tcm9vdDB2MBAGByqGSM49AgEGBSuBBAAiA2IABEtspzvAKVN6EG83IiENg+9RfTD69HPCqdoyPOsjSutIJKXPyMnHRwuZtrt0sgdiXoOQKH4WExM91esMx1TkVsytPQ1dPpa+ERuKysl2Z7oemgtTHFVzQI8Yehc9a1bceKNFMEMwEgYDVR0TAQH/BAgwBgEB/wIBATAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFEtxSNQPK1pGRrhi7VsiGseQ9AhsMAoGCCqGSM49BAMDA2kAMGYCMQCJMcK4WMh0mfV8QkWfxEzDeUgLHCQ9CdAyIGGg+taUh7BLfUvryV9AQaRSmVUZb7ECMQDivs+y2gdCKLRLUxnMMGkKVzVvWU9W0Y1xF/K530QqXu4RFZ/2y2LIWzs746N7Yg8="
+          }
+        ]
+      },
+      "validFor": {
+        "start": "2025-01-01T00:00:00Z"
+      }
+    }
+  ],
+  "ctlogs": [
+    {
+      "baseUrl": "https://ctfe.test.example",
+      "hashAlgorithm": "SHA2_256",
+      "publicKey": {
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnlLK6iNYUScH16ohZ+oUYhflB06YZCce7vyQsJzB3jhTzaXwxA8QcmBQ541XRIKfv/B0dizpq6V9gEu4M53R9Q==",
+        "keyDetails": "PKIX_ECDSA_P256_SHA_256",
+        "validFor": {
+          "start": "2025-01-01T00:00:00Z"
+        }
+      },
+      "logId": {
+        "keyId": "k4rSST0yYFxKAAL0eY88SuSjLTHgM0ODZqs7ZEsJpCY="
+      }
+    }
+  ],
+  "timestampAuthorities": []
+}

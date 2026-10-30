@@ -96,7 +96,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install PyYAML (the gate reads workflow files; without it it declines, never passes)
@@ -175,7 +175,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       # THE TITLE COMES THROUGH THE ENVIRONMENT, NOT THROUGH THE COMMAND LINE. A pull-request title
@@ -205,7 +205,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: New source lines are English
@@ -228,7 +228,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -338,7 +338,7 @@ jobs:
           # Zwei weitere Jobs in dieser Datei tun es aus demselben Grund bereits.
           fetch-depth: 0
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
@@ -412,7 +412,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -457,7 +457,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -483,7 +483,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Core layer gate (verdict and every difference to the baseline)
@@ -530,7 +530,7 @@ jobs:
       COVERAGE_CORE: sysmon
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install with all test extras
@@ -548,19 +548,60 @@ jobs:
     # v1.7: prove the declared dependency FLOOR actually works, not just the latest. `cryptography`
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
     # so a future floor bump can't silently break the trusted core.
+    #
+    # FIVE PARTS, SO THE JOB GETS FASTER (owner choice of 2026-10-28: faster, rather than a limit that
+    # stays raised). One serial `unittest discover` took 43m40s at 4e333f8e (run 40887037072,
+    # `Ran 5378 tests in 2529.946s`). Measured test by test on the floor (Python 3.10, cryptography
+    # 42.0.8) at the same head, five tests of test_audit_candidate_360.TestAuditCandidateMatrix each run
+    # the whole audit matrix: 175 to 188 s apiece, 896 of 1645 s. In the log of that run they are the
+    # five pauses of 271 to 282 s, 1389 of 2530 s. They live in one file, so no split by file name gets
+    # below them. Each part runs the same command with its own `-k` selection instead: one of the five
+    # tests and a share of the other modules by the first letters of their names. `-k` is unittest's own
+    # filter over `module.Class.method`; the loader, the runner and every test stay as they were. The
+    # five parts side by side on the floor took 292 to 400 s each. A contract holds the selections as a
+    # partition of the whole suite, test for test (tests/test_crypto_floor_shards_cover_the_suite.py).
+    name: crypto-floor (${{ matrix.part }} of 5)
     runs-on: ubuntu-latest
     # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
     # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
-    timeout-minutes: 45
+    # 60, NOT 45 (owner decision of 2026-10-28 on card OA-fa42936426, option A): 42m53s at 47fcb770,
+    # cut at 45 at 8381beb7 after 43m49s of the suite step without a failing test.
+    timeout-minutes: 60
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
     # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
     env:
       PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
       PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
+    strategy:
+      fail-fast: false          # one red part must not cancel the others and hide their verdicts
+      matrix:
+        part: [1, 2, 3, 4, 5]
+        include:
+          - part: 1
+            selection: >-
+              -k test_a_*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_external_is_the_single_open_gate
+          - part: 2
+            selection: >-
+              -k test_r* -k test_l* -k test_t*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_data_blocked_is_not_a_pass
+          - part: 3
+            selection: >-
+              -k test_m* -k test_e* -k test_n* -k test_b*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_matrix_is_ready_and_has_33_checks
+          - part: 4
+            selection: >-
+              -k test_p* -k test_s* -k test_[0-9dfghijkoquvwxyz]*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_an_erroring_check_is_honest_fail_not_crash
+          - part: 5
+            selection: >-
+              -k test_c* -k test_a[!_u]* -k test_au[!d]* -k test_audit_[!c]* -k test_audit_candidate_[!3]*
+              -k test_audit_candidate_360.Test[!A]*
+              -k test_audit_candidate_360.TestAuditCandidateMatrix.test_a_fail_flips_ready_off
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.10"
       - name: Install with the cryptography floor
@@ -569,8 +610,12 @@ jobs:
           python -m pip install "cryptography==42.*"
       - name: Build the Rust second verifier the suite requires (pinned above)
         run: cd tools/pb_verify_rs && cargo build --release
-      - name: Core test suite on the floor
-        run: python -m unittest discover -s tests
+      # `set -f`: the selection is a list of fnmatch patterns, and the shell hands them over as they
+      # stand instead of expanding them against the files of the checkout.
+      - name: Core test suite on the floor, the tests this part selects
+        env:
+          SELECTION: ${{ matrix.selection }}
+        run: set -f; python -m unittest discover -s tests $SELECTION
       - name: Dependency-free verify must hold on the floor (trusted-core verify path)
         run: python -m proofbundle.cli verify examples/example_bundle.json
       - name: Offline tamper demo must hold on the floor (needs the [eval] JCS canonicalizer)
@@ -633,7 +678,7 @@ jobs:
           # Full history, as in `test`: the gate clones this checkout, and its tests read git history.
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install
@@ -718,7 +763,7 @@ jobs:
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: mutation-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/mutation-shard-${{ matrix.shard }}.txt
@@ -778,7 +823,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Download shard results
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           pattern: mutation-shard-*
           merge-multiple: true
@@ -938,7 +983,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install with the anchors extra
@@ -957,7 +1002,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
       - name: Install project + audit tooling

@@ -186,6 +186,53 @@ package on the 0.7.x line and is not a dependency of proofbundle. proofbundle on
 deserialize and classify a proof; the actual stamping and the `ots upgrade` network step are done by the
 client (or your own tooling) out of band.
 
+#### The proof format and the verdict, exactly
+
+The verdict of an `opentimestamps` proof against a target root `R` (the 32 bytes the proof must commit
+to, for a receipt its content root) is read from the detached proof file alone, offline, in four steps.
+
+1. **The file.** A proof longer than 65,536 bytes is `over_budget`, before any byte is parsed. The file is
+   the 31 magic bytes `00 4f 70 65 6e 54 69 6d 65 73 74 61 6d 70 73 00 00 50 72 6f 6f 66 00 bf 89 e2 e8
+   84 e8 92 94`; the major version, a varuint that must be 1; one file-hash tag, `08` (SHA-256, 32 bytes),
+   `02` (SHA-1, 20 bytes) or `03` (RIPEMD-160, 20 bytes); the file digest of that length; one timestamp
+   over that digest; and nothing after it. A varuint is unsigned LEB128 (seven bits per byte, the least
+   significant group first, the high bit set on every byte but the last); varbytes are a varuint length
+   followed by that many bytes.
+2. **The timestamp tree.** A timestamp over a message `m` is a sequence of entries in which every entry
+   but the last is preceded by the byte `ff`. An entry that starts with `00` is an attestation on `m`: an
+   8-byte tag and a varbytes payload of at most 8,192 bytes. Any other first byte is an operation, and
+   the entry continues with the timestamp over the operation's result: `f0` append and `f1` prepend carry
+   a varbytes argument of 1 to 4,096 bytes and concatenate it after or before `m`; `08` SHA-256, `02`
+   SHA-1, `03` RIPEMD-160, `67` Keccak-256, `f2` byte reversal and `f3` lowercase hex encoding take no
+   argument. An operation whose input or result is longer than 4,096 bytes (for `f3`, an input longer
+   than 2,048), an unknown operation tag, a nesting deeper than 256 timestamps, a file that ends early or
+   has bytes after its timestamp is `malformed`.
+3. **The attestations.** Tag `05 88 96 0d 73 d7 19 01` is a Bitcoin block-header attestation: its
+   payload is exactly one varuint, the block height, and the message it sits on is that block's
+   `hashMerkleRoot` in internal byte order. Tag `83 df e3 0d 2e f9 0c 8e` is a pending attestation: its
+   payload is exactly one varbytes calendar URI of at most 1,000 bytes, each of them a letter, a digit or
+   one of `- . _ / :`. Tags `06 86 9a 0d 73 d7 1b 45` (Litecoin) and `30 fe 80 87 b5 c7 ea d7` (Ethereum)
+   carry exactly one varuint height and decide nothing here. A payload of these four kinds that does not
+   have its shape is `malformed`; any other tag is read and decides nothing.
+4. **The verdict**, in this order. The file digest is not `R`: `unbound`. No Bitcoin attestation anywhere
+   in the tree: `pending` when a pending attestation exists, else `empty`. The relying party supplied no
+   block header (a map from height to `hashMerkleRoot` hex, `--bitcoin-header` or the policy's
+   `anchors.bitcoin_block_headers`; an empty map is none): `needs_rp_trust`. Otherwise each Bitcoin attestation whose height
+   the map covers is compared: its message equal to the supplied root, with at least one of the hash
+   operations `08`, `02`, `03` on the path from the file digest down to it, is `confirmed`. When none
+   confirms, the status is `null_op` when a matching attestation had no such hash operation on its path,
+   else `block_mismatch` when a covered root differs, else `bad_header` when a supplied root is not hex,
+   else `upgraded_unverified`. Only the roots at the heights of Bitcoin attestations are read; a root at
+   another height decides nothing, and an empty root leaves its height uncovered. A root is hex when it
+   is two-digit pairs of `0-9`, `a-f`, `A-F`, with ASCII white space allowed before, after and between
+   the pairs; an odd count of digits or any other character is not hex. A root that is hex is compared
+   by the bytes it spells, whatever their number, so a short one is a differing root. The CLI's
+   `--bitcoin-header` refuses a root that is not 32 bytes of hex as malformed (exit 2) before any
+   verdict, while the policy loader admits any string of 64 characters, so `bad_header` reaches the
+   verdict through a policy file. Only `confirmed` is a verifying anchor, `pending` satisfies
+   `--require-anchor` only with `--allow-pending`, and the bundle's own `frozen` headers never enter this
+   step.
+
 ### OTS lifecycle at the CLI, and calendar independence
 
 The `proofbundle anchor` group turns the honest OTS lifecycle into a small offline toolset. The stamp and

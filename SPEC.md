@@ -29,7 +29,10 @@ bytes* were signed and anchored, not what they mean.
 - All top-level and nested string fields carrying binary data use **standard**
   Base64 ([RFC 4648 §4](https://datatracker.ietf.org/doc/html/rfc4648#section-4)),
   with padding. (Exception: the SD-JWT compact string in `sd_jwt_vc.compact`
-  uses base64url per the SD-JWT spec.)
+  uses base64url per the SD-JWT spec.) Such a field is decoded canonically: the
+  standard alphabet only, padding to a multiple of four characters, pad bits zero,
+  no white space and no other character; any other spelling of the same bytes is
+  refused.
 - Hashes are SHA-256 (32 bytes).
 - Integers are JSON numbers with no fractional part.
 - **Duplicate object keys MUST be rejected** (WP-C1), at any nesting depth, in
@@ -39,6 +42,14 @@ bytes* were signed and anchored, not what they mean.
   same bytes — an interoperating implementation that silently keeps either
   occurrence is non-conforming. (RFC 8785 forbids duplicates outright; this
   extends the rule to the non-canonical inputs too.)
+- The strict reader that refuses them refuses as well `NaN`, `Infinity` and `-Infinity`, a number with no
+  finite IEEE 754 double, an integer literal outside ±(2^53 − 1), a lone surrogate in a string, and input
+  beyond the verification budget (200,000 keys and items, nesting depth 64; `docs/ANCHORS.md`). The command
+  line reads with it every bundle, envelope and trust policy it is given, a refusal being malformed (exit 2).
+  The agent-review policy file is read by Python's `json` with the duplicate-key rule alone
+  (`agent_review.load_policy`), so the other refusals do not apply to it. Every JSON file of the
+  conformance corpus passes the strict reader except one bundle that carries a duplicate key; for every
+  other case file the choice of reader changes nothing.
 
 ## 3. Object fields
 
@@ -53,10 +64,19 @@ bytes* were signed and anchored, not what they mean.
 
 A verifier MUST reject a bundle whose `schema` is not `"proofbundle/v0.1"`
 (unsupported), and MUST reject unknown top-level fields (the schema is
-`additionalProperties: false`). The optional `anchors` field is now a KNOWN
+`additionalProperties: false`). Such a rejection is malformed (exit 2), as is a document that is not a JSON
+object, a missing or wrongly typed member, an `alg` or `hash_alg` other than the one §4 and §5 require, and a
+Base64 field that does not decode; a bundle that is well formed in this sense and fails a check, a signature or
+key that decodes to the wrong length and a `tree_size` that admits no leaf included, is a verification failure
+(exit 1). The optional `anchors` field is now a KNOWN
 field: a bundle carrying it is not malformed, but the core verifier (§7) does
 NOT verify it — anchors are a separate, opt-in relying-party step (§7i), so a
 bundle's crypto verdict is identical whether or not it carries `anchors`.
+`signature`, `merkle` and `sd_jwt_vc` are closed like the top level: a member outside their tables (§4 to
+§6) is malformed (exit 2). Of an `anchors` entry the core verifier reads only that it is an object whose
+`target` is `receipt` or `preRegistration` (else malformed, exit 2); a further or a missing member does not
+change its verdict. When anchors are verified (§7i), an entry with a member outside the table there makes
+the anchor verification FAIL, so `--require-anchor` is unmet (exit 3).
 
 ### 4. `signature`
 
@@ -180,7 +200,15 @@ SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
 Check **sd-jwt-disclosures**: the compact string is well formed and every
 presented disclosure is committed (its digest appears in the issuer-signed
 payload's `_sd` array). This is self-consistency only — it proves nothing about
-provenance and is forgeable without any key.
+provenance and is forgeable without any key. Committed means placed as RFC 9901 places
+it: an object-property disclosure in the `_sd` array of any object of the issuer-signed
+payload or of a value disclosed in turn, an array-element disclosure as `{"...": digest}`
+in an array, in any order of the presented disclosures; a disclosure placed nowhere, or
+in the place of the other kind, fails the check. A disclosure's digest is the base64url
+encoding without padding of the hash that the issuer-signed payload's `_sd_alg` names
+(`sha-256`, `sha-384` or `sha-512`; `sha-256` when the member is absent; any other name
+fails the check), taken over the US-ASCII bytes of the disclosure as it stands in the
+compact string, never over its decoded JSON (RFC 9901 §4.2.3).
 
 Check **sd-jwt-issuer-signature**: the issuer JWT signature verifies under
 `issuer_public_key_b64`, using the algorithm-specific primitive named by the
@@ -241,14 +269,27 @@ the alg that verified: `"ed25519:" + issuer_public_key_b64 == disclosed issuer` 
 `alg: EdDSA`, `"es256:" + issuer_public_key_b64 == disclosed issuer` for
 `alg: ES256`. A signature that verifies under an **attacker-chosen** key while the
 always-open `issuer` names a *trusted* party is a forged identity (valid signature,
-wrong signer) and **FAILS** (reason: `issuer-key-mismatch`).
+wrong signer) and **FAILS** (reason: `issuer-key-mismatch`). The disclosed `issuer` is the
+member named exactly `issuer` of the issuer-signed JWT payload, the part of
+`sd_jwt_vc.compact` before the first `~`; the registered JWT claim `iss` is not an issuer
+identity for this check, and a value carried only in a selective disclosure does not trigger
+it. An SD-JWT whose issuer-signed payload has no member `issuer` performs no
+sd-jwt-issuer-identity check.
 
 Check **sd-jwt-bundle-binding** (WP-C1 + N1): performed when `sd_jwt_vc` is present
 and its issuer signature verified, in **two** cases:
-1. `payload_b64` decodes to a `proofbundle/eval-claim/v0.1` claim with a
-   `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
+1. `payload_b64`, decoded, read as UTF-8 and parsed with the strict reader of §2, is
+   a JSON object whose member `schema` is the string `proofbundle/eval-claim/v0.1`
+   (members such as `passed`, `threshold` or `suite` do not make a payload an eval
+   claim; only `schema` does), and the bundle carries `merkle.root_b64`: the SD-JWT's always-open disclosures (`passed`, `threshold`,
    `comparator`, `suite`, `issuer`) and its committed `receipt.root_b64` MUST match
-   the bundle payload bit-exact and bind **this** bundle's Merkle root. A valid
+   the bundle payload and bind **this** bundle's Merkle root. The five members are read from the
+   issuer-signed payload of the SD-JWT (the part of `sd_jwt_vc.compact` before the first `~`; a value
+   carried only in a selective disclosure does not count) and from the bundle payload; each must be
+   present in the bundle payload, and one absent from the SD-JWT counts as `null`. Two values match when
+   they are equal as parsed JSON values: strings and object members exactly, numbers by value (`1` equals
+   `1.0`), and `true` and `false` equal to the numbers `1` and `0`. `receipt.root_b64` of the
+   issuer-signed payload must be a string equal, character for character, to `merkle.root_b64`. A valid
    issuer signature over disclosures that describe a *different* bundle (a receipt
    lifted and grafted on — cross-receipt substitution) **FAILS** (reason:
    `unbound`/`mismatch`).
@@ -262,6 +303,14 @@ and its issuer signature verified, in **two** cases:
    commitment) carries no eval anchoring claim and is out of scope — it does not add
    this check (backward-compatible). A conforming verifier MUST implement case 2, or
    it remains vulnerable to grafting a signed eval SD-JWT onto an arbitrary payload.
+
+A payload that the strict reader refuses (a duplicate key at any depth, §2; `NaN`,
+`Infinity` or `-Infinity`; a number with no finite IEEE 754 double; an integer literal
+outside ±(2^53 − 1); nesting beyond the reader's depth bound) also performs the check,
+and it **FAILS** (reason: `unreadable claim`): whether it is an eval claim cannot be
+read, so it does not read as no claim. A payload that is not UTF-8 or not JSON text (a
+leading byte order mark, a raw control character inside a string) is no eval claim;
+only case 2 can add the check for it.
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
@@ -314,11 +363,22 @@ A conforming verifier MUST perform, in this order, and report each result:
    a forged issuer identity).
 7. **sd-jwt-bundle-binding** — if `sd_jwt_vc` is present and its issuer signature
    verified, in EITHER of two cases (§6): the payload is a
-   `proofbundle/eval-claim/v0.1` claim (WP-C1; fail-closed against cross-receipt
-   substitution), OR the payload is NOT an eval-claim but the SD-JWT carries an
+   `proofbundle/eval-claim/v0.1` claim by its `schema` member (WP-C1; fail-closed against
+   cross-receipt substitution; a payload the strict reader refuses fails the check), OR
+   the payload is NOT an eval-claim but the SD-JWT carries an
    eval-binding `receipt.root_b64` commitment (N1, since 3.1.1; fail-closed against
    grafting a signed eval SD-JWT onto an arbitrary payload). A generic SD-JWT-VC with
    no `receipt.root_b64` is out of scope.
+7a. **sd-jwt-issuer-trust** — only if sd-jwt-key-binding was performed and passed: the
+   SD-JWT is trusted when its issuer signature verified and either the relying party pinned
+   an issuer key (a trust policy's `sd_jwt.issuer_key_pin`) that matches the key that
+   verified the SD-JWT, or, with no pin, sd-jwt-bundle-binding passed and the key that
+   verified the SD-JWT is the key under which ed25519-signature verified the bundle. A
+   supplied pin decides alone. A sd-jwt-bundle-binding that was not performed (a payload that is no
+   eval claim, with an SD-JWT that carries no `receipt.root_b64`) has not passed: with no pin the
+   check then FAILS, whether or not the two keys are equal. The check is reported only when it
+   FAILS, and its failure fails the bundle (exit 1) like any other failed check, also when every
+   other check passed.
 8. **root-authenticity** and **tree-size** — additive relying-party root
    authentication (ADR 0004, since the root is NOT in the signature input, §5).
    Performed ONLY when the relying party supplies an expected value: a given
@@ -441,6 +501,17 @@ raw TEMPLATE until instantiated with a signer overlay) and `valid_until` (an ISO
 The same template-not-instantiated and expiry gates are ALSO enforced on the `decision verify` path
 (over `decision_receipt.trusted_decision_makers`), so a raw or expired decision policy cannot authorise a
 decision (exit 3).
+On the receipt verify paths a policy constrains the signer only through that section: on the `decision
+verify` path a policy without a `decision_receipt` section, or with one that pins no
+`trusted_decision_makers`, constrains no signer, and a pin that does not match the key the receipt
+verified under fails the policy (exit 3); the `outcome verify` and `relation-statement verify` paths
+judge a policy by its `relations` section alone, so a policy without one, or one that sets a rule the
+path does not apply, a `decision_receipt` section among them, is refused (exit 2). On all three paths
+`valid_from`, `valid_until`, `requiresIdentityOverlay`, `policyPurpose` and the `relations` section
+apply, and an unmet one fails the policy (exit 3). Of the `relations` rules, `require_relation_resolution`,
+`reject_superseded`, `relation_signer` and `require_relation_target` apply on all three paths, and
+`reject_retracted` applies only on the `relation-statement verify` path; the `decision verify` and `outcome
+verify` paths refuse a policy that sets `reject_retracted` (exit 2).
 
 ## 7a. Scope guardrail (honest)
 
@@ -653,12 +724,19 @@ Each `anchors[]` entry is a JSON object:
 | `preRegistration` | the commitment existed **before** the run (backdating protection; in-toto/attestation#565) | SHA-256 of the raw protocol bytes, i.e. the receipt's `prereg_sha256` |
 | `receipt` | the receipt existed **from** time T (publication proof) | RFC 8785 (JCS) SHA-256 of the receipt bundle **excluding `anchors`**, computed over the canonical form in which every ES256 signature in `sd_jwt_vc.compact` (the issuer JWT's and a trailing Key Binding JWT's) has `s ≤ n/2` (§6; the steps are in `docs/ANCHORS.md`). The bundle itself is not rewritten. |
 
+A verifier reads the `preRegistration` root from the payload read as an eval claim
+(`EVAL_CLAIM.md` §5): it is the 32 bytes that the 64 hex characters of `prereg_sha256` spell, not a
+hash of those characters. A payload that is not an eval claim, or carries no `prereg_sha256`, gives
+the receipt no `preRegistration` root, and a `preRegistration` anchor on it fails as an anchor whose
+target has no root.
+
 **The type name is an identifier, not a grammar (rev 2026-09-20).** An earlier revision of the
 row above gave the extension form as `<org>/<name>/vN`, which reads as if a verifier could accept or
 reject a type by its SHAPE. It cannot, and no anchor type this project ships has that shape.
 Measured 2026-09-20 over every name that reaches `register_anchor_type`: `rfc3161-tsa` and
-`opentimestamps` (the two built-ins this document itself names as valid), `chia-datalayer/v1` and
-`markovian-provenance/v1` (the shipped first-party extensions). All four fail
+`opentimestamps` (the two built-ins this document itself names as valid), `chia-datalayer/v1` (the
+shipped first-party extension, which always registers) and `markovian-provenance/v1` (a shipped
+third-party example, registered only when a caller registers it). All four fail
 `^[^/]+/[^/]+/v[0-9]+$`, the two built-ins most obviously of all. The decision is a membership test
 and nothing else: the reference verifier asks whether `type` is a key of its registry, and the
 bundle schema puts no `pattern` on the field. A conforming verifier MUST therefore match `type` as
@@ -673,6 +751,16 @@ different in kind. And the identifiers of the C2SP checkpoint machinery (§7c/§
 `markovianprotocol.com/bitcoin-anchor/rootcommit/v1`, are NOT anchor types in the sense of this
 row: they name a signature block on a checkpoint, never a member of `anchors[]`, and they are
 listed here only so a reader does not go looking for them in the registry.
+
+**What the reference registers.** Its `verify` command line carries `chia-datalayer/v1` always, and
+`rfc3161-tsa` and `opentimestamps` when the `[anchors]` extra is installed; `markovian-provenance/v1`
+is carried only once a caller registers it (`anchors_markovian.register()`), which the command line
+does not do. An entry whose `canonicalRoot` is not its target's root FAILs before the verifier of its
+type runs; an entry of a type that is not registered FAILs with `no verifier registered for anchor
+type '<type>'`, exactly as an unknown type, so to a verifier that does not carry a type an entry of
+that type is an unknown type. The one anchored case of the conformance corpus is marked
+`requiresAnchorsExtra`: it is read with the extra installed, and without it a run with
+`--require-anchors` fails and any other run does not run the case.
 
 `canonicalRoot` is compared to the root of the anchor's OWN `target`: a
 `preRegistration` anchor can never validate a `receipt` target and vice versa
@@ -704,6 +792,9 @@ narrowed by `--anchor-type <type>`) turns "no verifying anchor (of that type)"
 into a FAIL — a relying-party gate OVER the crypto result, exit 3 when unmet
 (distinct from a crypto failure, exit 1), exactly like `--policy`. A **pending**
 anchor does NOT satisfy `--require-anchor` unless `--allow-pending` is given.
+A FAIL of a present anchor never changes the crypto verdict: without `--require-anchor` the exit is the
+one the bundle has without its anchors, and under `--require-anchor` the anchor leaves the gate unmet,
+exit 3.
 
 **Target gate (WP-A1).** `--anchor-target receipt|preRegistration|statement`
 (implies `--require-anchor`) additionally requires the verifying anchor to
@@ -774,8 +865,8 @@ authority, calendar, or chain.
 
 Status: EXPERIMENTAL since 3.3.0 (API and wire format may change without deprecation).
 Normative-short here; the deep contract and interop mapping live in
-[`docs/predicates/relation.md`](docs/predicates/relation.md), the executable one in
-`src/proofbundle/relation.py`.
+[`docs/predicates/relation.md`](docs/predicates/relation.md); `src/proofbundle/relation.py` is its reference
+implementation, which is not normative (§7l).
 
 Change is never expressed by mutation. A receipt binds exact bytes and stays valid for
 them forever; when a result is deliberately corrected, re-run, retracted, or renewed, the
@@ -790,11 +881,36 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
 - `targetReceiptDigest` (required) is the target's `jcs-sha256-v1` content root with an
   EXPLICIT, never-defaulted `digestAlgorithm`. `targetSubjectDigest` (optional) is the
   target's subject digest — when PRESENT it is binding (checked against the resolved
-  target, since 3.4.0). Hard caps: 64 edges per receipt, attached-ancestry depth 32.
+  target, since 3.4.0): its `digest` is compared with `subject[0].digest.sha256` of a target
+  that has exactly one subject entry, although its `digestAlgorithm` names the content-root
+  algorithm (the exact rule and its failure codes are in `docs/predicates/relation.md` §5).
+  Hard caps: 64 edges per receipt, attached-ancestry depth 32.
 - Honesty boundary (verbatim, claims-hygiene enforced): *relationship declared by issuer,
   not a statement of correctness*. `lineage` NEVER feeds `cryptoValid` in either direction
   (lattice monotonicity); a DECLARED_UNRESOLVED edge never reads as a pass.
 - Offline: targets are attached by the caller (`--with-related`), never fetched.
+- The verify paths that carry the profile are defined in
+  [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) §4 to §7 and
+  [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) §5: the DSSE envelope
+  carries `payloadType` `application/vnd.in-toto+json` and its signature is checked over the PAE of
+  §7b (another `payloadType` fails the signature check, exit 1); the check passes when one entry of
+  `signatures` carries a `sig` that verifies under the key, and the other entries, an entry that is no
+  object, every `keyid` and any further envelope member are not read for the verdict; an envelope
+  without such an entry, an empty or missing `signatures` included, fails it (exit 1); the Statement carries the
+  predicateType `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1` or
+  `https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1` (another is malformed, exit 2);
+  an unknown predicate member is malformed (exit 2), as is every other finding of the
+  default-mode validation of the receipt under verification; and a present `validity.expiresAt` of the
+  receipt under verification is judged at one evaluation time, `--verification-time` when given,
+  else the wall clock (expired is exit 2); `outcome verify` and `relation-statement verify` take no
+  `--verification-time` (giving it is a usage error) and judge the lifetime of a `--policy` at the
+  verifier's wall clock. An attached target is verified STANDALONE by its own
+  signature under its key, its `payloadType` and the statement oracle of
+  `docs/predicates/relation.md` §4; its own `validity.expiresAt` is not judged. The edges of the
+  receipt under verification are judged once its signature verifies, whatever else its validation
+  finds: a foreign `predicateType`, an unknown member or another finding, and an expired `validity`
+  make it malformed (exit 2), and `lineage` is still reported as its edges give it; under a signature
+  that fails (exit 1) the report's `lineage` is `null`.
 
 ### Trust-policy hook (trust-policy v0.2, section `relations`)
 
@@ -827,8 +943,8 @@ content-root digests, matching the offline house contract.
 ## 7k. Standalone relation profile — `relation-statement/v0.1` (EXPERIMENTAL)
 
 Status: EXPERIMENTAL since 3.5.0. Normative-short here; prose in
-[`docs/predicates/relation.md`](docs/predicates/relation.md), executable in
-`src/proofbundle/relation_statement.py`.
+[`docs/predicates/relation.md`](docs/predicates/relation.md); `src/proofbundle/relation_statement.py` is its
+reference implementation, which is not normative (§7l).
 
 The in-receipt edges of 7j express change from the SUCCESSOR's side. A relation statement is the
 INDEPENDENT case: a DSSE-signed statement OVER a target receipt, carrying EXACTLY ONE typed edge and
@@ -866,6 +982,61 @@ BOTH implementations and asserts they land on the SAME common-vocabulary label (
 on every vector. This is differential AGREEMENT on these vectors, not a correctness proof of either
 implementation; the parity registry (`scripts/rust_parity_registry.json`, AST-checked by
 `scripts/rust_parity_gate.py`) records honestly which surfaces are COVERED / PARTIAL / PENDING.
+
+## 7l. Normative companion texts and the conformance corpus
+
+The conformance corpus ([`CONFORMANCE.md`](CONFORMANCE.md), [`conformance/README.md`](conformance/README.md),
+[`conformance/vector_schema.json`](conformance/vector_schema.json)) is judged against this document and
+the companion texts below. Each of them is normative for the part it names; where one of them and this
+document disagree, this document is normative and the companion text is a bug, the same precedence as
+for the bundle schema at the top of this document.
+
+| text | normative for | corpus kinds |
+|---|---|---|
+| [`EVAL_CLAIM.md`](EVAL_CLAIM.md) | the `proofbundle/eval-claim/v0.1` claim a payload carries (§6), its canonicalization, its issuer binding and the reported-version status rule | `native_bundle`, `envelope_profile_rule`, `provenance_version_status` |
+| [`docs/RECEIPT_ENVELOPE_PROFILE.md`](docs/RECEIPT_ENVELOPE_PROFILE.md) | the receipt-envelope rules R1 to R4 and how their vectors are read | `envelope_profile_rule` |
+| [`docs/adr/0002-universal-content-root.md`](docs/adr/0002-universal-content-root.md) | the `jcs-sha256-v1` content root, the two-part rule, `contentRootAlg` and `legacy-sortkeys-json-v0` | `content_root_vector`, the content roots of §7j |
+| [`docs/predicates/decision-receipt.md`](docs/predicates/decision-receipt.md) | the decision-receipt predicate, its default-mode and strict validation and its verify path | `decision_relation`, `relation_statement`, `content_root_vector`, `decision_crossimpl` |
+| [`docs/ANCHORS.md`](docs/ANCHORS.md) | anchors, their trust model and the OpenTimestamps proof format and verdict | `native_bundle`, `decision_crossimpl` |
+| [`docs/predicates/action-outcome.md`](docs/predicates/action-outcome.md) | the action-outcome predicate and its verify path | `outcome_relation` |
+| [`docs/predicates/relation.md`](docs/predicates/relation.md) | the relation profile (§7j, §7k), its lineage states and stable codes | `decision_relation`, `outcome_relation`, `relation_statement` |
+| [`docs/AGENT_REVIEW_PREDICATE.md`](docs/AGENT_REVIEW_PREDICATE.md), [`docs/VERIFIER_BLOCK.md`](docs/VERIFIER_BLOCK.md) | the agent-review predicate v0.1 to v0.3, its verifier block, receipt chains and policy decisions | `agent_review_predicate` |
+| [`conformance/cap1/draft-hillier-coverage-attestation-00.txt`](conformance/cap1/draft-hillier-coverage-attestation-00.txt), [`conformance/cap1/CAP-1.schema.json`](conformance/cap1/CAP-1.schema.json) | the CAP-1 coverage-attestation document (its Section 4, and the members and their forms in the JSON Schema it names), the rules R0 to R8 a verifier enforces (its Section 5) and the closed disposition vocabulary (its Section 6) | `cap1_document` |
+
+The JSON Schemas beside them ([`schemas/eval_claim_v0_1.schema.json`](schemas/eval_claim_v0_1.schema.json),
+[`schemas/decision-receipt-v0.1.schema.json`](schemas/decision-receipt-v0.1.schema.json),
+[`schemas/action-outcome-v0.1.schema.json`](schemas/action-outcome-v0.1.schema.json)) are informative mirrors:
+they never gate a verdict (`docs/predicates/relation.md` §2), and where a mirror and its text disagree the
+text governs the corpus. Five relation fixtures do not validate against the decision-receipt mirror, each
+on purpose: two counter-proofs carry the malformed value they test
+(`conformance/relation/malformed-digest/receipt.json`,
+`conformance/relation/malformed-relationships-successor/related_n.json`); the targets
+`conformance/relation/target-subject-ambiguous/related_r0.json` and
+`conformance/relation/target-subject-missing/related_r0.json` carry only `schemaVersion` and a `note` in
+their predicate, because those cases test the subject shape of a target; and the attachment
+`conformance/relation/null-relationships-successor/related_n.json` carries `relationships: null`, which
+the mirror does not allow and `docs/predicates/relation.md` §4 reads as absent on an attachment.
+
+The CAP-1 draft is not written here but vendored byte for byte from its author's repository:
+`conformance/cap1/draft-hillier-coverage-attestation-00.txt` is the file `cap-1/draft-hillier-coverage-attestation-00.txt`
+of https://github.com/Certisyn-Inc/certisyn-drafts at commit `0d8ebd751b95dd85a094686c2768f9cce7a27b03`, 32544 bytes,
+sha256 `7a9eeb1fbdb1fee95697622546d2ae7efba762fff193d6ee34765233539ac353`, fetched with git on 2026-10-26, and
+[`conformance/cap1/LICENSE-SPEC`](conformance/cap1/LICENSE-SPEC) (sha256
+`b32b9706f7067c7f51ed74f9d75562a89518839d322b15fa7f5546ff12482161`) and [`conformance/cap1/NOTICE`](conformance/cap1/NOTICE)
+(sha256 `2f95eb9b1220b57f8992de1bae36e8c1c48c088e369910f1ab77be2d53463092`) are the files of the same name at that commit.
+[`conformance/cap1/CAP-1.schema.json`](conformance/cap1/CAP-1.schema.json) is the file `cap-1/src/CAP-1.schema.json`
+at the same commit, 4921 bytes, sha256 `4453f216089543780bfecc4295cc4a61462fdc585b88d1e35b7d1aba79716b4a`, the JSON
+Schema that Section 4 of the draft names as the normative shape of a document; `LICENSE-SPEC` places it under the same
+licence as the draft text. Which parts of it the rules read is stated in `conformance/README.md` (`cap1_document`).
+The draft text and its schema are licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/) with attribution to Dr Joel David Hillier, Certisyn, Inc.; the vectors
+are under the Apache License 2.0 (`conformance/cap1/vectors/LICENSE.author`, the `LICENSE` that `LICENSE-SPEC` names).
+The MIT licence of this repository does not replace CC BY 4.0 for these files. The citation `LICENSE-SPEC` asks for:
+
+    Hillier, J. D., "The Coverage Attestation Profile (CAP-1)",
+    draft-hillier-coverage-attestation-00, Certisyn, Inc., 2026.
+
+Whether these bytes equal the text of the draft in the IETF archive is not measured.
 
 ## 8. References
 
