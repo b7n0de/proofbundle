@@ -68,7 +68,12 @@ def _testschritte(job: dict) -> list[str]:
 #: einen Ausschnitt — und "der Job faehrt pytest" waere fuer sie trotzdem wahr gewesen.
 _VERENGENDE_OPTIONEN = ("-k", "-m", "--collect-only", "--co", "--lf", "--last-failed", "--ff",
                         "--failed-first", "--deselect", "--ignore", "--ignore-glob", "--noconftest",
-                        "--confcutdir", "--pyargs", "--rootdir")
+                        "--confcutdir", "--pyargs", "--rootdir", "--ci-part")
+#: The declared partition of the matrix job `test` (2026-10-30): the part plugin and the part from
+#: the matrix. It is taken off the line before the line is judged, and only in exactly this form and
+#: exactly once; anything else stays on the line and is judged as a narrowing. That the parts of one
+#: leg together are the suite, file for file, is held by tests/test_ci_test_parts_cover_the_suite.py.
+_TEILUNG = (("-p", "scripts.ci_test_part"), ("--ci-part=$CI_PART",))
 #: Positionsargumente, die die GANZE Suite meinen (der Wurzelordner oder das Testverzeichnis).
 _GANZE_SUITE = {".", "./", "tests", "tests/", "./tests", "./tests/"}
 #: ini-Schluessel, deren Ueberschreibung (`-o`, `--override-ini`) die Sammlung verengt. Gegenlesung
@@ -146,9 +151,14 @@ def _verengung(run: str) -> list[str]:
                 wert = a.split("=", 1)[1] if "=" in a else (args[i + 1] if i + 1 < len(args) else "")
                 if wert.split("=", 1)[0].strip() in _VERENGENDE_INI:
                     gruende.append(f"ini-Ueberschreibung {wert!r} verengt die Sammlung")
-            elif name in ("-p",) and i + 1 < len(args) and args[i + 1].startswith("no:") \
-                    and args[i + 1] not in ("no:randomly", "no:cacheprovider"):
-                gruende.append(f"deaktiviertes Plugin {args[i + 1]!r}")
+            elif name == "-p" or (name.startswith("-p") and not name.startswith("--")):
+                # A loaded plugin can change the collection as much as -k can, and the line does not
+                # show how (2026-10-30, found while adding the part plugin of the matrix job).
+                wert = (args[i + 1] if i + 1 < len(args) else "") if name == "-p" else a[2:]
+                if not wert.startswith("no:"):
+                    gruende.append(f"loaded plugin {wert!r}: what it changes in the collection is not visible here")
+                elif wert not in ("no:randomly", "no:cacheprovider"):
+                    gruende.append(f"deaktiviertes Plugin {wert!r}")
             elif not a.startswith("-") and a not in _GANZE_SUITE:
                 gruende.append(f"Pfadauswahl {a!r} statt der ganzen Suite")
             if a in ("-k", "-m", "--deselect", "--ignore", "--ignore-glob", "-p", "-o", "-c",
@@ -156,6 +166,23 @@ def _verengung(run: str) -> list[str]:
                 i += 1  # das Argument der Option ist kein Pfad
             i += 1
     return gruende
+
+
+def _ohne_teilung(run: str) -> str:
+    """The line without the declared partition when it carries exactly that partition once, as one
+    pytest call; otherwise the line unchanged, so that all of it is judged."""
+    import shlex  # noqa: PLC0415
+    aufrufe = _pytest_aufrufe(run)
+    if len(aufrufe) != 1:
+        return run
+    args = list(aufrufe[0])
+    for stueck in _TEILUNG:
+        n = len(stueck)
+        stellen = [i for i in range(len(args) - n + 1) if tuple(args[i:i + n]) == stueck]
+        if len(stellen) != 1:
+            return run
+        del args[stellen[0]:stellen[0] + n]
+    return shlex.join(["python", "-m", "pytest", *args])
 
 
 _SAMMLUNGEN: dict = {}
@@ -204,7 +231,7 @@ class TestPflichtjobsFahrenDenNormativenRunner(unittest.TestCase):
         self.assertIsNotNone(job, "der Job `test` fehlt — dann misst dieser Test nichts")
         schritte = [s for s in _testschritte(job) if _pytest_aufrufe(s)]
         self.assertTrue(schritte, f"der Matrix-Job hat keinen pytest-Aufruf: {_testschritte(job)}")
-        gruende = [g for s in schritte for g in _verengung(s)]
+        gruende = [g for s in schritte for g in _verengung(_ohne_teilung(s))]
         for quelle, wert in _addopts_aus_umgebung(ci, job):
             if wert.startswith("<"):
                 gruende.append(f"PYTEST_ADDOPTS wird in {quelle} gesetzt — {wert}")
@@ -224,7 +251,10 @@ class TestPflichtjobsFahrenDenNormativenRunner(unittest.TestCase):
                    # Stelle 3b der Gegenlesung: -o/-c/--rootdir
                    "python -m pytest -q -o testpaths=tests/test_one.py", "python -m pytest -q -c other.ini",
                    "python -m pytest -q --override-ini=addopts=-k\\ x", "python -m pytest -q --rootdir=tests/sub",
-                   "python -m pytest -q -o python_files=test_one.py")
+                   "python -m pytest -q -o python_files=test_one.py",
+                   # 2026-10-30: a loaded plugin and a part of the suite
+                   "python -m pytest -q -p some_plugin", "python -m pytest -q -psome_plugin",
+                   "python -m pytest -q --ci-part=1/2", "python -m pytest -q --ci-part=$CI_PART")
         ganz = ("python -m pytest -q", "python -m pytest", "pytest -q tests",
                 "python -m coverage run --source=src/proofbundle -m pytest -q\n"
                 "python -m coverage report -m --fail-under=83",
@@ -236,6 +266,21 @@ class TestPflichtjobsFahrenDenNormativenRunner(unittest.TestCase):
         for zeile in ganz:
             with self.subTest(zeile=zeile):
                 self.assertEqual(_verengung(zeile), [], f"ganze Suite als verengt gemeldet: {zeile!r}")
+
+    def test_meta_only_the_declared_partition_is_taken_off(self):
+        """2026-10-30: the declared partition comes off the matrix line, once and in exactly its form;
+        any other plugin, a second partition or a part without its plugin stays and is judged."""
+        erklaert = "python -m pytest -q --numprocesses=auto --dist=worksteal -p scripts.ci_test_part --ci-part=$CI_PART"
+        self.assertEqual(_verengung(_ohne_teilung(erklaert)), [])
+        self.assertTrue(_verengung(erklaert), "the partition itself must read as a narrowing")
+        for zeile in ("python -m pytest -q --ci-part=$CI_PART",
+                      "python -m pytest -q -p scripts.ci_test_part",
+                      "python -m pytest -q -p other_plugin --ci-part=$CI_PART",
+                      "python -m pytest -q -p scripts.ci_test_part --ci-part=1/6",
+                      erklaert + " -p scripts.ci_test_part --ci-part=$CI_PART",
+                      erklaert + " -k smoke"):
+            with self.subTest(zeile=zeile):
+                self.assertTrue(_verengung(_ohne_teilung(zeile)), f"not seen as a narrowing: {zeile!r}")
 
     def test_meta_addopts_aus_der_umgebung_wird_gesehen(self):
         """Stelle 3b: `env: PYTEST_ADDOPTS` auf Workflow-, Job- oder Schrittebene und ein
@@ -257,7 +302,7 @@ class TestPflichtjobsFahrenDenNormativenRunner(unittest.TestCase):
         ci = _lade_ci()
         job = ci.get("jobs", {}).get("test")
         self.assertIsNotNone(job)
-        aufrufe = [a for s in _testschritte(job) for a in _pytest_aufrufe(s)]
+        aufrufe = [a for s in _testschritte(job) for a in _pytest_aufrufe(_ohne_teilung(s))]
         self.assertTrue(aufrufe, "kein pytest-Aufruf im Matrix-Job")
         args = tuple(a for a in aufrufe[0] if a not in ("-q", "--quiet", "-v", "--verbose"))
         umgebung = {}
