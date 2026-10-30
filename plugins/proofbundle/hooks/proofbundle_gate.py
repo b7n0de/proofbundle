@@ -17979,9 +17979,13 @@ def _release_door(command: str, answer: "Outcome") -> str | None:
 #: The shell joins the quoted and unquoted parts of a word and drops a backslash before a letter: `s''udo`, `\sudo`
 #: and `su"d"o` all run sudo, while the split at quotes sees `s` and `udo`.
 _RELEASE_JOIN = re.compile(r"[\\'\"]")
-#: bash's ANSI-C quoting, `$'…'`, whose escapes it decodes (`$'\x73udo'` runs sudo); its locale quoting, `$"…"`, it reads
-#: as `"…"` (re-reading of the fixes at 21fead88, line 3, P1).
+#: bash's ANSI-C quoting, `$'…'`, whose escapes it decodes (`$'\x73udo'` runs sudo), and its locale quoting, `$"…"`,
+#: which a message catalog may translate (re-reading of the fixes at 21fead88, line 3, P1). The gate does not rebuild
+#: the escapes of a shell: a part with a backslash, and a locale part with text, count as not resolved (fourth reading
+#: at de05121d, line 3: it claimed `$'\0163'` is `s` in bash; measured, bash 5.1.16 and zsh 5.8.1 read `\016` and `3`,
+#: as Python does, but another shell may read it otherwise). A part without them is its text.
 _RELEASE_ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.S)
+_RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 #: The expansions the gate does not resolve in a word: a parameter, a command substitution, an arithmetic expansion, a
 #: backquoted command and a process substitution.
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
@@ -17990,15 +17994,17 @@ _RELEASE_UNKNOWN = "\x01"
 
 
 def _release_ansi_c(match: "re.Match") -> str:
-    try:
-        return match.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
-    except (UnicodeDecodeError, ValueError):
-        return _RELEASE_UNKNOWN
+    return _RELEASE_UNKNOWN if "\\" in match.group(1) else match.group(1)
+
+
+def _release_locale(match: "re.Match") -> str:
+    return _RELEASE_UNKNOWN if match.group(1) else ""
 
 
 def _release_door_words(command: str) -> str | None:
-    """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (the
-    ANSI-C and locale quoting of bash read, every quote and backslash removed), so that a word the shell joins from
+    """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (an
+    ANSI-C or locale part read where it has no escape and no text to translate, else not resolved; every quote and
+    backslash removed), so that a word the shell joins from
     quoted parts is read as the shell reads it (reading of G-2, part 8, P1, and the re-reading of its fix). A program
     word with an expansion the gate does not resolve counts as the door root where what is written of it may still
     be a program of _RELEASE_ROOT (_release_unresolved_root). Words that only the assembled line forms can hold a
@@ -18009,7 +18015,8 @@ def _release_door_words(command: str) -> str | None:
     # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
     # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
     continued = command.replace("\\\n", "")
-    assembled = _RELEASE_JOIN.sub("", _RELEASE_ANSI_C.sub(_release_ansi_c, continued).replace('$"', '"'))
+    assembled = _RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale, _RELEASE_ANSI_C.sub(_release_ansi_c,
+                                                                                                continued)))
     for text in dict.fromkeys([assembled, _release_braced(assembled)]):
         if text != command:
             door = _release_door_words_split(text)

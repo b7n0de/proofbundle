@@ -331,6 +331,20 @@ def test_control_neighbour_shapes_without_a_door_are_no_door(gate, line):
     assert gate._release_door_words(line) is None
 
 
+# --- Fourth reading at de05121d, line 3: the escapes of $'…' are not rebuilt; with a backslash it is not resolved ------
+
+@pytest.mark.parametrize("line", ["$'\\0163udo' -n true", "eval $'\\0163udo'", '$"x" -n true'])
+def test_ansi_c_or_locale_quoting_the_gate_does_not_resolve_holds_the_release_back(gate, line):
+    """`$'…'` with a backslash and `$"…"` with text count as not resolved: bash 5.1.16 and zsh 5.8.1 read `\\0163` as
+    `\\016` and `3` (measured), another shell may not, and a message catalog may translate `$"…"`."""
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ["printf '%s' $'\\x41'", "printf $'a\\nb'", 'echo $"hello"', "echo $''"])
+def test_control_quoting_the_gate_does_not_resolve_outside_a_program_word_is_no_door(gate, line):
+    assert gate._release_door_words(line) is None
+
+
 @pytest.mark.parametrize("line", ROOT_FORMS[:5] + ["printf 'su%s' do | sh", "bash <(printf 's%s' udo)"])
 def test_bash_runs_sudo_for_the_forms_above(line, tmp_path):
     """The premise, measured on bash with a stand-in in place of the program: an exported function and a script of the
