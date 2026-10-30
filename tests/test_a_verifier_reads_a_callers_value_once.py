@@ -2037,6 +2037,9 @@ _AUFRUFE_VON_PARAMETERN = {
     ("assurance.py", "classify_receiver_corroboration", "independent_attestation_resolver"): _EINE_ANTWORT,
     ("outcome.py", "verify_outcome_receipt", "receiver_attestation_resolver"): _EINE_ANTWORT,
     ("_plain_value.py", "plain_json", "error"): "the error type its callers in this package pass",
+    ("budget.py", "_chain_text", "join"): ("the step notation of the walk that calls it, a function of this package "
+                                           "(`_plain_value._json_step`, `subject_binding._dotted_step`, "
+                                           "`trace_record._join_step`)"),
     ("canonical.py", "_plain_for_jcs", "key_error"): "the error type its callers in this package pass",
     ("canonical.py", "_eine_kopie", "fehler"): "the error type its callers in this package pass",
     ("_statement_payload.py", "refuse_an_unwritable_subject", "error"): "the error type its callers in this package pass",

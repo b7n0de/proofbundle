@@ -7,8 +7,8 @@ together. In a Verify state:
   without a manifest field, and neither host manifest carries a "hooks" field: a Verify-only install registers no
   Guard hook under Claude Code or under Codex;
 - no text a user reads names hooks or the gate: the strings of both manifests and of the marketplace entry, the plugin
-  catalog, the plugin's README, its skills, the string constants of its MCP server, and the lines of the repository
-  README that link the catalog.
+  catalog, the plugin's README, its skills, every other Markdown file in the plugin folder (DECISIONS.md among them),
+  the string constants of its MCP server, and the lines of the repository README that link the catalog.
 In a Guard state the gate program is there, and every hook either host registers starts a program of the plugin that
 exists. The planted cases below show that each check finds what it is for.
 
@@ -67,6 +67,10 @@ def _texts(root: pathlib.Path) -> dict[str, str]:
     for skill in sorted((root / PLUGIN / "skills").rglob("*")) if (root / PLUGIN / "skills").is_dir() else []:
         if skill.is_file() and skill.suffix in (".md", ".yaml"):
             texts[str(skill.relative_to(root))] = skill.read_text(encoding="utf-8")
+    # Every Markdown file the plugin folder ships, not a list of them: DECISIONS.md carried a Guard word the list never
+    # read (review of G-1, line 3, F1).
+    for doc in sorted((root / PLUGIN).rglob("*.md")) if (root / PLUGIN).is_dir() else []:
+        texts.setdefault(str(doc.relative_to(root)), doc.read_text(encoding="utf-8"))
     server = root / PLUGIN / "server" / "proofbundle_mcp.py"
     if server.is_file():
         tree = ast.parse(server.read_text(encoding="utf-8"))
@@ -169,6 +173,14 @@ def test_planted_a_text_that_names_hooks_or_the_gate_is_found(tmp_path):
     found = findings(root)
     assert f"{MANIFESTS[0]}:1 names 'hooks'" in found
     assert f"{skill.relative_to(root)}:1 names 'pre-push'" in found and f"{skill.relative_to(root)}:1 names 'gate'" in found
+
+
+def test_planted_a_guard_word_in_any_markdown_of_the_plugin_is_found(tmp_path):
+    root = _verify_copy(tmp_path)
+    decisions = root / PLUGIN / "DECISIONS.md"
+    decisions.parent.mkdir(parents=True, exist_ok=True)
+    decisions.write_text("Both manifests say 0.4.0, and the gate's GATE_VERSION follows.\n", encoding="utf-8")
+    assert f"{PLUGIN / 'DECISIONS.md'}:1 names 'gate'" in findings(root)
 
 
 def test_planted_a_whole_guard_has_no_finding_and_a_missing_program_is_found(tmp_path):

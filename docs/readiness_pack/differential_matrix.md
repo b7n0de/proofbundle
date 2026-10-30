@@ -20,10 +20,11 @@ python3 tools/pb_verify_rs/crosscheck.py --matrix audit_artifacts/360/rust_diffe
 The artifact carries an environment freeze (cargo / rustc / python versions) so a re-run on another box
 is comparable. On the recorded run: 40 relation vectors, Python == Rust on all, and the whole 54-case
 conformance corpus of that era reproduced independently by the Rust binary (the corpus has since
-grown to 145 cases, measured 2026-10-18; the named `make conformance-crossimpl` gate re-runs
+grown to 148 cases, measured 2026-10-26; the named `make conformance-crossimpl` gate re-runs
 the cross-check on every invocation; the figure recorded here is 56 of the 57 cases that
-existed at v3.7.0, a ratio over that corpus, not over today's, and measured again on 2026-10-18
-over 145 cases it is 69 reproduced and 76 named by kind, as rust_parity_scope.md records).
+existed at v3.7.0, a ratio over that corpus, not over today's, and measured again on 2026-10-26
+over 148 cases it is 71 reproduced and 77 named by kind, as rust_parity_scope.md records, after 69
+and 76 over 145 cases on 2026-10-18).
 
 ## Scope of coverage
 

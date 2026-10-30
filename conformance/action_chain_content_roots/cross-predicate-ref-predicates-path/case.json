@@ -1,0 +1,19 @@
+{
+ "caseId": "content-root-cross-predicate-ref-predicates-path",
+ "kind": "content_root_vector",
+ "mode": "pair_reference",
+ "input": "decision.json",
+ "expected": {
+  "decisionRoot": "c46e64e9a0559ccd377e1c88e039802c322b5b2ff668b18e61542525b6ef4dcf",
+  "evidenceRoot": "45292dd8cf95af18d6c1b747c63480bd4412f568791c95c93a9572c7301efe90",
+  "evidenceRefBindsRoot": true,
+  "decisionJcsFile": "decision.jcs",
+  "evidenceJcsFile": "evidence.jcs"
+ },
+ "specRefs": [
+  "ADR 0002",
+  "docs/predicates/decision-receipt.md"
+ ],
+ "rationale": "Successor of content-root-cross-predicate-ref, which stays in the corpus unchanged. Same evidence statement and the same decision statement, except that the decision carries the one decision-receipt predicateType of docs/predicates/decision-receipt.md §4, https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1, where the old case carries https://b7n0de.com/proofbundle/decision-receipt/v0.1. A decision statement references the evidence statement BY its content root; both roots recompute from the pinned bytes and the reference binds byte-for-byte.",
+ "attribution": "b7n0de — successor case of content-root-cross-predicate-ref (CONFORMANCE.md rules 5 and 6, owner answer OQ-02 of 2026-10-26); every byte derived from the fixtures of content-root-cross-predicate-ref, canonical bytes from RFC 8785 as in ADR 0002"
+}

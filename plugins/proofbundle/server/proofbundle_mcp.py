@@ -119,6 +119,15 @@ def _no_constant(name: str) -> object:
     raise ValueError(f"the non-JSON constant {name}")
 
 
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict:
+    """An object that names a member twice is refused: plain json.loads keeps the last value, and a reader in front
+    of the server may have kept the first (review of G-1, line 3, F4)."""
+    names = [name for name, _ in pairs]
+    if len(set(names)) != len(names):
+        raise ValueError(f"an object names a member twice: {sorted({n for n in names if names.count(n) > 1})}")
+    return dict(pairs)
+
+
 def _read_log(path: str) -> list[dict]:
     """The entries of the gate's log and its previous file. Each is opened without blocking and read only where the
     opened descriptor is a regular file (review round 18 of 2026-10-14, the class of R18-2: a FIFO with no writer as
@@ -202,8 +211,17 @@ def _kind(args: dict, allowed: tuple[str, ...]) -> str:
 
 
 def _path(args: dict, name: str, *, required: bool = True) -> str | None:
+    """An absolute path. A relative one is refused, nothing is run: it would resolve against the server's working
+    directory, and under Codex that is the plugin folder (.codex-plugin/plugin.json starts the server with cwd "."),
+    not the user's project (review of G-1, line 3, F2)."""
     value = _string(args, name, required=required)
-    return None if value is None else os.path.abspath(os.path.expanduser(value))
+    if value is None:
+        return None
+    path = os.path.expanduser(value)
+    if not os.path.isabs(path):
+        raise ToolInputError(f"argument {name} must be an absolute path, got {value!r}; a relative path would "
+                             "resolve against the server's working directory, not the user's project")
+    return os.path.abspath(path)
 
 
 def _public_key(args: dict) -> str:
@@ -231,7 +249,7 @@ def _run_cli(argv: list[str]) -> dict:
     result: dict = {"proofbundle_version": _package_version(), "plugin_version": SERVER_VERSION,
                     "command": ["proofbundle", *argv], "exit_code": proc.returncode}
     try:
-        result["output"] = json.loads(proc.stdout, parse_constant=_no_constant)
+        result["output"] = json.loads(proc.stdout, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
     except ValueError:
         result["output"] = proc.stdout
     if proc.stderr:
@@ -737,9 +755,9 @@ TOOLS = {
         "inputSchema": {"type": "object", "properties": {
             "kind": _KIND_SIGNED,
             "predicate": {"type": "object", "description": "the predicate as a JSON object"},
-            "predicate_path": {"type": "string", "description": "path to a predicate JSON file"},
-            "out_path": {"type": "string", "description": "where to write the signed receipt"},
-            "key_path": {"type": "string", "description": "Ed25519 seed file; created when absent"},
+            "predicate_path": {"type": "string", "description": "absolute path to a predicate JSON file"},
+            "out_path": {"type": "string", "description": "absolute path to write the signed receipt to"},
+            "key_path": {"type": "string", "description": "absolute path of an Ed25519 seed file; created when absent"},
             "lenient": {"type": "boolean", "description": "allow a predicate that is not strict-v0.1"},
         }, "required": ["kind", "out_path"], "additionalProperties": False},
     }),
@@ -751,9 +769,9 @@ TOOLS = {
                        "source the user trusts. " + KEY_RULE + " " + AUTOMATION_RULE,
         "inputSchema": {"type": "object", "properties": {
             "kind": {"type": "string", "enum": list(KINDS_VERIFY)},
-            "path": {"type": "string", "description": "path to the receipt or bundle file"},
+            "path": {"type": "string", "description": "absolute path to the receipt or bundle file"},
             "public_key": {"type": "string", "description": "issuer Ed25519 public key, base64"},
-            "policy_path": {"type": "string", "description": "optional trust policy JSON"},
+            "policy_path": {"type": "string", "description": "absolute path of an optional trust policy JSON"},
             "strict": {"type": "boolean", "description": "enforce strict-v0.1 required fields"},
             "aud": {"type": "string", "description": "expected audience"},
             "nonce": {"type": "string", "description": "expected nonce"},
@@ -786,7 +804,7 @@ TOOLS = {
         "description": "Print the predicate of a decision or outcome receipt WITHOUT verifying it.",
         "inputSchema": {"type": "object", "properties": {
             "kind": _KIND_SIGNED,
-            "path": {"type": "string", "description": "path to the receipt file"},
+            "path": {"type": "string", "description": "absolute path to the receipt file"},
         }, "required": ["kind", "path"], "additionalProperties": False},
     }),
 }
@@ -810,10 +828,15 @@ def _call_tool(params: dict) -> dict:
 def handle(message: dict) -> dict | None:
     """Answer one JSON-RPC message. A notification (no id) gets no answer."""
     method = message.get("method")
-    msg_id = message.get("id")
     params = message.get("params") or {}
-    if msg_id is None:
+    if "id" not in message:
         return None
+    msg_id = message["id"]
+    if msg_id is None:
+        # A notification has no id member at all. An id that is present and null gets an answer, so a client waiting
+        # for one does not hang; MCP requires a string or an integer (review of G-1, line 3, F3).
+        return {"jsonrpc": "2.0", "id": None,
+                "error": {"code": -32600, "message": "invalid request: id must be a string or an integer, not null"}}
     try:
         if method == "initialize":
             requested = params.get("protocolVersion")
@@ -845,7 +868,7 @@ def main() -> int:
         if not line.strip():
             continue
         try:
-            message = json.loads(line, parse_constant=_no_constant)
+            message = json.loads(line, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
         except ValueError:
             reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:

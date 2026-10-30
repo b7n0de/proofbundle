@@ -1,7 +1,7 @@
 # Decision Receipt predicate `decision-receipt/v0.1`
 
 Status: shipped in proofbundle 2.1.0 (vendored `decision-receipt/v0.1`, stable). Vendored predicate under the b7n0de namespace. Design of record:
-[`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
+[`docs/adr/0001-decision-receipt-separate-predicate.md`](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0001-decision-receipt-separate-predicate.md).
 
 **Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
 is the consensus reached with an external collaborator on
@@ -48,7 +48,10 @@ decision-receipt statement  (verdict + boundary + notChecked; own detached ancho
 
 `evidenceRefs[].digest` is the **content root** of the referenced evidence statement — SHA-256 over its
 RFC-8785 canonical Statement bytes, the same rule an anchor root uses — not an envelope/file hash and not the
-bare predicate hash. Binding the content root binds the claim's identity (including its `subject` and
+bare predicate hash. It is written as the in-toto digest object `{"sha256": "<64 lowercase hex>"}`
+(`$defs/sha256Digest` in `schemas/decision-receipt-v0.1.schema.json`), and a decision binds an evidence
+statement when at least one entry of its `predicate.evidenceRefs` carries `digest.sha256` equal to that
+statement's content root. Binding the content root binds the claim's identity (including its `subject` and
 `predicateType`) and survives counter-signing / key rotation of the evidence; WHO signed it is a separate
 Trust-Policy question. An optional `artifactDigest` pins an exact stored blob for retrieval. The evidence is
 anchored independently of the decision that cites it (both sides on content roots), so a reviewer can
@@ -65,7 +68,11 @@ semantically mixes into the other.
 
 ## 4. Predicate type and payload
 
-- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`
+- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`, the one predicateType of a
+  decision receipt. `https://b7n0de.com/proofbundle/decision-receipt/v0.1`, without `/predicates/`, is not one: the
+  verify path refuses it as malformed (exit 2). Two content-root vectors of the corpus carry it as fixture bytes only
+  (`content-root-cross-predicate-ref`, `content-root-envelope-invariance`); their successor cases
+  (`…-predicates-path`) carry the predicateType above.
 - Statement `_type`: `https://in-toto.io/Statement/v1`
 - DSSE `payloadType`: `application/vnd.in-toto+json` (the in-toto envelope media type, not a predicate subtype)
 - `subject`: a commitment to the decision (e.g. `name: "decision:<decisionId>"`, `digest.sha256`). Evidence
@@ -90,7 +97,47 @@ A `notChecked` entry is an object `{field, reason, impact}`. A bare string is st
 deprecated legacy form, and the schema marks it so; new receipts use the object form.
 
 Optional: `recordedAt`, `delegationRefs`, `actionOutcome`, `traceContext`, `validity` (strict interactive mode
-requires `audience` + `nonce`), `anchors`.
+requires `audience` + `nonce`), `relationships` (`docs/predicates/relation.md`). `anchors` is not a predicate
+field: anchors travel detached (§8), and an `anchors` member inside the predicate is an unknown field.
+
+**Default mode.** Without `--strict`, `decision verify` validates the predicate in the default mode, and
+the conformance counts of `decision_predicate_findings` are counts of this mode. It requires
+`schemaVersion`, `decisionId`, `decisionType`, `decidedAt`, `decisionMaker`, `agent`, `principal`,
+`proposedAction`, `inputSnapshot`, `policyBoundary`, `evidenceRefs` and `decision`; `notChecked`,
+`decisionChangeConditions` and `privacy` are optional here and required only in the strict mode above, and
+no top-level member outside the required and optional fields is allowed. Validation yields a list of
+findings, counted as follows: all unknown top-level members together are one finding; each missing
+required member is one finding; each `evidenceRefs` entry that lacks a string `relation` or a sha256
+content-root `digest` is one finding; each other rule of this section that a member breaks (an enum, an
+RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `policyBoundary.policyEngine`,
+`policyId` and `decisionPath` as a non-empty string, the `proposedAction` digest or reference, the `id`
+of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
+member inside one of these objects) is one finding per member. A required member that is missing, or that
+is not an object where this section expects one, is that one finding, and the rules of its own members are
+not judged. An empty list is a valid predicate. A JSON `null` is no finding at `actionOutcome.performedAt`
+and `actionOutcome.outcomeRef`, where it states no time and no reference, nor at `decisionMaker.version`,
+whose form is not checked; at every other declared member, in both modes, it breaks that member's rule
+and is a finding.
+
+The declared members of the objects inside the predicate, the same as the `properties` the machine schema
+gives each of them, whether or not this section names a member elsewhere; a member outside its list is
+undeclared:
+- `decisionMaker`: `id`, `version`
+- `agent`: `id`, `version`, `configurationDigest`
+- `principal`: `id`, `authnContextRef`; its `authnContextRef`: `uri`, `digest`
+- `proposedAction`: `actionType`, `target`, `method`, `parametersDigest`, `parametersRef`,
+  `parametersSchemaRef`; its `target`: `name`, `uri`, `digest`; its `parametersSchemaRef`: `uri`, `digest`
+- each `inputSnapshot` entry: `name`, `uri`, `digest`, `mediaType`
+- `policyBoundary`: `policyEngine`, `policyId`, `policyDigest`, `decisionPath`, `bundleRevision`,
+  `validFrom`, `validUntil`
+- each `evidenceRefs` entry: `relation`, `digest`, `artifactDigest`, `uri`, `predicateType`,
+  `typedDigest`; its `typedDigest`: `type`, `purpose`, `digestAlgorithm`, `digest`
+- `decision`: `verdict`, `reasonCodes`, `humanReadableSummary`, `obligations`, `allowedScope`
+- each `notChecked` entry in the object form: `field`, `reason`, `impact`
+- each `decisionChangeConditions` entry: `conditionType`, `description`, `requiredEvidenceType`
+- `actionOutcome`: `status`, `performedAt`, `outcomeRef`; its `outcomeRef`: `uri`, `digest`
+- `privacy`: `rawInputsIncluded`, `redactionProfile`, `erased`, `masked`
+- `validity`: `audience`, `nonce`, `expiresAt`
 
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`
@@ -134,7 +181,8 @@ audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings
 Non-applicable checks are `null`. `freshness_ok` is `null` **only when `validity.expiresAt` is absent** —
 there is then no statement expiry to judge. When `validity.expiresAt` **is** present it is judged (since
 6.2.0) at one evaluation time: `true` or `false` against `--verification-time` (a past UTC `Z` instant)
-when that option is given, otherwise against the verifier's wall clock. A `false` folds into `ok` (the
+when that option is given, otherwise against the verifier's wall clock; it is `false` (expired) when the
+evaluation time is at or after `validity.expiresAt`, so the instant itself is already expired. A `false` folds into `ok` (the
 receipt is not OK) and the CLI exits `2`; an unreadable or JSON-`null` `expiresAt` is fail-closed the same
 way, never silently treated as "no expiry". The lifecycle of an attached `--policy` is a separate,
 relying-party concern, evaluated at that same one instant.
@@ -152,6 +200,9 @@ bare context-free `OK`.
 2. **Anchoring / verify:** an anchor binds SHA-256 over the **exact DSSE payload bytes as transmitted**; the
    verifier **never** re-canonicalizes (DSSE rule: verify exact bytes). If the received payload deviates from
    its own RFC-8785 canonicalization, that is a fail-closed error, not a repair case.
+   On the receipt under verification, on the decision, outcome and relation-statement paths alike, that error
+   is malformed (exit 2) once the signature verifies, and the receipt's edges are still judged; a signature
+   that fails is exit 1 first (`docs/predicates/relation.md`, the statement oracle).
 
 So `hash(exact bytes) == hash(RFC-8785 form)`, consistent with the enclave binding and with the
 `RFC 8785 → sha256 → anchored root` path. proofbundle does **not** adopt the field-subset canonicalization
