@@ -378,14 +378,18 @@
         "bitcoin_block_headers": {
           "type": "object",
           "propertyNames": {
-            "pattern": "^[0-9]+$"
+            "pattern": "^[0-9]+$",
+            "not": {
+              "pattern": "[^0-9]"
+            }
           },
           "additionalProperties": {
             "type": "string",
             "minLength": 64,
-            "maxLength": 64
+            "maxLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$"
           },
-          "description": "WP-A1 relying-party anchor trust material: a decimal height string mapped to the 64-character hex merkle root of that Bitcoin block header. The loader checks the length of each root, not its characters. Optional, fail-closed."
+          "description": "WP-A1 relying-party anchor trust material: a height of ASCII digits mapped to the merkle root of that Bitcoin block header, 64 hex digits. The loader refuses a height of any other character and a root that is not 64 hex digits (OQ-19). Optional, fail-closed."
         }
       }
     },
