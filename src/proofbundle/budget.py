@@ -188,6 +188,42 @@ def render_text(value, budget: "VerificationBudget | None" = None) -> str:
     return render_safe(value, budget, quote=False)
 
 
+#: The longest path text a message renders for a walk that carries its path as a chain of links
+#: (`_chain_text`). A path is diagnostic text, and the input controls the names it is made of.
+_PATH_TEXT_LIMIT = 256
+
+
+def _chain_text(start: str, chain, join) -> str:
+    """The path of a link in a walk, as text: at most `_PATH_TEXT_LIMIT` characters and a mark ``…``.
+
+    THE PATH IS A CHAIN, NOT A STRING (deep gate 6.4.0, iteration 1, finding C1 and its three neighbours).
+    Four walks gave every child a fresh path string that copied the text of all its ancestors, so a deep
+    input with long member names cost its children times the length of the path above them. Measured:
+    `trace_record._canonicalizable_value` at 8608cb0f, 64301 bytes of input to 120 MB of traced memory
+    (1872 times, a raw MemoryError under a 600 MiB limit before any signature was checked);
+    `_plain_value.plain_json`, `subject_binding.nested_closure_violations` and `nested_type_violations` at
+    e29a2683, 73190 bytes to about 100 MB each (1373 to 1376 times), against 3 to 5 times for a flat input
+    of the same size. A walk now gives each child a link, a pair (parent link, step) with None at the
+    root, and the text is built only here, when a message needs it, from ``start`` down and no further
+    than the limit. ``join(text, step)`` appends one step in the walk's own notation; a member name longer
+    than the limit is cut before it is joined."""
+    steps = []
+    while chain is not None:
+        chain, step = chain
+        steps.append(step)
+    text, cut = start, False
+    for step in reversed(steps):
+        if len(text) > _PATH_TEXT_LIMIT:
+            cut = True
+            break
+        if type(step) is str and len(step) > _PATH_TEXT_LIMIT:
+            cut, step = True, step[:_PATH_TEXT_LIMIT]
+        text = join(text, step)
+    if cut or len(text) > _PATH_TEXT_LIMIT:
+        text = text[:_PATH_TEXT_LIMIT] + "…"
+    return text
+
+
 @_ein_stand
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:
     """Non-raising magnitude check for ONE untrusted integer — the shared entry guard.

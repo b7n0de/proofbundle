@@ -493,7 +493,13 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: (3.10 at 53bbb94c), the longest finished coverage run 144 min (a1d5a815); coverage ran into 150 at
 #: 52c7e634 and 53bbb94c with src/, the packages and the runner image the same as at 198af5c5, where it took
 #: 115. The owner decision of 2026-10-02 (card OA-32ba6e0c7a) sets 180 and 300.
-GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144}
+#:
+#: MEASURED 2026-10-28, crypto-floor joins the table. Its limit was set on 2026-10-01 but never held against a
+#: measurement, so nothing here warned when the suite grew toward it. The job took 42m53s at 47fcb770 (run
+#: 40684624385, finished); at 8381beb7 the suite step was cut at 45 after 43m49s without a failing test, which is
+#: a lower bound, not a length. ceil(43 * 1.25) = 54 does not fit under 45 and does fit under the 60 of the owner
+#: decision of 2026-10-28 (card OA-fa42936426).
+GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144, "crypto-floor": 43}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.

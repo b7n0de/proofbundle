@@ -727,7 +727,13 @@ _ECDSA_ALLOWED = frozenset({("signature.py", "ECDSA"), ("signature.py", "SECP256
                             ("signature.py", "SECP384R1"),
                             ("anchors_rootcommit.py", "SECP256k1"),
                             ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
-                            ("scitt_ccf.py", "SECP384R1")})
+                            ("scitt_ccf.py", "SECP384R1"),
+                            # The Sigstore bundle reader (adapters.sigstore_bundle) names ECDSA only in
+                            # `verify(signature, message, ec.ECDSA(h))` and the two curves only to build
+                            # public keys from a point read out of a SubjectPublicKeyInfo. It verifies
+                            # signatures of Fulcio leaves, logs and the npm registry and signs nothing.
+                            ("adapters/sigstore_bundle.py", "ECDSA"), ("adapters/sigstore_bundle.py", "SECP256R1"),
+                            ("adapters/sigstore_bundle.py", "SECP384R1")})
 
 
 def _ecdsa_inventory(root: pathlib.Path) -> "set[tuple[str, str]]":

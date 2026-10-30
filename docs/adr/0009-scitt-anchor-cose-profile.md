@@ -428,7 +428,8 @@ Version facts, read at source on 2026-09-25:
   https://pypi.org/project/pycose/ has its last commit on 2025-10-09
   (`1458ddf14efffbd00bc4052d9026b63da725098e`) and no tag after `v1.1.0`.
 
-As built (owner answer Q1 b): `pyproject.toml` declares `scitt = ["cbor2==6.1.4"]`, and `dev`
+As built (owner answer Q1 b): `pyproject.toml` declares `scitt = ["cbor2==6.1.5"]` (6.1.4 until
+2026-10-29, when 6.1.5 was measured again in `reader_crosscheck.json` with the same values), and `dev`
 carries the same pin so CI runs the reader's tests; `test` does not, so the sdist run of `[test]`
 shows the suite without the extra. cbor2 is called with `allow_duplicate_keys=False`,
 `allow_indefinite=False` and a `max_depth` two above the pre-scan's, and only after the pre-scan

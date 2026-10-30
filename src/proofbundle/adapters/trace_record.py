@@ -56,7 +56,7 @@ from .._membership import is_member
 from .._strict_json import loads_strict
 from .._wire_b64 import decode_b64url
 from ..automation_verdict import automation_summary
-from ..budget import DEFAULT_BUDGET, render_safe
+from ..budget import DEFAULT_BUDGET, _chain_text, render_safe
 from ..canonical import _bytes_von, _ein_stand, _zeichen_von
 from ..errors import ProofBundleError, VerificationResult
 from ..signature import (_ec_point_on_curve, ed25519_trust_anchor_weakness, verify_ecdsa_p256,
@@ -159,28 +159,44 @@ def _member_path(base: str, key: str) -> str:
     return f'{base}["{escaped}"]'
 
 
+#: How many values without an RFC 8785 form one walk of an open member records before it only counts.
+_MAX_VALUE_FINDINGS = 64
+
+
+def _join_step(text: str, step: Any) -> str:
+    return f"{text}[{step}]" if type(step) is int else _member_path(text, step)
+
+
+def _path_text(base: str, chain: Any) -> str:
+    """The path of a link in a value walk, as text, bounded (`budget._chain_text`, deep gate 6.4.0,
+    iteration 1, finding C1). A link is a pair (parent link, member name or index)."""
+    return _chain_text(base, chain, _join_step)
+
+
 def _canonicalizable(v: Any, path: str) -> Optional[str]:
     """Why ``v`` has no RFC 8785 form under section 3.2.2, or None. Iterative, so a deep value
-    cannot exhaust the stack here (the parser already bounds depth)."""
-    stack: List[Tuple[Any, str]] = [(v, path)]
+    cannot exhaust the stack here (the parser already bounds depth), and each child costs one link,
+    never a copy of its ancestors' path (`_path_text`)."""
+    stack: List[Tuple[Any, Any]] = [(v, None)]
     while stack:
-        cur, p = stack.pop()
+        cur, chain = stack.pop()
         t = type(cur)
         if t is float:
             if not math.isfinite(cur):
-                return f"{p or '<record>'}: {cur!r} is not a JSON number (no RFC 8785 form)"
+                return f"{_path_text(path, chain) or '<record>'}: {cur!r} is not a JSON number (no RFC 8785 form)"
             if cur.is_integer() and abs(cur) > _SAFE_INT:
-                return (f"{p or '<record>'}: the integer value {cur!r} is outside "
+                return (f"{_path_text(path, chain) or '<record>'}: the integer value {cur!r} is outside "
                         f"-{_SAFE_INT}..{_SAFE_INT} (section 3.2.2)")
         elif t is int:
             if abs(cur) > _SAFE_INT:
-                return f"{p or '<record>'}: the integer is outside -{_SAFE_INT}..{_SAFE_INT} (section 3.2.2)"
+                return (f"{_path_text(path, chain) or '<record>'}: the integer is outside "
+                        f"-{_SAFE_INT}..{_SAFE_INT} (section 3.2.2)")
         elif t is dict:
             for k, val in cur.items():
-                stack.append((val, _member_path(p, k)))
+                stack.append((val, (chain, k)))
         elif t is list:
             for i, val in enumerate(cur):
-                stack.append((val, f"{p}[{i}]"))
+                stack.append((val, (chain, i)))
     return None
 
 
@@ -579,23 +595,37 @@ def _appraisal(v: Any, p: str, f: _Findings) -> None:
 
 
 def _canonicalizable_value(v: Any, p: str, f: _Findings) -> None:
-    stack: List[Tuple[Any, str]] = [(v, p)]
+    """Every value under an open member that has no RFC 8785 form, as a finding by path.
+
+    BOUNDED IN BOTH DIRECTIONS (deep gate 6.4.0, iteration 1, finding C1): each child costs one link
+    (`_path_text`), and at most `_MAX_VALUE_FINDINGS` findings are rendered; the rest is counted in one.
+    Rendering a path per bad value would otherwise bring the cost back with many values under one long
+    path, and the structure check runs before the record is authenticated."""
+    stack: List[Tuple[Any, Any]] = [(v, None)]
+    found = 0
     while stack:
-        cur, cp = stack.pop()
+        cur, chain = stack.pop()
         t = type(cur)
         if cur is None or t is str or t is bool:
             continue
         if t is int or t is float:
             if not _is_int_value(cur) or abs(_int_value(cur)) > _SAFE_INT:
-                f.bad(cp, "must be a string, boolean, null, safe integer, array or object")
+                found += 1
+                if found <= _MAX_VALUE_FINDINGS:
+                    f.bad(_path_text(p, chain), "must be a string, boolean, null, safe integer, array or object")
         elif t is list:
             for i, value in enumerate(cur):
-                stack.append((value, f"{cp}[{i}]"))
+                stack.append((value, (chain, i)))
         elif t is dict:
             for k, value in cur.items():
-                stack.append((value, _member_path(cp, k)))
+                stack.append((value, (chain, k)))
         else:  # pragma: no cover - a strict parse yields no other type
-            f.bad(cp, "is not a JSON value")
+            found += 1
+            if found <= _MAX_VALUE_FINDINGS:
+                f.bad(_path_text(p, chain), "is not a JSON value")
+    if found > _MAX_VALUE_FINDINGS:
+        f.bad(p, f"and {found - _MAX_VALUE_FINDINGS} more value(s) below it with no RFC 8785 form "
+                 f"(only the first {_MAX_VALUE_FINDINGS} are named)")
 
 
 def _jwk(v: Any, p: str, f: _Findings) -> None:
