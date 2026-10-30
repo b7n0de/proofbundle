@@ -12,6 +12,9 @@ code as read.
 - Codex on PR 441, P1: a word the shell expands as a pattern (`*`, `?`, `[`) named no path the gate could tell, and
   the guards read that as nothing to check, so `cat .ss[h]/config` read a key file without a decision (D102) and
   `rm -r /sr[v]/x` deleted outside the work folder (D104).
+- hermetic-cleanroom on PR 441: MANIFEST.in prunes plugins/, and four modules that import the gate when they load
+  ended as collection errors in the extracted sdist. tests/_gate_answer.py now skips such a module where a
+  distribution leaves the gate out, and nowhere else.
 """
 from __future__ import annotations
 
@@ -364,3 +367,46 @@ def test_bash_runs_sudo_for_the_forms_above(line, tmp_path):
     assert r.stdout.startswith("SUDO"), (r.stdout, r.stderr)
 
 
+
+
+# hermetic-cleanroom on PR 441: a module that imports the gate when it loads, in a tree without the gate. Skipped only
+# where the tree is a distribution (positive evidence) whose MANIFEST.in does not ship the gate.
+
+def _planted_tree(tmp_path: pathlib.Path, *, manifest: str, pkg_info: bool, git: bool) -> tuple:
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "proofbundle"\n', encoding="utf-8")
+    (root / "MANIFEST.in").write_text(manifest, encoding="utf-8")
+    if pkg_info:
+        (root / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: proofbundle\n", encoding="utf-8")
+    if git:
+        (root / ".git").mkdir()
+    return root, root / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+
+
+def _skip_reason(gate: pathlib.Path, root: pathlib.Path) -> str | None:
+    from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: PLC0415
+    try:
+        skip_where_the_gate_is_not_shipped(gate, root)
+    except pytest.skip.Exception as exc:
+        return exc.msg
+    return None
+
+
+def test_a_distribution_that_prunes_plugins_skips_a_module_that_imports_the_gate(tmp_path):
+    root, gate = _planted_tree(tmp_path, manifest="graft src\nprune plugins\n", pkg_info=True, git=False)
+    why = _skip_reason(gate, root)
+    assert why is not None and why.startswith("NOT MEASURED"), why
+    assert "plugins/proofbundle/hooks/proofbundle_gate.py" in why
+
+
+@pytest.mark.parametrize("case", ["promised", "checkout", "neither", "both", "shipped"])
+def test_control_anywhere_else_the_import_of_the_gate_stays_loud(tmp_path, case):
+    """A distribution that promises plugins/, a checkout, a tree that shows neither or both kinds, and a distribution
+    that carries the gate: no skip, so a missing gate is an import error there."""
+    root, gate = _planted_tree(tmp_path, manifest="graft plugins\n" if case == "promised" else "prune plugins\n",
+                               pkg_info=case in ("promised", "both", "shipped"), git=case in ("checkout", "both"))
+    if case == "shipped":
+        gate.parent.mkdir(parents=True)
+        gate.write_text("", encoding="utf-8")
+    assert _skip_reason(gate, root) is None
