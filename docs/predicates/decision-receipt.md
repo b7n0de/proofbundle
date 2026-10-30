@@ -1,7 +1,7 @@
 # Decision Receipt predicate `decision-receipt/v0.1`
 
 Status: shipped in proofbundle 2.1.0 (vendored `decision-receipt/v0.1`, stable). Vendored predicate under the b7n0de namespace. Design of record:
-[`docs/adr/0001-decision-receipt-separate-predicate.md`](../adr/0001-decision-receipt-separate-predicate.md).
+[`docs/adr/0001-decision-receipt-separate-predicate.md`](https://github.com/b7n0de/proofbundle/blob/main/docs/adr/0001-decision-receipt-separate-predicate.md).
 
 **Design basis — content-root consensus (2026-07-10).** The anchor / evidence content-root rule (§3, §7.1, §8)
 is the consensus reached with an external collaborator on
@@ -68,7 +68,11 @@ semantically mixes into the other.
 
 ## 4. Predicate type and payload
 
-- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`
+- `predicateType`: `https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1`, the one predicateType of a
+  decision receipt. `https://b7n0de.com/proofbundle/decision-receipt/v0.1`, without `/predicates/`, is not one: the
+  verify path refuses it as malformed (exit 2). Two content-root vectors of the corpus carry it as fixture bytes only
+  (`content-root-cross-predicate-ref`, `content-root-envelope-invariance`); their successor cases
+  (`…-predicates-path`) carry the predicateType above.
 - Statement `_type`: `https://in-toto.io/Statement/v1`
 - DSSE `payloadType`: `application/vnd.in-toto+json` (the in-toto envelope media type, not a predicate subtype)
 - `subject`: a commitment to the decision (e.g. `name: "decision:<decisionId>"`, `digest.sha256`). Evidence
@@ -93,7 +97,22 @@ A `notChecked` entry is an object `{field, reason, impact}`. A bare string is st
 deprecated legacy form, and the schema marks it so; new receipts use the object form.
 
 Optional: `recordedAt`, `delegationRefs`, `actionOutcome`, `traceContext`, `validity` (strict interactive mode
-requires `audience` + `nonce`), `anchors`.
+requires `audience` + `nonce`), `relationships` (`docs/predicates/relation.md`). `anchors` is not a predicate
+field: anchors travel detached (§8), and an `anchors` member inside the predicate is an unknown field.
+
+**Default mode.** Without `--strict`, `decision verify` validates the predicate in the default mode, and
+the conformance counts of `decision_predicate_findings` are counts of this mode. It requires
+`schemaVersion`, `decisionId`, `decisionType`, `decidedAt`, `decisionMaker`, `agent`, `principal`,
+`proposedAction`, `inputSnapshot`, `policyBoundary`, `evidenceRefs` and `decision`; `notChecked`,
+`decisionChangeConditions` and `privacy` are optional here and required only in the strict mode above, and
+no top-level member outside the required and optional fields is allowed. Validation yields a list of
+findings, counted as follows: all unknown top-level members together are one finding; each missing
+required member is one finding; each `evidenceRefs` entry that lacks a string `relation` or a sha256
+content-root `digest` is one finding; each other rule of this section that a member breaks (an enum, an
+RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `policyBoundary.policyEngine`,
+`policyId` and `decisionPath` as a non-empty string, the `proposedAction` digest or reference, the `id`
+of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
+member inside one of these objects) is one finding per member. An empty list is a valid predicate.
 
 Enums:
 - `decisionType`: `preActionAuthorization` | `postHocReview` | `humanEscalation` | `policySimulation`
