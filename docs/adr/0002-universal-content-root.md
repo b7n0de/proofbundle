@@ -128,7 +128,14 @@ The migration designed above is now implemented for the released `intoto.py` exp
    code point below U+0020 as `\u00xx` with lowercase hex, and every other character, non-ASCII included,
    written raw; integers in decimal; a number that was read as a float written as Python's shortest
    round-trip `repr` (so `1.0` stays `1.0`, `1e-7` becomes `1e-07`); `true`, `false`, `null`. Under
-   `jcs-sha256-v1` the serialization is RFC 8785.
+   `jcs-sha256-v1` the serialization is RFC 8785, which writes every token as the legacy form does except
+   two: object members are sorted by the UTF-16 code units of their keys, and a number is written as
+   ECMAScript writes the IEEE 754 double it denotes (RFC 8785 §3.2.2.3), whatever the spelling of the
+   literal: with the shortest digits that read back to the same double; an integral value below 10^21 in
+   magnitude as those digits followed by zeros, without fraction or exponent (`1.0` becomes `1`, `-0.0`
+   becomes `0`, `1.2345678901234568e20` becomes `123456789012345680000`); any other value from 10^-6 up
+   to 10^21 as a plain decimal fraction (`0.000001`); below 10^-6 and from 10^21 up in exponent form
+   with an explicit sign (`1e-7`, `1e+21`, `1.5e+300`).
    **The binding check, exactly.** A verifier reads `contentRootAlg` from the top level of the Statement
    parsed from the payload; absent selects `legacy-sortkeys-json-v0`; any other value that is not a
    registered algorithm id (an unknown string, `null`, a number) is not usable and the binding is not ok.

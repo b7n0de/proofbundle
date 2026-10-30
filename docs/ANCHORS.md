@@ -217,12 +217,19 @@ to, for a receipt its content root) is read from the detached proof file alone, 
 4. **The verdict**, in this order. The file digest is not `R`: `unbound`. No Bitcoin attestation anywhere
    in the tree: `pending` when a pending attestation exists, else `empty`. The relying party supplied no
    block header (a map from height to `hashMerkleRoot` hex, `--bitcoin-header` or the policy's
-   `anchors.bitcoin_block_headers`): `needs_rp_trust`. Otherwise each Bitcoin attestation whose height
+   `anchors.bitcoin_block_headers`; an empty map is none): `needs_rp_trust`. Otherwise each Bitcoin attestation whose height
    the map covers is compared: its message equal to the supplied root, with at least one of the hash
    operations `08`, `02`, `03` on the path from the file digest down to it, is `confirmed`. When none
    confirms, the status is `null_op` when a matching attestation had no such hash operation on its path,
    else `block_mismatch` when a covered root differs, else `bad_header` when a supplied root is not hex,
-   else `upgraded_unverified`. Only `confirmed` is a verifying anchor, `pending` satisfies
+   else `upgraded_unverified`. Only the roots at the heights of Bitcoin attestations are read; a root at
+   another height decides nothing, and an empty root leaves its height uncovered. A root is hex when it
+   is two-digit pairs of `0-9`, `a-f`, `A-F`, with ASCII white space allowed before, after and between
+   the pairs; an odd count of digits or any other character is not hex. A root that is hex is compared
+   by the bytes it spells, whatever their number, so a short one is a differing root. The CLI's
+   `--bitcoin-header` refuses a root that is not 32 bytes of hex as malformed (exit 2) before any
+   verdict, while the policy loader admits any string of 64 characters, so `bad_header` reaches the
+   verdict through a policy file. Only `confirmed` is a verifying anchor, `pending` satisfies
    `--require-anchor` only with `--allow-pending`, and the bundle's own `frozen` headers never enter this
    step.
 

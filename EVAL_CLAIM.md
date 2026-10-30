@@ -111,6 +111,10 @@ none. For each `<field>_status` of a judged field, in ascending order of the mem
 4. `not_reported` or `not_bound` while the field is present (not absent, `null` or the empty string)
    is one issue.
 
+Steps 2 to 4 are each judged, so one status member can give two issues (step 2 beside step 4). Step 2
+reads only a reason that is absent, `null` or a string that is empty after trimming; a present reason
+that is not a string counts as given.
+
 Each issue is reported as one sentence, built from these templates, where `{key}` is the name of
 the status member, `{field}` the name of the version field, `{status}` the status value as written,
 and `{repr(x)}` Python's `repr` of a value (a string in single quotes); the literal list is written
@@ -136,7 +140,8 @@ enforced on the emit path:
 - object keys sorted by **UTF-16 code units** (not Python code points — otherwise it
   diverges on emoji and characters beyond the BMP);
 - **duplicate keys rejected** when parsing claim JSON;
-- all string values **NFC-normalized** (non-NFC rejected);
+- all string values **NFC-normalized** (non-NFC rejected), the values inside arrays and nested
+  objects included; member names are not checked for NFC;
 - **Python floats rejected** (numbers with fractional parts are decimal strings);
 - integers limited to the IEEE-754 safe range (`2^53-1`);
 - compact separators, UTF-8.

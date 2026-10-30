@@ -261,7 +261,11 @@ the case input as follows, and this section is the text those vectors are read a
 - **`classification` (R2 to R4).** The input is one bundle. The outcome is exactly one of the
   strings `valid`, `invalid` and `refused_unknown_schema`, decided in this order, and the first step
   that decides ends the classification:
-  1. a document over the verifier's resource limits is `invalid`;
+  1. a bundle file is read with the strict reader of `SPEC.md` §2, and a document it refuses is
+     `invalid`, whatever its `schema` names: one over the budget (8 MiB of input, 200,000 keys and
+     items, nesting depth 64, 1,000,000 characters in a string), one with a duplicate key, `NaN`,
+     `Infinity`, a number with no finite double or an integer outside ±(2^53−1), and one that is no
+     JSON at all; step 2 reads `schema` only from a document the strict reader accepts;
   2. a top-level `schema` that is a present, non-empty string other than `proofbundle/v0.1` is
      `refused_unknown_schema`;
   3. a bundle that does not verify under `SPEC.md` §2 to §7 is `invalid`; this includes an absent,
@@ -272,7 +276,20 @@ the case input as follows, and this section is the text those vectors are read a
      `refused_unknown_schema`;
   6. a claim that breaks a rule of `EVAL_CLAIM.md` is `invalid`; among them the issuer binding of
      §5 (the bundle's signing key must equal the claim's `issuer`, the R4 vectors) and
-     `samples.n` equal to `n` (§3, the R3 vectors);
+     `samples.n` equal to `n` (§3, the R3 vectors). The rules this step judges are exactly these:
+     every required member of §3 present and no member outside the required and optional ones;
+     `comparator` one of the four; `threshold` and each of exactly two `ci95` entries a plain
+     decimal string (`-?[0-9]+(\.[0-9]+)?`, no exponent); `assurance_level` one of the four
+     levels; `passed` a boolean; `n` an integer in 0..2^53−1; `suite` and `metric` non-empty
+     strings; `commit_alg` exactly `sha256-salted-v1`; `model_id_commit` and `dataset_id_commit`
+     `sha256:` followed by 64 lowercase hex; `suite_version`, `timestamp`, `context_binding`,
+     `multiple_testing`, `prereg_sha256` and `evaluation_card_sha256` strings, whatever their
+     form; `provenance` and `samples` objects, `samples` with exactly `root_b64`, `n` and
+     `leaf_alg`, `leaf_alg` `sha256-rfc6962-sdjwt-v1`, `samples.n` an integer equal to `n` and at
+     least 1, `root_b64` standard Base64 of 32 bytes; no integer outside ±(2^53−1) anywhere in
+     the claim; and the issuer binding. This step does not judge the form of `timestamp` or of a
+     digest member, whether `passed` follows from a score, the reported-version status of §3, the
+     NFC rule or the float ban of §4 (both emit-only);
   7. otherwise `valid`.
 
 ## What this profile deliberately does NOT say

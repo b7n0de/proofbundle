@@ -1,0 +1,728 @@
+
+
+
+
+Network Working Group                                      J. D. Hillier
+Internet-Draft                                            Certisyn, Inc.
+Intended status: Informational                            20 August 2026
+Expires: 21 February 2027
+
+
+                The Coverage Attestation Profile (CAP-1)
+                 draft-hillier-coverage-attestation-00
+
+Abstract
+
+   A report can be complete and still silent about its own scope.  A
+   statement that something was not observed is routinely recorded in a
+   form that reads as a claim about the world, when what was established
+   was a claim about a bounded population examined to a stated depth.
+   Nothing in the record distinguishes the two, and no relying party can
+   recover the difference after the fact.
+
+   This document specifies the Coverage Attestation Profile, CAP-1: a
+   tool-agnostic vocabulary for stating what an examination examined,
+   what it did not, and why.  A conforming document declares one or more
+   populations, a denominator for each whose basis is itself declared,
+   and an individual accounting for every unit that was not examined,
+   drawn from a closed set of dispositions.  A remainder that reconciles
+   only by arithmetic is refused.
+
+   The construct is not novel outside this application.  Coverage
+   accounting with a declared denominator is settled practice in
+   configuration assessment and in vulnerability scanning, and this
+   document states that relationship in Section 1.2 before making any
+   claim of its own.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 21 February 2027.
+
+
+
+Hillier                 Expires 21 February 2027                [Page 1]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   2
+     1.1.  The problem . . . . . . . . . . . . . . . . . . . . . . .   3
+     1.2.  Relationship to existing practice . . . . . . . . . . . .   3
+     1.3.  Scope and non-goals . . . . . . . . . . . . . . . . . . .   4
+   2.  Conventions and Definitions . . . . . . . . . . . . . . . . .   4
+   3.  Terminology . . . . . . . . . . . . . . . . . . . . . . . . .   4
+   4.  The Coverage Attestation Document . . . . . . . . . . . . . .   5
+     4.1.  Strata  . . . . . . . . . . . . . . . . . . . . . . . . .   5
+     4.2.  Basis of the denominator  . . . . . . . . . . . . . . . .   5
+     4.3.  Integrity . . . . . . . . . . . . . . . . . . . . . . . .   6
+   5.  Normative Rules . . . . . . . . . . . . . . . . . . . . . . .   6
+   6.  Disposition Vocabulary  . . . . . . . . . . . . . . . . . . .   7
+   7.  Conformance . . . . . . . . . . . . . . . . . . . . . . . . .   8
+     7.1.  Vectors . . . . . . . . . . . . . . . . . . . . . . . . .   8
+     7.2.  Mutation testing of the verifier  . . . . . . . . . . . .   8
+     7.3.  Implementations . . . . . . . . . . . . . . . . . . . . .   8
+     7.4.  Validation against a production system  . . . . . . . . .   9
+   8.  Relationship to Other Formats . . . . . . . . . . . . . . . .   9
+   9.  Security Considerations . . . . . . . . . . . . . . . . . . .   9
+   10. Privacy Considerations  . . . . . . . . . . . . . . . . . . .  10
+   11. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  10
+   12. Normative References  . . . . . . . . . . . . . . . . . . . .  10
+   13. Informative References  . . . . . . . . . . . . . . . . . . .  10
+   Appendix A.  Mapping to XCCDF 1.2 resultEnumType  . . . . . . . .  11
+   Appendix B.  Acknowledgements . . . . . . . . . . . . . . . . . .  13
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  13
+
+1.  Introduction
+
+
+
+
+
+
+
+Hillier                 Expires 21 February 2027                [Page 2]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+1.1.  The problem
+
+   Consider an examination that reports "this message is not present".
+   As recorded, that is a claim about the universe of messages.  What
+   was actually established is narrower: that within some set of
+   artefacts, examined by some set of techniques, to some depth, no such
+   message was observed.  The bound exists in every case.  It is almost
+   never written down.
+
+   The consequence is that an absence claim is unfalsifiable.  A reader
+   cannot distinguish an examination that covered the relevant
+   population and found nothing from one that never looked, because both
+   produce the same sentence.  A relying party who wishes to test the
+   claim has nothing to test.
+
+   The gap has been named before.  Turner observed at DFRWS in 2006 that
+   "no method has existed that captured the criteria or method used by
+   the examiner in deciding what to acquire" [TURNER2006].  Twenty years
+   later that remains true of the record formats in use.
+
+   A second failure mode compounds it.  Where a partial count is
+   reported at all, it is commonly reported as a bare fraction: so many
+   units examined of so many eligible.  The remainder is then implied by
+   subtraction.  Such a remainder reconciles perfectly and carries no
+   information, because the units inside it are unlike each other.  A
+   unit not examined because it was out of scope, a unit not examined
+   because the tool crashed, and a unit not examined because policy
+   forbade it are three different facts about the examination.
+   Arithmetic flattens them into one number.
+
+1.2.  Relationship to existing practice
+
+   Coverage accounting with a declared denominator is established
+   practice in adjacent fields.  This section states that relationship
+   at the outset so that the contribution of this document can be read
+   against it.
+
+   Seven of the eight dispositions defined in Section 6 have a
+   counterpart in the resultEnumType of XCCDF 1.2 [XCCDF], published by
+   NIST in 2012: one exactly, and six as narrowings of a broader XCCDF
+   value.  The eighth, withheld, has none.  Appendix A gives the mapping
+   row by row so that a reader can disagree with it individually.
+
+   The comparison also locates the contribution precisely.  Three XCCDF
+   values each cover two distinct CAP-1 dispositions: notselected covers
+   both a policy decision and an authorisation boundary, notchecked
+   covers both an unsupported input and a unit that could not be
+   dispatched, and error covers both resource exhaustion and failure.
+
+
+
+Hillier                 Expires 21 February 2027                [Page 3]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   CAP-1 does not introduce a vocabulary so much as separate an existing
+   one at the three points where it loses information a relying party
+   needs.
+
+   The Payment Card Industry Approved Scanning Vendor programme [PCIASV]
+   has required, since 2006, a coverage attestation carrying a declared
+   denominator, an enumerated out-of-scope set, and a rule that an
+   incomplete scan is reported as inconclusive rather than as clean.
+
+   This document contributes that construct in a form other record and
+   evidence formats can carry, together with a conformance class that
+   makes each rule testable rather than advisory.  Where alignment to an
+   existing vocabulary is preferable to a parallel one, this document
+   intends to align.
+
+1.3.  Scope and non-goals
+
+   CAP-1 accounts for coverage.  It is deliberately narrow.
+
+   *  It does not record actions.  An append-only log of what an
+      operator or an automated agent did is a different object with
+      different requirements, and is not specified here.
+
+   *  It does not seal transformations.  Binding an input, a
+      transforming artefact and an output together so that a third party
+      can re-run the transformation is a different problem, and is not
+      specified here.
+
+   *  It does not assess quality.  CAP-1 says nothing about whether what
+      was examined was examined well.
+
+   *  It does not establish trust in the producer.  A conforming
+      document may be entirely false.  What conformance establishes is
+      that the document states its own bounds in a form a reader can
+      test for internal consistency.
+
+2.  Conventions and Definitions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Terminology
+
+   Population  A set of units over which coverage is claimed.  Units may
+
+
+
+
+Hillier                 Expires 21 February 2027                [Page 4]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+      be detector routines, records, containers, pages, time windows, or
+      anything else countable, provided the choice is stated.
+
+   Stratum  One population together with its denominator and its
+      accounting.  Coverage is declared per stratum and is never pooled
+      across strata.
+
+   Denominator  The count of units eligible for examination within a
+      stratum.
+
+   Basis  How the denominator was determined.  A denominator without a
+      basis is an assertion rather than a measurement.
+
+   Unit  One member of a population, individually nameable.
+
+   Disposition  The reason a unit was not examined, drawn from a closed
+      set.
+
+   Absence assertion  A claim that something was not observed, which
+      under this profile MUST name the stratum that bounds it.
+
+4.  The Coverage Attestation Document
+
+   A CAP-1 document is a JSON object.  The normative shape is given by
+   the accompanying JSON Schema; this section describes it and Section 5
+   states the rules a verifier enforces.
+
+   The top-level members are profile, which MUST be the string cap/1;
+   subject, identifying what was examined; strata, an array of one or
+   more populations; integrity, describing whether execution completed;
+   and the optional members absence_assertions, producer and as_of.
+
+4.1.  Strata
+
+   Each stratum carries an id, a population naming what is being
+   counted, a basis, an eligible count, an examined count, and an
+   unexamined array.  The unexamined array is the heart of the profile:
+   it holds one entry per unit not examined, each naming the unit and
+   carrying a disposition.  A count alone is not an accounting.
+
+4.2.  Basis of the denominator
+
+   The basis.kind member MUST be one of three values.
+
+   catalogue  The denominator was taken from an external, versioned
+      catalogue of record.  A catalogue basis MUST carry a catalogue
+      digest, so that a reader can determine which revision was counted
+      against.
+
+
+
+Hillier                 Expires 21 February 2027                [Page 5]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   enumeration  The denominator was produced by enumerating the
+      population directly.  An enumeration basis MUST state the method,
+      because the method determines what the enumeration could not see.
+
+   declared  The denominator was asserted by the producer without either
+      of the above.  This is the weakest basis and is marked as such by
+      its own name.
+
+   The three kinds are ordered by how much a reader can do with them.
+   The profile does not forbid the weakest; it forbids concealing which
+   one was used.
+
+4.3.  Integrity
+
+   The integrity object states whether every dispatched unit reached a
+   recorded outcome.  Where it did not, the producer MUST state the
+   verdict a reader may rely on given incomplete execution, in
+   capped_to, and SHOULD enumerate what remains unaccounted.
+
+5.  Normative Rules
+
+   A verifier MUST refuse a document that violates any of the following.
+   Refusal is the only conforming response; a verifier MUST NOT coerce a
+   non-conforming document into a conforming one.
+
+   R0, shape  The document MUST be an object, MUST declare profile as
+      cap/1, MUST name a subject, MUST carry at least one stratum, and
+      MUST carry an integrity object with a boolean complete.  Stratum
+      identifiers MUST be present and unique.
+
+   R1, no silent remainder  For every stratum, eligible MUST equal
+      examined plus the number of individually accounted unexamined
+      units.  A remainder that reconciles only by subtraction MUST be
+      refused.
+
+   R2, closed disposition  Every unexamined entry MUST name a unit and
+      MUST carry a disposition drawn from the closed vocabulary in
+      Section 6.  Free-text reasons MUST NOT be accepted in place of a
+      disposition, because free text does not aggregate.
+
+   R3, withholding is digest-bound  A unit disposed as withheld MUST
+      carry a digest binding the withheld material.  A withheld unit is
+      accounted for without being disclosed; a withheld unit without a
+      digest is indistinguishable from a gap.
+
+   R4, denominator basis  Every stratum MUST declare basis.kind from the
+      closed set in Section 4.2.  A catalogue basis MUST carry a
+      catalogue digest.  An enumeration basis MUST state its method.
+
+
+
+Hillier                 Expires 21 February 2027                [Page 6]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   R5, counts well formed  Counts MUST be non-negative integers and
+      examined MUST NOT exceed eligible.
+
+   R6, absence is scoped  Every absence assertion MUST name an existing
+      stratum that bounds it.  An absence claim that names no population
+      MUST be refused.
+
+   R7, incomplete is not clean  Where any unit is disposed as failed,
+      resource_exhausted or unavailable, integrity.complete MUST NOT be
+      true.  Where integrity.complete is false, capped_to MUST state the
+      verdict a reader may rely on.
+
+   R8, supports bounds citation  A stratum cited by an absence assertion
+      MUST state which classes of claim it supports.  A denominator that
+      bounds a claim it was never intended to bound is a category error
+      the reader cannot otherwise detect.
+
+6.  Disposition Vocabulary
+
+   The vocabulary is closed.  A profile that permits extension at this
+   point permits the reintroduction of free text, and the property that
+   makes attestations aggregate is lost.
+
+   not_applicable  The unit does not apply to this subject.
+
+   disabled_by_policy  The unit was available and was deliberately not
+      run.  A decision not to examine is recorded as a decision, with
+      its scope, rather than as an absence.
+
+   unsupported_input  The unit does not support this input.
+
+   resource_exhausted  The unit was dispatched and ran out of a
+      resource.
+
+   failed  The unit was dispatched and errored.
+
+   unavailable  The unit could not be dispatched at all, for want of a
+      dependency, a licence or a network.
+
+   out_of_scope  Excluded by the authorisation under which the
+      examination was conducted.
+
+   withheld  Examined, but the result is not disclosed in this document.
+      See R3.
+
+
+
+
+
+
+
+Hillier                 Expires 21 February 2027                [Page 7]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   Seven of these have a counterpart in XCCDF 1.2's resultEnumType
+   [XCCDF], mapped in Appendix A.  The eighth, withheld, addresses a
+   case that arises when the producer and the relying party are in
+   different trust domains.
+
+7.  Conformance
+
+   A conformance class accompanies this specification.  It is described
+   here because a specification that asserts its own rigour without
+   exhibiting the controls is exactly the object this profile exists to
+   make harder to write.
+
+7.1.  Vectors
+
+   Fifteen vectors: five positive and ten negative controls.  Each
+   negative control is the positive base with exactly one mutation, and
+   each MUST be refused by the rule it targets rather than by some other
+   rule.  A negative control that is refused for the wrong reason
+   demonstrates nothing about the rule it was written for.
+
+7.2.  Mutation testing of the verifier
+
+   Rules that are never exercised are decoration.  Each of the eight
+   rules is silenced in turn and the class is re-run; the class MUST
+   fail in each case.  Eight rules, eight mutants, eight kills.
+
+7.3.  Implementations
+
+   Three implementations accompany this document and agree on all
+   fifteen vectors: one in Node built-ins, one in the Python standard
+   library written from the prose rather than ported, and one single-
+   file HTML verifier that runs in a browser and issues no network
+   request of any kind.  Agreement across three languages establishes
+   that the specification is implementable from its own text.
+
+   All three are the work of the author, so the class is implementation
+   independent rather than author independent, and the reference
+   implementation reports its own verdict as such.  An implementation by
+   an unaffiliated party is the most useful contribution a reader could
+   make to this work.
+
+
+
+
+
+
+
+
+
+
+
+Hillier                 Expires 21 February 2027                [Page 8]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+7.4.  Validation against a production system
+
+   The profile has been exercised against a production examination
+   engine over real evidence, at a scale of 227 catalogued check
+   identifiers in a single stratum.  Both a non-conforming document,
+   carrying a count with no accounting and correctly refused under R1,
+   and the conforming document that replaced it are published as
+   fixtures, so that an implementer can test a verifier against real
+   output rather than against synthetic vectors alone.
+
+8.  Relationship to Other Formats
+
+   CAP-1 is designed to be carried by an existing record format rather
+   than to replace one.  Two measurements motivate this.
+
+   Transcoding one production verdict document, expressed over five
+   evidence artefacts, into CASE/UCO 1.5 [CASEUCO] produced 5,077 losses
+   across 1,028 distinct source paths.  Of those, 4,939 losses and 995
+   paths, 97.3 and 96.8 per cent respectively, mapped to no coverage
+   construct in the target at all.  The per-leaf and per-path measures
+   agree, which is the only reason either is quoted; a per-leaf share
+   alone moves with the verbosity of the emitter.  For OSCAL assessment
+   results [OSCAL] the figures are 99.2 per cent per leaf and 98.9 per
+   cent per path.  SARIF [SARIF] has no coverage construct to lose
+   against, so no share is computed for it.
+
+   Classifying a loss as "no vocabulary for coverage" is a judgement
+   about the target ontology.  Input from the maintainers of these
+   formats on that classification is welcome.
+
+9.  Security Considerations
+
+   A CAP-1 document enumerates what an examination did not examine.  In
+   an adversarial setting this is information an opponent may use.  The
+   profile takes the position that the enumeration exists either way:
+   either the producer states it in advance with a closed reason against
+   each entry, or an opponent assembles it later from what the report
+   failed to mention.  The first is a scope statement and the second is
+   an impeachment.  Producers operating in adversarial settings should
+   nonetheless consider which stratum granularity is appropriate to
+   disclose, and may use the withheld disposition, which accounts for a
+   unit without disclosing it.
+
+   Conformance establishes internal consistency, not truthfulness.  A
+   producer who fabricates an accounting can produce a conforming
+   document.  What conformance removes is the ability to leave the bound
+   unstated while implying it does not exist, and the ability to report
+   a remainder that no one can interrogate.
+
+
+
+Hillier                 Expires 21 February 2027                [Page 9]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   The digest requirements in R3 and R4 rely on the collision resistance
+   of the digest algorithm chosen by the producer.  This document does
+   not mandate an algorithm; producers SHOULD use an algorithm that is
+   unbroken at time of production and MUST state which was used.
+
+10.  Privacy Considerations
+
+   Unit identifiers may themselves be sensitive, for example where a
+   unit names a person, an account or a device.  The withheld
+   disposition exists so that such a unit can be accounted for without
+   being named in the document, at the cost of requiring a digest that
+   binds it.
+
+11.  IANA Considerations
+
+   This document has no IANA actions.  A future revision may request
+   registration of a media type for the document format described in
+   Section 4.
+
+12.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+13.  Informative References
+
+   [CASEUCO]  CASE Community, "Cyber-investigation Analysis Standard
+              Expression (CASE) and the Unified Cyber Ontology (UCO)",
+              2026, <https://caseontology.org/>.
+
+   [OSCAL]    National Institute of Standards and Technology, "Open
+              Security Controls Assessment Language (OSCAL)", 2026,
+              <https://pages.nist.gov/OSCAL/>.
+
+   [PCIASV]   PCI Security Standards Council, "Approved Scanning Vendors
+              Program Guide", 2006,
+              <https://www.pcisecuritystandards.org/>.
+
+   [SARIF]    OASIS, "Static Analysis Results Interchange Format (SARIF)
+              Version 2.1.0", 2020, <https://docs.oasis-
+              open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html>.
+
+
+
+
+
+Hillier                 Expires 21 February 2027               [Page 10]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   [TURNER2006]
+              Turner, P., "Selective and intelligent imaging using
+              digital evidence bags", Digital Investigation, Proceedings
+              of DFRWS 2006, 2006, <https://dfrws.org/>.
+
+   [XCCDF]    National Institute of Standards and Technology,
+              "Specification for the Extensible Configuration Checklist
+              Description Format (XCCDF) Version 1.2", NISTIR 7275
+              Revision 4, March 2012,
+              <https://csrc.nist.gov/publications/detail/nistir/7275/
+              rev-4/final>.
+
+Appendix A.  Mapping to XCCDF 1.2 resultEnumType
+
+   XCCDF 1.2 defines nine result values in section 6.6.4 of [XCCDF].
+   Three of them, pass, fail and fixed, report the outcome of an
+   evaluation that took place.  The remaining six describe why an
+   evaluation produced no outcome, and it is against those that the
+   CAP-1 dispositions are compared here.
+
+   Each row states whether the relationship is exact or a narrowing.  A
+   narrowing means CAP-1 requires information the XCCDF value does not
+   carry.  Readers who consider a row wrongly classified are invited to
+   say so; the classification is a judgement and is offered as one.
+
+   +====================+===============+============+=================+
+   | CAP-1 disposition  | XCCDF value   |Relationship| Note            |
+   +====================+===============+============+=================+
+   | not_applicable     | notapplicable |exact       | XCCDF: "the     |
+   |                    |               |            | rule does not   |
+   |                    |               |            | apply to the    |
+   |                    |               |            | target          |
+   |                    |               |            | system".  Same  |
+   |                    |               |            | meaning.        |
+   +--------------------+---------------+------------+-----------------+
+   | disabled_by_policy | notselected   |narrowing   | XCCDF records   |
+   |                    |               |            | only that the   |
+   |                    |               |            | rule was not    |
+   |                    |               |            | selected.       |
+   |                    |               |            | CAP-1 requires  |
+   |                    |               |            | the exclusion   |
+   |                    |               |            | to be a stated  |
+   |                    |               |            | policy          |
+   |                    |               |            | decision        |
+   |                    |               |            | carrying its    |
+   |                    |               |            | scope.          |
+   +--------------------+---------------+------------+-----------------+
+   | out_of_scope       | notselected   |narrowing   | The same XCCDF  |
+
+
+
+Hillier                 Expires 21 February 2027               [Page 11]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   |                    |               |            | value as the    |
+   |                    |               |            | row above.      |
+   |                    |               |            | CAP-1           |
+   |                    |               |            | separates an    |
+   |                    |               |            | authorisation   |
+   |                    |               |            | boundary from   |
+   |                    |               |            | a               |
+   |                    |               |            | configuration   |
+   |                    |               |            | choice.         |
+   +--------------------+---------------+------------+-----------------+
+   | unsupported_input  | notchecked    |narrowing   | XCCDF: "the     |
+   |                    |               |            | rule was not    |
+   |                    |               |            | evaluated",     |
+   |                    |               |            | carrying no     |
+   |                    |               |            | reason.  CAP-1  |
+   |                    |               |            | names the       |
+   |                    |               |            | reason.         |
+   +--------------------+---------------+------------+-----------------+
+   | unavailable        | notchecked    |narrowing   | The same XCCDF  |
+   |                    |               |            | value as the    |
+   |                    |               |            | row above.      |
+   |                    |               |            | CAP-1           |
+   |                    |               |            | separates a     |
+   |                    |               |            | missing         |
+   |                    |               |            | dependency,     |
+   |                    |               |            | licence or      |
+   |                    |               |            | network from    |
+   |                    |               |            | an unsupported  |
+   |                    |               |            | input.          |
+   +--------------------+---------------+------------+-----------------+
+   | resource_exhausted | error         |narrowing   | XCCDF: "the     |
+   |                    |               |            | checking        |
+   |                    |               |            | engine could    |
+   |                    |               |            | not determine   |
+   |                    |               |            | the result".    |
+   |                    |               |            | CAP-1           |
+   |                    |               |            | separates       |
+   |                    |               |            | exhaustion of   |
+   |                    |               |            | a resource      |
+   |                    |               |            | from other      |
+   |                    |               |            | failure.        |
+   +--------------------+---------------+------------+-----------------+
+   | failed             | error         |narrowing   | Maps to error   |
+   |                    |               |            | and not to      |
+   |                    |               |            | fail.  XCCDF    |
+   |                    |               |            | fail is a       |
+   |                    |               |            | finding about   |
+   |                    |               |            | the target;     |
+
+
+
+Hillier                 Expires 21 February 2027               [Page 12]
+
+Internet-Draft        Coverage Attestation Profile           August 2026
+
+
+   |                    |               |            | CAP-1 failed    |
+   |                    |               |            | is a fact       |
+   |                    |               |            | about the       |
+   |                    |               |            | unit.           |
+   +--------------------+---------------+------------+-----------------+
+   | withheld           | none          |no          | The unit is     |
+   |                    |               |counterpart | accounted for   |
+   |                    |               |            | without being   |
+   |                    |               |            | disclosed.      |
+   |                    |               |            | XCCDF has no    |
+   |                    |               |            | value for       |
+   |                    |               |            | this, which is  |
+   |                    |               |            | expected: it    |
+   |                    |               |            | was not         |
+   |                    |               |            | designed for    |
+   |                    |               |            | producers and   |
+   |                    |               |            | relying         |
+   |                    |               |            | parties in      |
+   |                    |               |            | different       |
+   |                    |               |            | trust domains.  |
+   +--------------------+---------------+------------+-----------------+
+
+        Table 1: CAP-1 dispositions against XCCDF 1.2 resultEnumType
+
+   One row is exact, six are narrowings, and one has no counterpart.
+   The three XCCDF values that each carry two CAP-1 dispositions,
+   notselected, notchecked and error, are where a reader of an XCCDF
+   result cannot recover a distinction that a relying party in an
+   evidential setting needs.
+
+Appendix B.  Acknowledgements
+
+   The formulation that an examination should state "how many records
+   out of the total set of interest" it examined, and that a negative
+   finding means "I did not observe this in this set of artifacts", is
+   due to Cameron Kelley, stated at DFRWS USA 2026.  The framing of
+   coverage as the category that generates no error log and therefore
+   escapes existing quality systems was sharpened in discussion with
+   practitioners at that meeting.
+
+Author's Address
+
+   Joel David Hillier
+   Certisyn, Inc.
+   United States of America
+   Email: jhillier@certisyn.com
+   URI:   https://certisyn.com
+
+
+
+
+Hillier                 Expires 21 February 2027               [Page 13]

@@ -1,8 +1,8 @@
 # Agent review predicate `agent-review/v0.1` and `agent-review/v0.2`
 
 Status: **v0.1, Tier 1 — a signed self-declaration.** Emitted and verified by
-`src/proofbundle/agent_review.py`; that module is the normative implementation, this document
-explains it. Conformance vectors live in `conformance/agent_review/`. **Since 6.0.0 the emitter
+`src/proofbundle/agent_review.py`; that module is the reference implementation, and this document,
+not the module, is normative (SPEC.md §7l). Conformance vectors live in `conformance/agent_review/`. **Since 6.0.0 the emitter
 produces `agent-review/v0.2` without an argument**; v0.1 stays readable and its verifier is
 byte-pinned. What v0.2 adds is in the section *Version 0.2* at the end of this page; everything
 above it holds for both versions unless that section says otherwise.
@@ -48,7 +48,10 @@ the subject. A pull-request receipt binds `repositoryId`, `pullRequestNodeId`, `
 `reviewedDiffDigest` and `bodyCoreDigest`. An issue has no head sha, no merge base and no diff, so it
 gets its own profile: `issueNodeId`, optional `commentNodeId`, `bodyCoreDigest` and `revisedAt`.
 
-The statement's subject digest is taken over the **subjectContext alone**. A receipt copied onto
+The statement's subject digest is taken over the **subjectContext alone**: `subject[0].digest.sha256`
+is the SHA-256 of the RFC 8785 (JCS) bytes of the predicate's `subjectContext`, written as 64
+lowercase hex characters, in v0.1, v0.2 and v0.3 alike; a supplied `expected_subject_digest` is
+compared with that value. A receipt copied onto
 another pull request therefore carries the old context and fails the binding check, while remaining
 cryptographically sound — which is precisely the failure this binding exists to expose.
 The result field `subject_expectation` says whether the receipt was compared with an expectation supplied from outside: `checked` once a supplied `expected_subject_digest` has been compared with the digest of the signed `subjectContext`, and `not_supplied` otherwise, in particular whenever no expectation is passed. Without that comparison `ok` is false even for an internally consistent receipt, and the result carries a warning that names `expected_subject_digest`.
@@ -131,10 +134,12 @@ value, so the block is delimited by fixed markers and replaced by a fixed token 
 ```
 
 The token is part of the wire format. Two implementations that pick different tokens compute
-different digests over the same body, and the mismatch would look like tampering.
+different digests over the same body, and the mismatch would look like tampering. The replaced span runs
+from the first character of the begin marker through the last character of the end marker, both markers
+included, and `bodyCoreDigest` is the lowercase hex SHA-256 of the UTF-8 bytes of the result.
 
 **Fail-closed on ambiguity.** Zero blocks is the normal pre-disclosure case and hashes as-is. Two
-blocks, or a begin without an end, is not a body that reduces to one canonical form: an actor who may
+blocks, a begin without an end, or an end before its begin, is not a body that reduces to one canonical form: an actor who may
 append a second block could otherwise choose which one defines the digest. That case raises rather
 than picks.
 
@@ -195,7 +200,10 @@ digests are sorted, and the root covers their concatenation. Two producers listi
 in a different order must not disagree, or the root would report tampering where there is none.
 When the signature verifies and `findingsRoot` is present, the verifier recomputes the root over
 `declaration.findings`; a root that does not match makes the verification fail, so a receipt whose list
-was changed after signing is `invalid`, not merely annotated.
+was changed after signing is `invalid`, not merely annotated. Issuing checks only that the root is present
+once a finding is listed and that it has the form of the field table; its value is checked at
+verification, so a predicate with a well-formed root that does not cover its list is issued and then
+verifies as `invalid`.
 Precisely: each leaf is the lowercase hex sha256 of one finding's RFC 8785 bytes, and the root is the lowercase hex sha256 over the ASCII bytes of the sorted leaves, concatenated as hex strings without a separator.
 
 ## Supersession
@@ -208,8 +216,8 @@ Resolving a receipt chain orders the receipts by these relations and checks no s
 envelope whose receipt digest the caller has verified may mark a predecessor as corrected. The chain's
 integrity fails when such an envelope names a `priorDigest` that is not the receipt digest of any envelope
 in the set, because a correction whose predecessor has disappeared can no longer be followed.
-`receipt_digest(envelope)` is the lowercase hex sha256 over the envelope's base64-decoded `payload` bytes — the signed statement as stored, which the emitter writes in RFC 8785 form — without the signatures and without a `sha256:` prefix; a `priorDigest.sha256` cites this value. `current` is the one receipt digest in the set that no envelope in `verified` names as predecessor, whether or not that receipt is itself in `verified`; when there is not exactly one, `current` is null and `ambiguous` is true.
-An envelope that carries a `supersession` block but whose `receipt_digest` is not in `verified` corrects nothing; its own `receipt_digest`, not the `priorDigest` it names, is listed in `unverified_supersession_claims`, so a rejected takeover attempt is reported rather than dropped.
+`receipt_digest(envelope)` is the lowercase hex sha256 over the envelope's base64-decoded `payload` bytes — the signed statement as stored, which the emitter writes in RFC 8785 form — without the signatures and without a `sha256:` prefix; a `priorDigest.sha256` cites this value. `current` is the one receipt digest in the set that no envelope in `verified` names as predecessor, whether or not that receipt is itself in `verified`; when there is not exactly one, `current` is null and `ambiguous` is true. The set is the receipt digests of all envelopes given to the resolution, verified or not, so an unverified receipt that no verified envelope names is a candidate as well.
+An envelope that carries a `supersession` block but whose `receipt_digest` is not in `verified` corrects nothing; its own `receipt_digest`, not the `priorDigest` it names, is listed in `unverified_supersession_claims`, so a rejected takeover attempt is reported rather than dropped. An envelope carries a `supersession` block when its predicate's `supersession` member is present and holds a value other than `null`, `false`, `0`, `""`, `[]` and `{}`, whatever that value names (a block that lists no relation included). An envelope whose payload the strict reader refuses, or whose predicate is no object, has claims that cannot be read: it is not listed, and `integrity_ok` is false. The set holds each receipt digest once: the same envelope given twice, or the same payload under other signatures, is one receipt. An entry that is no object with a `payload` string that the standard or the URL-safe Base64 alphabet decodes is no receipt: it is left out, and neither `current` nor `integrity_ok` changes; a `payload` that only the URL-safe alphabet decodes, which DSSE accepts and `receipt_digest` does not, is listed in `unaddressable`, and `integrity_ok` is false. In the block of a verified envelope, a block that is no object, a relation list (`corrects`, `supersedes`, `withdraws`) that is no array, an entry of it that is no object, and an entry without an object `priorDigest` holding a string `sha256` name no predecessor: they correct nothing, the predecessor stays a candidate for `current`, and `integrity_ok` is untouched.
 
 ## The human block
 
@@ -288,12 +296,80 @@ Three classifications, and the difference between the last two is the substance:
 | `invalid` | produced, then rejected by the verifier |
 | `refused` | the producer would not build it at all |
 
+## Fields per version
+
+The validator of each version applies these closed field sets; a member outside the set of its object is
+an `unknown field` error, a missing required member a `missing` error. v0.2 is v0.1 with the members
+marked v0.2, and v0.3 is v0.2 with `producer.verifier`. A *digest object* is an object whose member
+`sha256` is 64 lowercase hex; an *RFC 3339 time* is `YYYY-MM-DDTHH:MM:SS`, an optional fraction, and `Z`.
+Two kinds of object are open: a digest object may carry further members, and so may an entry of
+`supersedes`, `corrects` or `withdraws`; such further members are not checked. Inside `producer.verifier`
+a digest object carries `sha256` alone (`docs/VERIFIER_BLOCK.md`).
+"Required" without a version means required in all three.
+
+| Object | Member | Required | Value |
+|---|---|---|---|
+| predicate | `schemaVersion` | yes | a string matching `0.1.x`, in all three versions |
+| predicate | `reviewId` | yes | a non-empty string |
+| predicate | `subjectContext` | yes | an object, see below |
+| predicate | `declaration` | yes | an object, see below |
+| predicate | `coverage` | yes | an object, see below |
+| predicate | `times` | yes | an object, see below |
+| predicate | `limitations` | yes | a non-empty array of non-empty strings |
+| predicate | `limitationCodes` | v0.2, v0.3 | an array of codes taken from the five, each at most once; it may be empty and need not hold `NOT_QUALITY_ATTESTATION` |
+| predicate | `producer` | no | an object whose members `id` and `keyId` are each optional and a string when present, and no other member; v0.3 adds `verifier` (`docs/VERIFIER_BLOCK.md`) |
+| predicate | `observations` | no | an array, and it must be empty |
+| predicate | `supersession` | no | an object of `supersedes`, `corrects` and `withdraws`, each an array of objects with a digest object `priorDigest` and a non-empty string `reason` |
+| predicate | `planRef` | no | a digest object |
+| `subjectContext`, kind `githubPullRequest` | `kind`, `forge`, `repositoryId`, `pullRequestNodeId`, `headSha`, `baseSha`, `reviewedDiffDigest`, `bodyCoreDigest` | yes | `forge`, `repositoryId`, `pullRequestNodeId` non-empty strings; `headSha`, `baseSha` 40 lowercase hex; the two digests 64 lowercase hex |
+| `subjectContext`, kind `githubPullRequest` | `renderedDisclosureDigest`, `humanRef` | no | `renderedDisclosureDigest` 64 lowercase hex; `humanRef` not checked |
+| `subjectContext`, kind `githubIssue` | `kind`, `forge`, `repositoryId`, `issueNodeId`, `bodyCoreDigest`, `revisedAt` | yes | non-empty strings, `bodyCoreDigest` 64 lowercase hex, `revisedAt` an RFC 3339 time |
+| `subjectContext`, kind `githubIssue` | `commentNodeId`, `renderedDisclosureDigest`, `humanRef` | no | `commentNodeId` a non-empty string, the digest 64 lowercase hex, `humanRef` not checked |
+| `subjectContext`, both kinds | `disclosureCoreDigest` | v0.2, v0.3 | a string; its form is not checked |
+| `declaration` | `authoring`, `reviewRuns` | yes | arrays of entries with a non-empty string `assertedBy` and an `assurance` that must be `selfDeclared`; optional `observedBy` (a string or null) and `evidenceRef` (a digest object or null); further members of an entry are not checked |
+| `declaration` | `findings` | yes | an array of findings, see below; ids unique |
+| `declaration` | `findingsTotal` | yes | a non-negative integer, not below the number of findings; above it only with a non-empty `coverage.knownGaps` |
+| `declaration` | `findingsRoot` | once a finding is listed | 64 lowercase hex, the root of section *Findings* |
+| `declaration` | `nonClaims` | yes | a non-empty array of non-empty strings |
+| `declaration` | `timeClaims` | no, v0.2 and v0.3 only | an array of objects with `kind` (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value` and `assertedBy` (non-empty strings), `assurance` (must be `selfDeclared`), optional `evidenceRef` (a digest object or null); closed |
+| finding | `id`, `severity`, `title`, `disposition` | yes | `id` and `title` non-empty strings; `severity` one of `critical`, `high`, `medium`, `low`, `info`; `disposition` one of `fixed`, `dismissed`, `deferred`, `open` |
+| finding | `fixCommit`, `reason`, `evidenceRef` | no | `fixCommit` required when `fixed`, and there a non-empty string (`null` or an absent member names none); on a finding that is not `fixed` it may be absent, and in v0.1 its value is then not checked (`null` included); from v0.2 on it is, on every finding, `null` or 40 lowercase hex; `reason` a non-empty string, required when `dismissed`; `evidenceRef` a digest object or null |
+| `coverage` | `status` | yes | `COMPLETE`, `PARTIAL` or `UNKNOWN` |
+| `coverage` | `window`, `sources`, `observedRuns`, `expectedRuns`, `knownGaps`, `collectionMethod` | no | `sources` and `knownGaps` arrays of strings; `observedRuns` and `expectedRuns` non-negative integers or null; `window` and `collectionMethod` not checked except under `COMPLETE` |
+| `coverage` | `strata`, `integrity`, `absenceAssertions` | no, v0.2 and v0.3 only | judged by the CAP-1 rules (SPEC.md §7l) |
+| `times` | `declaredAt` | yes | an RFC 3339 time |
+| `times` | `observedAt`, `signedAt`, `anchoredAt` | no | each an RFC 3339 time or null; `anchoredAt` must be null, and from v0.2 on `observedAt` too |
+
+Without the CAP-1 members, `COMPLETE` requires integer `observedRuns` and `expectedRuns` with
+`observedRuns` not below `expectedRuns` and `expectedRuns` not 0, a non-empty `sources`, `window` and
+`collectionMethod`, and no non-empty `knownGaps`; `PARTIAL` requires a non-empty `knownGaps`. Each of
+`sources`, `window` and `collectionMethod` counts as missing there when it is absent, null, `false`, the
+number 0, the empty string, the empty array or the empty object, and as given otherwise, whatever its
+type (`true`, `" "` and `[""]` included); `sources` must still be an array of strings. With a
+CAP-1 member present, `COMPLETE` is refuted only by those counters (integer `observedRuns` below integer
+`expectedRuns`, or `expectedRuns` 0) and by a non-empty `knownGaps`, and the CAP-1 rules judge the rest.
+They judge a cap/1 document built from the coverage: `profile` `cap/1`, the fixed `subject`
+`{"kind": "agentReviewSubject", "ref": "subjectContext"}` (the coverage carries neither; the subject is the
+same for every predicate, no member of the predicate enters it, and rule R0 never fires for it), and
+`strata`, `integrity` and `absenceAssertions`, the last under its profile name `absence_assertions`; the
+members inside them keep the names of the profile. Each rule of
+R0 to R8 that fires is a finding of the predicate with its own code beginning with `COVERAGE_CAP1_`
+(`COVERAGE_CAP1_SHAPE` for R0, `COVERAGE_CAP1_ABSENCE_UNSCOPED` for R6), and so is, with a non-empty
+`strata`, a `status` other than the one `integrity.complete` derives (`true` derives `COMPLETE`, anything
+else `PARTIAL`; `COVERAGE_CAP1_STATUS_CONTRADICTS_STRATA`). Issuing refuses a predicate with a finding.
+
 ## Version rule
 
 `v0.1` is `0.1.x`. A change that alters what a receipt asserts, or what a verifier must reject, is a
 new version — not a patch. `predicateType` is read, not decoration: a receipt naming a version this
 verifier does not know is refused rather than guessed at.
 `schemaVersion` is not the predicate version: `agent-review/v0.1`, `v0.2` and `v0.3` predicates all carry a `schemaVersion` of the form `0.1.x`, and the version is read from `predicateType` alone.
+The three `predicateType` values are `https://b7n0de.com/proofbundle/predicates/agent-review/v0.1`,
+`https://b7n0de.com/proofbundle/predicates/agent-review/v0.2` and
+`https://b7n0de.com/proofbundle/predicates/agent-review/v0.3`, each compared as a whole string: the
+version dispatcher reports `predicateVersionStatus` `legacy` for the first, `current` for the other
+two and `unknown` for any other string, also one that differs only in the scheme, the case, a
+trailing `/` or a missing `/predicates/`.
 
 ## Version 0.2 — the emitter's default since 6.0.0
 
@@ -314,6 +390,12 @@ What v0.2 adds, each with its conformance case:
   `CURRENTNESS_UNKNOWN`, `COVERAGE_PARTIAL` and `NOT_QUALITY_ATTESTATION`; the last one is always
   present, because no receipt of this kind says anything about the quality of the reviewed work.
   The validator checks that each code is known and appears once; it does not compare the list with `derive_limitation_codes`, and the policy evaluates the derived codes, never the stated ones.
+  `derive_limitation_codes` derives each code by one condition on the predicate: `IDENTITY_UNBOUND`
+  when no entry of `declaration.authoring` or `declaration.reviewRuns` carries a string `assurance`
+  other than `selfDeclared`; `TIME_SELF_DECLARED` when `observations` is not a non-empty array (the
+  members of `times` and `declaration.timeClaims` do not enter); `COVERAGE_PARTIAL` when
+  `coverage.status` is `PARTIAL` or `UNKNOWN`; `CURRENTNESS_UNKNOWN` and `NOT_QUALITY_ATTESTATION`
+  always.
 - **Time claims carry their source.** `declaration.timeClaims[]` entries have `kind`
   (`reviewCompleted`, `receiptCreated`, `reviewStarted`, `evidenceCollected`), `value`,
   `assertedBy` and `assurance`; `times.observedAt` is not allowed on a Tier 1 predicate, because an
@@ -330,7 +412,9 @@ What v0.2 adds, each with its conformance case:
   (`agent-review/default`); its name and sha256 digest appear in the result, so a later reading can
   say what the decision was made against. Decisions are `accept`, `reject` and
   `insufficient_evidence` (a coverage that is not stated is the absence of evidence, not evidence of
-  a defect). Without a policy the result carries `policy_decision: null`, the advisory code
+  a defect). The decision is `reject` when a derived code is in `blocking` and not in `never_blocking`,
+  otherwise `insufficient_evidence` when `require_coverage_status` is set and the coverage status is not
+  in it, otherwise `accept`. Without a policy the result carries `policy_decision: null`, the advisory code
   `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false; `ok` is unaffected, because a
   check that was not run is not a failed check. A `reject` or an `insufficient_evidence` sets `ok`
   to false. The policy file itself is validated before it decides: `blocking` and `never_blocking`
@@ -340,9 +424,15 @@ What v0.2 adds, each with its conformance case:
   coverage status is required. A string is refused, because it would be read as characters and match
   nothing, or turn the coverage membership test into a substring test. A `time` block, if present,
   must name a known kind. A policy that fails this reaches the result as `POLICY_NOT_EVALUABLE` with
-  `insufficient_evidence`.
+  `insufficient_evidence`. The keys a policy decision reads are `blocking`, `never_blocking`,
+  `require_coverage_status`, `time` and `name`, and an absent one reads as null; a policy file may carry
+  further keys, such as reasons or measurements beside its rules, and they decide nothing.
   For a policy read by `load_policy`, the result's `policy_name` is the policy's `name` and its `policy_digest` is the string `sha256:` followed by the lowercase hex sha256 of the policy file's bytes.
-- **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
+- **Time claims that contradict each other are fatal.** The event axis is `CONFLICT` when the
+  declaration's time claims of kind `reviewCompleted` carry more than one distinct value, compared as
+  written and not as instants; claims of the other kinds take no part. Both the event and the
+  observation axis are `CONFLICT` when an observation by a named observer lies before the one
+  declared `reviewCompleted` time. A `CONFLICT` on the event or observation
   axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
   `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak
   one. A policy may additionally carry a `time` block; it is evaluated with `evaluate_time_policy`,
