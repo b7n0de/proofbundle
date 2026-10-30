@@ -248,3 +248,48 @@ def test_control_an_append_through_a_pattern_inside_the_work_folder_is_not_denie
 @pytest.mark.parametrize("command", ["echo x >> /srv/stand-in/x", "echo x | tee -a /srv/stand-in/x"])
 def test_control_the_written_append_outside_is_denied(home, command):
     assert _ask_gate(command, home / "repo", home) == "deny"
+
+
+# --- Re-reading of the fixes at 21fead88, line 3: shell forms the fixes did not model -----------------------------------
+
+@pytest.mark.parametrize("command", [
+    "cat .ss[[:alpha:]]/config", "cat .ss[[=h=]]/config", "cat id_r[[:lower:]]a", "cat private-??.[p]em",
+])
+def test_a_pattern_form_the_first_fix_did_not_model_is_denied(home, command):
+    (home / "private-ab.pem").write_text("stand-in\n", encoding="utf-8")
+    assert _ask_gate(command, home, home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["cat .ss[!x]/config", "cat ~/.ss[^x]/config", "cat id_r[a-z]a",
+                                     "cat *.[Pp][Ee][Mm]"])
+def test_control_a_pattern_form_the_first_fix_modelled_stays_denied(home, command):
+    assert _ask_gate(command, home, home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["cat [[:upper:]]*.md", "cat notes-[0-9].txt", "cat *.pub", "cat [!.]*.json"])
+def test_control_a_pattern_form_that_names_no_key_path_is_not_denied(home, command):
+    assert _ask_gate(command, home, home) != "deny"
+
+
+@pytest.mark.parametrize("command", ["wc -l repo/test_*", "cat notes*", "grep -r x repo/build*"])
+def test_a_pattern_that_ends_with_a_run_is_not_read_as_a_key_ending(home, command):
+    """It may end in `.pem` as `*` alone may; counting it would deny every `wc -l tests/test_*`."""
+    assert _ask_gate(command, home, home) != "deny"
+
+
+@pytest.mark.parametrize("command", ["cat id*", "cat ~/.ss*/config"])
+def test_control_a_pattern_that_ends_with_a_run_still_counts_by_names(home, command):
+    assert _ask_gate(command, home, home) == "deny"
+
+
+@pytest.mark.parametrize("line", ["s$''udo -n true", "$'\\x73udo' -n true", "$'\\163udo' -n true", 's$""udo -n true',
+                                  "x=sudo; $x -n true", "s${E}udo -n true", "`printf s`udo -n true",
+                                  "$(printf s)udo -n true"])
+def test_a_root_program_the_shell_assembles_is_the_door_root(gate, line):
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ["echo $HOME", "ls $HOME/x", '"$HOME"/bin/tool --flag', "git status",
+                                  "printf '%s' $'\\x41'"])
+def test_control_a_line_whose_program_names_no_root_is_no_root_door(gate, line):
+    assert gate._release_door_words(line) != "root"

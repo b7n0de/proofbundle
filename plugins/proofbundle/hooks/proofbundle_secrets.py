@@ -8,7 +8,6 @@ a key folder or a key file, and they read no file's content.
 """
 from __future__ import annotations
 
-import fnmatch
 import itertools
 import json
 import os
@@ -129,25 +128,121 @@ def secret_problem(path: str, cwd: str | None, home: str | None) -> str | None:
     return None
 
 
-def _may_match(pattern: str, name: str) -> bool:
-    """Whether the shell's pattern matches the file name: a leading dot only by a leading dot of the pattern (POSIX
-    2.13.3, bash without dotglob, zsh without GLOB_DOTS), and `[^` negates as `[!` does."""
-    if name.startswith(".") and not pattern.startswith("."):
+def _pattern_tokens(part: str) -> list:
+    """The tokens of a shell pattern (POSIX 2.13.1): ("lit", c), ("one",) for `?`, ("run",) for `*`, and ("set", S) for
+    a bracket expression, where S is the set of characters it takes, or None where the comparison does not evaluate it
+    and so lets it stand for any one character: a negated expression, a POSIX class (`[[:alpha:]]`), an equivalence
+    class (`[[=h=]]`) and a collating symbol (`[[.h.]]`) (re-reading of the fixes at 21fead88, line 3, P1). A `[`
+    without its `]` is itself, as the shell takes it."""
+    tokens, i, n = [], 0, len(part)
+    while i < n:
+        c = part[i]
+        if c == "*":
+            tokens.append(("run",))
+        elif c == "?":
+            tokens.append(("one",))
+        elif c == "\\" and i + 1 < n:
+            i += 1
+            tokens.append(("lit", part[i]))
+        elif c == "[":
+            j = i + 1
+            negated = j < n and part[j] in "!^"
+            j += 1 if negated else 0
+            start = j
+            if j < n and part[j] == "]":
+                j += 1
+            opaque = False
+            while j < n and part[j] != "]":
+                if part[j] == "[" and j + 1 < n and part[j + 1] in ":=.":
+                    close = part.find(part[j + 1] + "]", j + 2)
+                    if close == -1:
+                        break
+                    opaque, j = True, close + 2
+                else:
+                    j += 1
+            if j >= n:
+                tokens.append(("lit", "["))
+            else:
+                body, chars, k = part[start:j], set(), 0
+                while k < len(body):
+                    if k + 2 < len(body) and body[k + 1] == "-":
+                        chars.update(chr(x) for x in range(ord(body[k]), ord(body[k + 2]) + 1))
+                        k += 3
+                    else:
+                        chars.add(body[k])
+                        k += 1
+                tokens.append(("set", None if negated or opaque else frozenset(chars)))
+                i = j
+        else:
+            tokens.append(("lit", c))
+        i += 1
+    return tokens
+
+
+def _token_takes(token: tuple, char: str, fold: bool) -> bool:
+    if token[0] in ("one", "run"):
+        return True
+    if token[0] == "lit":
+        return token[1].lower() == char.lower() if fold else token[1] == char
+    return token[1] is None or char in token[1] or (fold and (char.lower() in token[1] or char.upper() in token[1]))
+
+
+def _may_match(tokens: list, name: str) -> bool:
+    """Whether a pattern of _pattern_tokens may match the whole file name: a leading dot only by a literal leading dot
+    (POSIX 2.13.3, bash without dotglob, zsh without GLOB_DOTS)."""
+    if name.startswith(".") and not (tokens and tokens[0] == ("lit", ".")):
         return False
-    return fnmatch.fnmatchcase(name, pattern.replace("[^", "[!"))
+    reach = {0}
+    for char in name:
+        nxt = set()
+        for t in sorted(reach):
+            while t < len(tokens) and tokens[t] == ("run",):
+                nxt.add(t)
+                t += 1
+            if t < len(tokens) and _token_takes(tokens[t], char, False):
+                nxt.add(t + 1)
+        reach = nxt
+        if not reach:
+            return False
+    return any(all(tok == ("run",) for tok in tokens[t:]) for t in reach)
+
+
+def _may_end_with(tokens: list, ending: str) -> bool:
+    """Whether a pattern of _pattern_tokens may match a name that ends with `ending`, letters compared without case as
+    _role compares the endings: read from the end of both, a `*` may take the rest of the ending and everything
+    before it, every other token one character."""
+    def walk(t: int, e: int) -> bool:
+        if e < 0:
+            return True
+        if t < 0:
+            return False
+        if tokens[t] == ("run",):
+            return True
+        return _token_takes(tokens[t], ending[e], True) and walk(t - 1, e - 1)
+    return walk(len(tokens) - 1, len(ending) - 1)
 
 
 def _names_a_part_may_take(part: str) -> list[str]:
-    """The names of a key path a part with a pattern may become: a folder of keys, a part of a credential store, the
-    name of a private key, and a name with the ending of a key file built from the part's literal start. A part made of
-    `*` and `?` alone is not compared with the names and endings of single key files: it matches every file, and
-    counting it would deny every `cat *`; it is compared with the folders and the stores."""
+    """The names of a key path a part with a pattern may become: a folder of keys, a part of a credential store and the
+    name of a private key. A part made of `*` and `?` alone is not compared with the names of single key files: it
+    matches every file, and counting it would deny every `cat *`; it is compared with the folders and the stores."""
+    tokens = _pattern_tokens(part)
     names = [*SECRET_FOLDERS, *(p for f in SECRET_FILES for p in f)]
     if not all(c in "*?" for c in part):
         names += list(SECRET_NAMES)
-        start = part[:min((part.index(c) for c in PATTERN_CHARS if c in part), default=len(part))]
-        names += [start + filler + ending for ending in SECRET_SUFFIXES for filler in ("", "x")]
-    return [n for n in dict.fromkeys(names) if _may_match(part, n)]
+    return [n for n in dict.fromkeys(names) if _may_match(tokens, n)]
+
+
+def _pattern_key_ending(part: str) -> bool:
+    """Whether the last part of a pattern may name a file with the ending of a key (SECRET_SUFFIXES), unless its
+    written text names a public file (SECRET_PUBLIC), it is made of `*` and `?` alone, or it ends with `*`: such a part
+    writes no ending, and counting it would deny every `wc -l tests/test_*` as `*` alone would every `cat *`. The names
+    of folders, stores and private keys still count for it (_names_a_part_may_take)."""
+    tokens = _pattern_tokens(part)
+    if all(c in "*?" for c in part) or (tokens and tokens[-1] == ("run",)) or \
+            any(m in part.lower() for m in SECRET_PUBLIC):
+        return False
+    return any(_may_end_with(tokens, ending) for ending in SECRET_SUFFIXES)
 
 
 def pattern_role(pattern: str, cwd: str | None, home: str | None) -> str | None:
@@ -168,6 +263,8 @@ def pattern_role(pattern: str, cwd: str | None, home: str | None) -> str | None:
         role = _role(list(combination), True)
         if role:
             return f"{role}, through a pattern"
+    if parts and any(c in parts[-1] for c in PATTERN_CHARS) and _pattern_key_ending(parts[-1]):
+        return "a key file, through a pattern"
     return None
 
 

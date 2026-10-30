@@ -17979,17 +17979,58 @@ def _release_door(command: str, answer: "Outcome") -> str | None:
 #: The shell joins the quoted and unquoted parts of a word and drops a backslash before a letter: `s''udo`, `\sudo`
 #: and `su"d"o` all run sudo, while the split at quotes sees `s` and `udo`.
 _RELEASE_JOIN = re.compile(r"[\\'\"]")
+#: bash's ANSI-C quoting, `$'…'`, whose escapes it decodes (`$'\x73udo'` runs sudo); its locale quoting, `$"…"`, it reads
+#: as `"…"` (re-reading of the fixes at 21fead88, line 3, P1).
+_RELEASE_ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.S)
+#: The expansions the gate does not resolve in a word: a parameter, a command substitution, an arithmetic expansion and
+#: a backquoted command.
+_RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
+                                r"`[^`]*`")
+_RELEASE_UNKNOWN = "\x01"
+
+
+def _release_ansi_c(match: "re.Match") -> str:
+    try:
+        return match.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
+    except (UnicodeDecodeError, ValueError):
+        return _RELEASE_UNKNOWN
 
 
 def _release_door_words(command: str) -> str | None:
-    """The door of the words of a line: of the line as written, and of the line with every quote and backslash removed,
-    so that a word the shell joins from quoted parts is read as the shell reads it (reading of G-2, part 8, P1). Words
-    that only the joined line forms can hold a release back too: a release frees less, never more."""
+    """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (the
+    ANSI-C and locale quoting of bash read, every quote and backslash removed), so that a word the shell joins from
+    quoted parts is read as the shell reads it (reading of G-2, part 8, P1, and the re-reading of its fix). A program
+    word with an expansion the gate does not resolve counts as the door root where what is written of it may still
+    be a program of _RELEASE_ROOT (_release_unresolved_root). Words that only the assembled line forms can hold a
+    release back too: a release frees less, never more."""
     door = _release_door_words_split(command)
     if door is not None:
         return door
-    joined = _RELEASE_JOIN.sub("", command)
-    return _release_door_words_split(joined) if joined != command else None
+    assembled = _RELEASE_JOIN.sub("", _RELEASE_ANSI_C.sub(_release_ansi_c, command).replace('$"', '"'))
+    if assembled != command:
+        door = _release_door_words_split(assembled)
+        if door is not None:
+            return door
+    return "root" if _release_unresolved_root(assembled) else None
+
+
+def _release_unresolved_root(assembled: str) -> bool:
+    """Whether a program word of a line (behind its prefix assignments and wrappers, _guard_program) holds an expansion
+    the gate does not resolve while what is written of it may still be a program of _RELEASE_ROOT: `s${E}udo`, `$x`
+    after `x=sudo`, `$(printf s)udo`. A program word that is a path counts by its last part."""
+    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
+    for segment in re.split(r"[;&|()\n]+", marked):
+        words = segment.split()
+        if not words:
+            continue
+        word = words[_guard_program(words)]
+        name = word.rsplit("/", 1)[-1]
+        if _RELEASE_UNKNOWN not in name:
+            continue
+        shape = re.compile(".*".join(re.escape(p) for p in name.split(_RELEASE_UNKNOWN)))
+        if any(shape.fullmatch(root) for root in _RELEASE_ROOT):
+            return True
+    return False
 
 
 def _release_door_words_split(command: str) -> str | None:
