@@ -253,7 +253,7 @@ Catch proofs: `tests/test_conformance_content_root_vectors.py`.
 ### `provenance_version_status`
 
 A provenance block (`provenance.json`) is judged under the reported-version status rule of
-[`EVAL_CLAIM.md`](../EVAL_CLAIM.md), *Reported-version status*. A verifier reports `issues`, the issue
+[`EVAL_CLAIM.md`](https://github.com/b7n0de/proofbundle/blob/main/EVAL_CLAIM.md), *Reported-version status*. A verifier reports `issues`, the issue
 sentences that section defines for the block, one per judged status member, each written in its
 template; the axis holds when the set of reported sentences equals the set of `expected.issues`, and
 `[]` means the block is consistent in this respect.
