@@ -833,6 +833,46 @@ def test_the_corpus_runner_records_the_host_versions():
     assert os.access(EVALS / "run_corpus.sh", os.X_OK)
 
 
+def _corpus_run(tmp_path, tests: int, hooks: int, evals: int, *args: str) -> subprocess.CompletedProcess:
+    """run_corpus.sh in a repository that holds only it, with a python3 and a claude on PATH that answer the plugin
+    tests, the Codex hook check and each eval with the given exit codes. No model call, no Codex."""
+    repo = tmp_path / "repo"
+    (repo / "plugins" / "proofbundle" / "evals").mkdir(parents=True)
+    shutil.copy2(EVALS / "run_corpus.sh", repo / "plugins" / "proofbundle" / "evals" / "run_corpus.sh")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3").write_text(f'#!/bin/sh\ncase "$*" in\n  *"-m pytest"*) exit {tests} ;;\n'
+                                     f"  *corpus_codex_hooks.py*) echo '{{}}'; exit {hooks} ;;\nesac\n"
+                                     "echo 'Python stand-in'\n", encoding="utf-8")
+    (bin_dir / "claude").write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && echo stand-in && exit 0\nexit {evals}\n',
+                                    encoding="utf-8")
+    for name in ("python3", "claude"):
+        (bin_dir / name).chmod(0o755)
+    env = {"PATH": os.pathsep.join([str(bin_dir), os.path.dirname(shutil.which("git")), "/usr/bin", "/bin"]),
+           "HOME": str(tmp_path), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    subprocess.run(["git", "init", "-q", str(repo)], env=env, check=True)
+    return subprocess.run(["bash", "plugins/proofbundle/evals/run_corpus.sh", *args], cwd=repo, capture_output=True,
+                          text=True, env=env, timeout=60, check=False)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="bash or git missing")
+@pytest.mark.parametrize("tests, hooks, evals, args, code, line", [
+    (0, 0, 0, (), 0, "codex hooks: ok"),
+    (1, 0, 0, (), 1, "tests: FAILED"),
+    (0, 1, 0, (), 1, "codex hooks: not ok"),
+    (0, 2, 0, (), 2, "codex hooks: NOT MEASURED"),
+    (1, 2, 0, (), 1, "tests: FAILED"),
+    (0, 0, 1, ("--with-eval",), 1, "eval corpus: FAILED or not run"),
+    (0, 0, 0, ("--with-eval",), 0, "eval counterpart: passed")])
+def test_the_corpus_runner_ends_with_the_status_of_what_it_ran(tmp_path, tests, hooks, evals, args, code, line):
+    """0 only when every part ran and passed, 1 when one failed, 2 when none failed and the Codex hook check was not
+    measured. Red at 19d4a2a2 for every case but the first: the runner noted a failure and ended with 0, and it wrote
+    no line for an eval."""
+    proc = _corpus_run(tmp_path, tests, hooks, evals, *args)
+    assert proc.returncode == code, proc.stdout + proc.stderr
+    assert line in proc.stdout, proc.stdout
+
+
 # --- the done cases (DECISIONS.md, D26; NUTZERWEG Teil 5) -----------------------------------------------------
 
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"

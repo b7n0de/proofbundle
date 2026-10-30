@@ -62,18 +62,25 @@ class LiveTransport:
 
 
 class RecordedTransport:
-    """GET answered from a folder of recorded responses: index.json maps a request path to {status, file}."""
+    """GET answered from a folder of recorded responses: index.json maps a request path to {status, file}. Each file is
+    a regular file inside the folder, named without . or .. and reached through no symbolic link (pr.file_in), checked
+    for every entry before the first request, so the records keep no response read from elsewhere."""
 
     def __init__(self, folder: pathlib.Path):
         self.folder = pathlib.Path(folder)
         self.index = pr.read_json(self.folder / "index.json")
+        if not isinstance(self.index, dict) or not all(isinstance(e, dict) and type(e.get("status")) is int
+                                                       for e in self.index.values()):
+            raise pr.RecordsError("index.json maps each request path to {status, file}")
+        for entry in self.index.values():
+            pr.file_in(self.folder, entry.get("file"))
         self.kind = "recorded"
 
     def get(self, path: str) -> tuple[int, bytes]:
         entry = self.index.get(path)
         if entry is None:
             return 404, b'{"message":"Not Found"}'
-        return entry["status"], (self.folder / entry["file"]).read_bytes()
+        return entry["status"], pr.file_in(self.folder, entry["file"]).read_bytes()
 
 
 def utc_now() -> str:

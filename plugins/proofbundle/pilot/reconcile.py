@@ -42,6 +42,8 @@ NOT_MEASURED, UNKNOWN = "not measured", "unknown"
 KEY_JOURNAL_DISAGREES = 3
 KEY_JOURNAL_NOT_READ = 4
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
+#: The name of a reconciliation, the file name it is written under.
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\Z", re.ASCII)
 #: D113 (owner choice O28B-1 of 2026-10-20: measure first, until then say so): the one sentence every
 #: window's reconciliation carries about the receipts of Level 1 under the hook's autonomous answer.
 LEVEL1_UNDER_AUTONOMY = ("Under the hook's autonomous answer (Claude Code, --autonomous) a GitHub write whose answer it "
@@ -214,8 +216,9 @@ def reconcile(records: pr.Records) -> dict:
     inputs = {name: entry["sha256"] for name, entry in sorted(records.files.items())}
     for folder in ("decisions", "outcomes", "api", pr.KEY_JOURNAL_FOLDER):
         for path in sorted((records.folder / folder).rglob("*")):
-            if path.is_file():
-                inputs[str(path.relative_to(records.folder))] = pr.sha256_hex(path.read_bytes())
+            if path.is_file() or path.is_symlink():
+                name = path.relative_to(records.folder).as_posix()
+                inputs[name] = pr.sha256_hex(pr.file_in(records.folder, name).read_bytes())
     return {"contract": "docs/pilot/pilot_contract.md as kept", "profile": "github-write/1 as kept",
             "verification": "each decision at one second before its decidedAt, each outcome as the kept profile "
                             "verifies it (strict, the derived subject, the observer as audience, the decision's nonce)",
@@ -230,11 +233,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name", default="reconciliation")
     args = parser.parse_args(argv)
     try:
+        # the name becomes a file name under reconciliation/: without / and .., no write lands outside that folder
+        if not _NAME.fullmatch(args.name):
+            raise ValueError("a name holds letters, digits, - and _ only, a letter or a digit first")
         result = reconcile(pr.Records(args.records))
+        pr.write_json(args.records / "reconciliation" / f"{args.name}.json", result)
     except (pr.RecordsError, OSError, ValueError) as exc:
         print(f"reconcile: {exc}", file=sys.stderr)
         return 1
-    pr.write_json(args.records / "reconciliation" / f"{args.name}.json", result)
     for row in result["decisions"]:
         print(f"{row.get('decisionId', row['file'])}: {row['class']} (profile: {row['profile']})")
     print(f"M5 {result['M5']}, M6 {result['M6']}")

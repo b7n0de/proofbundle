@@ -177,6 +177,8 @@ bash plugins/proofbundle/evals/run_corpus.sh --with-eval  # adds the corpus eval
 It records the host versions (`claude --version`, `codex --version`), runs the plugin tests, and asks the
 installed Codex, without a model turn, whether it still loads both hooks of the gate
 (`corpus_codex_hooks.py`). A Codex that loads no hook, or one without `--host codex`, is a failure (D14).
+The script ends with 0 only when every part ran and passed, with 1 when a part failed, and with 2 when none failed
+and the Codex check was not measured because no Codex is installed.
 
 ## Reporting
 

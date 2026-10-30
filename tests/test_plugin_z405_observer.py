@@ -316,3 +316,104 @@ def test_the_outcome_names_the_approved_bytes_as_requested_and_the_stored_ones_a
     assert pred["requestedActionDigest"]["sha256"] == \
         p1.predicate_of(decision)["proposedAction"]["parametersDigest"]["sha256"]
     assert pred["effectDigest"]["sha256"] == pr.sha256_hex(f"{other}\n".encode())
+
+
+# --- a name read from data reads a file only inside its folder (found by the review of 19d4a2a2) ---------------------
+
+PAGE1 = f"/repos/{REPO}/events?per_page=100&page=1"
+
+
+def escaping(tmp_path: pathlib.Path, how: str) -> pathlib.Path:
+    """A recorded folder whose index.json names page 1 so that it reads a file outside the folder, or names it in a
+    form the index does not take."""
+    folder = recorded(tmp_path, [])
+    secret = tmp_path / "secret.json"
+    secret.write_bytes(b'[{"planted": "SECRET-OUTSIDE"}]')
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    if how == "dotdot":
+        index[PAGE1]["file"] = "../secret.json"
+    elif how == "absolute":
+        index[PAGE1]["file"] = str(secret)
+    elif how == "file-link":
+        (folder / "link.json").symlink_to(secret)
+        index[PAGE1]["file"] = "link.json"
+    elif how == "folder-link":
+        (folder / "up").symlink_to(tmp_path, target_is_directory=True)
+        index[PAGE1]["file"] = "up/secret.json"
+    elif how == "no-file":
+        del index[PAGE1]["file"]
+    elif how == "status-text":
+        index[PAGE1]["status"] = "200"
+    (folder / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    return folder
+
+
+@pytest.mark.parametrize("how", ["dotdot", "absolute", "file-link", "folder-link", "no-file", "status-text"])
+def test_a_recorded_folder_hands_the_records_no_file_from_elsewhere(tmp_path, how):
+    """index.json names each response by a relative path inside the folder, without . or .., reached through no
+    symbolic link, with a numeric status. Red at 19d4a2a2: get() read ../secret.json and a link to it, and the observer
+    kept those bytes as GitHub's answer."""
+    with pytest.raises(pr.RecordsError):
+        observer.RecordedTransport(escaping(tmp_path, how))
+
+
+def test_a_recorded_folder_that_reads_elsewhere_leaves_no_run_behind(env, tmp_path):
+    """The command refuses the folder before its first request: exit 1, no api/ folder, the planted bytes nowhere in the
+    records. Red at 19d4a2a2, where the run was written with the file outside the folder as its first response."""
+    records = start_records(env, tmp_path)
+    code = observer.main(["--records", str(records), "--run", "run-1", "--repo", REPO, "--start", now_plus(-60),
+                          "--end", now_plus(60), "--recorded", str(escaping(tmp_path, "dotdot")),
+                          "--probe-label", OBSERVER_LABEL])
+    assert code == 1 and not (records / "api").exists()
+    assert not [p for p in records.rglob("*") if p.is_file() and b"SECRET-OUTSIDE" in p.read_bytes()]
+
+
+def test_control_a_recorded_name_in_a_subfolder_reads(tmp_path):
+    """The control: a name with a real subfolder is inside the folder and reads as before."""
+    folder = recorded(tmp_path, [push_event(1, AGENT_GITHUB_ID, "a" * 40, now_plus(0))])
+    (folder / "pages").mkdir()
+    (folder / "page1.json").rename(folder / "pages" / "page1.json")
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    index[PAGE1]["file"] = "pages/page1.json"
+    (folder / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    assert observer.RecordedTransport(folder).get(PAGE1) == (200, (folder / "pages" / "page1.json").read_bytes())
+
+
+def plant_outside(records: pathlib.Path, tmp_path: pathlib.Path, plant: str) -> None:
+    """A records folder whose kept input, response or run is a file outside it, with the bytes the records expect."""
+    if plant in ("kept-dotdot", "kept-link"):
+        start = json.loads((records / pr.START).read_text(encoding="utf-8"))
+        kept = records / start["files"]["environment"]["file"]
+        outside = tmp_path / "outside-environment.json"
+        outside.write_bytes(kept.read_bytes())
+        if plant == "kept-dotdot":
+            start["files"]["environment"]["file"] = "../outside-environment.json"
+            (records / pr.START).write_text(json.dumps(start), encoding="utf-8")
+        else:
+            kept.unlink()
+            kept.symlink_to(outside)
+        return
+    run_file = records / "api" / "run-1" / "run.json"
+    run = json.loads(run_file.read_text(encoding="utf-8"))
+    if plant == "response-dotdot":
+        (tmp_path / "outside-page.json").write_bytes(b"[]")
+        run["requests"][0]["file"] = "../../../outside-page.json"
+        run_file.write_text(json.dumps(run), encoding="utf-8")
+    else:   # run-link: the run's own run.json is a link to a copy outside the records
+        outside = tmp_path / "outside-run.json"
+        outside.write_bytes(run_file.read_bytes())
+        run_file.unlink()
+        run_file.symlink_to(outside)
+
+
+@pytest.mark.parametrize("plant", ["kept-dotdot", "kept-link", "response-dotdot", "run-link"])
+def test_the_records_read_no_file_outside_them(env, tmp_path, plant):
+    """The reconciliation reads the records and nothing else (contract, section 8). A name in pilot_start.json or
+    run.json, or a kept file or run that is a symbolic link, reads nothing outside the records: Records or the effects
+    of the runs end with RecordsError. Red at 19d4a2a2 for each, where the bytes outside read as the records' own."""
+    records = start_records(env, tmp_path)
+    run_observer(records, recorded(tmp_path, []), now_plus(-60), now_plus(60))
+    plant_outside(records, tmp_path, plant)
+    with pytest.raises(pr.RecordsError):
+        kept = pr.Records(records)
+        pr.effects_of_runs(kept.runs(), kept.agent_of)

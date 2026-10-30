@@ -294,3 +294,29 @@ def test_an_event_two_runs_list_is_one_effect(env, tmp_path):
     result = result_of(records)
     assert result["runs"] == ["run-1", "run-2"] and (result["M5"], result["M6"]) == (1, 0)
     assert only(result, verdict="ALLOW")["class"] == "reconciled: approved and arrived as approved"
+
+
+# --- the reconciliation writes and reads only inside the records (found by the review of 19d4a2a2) -------------------
+
+def test_a_reconciliation_name_writes_only_under_reconciliation(env, tmp_path):
+    """--name becomes the file name under reconciliation/: letters, digits, - and _, a letter or a digit first. Any
+    other name ends with exit 1 before a byte is written. Red at 19d4a2a2, where ../../escaped wrote beside the records
+    and a/b, .hidden, an empty name and ü each wrote a file of their own; the control writes as before."""
+    records = o.start_records(env, tmp_path)
+    for name in ("../../escaped", "a/b", ".hidden", "", "-x", "ü"):
+        assert rc.main(["--records", str(records), f"--name={name}"]) == 1, name
+    assert not (records / "reconciliation").exists() and not (tmp_path / "escaped.json").exists()
+    assert rc.main(["--records", str(records), "--name", "window-1_b"]) == rc.KEY_JOURNAL_NOT_READ
+    assert [p.name for p in (records / "reconciliation").iterdir()] == ["window-1_b.json"]
+
+
+def test_a_symbolic_link_in_the_records_ends_the_reconciliation(env, tmp_path):
+    """The reconciliation reads the records and nothing else (contract, section 8): a link in keysigner/ to a file
+    outside them ends it with RecordsError instead of hashing that file into its inputs. Red at 19d4a2a2."""
+    records = o.start_records(env, tmp_path)
+    outside = tmp_path / "outside-export.json"
+    outside.write_text("{}", encoding="utf-8")
+    (records / pr.KEY_JOURNAL_FOLDER).mkdir()
+    (records / pr.KEY_JOURNAL_FOLDER / "export.json").symlink_to(outside)
+    with pytest.raises(pr.RecordsError, match="symbolic link"):
+        result_of(records)
