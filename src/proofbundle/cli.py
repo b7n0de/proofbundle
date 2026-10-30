@@ -714,22 +714,31 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
     if headers:
         by_height: dict = {}
         for spec in headers:
-            if ":" not in spec:
-                raise ValueError(f"--bitcoin-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
-            height, _, root_hex = spec.partition(":")
-            height, root_hex = height.strip(), root_hex.strip().lower()
-            # ASCII DIGITS ONLY (OQ-20), as the policy loader takes them: isdigit() alone also holds for "٣", "８００"
-            # and "²", and such a height went into the map, where no attested height can match it.
-            if not (height.isascii() and height.isdigit()):
-                raise ValueError(f"--bitcoin-header {spec!r}: height must be a non-negative integer in ASCII digits")
-            try:
-                if len(bytes.fromhex(root_hex)) != 32:
-                    raise ValueError
-            except ValueError as exc:
-                raise ValueError(f"--bitcoin-header {spec!r}: merkle root must be 32-byte hex") from exc
+            height, root_hex = _parse_header_spec("--bitcoin-header", spec)
             by_height[height] = root_hex
         rp["bitcoin_block_headers"] = by_height
     return rp or None
+
+
+def _parse_header_spec(flag: str, spec: str) -> tuple[str, str]:
+    """One ``HEIGHT:MERKLEROOT_HEX`` of ``--bitcoin-header`` or ``--bundled-header``, read as the trust-policy loader
+    reads ``anchors.bitcoin_block_headers`` (OQ-19, OQ-20): a height of ASCII digits and a root of 64 hex digits, each
+    after the white space around it is stripped; the root is kept in lower case. Malformed → ValueError.
+
+    ONE READER, THE LOADER'S PATTERNS. `bytes.fromhex` took ASCII white space between the byte pairs, so
+    `--bitcoin-header` put into the header map a root the policy loader refuses, and `--bundled-header` asked
+    `str.isdigit()` of a height, which also holds for "٣", "８００" and "²" (the reading of pull request 439, Z2, and
+    its neighbour). Two ways of supplying the same trust material now take the same values."""
+    from .policy import _BITCOIN_HEIGHT, _BITCOIN_ROOT  # noqa: PLC0415
+    if ":" not in spec:
+        raise ValueError(f"{flag} {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
+    height, _, root_hex = spec.partition(":")
+    height, root_hex = height.strip(), root_hex.strip().lower()
+    if not _BITCOIN_HEIGHT.fullmatch(height):
+        raise ValueError(f"{flag} {spec!r}: height must be a non-negative integer in ASCII digits")
+    if not _BITCOIN_ROOT.fullmatch(root_hex):
+        raise ValueError(f"{flag} {spec!r}: merkle root must be 64 hex digits (32 bytes)")
+    return height, root_hex
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
@@ -1653,17 +1662,7 @@ def _parse_bundled_headers(specs) -> dict:
     EVIDENCE block (WP-A1: producer-controlled, never trusted at verify). Malformed → ValueError."""
     out: dict = {}
     for spec in specs or []:
-        if ":" not in spec:
-            raise ValueError(f"--bundled-header {spec!r}: expected HEIGHT:MERKLEROOT_HEX")
-        height, _, root_hex = spec.partition(":")
-        height, root_hex = height.strip(), root_hex.strip().lower()
-        if not height.isdigit():
-            raise ValueError(f"--bundled-header {spec!r}: height must be a non-negative integer")
-        try:
-            if len(bytes.fromhex(root_hex)) != 32:
-                raise ValueError
-        except ValueError as exc:
-            raise ValueError(f"--bundled-header {spec!r}: merkle root must be 32-byte hex") from exc
+        height, root_hex = _parse_header_spec("--bundled-header", spec)
         out[height] = root_hex
     return out
 

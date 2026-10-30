@@ -227,9 +227,9 @@ to, for a receipt its content root) is read from the detached proof file alone, 
    is two-digit pairs of `0-9`, `a-f`, `A-F`, with ASCII white space allowed before, after and between
    the pairs; an odd count of digits or any other character is not hex. A root that is hex is compared
    by the bytes it spells, whatever their number, so a short one is a differing root. The CLI's
-   `--bitcoin-header` refuses a root that does not spell 32 bytes of hex, and the policy loader a height
-   that is not ASCII digits and a root that is not 64 hex digits, both as malformed (exit 2) before any
-   verdict, so `bad_header` arises only where a caller of the library supplies the map itself. Only
+   `--bitcoin-header` and the policy loader refuse a height that is not ASCII digits and a root that is
+   not 64 hex digits, the CLI after stripping the white space around each, both as malformed (exit 2)
+   before any verdict, so `bad_header` arises only where a caller of the library supplies the map itself. Only
    `confirmed` is a verifying anchor, `pending` satisfies `--require-anchor` only with `--allow-pending`,
    and the bundle's own `frozen` headers never enter this step.
 
