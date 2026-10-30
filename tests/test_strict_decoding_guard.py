@@ -5,7 +5,7 @@ evidential bytes in the scope below refuses duplicate keys, invalid encoding and
 test finds a new decode site that bypasses the strict helpers. Readers outside that scope are named at the end.
 
 WHAT IT READS. The Python source under ``src/``, ``plugins/``, ``tools/`` and ``docs/scitt/``, parsed with ``ast``.
-``plugins/`` came into the tree with the plugin line; its readers outside a verify
+``plugins/`` came into the tree with the plugin line; its strict hooks and its readers outside a verify
 path are listed below like every other.
 
 A DECODE REFERENCE, BY A POSITIVE LIST. ``NOT_DECODING`` names the members of ``json`` and ``cbor2`` that do not
@@ -182,13 +182,19 @@ def _present_or_skip(rel: str, *, repo: Path = REPO, in_checkout: bool | None = 
     pytest.skip(f"NOT MEASURED: {why}")
 
 #: json hooks that refuse a duplicate member name; every function defined under one of these names is run below.
-STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members"}
+STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members",
+                # the plugin's own: the gate's reader of evidence and of the declaration, the key signer's statement
+                "_unique_pairs", "_no_duplicates", "_no_repeated_key"}
 
 #: path -> number of functions defined there under a name of STRICT_HOOKS
 STRICT_HOOK_SITES = {
     "src/proofbundle/_strict_json.py": 1,
     "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
     "docs/scitt/statement_identification/package/verify.py": 1,
+    "plugins/proofbundle/hooks/proofbundle_gate.py": 2,
+    "plugins/proofbundle/pilot/key_signer.py": 1,
+    "plugins/proofbundle/pilot/pilot_records.py": 1,
+    "plugins/proofbundle/server/proofbundle_mcp.py": 1,
 }
 
 #: The members of each library that do not decode. Everything else the library has is a decode reference.
@@ -290,11 +296,32 @@ EXCEPTIONS = {
         4, "standalone checker for external readers; every cbor2 call runs behind its own pre-scan item_end, "
            "which refuses duplicate keys and bytes after the item, and decodes each map once more to refuse one that "
            "cbor2 reads with fewer entries than it has pairs; its decoding is held by test_strict_cbor"),
+    # The plugin. Its readers of evidence, of the declaration and of a statement to sign are strict
+    # (the hooks above); the receipts of the pilot are read strictly by pilot_records.py and the kept profile.
     "plugins/proofbundle/evals/_fixtures/make.py": (
         1, "builds the eval fixtures from the package's own template output; it judges nothing"),
+    "plugins/proofbundle/evals/corpus_codex_hooks.py": (
+        1, "eval harness: reads the replies of the Codex app server it drives; the verdicts are the gate's"),
+    "plugins/proofbundle/hooks/proofbundle_answered.py": (
+        3, "reads its own two state files in the plugin data folder and the host's hook event; no signed bytes"),
+    "plugins/proofbundle/hooks/proofbundle_gate.py": (
+        5, "reads the gate's own files (the work folders, the state of the autonomous answer, its log for the "
+           "bilanz), the reasons the house form checker prints and the host's transcript; the evidence, the "
+           "declaration and the done order go through strict_json, parse_declaration and parse_done"),
+    "plugins/proofbundle/hooks/proofbundle_secrets.py": (
+        1, "reads the host's hook event to compare the paths it names; it opens no file"),
+    "plugins/proofbundle/pilot/key_signer.py": (
+        2, "reads its configuration and the service's request; the statement it signs is decoded with "
+           "_no_repeated_key before it signs"),
+    "plugins/proofbundle/pilot/probe_signer.py": (
+        1, "the probe signer of the tests, with keys from public labels; reads the request it is handed"),
+    "plugins/proofbundle/pilot/signer_service.py": (
+        2, "reads its configuration, the start file of the records and the request; the event and the statement "
+           "are decoded again with the gate's strict_json, and it signs only the bytes of its own decision"),
     "plugins/proofbundle/server/proofbundle_mcp.py": (
-        2, "reads the host's JSON-RPC messages and the package's own JSON output; both reads refuse a member named "
-           "twice and the non-JSON constants (held by test_claude_code_plugin), and every verdict is the package's"),
+        1, "reads the gate's log lines, refusing the non-JSON constants; the host's JSON-RPC messages and the "
+           "package's own JSON output go through _no_duplicates (held by test_claude_code_plugin), and every "
+           "verdict is the package's"),
 }
 
 _SEQ, _MAP = {"tuple", "Sequence"}, {"Mapping", "frozendict", "FrozenDict"}

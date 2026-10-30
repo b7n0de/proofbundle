@@ -2,16 +2,16 @@
 
 Owner decision of 2026-09-29: one catalog lists every plugin, one row per host, with what it does, a
 link, the version and the maturity; the repository README names no single plugin and links the catalog
-from the documentation row on integration.
+from one task row and from the documentation row on integration.
 
 Properties checked:
 - every host manifest under plugins/ has exactly one catalog row, and every row has a manifest;
 - a row's version is the version in that host's manifest, read from the file, not typed twice;
 - a row's maturity is copied from the status line of the plugin's own README, never written apart
-  from it;
+  from it, and the Codex hook run is marked as not yet measured there until it is measured;
 - every link in the catalog resolves to a file in the tree;
 - the catalog states the verification limit: a pass proves integrity, not truth;
-- the repository README links the catalog from the integration row, with the
+- the repository README links the catalog from the task table and from the integration row, with the
   absolute URL form it uses everywhere, and names no plugin folder.
 """
 from __future__ import annotations
@@ -87,6 +87,8 @@ def test_a_rows_maturity_is_the_plugin_readmes_status_for_that_host():
     for r in _catalog_rows():
         status = _status((PLUGINS / r["href"]).parent)
         assert r["maturity"] == status[r["host"]], (r["host"], r["maturity"], status)
+    codex = _status(PLUGINS / "proofbundle")["Codex"]
+    assert "not yet measured" in codex, "the Codex hook run stays marked until the owner's run"
 
 
 def test_every_catalog_link_resolves():
@@ -102,8 +104,10 @@ def test_the_catalog_states_what_a_pass_proves():
     assert "not that any recorded value is true" in text
 
 
-def test_the_readme_links_the_catalog_and_names_no_plugin_folder():
+def test_the_readme_links_the_catalog_twice_and_names_no_plugin_folder():
     text = REPO_README.read_text(encoding="utf-8")
+    task_rows = [ln for ln in text.split("\n") if ln.startswith("| Gate a push or pull request from an AI coding agent |")]
+    assert len(task_rows) == 1 and CATALOG_URL in task_rows[0]
     integration = [ln for ln in text.split("\n") if ln.startswith("| How do I integrate my workflow? |")]
     assert len(integration) == 1 and CATALOG_URL in integration[0]
     assert "plugins/proofbundle" not in text
