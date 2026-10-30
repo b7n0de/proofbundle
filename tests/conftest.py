@@ -194,6 +194,16 @@ _REPO_CONTEXT_TESTS = frozenset({
     "test_audit_matrix_differential_cell_recomputes_agreement::test_control_the_committed_report_holds_complete_agreeing_rows",
     "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_a_missing_binary_stays_data_blocked",
     "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_the_full_subcommand_list_passes",
+    # ── 2026-10-30, measured from the extracted sdist of PR 441 (G-2), owner card OA-38fc199f16 ──────────
+    #
+    # test_plugin_verify_carries_no_guard reads the plugin's state from the tree: without
+    # plugins/proofbundle/hooks/hooks.json it is a Verify state, and the README lines that link the plugin
+    # catalog may name no Guard word. The sdist prunes plugins/ (MANIFEST.in), so every sdist reads as a
+    # Verify state, whatever the repository is; G-2 is a Guard state and its README task row "Gate a push or
+    # pull request from an AI coding agent" is that state's own row. The module reaches the plugin through
+    # ROOT / PLUGIN, a variable, which the derivation above cannot see. hermetic-cleanroom at 6527a024:
+    # 1 failed, 9509 passed, the failure is that README row. In the checkout the test runs unchanged.
+    "test_plugin_verify_carries_no_guard::test_the_tree_is_a_clean_verify_state_or_a_whole_guard",
 })
 
 
