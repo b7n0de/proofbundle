@@ -9,10 +9,14 @@ code as read.
   accounts may read or write was taken as the key.
 - Part 10: the secrets hook normalised `..` away before it walked the links, so `<link>/../config` with the link into
   a folder of keys read `.ssh/config` while the check looked at `<folder>/config` (owner answer A on OA-0e0ebea093).
+- Codex on PR 441, P1: a word the shell expands as a pattern (`*`, `?`, `[`) named no path the gate could tell, and
+  the guards read that as nothing to check, so `cat .ss[h]/config` read a key file without a decision (D102) and
+  `rm -r /sr[v]/x` deleted outside the work folder (D104).
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import pathlib
 import subprocess
@@ -165,3 +169,82 @@ def test_control_the_direct_paths_keep_their_answer(secrets, tmp_path):
     assert secrets.secret_problem(f"{root}/.ssh/config", "/", str(root / "home")) is not None
     assert secrets.secret_problem(f"{root}/alias/key", "/", str(root / "home")) is not None
     assert secrets.secret_problem(f"{root}/other/notes.txt", "/", str(root / "home")) is None
+
+
+# --- Codex on PR 441: a pattern the shell expands ---------------------------------------------------------------------
+
+STORE = ".net" + "rc"   # the name of a credential store, joined so that no tool of the house reads it as a path
+
+
+def _ask_gate(command: str, cwd: pathlib.Path, home: pathlib.Path):
+    """The gate's answer to a Bash call, from the hook itself as a process: deny, ask or None."""
+    event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command},
+             "cwd": str(cwd), "session_id": "g2-pattern"}
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home)}
+    r = subprocess.run([sys.executable, "-I", str(GATE)], input=json.dumps(event), capture_output=True, text=True,
+                       timeout=60, env=env, cwd=str(cwd))
+    out = json.loads(r.stdout) if r.stdout.strip() else {}
+    return (out.get("hookSpecificOutput") or {}).get("permissionDecision")
+
+
+@pytest.fixture()
+def home(tmp_path):
+    """A home with stand-ins of a folder of keys and two credential stores, and a repository as the work folder."""
+    h = tmp_path / "home"
+    (h / ".ssh").mkdir(parents=True)
+    (h / ".ssh" / "config").write_text("Host stand-in\n", encoding="utf-8")
+    (h / STORE).write_text("machine stand-in\n", encoding="utf-8")
+    (h / ".aws").mkdir()
+    (h / ".aws" / "credentials").write_text("[stand-in]\n", encoding="utf-8")
+    (h / "repo" / "build" / "x").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(h / "repo")], check=True)
+    return h
+
+
+@pytest.mark.parametrize("command", [
+    "cat .ss[h]/config", "cat .ss?/config", "cat .s*h/config", "cat ~/.ss[h]/config", "cat {.ss[h],x}/config",
+    "cat < .ss[h]/config", f"cat {STORE[:-1]}[{STORE[-1]}]", "cat ~/.aws/*", "cat ~/.aw?/credentials",
+    "cat .*/config", "grep -r x .s[s]h",
+])
+def test_a_pattern_that_may_name_a_key_path_is_denied(home, command):
+    assert _ask_gate(command, home, home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["cat .ssh/config", f"cat {STORE}", "cat ~/.aws/credentials"])
+def test_control_the_written_key_paths_are_denied(home, command):
+    assert _ask_gate(command, home, home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["cat README.m[d]", "cat *.txt", "cat *", "grep -r x *", "ls .ss[h]",
+                                     "cat repo/[a-z]*.py"])
+def test_control_a_pattern_that_names_no_key_path_is_not_denied(home, command):
+    assert _ask_gate(command, home, home) != "deny"
+
+
+@pytest.mark.parametrize("command", ["rm -r /sr[v]/stand-in/x", "rm -r /s?v/stand-in/x", "rm -r ~/[a-z]*/x"])
+def test_a_recursive_delete_through_a_pattern_outside_the_work_folder_is_denied(home, command):
+    assert _ask_gate(command, home / "repo", home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["rm -r bui[l]d/x", "rm -r ./b*/x"])
+def test_control_a_recursive_delete_through_a_pattern_inside_the_work_folder_is_not_denied(home, command):
+    assert _ask_gate(command, home / "repo", home) != "deny"
+
+
+def test_control_the_written_delete_outside_is_denied(home):
+    assert _ask_gate("rm -r /srv/stand-in/x", home / "repo", home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["echo x >> /sr[v]/stand-in/x", "echo x | tee -a /s?v/stand-in/x"])
+def test_an_append_through_a_pattern_outside_the_work_folder_is_denied(home, command):
+    assert _ask_gate(command, home / "repo", home) == "deny"
+
+
+@pytest.mark.parametrize("command", ["echo x >> bui[l]d/x/log", "echo x | tee -a ./b*/x/log"])
+def test_control_an_append_through_a_pattern_inside_the_work_folder_is_not_denied(home, command):
+    assert _ask_gate(command, home / "repo", home) != "deny"
+
+
+@pytest.mark.parametrize("command", ["echo x >> /srv/stand-in/x", "echo x | tee -a /srv/stand-in/x"])
+def test_control_the_written_append_outside_is_denied(home, command):
+    assert _ask_gate(command, home / "repo", home) == "deny"

@@ -13510,7 +13510,9 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
     """D102 (fallbook l01 and l02): a deny for every step that names a key file, a credential store or a
     folder of keys (proofbundle_secrets.py), in a word, an assignment or a redirection, nested scripts included; a step
     of a program that only names or tests a path (ls, test, [) counts by its redirections only. Where the parser does
-    not model the command, every word of the net's normal form counts. The gate compares paths, it opens none of them."""
+    not model the command, every word of the net's normal form counts. A word the shell expands as a pattern counts by
+    every key path it may match, compared by names (proofbundle_secrets.pattern_role). The gate compares paths, it
+    opens none of them."""
     sec = _secrets()
     home = environ.get("HOME")
     found: list = []
@@ -13532,9 +13534,20 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
         found.append(finding(step_name, word, role))
         return True
 
+    def check_pattern(texts: list[str], base: str | None, step_name: str, word: str) -> bool:
+        # Codex on PR 441, P1: a word the shell expands as a pattern names files the gate cannot list without touching
+        # them; it is compared by names with every key path it may match (proofbundle_secrets.pattern_role)
+        for text in texts:
+            role = sec.pattern_role(text, base, home)
+            if role is not None:
+                found.append(finding(step_name, word, role))
+                return True
+        return False
+
     if steps is None:
         for token in re.split(r"[\s;&|()<>`]+", _net_normal_form(_house_strip_heredocs(_drop_comments(command)))):
-            if token and check(token, cwd, "the command", token):
+            if token and (check(token, cwd, "the command", token) or
+                          check_pattern(_pattern_texts(token, token), cwd, "the command", token)):
                 break
         return found
     values = _sh_line_values(steps, environ)
@@ -13548,14 +13561,31 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
                 paths = (_guard_word_paths(word, environ, values) if raw_value is None else
                          [p for p in [_sh_word_path(_ShWord(raw_value, word.value.partition("=")[2], [], False, True),
                                                     environ)] if p])
-                if any(check(p, base, name, word.raw) for p in paths):
+                if any(check(p, base, name, word.raw) for p in paths) or (
+                        raw_value is None and check_pattern(_pattern_texts(word.raw, word.value), base, name, word.raw)):
                     hit = True
                     break
         if not hit:
             for path, _how, raw in _guard_redirects(s, environ, values):
                 if check(path, base, name, raw):
+                    hit = True
+                    break
+        if not hit:
+            for r in s.cmd.redirs:
+                if not isinstance(r.target, _ShHeredoc) and r.op not in ("<<<",) and \
+                        check_pattern(_pattern_texts(r.target.raw, r.target.value), base, name, r.target.raw):
                     break
     return found
+
+
+def _pattern_texts(raw: str, value: str) -> list[str]:
+    """The texts of a word that the shell expands as a pattern (`*`, `?`, `[`), for the comparison by names of D102:
+    each word of its brace expansion where the gate can expand it, else the word's value; `$HOME` and `${HOME}` at the
+    start read as `~`. A text without a pattern character is left out, as the paths of the word are judged already."""
+    texts = _sh_brace_expand(raw) if "{" in raw else None
+    if texts is None:
+        texts = [re.sub(r"^\"?\$(?:HOME\b|\{HOME\})\"?", "~", value)]
+    return [t for t in texts if _SH_GLOB_CHARS.search(t)]
 
 
 #: D103 (fallbook c01 and c02): the closed list of the forms that send a file or data to a host, read from
@@ -13805,12 +13835,30 @@ def _rm_targets(words: list[str]) -> list[int] | None:
     return operands if recursive else None
 
 
+def _pattern_stand_in(word: "_ShWord") -> list[str]:
+    """D104, for a word the gate cannot name because a folder part holds a pattern (`*`, `?`, `[`): a file in the last
+    folder written before the first part with a pattern, which the word may reach and nothing nearer, so a target
+    whose written start lies outside the work folders counts as outside (Codex on PR 441, P1). A `~` at the start is
+    read as os.path.expanduser reads it. [] for a word with a substitution or without such a part."""
+    if word.subs or not _SH_GLOB_CHARS.search(os.path.dirname(word.value)):
+        return []
+    parts = word.value.split("/")
+    k = next(i for i, p in enumerate(parts) if _SH_GLOB_CHARS.search(p))
+    start = "/".join(parts[:k])
+    if word.value.startswith("/") and not start:
+        start = "/"
+    if start == "~" or start.startswith("~/"):
+        start = os.path.expanduser(start)
+    return [os.path.join(start or ".", "x")]
+
+
 def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
     """D104 (fallbook r01, S9): a deny for a recursive delete (`rm -r`, `find … -delete`) whose target is
     not in a work folder or is the root of one, and for an append (`>>`, `&>>`, `tee -a`) into a file not in a work
     folder (_work_folders), under both hosts. A relative target of a step whose directory the gate cannot tell (after
-    a `cd` it does not resolve) and a word it cannot name keep their answer. Where the parser does not model the
-    command, nothing."""
+    a `cd` it does not resolve) and a word it cannot name keep their answer, but for a delete whose folder part holds a
+    pattern: it counts by the folder written before the pattern (_pattern_stand_in). Where the parser does not model
+    the command, nothing."""
     if steps is None:
         return []
     found = []
@@ -13829,18 +13877,22 @@ def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
         deletes, appends = [], []
         if head == "rm":
             for j in _rm_targets([w.value for w in words]) or []:
-                deletes.extend((p, words[j].raw) for p in _sh_word_paths(words[j], environ, values))
+                deletes.extend((p, words[j].raw) for p in
+                               _sh_word_paths(words[j], environ, values) or _pattern_stand_in(words[j]))
         if head == "find" and any(w.value == "-delete" for w in words):
             for w in words[1:]:
                 if w.value.startswith(("-", "(", "!")):
                     break
-                deletes.extend((p, w.raw) for p in _sh_word_paths(w, environ, values))
+                deletes.extend((p, w.raw) for p in _sh_word_paths(w, environ, values) or _pattern_stand_in(w))
         if head == "tee" and any(w.value in ("-a", "--append") or
                                  (w.value.startswith("-") and not w.value.startswith("--") and "a" in w.value)
                                  for w in words[1:]):
             appends.extend((p, w.raw) for w in words[1:] if not w.value.startswith("-")
-                           for p in _sh_word_paths(w, environ, values))
+                           for p in _sh_word_paths(w, environ, values) or _pattern_stand_in(w))
         appends.extend((p, raw) for p, how, raw in _guard_redirects(s, environ, values) if how == "append")
+        appends.extend((p, r.target.raw) for r in s.cmd.redirs
+                       if r.op in (">>", "&>>") and not isinstance(r.target, _ShHeredoc) and not r.target.literal
+                       and not _sh_word_paths(r.target, environ, values) for p in _pattern_stand_in(r.target))
         for path, raw in deletes:
             if s.cwd is None and not os.path.isabs(path) and not path.startswith("~"):
                 continue

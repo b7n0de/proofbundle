@@ -8,6 +8,8 @@ a key folder or a key file, and they read no file's content.
 """
 from __future__ import annotations
 
+import fnmatch
+import itertools
 import json
 import os
 import stat
@@ -32,6 +34,10 @@ NAME_ONLY_PROGRAMS = ("ls", "test", "[")
 READ_TOOLS = {"Read": "file_path", "Grep": "path"}
 #: The most links followed while resolving a path.
 MAX_LINKS = 40
+#: The characters with which the shell makes a word into the names of files (pathname expansion, POSIX 2.13).
+PATTERN_CHARS = "*?["
+#: The most combinations of names a pattern is compared in; past it the pattern counts as a key path.
+MAX_PATTERN_TRIES = 4096
 
 
 def _role(parts: list[str], final: bool) -> str | None:
@@ -120,6 +126,48 @@ def secret_problem(path: str, cwd: str | None, home: str | None) -> str | None:
             done = []
             continue
         done = here
+    return None
+
+
+def _may_match(pattern: str, name: str) -> bool:
+    """Whether the shell's pattern matches the file name: a leading dot only by a leading dot of the pattern (POSIX
+    2.13.3, bash without dotglob, zsh without GLOB_DOTS), and `[^` negates as `[!` does."""
+    if name.startswith(".") and not pattern.startswith("."):
+        return False
+    return fnmatch.fnmatchcase(name, pattern.replace("[^", "[!"))
+
+
+def _names_a_part_may_take(part: str) -> list[str]:
+    """The names of a key path a part with a pattern may become: a folder of keys, a part of a credential store, the
+    name of a private key, and a name with the ending of a key file built from the part's literal start. A part made of
+    `*` and `?` alone is not compared with the names and endings of single key files: it matches every file, and
+    counting it would deny every `cat *`; it is compared with the folders and the stores."""
+    names = [*SECRET_FOLDERS, *(p for f in SECRET_FILES for p in f)]
+    if not all(c in "*?" for c in part):
+        names += list(SECRET_NAMES)
+        start = part[:min((part.index(c) for c in PATTERN_CHARS if c in part), default=len(part))]
+        names += [start + filler + ending for ending in SECRET_SUFFIXES for filler in ("", "x")]
+    return [n for n in dict.fromkeys(names) if _may_match(part, n)]
+
+
+def pattern_role(pattern: str, cwd: str | None, home: str | None) -> str | None:
+    """The role of a key path that a word the shell expands as a pattern (PATTERN_CHARS) may name, compared by names
+    only: each part with a pattern is tried as written and as every name of a key path it may match (_may_match); None
+    where no combination is a key path. No folder is listed and no file is touched: what a folder holds now is not what
+    it holds when the call runs (Codex on PR 441, P1). A relative pattern whose folder cannot be told is compared by its
+    own parts."""
+    named = named_path(pattern, cwd, home)
+    parts = [p for p in (named if named is not None else os.path.normpath(pattern)).split(os.sep) if p not in ("", ".")]
+    choices = [[p, *_names_a_part_may_take(p)] if any(c in p for c in PATTERN_CHARS) else [p] for p in parts]
+    tries = 1
+    for c in choices:
+        tries *= len(c)
+    if tries > MAX_PATTERN_TRIES:
+        return "a pattern too wide to compare with the key paths"
+    for combination in itertools.product(*choices):
+        role = _role(list(combination), True)
+        if role:
+            return f"{role}, through a pattern"
     return None
 
 
