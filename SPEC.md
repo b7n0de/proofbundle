@@ -45,9 +45,9 @@ bytes* were signed and anchored, not what they mean.
 - The strict reader that refuses them refuses as well `NaN`, `Infinity` and `-Infinity`, a number with no
   finite IEEE 754 double, an integer literal outside ±(2^53 − 1), a lone surrogate in a string, and input
   beyond the verification budget (200,000 keys and items, nesting depth 64; `docs/ANCHORS.md`). The command
-  line reads with it every bundle, envelope and trust policy it is given, a refusal being malformed (exit 2).
-  The agent-review policy file is read by Python's `json` with the duplicate-key rule alone
-  (`agent_review.load_policy`), so the other refusals do not apply to it. Every JSON file of the
+  line reads with it every bundle, envelope and trust policy it is given, a refusal being malformed (exit 2),
+  and `agent_review.load_policy` reads the agent-review policy file with it, a refusal being an
+  `AgentReviewError`. Every JSON file of the
   conformance corpus passes the strict reader except one bundle that carries a duplicate key; for every
   other case file the choice of reader changes nothing.
 
@@ -286,9 +286,9 @@ and its issuer signature verified, in **two** cases:
    the bundle payload and bind **this** bundle's Merkle root. The five members are read from the
    issuer-signed payload of the SD-JWT (the part of `sd_jwt_vc.compact` before the first `~`; a value
    carried only in a selective disclosure does not count) and from the bundle payload; each must be
-   present in the bundle payload, and one absent from the SD-JWT counts as `null`. Two values match when
-   they are equal as parsed JSON values: strings and object members exactly, numbers by value (`1` equals
-   `1.0`), and `true` and `false` equal to the numbers `1` and `0`. `receipt.root_b64` of the
+   present in both, a member absent from either side never binds, and two values match when their
+   RFC 8785 bytes are equal: strings and object members exactly, numbers by value (`1` equals `1.0`, as
+   RFC 8785 writes both `1`), and `true` and `false` never equal to a number. `receipt.root_b64` of the
    issuer-signed payload must be a string equal, character for character, to `merkle.root_b64`. A valid
    issuer signature over disclosures that describe a *different* bundle (a receipt
    lifted and grafted on — cross-receipt substitution) **FAILS** (reason:

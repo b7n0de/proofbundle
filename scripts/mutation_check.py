@@ -317,8 +317,10 @@ MUTATIONS = [
     # WP-C1 — cross-receipt credential substitution: the SD-JWT's always-open claims + root must match
     # THIS bundle; disabling the field comparison lets a lifted receipt bind to a foreign bundle.
     # 2026-09-29: the target follows today's source (the claim is read once into `gelesen`); the verdict is unchanged.
+    # 2026-10-27 (B151): since OQ-22 a member is present on both sides and binds by its RFC 8785 bytes; the
+    # target is that comparison, which `if False:` turns off, as the old line did for the `!=` it held.
     ("src/proofbundle/sdjwt_issue.py",
-     "if field not in gelesen or p.get(field) != gelesen.get(field):", "if False:",
+     "if _rfc8785_bytes(p[field]) != _rfc8785_bytes(gelesen[field]):", "if False:",
      "sdjwt_issue: WP-C1 bundle-binding field comparison disabled (cross-receipt substitution)", True),
     # WP-A1 — external time-anchor trust comes from the relying party; a self-frozen anchor with no RP
     # trust material must stay ok=False (needs_rp_trust). Re-enabling own-frozen self-trust must go red.

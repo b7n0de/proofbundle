@@ -200,7 +200,7 @@ def _wrappers() -> dict:
     under src/proofbundle that calls the canonicalizer itself; the inventory test holds the list
     complete."""
     from proofbundle import (anchors, canonical, decision, evalclaim, intoto, outcome,  # noqa: PLC0415
-                             relation_statement, run_ledger, subject_binding, trust_pack,
+                             relation_statement, run_ledger, sdjwt_issue, subject_binding, trust_pack,
                              verification_summary, verifier_block)
     from proofbundle._statement_payload import load_statement_strict  # noqa: PLC0415
     from proofbundle.adapters import _provenance, eee, trace_record  # noqa: PLC0415
@@ -225,6 +225,10 @@ def _wrappers() -> dict:
         ("intoto", "_serialize_statement"): (
             lambda o: intoto._serialize_statement(o, intoto.CONTENT_ROOT_ALG), ValueError),
         ("anchors", "receipt_canonical_root"): (anchors.receipt_canonical_root, BundleFormatError),
+        # The SD-JWT binding check compares each always-open member by its RFC 8785 bytes (OQ-22) through
+        # this wrapper, which answers as `anchors.receipt_canonical_root` does; `check_binds_bundle` takes
+        # that answer as "does not bind" (B151).
+        ("sdjwt_issue", "_rfc8785_bytes"): (sdjwt_issue._rfc8785_bytes, BundleFormatError),
         # On main the claim reaches the canonicalizer in `_jcs_bytes`, which `canonicalize` calls after the emit
         # profile (carried 2026-10-18).
         ("evalclaim", "_jcs_bytes"): (evalclaim._jcs_bytes, evalclaim.EvalClaimError),
