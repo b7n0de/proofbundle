@@ -13794,7 +13794,10 @@ def _rm_targets(words: list[str]) -> list[int] | None:
         if options and w == "--":
             options = False
         elif options and w.startswith("--"):
-            recursive = recursive or w == "--recursive"
+            # GNU rm takes any unambiguous abbreviation of a long option (getopt_long), so `--rec` recurses too
+            # (reading of G-2, part 7, P1); every prefix of --recursive from `--r` on counts.
+            name = w.partition("=")[0]
+            recursive = recursive or (len(name) > 2 and "--recursive".startswith(name))
         elif options and w.startswith("-") and len(w) > 1:
             recursive = recursive or "r" in w[1:] or "R" in w[1:]
         else:
@@ -17921,7 +17924,23 @@ def _release_door(command: str, answer: "Outcome") -> str | None:
     return None
 
 
+#: The shell joins the quoted and unquoted parts of a word and drops a backslash before a letter: `s''udo`, `\sudo`
+#: and `su"d"o` all run sudo, while the split at quotes sees `s` and `udo`.
+_RELEASE_JOIN = re.compile(r"[\\'\"]")
+
+
 def _release_door_words(command: str) -> str | None:
+    """The door of the words of a line: of the line as written, and of the line with every quote and backslash removed,
+    so that a word the shell joins from quoted parts is read as the shell reads it (reading of G-2, part 8, P1). Words
+    that only the joined line forms can hold a release back too: a release frees less, never more."""
+    door = _release_door_words_split(command)
+    if door is not None:
+        return door
+    joined = _RELEASE_JOIN.sub("", command)
+    return _release_door_words_split(joined) if joined != command else None
+
+
+def _release_door_words_split(command: str) -> str | None:
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
     names = [os.path.basename(w) for w in words]
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options

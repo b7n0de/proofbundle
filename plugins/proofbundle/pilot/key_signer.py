@@ -107,8 +107,25 @@ def load_config(path: str) -> dict:
 
 
 def private_key(config: dict):
+    """The Ed25519 key of the key file. The file is opened without following a link and without blocking, and read only
+    when the opened descriptor is a regular file of this account that no other account may read or write (reading of
+    G-2, part 9, P1); anything else raises ValueError."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    with open(config["key_file"], encoding="ascii") as handle:
+    path = config["key_file"]
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError("the key file is not a regular file")
+        if st.st_uid != os.geteuid():
+            raise ValueError("the key file belongs to another account")
+        if st.st_mode & 0o077:
+            raise ValueError("other accounts may read or write the key file; it must be mode 600 or narrower")
+        handle = os.fdopen(fd, encoding="ascii")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
         text = handle.read().strip()
     if not _HEX_KEY.fullmatch(text):
         raise ValueError("the key file is not 64 hex digits")
