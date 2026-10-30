@@ -19,7 +19,14 @@ selected by exactly one part, and checks that every part runs and counts.
 A SECOND THING `-k` TOUCHES. `unittest.main` sets the patterns on the shared
 `unittest.defaultTestLoader`. Code that loads tests through that object while the suite runs would
 be filtered too and could quietly run fewer cases than it asserts on. Nothing in tests/, scripts/,
-src/, conformance/ or formal/ uses it today; a case below keeps it that way.
+src/, conformance/ or formal/ uses it today; a case below keeps it that way. It counts the object
+under any local name: imported under an alias, or fetched with `getattr` or a subscript by its name
+(reading of pull request 436, line 3, P2 on Z4 and Z5).
+
+A STAND-IN RUNS IN EVERY PART. A module that raises `unittest.SkipTest` while it is imported becomes
+a stand-in test the loader builds directly, so no `-k` filters it out: a skip counted once in the
+serial run is counted once per part. The real suite must load no such stand-in (the same reading,
+P2 on Z6 and Z1); a case below builds one and shows that it is found.
 """
 from __future__ import annotations
 
@@ -64,6 +71,9 @@ print(json.dumps([t.id() for t in flat(unittest.TestLoader().discover("tests", "
 #: not through `getTestCaseNames`, so no `-k` filters them out: such a stand-in runs in EVERY part, and
 #: a failed import turns every part red. They are outside the partition, and a case below pins that.
 STAND_IN = "unittest.loader."
+#: The stand-in of a module that skipped itself at import. A failed import is loud in every part; a
+#: skipped one is silent, and it multiplies the skip count by the number of parts.
+MODULE_SKIPPED = "unittest.loader.ModuleSkipped."
 
 
 def as_unittest_pattern(pattern: str) -> str:
@@ -100,6 +110,12 @@ def partition_findings(ids: list[str], parts: dict[str, list[str]]) -> list[str]
         elif len(hits) > 1:
             findings.append(f"{tid}: {len(hits)} parts run it {hits}")
     return findings
+
+
+def stand_in_findings(ids: list[str]) -> list[str]:
+    """The stand-ins of modules that skipped themselves at import: each would run in every part."""
+    return [f"{tid}: a module skipped at import, so every part runs and counts this stand-in"
+            for tid in ids if tid.startswith(MODULE_SKIPPED)]
 
 
 def job_findings(job: dict) -> list[str]:
@@ -151,18 +167,34 @@ def load_ids(root: pathlib.Path) -> list[str]:
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
+_LOADER = "defaultTestLoader"
+
+
+def _names_the_loader(k: ast.AST) -> bool:
+    """Whether one node reaches the shared loader: as an attribute or a bare name, as an imported
+    name under any alias, or fetched by its name with `getattr` or a subscript."""
+    if isinstance(k, ast.Attribute):
+        return k.attr == _LOADER
+    if isinstance(k, ast.Name):
+        return k.id == _LOADER
+    if isinstance(k, ast.alias):
+        return k.name == _LOADER
+    if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr":
+        return len(k.args) > 1 and isinstance(k.args[1], ast.Constant) and k.args[1].value == _LOADER
+    if isinstance(k, ast.Subscript):
+        return isinstance(k.slice, ast.Constant) and k.slice.value == _LOADER
+    return False
+
+
 def shared_loader_lines(source: str) -> list[int]:
-    """Lines that name `defaultTestLoader` in code, outside an `if __name__ == "__main__":` block."""
+    """Lines that reach `defaultTestLoader` in code, outside an `if __name__ == "__main__":` block."""
     tree = ast.parse(source)
     exempt: set[int] = set()
     for k in ast.walk(tree):
         if (isinstance(k, ast.If) and isinstance(k.test, ast.Compare)
                 and isinstance(k.test.left, ast.Name) and k.test.left.id == "__name__"):
             exempt |= {n.lineno for n in ast.walk(k) if hasattr(n, "lineno")}
-    return sorted({k.lineno for k in ast.walk(tree)
-                   if ((isinstance(k, ast.Attribute) and k.attr == "defaultTestLoader")
-                       or (isinstance(k, ast.Name) and k.id == "defaultTestLoader"))
-                   and k.lineno not in exempt})
+    return sorted({k.lineno for k in ast.walk(tree) if _names_the_loader(k) and k.lineno not in exempt})
 
 
 def _floor_job() -> dict:
@@ -187,8 +219,22 @@ class TheFloorJobRunsTheWholeSuiteInParts(unittest.TestCase):
         # A sweep over an empty set is green and says nothing. The floor is far below the 5378 of
         # 2026-10-29 on purpose: it catches a blind load, not a smaller suite.
         self.assertGreater(len(ids), 1000, f"only {len(ids)} tests loaded, the load is blind")
+        self.assertEqual(stand_in_findings(ids), [])
         selectable = [i for i in ids if not i.startswith(STAND_IN)]
         self.assertEqual(partition_findings(selectable, parts_of(_floor_job())), [])
+
+
+class TheCommentClaimsNoMoreThanTheContractCarries(unittest.TestCase):
+    """Reading of pull request 436, line 3, P2 on Z7: the contract holds test IDs and the job shape,
+    not the same execution. The parts run in separate processes, and the comment of the job says so."""
+
+    def test_the_comment_says_the_parts_run_in_separate_processes(self):
+        text = CI.read_text(encoding="utf-8")
+        start = text.index("\n  crypto-floor:\n")
+        block = text[start:text.index("\n    name: crypto-floor", start)]
+        flat = " ".join(line.strip().lstrip("#").strip() for line in block.splitlines())
+        self.assertNotIn("every test stay as they were", flat)
+        self.assertIn("The parts run in separate processes", flat)
 
 
 class NoCodeLoadsTestsThroughTheSharedLoader(unittest.TestCase):
@@ -290,10 +336,43 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
         self.assertIn("Ran 2 tests", r.stderr)
         self.assertIn("FAILED (errors=1)", r.stderr)
 
+    def test_a_module_skipped_at_import_is_a_stand_in_every_part_would_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_fine.py").write_text(
+                "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n",
+                encoding="utf-8")
+            (root / "tests" / "test_skipped.py").write_text(
+                "import unittest\n\nraise unittest.SkipTest('optional dependency is unavailable')\n",
+                encoding="utf-8")
+            ids = load_ids(root)
+            # A pattern that matches nothing still runs the stand-in: it bypasses -k.
+            r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-k", "does_not_match"],
+                               cwd=root, capture_output=True, text=True, timeout=120,
+                               env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+        self.assertEqual([i for i in ids if i.startswith(STAND_IN)],
+                         ["unittest.loader.ModuleSkipped.test_skipped"])
+        self.assertEqual(len(stand_in_findings(ids)), 1, stand_in_findings(ids))
+        self.assertEqual(stand_in_findings(["test_fine.T.test_x", "unittest.loader._FailedTest.test_broken"]), [])
+        self.assertIn("Ran 1 test", r.stderr)
+        self.assertIn("skipped=1", r.stderr)
+
+    def test_the_shared_loader_is_found_under_an_alias_and_by_its_name(self):
+        self.assertEqual(shared_loader_lines("from unittest import defaultTestLoader as loader\n"
+                                             "s = loader.discover('t')\n"), [1])
+        self.assertEqual(shared_loader_lines("import unittest\n"
+                                             "s = getattr(unittest, 'defaultTestLoader').discover('t')\n"), [2])
+        self.assertEqual(shared_loader_lines("import unittest\n"
+                                             "s = vars(unittest)['defaultTestLoader'].discover('t')\n"), [2])
+        # The control: a loader of its own is not the shared one, and a name in a string is not a use.
+        self.assertEqual(shared_loader_lines("import unittest\nloader = unittest.TestLoader()\n"
+                                             "x = 'defaultTestLoader'\n"), [])
+
     def test_the_shared_loader_is_found_in_code_and_not_in_a_main_block(self):
         self.assertEqual(shared_loader_lines("import unittest\nx = unittest.defaultTestLoader\n"), [2])
         self.assertEqual(shared_loader_lines("from unittest import defaultTestLoader\n"
-                                             "s = defaultTestLoader.discover('t')\n"), [2])
+                                             "s = defaultTestLoader.discover('t')\n"), [1, 2])
         self.assertEqual(shared_loader_lines("import unittest\nif __name__ == '__main__':\n"
                                              "    unittest.defaultTestLoader.discover('t')\n"), [])
         self.assertEqual(shared_loader_lines("# unittest.defaultTestLoader in a comment\n"), [])
