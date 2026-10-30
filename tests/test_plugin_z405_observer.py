@@ -379,6 +379,19 @@ def test_control_a_recorded_name_in_a_subfolder_reads(tmp_path):
     assert observer.RecordedTransport(folder).get(PAGE1) == (200, (folder / "pages" / "page1.json").read_bytes())
 
 
+@pytest.mark.parametrize("name", [r"..\secret.json", r"sub\..\..\secret.json", "D:secret.json", r"C:\secret.json",
+                                  r"\\host\share\secret.json"])
+def test_a_name_that_windows_reads_as_another_path_is_refused_on_every_platform(tmp_path, name):
+    """Under Windows a backslash separates and a drive starts another path, so each of these names leaves the folder
+    there (measured with PureWindowsPath). They are refused on every platform, also where a file of that literal name
+    lies in the folder, so that one folder gives one reading everywhere. Red at 4b52f74e."""
+    folder = tmp_path / "recorded"
+    folder.mkdir()
+    (folder / name).write_bytes(b"[]")   # under POSIX one literal file name inside the folder
+    with pytest.raises(pr.RecordsError):
+        pr.file_in(folder, name)
+
+
 def plant_outside(records: pathlib.Path, tmp_path: pathlib.Path, plant: str) -> None:
     """A records folder whose kept input, response or run is a file outside it, with the bytes the records expect."""
     if plant in ("kept-dotdot", "kept-link"):

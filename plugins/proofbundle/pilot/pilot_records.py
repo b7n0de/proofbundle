@@ -114,8 +114,12 @@ def file_in(folder: pathlib.Path, name: object) -> pathlib.Path:
     is empty, . or .., and no part below folder is a symbolic link, so a name in index.json, run.json or
     pilot_start.json, or an entry of decisions/ or outcomes/, never reads a file outside the folder it names one in: the
     reconciliation reads the records and nothing else (contract, section 8), and a recorded folder hands the records no
-    file from elsewhere. A name whose file is not there raises FileNotFoundError, as reading it did before."""
-    parts = name.split("/") if isinstance(name, str) else [""]
+    file from elsewhere. A name with a backslash, a colon or a NUL is refused on every platform: under Windows the first
+    separates and the second starts a drive, so one folder gives one reading everywhere. A name whose file is not there
+    raises FileNotFoundError, as reading it did before."""
+    if not isinstance(name, str) or any(c in name for c in "\\:\x00"):
+        raise RecordsError(f"{name!r} names no file inside {folder}")
+    parts = name.split("/")
     if any(part in ("", ".", "..") for part in parts):
         raise RecordsError(f"{name!r} names no file inside {folder}")
     path = pathlib.Path(folder)
