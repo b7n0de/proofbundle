@@ -165,7 +165,7 @@ Receipts go to the current directory by default, and the plugin prints the outpu
 | Your question | Reference |
 |---|---|
 | How do I implement the format? | [Specification](https://github.com/b7n0de/proofbundle/blob/v6.4.0/SPEC.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/v6.4.0/CONFORMANCE.md) |
-| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.4.0/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/GLOSSARY.md) |
+| How do I integrate my workflow? | [pytest and Inspect plugins](#plugins) · [Other integrations](https://github.com/b7n0de/proofbundle/blob/v6.4.0/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/GLOSSARY.md) · [Plugins](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Which keys and claims should I accept? | [Policies](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/POLICY_PROFILES.md) · [Trust anchors](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/TRUST_ANCHORS.md) |
 | How is security assessed? | [Threat model](https://github.com/b7n0de/proofbundle/blob/v6.4.0/THREAT_MODEL.md) · [Security policy](https://github.com/b7n0de/proofbundle/blob/v6.4.0/SECURITY.md) |
 | How was this release prepared? | [Release process](https://github.com/b7n0de/proofbundle/blob/v6.4.0/RELEASE.md) · [Pre tag audit](https://github.com/b7n0de/proofbundle/blob/v6.4.0/docs/PRE_TAG_AUDIT.md) |
