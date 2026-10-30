@@ -60,8 +60,10 @@ def _clean_git_environment(monkeypatch):
 
 
 @pytest.fixture
-def env(tmp_path: pathlib.Path) -> dict:
-    """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package."""
+def env(tmp_path: pathlib.Path, monkeypatch) -> dict:
+    """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package. The gate a test
+    calls in-process looks `uv` up on this process's PATH, so the process gets the same PATH: a witness runs without
+    `uv` on its own PATH, and there the in-process call found none."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\n'
@@ -69,6 +71,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
     clean = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    monkeypatch.setenv("PATH", clean["PATH"])
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["PROOFBUNDLE_GATE_DIR"] = str(tmp_path / "gate-dir")
     clean["CLAUDE_PLUGIN_DATA"] = clean["PLUGIN_DATA"] = str(tmp_path / "logs")
