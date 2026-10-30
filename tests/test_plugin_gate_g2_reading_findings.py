@@ -410,3 +410,20 @@ def test_control_anywhere_else_the_import_of_the_gate_stays_loud(tmp_path, case)
         gate.parent.mkdir(parents=True)
         gate.write_text("", encoding="utf-8")
     assert _skip_reason(gate, root) is None
+
+
+@pytest.mark.parametrize("node", ["directory", "fifo", "dead_link"])
+def test_a_node_that_is_no_file_at_the_gate_path_stays_loud(tmp_path, node):
+    """Seventh reading, sol-pro, P1: in a distribution that prunes plugins/, something other than a file at the gate's
+    path is no absence. The first version asked is_file() and skipped all three; the import has to decide, loudly."""
+    root, gate = _planted_tree(tmp_path, manifest="prune plugins\n", pkg_info=True, git=False)
+    gate.parent.mkdir(parents=True)
+    if node == "directory":
+        gate.mkdir()
+    elif node == "fifo":
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("no FIFO on this platform")
+        os.mkfifo(gate)
+    else:
+        gate.symlink_to(gate.parent / "missing.py")
+    assert _skip_reason(gate, root) is None

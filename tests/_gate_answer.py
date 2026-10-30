@@ -90,8 +90,16 @@ def skip_where_the_gate_is_not_shipped(gate: pathlib.Path, root: pathlib.Path) -
     conftest turns a failed import into a skip only where the distribution ships something in the same first folder,
     and it ships nothing of plugins/. The rule here is the one test_strict_decoding_guard judges a path by: absent from
     a distribution (conftest's `baumkontext`, positive evidence) whose MANIFEST.in does not promise it is NOT MEASURED;
-    absent from a checkout, from a tree that shows neither, or from a distribution that promises it, it stays loud."""
-    if gate.is_file():
+    absent from a checkout, from a tree that shows neither, or from a distribution that promises it, it stays loud.
+
+    Absent means nothing stands at the path (seventh reading, sol-pro, P1, measured): the first version asked
+    `is_file()`, and a directory, a FIFO or a dead link there became a skip. Like conftest's import guard, only a
+    FileNotFoundError counts; any node at the path, and any other error of the file system, leaves it loud."""
+    try:
+        gate.lstat()
+    except FileNotFoundError:
+        pass
+    else:
         return
     try:
         import conftest  # noqa: PLC0415 - tests/ is on sys.path under both runners
