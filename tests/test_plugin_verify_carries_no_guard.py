@@ -7,8 +7,8 @@ together. In a Verify state:
   without a manifest field, and neither host manifest carries a "hooks" field: a Verify-only install registers no
   Guard hook under Claude Code or under Codex;
 - no text a user reads names hooks or the gate: the strings of both manifests and of the marketplace entry, the plugin
-  catalog, the plugin's README, its skills, the string constants of its MCP server, and the lines of the repository
-  README that link the catalog.
+  catalog, the plugin's README, its skills, every other Markdown file in the plugin folder (DECISIONS.md among them),
+  the string constants of its MCP server, and the lines of the repository README that link the catalog.
 In a Guard state the gate program is there, and every hook either host registers starts a program of the plugin that
 exists. The planted cases below show that each check finds what it is for.
 
@@ -26,6 +26,8 @@ import json
 import pathlib
 import re
 import shutil
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLUGIN = pathlib.Path("plugins") / "proofbundle"
@@ -67,6 +69,10 @@ def _texts(root: pathlib.Path) -> dict[str, str]:
     for skill in sorted((root / PLUGIN / "skills").rglob("*")) if (root / PLUGIN / "skills").is_dir() else []:
         if skill.is_file() and skill.suffix in (".md", ".yaml"):
             texts[str(skill.relative_to(root))] = skill.read_text(encoding="utf-8")
+    # Every Markdown file the plugin folder ships, not a list of them: DECISIONS.md carried a Guard word the list never
+    # read (review of G-1, line 3, F1).
+    for doc in sorted((root / PLUGIN).rglob("*.md")) if (root / PLUGIN).is_dir() else []:
+        texts.setdefault(str(doc.relative_to(root)), doc.read_text(encoding="utf-8"))
     server = root / PLUGIN / "server" / "proofbundle_mcp.py"
     if server.is_file():
         tree = ast.parse(server.read_text(encoding="utf-8"))
@@ -112,7 +118,37 @@ def findings(root: pathlib.Path) -> list[str]:
     return guard_findings(root) if (root / CLAUDE_HOOKS).is_file() else verify_findings(root)
 
 
+def not_shipped_here(root: pathlib.Path) -> str | None:
+    """Why this tree has no plugin to judge, or None, and then the test measures it.
+
+    hermetic-cleanroom on PR 441 at 6527a024 ran this test from the extracted sdist, which prunes plugins/: without
+    hooks.json the tree read as a Verify state, and G-2's README task row "Gate a push or pull request from an AI
+    coding agent" became a finding. Listing the test in conftest's _REPO_CONTEXT_TESTS skipped it wherever the
+    checkout markers are missing, also in a tree that carries the plugin (ninth reading of PR 441, sol-pro, P1,
+    measured: a copied Verify slice skipped where it should be red). So the tree is asked instead: where anything
+    stands at the plugin folder, the test runs; only a distribution (conftest's baumkontext, positive evidence) whose
+    MANIFEST.in does not promise the plugin folder is NOT MEASURED, the rule test_strict_decoding_guard judges an
+    absent path by."""
+    try:
+        (root / PLUGIN).lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        return None
+    try:
+        import conftest  # noqa: PLC0415 - tests/ is on sys.path under both runners
+    except Exception:  # noqa: BLE001 - without conftest there is no basis, and no basis measures
+        return None
+    art, _why = conftest.baumkontext(root)
+    if art == "distribution" and not conftest._manifest_verspricht_verzeichnis(PLUGIN.as_posix(), root):
+        return f"NOT MEASURED: {PLUGIN.as_posix()} is not in this distribution, whose MANIFEST.in does not ship it"
+    return None
+
+
 def test_the_tree_is_a_clean_verify_state_or_a_whole_guard():
+    why = not_shipped_here(ROOT)
+    if why:
+        pytest.skip(why)
     assert findings(ROOT) == []
 
 
@@ -171,6 +207,14 @@ def test_planted_a_text_that_names_hooks_or_the_gate_is_found(tmp_path):
     assert f"{skill.relative_to(root)}:1 names 'pre-push'" in found and f"{skill.relative_to(root)}:1 names 'gate'" in found
 
 
+def test_planted_a_guard_word_in_any_markdown_of_the_plugin_is_found(tmp_path):
+    root = _verify_copy(tmp_path)
+    decisions = root / PLUGIN / "DECISIONS.md"
+    decisions.parent.mkdir(parents=True, exist_ok=True)
+    decisions.write_text("Both manifests say 0.4.0, and the gate's GATE_VERSION follows.\n", encoding="utf-8")
+    assert f"{PLUGIN / 'DECISIONS.md'}:1 names 'gate'" in findings(root)
+
+
 def test_planted_a_whole_guard_has_no_finding_and_a_missing_program_is_found(tmp_path):
     root = _verify_copy(tmp_path)
     (root / GATE).parent.mkdir(parents=True)
@@ -183,3 +227,48 @@ def test_planted_a_whole_guard_has_no_finding_and_a_missing_program_is_found(tmp
     (root / CLAUDE_HOOKS).write_text((root / CLAUDE_HOOKS).read_text(encoding="utf-8").replace(
         "proofbundle_gate.py", "proofbundle_missing.py"), encoding="utf-8")
     assert findings(root) == ["a hook starts hooks/proofbundle_missing.py, which the plugin does not hold"]
+
+
+# --- where the tree test measures: the plugin folder decides, not the checkout markers (ninth reading of PR 441) -----
+
+def _tree(tmp_path: pathlib.Path, *, plugin: bool, pkg_info: bool, git: bool, manifest: str = "prune plugins\n",
+          readme: str = "") -> pathlib.Path:
+    """A tree without the checkout markers (.github, tools, SPEC.md), with or without the plugin folder of a Verify
+    state, a PKG-INFO of this project or a .git, and a README whose lines may link the plugin catalog."""
+    root = _verify_copy(tmp_path) if plugin else tmp_path / "tree"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "proofbundle"\n', encoding="utf-8")
+    (root / "MANIFEST.in").write_text(manifest, encoding="utf-8")
+    if pkg_info:
+        (root / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: proofbundle\n", encoding="utf-8")
+    if git:
+        (root / ".git").mkdir()
+    (root / "README.md").write_text(readme, encoding="utf-8")
+    return root
+
+
+GATE_ROW = "| Gate a push or pull request from an AI coding agent | [Plugin catalog](plugins/README.md) |\n"
+
+
+def test_planted_an_sdist_without_the_plugin_is_not_measured(tmp_path):
+    root = _tree(tmp_path, plugin=False, pkg_info=True, git=False, readme=GATE_ROW)
+    why = not_shipped_here(root)
+    assert why is not None and why.startswith("NOT MEASURED"), why
+
+
+def test_planted_a_tree_without_markers_that_carries_the_plugin_is_measured_and_red(tmp_path):
+    """sol-pro's case: no .git, no PKG-INFO, no checkout markers, but the plugin folder of a Verify state is there. The
+    test measures it, and a Guard word in the README row that links the catalog is a finding."""
+    root = _tree(tmp_path, plugin=True, pkg_info=False, git=False, readme=GATE_ROW)
+    assert not_shipped_here(root) is None
+    assert findings(root) == ["README.md:1 names 'Gate'"]
+
+
+@pytest.mark.parametrize("case", ["distribution_with_plugin", "checkout_without_plugin", "neither_without_plugin",
+                                  "distribution_promising_plugins"])
+def test_control_anywhere_else_the_tree_test_measures(tmp_path, case):
+    root = _tree(tmp_path, plugin=case == "distribution_with_plugin",
+                 pkg_info=case in ("distribution_with_plugin", "distribution_promising_plugins"),
+                 git=case == "checkout_without_plugin",
+                 manifest="graft plugins\n" if case == "distribution_promising_plugins" else "prune plugins\n")
+    assert not_shipped_here(root) is None

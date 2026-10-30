@@ -1,0 +1,14 @@
+{
+ "caseId": "provenance-version-status-unrelated-status-field-named-set",
+ "kind": "provenance_version_status",
+ "input": "provenance.json",
+ "attribution": "b7n0de — successor case of provenance-version-status-unrelated-status-field (CONFORMANCE.md rules 5 and 6, owner answer OQ-06 of 2026-10-26); every byte derived from the fixtures of provenance-version-status-unrelated-status-field, canonical bytes from RFC 8785 as in ADR 0002",
+ "expected": {
+  "issues": []
+ },
+ "specRefs": [
+  "EVAL_CLAIM.md",
+  "CONFORMANCE.md"
+ ],
+ "rationale": "Successor of provenance-version-status-unrelated-status-field, which stays in the corpus unchanged; same input and same expected value, corrected rationale. A provenance block may carry other fields ending in `_status` (run_status, scorer_status). The rule judges the named set harness_version, task_version and promptfoo_version (EVAL_CLAIM.md, \"What the verifier checks, exactly\") and nothing else, so these fields MUST NOT produce a finding. The old rationale said the rule follows the field suffix `_version`; neither the text nor the reference does: a future `foo_version` is judged only once the named set lists it."
+}

@@ -1280,8 +1280,8 @@ Options:
 - B. Move to 0.4.0 before the first publication.
 
 Addendum (owner answer 11 A of Nachtrag 9, 2026-10-27): the plugin moves to 0.4.0 before its first publication (option B
-above): both manifests and the server's SERVER_VERSION say 0.4.0, and the gate's GATE_VERSION follows. The changes named
-above land in 0.4.0, which is unpublished as well.
+above): both manifests and the server's SERVER_VERSION say 0.4.0. The changes named above land in 0.4.0, which is
+unpublished as well.
 
 ## D19. Every rejection says what to do
 

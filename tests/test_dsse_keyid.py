@@ -329,7 +329,7 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
     #: eval-result v0.1 statements under tests/fixtures/eval_result_v0_1/ come with pull request 301: released
     #: versions emitted and signed them, and the corpus holds their bytes as the regression input of gate G2.
     _ARCHIV = ("receipts/agent_review/", "tests/fixtures/kette_147/receipt.json", "tests/fixtures/eval_result_v0_1/",
-               "tests/fixtures/public_surface_seeds.json")
+               "tests/fixtures/public_surface_seeds.json", "tests/fixtures/sigstore_bundle/")
 
     def test_every_shipped_envelope_without_a_keyid_is_a_named_archive(self):
         """Codex thread 4218670842 on pull request 287: the headline said every DSSE envelope names its key, and the

@@ -1,0 +1,6 @@
+{
+  "name": "octo-pkg",
+  "version": "1.0.0",
+  "description": "test package of the vectors",
+  "repository": "github:octo-org/octo-repo"
+}

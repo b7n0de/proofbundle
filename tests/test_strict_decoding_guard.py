@@ -194,6 +194,7 @@ STRICT_HOOK_SITES = {
     "plugins/proofbundle/hooks/proofbundle_gate.py": 2,
     "plugins/proofbundle/pilot/key_signer.py": 1,
     "plugins/proofbundle/pilot/pilot_records.py": 1,
+    "plugins/proofbundle/server/proofbundle_mcp.py": 1,
 }
 
 #: The members of each library that do not decode. Everything else the library has is a decode reference.
@@ -318,7 +319,8 @@ EXCEPTIONS = {
         2, "reads its configuration, the start file of the records and the request; the event and the statement "
            "are decoded again with the gate's strict_json, and it signs only the bytes of its own decision"),
     "plugins/proofbundle/server/proofbundle_mcp.py": (
-        3, "reads the host's JSON-RPC messages, the gate's log lines and the package's own JSON output; every "
+        1, "reads the gate's log lines, refusing the non-JSON constants; the host's JSON-RPC messages and the "
+           "package's own JSON output go through _no_duplicates (held by test_claude_code_plugin), and every "
            "verdict is the package's"),
 }
 

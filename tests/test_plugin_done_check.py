@@ -32,13 +32,14 @@ import pytest
 import proofbundle
 from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
-from _gate_answer import Silent, parsed, run_hook
+from _gate_answer import Silent, parsed, run_hook, skip_where_the_gate_is_not_shipped
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 
+skip_where_the_gate_is_not_shipped(GATE, ROOT)
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 import proofbundle_gate as gate  # noqa: E402

@@ -75,6 +75,7 @@ EXPECTED_GROUP = {
     "verify-opening": "Verify",
     "verify-enclave": "Verify",
     "verify-trace": "Verify",
+    "verify-sigstore": "Verify",
     "policy": "Verify",
     "emit": "Emit and commit",
     "emit-eval": "Emit and commit",
@@ -97,7 +98,8 @@ EXPECTED_GROUP = {
 #: order of the headings were checked and the order below them was not. The same class as the other
 #: findings of that day, a hardening at ONE place with the neighbouring place left open.
 EXPECTED_ORDER_PER_GROUP = {
-    "Verify": ["verify", "verify-proof", "verify-opening", "verify-enclave", "verify-trace", "policy"],
+    "Verify": ["verify", "verify-proof", "verify-opening", "verify-enclave", "verify-trace", "verify-sigstore",
+               "policy"],
     "Emit and commit": ["emit", "emit-eval", "show-eval", "prereg", "evalcard", "hf-token",
                         "audit-challenge"],
     "Statements over a receipt": ["decision", "outcome", "relation-statement"],

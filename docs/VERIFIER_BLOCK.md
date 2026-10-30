@@ -52,7 +52,9 @@ indistinguishable from the receipt.
 | `assurance` | always `selfDeclared` | yes |
 
 Every key set is closed. An unknown field is refused, not ignored: a field nobody validates is a
-field a producer can put anything into. The two build sources are different measurements and are
+field a producer can put anything into. `vectorSet`, when present, carries all of `name`, `digest` and
+`cases`, `testResult` all of `predicateType`, `result` and `statementDigest`, and a block that carries
+`testResult` carries `vectorSet` as well. The two build sources are different measurements and are
 compared only with themselves; neither is the sha256 of the wheel file on PyPI, and the block says
 which one it is.
 

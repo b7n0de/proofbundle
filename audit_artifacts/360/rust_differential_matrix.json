@@ -1045,32 +1045,32 @@
       "rust_reproduces_expectation": true
     }
   ],
-  "version": "6.2.0",
+  "version": "6.4.0",
   "candidate": {
-    "commit": "5defbbe3bb29e732726ba8fcb78f4c258052dc49",
-    "tree_digest": "1c2bfa4fb9806273238116a25e144a4b5e11308cfbb57225b43055f4b2e2c21d",
-    "sdist_sha256": "5098f790a1c5978be907fb2a5338c86bfc3e081a8f027ac6a88c38ffeadaeedb",
-    "wheel_sha256": "c8a32a1e29f19df47d5e07f87bd8d60b07fd9c4a3ab5cb3c1ceaf44a4715afe7"
+    "commit": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
+    "tree_digest": "292409c9dd9f250527593a7241d4ac2d59655a68b0744f3af41917f755216760",
+    "sdist_sha256": "9b074c7ed9dec106b45ae541b9194087f7238230953a7c784df7c4a08c386699",
+    "wheel_sha256": "72153d160c2f78647095f029c0946dbfd64a15e006a233a5abc78a3071eebf94"
   },
   "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
   "gate_zeile": {
-    "gate_version": "kein-lauf",
-    "workflow_datei": "/home/konrad/2bedone/office/governance/berkeley_gate/berkeley_gate_workflow.js",
-    "workflow_sha256": "c28e479dbe08c82de513af6fda6ffd3db9c4ee9517d0bf65c3ce8c6ab157af8e",
-    "modus": "KEIN_LAUF_OWNER_OA-c47c91c9a7",
-    "head": "5defbbe3bb29e732726ba8fcb78f4c258052dc49",
-    "verdict": "KEIN_LAUF_OWNER_OA-c47c91c9a7"
+    "gate_version": "v4",
+    "workflow_datei": "kraxo/02_proofbundle_berichte/LAUFBESCHREIBUNG_deep_gate_640_weg_a_20261027.md",
+    "workflow_sha256": "3e62bb6f6dd6eb883b670881765b50b76f0b7d56a2b28d2011a13817476c1917",
+    "modus": "DEEP throttled D2/D3 (owner A on OA-6c9077580d): at most 2 iterations, each 1 read-only Claude lens + foreign family; ran: iteration 1, one Claude lens on 8608cb0f; not run: foreign family, iteration 2; head e636b5da carries the lensed src/ unchanged",
+    "head": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
+    "verdict": "REFUTED_IN_ITERATION_1"
   },
   "producer": {
     "tool": "tools/pb_verify_rs/crosscheck.py",
-    "tool_version": "6.2.0"
+    "tool_version": "6.4.0"
   },
-  "input_digest": "c35994d0badfb80e29360a890b88419a688d494af818493f6104a4efc4fd0bf9",
+  "input_digest": "126d497437bbe340a8cde060692f21cd5c7c2df1c78f239ff48da519a87af0af",
   "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-10-08T13:19:18Z",
+  "produced_at": "2026-10-27T18:05:19Z",
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "vU+Wwklj46WcGO4KvoSy+isXXzb3GVdiL821cCmmVlkKAVheiBOr7ZgfxLLvPIPbaEg+wahqyqTZCU4sD5CQDw=="
+    "sig_b64": "6ONpB/25telRfs2F5+n7kMq7w2xIMqDeQCVfT+jx0jMaz6wEmn8VCwYLlgTCRf2rvmxQO4eRJqiYBRH064A3BQ=="
   }
 }

@@ -1,0 +1,16 @@
+{
+ "caseId": "content-root-envelope-invariance-predicates-path",
+ "kind": "content_root_vector",
+ "mode": "envelope_invariance",
+ "input": "envelope_a.json",
+ "expected": {
+  "contentRoot": "c46e64e9a0559ccd377e1c88e039802c322b5b2ff668b18e61542525b6ef4dcf",
+  "secondEnvelope": "envelope_b.json"
+ },
+ "specRefs": [
+  "ADR 0002 (signature bytes never part of the preimage)",
+  "docs/predicates/decision-receipt.md"
+ ],
+ "rationale": "Successor of content-root-envelope-invariance, which stays in the corpus unchanged. The two envelopes carry the signature blocks of the old case unchanged over the decision statement of content-root-cross-predicate-ref-predicates-path, whose predicateType is https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1. The root is computed over the STATEMENT payload bytes, never the envelope: two envelopes with different/multiple signature blocks over the same payload yield the SAME root (counter-signing and key rotation cannot move the action identity). Signatures here are DELIBERATELY fake — this vector pins root invariance, not signature validity. The keyids name three fixed test keys, Ed25519 from the seeds 32 times 0x01, 0x02 and 0x03, in the form this package writes; the fake signatures are not theirs.",
+ "attribution": "b7n0de — successor case of content-root-envelope-invariance (CONFORMANCE.md rules 5 and 6, owner answer OQ-02 of 2026-10-26); every byte derived from the fixtures of content-root-envelope-invariance, canonical bytes from RFC 8785 as in ADR 0002"
+}

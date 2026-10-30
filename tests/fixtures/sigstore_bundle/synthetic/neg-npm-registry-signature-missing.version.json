@@ -1,0 +1,9 @@
+{
+  "name": "octo-pkg",
+  "version": "1.0.0",
+  "dist": {
+    "integrity": "sha512-Vdabn9UlO3wGYVkZzgeRSPbj11/Oju01JAR2fOvzkzIwRTnBCfu4q3TaN3CgS5k82aG1pGfsmxj1HY5m5PpR7Q==",
+    "shasum": "1ef664c6235dd241f0d1266c78e99633dfdaed17",
+    "tarball": "https://registry.npmjs.org/octo-pkg/-/octo-pkg-1.0.0.tgz"
+  }
+}

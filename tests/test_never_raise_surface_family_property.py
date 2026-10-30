@@ -82,6 +82,10 @@ _MODULES = [
     # reported `verify_trace_record` outside the property, and it belongs inside for the reason above:
     # the record bytes arrive from a producer we do not control.
     "adapters.trace_record",
+    # 2026-10-26: the Sigstore bundle reader for GitHub Artifact Attestations and npm provenance, a third
+    # FOREIGN format. The population guard reported `verify_sigstore_bundle`; the bundle, the trusted root
+    # and the registry keys document all arrive as bytes we did not write.
+    "adapters.sigstore_bundle",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.

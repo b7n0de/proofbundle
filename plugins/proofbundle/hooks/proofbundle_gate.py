@@ -13510,7 +13510,9 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
     """D102 (fallbook l01 and l02): a deny for every step that names a key file, a credential store or a
     folder of keys (proofbundle_secrets.py), in a word, an assignment or a redirection, nested scripts included; a step
     of a program that only names or tests a path (ls, test, [) counts by its redirections only. Where the parser does
-    not model the command, every word of the net's normal form counts. The gate compares paths, it opens none of them."""
+    not model the command, every word of the net's normal form counts. A word the shell expands as a pattern counts by
+    every key path it may match, compared by names (proofbundle_secrets.pattern_role). The gate compares paths, it
+    opens none of them."""
     sec = _secrets()
     home = environ.get("HOME")
     found: list = []
@@ -13532,9 +13534,20 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
         found.append(finding(step_name, word, role))
         return True
 
+    def check_pattern(texts: list[str], base: str | None, step_name: str, word: str) -> bool:
+        # Codex on PR 441, P1: a word the shell expands as a pattern names files the gate cannot list without touching
+        # them; it is compared by names with every key path it may match (proofbundle_secrets.pattern_role)
+        for text in texts:
+            role = sec.pattern_role(text, base, home)
+            if role is not None:
+                found.append(finding(step_name, word, role))
+                return True
+        return False
+
     if steps is None:
         for token in re.split(r"[\s;&|()<>`]+", _net_normal_form(_house_strip_heredocs(_drop_comments(command)))):
-            if token and check(token, cwd, "the command", token):
+            if token and (check(token, cwd, "the command", token) or
+                          check_pattern(_pattern_texts(token, token), cwd, "the command", token)):
                 break
         return found
     values = _sh_line_values(steps, environ)
@@ -13548,14 +13561,31 @@ def _guard_secret(steps: list | None, command: str, cwd: str | None, environ) ->
                 paths = (_guard_word_paths(word, environ, values) if raw_value is None else
                          [p for p in [_sh_word_path(_ShWord(raw_value, word.value.partition("=")[2], [], False, True),
                                                     environ)] if p])
-                if any(check(p, base, name, word.raw) for p in paths):
+                if any(check(p, base, name, word.raw) for p in paths) or (
+                        raw_value is None and check_pattern(_pattern_texts(word.raw, word.value), base, name, word.raw)):
                     hit = True
                     break
         if not hit:
             for path, _how, raw in _guard_redirects(s, environ, values):
                 if check(path, base, name, raw):
+                    hit = True
+                    break
+        if not hit:
+            for r in s.cmd.redirs:
+                if not isinstance(r.target, _ShHeredoc) and r.op not in ("<<<",) and \
+                        check_pattern(_pattern_texts(r.target.raw, r.target.value), base, name, r.target.raw):
                     break
     return found
+
+
+def _pattern_texts(raw: str, value: str) -> list[str]:
+    """The texts of a word that the shell expands as a pattern (`*`, `?`, `[`), for the comparison by names of D102:
+    each word of its brace expansion where the gate can expand it, else the word's value; `$HOME` and `${HOME}` at the
+    start read as `~`. A text without a pattern character is left out, as the paths of the word are judged already."""
+    texts = _sh_brace_expand(raw) if "{" in raw else None
+    if texts is None:
+        texts = [re.sub(r"^\"?\$(?:HOME\b|\{HOME\})\"?", "~", value)]
+    return [t for t in texts if _SH_GLOB_CHARS.search(t)]
 
 
 #: D103 (fallbook c01 and c02): the closed list of the forms that send a file or data to a host, read from
@@ -13794,7 +13824,10 @@ def _rm_targets(words: list[str]) -> list[int] | None:
         if options and w == "--":
             options = False
         elif options and w.startswith("--"):
-            recursive = recursive or w == "--recursive"
+            # GNU rm takes any unambiguous abbreviation of a long option (getopt_long), so `--rec` recurses too
+            # (reading of G-2, part 7, P1); every prefix of --recursive from `--r` on counts.
+            name = w.partition("=")[0]
+            recursive = recursive or (len(name) > 2 and "--recursive".startswith(name))
         elif options and w.startswith("-") and len(w) > 1:
             recursive = recursive or "r" in w[1:] or "R" in w[1:]
         else:
@@ -13802,12 +13835,30 @@ def _rm_targets(words: list[str]) -> list[int] | None:
     return operands if recursive else None
 
 
+def _pattern_stand_in(word: "_ShWord") -> list[str]:
+    """D104, for a word the gate cannot name because a folder part holds a pattern (`*`, `?`, `[`): a file in the last
+    folder written before the first part with a pattern, which the word may reach and nothing nearer, so a target
+    whose written start lies outside the work folders counts as outside (Codex on PR 441, P1). A `~` at the start is
+    read as os.path.expanduser reads it. [] for a word with a substitution or without such a part."""
+    if word.subs or not _SH_GLOB_CHARS.search(os.path.dirname(word.value)):
+        return []
+    parts = word.value.split("/")
+    k = next(i for i, p in enumerate(parts) if _SH_GLOB_CHARS.search(p))
+    start = "/".join(parts[:k])
+    if word.value.startswith("/") and not start:
+        start = "/"
+    if start == "~" or start.startswith("~/"):
+        start = os.path.expanduser(start)
+    return [os.path.join(start or ".", "x")]
+
+
 def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
     """D104 (fallbook r01, S9): a deny for a recursive delete (`rm -r`, `find … -delete`) whose target is
     not in a work folder or is the root of one, and for an append (`>>`, `&>>`, `tee -a`) into a file not in a work
     folder (_work_folders), under both hosts. A relative target of a step whose directory the gate cannot tell (after
-    a `cd` it does not resolve) and a word it cannot name keep their answer. Where the parser does not model the
-    command, nothing."""
+    a `cd` it does not resolve) and a word it cannot name keep their answer, but for a delete whose folder part holds a
+    pattern: it counts by the folder written before the pattern (_pattern_stand_in). Where the parser does not model
+    the command, nothing."""
     if steps is None:
         return []
     found = []
@@ -13826,18 +13877,22 @@ def _guard_outside(steps: list | None, cwd: str | None, environ) -> list:
         deletes, appends = [], []
         if head == "rm":
             for j in _rm_targets([w.value for w in words]) or []:
-                deletes.extend((p, words[j].raw) for p in _sh_word_paths(words[j], environ, values))
+                deletes.extend((p, words[j].raw) for p in
+                               _sh_word_paths(words[j], environ, values) or _pattern_stand_in(words[j]))
         if head == "find" and any(w.value == "-delete" for w in words):
             for w in words[1:]:
                 if w.value.startswith(("-", "(", "!")):
                     break
-                deletes.extend((p, w.raw) for p in _sh_word_paths(w, environ, values))
+                deletes.extend((p, w.raw) for p in _sh_word_paths(w, environ, values) or _pattern_stand_in(w))
         if head == "tee" and any(w.value in ("-a", "--append") or
                                  (w.value.startswith("-") and not w.value.startswith("--") and "a" in w.value)
                                  for w in words[1:]):
             appends.extend((p, w.raw) for w in words[1:] if not w.value.startswith("-")
-                           for p in _sh_word_paths(w, environ, values))
+                           for p in _sh_word_paths(w, environ, values) or _pattern_stand_in(w))
         appends.extend((p, raw) for p, how, raw in _guard_redirects(s, environ, values) if how == "append")
+        appends.extend((p, r.target.raw) for r in s.cmd.redirs
+                       if r.op in (">>", "&>>") and not isinstance(r.target, _ShHeredoc) and not r.target.literal
+                       and not _sh_word_paths(r.target, environ, values) for p in _pattern_stand_in(r.target))
         for path, raw in deletes:
             if s.cwd is None and not os.path.isabs(path) and not path.startswith("~"):
                 continue
@@ -17921,9 +17976,103 @@ def _release_door(command: str, answer: "Outcome") -> str | None:
     return None
 
 
+#: The shell joins the quoted and unquoted parts of a word and drops a backslash before a letter: `s''udo`, `\sudo`
+#: and `su"d"o` all run sudo, while the split at quotes sees `s` and `udo`.
+_RELEASE_JOIN = re.compile(r"[\\'\"]")
+#: bash's ANSI-C quoting, `$'…'`, whose escapes it decodes (`$'\x73udo'` runs sudo), and its locale quoting, `$"…"`,
+#: which a message catalog may translate (re-reading of the fixes at 21fead88, line 3, P1). The gate does not rebuild
+#: the escapes of a shell: a part with a backslash, and a locale part with text, count as not resolved (fourth reading
+#: at de05121d, line 3: it claimed `$'\0163'` is `s` in bash; measured, bash 5.1.16 and zsh 5.8.1 read `\016` and `3`,
+#: as Python does, but another shell may read it otherwise). A part without them is its text.
+_RELEASE_ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.S)
+_RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
+#: The expansions the gate does not resolve in a word: a parameter, a command substitution, an arithmetic expansion, a
+#: backquoted command and a process substitution.
+_RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
+                                r"`[^`]*`|[<>]\([^)]*\)")
+_RELEASE_UNKNOWN = "\x01"
+
+
+def _release_ansi_c(match: "re.Match") -> str:
+    return _RELEASE_UNKNOWN if "\\" in match.group(1) else match.group(1)
+
+
+def _release_locale(match: "re.Match") -> str:
+    return _RELEASE_UNKNOWN if match.group(1) else ""
+
+
 def _release_door_words(command: str) -> str | None:
+    """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (an
+    ANSI-C or locale part read where it has no escape and no text to translate, else not resolved; every quote and
+    backslash removed), so that a word the shell joins from
+    quoted parts is read as the shell reads it (reading of G-2, part 8, P1, and the re-reading of its fix). A program
+    word with an expansion the gate does not resolve counts as the door root where what is written of it may still
+    be a program of _RELEASE_ROOT (_release_unresolved_root). Words that only the assembled line forms can hold a
+    release back too: a release frees less, never more."""
+    door = _release_door_words_split(command)
+    if door is not None:
+        return door
+    # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
+    # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
+    continued = command.replace("\\\n", "")
+    assembled = _RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale, _RELEASE_ANSI_C.sub(_release_ansi_c,
+                                                                                                continued)))
+    for text in dict.fromkeys([assembled, _release_braced(assembled)]):
+        if text != command:
+            door = _release_door_words_split(text)
+            if door is not None:
+                return door
+    return _release_unresolved_door(assembled)
+
+
+def _release_braced(text: str) -> str:
+    """The text with each blank-separated word replaced by the words of its brace expansion (D100, _sh_brace_expand),
+    where the gate can expand it: `{s,x}udo` runs sudo."""
+    return "".join(" ".join(_sh_brace_expand(w) or [w]) if "{" in w else w for w in re.split(r"(\s+)", text))
+
+
+#: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.
+_RELEASE_TEXT_RUNNERS = frozenset({"eval", "source", ".", "sh", "bash", "zsh", "dash", "ksh", "watch", "runuser"})
+#: The shells, which also run the text they read from a pipe.
+_RELEASE_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+
+
+def _release_unresolved_door(assembled: str) -> str | None:
+    """The door root or signatur where a program word of a line (behind its prefix assignments and wrappers,
+    _guard_program) may still be one of their programs though the gate does not resolve it: a word with an expansion
+    (read as `*`) or a pattern (`/usr/bin/su[d]o`), compared without case with _RELEASE_ROOT and _RELEASE_SIGNERS by
+    the comparison of D102 (proofbundle_secrets.may_match). The door root also where a program that runs text
+    (_RELEASE_TEXT_RUNNERS: eval, `bash -c`) gets an expansion the gate does not resolve, and where a shell reads its
+    commands from a pipe (`printf 'su%s' do | sh`). A program word that is a path counts by its last part. Not known to
+    the gate: aliases and functions defined outside the line, and the text of a file a line sources or a shell runs."""
+    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
+    sec = _secrets()
+    parts = re.split(r"([;&|()\n]+)", marked)
+    for i in range(0, len(parts), 2):
+        words = parts[i].split()
+        if not words:
+            continue
+        k = _guard_program(words)
+        runners = [os.path.basename(w).lower() for w in words[:k + 1]]
+        if any(r in _RELEASE_TEXT_RUNNERS for r in runners) and any(_RELEASE_UNKNOWN in w for w in words[k + 1:]):
+            return "root"
+        before = parts[i - 1] if i else ""
+        if runners[-1] in _RELEASE_SHELLS and before.strip() == "|":
+            return "root"
+        name = words[k].rsplit("/", 1)[-1].lower()
+        if _RELEASE_UNKNOWN in name or _SH_GLOB_CHARS.search(name):
+            pattern = name.replace(_RELEASE_UNKNOWN, "*")
+            if any(sec.may_match(pattern, root) for root in _RELEASE_ROOT):
+                return "root"
+            if any(sec.may_match(pattern, signer) for signer in _RELEASE_SIGNERS):
+                return "signatur"
+    return None
+
+
+def _release_door_words_split(command: str) -> str | None:
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
-    names = [os.path.basename(w) for w in words]
+    # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
+    names = [os.path.basename(w).lower() for w in words]
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
     for i, name in enumerate(names):
         if name in ("git", "gh"):

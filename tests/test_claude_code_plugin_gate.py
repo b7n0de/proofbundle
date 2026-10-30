@@ -53,13 +53,14 @@ import proofbundle
 from proofbundle.decision import emit_decision_receipt
 from proofbundle.emit import emit_bundle, generate_signer
 from _plugin_env import plugin_env
-from _gate_answer import Silent, long_text, parsed, run_hook, short_text
+from _gate_answer import Silent, long_text, parsed, run_hook, short_text, skip_where_the_gate_is_not_shipped
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 HOOKS = PLUGIN / "hooks" / "hooks.json"
 
+skip_where_the_gate_is_not_shipped(GATE, ROOT)
 # Import the gate without leaving a __pycache__ in the plugin folder, which a host copies on install.
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
