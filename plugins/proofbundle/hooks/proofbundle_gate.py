@@ -17991,6 +17991,9 @@ _RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
                                 r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
+#: A dollar sign the shell keeps as text (_release_quote_parts), so that no expansion is read into it. A letter, not a
+#: control character: next to a control character `sudo` still stood at a word boundary and read as the program.
+_RELEASE_LITERAL_DOLLAR = "\u01c2"
 
 
 def _release_ansi_c(match: "re.Match") -> str:
@@ -17999,6 +18002,36 @@ def _release_ansi_c(match: "re.Match") -> str:
 
 def _release_locale(match: "re.Match") -> str:
     return _RELEASE_UNKNOWN if match.group(1) else ""
+
+
+def _release_quote_parts(text: str) -> str:
+    """The text with each ANSI-C part `$'…'` and each locale part `$"…"` read as bash reads it, and only where bash reads
+    it: outside single and double quotes. Inside single quotes `$"hello"` is those characters, inside double quotes
+    `$'\\x73udo'` is too (fifth reading of G-2, P2; measured with bash 5.1.16, printf prints [$"hello"]), and reading them
+    there held a release back that the shell never runs. A backslash outside single quotes keeps the next character."""
+    out: list[str] = []
+    i, quote = 0, ""
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if not quote and c == "$" and text[i + 1:i + 2] in ("'", '"'):
+            m = (_RELEASE_ANSI_C if text[i + 1] == "'" else _RELEASE_LOCALE).match(text, i)
+            if m:
+                out.append(_release_ansi_c(m) if text[i + 1] == "'" else _release_locale(m))
+                i = m.end()
+                continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+        elif c == "$" and (quote == "'" or (quote == '"' and text[i + 1:i + 2] in ("'", '"'))):
+            # A `$` the shell keeps as a character: every one inside single quotes, and one before a quote inside double
+            # quotes. Once the quotes are joined away, `$"hello"` would read as the parameter `$hello`.
+            c = _RELEASE_LITERAL_DOLLAR
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _release_door_words(command: str) -> str | None:
@@ -18015,8 +18048,7 @@ def _release_door_words(command: str) -> str | None:
     # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
     # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
     continued = command.replace("\\\n", "")
-    assembled = _RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale, _RELEASE_ANSI_C.sub(_release_ansi_c,
-                                                                                                continued)))
+    assembled = _RELEASE_JOIN.sub("", _release_quote_parts(continued))
     for text in dict.fromkeys([assembled, _release_braced(assembled)]):
         if text != command:
             door = _release_door_words_split(text)

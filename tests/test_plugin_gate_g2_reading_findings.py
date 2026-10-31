@@ -299,6 +299,24 @@ def test_control_a_line_whose_program_names_no_root_is_no_root_door(gate, line):
     assert gate._release_door_words(line) != "root"
 
 
+# --- Fifth reading of G-2, P2: a locale or ANSI-C part inside quotes is the text it shows ------------------------------
+
+@pytest.mark.parametrize("line", ["'$\"hello\"' -n true", "\"$'\\x73udo'\" -n true", "printf x | '$\"hello\"'"])
+def test_a_locale_or_ansi_c_part_inside_quotes_is_literal_text(gate, line):
+    """bash reads `$"…"` inside single quotes and `$'…'` inside double quotes as the characters they are (measured on
+    30.10.2026 with bash 5.1.16: printf prints [$"hello"] and [$'\\x73udo']). The gate read them as parts to translate
+    or decode, counted them as not resolved and held the release back."""
+    assert gate._release_door_words(line) != "root"
+
+
+@pytest.mark.parametrize("line", ['$"sudo" -n true', "$'\\x73udo' -n true", "s$''udo -n true", "'s'$'\\x75'do -n true",
+                                  "'$\"sudo\"' -n true"])
+def test_control_the_same_parts_outside_quotes_are_still_read(gate, line):
+    """The last case stays the door root for another reason: the gate also reads the line as written, and there the
+    quoted word names sudo once its quotes are stripped. That reading is strict on purpose and older than this fix."""
+    assert gate._release_door_words(line) == "root"
+
+
 # --- Third reading at 097cedad, line 3: the steps of bash's word formation for a program word ---------------------------
 
 ROOT_FORMS = ["s\\\nu\\\ndo -n true", "{s,x}udo -n true", "su{d,}o -n true", "eval \"$(printf 's%s' udo)\" -n true",
