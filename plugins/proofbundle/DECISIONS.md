@@ -2828,6 +2828,15 @@ Part 2, git diff without diff drivers (owner choice of follow-up note 14):
   reads attributes is git's own; a newer git that reads them from another place keeps that place unread until the
   profile names it (attr.tree and GIT_ATTR_SOURCE already ask, as a key and a GIT_* name the profile does not know).
 
+Addendum (D126, 2026-10-26): D126 supersedes part 1 for a body that names git or gh. Such a body is no longer judged by
+the words before the here-document: it gets the answer of the same text given to the interpreter as its `-c` argument,
+an ask under Claude Code and a deny under --autonomous and Codex, so the control of Q18-1 asks again as it did from
+d828c2be to d6e248a8, and the pilot's form that part 1 freed asks again where its Python names git or gh. The sentence
+that such a command "now gets the answer of `python3 file.py`, which the gate does not gate" and the limit "the Python in
+the body may start git or gh, as a file may" hold only for a body that names neither; since D126 a script file run as
+`python3 file.py` whose text names git or gh asks too. Part 1 stands for a body that names neither git nor gh, and part 2
+is unchanged.
+
 ## D40. add, commit and worktree add with one absolute -C, commit -F (2026-10-15)
 
 Measured on account A in the pilot at 14a5feb1 under Claude Code, 23:01 to 23:13 Berlin, while setting up scope 6.3.1: four
@@ -6047,3 +6056,80 @@ slices of delivery -2 carry (01, 02a, 08a, 13a, held by tests/test_plugin_verify
 from the Guard slices 02b and 02c on, both manifests register the Guard hooks. Texts that still describe the flag as
 shipped (m0/IMPLEMENTATION_GAP.md G-CC-1 and P-1, the house profile row of m0/PRODUCT_SPEC.md, the sentences of D85 and
 D113 on hooks.json) are not changed by this rule. A real Claude Code or Codex host: NOT MEASURED.
+
+## D126. Code that names git or gh asks at least, in a here-document to python and in a script file a step runs too (finding 2 of review package -1, 2026-10-26)
+
+Finding 2 of review package -1 (README.md:105, D39 part 1, D33): the README says that under class c "code that names git
+or gh asks at least". Measured in the package (push_carrier_A.json, siblings_A.json; trap scaffold repo-missing, no
+Level 2): `python3 - <<'PY'` whose body runs `os.system('git push origin main')`, and `python3 push.py`, `bash push.sh`
+and `./push.sh`, each pushing, got no decision under `--autonomous` and under `--host codex`, and both here-document
+pushes reached the local bare remote. The external review (KERN, answer K-8 and finding 3): a recognizer that misses
+interpreter input and script contents can be called an early warning only. The owner ordered this fix with its red case
+first (Nachtrag 2); Guard Preview waits for it.
+
+Measured again at 16cffca (carrier matrix of the slice, scaffold repo-missing, the hook without a flag, with --autonomous
+and with --host codex, the gate under Python 3.12): with a pushing body or script, no decision under any of the three for
+`python3 - <<'PY'`, `python - <<'PY'`, `python3 - arg <<'PY'`, `python3 push.py`, `bash push.sh`, `sh push.sh`,
+`./push.sh`, `./push.py` (a shebang) and `. push.sh`. `node - <<'JS'`, `bash <<'SH'`, `sh -s <<'SH'` and the `-c` forms
+(`python3 -c`, `node -e`, `bash -c`) asked without a flag and were denied under --autonomous and Codex. A harmless body or
+script, and a script that does not exist, got no decision anywhere.
+
+The rule:
+- A here-document of the D39 form (`python3 - [arguments] <<'MARK'` or `python - …`, the marker quoted) whose body names
+  git or gh, as class c reads the text of a carrier (_SH_GIT_TEXT), is judged as the same text given to the interpreter
+  as its `-c` argument, `python3 -c '<body>' [arguments]` (_interpreter_heredoc_head). It gets the answer of that form
+  by the path of D33: an ask under Claude Code (code_names_git, or the safety net where the whole text asks already), a
+  deny under --autonomous (D85) and under Codex. A body that names neither keeps the answer of D39. No other here-document
+  carrier was without a decision (node, bash and sh -s in the matrix, perl and python without `-` in the tests asked
+  already), so the rule stays at the D39 form. The exception D33 names since D39 holds only for a body that names
+  neither.
+- A script file a step of class c runs (_sh_script_word): the first word after an interpreter (_SH_INTERPRETER; gawk,
+  mawk and nawk aside, whose first word is a program text) or a shell (bash, sh, zsh, dash, ksh, mksh, fish, `.`,
+  `source`) where that word is literal and no option, else the program word where it is a path. The gate reads the file
+  when it answers (_sh_script_naming_git): a regular file, followed through links, of at most MAX_SCRIPT_BYTES (1 MiB),
+  its type checked by stat and again at the descriptor it opens without blocking (_read_regular, R18-2), so a FIFO, a
+  device or a folder is never read or waited on. Where its text names git or gh (_SH_GIT_TEXT), the step asks at least
+  (code_names_git: "the file … the step runs names git or gh"), as the text of a carrier does (D33), and --autonomous and
+  Codex deny it. This holds in every command class c models, for a step of a chain or a substitution too.
+- A script that names neither, does not exist, is no regular file or is longer than MAX_SCRIPT_BYTES keeps the answer
+  its step has without the file. A key path of D102 is never stat'ed or opened (the house rule denies its call). A
+  program run by path that starts with the ELF magic is a compiled program, not a script, and is not searched.
+
+Measured (tests/test_plugin_code_carrier_names_git_d126.py): 76 of 142 cases red at 16cffca on 3.12 and 3.14 (40
+here-document cases, 24 script cases, two links, the bound, and nine hook runs: the here-document, `./push.sh` and
+`python3 push.py` under the three hook forms), green here; the 66 controls green at both (a body or a script that names
+neither, a missing script, a FIFO, a key path, the carriers that asked already, the quiet carriers through the hook). The
+carrier matrix after the rule: the 27 rows of the nine carriers without a decision ask without a flag and are denied under
+--autonomous and Codex; the other 63 rows are unchanged.
+
+What it costs, measured with decide() under Claude Code at 16cffca and here: over the 80 Bash rows of the fallbook
+(tests/test_plugin_n33_fallbook.py, its 40 forms in its two repositories) and the eight gate-push cases of the eval corpus
+in their scaffolds, no answer changed (54 asks before and after); neither set holds a script or a here-document whose
+code names git or gh. Not measured on daily work: the pilot's form of D39 (Python that names git or gh in a here-document)
+asks again, two asks in ten minutes on account A when D39 was measured, and moving such Python into a file no longer
+avoids the ask; 31 of the 52 scripts under scripts/ of this repository name git or gh, so running one of them by path,
+python3 or bash now asks (owner question: whether the house moves such calls into a git step of their own).
+
+Changed tests, each where it asserted the answer of D39 this rule reverses: tests/test_plugin_heredoc_interpreter_input.py
+(test_P1_the_body_of_a_quoted_heredoc_to_python_is_no_shell_text now reads a body that names neither git nor gh; the
+pilot's body, which names both, asks under Claude Code and is denied under Codex in
+test_P1_D126_a_body_that_names_git_or_gh_gets_the_answer_of_its_c_form) and tests/test_plugin_ask_load_c_steps.py
+(test_D39_the_heredoc_python_form_of_q18_1_is_judged_as_the_file_form is now
+test_D39_D126_the_heredoc_python_form_of_q18_1_gets_the_answer_of_its_c_form).
+
+Not changed: D39 part 2; the answer of D39 for a body that names neither; every ask and every deny; the `-c` path; the
+push path, Level 2 and the CI check. No product text: README.md:105 and its neighbours keep their words until the owner
+decides them.
+
+Limits, named: this stays an early warning, not a check of every push (KERN, K-8). The gate reads words: a body or a
+script that builds the word (`'g' + 'it'`, an encoding, a variable) names no git and keeps its answer, as the same text as
+`-c` does. The file is read when the gate answers: a change after the answer, a file an earlier step of the same command
+writes (`printf … > s.sh && sh s.sh`), and code the script loads or starts from elsewhere (an import, a `source` inside
+it, another program) are not read. Kept without the file: a script the shell finds through PATH (bash searches PATH for
+`. push.sh` before the working directory), a relative script after a `cd` (its directory is unknown until class e), an
+option before the script (`python3 -u x.py`, `bash -e x.sh`), a wrapper before the program (env, sudo, exec, timeout,
+nohup, xargs, uv run, make), a script word the shell may rewrite (`~/x.sh`, `$D/x.sh`), a form the parser of class c does
+not model, and a file longer than MAX_SCRIPT_BYTES. Under Codex the hook's directory is the session's, not the call's
+working directory (D12), so a relative script is read there. A read on a filesystem that blocks a read of a regular file
+is not bounded by the gate, as no read of the gate is (NOT MEASURED). Level 2 on these carriers and a real host are NOT
+MEASURED. Tests: tests/test_plugin_code_carrier_names_git_d126.py.

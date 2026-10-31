@@ -11378,7 +11378,8 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
     (`sudo gi* status`, review round 14, R14-1); a `git --version` step, which is free only as the exact whole command (D3); a git or gh
     step with an expansion or a prefix assignment that is not neutral; a gated step (_sh_gated) that is not the first executed step at the top level after at most `cd` steps, or has a
     redirection, and every gated step under Codex. Kept and raised to at least ask: a carrier of code, or a program
-    the gate does not know, whose text names git or gh; a carrier of code that reads a git or gh step's output; git or
+    the gate does not know, whose text names git or gh; a script file a step runs whose text names git or gh (D126,
+    _sh_script_naming_git); a carrier of code that reads a git or gh step's output; git or
     gh text anywhere beside a step that runs code (a value assigned and then run by eval). Otherwise every literal file a step writes is judged like a file-tool write (decide_write), every
     git and gh step gets the gate's answer for that step alone in its directory, and a step that would be free asks
     where a step before it or beside it may change the state that answer read (_sh_changes_state). Also kept: a word
@@ -11830,6 +11831,9 @@ def _sh_judge_steps(steps: list, cwd: str, deadline: float, host: str, environ, 
                 host != "codex" and not _D117_OFF.get() and _d117_path_step(s) and
                 _d117_unshadowed({s.head}, environ)):   # D117
             raise _ShKeep(f"{s.head} carries text that names git or gh", "ask")
+        script = _sh_script_naming_git(s, environ)   # D126: the text of a script file the step runs
+        if script is not None:
+            raise _ShKeep(f"the file {script} the step runs names git or gh", "ask")
         if s.kind == "carrier" and s.pipeline_size > 1 and any(
                 t.kind in ("git", "gh", "git-x") for t in s.before[len(s.before) - s.pipeline_size + 1:]):
             raise _ShKeep(f"{s.head} reads the output of a git or gh step", "ask")
@@ -11957,7 +11961,12 @@ def _interpreter_heredoc_head(command: str) -> str | None:
     standard input whose marker the shell sees quoted. None for every other form, which keeps today's answer: an
     unquoted marker, another interpreter or a shell, a path or a wrapper as the program, an option before `-`, a second
     here-document or any other redirection, `<<-`, a chain, a pipeline, a list or a command after the marker line, and
-    every form the parser does not model."""
+    every form the parser does not model.
+
+    Since D126 (finding 2 of review package -1) a body that names git or gh, as class c reads the text of a carrier
+    (_SH_GIT_TEXT), is judged as the same text given to the interpreter as its `-c` argument: the text returned is
+    `python3 -c '<body>' [arguments]`, which gets the answer of that form (D33: an ask under Claude Code, a deny under
+    Codex). A body that names neither keeps the answer of D39."""
     try:
         tree = _sh_parse(command)
     except (_ShUnmodeled, RecursionError):
@@ -11975,7 +11984,69 @@ def _interpreter_heredoc_head(command: str) -> str | None:
     doc = cmd.redirs[0]
     if not isinstance(doc.target, _ShHeredoc) or doc.op != "<<" or doc.fd or not doc.target.quoted:
         return None
-    return " ".join(w.raw for w in cmd.words)
+    words = [w.raw for w in cmd.words]
+    if _SH_GIT_TEXT.search(doc.target.body):
+        return " ".join([words[0], "-c", shlex.quote(doc.target.body), *words[2:]])   # D126: the text as -c
+    return " ".join(words)
+
+
+#: The most bytes of a script file the gate reads to see whether its text names git or gh (D126). A longer file is not
+#: read, and its step keeps the answer it has without the file.
+MAX_SCRIPT_BYTES = 1024 * 1024
+#: The shells whose first word after the program, where it is no option, is a file of commands they run (D126).
+_SCRIPT_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", ".", "source"})
+#: The interpreters of _SH_INTERPRETER whose first word that is no option is a program text, not a file (D126).
+_SCRIPT_TEXT_FIRST = re.compile(r"^(gawk|mawk|nawk)[0-9.]*$")
+
+
+def _sh_script_word(step: "_ShStep") -> tuple[str, bool] | None:
+    """(the file a carrier step runs as its code, whether the step runs it by path) (D126): the first word after an
+    interpreter (_SH_INTERPRETER, the awk programs aside) or a shell (_SCRIPT_SHELLS) where that word is no option
+    (`python3 push.py`, `bash push.sh`, `. push.sh`), else the program word where it is a path (`./push.sh`). None for
+    every other step, and where the program word or that word is not literal: a word the shell may rewrite is not the
+    word the gate reads. An option before the file (`python3 -u push.py`, `bash -e push.sh`) and a wrapper before the
+    program (`env`, `sudo`, `exec`, `timeout`, …) keep the step's answer without the file."""
+    words = step.cmd.words
+    if step.kind != "carrier" or not words or not words[0].literal:
+        return None
+    if step.head in _SCRIPT_SHELLS or (_SH_INTERPRETER.match(step.head) and not _SCRIPT_TEXT_FIRST.match(step.head)):
+        if len(words) < 2 or not words[1].literal or not words[1].value or words[1].value.startswith(("-", "+")):
+            return None
+        return words[1].value, False
+    if "/" in words[0].value:
+        return words[0].value, True
+    return None
+
+
+def _sh_script_naming_git(step: "_ShStep", environ) -> str | None:
+    """The file of _sh_script_word as written where its text names git or gh (D126, finding 2 of review package -1),
+    else None. The file is read when the gate answers: a regular file, followed through links, of at most
+    MAX_SCRIPT_BYTES bytes, checked at the opened descriptor before anything is read (_read_regular, R18-2), so a FIFO,
+    a device or a folder is never opened for reading or waited on. A relative path is read from the step's directory and
+    keeps the answer where that directory is unknown (after a `cd`, until class e). A key path of D102 is never stat'ed
+    or opened (the house rule denies its call). A compiled program run by path (the ELF magic) is no script and is not
+    searched. A file the shell finds through PATH, code the script loads from elsewhere, and a change to the file after
+    the answer are not read: this is an early warning, not a check of every push."""
+    found = _sh_script_word(step)
+    if found is None:
+        return None
+    word, by_path = found
+    if not os.path.isabs(word) and step.cwd is None:
+        return None
+    environ = os.environ if environ is None else environ
+    if _secrets().secret_problem(word, step.cwd, environ.get("HOME")) is not None:
+        return None
+    full = word if os.path.isabs(word) else os.path.join(step.cwd, word)
+    try:
+        info = os.stat(full)   # follows a link to the file the step runs
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_SCRIPT_BYTES:
+            return None
+        raw = _read_regular(full, MAX_SCRIPT_BYTES + 1, follow=True)   # checked again at the descriptor
+    except OSError:
+        return None
+    if len(raw) > MAX_SCRIPT_BYTES or (by_path and raw.startswith(b"\x7fELF")):
+        return None
+    return word if _SH_GIT_TEXT.search(raw.decode("utf-8", "replace")) else None
 
 
 # --- the work profile of Claude Code: local work in a declared repository of b7n0de (DECISIONS.md D71) --------------
@@ -14309,7 +14380,9 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
 
     A command that is exactly `python3 - [arguments] <<'MARK'` with a quoted marker is judged by its words before the
     here-document, as `python3 file.py [arguments]` is (D39, _interpreter_heredoc_head): the body is the
-    interpreter's input, not shell text, and the gate does not read code (D8).
+    interpreter's input, not shell text, and the gate does not read code (D8). Since D126 a body that names git or gh
+    is judged as the same text given as the `-c` argument, `python3 -c '<body>' [arguments]`, and a script file a step
+    runs whose text names git or gh asks at least (_sh_script_naming_git).
 
     A parameter expansion at the program position (`$X`, `${X}`, `"$X"`, `"${X}"`) whose variable the same command
     line sets to git or gh, by name or by a path, is judged as the command with that value substituted (D67,
