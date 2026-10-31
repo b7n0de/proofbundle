@@ -45,11 +45,23 @@ PAKET_SRC = Path(proofbundle.__file__).resolve().parents[1]
 STATEMENT_V1 = "https://in-toto.io/Statement/v1"
 EINTRAG = {"name": "artifact", "digest": {"sha256": "a" * 64}}
 
+# The members eval-result v0.1 requires, each with a value the claim rule accepts, so the predicate
+# judges nothing else (tests/test_a_v01_statement_carries_its_required_members.py).
+_V01_PRAEDIKAT = {
+    "verifier": {"id": "https://b7n0de.com/proofbundle"}, "evaluatedAt": "2026-10-17T12:00:00Z",
+    "suite": {"name": "s", "version": "1"},
+    "claims": [{"metric": "m", "comparator": ">=", "threshold": "0.5", "passed": True}],
+    "sampleSize": 1,
+    "commitments": {"model": {"alg": "sha256-salted-v1", "value": "a1" * 32, "salted": True},
+                    "dataset": {"alg": "sha256-salted-v1", "value": "b2" * 32, "salted": True}},
+    "assuranceLevel": "self_attested", "subjectProfile": "receipt",
+}
+
 # The three verifiers: the payload type each one pins, the predicate type it expects by default, and
 # a predicate of that type that judges nothing else.
 FLAECHEN = {
     "eval-result": (intoto.verify_eval_result_dsse, "application/vnd.in-toto+json",
-                    "https://b7n0de.com/attestation/eval-result/v0.1", {}),
+                    "https://b7n0de.com/attestation/eval-result/v0.1", _V01_PRAEDIKAT),
     "test-result": (intoto.verify_intoto_dsse, "application/vnd.in-toto.test-result+json",
                     "https://in-toto.io/attestation/test-result/v0.1", {}),
     "svr": (intoto.verify_svr_dsse, "application/vnd.in-toto+json",
