@@ -4154,6 +4154,10 @@ away.
 Tests: tests/test_plugin_n29_work_profile_d71.py; tests/test_plugin_n20_short_line.py knows free_work_profile as a
 pass.
 
+Addendum (D130, 2026-10-26): "under Claude Code only" now reads "under Claude Code, in the gate started with
+--autonomous only". Owner answer 10 of Nachtrag 7 puts D71 behind the house's opt-in: since D125 the public hook
+commands carry no flag, and without it every form of D71 keeps the answer the gate gives without D71.
+
 ## D72. The short line names the step that decides (2026-10-18)
 
 Account A's review of the real mishaps from 2026-09-27 to 2026-10-18 at 0efaf38d: of 13 mishaps the gate sees before Bash it
@@ -6389,3 +6393,65 @@ the standing GO") and does not name the missing setting. No product text names t
 answer in m0/PRODUCT_SPEC.md still lists the standing GO under `--autonomous`, and pilot/RUNBOOK.md does not say that
 the service's `environment` needs the setting beside `"autonomous": true`; the README and these texts are unchanged in
 this slice. How the house sets it on its own machines, and a real Claude Code host: NOT MEASURED.
+
+## D130. The work profile of D71 applies only in the gate started with --autonomous, the house's opt-in (owner answer 10 of Nachtrag 7, 2026-10-26)
+
+Owner answer 10 of Nachtrag 7 of 2026-10-26, option A: "D71 in the public default: A, in -4 behind the house's opt-in."
+The finding that prompted the question: D71 stood in the base decision path (_decide_judged calls _work_profile), so it
+applied without any flag, and since D125 the public hook commands carry none. A contributor's clone of a repository of
+b7n0de, one that declares and whose every remote is https://github.com/b7n0de/<repo>, got the owner's work profile in
+the public default: the reads, the local changes that can be taken back and `gh pr merge --auto` of D71 passed without a
+question. D125 made the autonomous answer and the standing GO of D87 the house's opt-in; D71 is no part of the
+autonomous answer and stayed in the default.
+
+Measured at f21f785d (tests/test_plugin_work_profile_house_d130.py, Python 3.12.3 and 3.14.6): 11 of 30 cases red.
+Without the flag tool_outcome passed `git stash`, `git checkout topic`, `git commit --amend --no-edit`, `git tag -l`,
+`git bundle create <file> main`, `gh pr merge 12 -R b7n0de/proofbundle --auto --merge` and `gh pr edit 12 -R
+b7n0de/proofbundle --body text` with free_work_profile, where the base path without D71 asks (git_form_not_free for the
+git forms, net_unmodeled_git for the gh forms); an ask of `git commit --amend --no-edit` whose check found a pre-commit
+hook carried the note of D71 in its text; and the PreToolUse command of hooks/hooks.json, run as the host runs it, let
+`git stash`, `git checkout topic` and the `gh pr merge --auto` form pass without a word. The order's example `git commit
+-m work` is no form D71 frees in that repository: the state check of D3 frees it (free_after_state_check), with and
+without the flag, and it is a control.
+
+The rule: decide() takes autonomous, the hook's --autonomous as main hands it to tool_outcome (AUTONOMOUS_FLAG), and
+_decide_judged runs the step of D71 (_work_profile) only with it, in both judgments of D117. Without the flag every form
+D71 frees gets the answer decide() gives without D71: a deny stays a deny, an ask an ask, and the note of D71 in the
+text of an ask goes with it. With the flag D71 frees as before, ahead of the autonomous answer of D85; a call of a
+rewrite of D85 is judged by decide() with the flag (_autonomy_judge), as the gate started with it judges, so a chain of
+two gh forms of D71 still gets the rewrite into two free calls (umweg) and not the card of D93. Under Codex D71 never
+applied, with or without the flag. The signer service of the pilot decides with tool_outcome and its operator's
+"autonomous" (D119), so it frees a form of D71 only where the operator set it, as for the hook it decides for. An
+addendum at the end of D71 names the rule.
+
+Not changed: _work_profile, its forms (_work_form), the repositories it applies to (_work_repo_problem) and its checks;
+every other step of the base path; D87, D91, D92 and D93, which read the profile of D71 for themselves and apply only in
+the autonomous answer already; the hook commands of both manifests (D125); every answer under Codex, which never had
+D71. No product text names D71 as a default, so README.md and m0/PRODUCT_SPEC.md are unchanged.
+
+Changed tests, each where it tested what D71 frees, or the gate with the flag, through decide() or the hook started
+without it; at the fix without these changes 64 of their cases failed on Python 3.12:
+- tests/test_plugin_n29_work_profile_d71.py (49): _decide judges with autonomous, so do the case of the note of D71 in
+  an ask and, through it, the controls of the repositories, the counter cases and Codex; the hook of Claude Code in
+  test_D71_the_hook_as_the_host_runs_it starts with --autonomous, the one of Codex without, as its manifest does.
+- tests/test_plugin_n30_house_rules_d73.py (3): the counter cases and test_D73_a_house_rule_goes_before_D71 judge with
+  the flag (_house); `gh pr merge --auto` and `git tag -l` are counter cases there as forms D71 frees.
+- tests/test_plugin_n31_own_config_d74.py (6): the forms of D71 with the block of git-lfs, and the control of the forms
+  that bring another tree, judge with the flag; the control was green without it, but tested no D71 there.
+- tests/test_plugin_n37_local_class_d91.py (6, test_D91_control_d71_keeps_its_own_pass_in_b7n0de): answered, the
+  answer of the gate started with the flag (decide, then the autonomous answer), gives decide() the flag. The tests of
+  D106, D114 and D115, D117 and D124 that read answered judge with it as before.
+
+Green at the fix, on Python 3.12.3 and 3.14.6: tests/test_plugin_work_profile_house_d130.py, 30 of 30; and, one run per
+interpreter, the 46 test files that read D71, its tests' helpers or `_work_profile` (the grep of the tests for
+free_work_profile, the D71 module and _work_profile, 33 files), the short line of D72, the bundle reads of D99, the
+signer service and its release capacity, and the readers of DECISIONS.md, of the manifests and of the gate's source
+(decision numbers, D53, owner choice 1, the signer's texts, both plugin manifests, strict decoding, module names): 2769
+passed on each.
+
+Not covered, and named: the house configuration that starts the gate with the flag is no file of the plugin (D125), and
+how the house adds the flag on its own machines is not measured here. The flag is one switch: the house cannot have D71
+without the autonomous answer of D85 to D93, nor the reverse. In the public default the forms of D71 ask again under
+Claude Code (26 forms of account A's command heads in the measurement of D71); what that costs in asks outside the house
+is NOT MEASURED. The sentences of earlier decisions that call a form free under D71 (D73, D74, D76, D91, D92, D99) speak
+of the house configuration since this rule and are not changed. A real Claude Code host: NOT MEASURED.
