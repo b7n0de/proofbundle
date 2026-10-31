@@ -1,19 +1,22 @@
-"""After a Codex update: does the installed Codex still load both hooks of the gate? No model turn.
+"""After a Codex update: does the installed Codex still load every hook of the gate? No model turn.
 
     python3 plugins/proofbundle/evals/corpus_codex_hooks.py [--codex PATH]   (from the repository root)
 
 Installs the plugin from this repository's marketplace into a throwaway CODEX_HOME (`codex plugin
 marketplace add`, `codex plugin add`), asks the local app-server (`hooks/list`) which hooks it loaded, and
 prints one JSON object: the Codex version, the hooks with their matcher, command and source file, and
-"ok" true only for exactly the two PreToolUse hooks of the gate with --host codex. Nothing leaves the
-machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says why this can fail.
+"ok" true only for exactly the hooks the Codex manifest registers, each starting the gate with --host codex as the
+gate reads it. Nothing leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says
+why this can fail.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import pathlib
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,8 +24,42 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-MATCHERS = ["Bash", "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|"
-            "create_or_update_file|merge_pull_request)$"]
+MANIFEST = ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json"
+
+
+def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | None]]:
+    """(event, matcher) of every hook the Codex manifest registers, in its order, the event named as the app server
+    names it (PreToolUse as preToolUse, Stop as stop) and no matcher as None. The expectation is read from the
+    manifest, so a hook added there is expected here too."""
+    hooks = json.loads(manifest.read_text(encoding="utf-8"))["hooks"]["hooks"]   # the manifest nests them
+    return [(event[:1].lower() + event[1:], entry.get("matcher") or None) for event, entries in hooks.items()
+            for entry in entries]
+
+
+def passes_host_codex(command: object) -> bool:
+    """True only when the hook's first command starts proofbundle_gate.py with the words the gate reads as host codex
+    (its _host: exactly --host codex, after `stop` for the Stop hook, --autonomous aside). A substring such as
+    --host codex-x, or the words in a later command after ||, does not count."""
+    if not isinstance(command, str):
+        return False
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:   # an unclosed quote: a line no shell runs
+        return False
+    first = list(itertools.takewhile(lambda word: word.strip("();<>|&"), words))   # up to the first operator
+    gate = next((i for i, word in enumerate(first)
+                 if word.replace("\\", "/").rsplit("/", 1)[-1] == "proofbundle_gate.py"), None)
+    if gate is None:
+        return False
+    return [word for word in first[gate + 1:] if word != "--autonomous"] in (["--host", "codex"],
+                                                                              ["stop", "--host", "codex"])
+
+
+def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
+    """True only for exactly the expected hooks, in their order, each started with --host codex."""
+    return [(h["event"], h["matcher"] or None) for h in hooks] == expected and all(h["host_codex"] for h in hooks)
 
 
 def _ask(proc: subprocess.Popen, message: dict, timeout: float = 60) -> dict:
@@ -75,13 +112,12 @@ def main(argv: list[str]) -> int:
                 proc.kill()
         data = (reply.get("result") or {}).get("data") or [{}]
         hooks = [{"event": h.get("eventName"), "matcher": h.get("matcher"),
-                  "host_codex": "--host codex" in (h.get("command") or ""),
+                  "host_codex": passes_host_codex(h.get("command")),
                   "source": pathlib.Path(h.get("sourcePath") or "").relative_to(home).as_posix()
                   if (h.get("sourcePath") or "").startswith(home) else h.get("sourcePath"),
                   "trust": h.get("trustStatus")}
                  for h in data[0].get("hooks", []) if h.get("pluginId") == "proofbundle@proofbundle"]
-        ok = ([h["matcher"] for h in hooks] == MATCHERS and all(h["event"] == "preToolUse" and h["host_codex"]
-                                                               for h in hooks))
+        ok = judge(hooks, expected_hooks())
         print(json.dumps({"ok": ok, "codex": version, "hooks": hooks, "errors": data[0].get("errors")}, indent=1))
         return 0 if ok else 1
     finally:

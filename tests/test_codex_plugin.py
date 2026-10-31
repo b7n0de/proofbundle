@@ -1,0 +1,694 @@
+"""The Codex side of the proofbundle plugin (plugins/proofbundle/.codex-plugin/plugin.json).
+
+One folder serves Claude Code and Codex. These tests hold the Codex manifest to the files the Claude
+Code manifest uses, and hold the gate's Codex answers to what Codex accepts. The Codex facts come from
+the Codex source, openai/codex at c248f6d4 (codex-rs):
+- a PreToolUse answer may carry only continue, stopReason, suppressOutput, systemMessage, decision,
+  reason and hookSpecificOutput, which in turn may carry only hookEventName, permissionDecision,
+  permissionDecisionReason, updatedInput and additionalContext (hooks/src/schema.rs);
+- ask is unsupported, and an unsupported answer fails the hook and lets the call run
+  (hooks/src/engine/output_parser.rs, hooks/src/events/pre_tool_use.rs);
+- a reason without a decision is unsupported too;
+- an answer without a decision, carrying only systemMessage and additionalContext, is accepted and
+  lets Codex's own approval flow decide;
+- a plugin's MCP entry gets no ${CLAUDE_PLUGIN_ROOT} expansion, and its relative cwd is joined onto the
+  plugin root (codex-mcp/src/plugin_config.rs);
+- on install, Codex copies regular files and drops symlinks (core-plugins/src/store.rs).
+
+Properties checked:
+- both manifests name the same plugin and version, and reach the same server, gate and skills;
+- no file of the plugin's logic exists twice, and no symlink exists, so nothing can drift or vanish on
+  install;
+- under --host codex the gate never answers ask or allow, turns every NOT MEASURED ask into deny, and
+  uses only fields Codex accepts;
+- a repository the gate measured to declare nothing, neither at HEAD nor in the working tree, gets an
+  answer without a decision under both hosts, which Codex accepts, marked NOT MEASURED and saying the
+  gate is not active there (D5, C; D12); a declaration only in the working tree is still denied;
+- the Codex MCP entry, run from the plugin root, starts the server and tells it its host;
+- under Codex, verify_receipt says that it cannot see whether the gate ran, and the verify skill passes
+  that on and never claims the gate ran (Codex runs plugin hooks only after the user trusts them);
+- the second matcher, for MCP tools that open a pull request or a release, push files, write a file or
+  merge a pull request, is the same under both hosts, and under Codex such a call in a repository that
+  declares nothing gets no decision, marked NOT MEASURED;
+- the emit skill runs only when invoked, under both hosts;
+- the runbook for the Mac run of a real Codex turn names every case with the answer it expects, and each
+  case's scaffold mode exists;
+- while the gate has hooks, the folder carries no plugin.json or mcp.json in the Agent Plugins format,
+  and no root plugin.json that is a link or not a regular file: Codex 0.159.2 reads such a root manifest
+  and then loads no plugin hooks, or finds no manifest at all (DECISIONS.md, D14).
+"""
+from __future__ import annotations
+
+import base64
+import collections
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+import proofbundle
+from proofbundle.emit import emit_bundle, generate_signer
+from _gate_answer import Silent, long_text, parsed, run_hook, short_text
+from _plugin_env import plugin_env, put_stand_in_uv_on_path
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PLUGIN = ROOT / "plugins" / "proofbundle"
+CLAUDE = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+CODEX = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+CLAUDE_HOOKS = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
+RUNBOOK = PLUGIN / "RUNBOOK_CODEX.md"
+
+_bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+sys.path.insert(0, str(GATE.parent))
+from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+                                   pathlib.Path(__file__).resolve().parent.parent)
+import proofbundle_gate as gate  # noqa: E402
+
+#: The reasons of the destination check, where every Level 1 push under Claude Code ends since R9-1.
+DESTINATION = ("git push also matches ", "this repository records ", "git push looks up ")
+
+sys.path.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def _clean_git_config(monkeypatch):
+    """Isolate git configuration so the gate reads the clean config the owner measured in throwaway repos
+    (round 5). A CI/agent proxy may inject a global url.*.insteadOf through GIT_CONFIG_COUNT/KEY_*/VALUE_*
+    or a global config file, and Ebene 1 now reports NOT MEASURED whenever ANY insteadOf/pushInsteadOf rule
+    is configured (Punkt 9); without isolation every resolve-path case would read NOT MEASURED from an
+    unrelated environment rule."""
+    import os  # noqa: PLC0415
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+sys.dont_write_bytecode = _bytecode
+
+#: The marketplace files Codex looks for, first match wins (core-plugins/src/marketplace.rs:20-25).
+CODEX_MARKETPLACE_CANDIDATES = (".agents/plugins/marketplace.json", ".agents/plugins/api_marketplace.json",
+                                ".claude-plugin/marketplace.json", ".cursor-plugin/marketplace.json")
+CODEX_TOP_KEYS = {"continue", "stopReason", "suppressOutput", "systemMessage", "decision", "reason",
+                  "hookSpecificOutput"}
+CODEX_SPECIFIC_KEYS = {"hookEventName", "permissionDecision", "permissionDecisionReason", "updatedInput",
+                       "additionalContext"}
+
+
+def _codex_hook_matcher() -> str:
+    """The MCP matcher exactly as the Codex manifest writes it, read from the file and not from the gate."""
+    return CODEX["hooks"]["hooks"]["PreToolUse"][1]["matcher"]
+
+
+def _codex_hook() -> dict:
+    groups = CODEX["hooks"]["hooks"]["PreToolUse"]
+    # D28: the Stop hook of the done check runs from the same folder; tests/test_plugin_done_check.py holds its form
+    assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse", "Stop"}
+    # follow-up note 19b, Punkt 7/8: the Bash and MCP matchers are Claude's; the file matcher adds Codex's apply_patch,
+    # whose hook name is apply_patch with the matcher aliases Write and Edit (Codex at 14a477ea, hook_names.rs)
+    assert [g["matcher"] for g in groups][:2] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]][:2]
+    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER,
+                                              "^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$"]
+    assert groups[0]["hooks"] == groups[1]["hooks"] == groups[2]["hooks"]
+    (entry,) = groups[0]["hooks"]
+    return entry
+
+
+# --- the manifests reach the same files --------------------------------------------------------------
+
+def test_both_manifests_name_the_same_plugin_and_version():
+    assert CODEX["name"] == CLAUDE["name"] == "proofbundle"
+    assert CODEX["version"] == CLAUDE["version"]
+
+
+def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
+    assert CODEX["skills"] == "./skills"
+    (server,) = CODEX["mcpServers"].values()
+    mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
+    (claude_server,) = mcp["mcpServers"].values()
+    assert server["command"] == claude_server["command"] == "uv"
+    assert server["cwd"] == "."
+    assert server["args"][:-1] == claude_server["args"][:-1] == ["run", "--quiet", "--no-config", "--script"]
+    assert (PLUGIN / server["cwd"] / server["args"][-1]).resolve() == SERVER
+    assert claude_server["args"][-1] == "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"
+    assert "${" not in json.dumps(server), "Codex does not expand placeholders in an MCP entry"
+    assert server["env"] == {"PROOFBUNDLE_PLUGIN_HOST": "codex"}
+    assert "env" not in claude_server
+    entry = _codex_hook()
+    (claude_entry,) = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"]
+    # changed in follow-up note 35 (D85): the Claude Code hook starts the gate with --autonomous, the Codex hook never does
+    assert entry["command"] == claude_entry["command"].replace(
+        '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous',
+        '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex')
+    assert entry["timeout"] == claude_entry["timeout"]
+
+
+def test_the_host_start_commands_isolate_the_interpreter_and_the_server():
+    """R3-4: the host starts the gate with python3 -I, so no PYTHONPATH, user site or sitecustomize runs
+    before it, and starts the MCP server with uv --no-config, so no uv.toml in the checked repository
+    changes it. Both manifests, read from the files. Red against 3026924e, whose starts had neither."""
+    claude_gate = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    for group in CODEX["hooks"]["hooks"]["PreToolUse"]:
+        assert group["hooks"][0]["command"].startswith("python3 -I "), "the Codex gate start isolates"
+    assert claude_gate.startswith("python3 -I "), "the Claude gate start isolates"
+    claude_mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert "--no-config" in list(claude_mcp.values())[0]["args"]
+    assert "--no-config" in list(CODEX["mcpServers"].values())[0]["args"]
+
+
+def test_interpreter_isolation_neutralises_a_sitecustomize_bypass(shim, tmp_path):
+    """R3-4, the reviewer's sitecustomize probe: a sitecustomize.py on PYTHONPATH runs at interpreter
+    start, before the gate. Here it answers {} with exit 0, which would let any call through. python3 -I,
+    the way the host starts the gate, ignores PYTHONPATH and never loads it, so the gate's own deny stands.
+    """
+    repo = _repo(tmp_path, declare=True, tamper=True)  # a tampered bundle: the gate denies
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(
+        "import json, os, sys\nsys.stdout.write(json.dumps({}))\nsys.stdout.flush()\nos._exit(0)\n",
+        encoding="utf-8")
+    env = dict(shim, PYTHONPATH=os.pathsep.join([str(site), shim["PYTHONPATH"]]))
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
+                        "tool_input": {"command": "git push origin main"}})
+    bypassed = subprocess.run([sys.executable, str(GATE)], input=event, capture_output=True, text=True,
+                              env=env, timeout=120, check=False)
+    assert bypassed.stdout.strip() == "{}", "without -I the sitecustomize answers in the gate's place"
+    isolated = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True,
+                              env=env, timeout=120, check=False)
+    assert isolated.returncode == 0, isolated.stderr
+    assert json.loads(isolated.stdout)["hookSpecificOutput"].get("permissionDecision") == "deny"
+
+
+def test_no_logic_file_exists_twice_and_no_symlink_exists():
+    files = [p for p in PLUGIN.rglob("*") if "__pycache__" not in p.parts]
+    assert not [p for p in files if p.is_symlink()], "Codex drops symlinks on install"
+    logic = [p for p in files if p.is_file() and "evals" not in p.relative_to(PLUGIN).parts]
+    by_digest = collections.defaultdict(list)
+    for path in logic:
+        by_digest[hashlib.sha256(path.read_bytes()).hexdigest()].append(path.relative_to(PLUGIN))
+    assert [paths for paths in by_digest.values() if len(paths) > 1] == []
+    for name in ("proofbundle_mcp.py", "proofbundle_gate.py"):
+        assert len(list(ROOT.joinpath("plugins").rglob(name))) == 1, name
+
+
+def test_every_skill_has_what_codex_requires():
+    for skill in sorted((PLUGIN / "skills").glob("*/SKILL.md")):
+        lines = skill.read_text(encoding="utf-8").split("\n")
+        head = lines[1:lines.index("---", 1)]
+        fields = dict(line.split(":", 1) for line in head)
+        assert fields.get("description", "").strip(), f"{skill}: Codex requires a description"
+        assert len(skill.parent.name) <= 64
+
+
+def test_the_emit_skill_runs_only_when_invoked_under_both_hosts():
+    head = (PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8").split("\n---\n", 1)[0]
+    assert "disable-model-invocation: true" in head.split("\n")
+    policy = (PLUGIN / "skills" / "emit" / "agents" / "openai.yaml").read_text(encoding="utf-8")
+    body = [line for line in policy.split("\n") if line and not line.startswith("#")]
+    assert body == ["policy:", "  allow_implicit_invocation: false"]
+    for other in ("verify", "review-receipt"):
+        assert not (PLUGIN / "skills" / other / "agents").exists()
+
+
+def test_the_marketplace_entry_matches_both_manifests():
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    (entry,) = market["plugins"]
+    assert entry["source"] == "./plugins/proofbundle"
+    assert entry["name"] == CODEX["name"] == CLAUDE["name"]
+    present = [path for path in CODEX_MARKETPLACE_CANDIDATES if (ROOT / path).is_file()]
+    assert present == [".claude-plugin/marketplace.json"], "one marketplace file for both hosts (D15)"
+
+
+# --- the gate's Codex answers ------------------------------------------------------------------------
+
+def _git(repo: pathlib.Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.org",
+                    "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+
+@pytest.fixture
+def shim(tmp_path: pathlib.Path, monkeypatch) -> dict:
+    """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package, for the processes
+    the test starts and for the gate it calls in-process."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (bin_dir / "uv").chmod(0o755)
+    package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
+    env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
+    put_stand_in_uv_on_path(bin_dir, monkeypatch)
+    return env
+
+
+def _repo(tmp_path: pathlib.Path, *, declare: bool, tamper: bool = False) -> pathlib.Path:
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "README.md").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "c")
+    if declare:
+        subject = {"algorithm": gate.TREE_ALGORITHM, "digest": gate.tree_digest(str(repo), "HEAD")}
+        signer = generate_signer()
+        bundle = emit_bundle(json.dumps({"subject": subject}).encode(), signer)
+        if tamper:
+            raw = bytearray(base64.b64decode(bundle["payload_b64"]))
+            raw[0] ^= 1
+            bundle["payload_b64"] = base64.b64encode(bytes(raw)).decode()
+        (repo / ".proofbundle").mkdir()
+        (repo / ".proofbundle" / "b.json").write_text(json.dumps(bundle), encoding="utf-8")
+        key = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
+        (repo / ".proofbundle" / "policy.json").write_text(json.dumps({
+            "schema": "proofbundle/trust-policy/v0.1", "policy_id": "p", "allowed_issuers": [{"public_key_b64": key}],
+            "signature": {"require_expected_signer": True}}), encoding="utf-8")
+        (repo / ".proofbundle" / "evidence.json").write_text(json.dumps({
+            "schema": gate.DECLARATION_SCHEMA,
+            "evidence": [{"kind": "bundle", "path": ".proofbundle/b.json", "policy": ".proofbundle/policy.json",
+                          "subject": subject}]}), encoding="utf-8")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "evidence")
+    # A bare remote and a remote-tracking ref for main, so `git push origin main` resolves to a target this
+    # repository already tracks (DECISIONS.md, D3); an undeclared repository then resolves to inactive, not
+    # to the NOT MEASURED of an unresolved push.
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
+    _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
+    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+    return repo
+
+
+def _run(env: dict, repo: pathlib.Path, *args: str, command: str = "git push origin main",
+         tool: str = "Bash") -> dict | None:
+    tool_input = {"command": command} if tool == "Bash" else {"owner": "o", "repo": "r", "title": "t"}
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(repo),
+                        "tool_input": tool_input})
+    proc, entry = run_hook([sys.executable, str(GATE), *args], event, env)
+    assert proc.returncode == 0, proc.stderr
+    return parsed(proc, entry)   # D53: Silent for a pass, which prints nothing
+
+
+def _codex_valid(answer: dict) -> str:
+    """The decision Codex would take from this answer, after checking Codex would accept it at all. Since D53 a pass
+    prints nothing, and a deny carries the short line in permissionDecisionReason (Codex has no dialog), while the
+    model gets the long reason with what failed and the next step in additionalContext."""
+    if isinstance(answer, Silent):
+        assert answer.entry["verdict"] == "pass", answer
+        return "pass"
+    assert set(answer) <= CODEX_TOP_KEYS
+    specific = answer["hookSpecificOutput"]
+    assert set(specific) <= CODEX_SPECIFIC_KEYS
+    assert specific["hookEventName"] == "PreToolUse"
+    decision = specific.get("permissionDecision")
+    assert decision in (None, "deny"), "Codex rejects ask, and allow without updatedInput"
+    if decision is None:
+        assert "permissionDecisionReason" not in specific, "Codex rejects a reason without a decision"
+        assert set(specific) == {"hookEventName", "additionalContext"}
+        assert set(answer) == {"systemMessage", "hookSpecificOutput"}
+        return "pass"
+    assert specific["permissionDecisionReason"] == short_text(answer)
+    for part in ("Evidence: ", ". Failed: ", ". Next step: ", gate.WEAKEN_RULE):
+        assert part in specific["additionalContext"], part
+    return "deny"
+
+
+INACTIVE = "The gate is not active in this repository, because nothing is declared."
+
+
+def _codex_warns(answer: dict) -> None:
+    """Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its NOT MEASURED reason (the hook does not
+    bind the workdir) and only warns: an answer Codex accepts, with no decision, the reason and the warning."""
+    assert _codex_valid(answer) == "pass", answer
+    text = long_text(answer)
+    assert text.startswith("NOT MEASURED:") and "workdir" in text
+    assert text.endswith(gate.CODEX_PUSH_WARNING)
+    assert short_text(answer).startswith("Gate warns at git push because ")   # D53: the user's short line
+    assert "Codex cannot ask" not in text
+
+
+def _rev(repo: pathlib.Path, rev: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", rev], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under_codex(shim, tmp_path):
+    # Owner choice A (R5-2): under Codex a push is NOT MEASURED, because the hook cannot bind the execution workdir,
+    # and since Karte 5 A it warns with that reason instead of denying. Under Claude a nothing-declared push was
+    # inactive with no decision (D5, C) while its target resolved; from R9-1 on Level 1 asked, the destination NOT
+    # MEASURED; since owner choice 1 A of 2026-10-11 (D5) it is locally inactive again, with no decision, and the
+    # pre-push hook still finds nothing declared.
+    repo = _repo(tmp_path, declare=False)
+    (repo / "README.md").write_text("y\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "d")
+    claude = _run(shim, repo)
+    assert "permissionDecision" not in claude["hookSpecificOutput"], claude
+    assert long_text(claude).startswith("NOT MEASURED: the gate checks nothing here.")
+    assert INACTIVE in long_text(claude)
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert (verdict.decision, verdict.reason_id) == ("inactive", "nothing_declared"), verdict.text()
+    codex = _run(shim, repo, "--host", "codex")
+    _codex_warns(codex)
+    assert INACTIVE not in long_text(codex)  # the gate never reached the repository's state
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_a_declaration_only_in_the_working_tree_is_not_measured_and_warns(shim, tmp_path):
+    repo = _repo(tmp_path, declare=False)
+    (repo / "README.md").write_text("y\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "d")
+    (repo / ".proofbundle").mkdir()
+    (repo / ".proofbundle" / "evidence.json").write_text(json.dumps(
+        {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
+    claude = _run(shim, repo)
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"   # Level 1 asks at the destination (R9-1)
+    assert any(d in long_text(claude) for d in DESTINATION), long_text(claude)   # that reason (R10-4)
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert "not committed" in verdict.text()  # the pre-push hook reaches the uncommitted-declaration case
+    codex = _run(shim, repo, "--host", "codex")
+    # Under Codex the push is NOT MEASURED before the repository is read, so the reason is the unbound context.
+    _codex_warns(codex)
+    assert "not committed" not in long_text(codex)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_every_not_measured_push_warns_while_claude_asks(shim, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    _git(fresh, "init", "-q")
+    empty = _repo(tmp_path / "empty", declare=False)
+    (empty / ".proofbundle").mkdir()
+    (empty / ".proofbundle" / "evidence.json").write_text(json.dumps(
+        {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
+    _git(empty, "add", "-A")
+    _git(empty, "commit", "-q", "-m", "empty declaration")
+    cases = [(plain, "git push"), (fresh, "git push"), (empty, "git push")]
+    for where, command in cases:
+        codex = _run(shim, where, "--host", "codex", command=command)
+        _codex_warns(codex)
+        claude = _run(shim, where, command=command)
+        assert claude["hookSpecificOutput"]["permissionDecision"] == "ask", (where, command)
+    # Owner choice K5-1 C: a push that is not the plain form (here a chain) is denied under Codex, still asks under
+    # Claude Code.
+    unresolved = _repo(tmp_path / "unresolved", declare=False)
+    codex = _run(shim, unresolved, "--host", "codex", command="cd $SOMEWHERE && git push")
+    assert _codex_valid(codex) == "deny" and "plain form" in long_text(codex), codex
+    assert not long_text(codex).endswith(gate.CODEX_PUSH_WARNING)
+    claude = _run(shim, unresolved, command="cd $SOMEWHERE && git push")
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_every_push_is_not_measured_whatever_the_evidence(shim, tmp_path):
+    # Owner choice A (R5-2): under Codex a push is NOT MEASURED before the repository is read, so a tampered
+    # bundle and a verified one get the SAME context-unbound reason, not an evidence verdict; since Karte 5 A both
+    # warn with it. The per-state verdicts are the Claude-host / Ebene-2 property (test_claude_code_plugin_gate.py).
+    tampered = _run(shim, _repo(tmp_path / "a", declare=True, tamper=True), "--host", "codex")
+    _codex_warns(tampered)
+    assert "verification failed" not in long_text(tampered)
+    verified = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex")
+    _codex_warns(verified)
+    assert "declared items verified" not in long_text(verified)
+
+
+def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path):
+    assert _run(shim, tmp_path, "--host", "codex", command="ls -la") is None
+    assert _run(shim, tmp_path, "--host", "codex", tool="mcp__github__delete_file") is None
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_an_mcp_pull_request_is_gated_like_a_push(shim, tmp_path):
+    # Round 6, R6-1: under Codex a gated MCP write is NOT MEASURED and denied, whatever the local repository
+    # declares; the local check appears only as a diagnosis.
+    undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex",
+                      tool="mcp__github__create_pull_request")
+    assert _codex_valid(undeclared) == "deny"
+    assert long_text(undeclared).startswith("NOT MEASURED:") and "Diagnosis only" in long_text(undeclared)
+    declared = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool="mcp__gitlab__create_merge_request")
+    assert _codex_valid(declared) == "deny"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("tool", ["mcp__github__push_files", "mcp__github__create_or_update_file",
+                                  "mcp__github__merge_pull_request"])
+def test_under_codex_an_mcp_write_or_merge_is_gated_like_a_push(shim, tmp_path, tool):
+    import re  # noqa: PLC0415
+    assert re.search(_codex_hook_matcher(), tool)
+    undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex", tool=tool)
+    assert _codex_valid(undeclared) == "deny"  # round 6, R6-1
+    assert long_text(undeclared).startswith("NOT MEASURED:") and "Diagnosis only" in long_text(undeclared)
+    assert _codex_valid(_run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool=tool)) == "deny"
+
+
+@pytest.mark.parametrize("args", [["--host"], ["--host", "cursor"], ["--hots", "codex"], ["codex"]])
+def test_an_unknown_argument_denies_every_call(shim, tmp_path, args):
+    answer = _run(shim, tmp_path, *args, command="ls -la")
+    specific = answer["hookSpecificOutput"]
+    assert set(answer) <= CODEX_TOP_KEYS and set(specific) <= CODEX_SPECIFIC_KEYS
+    assert specific["permissionDecision"] == "deny" and "unknown arguments" in long_text(answer)
+    # D53: the host is not known, so the answer has the Claude Code form, the long reason in permissionDecisionReason
+    assert specific["permissionDecisionReason"] == long_text(answer)
+
+
+def test_the_codex_hook_entry_blocks_when_the_gate_cannot_run(tmp_path):
+    entry = _codex_hook()
+    event = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "ls"}})
+    ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
+                        env=plugin_env(PLUGIN_ROOT=str(PLUGIN)), check=False)
+    assert (ok.returncode, ok.stdout) == (0, "")
+    gone = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
+                          env=plugin_env(PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
+    assert gone.returncode == 2
+    assert gone.stderr.strip(), "Codex blocks on exit 2 only with a reason on stderr"
+
+
+# --- the Codex MCP entry -----------------------------------------------------------------------------
+
+def test_the_codex_mcp_entry_run_from_the_plugin_root_starts_the_server(shim):
+    (server,) = CODEX["mcpServers"].values()
+    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n"
+    proc = subprocess.run([server["command"], *server["args"]], input=request, capture_output=True, text=True,
+                          cwd=PLUGIN / server["cwd"], env=dict(shim, **server["env"]), timeout=60, check=False)
+    reply = json.loads(proc.stdout.splitlines()[0])
+    assert reply["result"]["serverInfo"]["name"] == "proofbundle"
+
+
+def _verify_result(env: dict, bundle_path: pathlib.Path) -> dict:
+    lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+             {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "verify_receipt", "arguments": {"kind": "bundle", "path": str(bundle_path)}}}]
+    proc = subprocess.run([sys.executable, str(SERVER)], input="".join(json.dumps(m) + "\n" for m in lines),
+                          capture_output=True, text=True, env=env, timeout=60, check=False)
+    reply = [json.loads(line) for line in proc.stdout.splitlines()][1]
+    return json.loads(reply["result"]["content"][0]["text"])
+
+
+def test_under_codex_verify_says_it_cannot_see_whether_the_gate_ran(shim, tmp_path):
+    bundle = tmp_path / "b.json"
+    bundle.write_text(json.dumps(emit_bundle(b"x", generate_signer())), encoding="utf-8")
+    under_codex = _verify_result(dict(shim, PROOFBUNDLE_PLUGIN_HOST="codex"), bundle)
+    note = under_codex["gate_note"]
+    assert "trust" in note and "cannot see" in note and "ran" in note
+    under_claude = _verify_result({k: v for k, v in shim.items() if k != "PROOFBUNDLE_PLUGIN_HOST"}, bundle)
+    assert "gate_note" not in under_claude
+
+
+def test_the_verify_skill_passes_the_note_on_and_never_claims_the_gate_ran():
+    text = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
+    assert "`gate_note`" in text
+    assert "Never state that the pre-push gate ran" in text
+
+
+# --- the runbook for the Mac run ---------------------------------------------------------------------
+
+def test_the_mac_runbook_names_every_case_with_its_expected_answer():
+    text = RUNBOOK.read_text(encoding="utf-8")
+    scaffold = (PLUGIN / "evals" / "_fixtures" / "scaffold.sh").read_text(encoding="utf-8")
+    rows = [line for line in text.split("\n") if line.startswith("| ") and "repo-" in line]
+    modes = [row.split("|")[2].strip().strip("`") for row in rows]
+    assert modes == ["repo-nodecl", "repo-worktree-only", "repo-rules-changed", "repo-tampered", "repo-missing",
+                     "repo-stale", "repo-valid", "repo-valid"]
+    for mode in set(modes):
+        assert mode in scaffold, mode
+    expected = [row.split("|")[4].strip() for row in rows]
+    # Owner choice A (R5-2): under --host codex every push Ebene 1 would resolve is NOT MEASURED, so cases
+    # 1 to 5 all answer NOT MEASURED, independent of the repository's evidence state; since Karte 5 A they warn.
+    assert expected[:7] == ["warn, NOT MEASURED (Codex context unbound)"] * 7, expected
+    assert expected[7].startswith("none")  # case 6: the gate did not run (hooks not trusted)
+    assert "NOT MEASURED" in text and "gate did not run" in text
+    assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"
+
+
+def _runbook_rows() -> list[tuple[str, str, str, list[str]]]:
+    rows = []
+    for line in RUNBOOK.read_text(encoding="utf-8").split("\n"):
+        cells = [c.strip() for c in line.split("|")]
+        if line.startswith("| ") and "repo-" in line and cells[3] == "trusted":
+            quoted = [part for cell in cells[4:6] for n, part in enumerate(cell.split("`")) if n % 2]
+            rows.append((cells[1], cells[2].strip("`"), cells[4], quoted))
+    return rows
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="git or bash missing")
+@pytest.mark.parametrize("case, mode, expected, quoted", _runbook_rows(), ids=[r[0] for r in _runbook_rows()])
+def test_every_runbook_case_gets_from_the_gate_the_answer_its_row_expects(shim, tmp_path, case, mode, expected, quoted):
+    """The runbook's expected answers, measured without Codex: its scaffold, the gate under --host codex."""
+    work = tmp_path / "w"
+    work.mkdir()
+    subprocess.run(["bash", str(PLUGIN / "evals" / "_fixtures" / "scaffold.sh"), mode], cwd=work, check=True,
+                   capture_output=True)
+    answer = _run(shim, work, "--host", "codex")
+    got = _codex_valid(answer)
+    assert got == ("deny" if expected.startswith("deny") else "pass"), (case, answer)
+    if expected.startswith("warn"):
+        _codex_warns(answer)
+    for text in quoted:
+        if text not in ("NOT MEASURED:",):
+            assert text in long_text(answer), (case, text)
+    if "NOT MEASURED" in expected:
+        assert long_text(answer).startswith("NOT MEASURED:"), case
+    if "not active" in expected:
+        assert INACTIVE in long_text(answer), case
+
+
+# --- the root manifest Codex would read instead (DECISIONS.md, D14) ----------------------------------
+
+#: Every $schema Codex 0.159.2 takes as the Agent Plugins format starts with this (utils/plugins/src/
+#: plugin_namespace.rs, AGENT_PLUGIN_SCHEMA_PREFIX); a version it does not support fails the whole plugin.
+AGENT_PLUGINS_SCHEMA_PREFIX = "https://agent-plugins.org/schemas/"
+
+
+def _gate_hook_sources(plugin: pathlib.Path) -> list[str]:
+    """Where the gate's PreToolUse hooks are declared: hooks/hooks.json and the Codex manifest."""
+    found = []
+    claude = plugin / "hooks" / "hooks.json"
+    if claude.is_file() and json.loads(claude.read_text(encoding="utf-8")).get("hooks", {}).get("PreToolUse"):
+        found.append("hooks/hooks.json")
+    codex = plugin / ".codex-plugin" / "plugin.json"
+    if codex.is_file() and json.loads(codex.read_text(encoding="utf-8")).get("hooks", {}).get("hooks", {}).get("PreToolUse"):
+        found.append(".codex-plugin/plugin.json")
+    return found
+
+
+def _agent_plugins_files(plugin: pathlib.Path) -> list[str]:
+    """Each plugin.json or mcp.json under the folder that names an Agent Plugins schema, and a root
+    plugin.json that is a link or not a regular file (Codex then finds no manifest at all)."""
+    found = []
+    root = plugin / "plugin.json"
+    if root.is_symlink() or (root.exists() and not root.is_file()):
+        found.append("plugin.json (a link or not a regular file)")
+    for path in sorted(plugin.rglob("*")):
+        if path.name not in ("plugin.json", "mcp.json") or path.is_symlink() or not path.is_file():
+            continue
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        try:
+            schema = json.loads(text).get("$schema") if text.lstrip().startswith("{") else None
+        except ValueError:
+            schema = AGENT_PLUGINS_SCHEMA_PREFIX if AGENT_PLUGINS_SCHEMA_PREFIX in text else None
+        if isinstance(schema, str) and schema.startswith(AGENT_PLUGINS_SCHEMA_PREFIX):
+            found.append(str(path.relative_to(plugin)))
+    return found
+
+
+def _guard_failure(plugin: pathlib.Path) -> str | None:
+    """The guard's message when the folder carries a manifest that would switch the gate's hooks off."""
+    hooks = _gate_hook_sources(plugin)
+    offending = _agent_plugins_files(plugin)
+    if not hooks or not offending:
+        return None
+    return (f"{offending} would make Codex read the Agent Plugins format, and Codex 0.159.2 then loads no "
+            f"plugin hooks, so the gate declared in {hooks} would stop running under Codex without a message. "
+            "See DECISIONS.md, D14 (addendum of 2026-09-30).")
+
+
+def test_while_the_gate_has_hooks_no_agent_plugins_manifest_can_switch_them_off():
+    assert _gate_hook_sources(PLUGIN) == ["hooks/hooks.json", ".codex-plugin/plugin.json"], \
+        "the guard is armed by these"
+    failure = _guard_failure(PLUGIN)
+    assert failure is None, failure
+
+
+@pytest.mark.parametrize("plant", ["root-plugin", "root-plugin-other-version", "root-mcp", "nested-mcp",
+                                   "root-plugin-link", "root-plugin-folder", "root-plugin-not-json"])
+def test_the_guard_finds_each_form_that_would_switch_the_hooks_off(tmp_path, plant):
+    plugin = tmp_path / "proofbundle"
+    shutil.copytree(PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", "evals"))
+    assert _agent_plugins_files(plugin) == []
+    manifest = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/plugin.schema.json", "name": "proofbundle"}
+    mcp = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/mcp.schema.json", "mcpServers": {}}
+    if plant == "root-plugin":
+        (plugin / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+    elif plant == "root-plugin-other-version":
+        (plugin / "plugin.json").write_text(json.dumps(dict(manifest, **{"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "2.0.0/plugin.schema.json"})), encoding="utf-8")
+    elif plant == "root-mcp":
+        (plugin / "mcp.json").write_text(json.dumps(mcp), encoding="utf-8")
+    elif plant == "nested-mcp":
+        (plugin / "server" / "mcp.json").write_text(json.dumps(mcp), encoding="utf-8")
+    elif plant == "root-plugin-link":
+        (plugin / "plugin.json").symlink_to(plugin / ".claude-plugin" / "plugin.json")
+    elif plant == "root-plugin-folder":
+        (plugin / "plugin.json").mkdir()
+    else:
+        (plugin / "plugin.json").write_text('{"$schema": "' + AGENT_PLUGINS_SCHEMA_PREFIX + '1.0.0/plugin.schema.json",', encoding="utf-8")
+    assert len(_agent_plugins_files(plugin)) == 1, plant
+    failure = _guard_failure(plugin)
+    assert failure and "DECISIONS.md, D14" in failure and _agent_plugins_files(plugin)[0].split(" ")[0] in failure
+    (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "proofbundle", "version": "0.3.0"}),
+                                                          encoding="utf-8")
+    assert len(_agent_plugins_files(plugin)) == 1, "a manifest without an Agent Plugins schema is not counted"
+    for source in ("hooks/hooks.json", ".codex-plugin/plugin.json"):
+        (plugin / source).unlink()
+    assert _gate_hook_sources(plugin) == [] and _guard_failure(plugin) is None, "the guard is armed only by the hooks"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim, tmp_path):
+    repo = _repo(tmp_path, declare=True)
+    policy = json.loads((repo / ".proofbundle" / "policy.json").read_text(encoding="utf-8"))
+    other = generate_signer().public_key().public_bytes_raw()
+    policy["allowed_issuers"].append({"public_key_b64": base64.b64encode(other).decode()})
+    (repo / ".proofbundle" / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "widen the policy")
+    codex = _run(shim, repo, "--host", "codex")
+    # Owner choice A (R5-2): under Codex the answer is the context-unbound NOT MEASURED, not the rules-change
+    # verdict, and since Karte 5 A it warns. Claude asks; since R9-1 at the destination check, and the rules change
+    # is the pre-push hook's verdict.
+    _codex_warns(codex)
+    assert "evidence rules" not in long_text(codex)
+    claude = _run(shim, repo)
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert any(d in long_text(claude) for d in DESTINATION), long_text(claude)   # that reason (R10-4)
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert (verdict.decision, verdict.reason_id) == ("ask", "rules_changed"), verdict.text()
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="git or bash missing")
+@pytest.mark.parametrize("mode", ["repo-tampered", "repo-valid"])
+def test_the_runbook_mcp_matcher_case_gets_the_answer_the_runbook_names(shim, tmp_path, mode):
+    """RUNBOOK_CODEX.md, "The MCP matcher" (corrected on 2026-10-08): under Codex a gated MCP write is denied as NOT
+    MEASURED (`mcp_target_unbound`) in both modes, whatever the evidence holds (R6-1); Claude Code asks."""
+    work = tmp_path / "w"
+    work.mkdir()
+    subprocess.run(["bash", str(PLUGIN / "evals" / "_fixtures" / "scaffold.sh"), mode], cwd=work, check=True,
+                   capture_output=True)
+    codex = _run(shim, work, "--host", "codex", tool="mcp__fakeforge__create_pull_request")
+    assert _codex_valid(codex) == "deny" and long_text(codex).startswith("NOT MEASURED:"), codex
+    assert "binds neither the tool's actual target" in long_text(codex)
+    claude = _run(shim, work, tool="mcp__fakeforge__create_pull_request")
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    section = (PLUGIN / "RUNBOOK_CODEX.md").read_text(encoding="utf-8").split("## The MCP matcher", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    assert "mcp_target_unbound" in section and "the call runs after approval" not in section

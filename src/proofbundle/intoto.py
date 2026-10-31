@@ -49,9 +49,9 @@ EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
 # The revised #575 draft (2026-09-28: `evaluator` in place of `verifier`, one identification each for model
 # and dataset, `evidence[]` in place of `receipt`) under ITS OWN type version. v0.1 above was emitted and
 # signed by released versions; a consumer that keys on the type must never read those bytes under the
-# revised rules, nor revised bytes under the old ones. So v0.1 keeps its predicate contract unchanged
-# (signature, content root, type, no shape check) and v0.2 adds the shape of the revised draft to the
-# verdict (gate G2). The in-toto Statement v1 layer under either predicate (`_type`, a subject whose every
+# revised rules, nor revised bytes under the old ones. So v0.1 keeps its predicate contract (signature,
+# content root, type, and the members v0.1 requires, `_eval_result_v01_statement_claim_fields`) and v0.2 adds
+# the shape of the revised draft to the verdict (gate G2). The in-toto Statement v1 layer under either predicate (`_type`, a subject whose every
 # entry carries a digest) is part of every verdict since 2026-10-17 (`_statement_layer_problem`).
 EVAL_RESULT_V02_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.2"
 EVAL_RESULT_PREDICATE_TYPES = (EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_V02_PREDICATE_TYPE)
@@ -752,7 +752,35 @@ def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) ->
     return _eval_result_statement_claim_fields(statement, predicate) + [(f"predicate {b}", f) for b, f in teile]
 
 
+#: The members an eval-result v0.1 predicate carries (docs/IN_TOTO_PROFILE.md, the v0.1 table: every member
+#: but `preRegistration`, `receipt` and `harness`), and the two parts of `commitments` ("both required" in the
+#: migration table there). Every statement a released version wrote carries them
+#: (tests/fixtures/eval_result_v0_1/corpus.json, 14 of 14).
+_V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSize", "commitments",
+                         "assuranceLevel", "subjectProfile")
+_V01_REQUIRED_COMMITMENTS = ("model", "dataset")
+
+
+def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """`_eval_result_statement_claim_fields`, after a reason for each member eval-result v0.1 requires that the
+    predicate lacks. The Monotonic Principle of docs/IN_TOTO_PROFILE.md: a verifier denies unless a valid
+    attestation exists. Measured on main 647ed0a2: a signed v0.1 statement whose predicate carried none of these
+    members verified ok=True and `proofbundle intoto --verify` printed PASS. The value of a present member is
+    still judged by the claim rule alone, and an unknown member stays unread."""
+    gruende = [(f"predicate {m}", "is required by eval-result v0.1 and absent")
+               for m in _V01_REQUIRED_MEMBERS if m not in predicate]
+    commitments = predicate.get("commitments")
+    if isinstance(commitments, dict):
+        gruende += [(f"predicate commitments.{t}", "is required by eval-result v0.1 and absent")
+                    for t in _V01_REQUIRED_COMMITMENTS if t not in commitments]
+    return gruende + _eval_result_statement_claim_fields(statement, predicate)
+
+
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
+#: The members the in-toto test-result v0.1 predicate marks required (spec/predicates/test-result.md, and SPEC.md
+#: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
+#: `to_test_result_statement` writes carries both.
+_TEST_RESULT_REQUIRED_MEMBERS = ("result", "configuration")
 
 
 def _verdict_agreement(predicate: dict, urteile: list) -> list:
@@ -817,17 +845,22 @@ def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
     (`_descriptor_claim_fields`), every container on the way to one that has the wrong shape, and
     the agreement of the generic fields with the signed verdict (`_verdict_agreement`).
 
-    The inverse of `to_test_result_statement`. An ABSENT `configuration` or `digest` makes no
-    claim. A PRESENT container of the wrong shape is a reason of its own, the rule
+    The inverse of `to_test_result_statement`. A predicate without `result` or without
+    `configuration` is a reason, because the predicate marks both required; measured on main
+    647ed0a2, a signed test-result statement carrying neither verified ok=True. An ABSENT `digest`
+    makes no claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
     entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
     """
+    fehlend = [(m, "is required by test-result v0.1 and absent")
+               for m in _TEST_RESULT_REQUIRED_MEMBERS if m not in predicate]
     subjekt_teile, urteile = _subject_claim_fields(statement)
-    teile: list = []
+    teile: list = list(fehlend)
     if "configuration" in predicate:
-        teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
-                                                              predicate["configuration"])
+        konfig_teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
+                                                                     predicate["configuration"])
+        teile += konfig_teile
         urteile = konfig_urteile + urteile
     teile.extend(_verdict_agreement(predicate, urteile))
     return [(f"predicate {b}", f) for b, f in teile] + subjekt_teile
@@ -897,9 +930,10 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
 
-    ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
-    proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
-    agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
+    ``ok`` also requires that the predicate carries `result` and `configuration`, the two members the
+    test-result predicate marks required, that every eval-claim field a configuration or subject entry
+    carrying a proofbundle commitment digest holds passes the claim rule, and that `result` and the case
+    lists agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
     `_judge_claim_fields`). A generic test-result entry without such a digest is not judged.
 
     ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as
@@ -1216,8 +1250,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
     `_judge_claim_fields`). An absent field is not judged.
 
-    The default still expects v0.1, and a v0.1 predicate is judged as before (no shape check,
-    `predicate_shape_ok` None); the Statement layer above applies to both versions. To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
+    The default still expects v0.1, and a v0.1 predicate is judged under its own contract: every member
+    v0.1 requires must be present (`predicate_claim_ok`), and no v0.2 shape applies (`predicate_shape_ok`
+    None); the Statement layer above applies to both versions. To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
     Pass `expected_predicate_type=None` to opt out of the type check; the shape of a v0.2 statement is
     checked all the same. ``expected_predicate_type`` must be a string or None, and the envelope is read
     once, as for `verify_intoto_dsse`."""
@@ -1247,11 +1282,12 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     res = _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
         eigener_typ, (_eval_result_v02_statement_claim_fields if eigener_typ == EVAL_RESULT_V02_PREDICATE_TYPE
-                      else _eval_result_statement_claim_fields))
+                      else _eval_result_v01_statement_claim_fields))
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
-    # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old
-    # evidence stays verifiable under its old contract); `None` says that no shape was checked.
+    # statement is never judged under v0.2. v0.1 gets no v0.2 shape (G2: old evidence stays verifiable
+    # under its old contract); the members v0.1 requires are judged with its claim fields above, and
+    # `None` here says that no v0.2 shape was checked.
     if res["predicate_type"] == EVAL_RESULT_V02_PREDICATE_TYPE:
         shape_ok, shape_detail = classify_eval_result_v02_predicate(statement)
         res["predicate_shape_ok"], res["predicate_shape_detail"] = shape_ok, shape_detail

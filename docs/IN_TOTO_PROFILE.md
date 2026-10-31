@@ -107,8 +107,10 @@ its own digest.
 ## The `eval-result/v0.1` predicate (released, still verified)
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.1`. Emitted and signed by released
-versions and still the CLI default. Its predicate is verified under its own contract, unchanged: signature,
-content root, type; no shape check (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
+versions and still the CLI default. Its predicate is verified under its own contract: signature, content
+root, type, and every member the table below does not mark optional, with both parts of `commitments`; a
+statement that lacks one does not verify (`predicate_claim_ok` is `False`). No v0.2 shape applies to it
+(`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
 verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
 `_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
 `digest`, because in-toto matches subject artifacts by digest alone. A digest under a hash function the
@@ -270,8 +272,8 @@ type, `https://b7n0de.com/attestation/eval-result/v0.2`.
   byte; since the DSSE keyid default the envelope also names its signing key in an unsigned `keyid`,
   the signer's OpenSSH SHA256 fingerprint, and without that field each envelope equals the wheel's;
 - the verifier dispatches on `predicateType`: the same predicate relabelled as v0.2 is refused by the
-  revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which never checked
-  the predicate's shape;
+  revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which ask for the
+  members v0.1 requires and for no shape of v0.2;
 - `verify_eval_result_dsse` still expects v0.1 by default, so a v0.2 statement under the default call is
   refused for its type and a caller that reads v0.1 fields never receives a v0.2 predicate;
 - `proofbundle intoto` still writes v0.1 unless `--predicate-version v0.2` is given, because an existing

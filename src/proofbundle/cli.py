@@ -2189,8 +2189,9 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = decode_b64(args.pub)
             # BOTH eval-result versions, each under its own contract: the library judges the type the
-            # statement declares (v0.1 as released, v0.2 with its shape), and the type check happens here,
-            # against the two types, so a signed v0.2 envelope is not refused for being v0.2.
+            # statement declares (v0.1 with the members it requires, v0.2 with its shape), and the type
+            # check happens here, against the two types, so a signed v0.2 envelope is not refused for
+            # being v0.2.
             res = verify_eval_result_dsse(envelope, pub, expected_predicate_type=None)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
@@ -3641,7 +3642,7 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "eval-result v0.1 with every member v0.1 requires and v0.2 with its shape "
                              "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)

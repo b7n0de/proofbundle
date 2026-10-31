@@ -537,7 +537,9 @@ predicate of §PREDICATE.md). The mapping is fixed:
   algorithm key — never `sha256`, which would falsely imply an artifact hash); a bare `name`-only
   descriptor is invalid per the ResourceDescriptor rule. test-result has **no native metric field and no
   predicate-level annotations**, so metric/comparator/threshold/passed/provenance live in the model
-  descriptor's `annotations`. `passedTests`/`failedTests` carry the suite name.
+  descriptor's `annotations`. `passedTests`/`failedTests` carry the suite name. A verifier refuses a
+  test-result statement whose predicate lacks `result` or `configuration`, the two members the in-toto
+  predicate marks required; `url` and the case lists are optional.
 - **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = standard RFC 4648 §4
   base64 (with padding, **not** base64url) of the serialized Statement bytes; `signatures[].sig` = base64
   of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
