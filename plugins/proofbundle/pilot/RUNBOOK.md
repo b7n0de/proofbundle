@@ -219,12 +219,13 @@ With `"autonomous": true` the service keeps each release it signed ALLOW for in 
 its journal (`<service folder>` below), as `{"schema": "proofbundle/pilot-releases-honoured/v1", "geehrt":
 {"<card>:<sha256 of the line>:<session>": "<UTC time of the signature>", ...}}`. At 4096 of them it gives a new release
 no signature (release_record_full) and leaves the record as it is; a release the record names gets none either (D119),
-and every other request is signed as before. The refusal release_record_full comes after the key signer signed: its
-journal holds a signed line for it and the records no receipt, which the reconciliation counts among the signed lines
-without a receipt (D65). The service is no process that keeps running: the gate starts it once per request through the
-sudo rule of the agent's user (the crossings of step 2 of the setup), and each start reads the record anew. The owner's
-answer of 2026-10-26 (answer 7 of Nachtrag 7, option A): at the capacity the operator rotates the record, the service
-stopped. Steps 2 and 3 run as root.
+and every other request is signed as before. The service refuses such a release before it asks the key signer (D131).
+Only where two requests read the record at 4095 at the same time can the second be refused after the key signer signed;
+its journal then holds a signed line for it and the records no receipt, which the reconciliation counts among the signed
+lines without a receipt (D65). The service is no process that keeps running: the gate starts it once per request through
+the sudo rule of the agent's user (the crossings of step 2 of the setup), and each start reads the record anew. The
+owner's answer of 2026-10-26 (answer 7 of Nachtrag 7, option A): at the capacity the operator rotates the record, the
+service stopped. Steps 2 and 3 run as root.
 
 1. Stop the service: remove the sudo rule of the agent's user onto the service, so that the gate starts it no more.
    From then on the gate gets no signature: a write it decides has no receipt and counts under M5 where it arrives,
