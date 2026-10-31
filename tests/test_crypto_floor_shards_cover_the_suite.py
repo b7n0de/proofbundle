@@ -170,6 +170,13 @@ def load_ids(root: pathlib.Path) -> list[str]:
 _LOADER = "defaultTestLoader"
 
 
+#: The bindings whose name is a string of the node, not an ast.Name: `except ... as m`, a capture of a match pattern
+#: (`case m`, `case [*m]`) and, since Python 3.12, a type parameter. `case {**m}` keeps it in MatchMapping.rest. The
+#: second reading of the follow-up to 441 (line 3, P2) found the capture; the other forms are its neighbours.
+_NAMED_BINDINGS = tuple(getattr(ast, n) for n in ("ExceptHandler", "MatchAs", "MatchStar", "TypeVar", "ParamSpec",
+                                                   "TypeVarTuple") if hasattr(ast, n))
+
+
 def _origins(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
     """(names bound to unittest or one of its modules, names bound by an import from elsewhere, names bound in the module
     by an assignment, a definition or an argument). The first reading of PR 440 (Z6) found that a name alone said nothing
@@ -193,6 +200,10 @@ def _origins(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
             local.add(k.name)
         elif isinstance(k, ast.arg):
             local.add(k.arg)
+        elif isinstance(k, _NAMED_BINDINGS) and isinstance(k.name, str):
+            local.add(k.name)
+        elif isinstance(k, ast.MatchMapping) and isinstance(k.rest, str):
+            local.add(k.rest)
     return ours, theirs, local
 
 
@@ -460,6 +471,22 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
                                "    return m.defaultTestLoader\n", [7]),
                               ("import mylib as m\nm = __import__('unittest')\nx = m.defaultTestLoader\n", [3]),
                               ("import mylib as m\ndef load(m):\n    return getattr(m, 'defaultTestLoader')\n", [3])):
+            with self.subTest(source):
+                self.assertEqual(shared_loader_lines(source), lines)
+
+    def test_a_binding_whose_name_is_a_string_of_the_node_counts_too(self):
+        """Second reading of the follow-up to 441, line 3 (P2): a capture of a match pattern binds its name as a string
+        of the node, so _origins did not see it, and a foreign import of the same name hid it. `except ... as`, a star
+        capture and the rest of a mapping pattern bind the same way; the finder at 647ed0a2 reported each by name."""
+        for source, lines in (("import mylib as m\nmatch __import__('unittest'):\n    case m:\n"
+                               "        x = m.defaultTestLoader\n", [4]),
+                              ("import mylib as m\ntry:\n    pass\nexcept Exception as m:\n"
+                               "    x = m.defaultTestLoader\n", [5]),
+                              ("import mylib as m\nmatch [__import__('unittest')]:\n    case [*m]:\n"
+                               "        x = m.defaultTestLoader\n", [4]),
+                              ("import mylib as m\nmatch {'k': 1}:\n    case {**m}:\n"
+                               "        x = m.defaultTestLoader\n", [4]),
+                              ("import mylib as m\nx = m.defaultTestLoader\n", [])):
             with self.subTest(source):
                 self.assertEqual(shared_loader_lines(source), lines)
 
