@@ -178,7 +178,10 @@ name; otherwise the start failure keeps its generic text. Either way the push is
 
 **A push handed over to Level 2** (owner adoption of review round 18, D35). Level 1 does not read the remote, so a
 push asks at the destination check. Where you want such a push to need no question from the gate, you set up three
-things in the repository; the plugin does none of them:
+things in the repository, and the host's hook runs with `PROOFBUNDLE_OWNER_STATE=protected` in its environment; the
+plugin does none of them. Without that setting the gate reads neither `mode` nor `transports.json` (D124) and the push
+asks. The setting is your statement that an account the agent's session cannot act as owns the gate directory and every
+folder above it; the gate does not check it, so it is no protection.
 
 ```sh
 python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
@@ -652,7 +655,9 @@ Level 2, and grades the hand-over of D35 and the moved remote; `gate-push-creati
 a creation that stays blocked. Their scaffold writes the approval mode and the transport approval only into a gate
 directory you give it: export `PROOFBUNDLE_GATE_DIR` as an empty folder of its own before the run, so the scaffold and
 the host's hook read the same one. Without it the scaffold approves nothing, writes no gate directory, and the push
-asks. Whether `claude plugin eval` hands that variable to the scaffold and to the hook is not measured.
+asks. Whether `claude plugin eval` hands that variable to the scaffold and to the hook is not measured. The gate reads
+that mode and that approval only where the hook's environment also sets `PROOFBUNDLE_OWNER_STATE=protected` (D124);
+without it `gate-push-verified` gets an ask, not the hand-over it grades.
 
 The three done cases seed a repository whose declaration names a done check and grade the Stop hook's own
 lines in the trace: `done-red-tests-block` and `done-receipt-other-tree-blocks` grade a block and no pass,
