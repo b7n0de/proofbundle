@@ -896,6 +896,48 @@ def test_the_codex_hook_check_expects_every_hook_the_codex_manifest_registers():
     assert check.judge([dict(h, host_codex=False) if h["event"] == "stop" else h for h in loaded], expected) is False
 
 
+def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
+    """A codex that installs nothing and answers hooks/list with the hooks of the Codex manifest, in its order, each
+    with the given command. No Codex, no network."""
+    expected = _corpus_codex_hooks().expected_hooks()
+    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle@proofbundle",
+              "sourcePath": "plugin.json", "trustStatus": "trusted"}
+             for (event, matcher), command in zip(expected, commands, strict=True)]
+    (tmp_path / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
+    codex = tmp_path / "codex"
+    codex.write_text(f"#!{sys.executable}\nimport json, sys\n"
+                     "if sys.argv[1:2] != ['app-server']:\n    print('codex stand-in')\n    sys.exit(0)\n"
+                     f"hooks = json.loads(open({str(tmp_path / 'hooks.json')!r}, encoding='utf-8').read())\n"
+                     "for line in sys.stdin:\n    message = json.loads(line)\n    if 'id' in message:\n"
+                     "        data = [{'hooks': hooks, 'errors': []}] if message['method'] == 'hooks/list' else None\n"
+                     "        print(json.dumps({'id': message['id'], 'result': {'data': data}}), flush=True)\n",
+                     encoding="utf-8")
+    codex.chmod(0o700)
+    return codex
+
+
+@pytest.mark.parametrize("host, ok", [
+    ("--host codex", True),
+    ("--host codex-x", False),
+    ("|| echo --host codex", False),
+    ("--host=codex", False)])
+def test_the_codex_hook_check_reads_the_host_as_the_gate_reads_it(tmp_path, capsys, host, ok):
+    """The check took any command holding the text --host codex, so a hook started with --host codex-x, which the
+    gate refuses and which then blocks every call, or with the words only in the command after ||, where the gate runs
+    as host claude, passed it (found by review). The words after the gate are now read as the gate reads them. Red at
+    f2c984a2 for the second and the third case; --host=codex failed there too, and the first case shows the manifest's
+    own commands pass."""
+    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    commands = [hook["command"] for entries in manifest["hooks"]["hooks"].values() for entry in entries
+                for hook in entry["hooks"]]
+    commands[0] = commands[0].replace("--host codex", host, 1)
+    check = _corpus_codex_hooks()
+    code = check.main(["--codex", str(_stand_in_codex(tmp_path, commands))])
+    report = json.loads(capsys.readouterr().out)
+    assert (report["ok"], code) == (ok, 0 if ok else 1), report
+    assert [hook["host_codex"] for hook in report["hooks"]] == [ok] + [True] * (len(commands) - 1), report
+
+
 # --- the done cases (DECISIONS.md, D26; NUTZERWEG Teil 5) -----------------------------------------------------
 
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"

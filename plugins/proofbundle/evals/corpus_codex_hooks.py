@@ -1,19 +1,22 @@
-"""After a Codex update: does the installed Codex still load both hooks of the gate? No model turn.
+"""After a Codex update: does the installed Codex still load every hook of the gate? No model turn.
 
     python3 plugins/proofbundle/evals/corpus_codex_hooks.py [--codex PATH]   (from the repository root)
 
 Installs the plugin from this repository's marketplace into a throwaway CODEX_HOME (`codex plugin
 marketplace add`, `codex plugin add`), asks the local app-server (`hooks/list`) which hooks it loaded, and
 prints one JSON object: the Codex version, the hooks with their matcher, command and source file, and
-"ok" true only for exactly the hooks the Codex manifest registers, each with --host codex. Nothing leaves the
-machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says why this can fail.
+"ok" true only for exactly the hooks the Codex manifest registers, each starting the gate with --host codex as the
+gate reads it. Nothing leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says
+why this can fail.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import pathlib
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -31,6 +34,27 @@ def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | N
     hooks = json.loads(manifest.read_text(encoding="utf-8"))["hooks"]["hooks"]   # the manifest nests them
     return [(event[:1].lower() + event[1:], entry.get("matcher") or None) for event, entries in hooks.items()
             for entry in entries]
+
+
+def passes_host_codex(command: object) -> bool:
+    """True only when the hook's first command starts proofbundle_gate.py with the words the gate reads as host codex
+    (its _host: exactly --host codex, after `stop` for the Stop hook, --autonomous aside). A substring such as
+    --host codex-x, or the words in a later command after ||, does not count."""
+    if not isinstance(command, str):
+        return False
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:   # an unclosed quote: a line no shell runs
+        return False
+    first = list(itertools.takewhile(lambda word: word.strip("();<>|&"), words))   # up to the first operator
+    gate = next((i for i, word in enumerate(first)
+                 if word.replace("\\", "/").rsplit("/", 1)[-1] == "proofbundle_gate.py"), None)
+    if gate is None:
+        return False
+    return [word for word in first[gate + 1:] if word != "--autonomous"] in (["--host", "codex"],
+                                                                              ["stop", "--host", "codex"])
 
 
 def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
@@ -88,7 +112,7 @@ def main(argv: list[str]) -> int:
                 proc.kill()
         data = (reply.get("result") or {}).get("data") or [{}]
         hooks = [{"event": h.get("eventName"), "matcher": h.get("matcher"),
-                  "host_codex": "--host codex" in (h.get("command") or ""),
+                  "host_codex": passes_host_codex(h.get("command")),
                   "source": pathlib.Path(h.get("sourcePath") or "").relative_to(home).as_posix()
                   if (h.get("sourcePath") or "").startswith(home) else h.get("sourcePath"),
                   "trust": h.get("trustStatus")}
