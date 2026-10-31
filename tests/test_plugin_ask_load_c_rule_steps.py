@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import _git_version as _gv
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's rule is read
 
 import test_plugin_gate_n24 as n24
 

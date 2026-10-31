@@ -1819,6 +1819,11 @@ Options:
   one when the setting is missing.
 - C. Rules inside the repository. Rejected as the default: the model and any pusher could write them (card 3).
 
+Addendum (D124, 2026-10-26): the premise "the model cannot change the mode" does not hold. A session of the same
+account wrote the mode and the rules through a changed working directory, which the gate does not answer, and the gate
+read them (review package -1, messung/protection/k6_repro.txt; external review of -1, KERN finding 2). Since D124 the
+gate reads none of this directory's owner files unless the hook's environment states a protected channel.
+
 ## D26. Done only with a receipt (the Stop hook)
 
 Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a local hook as an
@@ -5961,3 +5966,37 @@ Not changed: at Level 2 each ref line is one call of the service (O405S-3), each
 calls share no overall budget, so a push of n lines can take n x 10 s after its decision before git gets the hook's
 answer (N405-b; git sets no limit). Not measured: a real Claude Code or Codex host, and what a host does after its
 120 s hook timeout.
+
+## D124. Guard Preview reads no owner state a session can write (Nachtrag 4, point 1, 2026-10-26)
+
+The external review of review package -1 (KERN finding 2, Blocker; K-6) and the package's own measurement
+(messung/protection/k6_repro.txt): `cd <gate directory> && echo with-approvals > mode` gets no answer from the gate under
+either host, it runs, and the gate then reads with-approvals. D25 rested on the gate denying every write to its
+directory; it denies the forms it recognizes, and a changed working directory, an interpreter or a dynamic target is
+not one of them. The owner's order (Nachtrag 4, point 1): in Guard Preview the use of approval and pin state is off by
+default until a protected channel exists; the house builds that channel through an account of its own, not a session.
+
+Measured at the head of the fix slice for finding 7 on 2026-10-26 (tests/test_plugin_owner_state_session_written_d124.py,
+7 cases, red at that head on Python 3.12 and 3.14): a session wrote each owner file of the directory through a changed
+working directory, which three hook forms (Claude Code without a flag, with --autonomous, and Codex) left unanswered,
+and the gate then consumed it. A mode and a rule freed git stash list (approved_by_rule); a transport approval was read;
+a pin over a pre-commit hook the session had replaced (cd .git/hooks) and a .git/config it had appended to (cd .git) freed
+git commit -m work (free_pinned_state); a hook record over the replaced hook freed it too (free_recorded_hooks); a
+release freed gh pr create -R b7n0de/proofbundle in decide() with the autonomous answer (released_by_owner); and a
+declared work folder took the deny from an append outside the repository, under Claude Code and under Codex.
+
+The rule: the gate reads the owner files of its directory, the mode and rules.json (D25), transports.json (D35),
+hook-state.json (D106), pin-state.json (D114, D115), the releases in freigaben/ (D111, D119) and work-folders.json
+(D104), only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to `protected` (_owner_state_read). Without it the
+mode is strict, no rule frees, no transport is approved, so no hand-over of D35 takes place, no hook record or pin frees,
+no release frees, and the work folders are the repository, the project and the session's scratch. The setting is the
+house's statement that an account the session cannot act as owns the directory and every folder above it; the gate does
+not check that, so the setting is not itself a protection. The tests of what a person's file does run with it
+(tests/_owner_state.py); the seven cases above run without it and are green.
+
+Not changed: the gate still denies the writes to its directory and to the clone's hooks and configuration it recognizes
+(D25); those denials are not a boundary. The session can still replace .git/hooks/pre-push or set core.hooksPath in
+.git/config through the same unanswered forms, so git's Level 2 stays a check the session can bypass (the reviewer's
+open consequence of a replaced Level 2 hook is NOT MEASURED here beyond the pin and the hook record above). Not covered,
+and named: done-orders/ and done-keys.json in the same directory, which the done check reads, are the same class and are
+not part of this order; pilot.json is read as before.

@@ -27,6 +27,7 @@ import sys
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's hook record is read
 
 import _gate_answer as ga
 import test_plugin_n29_work_profile_d71 as d71
@@ -354,7 +355,7 @@ def _run_hook(repo, tmp_path, command, flag=True):
     event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo), "session_id": "s-d106",
              "tool_input": {"command": command}}
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-                                      "PROOFBUNDLE_GATE_DIR")}
+                                      "PROOFBUNDLE_GATE_DIR", "PROOFBUNDLE_OWNER_STATE")}
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", "claude", *(d91.AUTONOMOUS if flag else [])],
                               json.dumps(event), env, cwd=str(repo))
@@ -390,7 +391,8 @@ def _hook_state(*args, cwd=None):
     return subprocess.run([sys.executable, "-I", gate.__file__, "hook-state", *args], capture_output=True, text=True,
                           timeout=60, cwd=cwd, env={k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL",
                                                                                "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-                                                                               "PROOFBUNDLE_GATE_DIR")})
+                                                                               "PROOFBUNDLE_GATE_DIR",
+                                                                               "PROOFBUNDLE_OWNER_STATE")})
 
 
 def test_D106_hook_state_prints_the_entry_and_writes_nothing(tmp_path):

@@ -8953,7 +8953,7 @@ def _read_transports(environ: dict) -> list[dict]:
     """The transport approvals a person wrote, each exactly {repo, remote, url, transport_digest}; [] on any problem,
     as for the rules of D25: a file the gate cannot read whole approves nothing. The gate only ever reads it."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, TRANSPORTS_FILE), MAX_RULES_BYTES + 1, follow=True)
@@ -9537,13 +9537,29 @@ def _gate_dir(environ: dict) -> str | None:
     return None
 
 
+#: D124 (Nachtrag 4, point 1; external review of -1, KERN finding 2): the files of the gate directory a person is to
+#: write, the mode and rules.json (D25), transports.json (D35), hook-state.json (D106), pin-state.json (D114, D115), the
+#: releases in freigaben/ (D111, D119) and work-folders.json (D104), are read only where the hook's environment sets
+#: OWNER_STATE_VARIABLE to OWNER_STATE_PROTECTED. Without that, Guard Preview reads none of them: a session of the same
+#: account wrote each one through a changed working directory, which the gate does not answer, and the gate then read
+#: it. The setting belongs to a channel the session cannot write, an account of its own that owns the directory and the
+#: folders above it; the gate does not check that, so the setting is the house's statement, not a protection.
+OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
+OWNER_STATE_PROTECTED = "protected"
+
+
+def _owner_state_read(environ: dict) -> bool:
+    """D124: whether the gate reads the owner's files of its directory at all."""
+    return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
 def _read_mode(environ: dict) -> str:
-    """The approval mode a human set: "strict" (the default) or "with-approvals". Anything the gate cannot read
-    as one of those two words — no directory, no file, an unreadable or oversized file, an unknown word — is
-    strict. The mode is set only by a human at the gate directory; the model cannot write it, because
-    decide_write denies every write to that directory (N24 Punkt 3)."""
+    """Read strict or with-approvals from the gate directory; unreadable, oversized
+    or unknown input selects strict. The command and file-tool checks do not
+    establish that only the operator can write this state. Approval state must
+    be protected from the session independently, including its parent paths."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return "strict"
     try:
         raw = _read_regular(os.path.join(directory, "mode"), MAX_MODE_BYTES + 1, follow=True)   # R18-2 class
@@ -9561,7 +9577,7 @@ def _read_rules(environ: dict) -> list[dict]:
     many rules, a malformed entry, a non-absolute repo or an empty form). Fail-closed: a rule file the gate
     cannot read in full as a list of well-formed rules frees nothing. The gate only ever reads this file."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, "rules.json"), MAX_RULES_BYTES + 1, follow=True)   # R18-2 class
@@ -13797,7 +13813,7 @@ def _work_folders(directory: str | None, environ) -> list[str]:
         folders.append(_repo_top(project) or os.path.realpath(project))
     folders.extend(_session_folders(environ))
     gate_dir = _gate_dir(environ)
-    if gate_dir is not None:
+    if gate_dir is not None and _owner_state_read(environ):   # D124
         try:
             raw = _read_regular(os.path.join(gate_dir, WORK_FOLDERS_FILE), MAX_WORK_FOLDERS_BYTES + 1)
             data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_WORK_FOLDERS_BYTES else None
@@ -17304,7 +17320,7 @@ def _hook_state_entries(environ) -> list[tuple[str, dict]]:
     A file that does not read whole records nothing: no regular file, more than MAX_HOOK_STATE_BYTES, not strict JSON
     (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, HOOK_STATE_FILE), MAX_HOOK_STATE_BYTES + 1)
@@ -17475,7 +17491,7 @@ def _pin_state_entries(environ) -> list[dict]:
     both paths resolved. A file that does not read whole pins nothing: no regular file, more than MAX_PIN_STATE_BYTES,
     not strict JSON (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, PIN_STATE_FILE), MAX_PIN_STATE_BYTES + 1)
@@ -18130,7 +18146,7 @@ def _releases(environ) -> list[dict]:
     MAX_RELEASE_BYTES, not strict JSON, another schema or another key, or a card, a session, a sha256 or a time of
     another shape. The folder itself must be a folder and no link."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     folder = os.path.join(gate_dir, RELEASES_DIR)
     try:
