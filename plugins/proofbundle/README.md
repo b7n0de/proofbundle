@@ -521,9 +521,10 @@ python3 <plugin folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--d
 
 It reads the done section and the policy (from the clone's `.proofbundle/` or from the files named), writes the order
 to `done-orders/` in the gate directory with the gate's record of its digest, and adds the receipts and the hook's own
-files to the clone's `info/exclude`. The Stop and TaskCompleted hooks then judge that clone at every end, whatever
-directory the session runs in, and an order that changed since it was written blocks. `done-order --list` shows every
-order, `done-order --remove --repo <clone>` removes one, `--replace` makes it again.
+files to the clone's `info/exclude`. Where the hooks' environment sets `PROOFBUNDLE_OWNER_STATE=protected` (D128), the
+Stop and TaskCompleted hooks then judge that clone at every end, whatever directory the session runs in, and an order
+that changed since it was written blocks; without it no hook reads a local order. `done-order --list` shows every order,
+`done-order --remove --repo <clone>` removes one, `--replace` makes it again.
 
 ### As an in-toto Statement
 
