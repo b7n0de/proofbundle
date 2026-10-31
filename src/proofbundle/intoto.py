@@ -777,6 +777,10 @@ def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) ->
 
 
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
+#: The members the in-toto test-result v0.1 predicate marks required (spec/predicates/test-result.md, and SPEC.md
+#: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
+#: `to_test_result_statement` writes carries both.
+_TEST_RESULT_REQUIRED_MEMBERS = ("result", "configuration")
 
 
 def _verdict_agreement(predicate: dict, urteile: list) -> list:
@@ -841,17 +845,22 @@ def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
     (`_descriptor_claim_fields`), every container on the way to one that has the wrong shape, and
     the agreement of the generic fields with the signed verdict (`_verdict_agreement`).
 
-    The inverse of `to_test_result_statement`. An ABSENT `configuration` or `digest` makes no
-    claim. A PRESENT container of the wrong shape is a reason of its own, the rule
+    The inverse of `to_test_result_statement`. A predicate without `result` or without
+    `configuration` is a reason, because the predicate marks both required; measured on main
+    647ed0a2, a signed test-result statement carrying neither verified ok=True. An ABSENT `digest`
+    makes no claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
     entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
     """
+    fehlend = [(m, "is required by test-result v0.1 and absent")
+               for m in _TEST_RESULT_REQUIRED_MEMBERS if m not in predicate]
     subjekt_teile, urteile = _subject_claim_fields(statement)
-    teile: list = []
+    teile: list = list(fehlend)
     if "configuration" in predicate:
-        teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
-                                                              predicate["configuration"])
+        konfig_teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
+                                                                     predicate["configuration"])
+        teile += konfig_teile
         urteile = konfig_urteile + urteile
     teile.extend(_verdict_agreement(predicate, urteile))
     return [(f"predicate {b}", f) for b, f in teile] + subjekt_teile
@@ -921,9 +930,10 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
 
-    ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
-    proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
-    agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
+    ``ok`` also requires that the predicate carries `result` and `configuration`, the two members the
+    test-result predicate marks required, that every eval-claim field a configuration or subject entry
+    carrying a proofbundle commitment digest holds passes the claim rule, and that `result` and the case
+    lists agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
     `_judge_claim_fields`). A generic test-result entry without such a digest is not judged.
 
     ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as

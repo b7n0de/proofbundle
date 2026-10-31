@@ -56,6 +56,9 @@ _V01_PRAEDIKAT = {
                     "dataset": {"alg": "sha256-salted-v1", "value": "b2" * 32, "salted": True}},
     "assuranceLevel": "self_attested", "subjectProfile": "receipt",
 }
+# The two members test-result requires, with a generic configuration entry the ownership rule does not judge
+# (tests/test_a_test_result_statement_carries_result_and_configuration.py).
+_TEST_RESULT_PRAEDIKAT = {"result": "PASSED", "configuration": [{"name": "suite.yaml", "digest": {"sha256": "b" * 64}}]}
 
 # The three verifiers: the payload type each one pins, the predicate type it expects by default, and
 # a predicate of that type that judges nothing else.
@@ -63,7 +66,7 @@ FLAECHEN = {
     "eval-result": (intoto.verify_eval_result_dsse, "application/vnd.in-toto+json",
                     "https://b7n0de.com/attestation/eval-result/v0.1", _V01_PRAEDIKAT),
     "test-result": (intoto.verify_intoto_dsse, "application/vnd.in-toto.test-result+json",
-                    "https://in-toto.io/attestation/test-result/v0.1", {}),
+                    "https://in-toto.io/attestation/test-result/v0.1", _TEST_RESULT_PRAEDIKAT),
     "svr": (intoto.verify_svr_dsse, "application/vnd.in-toto+json",
             "https://in-toto.io/attestation/svr/v0.1",
             {"verifier": {"id": "https://example.invalid/v"}, "timeCreated": "2026-10-17T12:00:00Z",
