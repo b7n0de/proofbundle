@@ -2275,6 +2275,10 @@ functions and aliases a host may load into its Bash tool before it; a write afte
 judged until class e. The answers of the other classes (b, d, e, g) are unchanged by class c; class a (D34) frees a
 read form after its read profile, alone or as a step that class c judges on its own.
 
+Addendum (D126): the exception of D39 holds only for a body that names neither git nor gh; such a body gets the answer
+of its `-c` form, and a script file a step runs is read (at most 1 MiB) and asks at least where its text names git or
+gh.
+
 ## D34. A read form free after a read profile: class a of the ask load (review fix 18 part B, 2026-10-14)
 
 Owner answers 1 to 3 and 10 of 2026-10-14, equal to the reviewer's recommendations, and the owner's reading of answer
