@@ -2767,6 +2767,13 @@ Options:
 - C. An order bound to one session. Not built (owner question O1 of follow-up note 12); the owner chose the account instead,
   to be built before a second account.
 
+Addendum (D128, 2026-10-26): a hook reads the orders of done-orders/ only where its environment sets
+PROOFBUNDLE_OWNER_STATE to `protected`, the protected channel of D124. A session wrote an order and the gate's record of
+it together through a changed working directory, and made one with its own done-order call, and the Stop and
+TaskCompleted hooks judged both. Without the setting no hook reads an order, none is refused or counted, and the done
+check runs on the repository's declaration alone; done-order still writes, lists and removes, and says where the hooks
+read an order.
+
 ## D39. Fewer asks in daily work: a here-document to python, git diff without diff drivers (2026-10-15)
 
 Measured on account A in the pilot at 14a5feb1 under Claude Code, from 22:47 Berlin: five asks in ten minutes. Two came from
@@ -4452,6 +4459,12 @@ it, never through a link; the gate directory is the person's (D25), so the agent
 directory is known, done-init says that the block will name the default.
 Tests: tests/test_plugin_n32_done_key_b30_2.py.
 
+Addendum (D128, 2026-10-26): the premise "the agent's tools cannot change it" does not hold; a session wrote
+done-keys.json through a changed working directory, and the block named the session's key path. Since D128 the command
+of a block takes the key path from the record only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to
+`protected`; without it, it names PROOFBUNDLE_KEY or the default key file. done-init still writes the record and says
+where a block names it.
+
 ## D80. The Stop hook holds a claim of the last message that has no evidence (O30-2, 2026-10-18)
 
 Measured on account A (WIRKUNG_plugin_20261018.json, gate 0efaf38d): five false completion messages, none held; neither
@@ -6016,6 +6029,9 @@ open consequence of a replaced Level 2 hook is NOT MEASURED here beyond the pin 
 and named: done-orders/ and done-keys.json in the same directory, which the done check reads, are the same class and are
 not part of this order; pilot.json is read as before.
 
+Addendum (D128, 2026-10-26): owner answer 6 of Nachtrag 7 (option A) switches done-orders/ and done-keys.json off by
+the same setting; pilot.json stays as it is.
+
 ## D125. The public hook commands carry no --autonomous; the flag is the house's opt-in (owner order N4-3, 2026-10-26)
 
 Owner order N4-3 of 2026-10-26, on the external review of the Guard Preview stack, translated: "The combined flag
@@ -6223,3 +6239,79 @@ the SessionStart hook (that the host gives the context to the model and the mess
 the model works on the handed-over checks; Codex. Not covered, and named: the hand-over writes no line of the gate log
 (D21); a refused local order whose repository git does not find keeps its blocker in the gate directory (O3) and is not
 handed on; the card is not read back by anything in the plugin. README and RUNBOOK texts are unchanged in this slice.
+
+## D128. No hook reads a done order or a key record a session can write (owner answer 6 of Nachtrag 7, 2026-10-26)
+
+D124 named done-orders/ and done-keys.json of the gate directory as files of the class it switched off, and left them
+out. The reason the owner was given: a key a session writes signs its own done receipt, and an order a session writes
+can drop a check. The owner's answer (answer 6 of Nachtrag 7, 2026-10-26, option A): "done-orders/ and done-keys.json:
+A, switched off without a protected channel."
+
+Measured at f21f785d (tests/test_plugin_done_state_owner_state_d128.py, 10 of 16 cases red on Python 3.12 and 3.14):
+each write of the session got no decision from the gate in the three hook forms (Claude Code without a flag, with
+--autonomous, and Codex) and ran. An order written together with the gate's record of its digest through `cd <gate
+directory>`, and an order the session made with its own `done-order --repo` call, which owner choice O2 of D38 leaves
+free, were each judged by the Stop hook run from a directory outside the clone, under Claude Code and under Codex ("the
+local done order <key>: check tests is missing"), and TaskCompleted kept the task open. A person's order of the checks
+unit and integration, rewritten by the session together with its record to unit alone, let the end pass on the receipt
+of unit. An order the gate cannot read blocked the end (order_unreadable) and was counted beside it (O3). A blocker in
+a clone an order of the session binds was handed on at the next session start (D127). A done-keys.json the session
+wrote put the session's key path into the command of the block.
+
+The rule:
+
+- A hook reads the local done orders of D38 only where its environment sets PROOFBUNDLE_OWNER_STATE to `protected`
+  (_owner_state_read of D124, through _hook_orders): the Stop and TaskCompleted hooks (done_evaluations) and the session
+  start of D127 (_blocked_repos). Without it no order is read, and the done check of an end runs on the repository's
+  declaration alone, as in a repository without an order: a declaration at HEAD is judged as before (D28), a declaration
+  found only in the work tree is refused as uncommitted (declaration_not_committed), and no repository but the one of
+  the hook's directory is judged.
+- What a refusal of an order means then: none is made. An order that changed, has no record of the gate, lost its file,
+  cannot be read, or names a repository git does not find blocks no end, is counted nowhere (no `<key>.state.json` or
+  `<key>.blocker.json` of O3 is written) and is handed on by no session start; the folder is not listed, so a folder the
+  hook cannot list blocks nothing either.
+- The command a block names (check_command) takes no key path from done-keys.json without the setting
+  (_recorded_key_path): it names PROOFBUNDLE_KEY where that is an absolute path, else the default key file of the gate
+  directory, as for a record the gate does not read (D79). The hand-over of D127 shows the same command.
+- What still writes: done-order and done-init, which a person runs, write as before whatever their own environment sets.
+  The setting is the hook's environment, which a person's shell need not carry; what they write takes effect only in a
+  hook that has it, and the digest record of D38 still guards an order made before the house states the channel.
+  done-order says, and `done-order --list` says in a last line where it lists an order, that the Stop, TaskCompleted
+  and SessionStart hooks read local done orders only with the setting (HOOK_ORDERS_NOTE). `--list` still reads the
+  folder for a person and names each order with what the gate finds for it; a refusal it names blocks nothing without
+  the setting. `--remove` and `--replace` are unchanged. done-init still records the key file and, where that is not
+  the default key file, says that the block names it only with the setting, so PROOFBUNDLE_KEY is to name it there.
+- With the setting, both files are read as before (D38, O3, D79, D127): the six controls of the module.
+
+Green at the fix: the 16 cases on Python 3.12 and 3.14. Changed tests, each where it tests what a person's order or
+record does: tests/test_plugin_done_local_order.py and tests/test_plugin_done_order_unbound_count.py (a person's local
+order through the Stop and TaskCompleted hooks) and tests/test_plugin_n32_done_key_b30_2.py (a person's record of the
+key file) take the opt-in of tests/_owner_state.py, and the case of a local done order in
+tests/test_plugin_n21_marker_in_no_reason.py states the setting in the environment it builds. Without them 18 cases of
+these four modules failed at the fix (Python 3.12), each where a person's order or record was no longer read; with them
+they pass.
+
+Found, not changed: the eval scaffolds (plugins/proofbundle/evals/_fixtures/scaffold.sh) write no done order and no key
+record; the done modes commit their declaration and copy a receipt into the work tree, and the gate directory of the
+done cases of tests/test_plugin_evals.py holds neither file. The done-check tests of the hooks
+(tests/test_plugin_done_check.py, tests/test_plugin_done_handover_d127.py,
+tests/test_plugin_review_fix5_r3_count_record.py, tests/test_plugin_gate_done_only.py) judge committed declarations;
+where done-init runs there it makes the default key file, which a block names with the record and without it. None of
+them rests on either file, and they pass unchanged.
+
+Not changed: D28 and every check a committed declaration names; the push path, Level 2 and the CI check, which reads no
+order (done-check; the command its message names follows the rule above); the answers of the PreToolUse gate to a
+done-order call (D38, O2, F1) and its denials of recognized writes to the gate directory (D25), which are no boundary.
+
+Consequence, named: a house that keeps its done order only outside the work tree (account A's variant E of D38) has
+every end in that clone refused as uncommitted, and an end run from outside the clone judges nothing there, until it
+states the protected channel in the hook's environment or commits its declaration; a key file done-init put elsewhere
+is named in a block only with the setting or through PROOFBUNDLE_KEY. The README's paragraph on the local order ("The Stop and TaskCompleted hooks then judge that clone at
+every end") keeps its words in this slice; it holds only with the setting, and a proposal goes to the report.
+
+Not covered, and named: the setting is the house's statement, not a protection (D124). With it, a session that rewrites
+an order and the gate's record together still drops a check (the limit of D38, a control of the module), and a session
+may still make a new order with done-order, which O2 leaves free. The default key file done-test.key lies in the same
+directory, and a session can replace it: the gate never reads it, it names its path, and a receipt it signs verifies
+only where the policy the done check reads pins its public key (the one at HEAD, a reviewed commit; with the setting,
+also the policy an order carries). pilot.json is read as before (D124). A real Claude Code or Codex host: NOT MEASURED.

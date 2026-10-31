@@ -110,7 +110,8 @@ DONE_RECEIPT = EVIDENCE_DIR + "proofbundle_pytest_receipt.json"
 DONE_POLICY = EVIDENCE_DIR + "done-policy.json"
 DONE_KEY_FILE = "done-test.key"
 #: The record in the gate directory of the key file done-init made for each repository (B30-2): a path per
-#: repository, never a key. The gate reads the path to name it in the command of a block, and nothing behind it.
+#: repository, never a key. The gate reads the path to name it in the command of a block, and nothing behind it, only
+#: where the hook's environment states the protected channel of D124 (D128).
 DONE_KEYS_RECORD = "done-keys.json"
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy", "subject"})
@@ -9546,6 +9547,9 @@ def _gate_dir(environ: dict) -> str | None:
 #: account wrote each one through a changed working directory, which the gate does not answer, and the gate then read
 #: it. The setting belongs to a channel the session cannot write, an account of its own that owns the directory and the
 #: folders above it; the gate does not check that, so the setting is the house's statement, not a protection.
+#: D128 (owner answer 6 of Nachtrag 7): the same holds for the local done orders in done-orders/ (D38), which the Stop,
+#: TaskCompleted and SessionStart hooks judge, and for the key path done-keys.json records (B30-2); done-order and
+#: done-init, which a person runs, still write them, whatever their own environment sets.
 OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
 OWNER_STATE_PROTECTED = "protected"
 
@@ -18881,10 +18885,12 @@ def _short(text: str, limit: int = 240) -> str:
 
 def _recorded_key_path(environ: dict, repo: str | None) -> str | None:
     """The key file done-init made for the repository, as its record in the gate directory names it (B30-2), or None:
-    no repository, no gate directory, no record, or a record the gate does not read as one (not a regular file, larger
-    than MAX_STATE_BYTES, not strict JSON of one object, no absolute path for this repository). Only the path is read."""
+    no repository, no gate directory, no protected channel in the hook's environment (D128: a session writes the record
+    as it writes the owner files of D124), no record, or a record the gate does not read as one (not a regular file,
+    larger than MAX_STATE_BYTES, not strict JSON of one object, no absolute path for this repository). Only the path is
+    read."""
     directory = _gate_dir(environ)
-    if repo is None or directory is None:
+    if repo is None or directory is None or not _owner_state_read(environ):   # D128
         return None
     try:
         doc = strict_json(_read_regular(os.path.join(directory, DONE_KEYS_RECORD), MAX_STATE_BYTES + 1))
@@ -18931,8 +18937,8 @@ def check_command(check: dict, environ: dict, repo: str | None = None) -> str:
     """The command that runs one check of the done section and leaves its receipt (D26, D28). A check of the
     order names its pytest arguments and clears PYTEST_ADDOPTS, so the receipt names exactly that selection. The key
     is PROOFBUNDLE_KEY where it is an absolute path, else the key file done-init made for the repository as the gate
-    directory records it (B30-2, follow-up note 32: `done-init --key` may put it anywhere), else the default key file of the
-    gate directory."""
+    directory records it (B30-2, follow-up note 32: `done-init --key` may put it anywhere; read only with the protected
+    channel, D128), else the default key file of the gate directory."""
     key = environ.get("PROOFBUNDLE_KEY")
     if not (key and os.path.isabs(key)):
         key = _recorded_key_path(environ, repo)
@@ -19671,7 +19677,9 @@ def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
 # --- local done orders, outside every work tree (D38) --------------------------------------------------------------
 
 #: The folder of the gate directory that holds the local done orders (D38): one file `<key>.json` per repository and the
-#: gate's record of its digest, `<key>.seen.json`. Nothing of it lies in a work tree or a commit.
+#: gate's record of its digest, `<key>.seen.json`. Nothing of it lies in a work tree or a commit. A hook reads the
+#: folder only where its environment states the protected channel of D124 (D128, _hook_orders); `done-order --list`
+#: reads it for a person whatever is set.
 DONE_ORDERS_DIR = "done-orders"
 DONE_ORDER_SCHEMA = "proofbundle-plugin/done-order/v0.1"
 DONE_ORDER_SEEN_SCHEMA = "proofbundle-plugin/done-order-seen/v0.1"
@@ -19837,6 +19845,19 @@ def _local_orders(environ, deadline: float) -> list[dict]:
     return entries
 
 
+#: What done-order and `done-order --list` print about where the hooks read an order (D128).
+HOOK_ORDERS_NOTE = ("the Stop, TaskCompleted and SessionStart hooks read local done orders only where their "
+                    f"environment sets {OWNER_STATE_VARIABLE}={OWNER_STATE_PROTECTED} (D128)")
+
+
+def _hook_orders(environ, deadline: float) -> list[dict]:
+    """The local done orders a hook judges (D128): those of _local_orders where the hook's environment states the
+    protected channel of D124, else none. A session writes done-orders/ as it writes the owner files of D124, and an
+    order it writes can drop a check; without the channel the done check runs on the repository's declaration alone,
+    and an order the gate would refuse blocks no end and is counted nowhere."""
+    return _local_orders(environ, deadline) if _owner_state_read(environ) else []
+
+
 def _local_order_base(repo: str, order: dict, deadline: float) -> tuple[str | None, str]:
     """The base of a local order's paths (D31, D38): the commit that was HEAD when the order was made, while git still
     names it as a commit of the repository."""
@@ -19924,9 +19945,9 @@ def done_evaluations(directory: str, deadline: float, environ: dict | None = Non
     each local done order in the gate directory, in the order of its key, whatever the directory. A repository with a
     local order is judged by that order, and by the declaration at HEAD where it has one; a declaration found only in
     its work tree is not refused there, the local order stands for it. Each result is done_evaluation's, with "local"
-    naming the order's file."""
+    naming the order's file. The orders are read only with the protected channel (D128, _hook_orders)."""
     environ = os.environ if environ is None else environ
-    entries = _local_orders(environ, deadline)
+    entries = _hook_orders(environ, deadline)
     keys = {e["key"] for e in entries}   # a refused order stands for the work tree's declaration too: it blocks itself
     results = []
     try:
@@ -21239,12 +21260,13 @@ OWNER_CARD_TEXT = ("The done check of this repository stayed NOT DONE with the s
 
 def _blocked_repos(directory: str, deadline: float, environ) -> list[str]:
     """The repositories that hold a blocker of the Stop hook (DONE_BLOCKER, a regular file), each once: the one of
-    directory and each one a local done order binds (D38). Only the file's presence is read, never its text (T1)."""
+    directory and each one a local done order binds (D38), where the hook reads the orders (D128, _hook_orders). Only
+    the file's presence is read, never its text (T1)."""
     repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
     if unreadable:
         raise GateError(unreadable)
     candidates = [] if repo is None else [str(repo)]
-    for entry in _local_orders(environ, deadline):
+    for entry in _hook_orders(environ, deadline):
         bound = entry["order"]["repo"] if "order" in entry else entry.get("bound")
         if bound:
             candidates.append(bound)
@@ -21501,7 +21523,8 @@ def done_order(repo_dir: str, declaration: str | None, policy_file: str | None, 
     work tree, account A's variant E), the policy's bytes, the commit at HEAD as the base of `paths`, the work tree root and
     the git directory, written to the gate directory with the gate's record of its digest. An order that exists is
     replaced only with `replace`, and the record keeps the digest it replaces. The receipts are added to info/exclude
-    where git does not yet ignore them."""
+    where git does not yet ignore them. It writes whatever its own environment sets, and says that the hooks read the
+    order only with the protected channel (D128): the setting is the hook's, and a person's shell need not carry it."""
     environ = os.environ if environ is None else environ
     folder = _orders_dir(environ)
     if folder is None:
@@ -21561,6 +21584,7 @@ def done_order(repo_dir: str, declaration: str | None, policy_file: str | None, 
         lines.append(f"it replaces an earlier order; the gate records {len(replaced)} replacement(s)")
     if added:
         lines.append(f"added to the repository's info/exclude: {' '.join(added)}")
+    lines.append(HOOK_ORDERS_NOTE)
     return "\n".join(lines)
 
 
@@ -21610,7 +21634,8 @@ def done_order_remove(repo_dir: str | None, key: str | None, deadline: float, en
 
 
 def done_order_list(deadline: float, environ: dict | None = None) -> str:
-    """Every local done order and what the gate finds for it now (D38)."""
+    """Every local done order and what the gate finds for it now (D38), for a person whatever the environment sets;
+    a last line says where the hooks read the orders (D128)."""
     environ = os.environ if environ is None else environ
     rows = []
     for entry in _local_orders(environ, deadline):
@@ -21621,7 +21646,7 @@ def done_order_list(deadline: float, environ: dict | None = None) -> str:
         else:
             refusal = entry["refusal"]["verdict"]
             rows.append(f"{entry['key']}\t{entry['file']}\t{refusal.reason_id}: {refusal.failed}")
-    return "\n".join(rows) if rows else "no local done order"
+    return "\n".join([*rows, HOOK_ORDERS_NOTE]) if rows else "no local done order"
 
 
 def done_order_command(argv: list[str]) -> int:
@@ -22503,10 +22528,15 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     staged = _git(repo, "add", "--", DECLARATION, DONE_POLICY, ".proofbundle/.gitignore", deadline=deadline)
     if staged.returncode != 0:
         raise GateError("git could not stage the done check")
-    # B30-2: the block of the Stop hook names this key file, wherever --key put it
+    # B30-2: the block of the Stop hook names this key file, wherever --key put it; D128: the record is written whatever
+    # this command's environment sets, and a hook reads it only with the protected channel
     unrecorded = _record_key_path(environ, repo, key_path)
     recorded = "" if unrecorded is None else (f" The gate directory does not record the key file ({unrecorded}), so a "
                                               "block names the default key file; set PROOFBUNDLE_KEY to this one.")
+    if unrecorded is None and key_path != os.path.join(_gate_dir(environ) or "", DONE_KEY_FILE):
+        recorded = (" The block of the Stop hook names this key file only where the hook's environment sets "
+                    f"{OWNER_STATE_VARIABLE}={OWNER_STATE_PROTECTED} (D128); elsewhere it names the default key file, "
+                    "so set PROOFBUNDLE_KEY to this one there.")
     return (f"proofbundle done check set up in {repo}: test key {key_path} (a local test key, never a release key), "
             f"{DONE_POLICY} pins it, {DECLARATION} declares the done check, .proofbundle/.gitignore keeps the receipt "
             f"and the done check's own files out of the tree. Staged. Next: git commit -m \"declare the done check\"; then the tests run with a "
