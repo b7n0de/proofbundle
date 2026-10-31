@@ -1956,8 +1956,13 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     crash on the dereference. The signature proves who signed the bytes; it says nothing about whether
     the bytes have the shape the consumer is about to walk. So the shape is checked HERE, as part of the
     library verdict, and a consumer never has to guess. Returns ``(ok, detail)``; ``detail`` is empty
-    when ok. Deliberately narrow: only what svr/v0.1 declares (predicate object, ``properties`` a list of
-    strings, ``verifier`` an object when present, ``timeCreated`` a string when present).
+    when ok. Deliberately narrow: only what svr/v0.1 declares, and all of it (spec/predicates/svr.md at
+    in-toto/attestation 1fa33327): a predicate object whose four required members are present and of their
+    type, ``verifier`` an object, ``verifier.id`` a string, ``timeCreated`` a string and ``properties`` a list
+    of strings. Measured on main b55d736d: a signed SVR without ``verifier``, without ``verifier.id`` or
+    without ``timeCreated``, or with a number for ``verifier.id``, verified ok=True and ``proofbundle svr
+    --verify`` printed PASS, because ``verifier`` and ``timeCreated`` were judged only when present and
+    ``verifier.id`` not at all. The extension field ``verifier.policy`` and every unknown member stay unread.
 
     NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
@@ -1981,9 +1986,17 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
         return False, f"SVR predicate.properties must be a list of strings, got {type(props).__name__}"
     if not all(isinstance(p, str) for p in props):
         return False, "SVR predicate.properties must contain strings only"
-    if "verifier" in predicate and not isinstance(predicate["verifier"], dict):
+    if "verifier" not in predicate:
+        return False, "SVR predicate.verifier is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"], dict):
         return False, "SVR predicate.verifier must be an object"
-    if "timeCreated" in predicate and not isinstance(predicate["timeCreated"], str):
+    if "id" not in predicate["verifier"]:
+        return False, "SVR predicate.verifier.id is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"]["id"], str):
+        return False, "SVR predicate.verifier.id must be a string"
+    if "timeCreated" not in predicate:
+        return False, "SVR predicate.timeCreated is required by svr v0.1 and absent"
+    if not isinstance(predicate["timeCreated"], str):
         return False, "SVR predicate.timeCreated must be a string"
     return True, ""
 
