@@ -4733,6 +4733,10 @@ as a call a rule frees does (D25); the log keeps the ask of decide() as the verd
 under Codex and every push that misses one condition keep their answer. Nothing else gets freer. Tests:
 tests/test_plugin_n35_work_branch_go_d87.py.
 
+Addendum (D129, 2026-10-26): the GO no longer comes with --autonomous alone. Since D129 it applies only where the hook's
+environment also sets PROOFBUNDLE_STANDING_GO to `protected`, the house's separate consent to it (owner answer 9 of
+Nachtrag 7); without it the push keeps the answer of the closed list of D85.
+
 ## D88. Owner clicks, detours, catches and blocks, in the log and the bilanz (2026-10-18)
 
 The order: count apart the owner's clicks (asks), the detours (a deny with a rewrite, then free in the new form) and the
@@ -6320,3 +6324,68 @@ may still make a new order with done-order, which O2 leaves free. The default ke
 directory, and a session can replace it: the gate never reads it, it names its path, and a receipt it signs verifies
 only where the policy the done check reads pins its public key (the one at HEAD, a reviewed commit; with the setting,
 also the policy an order carries). pilot.json is read as before (D124). A real Claude Code or Codex host: NOT MEASURED.
+
+## D129. The standing GO of D87 needs a consent of its own beside --autonomous (owner answer 9 of Nachtrag 7, 2026-10-26)
+
+Owner answer 9 of Nachtrag 7 (2026-10-26, option B), translated: "House configuration D125: B, D87 split off, its GO
+needs its own protected consent." D125 took --autonomous out of the public hook commands and made the flag the house's
+opt-in; started with it, the gate still switched on the standing GO of D87 (free_work_branch_go, _autonomy_go) together
+with the rest of the autonomous answer of D85, and the last paragraph of D125 named the gap: a protected, explicit
+consent channel for the standing GO of D87 does not exist. Owner answer 5 of the same day: the protected channel is to
+be a record signed with a key outside the session, which the house builds; until then a setting of the hook's
+environment, documented as no protection. The order of the slice: the red test first, with no code, then the rule.
+
+Measured at f21f785d (tests/test_plugin_standing_go_consent_d129.py; the repository, the hook environment and the seven
+work-branch pushes of tests/test_plugin_n35_work_branch_go_d87.py, the gate started with --autonomous): 21 of 38 cases
+red on Python 3.12 and 3.14. Each of the seven pushes passed with free_work_branch_go (klasse go) with no consent stated,
+with PROOFBUNDLE_OWNER_STATE=protected of D124 and without it (14); so did `git push origin claude/x` with
+PROOFBUNDLE_STANDING_GO set to an empty value, `1`, `yes`, `Protected` or `protected ` (5); the gate had no reader of such
+a setting (1); and decide() of the signer service with the operator's `"autonomous": true` (D119) gave ALLOW for the push
+without the setting in its environment (1). The 17 controls were green there and are green here: the seven pushes with
+the setting, with and without the owner state setting, pass as before; the gate without the flag and the gate under
+Codex give the same answer with the setting as without it; the service with the setting gives ALLOW.
+
+The rule:
+
+- In the autonomous answer under Claude Code, the standing GO of D87, as D92 widened it, frees a push only where the
+  hook's environment sets PROOFBUNDLE_STANDING_GO (STANDING_GO_VARIABLE) to exactly `protected` (STANDING_GO_PROTECTED).
+  _autonomy_go reads it before every other condition (_standing_go_consented) and without it gives None, so the push
+  keeps the answer the closed list of D85 gives a push that no standing GO covers: an ask, and in the work profile of
+  b7n0de a card of D93 (autonomy_card), which a release can free once as D111 and D119 say, where the owner state is
+  read (D124). A push a rewrite of D85 names is judged by the same path (_autonomy_judge), so without the setting it
+  counts there as an external effect (read in the code, not measured).
+- The setting is the house's consent to the standing GO alone. It stands beside --autonomous, the house's opt-in to the
+  autonomous answer (D125), and beside PROOFBUNDLE_OWNER_STATE (D124), which is no consent to the GO. Only the GO of D87
+  reads it; every other part of the autonomous answer (D85, D86, D88, D91, the edit of D92, D93, D106, D111, D114, D115,
+  D119) answers as before. Without the flag and under Codex it changes no answer.
+- As with D124, the setting is the house's statement and no protection (owner answer 5): the gate does not check who set
+  it, and whoever starts the hook with an environment of their own can set it. The protected channel the answer asks for
+  is a record signed with a key outside the session, which the house builds; the gate reads no such record yet.
+- The signer service (pilot/signer_service.py) decides in the `environment` of its configuration (D58, D119), never in
+  the agent's. With the operator's `"autonomous": true` it frees the push under the standing GO only where that
+  environment sets the same value (its decide() measured above). Where the hooks state the consent and the service's
+  environment does not, the service's verdict differs from the hook's (verdict_differs), it signs no receipt, and the
+  hook's answer stands (D55); a push that then arrives counts under M5 (D113). That refusal is read in the code, as
+  O28B-1 measures it for a service without `"autonomous": true`. The service's code is unchanged.
+
+Changed tests: tests/_standing_go.py gives the setting through an autouse fixture, in the style of tests/_owner_state.py,
+to tests/test_plugin_n35_work_branch_go_d87.py and tests/test_plugin_n37_machine_check_d92.py (whose hooks carry it from
+the case's environment) and to tests/test_plugin_n37_mutants_n35.py (M92b, so that the missing record of the remote's
+HEAD is what keeps the ask); tests/test_plugin_n33_fallbook.py (GO1) and tests/test_plugin_n43_window_note_o28b1.py (the
+GO push of O28B-1) state it in the environment they build. With the setting off, 16 cases of those modules fail at this
+rule: the seven pushes of D87, the seven of D92, GO1 for b7n0de under Claude Code and O28B-1; with it they pass as before.
+Found by a search for --autonomous, AUTONOMOUS_FLAG, free_work_branch_go and the fixtures of D87 and D92 over tests/,
+evals/ and pilot/: no other test relies on the GO (tests/test_plugin_public_hooks_without_autonomous_d125.py asserts its
+absence without the flag and is unchanged; the release tests of D119 push to a branch the GO does not cover); no eval
+starts the gate with --autonomous; the signer service is the place above.
+
+Not changed: the conditions of D87 and D92, the pass's text, its line and its receipt; D124 and D125, so no public hook
+command carries the flag or the setting; every answer under Codex and without the flag.
+
+Not covered, and named: the signed consent record of owner answer 5 does not exist and the gate reads none, so until the
+house builds it the setting keeps nobody out: any process that can set the hook's environment states the consent. The
+answer to a push without the consent gives the closed list's text ("a push to a branch that is no own work branch under
+the standing GO") and does not name the missing setting. No product text names the setting: the row of the autonomous
+answer in m0/PRODUCT_SPEC.md still lists the standing GO under `--autonomous`, and pilot/RUNBOOK.md does not say that
+the service's `environment` needs the setting beside `"autonomous": true`; the README and these texts are unchanged in
+this slice. How the house sets it on its own machines, and a real Claude Code host: NOT MEASURED.

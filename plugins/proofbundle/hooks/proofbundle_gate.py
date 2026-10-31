@@ -9552,11 +9552,23 @@ def _gate_dir(environ: dict) -> str | None:
 #: done-init, which a person runs, still write them, whatever their own environment sets.
 OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
 OWNER_STATE_PROTECTED = "protected"
+#: D129 (owner answer 9 of Nachtrag 7, option B): the standing GO of D87 applies, in the autonomous answer, only where
+#: the hook's environment also sets STANDING_GO_VARIABLE to STANDING_GO_PROTECTED, the house's separate consent to it;
+#: --autonomous alone no longer frees a push. Only the GO of D87 reads it. As with D124 the setting is the house's
+#: statement, not a protection: the protected channel is a record signed with a key outside the session that the house
+#: builds (owner answer 5 of Nachtrag 7), and until then the gate takes the setting as it stands.
+STANDING_GO_VARIABLE = "PROOFBUNDLE_STANDING_GO"
+STANDING_GO_PROTECTED = "protected"
 
 
 def _owner_state_read(environ: dict) -> bool:
     """D124: whether the gate reads the owner's files of its directory at all."""
     return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
+def _standing_go_consented(environ: dict) -> bool:
+    """D129: whether the hook's environment states the house's consent to the standing GO of D87."""
+    return environ.get(STANDING_GO_VARIABLE) == STANDING_GO_PROTECTED
 
 
 def _read_mode(environ: dict) -> str:
@@ -16889,7 +16901,10 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
     a configured remote; the repository is one of D71 (it declares, and every URL of every remote is a repository of
     WORK_OWNER on github.com); the push configuration adds nothing the command does not name and the push URL is the
     fetch URL; GIT_NAMESPACE is unset; the evidence rules at the commit it sends equal those of a local record
-    (_go_rules_equal, D20). Else None, and the ask stays."""
+    (_go_rules_equal, D20). Before all of that, the hook's environment states the house's consent to the standing GO
+    (_standing_go_consented, D129). Else None, and the ask stays."""
+    if not _standing_go_consented(environ):   # D129
+        return None
     dests = m.dests or []
     if len(dests) != 1 or not dests[0].startswith(GO_BRANCHES) or m.force or m.mirror or m.delete or \
             m.tags or m.why is not None or m.remote is None or m.repo is None:

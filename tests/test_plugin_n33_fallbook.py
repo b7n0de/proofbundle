@@ -17,6 +17,9 @@ pull requests of the session (D110) and with a text the house's form checker fin
 
 RED at 63b88d07: the cases the rules of follow-up note 33 changed (w01 to w03, l01 to l03, c01, c02, r01, S4, S6, S8, S9),
 and C2 and C3 as the fallbook means them.
+
+Changed by D129: the hook's environment of the probe states the house's consent to the standing GO
+(PROOFBUNDLE_STANDING_GO=protected), as account A's house configuration with --autonomous would; GO1 reads it.
 """
 from __future__ import annotations
 
@@ -387,7 +390,8 @@ def world(tmp_path_factory):
     (tmp / f"claude-{os.getuid()}" / "-fallbook" / SESSION).mkdir(parents=True)
     env = plugin_env(without=("GIT_", "GH_"), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, LC_ALL="C",
                      HOME=str(home), PROOFBUNDLE_GATE_DIR=str(w / "gatedir"), TMPDIR=str(tmp),
-                     CLAUDE_CODE_SESSION_ID=SESSION, PATH=f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin")
+                     CLAUDE_CODE_SESSION_ID=SESSION, PATH=f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+                     PROOFBUNDLE_STANDING_GO="protected")   # D129: the house's consent to the standing GO
     with _environment(env):
         (w / "b").mkdir()
         r = d71._repo(w / "b")
