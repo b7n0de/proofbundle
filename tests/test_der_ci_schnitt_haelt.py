@@ -499,7 +499,12 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: 40684624385, finished); at 8381beb7 the suite step was cut at 45 after 43m49s without a failing test, which is
 #: a lower bound, not a length. ceil(43 * 1.25) = 54 does not fit under 45 and does fit under the 60 of the owner
 #: decision of 2026-10-28 (card OA-fa42936426).
-GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144, "crypto-floor": 43}
+#:
+#: MEASURED 2026-10-30, `test` runs in parts since PR 440, and its row measures one part. Through the Actions API
+#: the longest part took 15.1, 14.2 and 14.7 min on main (c5aef10b, 0d3acb1d, 0cf32d12) and 18.3, 20.9 and
+#: 19.7 min in the PR runs of 440 and 441 with 35 parts, each time test (3.14, 5). ceil(21 * 1.25) = 27 fits
+#: under the 45 of the owner decision of 2026-10-30 (card OA-1d7ec781c1).
+GEMESSENE_MAXIMA_MIN = {"test": 21, "coverage": 144, "crypto-floor": 43}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.
