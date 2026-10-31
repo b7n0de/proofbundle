@@ -72,6 +72,8 @@ At the other calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
+Answer scope in this README. A base ask describes decide(), not necessarily the final answer emitted by the configured hook. The public Guard default starts the base path without the combined --autonomous flag. In an explicitly enabled house configuration, D85 to D92 can turn a base ask into a deny or apply a scoped standing work-branch authorization. Such standing authorization is not a public default and requires a separate owner-controlled choice. Under Codex a plain git push only warns. A path with no gate decision is not a checked or approved operation. An evidence-failure denial described below applies only where that evidence check is actually reached, not to a plain Codex push or an unrecognized carrier. Host enforcement after timeout and behaviour in an unattended host are NOT MEASURED for this stack.
+
 The verification runs at three levels, which see different things and which the design keeps apart
 (DECISIONS.md, D3, D22, D24).
 

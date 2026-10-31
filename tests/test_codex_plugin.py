@@ -142,9 +142,9 @@ def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
     assert "env" not in claude_server
     entry = _codex_hook()
     (claude_entry,) = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"]
-    # changed in follow-up note 35 (D85): the Claude Code hook starts the gate with --autonomous, the Codex hook never does
+    # changed in D125 (owner order N4-3): neither hook starts the gate with --autonomous, the house's opt-in of D85
     assert entry["command"] == claude_entry["command"].replace(
-        '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous',
+        '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"',
         '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex')
     assert entry["timeout"] == claude_entry["timeout"]
 

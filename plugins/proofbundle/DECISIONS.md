@@ -6002,3 +6002,48 @@ Not changed: the gate still denies the writes to its directory and to the clone'
 open consequence of a replaced Level 2 hook is NOT MEASURED here beyond the pin and the hook record above). Not covered,
 and named: done-orders/ and done-keys.json in the same directory, which the done check reads, are the same class and are
 not part of this order; pilot.json is read as before.
+
+## D125. The public hook commands carry no --autonomous; the flag is the house's opt-in (owner order N4-3, 2026-10-26)
+
+Owner order N4-3 of 2026-10-26, on the external review of the Guard Preview stack, translated: "The combined flag
+--autonomous is removed from the public hook commands. The standing release for work branches (D87) exists publicly
+only after its own, protected, explicit consent. A house configuration with the flag is marked as opt-in." The review
+(KERN K-7 and finding 4, TESTS T-4): the one flag of D85 turns a base ask into a deny and also switches on the standing
+GO of D87; the conditions of D87 (a declared repository, evidence and configuration that agree, every remote a
+repository of b7n0de on github.com) do not obtain an outside user's consent; and a test that starts the gate itself,
+with or without the flag, is no witness of what the shipped hook answers.
+
+Measured at 16cffca on 2026-10-26 (tests/test_plugin_public_hooks_without_autonomous_d125.py, Python 3.12 and 3.14),
+each shipped PreToolUse command run as the host runs it (the group whose matcher matches the tool, ${CLAUDE_PLUGIN_ROOT}
+put in, `sh -c`, the event on stdin, the repository and hook environment of the D87 tests) against the gate started
+without the flag: the four PreToolUse commands of hooks/hooks.json carried --autonomous; the seven work-branch pushes
+of the D87 tests passed with free_work_branch_go where the gate without the flag asks; `git reset --hard HEAD~1`, a
+Write into .git/hooks and a gated MCP pull request in the work profile were denied (D85, D93) where it asks; 11 of 14
+cases red. The read hook proofbundle_secrets.py (D102) hands its arguments on to the gate. With and without the flag, a
+Read of a key file, a Grep of a folder of keys, a Read of `~/.netrc` and an event that is no JSON got exit 0, the same
+bytes on stdout (a deny with secret_path, and with hook_input for the event) and the same log line but for its time; a
+Read of another path started no gate either way. The flag changed nothing in that hook's answer.
+
+The rule: no command of hooks/hooks.json and of .codex-plugin/plugin.json carries --autonomous. The shipped Claude
+Code hook answers as decide() judges: a base ask stays an ask, and nothing of the autonomous answer applies (D85 to
+D92, the standing GO of D87 among them, the cards of D93, D106, D114 and D115, the releases of D111 and D119). The Codex
+manifest never carried the flag and is unchanged. A house configuration that starts the gate with the flag is an
+opt-in: it is no file of the plugin, and the texts name it an explicitly enabled house configuration. The description
+of hooks/hooks.json, two rows and the profile paragraph of m0/PRODUCT_SPEC.md and a paragraph of the README before the
+three levels take the reviewer's texts word for word (TX42, TX01, TX49, TX59, TX48). Green at the fix: the 14 cases, on
+Python 3.12 and 3.14.
+
+Not changed: the gate keeps AUTONOMOUS_FLAG, and started with it answers as D85 to D92, D93, D106, D111, D114, D115 and
+D119 say, as the house's opt-in; the tests of those decisions start the gate with the flag themselves and test that
+opt-in, not the shipped hook. decide() and every answer under Codex stay. The signer service decides with the
+autonomous answer only where its operator sets `"autonomous": true` (D119), which belongs to hooks started with the
+flag. Changed tests: tests/test_plugin_n35_autonomy_d85.py (the plugin's hooks start their script without the flag),
+tests/test_codex_plugin.py (the Codex gate command is the Claude Code one with `--host codex` added).
+
+Not covered, and named: a protected, explicit consent channel for the standing GO of D87 does not exist, so the public
+default grants none; how the house adds the flag on its own machines is not measured here. The first sentence of TX59
+(a Verify-only installation registers no Guard hooks) states the packaging the review requires in K-1, which the Verify
+slices of delivery -2 carry (01, 02a, 08a, 13a, held by tests/test_plugin_verify_carries_no_guard.py), not this rule:
+from the Guard slices 02b and 02c on, both manifests register the Guard hooks. Texts that still describe the flag as
+shipped (m0/IMPLEMENTATION_GAP.md G-CC-1 and P-1, the house profile row of m0/PRODUCT_SPEC.md, the sentences of D85 and
+D113 on hooks.json) are not changed by this rule. A real Claude Code or Codex host: NOT MEASURED.
