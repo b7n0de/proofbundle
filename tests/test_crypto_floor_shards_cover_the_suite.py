@@ -196,11 +196,14 @@ def _origins(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
     return ours, theirs, local
 
 
-def _may_be_unittest(v: ast.AST, ours: set[str], theirs: set[str]) -> bool:
-    """Can this value be unittest or one of its modules? A name bound to unittest can, a name bound by an import from
-    elsewhere cannot, and every value whose origin is not read here can (the strict direction)."""
+def _may_be_unittest(v: ast.AST, ours: set[str], theirs: set[str], local: set[str]) -> bool:
+    """Can this value be unittest or one of its modules? A name bound to unittest can, a name bound only by an import
+    from elsewhere cannot, and every value whose origin is not read here can (the strict direction). The origins are
+    read for the whole module, not per scope, so a name the module also binds otherwise (a parameter, an assignment)
+    can too: a foreign import of `m` hid the parameter `m` of another function (reading of the follow-up to 441, line
+    3, P2). For the same reason a name bound to unittest anywhere counts, also where another binding is in reach."""
     if isinstance(v, ast.Name):
-        return v.id in ours or v.id not in theirs
+        return v.id in ours or v.id not in theirs or v.id in local
     return True
 
 
@@ -210,7 +213,7 @@ def _names_the_loader(k: ast.AST, ours: set[str], theirs: set[str], local: set[s
     namespace of a module. A name of the same spelling from elsewhere or bound in the module, and a key of a plain
     mapping, are not the shared loader."""
     if isinstance(k, ast.Attribute):
-        return k.attr == _LOADER and _may_be_unittest(k.value, ours, theirs)
+        return k.attr == _LOADER and _may_be_unittest(k.value, ours, theirs, local)
     if isinstance(k, ast.Name):
         return k.id == _LOADER and isinstance(k.ctx, ast.Load) and k.id not in theirs and k.id not in local
     if isinstance(k, ast.ImportFrom):
@@ -218,15 +221,15 @@ def _names_the_loader(k: ast.AST, ours: set[str], theirs: set[str], local: set[s
                 and any(a.name == _LOADER for a in k.names))
     if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr":
         return (len(k.args) > 1 and isinstance(k.args[1], ast.Constant) and k.args[1].value == _LOADER
-                and _may_be_unittest(k.args[0], ours, theirs))
+                and _may_be_unittest(k.args[0], ours, theirs, local))
     if isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant) and k.slice.value == _LOADER:
         v = k.value
         if isinstance(v, ast.Name):
             return False                     # a plain mapping; the namespace of a module is vars(m) or m.__dict__
         if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "vars" and v.args:
-            return _may_be_unittest(v.args[0], ours, theirs)
+            return _may_be_unittest(v.args[0], ours, theirs, local)
         if isinstance(v, ast.Attribute) and v.attr == "__dict__":
-            return _may_be_unittest(v.value, ours, theirs)
+            return _may_be_unittest(v.value, ours, theirs, local)
         return True
     return False
 
@@ -446,6 +449,17 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
                               ("def f(m):\n    return m.defaultTestLoader\n", [2]),
                               ("import unittest\nx = unittest.__dict__['defaultTestLoader']\n", [2]),
                               ("import sys\nx = sys.modules['unittest'].defaultTestLoader\n", [2])):
+            with self.subTest(source):
+                self.assertEqual(shared_loader_lines(source), lines)
+
+    def test_a_foreign_import_does_not_hide_another_binding_of_the_same_name(self):
+        """Reading of the follow-up to 441, line 3 (P2): the origins are read for the whole module, so a name imported
+        from elsewhere hid a parameter or an assignment of the same name, and the loader of unittest handed in through
+        it went unseen, the strict direction lost."""
+        for source, lines in (("import mylib as m\n\ndef unrelated():\n    return m.value\n\ndef load(m):\n"
+                               "    return m.defaultTestLoader\n", [7]),
+                              ("import mylib as m\nm = __import__('unittest')\nx = m.defaultTestLoader\n", [3]),
+                              ("import mylib as m\ndef load(m):\n    return getattr(m, 'defaultTestLoader')\n", [3])):
             with self.subTest(source):
                 self.assertEqual(shared_loader_lines(source), lines)
 
