@@ -645,14 +645,20 @@ class TestAMisshapenContainerIsAReason(_Basis):
         self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[1]")
 
     def test_control_absent_containers_make_no_claim(self):
-        """An absent `configuration`, an entry without `digest`, and an absent predicate verify."""
-        for name, umbau in (
-                ("no configuration", lambda st: st["predicate"].pop("configuration")),
-                ("entry without digest", lambda st: st["predicate"]["configuration"][0].pop("digest")),
-                ("no predicate", lambda st: st.pop("predicate"))):
+        """An entry without `digest` verifies: it makes no claim."""
+        res = self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"), platzhalter=False)
+        self.assertTrue(res["ok"], res["content_root_detail"])
+
+    def test_an_absent_configuration_or_predicate_is_a_reason(self):
+        """`configuration` and `result` are required members of the test-result predicate, so a statement
+        without `configuration`, or without a predicate at all, does not verify."""
+        for name, umbau, text in (
+                ("no configuration", lambda st: st["predicate"].pop("configuration"),
+                 "predicate configuration: is required by test-result v0.1 and absent"),
+                ("no predicate", lambda st: st.pop("predicate"),
+                 "predicate result: is required by test-result v0.1 and absent")):
             with self.subTest(fall=name):
-                res = self._test_result(umbau, platzhalter=False)
-                self.assertTrue(res["ok"], res["content_root_detail"])
+                self._abgewiesen(self._test_result(umbau, platzhalter=False), text)
 
 
 class TestResultAndPassedAgree(_Basis):
@@ -948,7 +954,10 @@ class TestTheCaseListsAgreeWithTheVerdict(_Basis):
              lambda p: p.update(passedTests=[suite, suite]), "case lists"),
             ("passedTests a string", None, lambda p: p.update(passedTests=suite), "passedTests"),
             ("every list empty", None, lambda p: p.update(passedTests=[], failedTests=[]), "case lists"),
-            ("no result, the suite under failedTests", None, ohne_result, "case lists"),
+            # `result` is a required member, and the verdict names the first reason, so the missing member
+            # is named before the case lists.
+            ("no result, the suite under failedTests", None, ohne_result,
+             "result: is required by test-result v0.1 and absent"),
             ("failing claim, the suite under passedTests", scheitert,
              lambda p: p.update(passedTests=p.pop("failedTests")), "case lists"),
         )
