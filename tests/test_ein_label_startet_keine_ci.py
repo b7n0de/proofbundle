@@ -213,8 +213,10 @@ def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
     ci = _lade("ci.yml")["jobs"]
     assert s.CI_NEEDS == tuple(ci["mutation"]["needs"]), (
         "the script waits for other jobs than the ones ci.yml's mutation job needs")
-    assert ci[s.COLLECTOR]["needs"] == list(s.CI_NEEDS), (
-        "the collector the script waits for does not judge the same jobs")
+    # Since the three stages the collector also judges the language gate and the title gate of a pull
+    # request (tests/test_ci_three_stages.py); it still judges every job the layer needs.
+    assert set(s.CI_NEEDS) <= set(ci[s.COLLECTOR]["needs"]), (
+        "the collector the script waits for does not judge the jobs the layer needs")
     assert s.WAITED == s.CI_NEEDS + (s.COLLECTOR,)
     assert (WF / s.CI_WORKFLOW).is_file()
 
@@ -519,10 +521,11 @@ def test_ein_anderes_label_bricht_die_schicht_nicht_ab():
 
 def test_ci_yml_behaelt_seine_pflichtkontexte():
     """No required context removed or renamed: the jobs the ruleset's contexts come from are still in
-    ci.yml under the same ids, and all-checks-passed still needs exactly test and coverage."""
+    ci.yml under the same ids, and all-checks-passed needs test and coverage, and since the three stages
+    the language gate and the title gate, which it judges before the queue."""
     jobs = _lade("ci.yml")["jobs"]
     assert {"test", "coverage", "all-checks-passed"} <= set(jobs)
-    assert jobs["all-checks-passed"]["needs"] == ["test", "coverage"]
+    assert jobs["all-checks-passed"]["needs"] == ["test", "coverage", "new-lines-english", "release-scope-title"]
     assert "name" not in jobs["all-checks-passed"] and "name" not in jobs["test"]
     assert json.loads(DECLARATION.read_text(encoding="utf-8"))["required_contexts"] == ["all-checks-passed", "guard"]
 
