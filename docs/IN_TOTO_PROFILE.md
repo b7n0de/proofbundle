@@ -108,8 +108,10 @@ its own digest.
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.1`. Emitted and signed by released
 versions and still the CLI default. Its predicate is verified under its own contract: signature, content
-root, type, and every member the table below does not mark optional, with both parts of `commitments`; a
-statement that lacks one does not verify (`predicate_claim_ok` is `False`). No v0.2 shape applies to it
+root, type, and every member the table below does not mark optional, with both parts of `commitments` and
+of `suite`; a statement that lacks one does not verify (`predicate_claim_ok` is `False`), and neither does
+one whose `verifier` is no object carrying `verifier.id` as a string or whose `subjectProfile` is not one
+of the profiles below. No v0.2 shape applies to it
 (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
 verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
 `_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
