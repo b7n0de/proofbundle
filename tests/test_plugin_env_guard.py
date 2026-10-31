@@ -385,3 +385,49 @@ def test_uv_offline_and_its_cache_pass_and_a_proxy_or_certificate_path_does_not(
         assert set(passed) <= set(names), names
         assert not set(withheld) & set(names), names
     assert set(passed) | set(withheld) <= set(other["child"]), other
+
+
+_IMPORTING_MODULE = '''
+import json, pathlib, subprocess, sys
+
+OUT = pathlib.Path(__file__).with_suffix(".json")
+
+
+def test_child():
+    import proofbundle
+    child = subprocess.run([sys.executable, "-c", "import proofbundle; print(proofbundle.__file__)"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    OUT.write_text(json.dumps({"child": child, "self": proofbundle.__file__}))
+'''
+
+
+def test_a_child_of_a_plugin_test_imports_the_proofbundle_the_test_imports(tmp_path):
+    """The witness runs pytest with -o pythonpath=src: src/ stands on sys.path of the test process only, and a child it
+    starts without PYTHONPATH imported the proofbundle its interpreter has installed (measured on the witness of 31
+    October 2026: 6.0.0, without proofbundle._plain_value, and 13 cases of the pilot went red). Here a run whose caller
+    puts a decoy proofbundle on PYTHONPATH and this tree's src/ on pythonpath: the plugin module's child imports the
+    package its test imports, a module of another name keeps the caller's PYTHONPATH and reads the decoy, which shows
+    the decoy reached the run. Red at e4b614b0, where the plugin module's child read the decoy too."""
+    import proofbundle  # noqa: PLC0415 - the package this run imports, whose src/ the inner run gets
+    src = pathlib.Path(proofbundle.__file__).resolve().parent.parent
+    decoy = tmp_path / "decoy"
+    (decoy / "proofbundle").mkdir(parents=True)
+    (decoy / "proofbundle" / "__init__.py").write_text("DECOY = True\n", encoding="utf-8")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    shutil.copy(TESTS / "_plugin_env.py", tests / "_plugin_env.py")
+    (tests / "conftest.py").write_text("from _plugin_env import withhold_caller_environment  # noqa: F401\n",
+                                       encoding="utf-8")
+    (tests / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    for name in ("test_plugin_planted.py", "test_other_planted.py"):
+        (tests / name).write_text(_IMPORTING_MODULE, encoding="utf-8")
+    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tests),
+                           "-o", f"pythonpath={src}", str(tests)], capture_output=True, text=True, timeout=300,
+                          check=False, cwd=tmp_path, env=plugin_env(PYTHONPATH=str(decoy)))
+    assert proc.returncode == 0, proc.stdout[-2000:]
+    plugin = json.loads((tests / "test_plugin_planted.json").read_text(encoding="utf-8"))
+    other = json.loads((tests / "test_other_planted.json").read_text(encoding="utf-8"))
+    for seen in (plugin, other):
+        assert pathlib.Path(seen["self"]).resolve().parent.parent == src, seen
+    assert pathlib.Path(plugin["child"]).resolve() == pathlib.Path(plugin["self"]).resolve(), plugin
+    assert pathlib.Path(other["child"]).resolve().parent.parent == decoy.resolve(), other

@@ -18,6 +18,7 @@ import http.server
 import json
 import pathlib
 import shutil
+import socket
 import sys
 import threading
 
@@ -265,6 +266,11 @@ def test_the_live_path_is_the_same_code_and_sends_no_credential_of_the_environme
     server = http.server.HTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    try:   # the witness runs without a network, loopback included (PrivateNetwork, IPAddressDeny=any)
+        socket.create_connection(server.server_address, timeout=5).close()
+    except OSError as exc:
+        server.shutdown()
+        pytest.skip(f"no TCP connection to a server on 127.0.0.1 here ({exc}); the live path needs one")
     try:
         transport = observer.LiveTransport(base=f"http://127.0.0.1:{server.server_address[1]}")
         observer.observe(pr.Records(copy), "live", transport, [REPO], start, now_plus(120), observer_key())
