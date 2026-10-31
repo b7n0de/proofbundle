@@ -139,18 +139,28 @@ def _server():
     return module
 
 
+def _data_id(identifier: str) -> str:
+    """The data directory Claude Code names for the plugin identifier name@marketplace."""
+    return re.sub(r"[^A-Za-z0-9_-]", "-", identifier)
+
+
 def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path, monkeypatch):
     """Claude Code gives each plugin ~/.claude/plugins/data/<id>/, <id> the plugin identifier with every character other
-    than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate runs in the Guard and logs
-    into proofbundle-guard-<marketplace>; gate_status and the self-test of proofbundle read from that directory beside
-    their own, proofbundle-<marketplace>. Red at 18451ad1, where they read their own and in the house said the hook did
-    not run."""
+    than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate runs in the Guard, which
+    the house installs from its house marketplace (N2 B), and logs into the directory of
+    proofbundle-guard@proofbundle-house; gate_status and the self-test of proofbundle read from that directory beside
+    their own, whichever marketplace proofbundle came from. Red at 18451ad1, where they read their own and in the house
+    said the hook did not run, and at 4080bcdb, where they read proofbundle-guard-<the verifier's marketplace>, a
+    directory no house install has since the Guard left the public marketplace."""
     server = _server()
+    guard_id = _data_id(f"{GUARD}@{_json(HOUSE)['name']}")
     data = tmp_path / "plugins" / "data"
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / "proofbundle-proofbundle"))
-    path, source = server._log_path()
-    assert path == str(data / "proofbundle-guard-proofbundle" / server.LOG_NAME) and "D134" in source, (path, source)
-    for own in ("data", "proofbundle-guard-proofbundle", "elsewhere-proofbundle"):   # controls: read as before
+    for market in (_json(MARKETPLACE)["name"], "a-fork"):
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@{market}")))
+        path, source = server._log_path()
+        assert path == str(data / guard_id / server.LOG_NAME) and "D134" in source, (market, path, source)
+    assert server.GUARD_DATA_DIR == guard_id, (server.GUARD_DATA_DIR, guard_id)
+    for own in ("data", guard_id, "proofbundle-guard-proofbundle", "elsewhere-proofbundle"):   # controls: read as before
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / own))
         assert server._log_path()[0] == str(tmp_path / own / server.LOG_NAME), own
