@@ -264,13 +264,19 @@ value is true (D2).
 
 ### Two modes: strict, or with human approvals
 
-Since the free list was removed, every repository-dependent git form asks, except the two forms a state check
-frees (D3). Two modes, set only by a human,
-can spare a repeated question without the model ever freeing anything (D25):
+The old free list is removed. The gate still has explicit state-checked local forms, read profiles, and autonomous
+classifications; an explicitly enabled house autonomous adapter can change its base ask. strict and with-approvals
+control rule use only where the hook's environment sets PROOFBUNDLE_OWNER_STATE=protected (D124); without it the gate
+reads strict and no rule. D25 reserves mode and rules changes to a person, but the reviewed stack did not enforce that
+reservation at its same-account filesystem boundary: the supplied shell probe changed the mode and the gate read the
+changed value. The setting is the house's statement, not a protection: with it, the gate reads such a change again.
 
 - `strict` (the default): every such form asks; no rule and no click act.
-- `with-approvals`: a rule the human wrote in advance can free one plain `git` form in one repository. `push`
-  and `gh` are never freeable, and a form that touches the mode, the rules or the log is never free.
+- with-approvals can use a matching rule for a supported plain git form in one repository, where the hook's environment
+  sets PROOFBUNDLE_OWNER_STATE=protected (D124). A rule does not free push or gh. Separate owner-release and autonomous
+  work-branch paths exist; this rule restriction must not be read as a universal prohibition on those commands.
+  Recognized writes to mode and rules are denied, but the supplied shell probes show unrecognized ways to write them.
+  The gate log in the plugin data directory gets no such denial.
 
 The mode, the rules and the log live in a user-wide directory the model cannot reach through a repository:
 `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else `~/.config/proofbundle`.
