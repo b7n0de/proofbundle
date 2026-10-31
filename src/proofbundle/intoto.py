@@ -820,6 +820,41 @@ _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
 #: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
 #: `to_test_result_statement` writes carries both.
 _TEST_RESULT_REQUIRED_MEMBERS = ("result", "configuration")
+#: The values of the enum `result` (spec/predicates/test-result.md).
+_TEST_RESULT_VALUES = ("PASSED", "WARNED", "FAILED")
+#: One of these a ResourceDescriptor MUST specify (spec/v1/resource_descriptor.md).
+_DESCRIPTOR_LOCATORS = ("uri", "digest", "content")
+
+
+def _test_result_member_types(predicate: dict) -> list:
+    """(label, reason) for each member of a test-result predicate that is present in another type than the one the
+    predicate gives it, for every statement of the type, generic or ours: `result` one of PASSED, WARNED, FAILED;
+    `url` a string; each case list an array of strings; each `configuration` entry that is an object specifying
+    one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare `name`-only descriptor is invalid). An entry
+    that is no object and a `configuration` that is no array stay the reasons of `_descriptor_list_claim_fields`.
+
+    Measured on main b55d736d: a signed generic statement verified ok=True with `result` 1, "BOGUS" or "passed",
+    with a configuration entry {} or {"name": "only-a-name"}, with `url` 5 and with a case list that was no array
+    of strings, because these types were judged only beside a descriptor of ours that annotates a verdict."""
+    teile: list = []
+    if "result" in predicate:
+        wert = predicate["result"]
+        if not (isinstance(wert, str) and wert in _TEST_RESULT_VALUES):
+            teile.append(("result", f"must be one of PASSED, WARNED, FAILED, got {render_safe(wert)}"))
+    if "url" in predicate and not isinstance(predicate["url"], str):
+        teile.append(("url", f"must be a string, got {type(predicate['url']).__name__}"))
+    for name in _CASE_LISTS:
+        if name in predicate:
+            liste = predicate[name]
+            if not (isinstance(liste, list) and all(isinstance(x, str) for x in liste)):
+                teile.append((name, f"must be an array of strings, got {render_safe(liste)}"))
+    konfig = predicate.get("configuration")
+    if isinstance(konfig, list):
+        for i, eintrag in enumerate(konfig):
+            if isinstance(eintrag, dict) and not any(k in eintrag for k in _DESCRIPTOR_LOCATORS):
+                teile.append((f"configuration[{i}]", "must specify one of uri, digest or content, the rule of a "
+                                                     "ResourceDescriptor"))
+    return teile
 
 
 def _verdict_agreement(predicate: dict, urteile: list) -> list:
@@ -890,12 +925,13 @@ def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
     makes no claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
-    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
+    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment. A member
+    present in another type than the predicate gives it is a reason too (`_test_result_member_types`).
     """
     fehlend = [(m, "is required by test-result v0.1 and absent")
                for m in _TEST_RESULT_REQUIRED_MEMBERS if m not in predicate]
     subjekt_teile, urteile = _subject_claim_fields(statement)
-    teile: list = list(fehlend)
+    teile: list = list(fehlend) + _test_result_member_types(predicate)
     if "configuration" in predicate:
         konfig_teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
                                                                      predicate["configuration"])
