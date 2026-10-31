@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import pathlib
+import re
 import select
 import shlex
 import shutil
@@ -26,6 +27,10 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json"
+#: The programs that start the gate's script, and the options before the script that take no argument. Another program,
+#: or an option such as -c or -m whose argument is the program, starts no gate (reading of G-4, Z4).
+INTERPRETERS = ("python3", "python")
+_NO_ARGUMENT_OPTION = re.compile(r"-[bBdEIOqsSu]+")
 
 
 def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | None]]:
@@ -40,7 +45,8 @@ def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | N
 def passes_host_codex(command: object) -> bool:
     """True only when the hook's first command starts proofbundle_gate.py with the words the gate reads as host codex
     (its _host: exactly --host codex, after `stop` for the Stop hook, --autonomous aside). A substring such as
-    --host codex-x, or the words in a later command after ||, does not count."""
+    --host codex-x, or the words in a later command after ||, does not count. The command starts the gate only where its
+    first word is python3 or python and the first word after options that take no argument is the gate's script."""
     if not isinstance(command, str):
         return False
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -50,9 +56,13 @@ def passes_host_codex(command: object) -> bool:
     except ValueError:   # an unclosed quote: a line no shell runs
         return False
     first = list(itertools.takewhile(lambda word: word.strip("();<>|&"), words))   # up to the first operator
-    gate = next((i for i, word in enumerate(first)
-                 if word.replace("\\", "/").rsplit("/", 1)[-1] == "proofbundle_gate.py"), None)
-    if gate is None:
+    names = [word.replace("\\", "/").rsplit("/", 1)[-1] for word in first]
+    if not names or names[0] not in INTERPRETERS:
+        return False
+    gate = 1
+    while gate < len(first) and _NO_ARGUMENT_OPTION.fullmatch(first[gate]):
+        gate += 1
+    if gate >= len(first) or names[gate] != "proofbundle_gate.py":
         return False
     return [word for word in first[gate + 1:] if word != "--autonomous"] in (["--host", "codex"],
                                                                               ["stop", "--host", "codex"])
