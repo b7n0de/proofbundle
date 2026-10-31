@@ -11,6 +11,7 @@ why this can fail.
 """
 from __future__ import annotations
 
+import collections
 import itertools
 import json
 import os
@@ -58,8 +59,10 @@ def passes_host_codex(command: object) -> bool:
 
 
 def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
-    """True only for exactly the expected hooks, in their order, each started with --host codex."""
-    return [(h["event"], h["matcher"] or None) for h in hooks] == expected and all(h["host_codex"] for h in hooks)
+    """True only for exactly the expected hooks, each as often as expected and in any order of the answer, each
+    started with --host codex. The order of hooks/list is NOT MEASURED, so a correct load in another order counts."""
+    loaded = collections.Counter((h["event"], h["matcher"] or None) for h in hooks)
+    return loaded == collections.Counter(expected) and all(h["host_codex"] for h in hooks)
 
 
 def _ask(proc: subprocess.Popen, message: dict, timeout: float = 60) -> dict:

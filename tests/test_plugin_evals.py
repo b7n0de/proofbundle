@@ -894,6 +894,9 @@ def test_the_codex_hook_check_expects_every_hook_the_codex_manifest_registers():
     assert check.judge(loaded, expected) is True
     assert check.judge(loaded[:-1], expected) is False
     assert check.judge([dict(h, host_codex=False) if h["event"] == "stop" else h for h in loaded], expected) is False
+    # Any order of the answer counts (owner choice B on finding 8); a hook twice in place of another does not.
+    assert check.judge(list(reversed(loaded)), expected) is True
+    assert check.judge(loaded[:-1] + loaded[:1], expected) is False
 
 
 def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
