@@ -338,12 +338,13 @@ def test_control_a_line_with_a_substitution_and_no_root_program_is_no_root_door(
 
 
 @pytest.mark.parametrize("line", ["X=udo; eval 's$X' -n true", "bash -c 's$X -n true'", "eval \"$'\\x73udo' -n true\"",
-                                  "watch 's$X -n true'"])
+                                  "watch 's$X -n true'", "e\\val 's$X' -n true", "ev''al 's$X' -n true"])
 def test_a_text_a_runner_reads_a_second_time_is_read_the_strict_way(gate, line):
-    """Codex on pull request 447, P1: eval, a shell with -c and the other text runners read their text a second time,
-    so a dollar sign the first reading keeps as a character expands there (measured with bash 5.1.16 and a function
-    named sudo, `X=udo; eval 's$X' -n true` and `bash -c 's$X -n true'` call it). The gate at 647ed0a2 read these as
-    root, the marker of the literal dollar sign hid them."""
+    """Codex on pull request 447, P1: eval, a shell with -c and watch read their text a second time, so a dollar sign
+    the first reading keeps as a character expands there (measured with bash 5.1.16 and a function named sudo,
+    `X=udo; eval 's$X' -n true`, `bash -c 's$X -n true'` and `e\\val 's$X' -n true` call it). The gate at 647ed0a2
+    read these as root; the marker of the literal dollar sign hid them, and a runner the shell joins from parts was
+    not seen as one (fourth reading of the follow-up to 441, line 3, P1)."""
     assert gate._release_door_words(line) == "root"
 
 

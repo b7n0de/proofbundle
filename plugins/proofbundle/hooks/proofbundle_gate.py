@@ -18076,11 +18076,15 @@ def _release_assembled(continued: str) -> list[str]:
     where only a parser of the whole shell grammar can tell (a case pattern closes with a parenthesis). There the line is
     read both ways, and a release frees less, never more.
 
-    The same holds where a word of the line is one of _RELEASE_TEXT_RUNNERS: such a program reads its text a second
-    time, so a dollar sign the first reading keeps as a character expands there, and `X=udo; eval 's$X' -n true` runs
-    sudo (Codex on pull request 447, P1; measured with bash 5.1.16 and a function named sudo, also for `bash -c`)."""
+    The same holds where a word of the line, as written or as the shell joins it (`e\\val`, `ev''al`), is one of
+    _RELEASE_TEXT_RUNNERS. eval and a shell with -c read their text a second time, so a dollar sign the first reading
+    keeps as a character expands there, and `X=udo; eval 's$X' -n true` runs sudo (Codex on pull request 447, P1;
+    measured with bash 5.1.16 and a function named sudo, also for `bash -c`). The gate does not tell the forms of a
+    runner apart, so a line where a runner reads a file, `source` or a shell given a script, is read the strict way
+    as well: it holds back more, never less."""
     readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
-    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS for word in _RELEASE_SPLIT.split(continued))
+    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
+                    for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(readings[0]))
     if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
         readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
                                                                   _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
