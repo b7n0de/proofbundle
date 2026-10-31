@@ -35,15 +35,15 @@ Decides about an agent's calls before they run, and about the end of a session.
 
 | Function | Where | What it does |
 |---|---|---|
-| Pre-push gate | `PreToolUse` on Bash and on six MCP write tools, `hooks/proofbundle_gate.py` | before `git push`, `gh pr create`, `gh release create` and the gated MCP writes, checks the evidence the repository declares at HEAD; a failed check denies, an unmeasurable case asks (Claude Code) or denies (Codex) |
-| Configuration and hook writes | `PreToolUse` on the file tools | a write to git configuration or hooks, or to a file the configuration includes, is asked as NOT MEASURED |
+| Pre-push gate | `PreToolUse` on Bash and on six MCP write tools, `hooks/proofbundle_gate.py` | For recognized git push, gh pr create and gh release create forms under Claude Code, checks the declared evidence. An explicitly enabled house autonomous adapter can change a base ask into a deny or apply its scoped standing work-branch authorization. The public Guard default omits the combined autonomous flag and grants no such standing authorization. Under Codex, a plain git push warns without a permission decision; other recognized push forms and gated gh writes are denied as context-unbound. Gated MCP writes ask under Claude Code and are denied under Codex because their target is not bound. An installed git pre-push hook performs a separate check. These are separate paths, not universal prevention of writes. |
+| Configuration and hook writes | `PreToolUse` on the file tools | Recognized file-tool writes to repository configuration, hooks or included configuration receive a base ask under Claude Code and a deny under Codex. An explicitly enabled house Claude Code autonomous adapter denies these writes; the public base path retains its ask. Interpreter-carried and unresolved shell writes are not covered by that statement. |
 | Key files | `PreToolUse` on Read and Grep, `hooks/proofbundle_secrets.py` | a read of a key file, a credential store or a folder of keys is denied; paths only, no file opened |
 | Done check | `Stop` and `TaskCompleted` | where the declaration names a done check, the session ends or a task completes only with one verifying, passing receipt per required check for the commit and tree at hand; after three blocks without progress it writes `.proofbundle/done-blocker.json` and lets the session end without a done verdict |
 | Autonomous answer | `--autonomous` (Claude Code) | an ask becomes a block with a verified rewrite hint, except the closed list of external effects (D85), with the cards of the work profile (D93), the standing GO for the own work branch (D87) and the owner's release on a card (D111) |
-| Modes | `mode`, `rules.json` in the gate directory | `strict` (the default) or `with-approvals`, set only by a person (D25) |
+| Modes | `mode`, `rules.json` in the gate directory | strict is the default; with-approvals reads rules from the gate directory. The gate reads mode and rules.json only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to `protected` (D124); without it the mode is strict and no rule frees. D25 reserves these settings to a person, but the gate does not enforce that boundary: the supplied probe changes mode through a relative shell write, and a gate whose hook environment carries that setting then reads with-approvals. The setting is the house's statement, not a protection. File-tool and literal-target denials do not protect all writes by the session. |
 | Counts and log | `PostToolUse`, `proofbundle_answered.py`, the gate log, `bilanz` | answers per reason, open pull requests per session (D94, D110), one line per decision |
 | Diagnosis | skill `selftest`, tools `gate_status`, `gate_selftest_prepare`, `gate_selftest_check` | says whether the gate ran in this session and hands out a push the gate should deny, in a throwaway repository |
-| Pilot receipts (optional) | `pilot.json` in the gate directory, `pilot/` | a signed decision receipt per GitHub write the pilot reads, signed by a service of the operator, and the reconciliation against observed effects (Z405, D55 to D65, D113) |
+| Pilot receipts (optional, experimental) | `pilot.json` in the gate directory, `pilot/` | attempts a signed decision receipt for a GitHub write the pilot recognizes, through the operator's signer, and reconciles issued receipts with recorded observations; receipt and observation coverage are not complete, and cross-account operation is BLOCKED/NOT MEASURED as listed in IMPLEMENTATION_GAP.md |
 
 If the gate cannot run, the Bash hook blocks every call (`|| exit 2` in `hooks/hooks.json`, D6). The local gate is an
 early warning; the boundary is the required CI check and git's pre-push hook where it is installed (D22, D24).
@@ -59,8 +59,7 @@ Observing means: the gate runs and logs what it would answer, and never denies o
 observes, does not run, or that the host does not trust (Codex runs hooks only after the user trusts them, D16) is no
 protection, and no text may present it as one.
 
-Today one manifest set ships with the Guard always registered, under Claude Code always with `--autonomous`; the
-delivery profile does not exist as a setting (IMPLEMENTATION_GAP.md).
+Verify-only installation does not register Guard hooks. The public Guard Preview configuration registers its hooks separately and starts the base decision path without the combined --autonomous flag. The house configuration may explicitly enable autonomous adaptation, but standing authorization for work-branch pushes is not a public default and requires a separate owner-controlled choice. This does not implement the observing profile; that profile remains INACTIVE until built and measured.
 
 ## Stages
 

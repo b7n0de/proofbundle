@@ -27,6 +27,7 @@ import sys
 
 import _git_version as _gv
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's mode and rules are read
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

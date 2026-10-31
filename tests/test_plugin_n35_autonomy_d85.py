@@ -282,18 +282,18 @@ def test_D85_control_forms_the_rewrite_does_not_read_have_none(command):
     assert gate._autonomy_rewrite(command, "/r") is None, command
 
 
-def test_D85_the_plugin_hook_of_claude_code_starts_the_gate_with_the_flag_and_codex_without():
-    """The autonomous answer is what the plugin ships: every PreToolUse hook of hooks.json (Bash, the gated MCP tools,
-    the file tools) starts the gate with the flag; the Codex manifest never does, and the Stop and TaskCompleted hooks
-    take no flag."""
+def test_D85_the_plugin_hooks_start_the_gate_without_the_flag_which_stays_the_houses_opt_in():
+    """Changed in D125 (owner order N4-3): the autonomous answer is the house's opt-in, no longer what the plugin
+    ships. Every PreToolUse hook of hooks.json (Bash, the gated MCP tools, the file tools, Read and Grep) starts its
+    script without the flag; the Codex manifest never did, and the Stop and TaskCompleted hooks take no flag."""
     plugin = pathlib.Path(gate.__file__).resolve().parent.parent
     claude = json.loads((plugin / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     for group in claude["PreToolUse"]:
         # D102: the hook of Read and Grep starts the small script of the key paths, which hands a key path
-        # to the gate with the same flag
+        # to the gate with the same arguments
         script = "proofbundle_secrets.py" if group["matcher"] == "^(Read|Grep)$" else "proofbundle_gate.py"
         assert group["hooks"][0]["command"].startswith(
-            f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}" --autonomous ||'), group
+            f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}" ||'), group
     for event in ("Stop", "TaskCompleted"):
         assert gate.AUTONOMOUS_FLAG not in json.dumps(claude[event])
     codex = (plugin / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")

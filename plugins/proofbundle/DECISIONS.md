@@ -1819,6 +1819,11 @@ Options:
   one when the setting is missing.
 - C. Rules inside the repository. Rejected as the default: the model and any pusher could write them (card 3).
 
+Addendum (D124, 2026-10-26): the premise "the model cannot change the mode" does not hold. A session of the same
+account wrote the mode and the rules through a changed working directory, which the gate does not answer, and the gate
+read them (review package -1, messung/protection/k6_repro.txt; external review of -1, KERN finding 2). Since D124 the
+gate reads none of this directory's owner files unless the hook's environment states a protected channel.
+
 ## D26. Done only with a receipt (the Stop hook)
 
 Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a local hook as an
@@ -5720,8 +5725,9 @@ The rule:
   signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
   before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
   the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
-  release_record_unwritable. Without the setting the service decides without the autonomous answer and signs no
-  release: under it a release lets nothing run (A0).
+  release_record_unwritable, release_record_full. Remembered release keys are not evicted; at 4096 remembered
+  releases, the service refuses new releases. Without the setting the service decides without the autonomous answer
+  and signs no release: under it a release lets nothing run (A0).
 - The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
   its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
   time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
@@ -5756,9 +5762,10 @@ accounts the service reads the hook's data directory only where the operator ope
 decides in a data directory of its own (A2) with its own record; a merge through the REST API is not read as a merge;
 the doors the gate does not gate at all (measured: sudo, twine, uv publish, gpg, cosign and ssh-keygen -Y sign pass
 decide() without a word) are not touched by this rule: no card is asked for them and none frees them (owner question).
-Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
-is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
-in D119).
+Tests: tests/test_plugin_n49_release_once_d119.py, tests/test_plugin_signer_release_capacity.py (finding S-F1 of the
+external review: 4095 old releases and one recent one, a new release refused, across fresh processes); changed tests:
+tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
+(the service's names for its record of the releases stand in D119).
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
@@ -5911,3 +5918,132 @@ and the two readers of decidedAt take exactly what datetime takes, with the same
 
 Not changed: the form of an instant (_INSTANT), the six fraction digits of decidedAt. Not covered, and named: a leap
 second (23:59:60), which RFC 3339 allows and which the profile, datetime and the readers here refuse alike.
+
+## D123. The pilot's journal never holds the answer, and only a regular file takes its line (N4-4, 2026-10-26)
+
+External review of -1, PILOT finding 1 (KERN finding 5, K-3): the gate attempts its receipts after its verdict and
+before its answer (D55), and _pilot_journal opened `journal.jsonl` of the receipt folder with a blocking open. With a
+valid `pilot.json` whose signer fails and a FIFO named `journal.jsonl` without a reader, the hook waited in that open
+before it printed its permission answer, with no deadline. The reviewer measured a two-second wait on both shipped
+hook forms that ended when a reader opened the FIFO. The owner's order (addendum 4, point 4): journal access does not
+block, only a regular file at the opened descriptor is written, and the gate's answer stands under every receipt-side
+failure; the owner's releases of D119 are the exception, and the texts name them apart.
+
+The rule:
+
+- The gate opens the journal without blocking and without following a link (O_NONBLOCK and O_NOFOLLOW where the
+  platform has them), checks the opened descriptor and writes the line only into a regular file. A FIFO with or
+  without a reader, a device, a folder or a link in its place gets no line and raises an OSError, as a journal that
+  cannot be opened did before; the callers drop it (D55), so the ordinary answer, its exit code, its log line and its
+  bytes stay as they are. The reasons and the form of a journal line are those of D55.
+- The policy digest of a receipt reads the gate's own file as _sha256_or_none reads, without blocking and only as a
+  regular file; a FIFO in its place fails that receipt at once with an OSError.
+- The other paths of a receipt attempt were read for the same class: `pilot.json`, the closing rules, `mode` and
+  `rules.json` are read with _read_regular already; the receipt folder and `decisions/` are made with mkdir, which
+  does not wait on a FIFO in their place; a receipt file is created with O_CREAT and O_EXCL, which never opens an
+  entry that exists, so a FIFO in its slot is passed over to the next attempt. The signer is a child process the gate
+  stops after PILOT_SIGNER_SECONDS (N405-b).
+- D119 is not changed: where the pilot recognizes a released write, release_settle still requires the signed ALLOW
+  before the release is used. A journal line the gate cannot write after the service signed keeps the release, as a
+  journal it could not open did before (read from release_settle, not measured here); a FIFO and a link in the
+  journal's place are now such journals, where a FIFO without a reader held the hook before.
+- The comment that opens the pilot's part of the gate, the README's paragraph on `pilot.json` (TX52) and the row of
+  the pilot in m0/PRODUCT_SPEC.md (TX03) take the reviewer's texts: receipts are attempts with known gaps, an ordinary
+  attempt must not change the answer, and a D119 release is a separate authorization path that waits for the signed
+  ALLOW.
+
+Measured (tests/test_plugin_pilot_journal_never_waits.py): the hook as a subprocess in the three shipped forms, Claude
+Code without a flag, with --autonomous, and Codex (--host codex), on the data of a `gh pr comment ... --repo
+b7n0de/review-local-only` event in a temporary repository, with dummy ids and the signer /bin/false; each case
+compares exit code, stdout, stderr and the log line with the same event without `pilot.json`, and a run has 20 s to
+answer. 14 of 35 cases red at 16cffca on Python 3.12 and 3.14: no answer within 20 s for a FIFO journal without a
+reader and for a link to one (each in the three forms), for the pre-push hook with a FIFO journal and for the policy
+digest with a FIFO in the place of the gate's file; a FIFO with a reader got the line and a link to a regular file was
+followed (each in the three forms). The journal as a folder, the receipt folder as a FIFO or a file, `decisions/` as a
+FIFO, a FIFO in the first receipt slot, the ordinary journal line and an issued receipt's line kept the answer there
+already and keep it. The reviewer's reproduction, run unchanged: waited_for_reader True for both forms at 16cffca,
+False after, with the same answers (ask for Claude Code with --autonomous, deny for Codex).
+
+Not changed: at Level 2 each ref line is one call of the service (O405S-3), each within PILOT_SIGNER_SECONDS, and the
+calls share no overall budget, so a push of n lines can take n x 10 s after its decision before git gets the hook's
+answer (N405-b; git sets no limit). Not measured: a real Claude Code or Codex host, and what a host does after its
+120 s hook timeout.
+
+## D124. Guard Preview reads no owner state a session can write (Nachtrag 4, point 1, 2026-10-26)
+
+The external review of review package -1 (KERN finding 2, Blocker; K-6) and the package's own measurement
+(messung/protection/k6_repro.txt): `cd <gate directory> && echo with-approvals > mode` gets no answer from the gate under
+either host, it runs, and the gate then reads with-approvals. D25 rested on the gate denying every write to its
+directory; it denies the forms it recognizes, and a changed working directory, an interpreter or a dynamic target is
+not one of them. The owner's order (Nachtrag 4, point 1): in Guard Preview the use of approval and pin state is off by
+default until a protected channel exists; the house builds that channel through an account of its own, not a session.
+
+Measured at the head of the fix slice for finding 7 on 2026-10-26 (tests/test_plugin_owner_state_session_written_d124.py,
+7 cases, red at that head on Python 3.12 and 3.14): a session wrote each owner file of the directory through a changed
+working directory, which three hook forms (Claude Code without a flag, with --autonomous, and Codex) left unanswered,
+and the gate then consumed it. A mode and a rule freed git stash list (approved_by_rule); a transport approval was read;
+a pin over a pre-commit hook the session had replaced (cd .git/hooks) and a .git/config it had appended to (cd .git) freed
+git commit -m work (free_pinned_state); a hook record over the replaced hook freed it too (free_recorded_hooks); a
+release freed gh pr create -R b7n0de/proofbundle in decide() with the autonomous answer (released_by_owner); and a
+declared work folder took the deny from an append outside the repository, under Claude Code and under Codex.
+
+The rule: the gate reads the owner files of its directory, the mode and rules.json (D25), transports.json (D35),
+hook-state.json (D106), pin-state.json (D114, D115), the releases in freigaben/ (D111, D119) and work-folders.json
+(D104), only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to `protected` (_owner_state_read). Without it the
+mode is strict, no rule frees, no transport is approved, so no hand-over of D35 takes place, no hook record or pin frees,
+no release frees, and the work folders are the repository, the project and the session's scratch. The setting is the
+house's statement that an account the session cannot act as owns the directory and every folder above it; the gate does
+not check that, so the setting is not itself a protection. The tests of what a person's file does run with it
+(tests/_owner_state.py); the seven cases above run without it and are green.
+
+Not changed: the gate still denies the writes to its directory and to the clone's hooks and configuration it recognizes
+(D25); those denials are not a boundary. The session can still replace .git/hooks/pre-push or set core.hooksPath in
+.git/config through the same unanswered forms, so git's Level 2 stays a check the session can bypass (the reviewer's
+open consequence of a replaced Level 2 hook is NOT MEASURED here beyond the pin and the hook record above). Not covered,
+and named: done-orders/ and done-keys.json in the same directory, which the done check reads, are the same class and are
+not part of this order; pilot.json is read as before.
+
+## D125. The public hook commands carry no --autonomous; the flag is the house's opt-in (owner order N4-3, 2026-10-26)
+
+Owner order N4-3 of 2026-10-26, on the external review of the Guard Preview stack, translated: "The combined flag
+--autonomous is removed from the public hook commands. The standing release for work branches (D87) exists publicly
+only after its own, protected, explicit consent. A house configuration with the flag is marked as opt-in." The review
+(KERN K-7 and finding 4, TESTS T-4): the one flag of D85 turns a base ask into a deny and also switches on the standing
+GO of D87; the conditions of D87 (a declared repository, evidence and configuration that agree, every remote a
+repository of b7n0de on github.com) do not obtain an outside user's consent; and a test that starts the gate itself,
+with or without the flag, is no witness of what the shipped hook answers.
+
+Measured at 16cffca on 2026-10-26 (tests/test_plugin_public_hooks_without_autonomous_d125.py, Python 3.12 and 3.14),
+each shipped PreToolUse command run as the host runs it (the group whose matcher matches the tool, ${CLAUDE_PLUGIN_ROOT}
+put in, `sh -c`, the event on stdin, the repository and hook environment of the D87 tests) against the gate started
+without the flag: the four PreToolUse commands of hooks/hooks.json carried --autonomous; the seven work-branch pushes
+of the D87 tests passed with free_work_branch_go where the gate without the flag asks; `git reset --hard HEAD~1`, a
+Write into .git/hooks and a gated MCP pull request in the work profile were denied (D85, D93) where it asks; 11 of 14
+cases red. The read hook proofbundle_secrets.py (D102) hands its arguments on to the gate. With and without the flag, a
+Read of a key file, a Grep of a folder of keys, a Read of `~/.netrc` and an event that is no JSON got exit 0, the same
+bytes on stdout (a deny with secret_path, and with hook_input for the event) and the same log line but for its time; a
+Read of another path started no gate either way. The flag changed nothing in that hook's answer.
+
+The rule: no command of hooks/hooks.json and of .codex-plugin/plugin.json carries --autonomous. The shipped Claude
+Code hook answers as decide() judges: a base ask stays an ask, and nothing of the autonomous answer applies (D85 to
+D92, the standing GO of D87 among them, the cards of D93, D106, D114 and D115, the releases of D111 and D119). The Codex
+manifest never carried the flag and is unchanged. A house configuration that starts the gate with the flag is an
+opt-in: it is no file of the plugin, and the texts name it an explicitly enabled house configuration. The description
+of hooks/hooks.json, two rows and the profile paragraph of m0/PRODUCT_SPEC.md and a paragraph of the README before the
+three levels take the reviewer's texts word for word (TX42, TX01, TX49, TX59, TX48). Green at the fix: the 14 cases, on
+Python 3.12 and 3.14.
+
+Not changed: the gate keeps AUTONOMOUS_FLAG, and started with it answers as D85 to D92, D93, D106, D111, D114, D115 and
+D119 say, as the house's opt-in; the tests of those decisions start the gate with the flag themselves and test that
+opt-in, not the shipped hook. decide() and every answer under Codex stay. The signer service decides with the
+autonomous answer only where its operator sets `"autonomous": true` (D119), which belongs to hooks started with the
+flag. Changed tests: tests/test_plugin_n35_autonomy_d85.py (the plugin's hooks start their script without the flag),
+tests/test_codex_plugin.py (the Codex gate command is the Claude Code one with `--host codex` added).
+
+Not covered, and named: a protected, explicit consent channel for the standing GO of D87 does not exist, so the public
+default grants none; how the house adds the flag on its own machines is not measured here. The first sentence of TX59
+(a Verify-only installation registers no Guard hooks) states the packaging the review requires in K-1, which the Verify
+slices of delivery -2 carry (01, 02a, 08a, 13a, held by tests/test_plugin_verify_carries_no_guard.py), not this rule:
+from the Guard slices 02b and 02c on, both manifests register the Guard hooks. Texts that still describe the flag as
+shipped (m0/IMPLEMENTATION_GAP.md G-CC-1 and P-1, the house profile row of m0/PRODUCT_SPEC.md, the sentences of D85 and
+D113 on hooks.json) are not changed by this rule. A real Claude Code or Codex host: NOT MEASURED.
