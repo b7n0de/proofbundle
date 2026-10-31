@@ -23007,8 +23007,10 @@ def _pilot_journal(folder: str, entry: dict) -> None:
     entry = {"at": _pilot_instant(time.time_ns()), **entry}
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "journal.jsonl")
+    # 0o644 like the gate's log and the pilot's decision files: under a umask of 0, 0o666 made the journal writable by
+    # everyone (CodeQL on pull request 460).
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
-                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o666)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o644)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise _NotRegular(errno.EINVAL, "not a regular file", path)
