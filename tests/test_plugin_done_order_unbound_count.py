@@ -17,6 +17,7 @@ import pytest
 
 import test_plugin_done_check as d
 import test_plugin_done_local_order as lo
+from _owner_state import owner_state_protected  # noqa: F401 - D128: a person's local done order is read
 
 pytestmark = d.pytestmark
 _clean_git_config = d._clean_git_config
