@@ -213,6 +213,51 @@ reconciliation reads them there (D65). By hand, as the way back: every signed li
 that id and a payload of that digest; a signed line without one is a signature the deciding account obtained outside a
 decision of the gate (D64), and a line with `"handedOut": false` is one that never left the key signer.
 
+## The rotation of the service's record of releases (D131)
+
+With `"autonomous": true` the service keeps each release it signed ALLOW for in freigaben-geehrt.json, in the folder of
+its journal (`<service folder>` below), as `{"schema": "proofbundle/pilot-releases-honoured/v1", "geehrt":
+{"<card>:<sha256 of the line>:<session>": "<UTC time of the signature>", ...}}`. At 4096 of them it gives a new release
+no signature (release_record_full) and leaves the record as it is; a release the record names gets none either (D119),
+and every other request is signed as before. The refusal release_record_full comes after the key signer signed: its
+journal holds a signed line for it and the records no receipt, which the reconciliation counts among the signed lines
+without a receipt (D65). The service is no process that keeps running: the gate starts it once per request through the
+sudo rule of the agent's user (the crossings of step 2 of the setup), and each start reads the record anew. The owner's
+answer of 2026-10-26 (answer 7 of Nachtrag 7, option A): at the capacity the operator rotates the record, the service
+stopped. Steps 2 and 3 run as root.
+
+1. Stop the service: remove the sudo rule of the agent's user onto the service, so that the gate starts it no more.
+   From then on the gate gets no signature: a write it decides has no receipt and counts under M5 where it arrives,
+   and a release lets nothing run (D119). Keep it stopped until the newest time in the record lies more than 16 minutes
+   back (RELEASE_SECONDS, 15 minutes, and RELEASE_SKEW_SECONDS, 60 s, of the gate): the service signed for a release
+   only where its answer lay at most 60 s after the service's clock, and a release binds for 15 minutes from its
+   answer, so then none the record names binds with the answer it had. A request that started before the stop does not
+   change a full record.
+2. Archive the record into the records folder:
+
+   ```
+   cp <service folder>/freigaben-geehrt.json \
+     <records folder>/honoured-releases/freigaben-geehrt-<UTC time of the rotation>.json
+   ```
+
+   `honoured-releases/` is owned by root, mode 755, made at the first rotation, so that neither the agent's user nor
+   the deciding account changes what it keeps; check that the copy has the record's sha256.
+3. Empty the record by removing it: `rm <service folder>/freigaben-geehrt.json`. The service reads a record that is not
+   there as empty. A file in its place of zero bytes, `{}` or another form it reads as damaged: then it signs nothing at
+   all, no release and no other request (release_record_unread).
+4. Start the service: put the sudo rule back. Its next start reads no record and signs ALLOW for a new release again,
+   and it writes a new freigaben-geehrt.json that names that release alone.
+
+What the rotation means for the releases the record named: the service refuses a release it signed ALLOW for only
+while its record names it (D119). After the rotation it names none of them, so a release of the archive gets ALLOW
+again where it still binds: its line, its session, and its card in `freigaben/` of the gate directory with an answer at
+most RELEASE_SECONDS back. The wait of step 1 leaves none that binds with the answer it had; a card the fetcher writes
+again with a later answer binds again, and then only the hook's own record of the uses (D111) holds it, as long as that
+record names it. The archive keeps what the service signed ALLOW for before the rotation, each release by its card, the
+sha256 of its line and its session, with the time: a key that stands in an archive and again in a later record is a
+release the service signed ALLOW for twice, which the operator checks by hand after each rotation. The reconciliation
+does not read the archive.
+
 ## The reconciliation, and its rerun by someone else
 
 ```

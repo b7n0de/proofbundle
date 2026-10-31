@@ -6455,3 +6455,62 @@ without the autonomous answer of D85 to D93, nor the reverse. In the public defa
 Claude Code (26 forms of account A's command heads in the measurement of D71); what that costs in asks outside the house
 is NOT MEASURED. The sentences of earlier decisions that call a form free under D71 (D73, D74, D76, D91, D92, D99) speak
 of the house configuration since this rule and are not changed. A real Claude Code host: NOT MEASURED.
+
+## D131. A full record of the signer service's releases is rotated by the operator, the service stopped (owner answer 7 of Nachtrag 7, 2026-10-26)
+
+Owner answer 7 of Nachtrag 7 (2026-10-26, option A), on finding S-F1 of the external review: "Signer at full capacity:
+A, a documented rotation by the owner (the record archived and emptied with the service stopped)." Since S-F1 (D119)
+the signer service evicts no release it remembers and refuses a new one at 4096 (release_record_full); the runbook named
+the name and no way on from it, and the slice of S-F1 named how an operator empties or rotates a full record as not
+measured. Measured at f21f785d (tests/test_plugin_signer_rotation_d131.py, Python 3.12.3 and 3.14.6): 6 of 9 cases
+red, the five of the runbook and the one of this entry, as the runbook has no rotation; the 3 cases of the code green,
+as the code supports the steps as the runbook now writes them.
+
+The rule (pilot/RUNBOOK.md, "The rotation of the service's record of releases"; no code is changed):
+
+- The record is freigaben-geehrt.json in the folder of the service's journal, `{"schema":
+  "proofbundle/pilot-releases-honoured/v1", "geehrt": {"<card>:<sha256>:<session>": "<UTC time>"}}`, read by honoured
+  and written by honour. The service has no start and no stop of its own: the gate starts it once per request through
+  the sudo rule of the agent's user, and each start reads the record anew (judge for every request under
+  `"autonomous": true`, honour again under its lock). The runbook's stop is that rule removed and its start the rule
+  put back, the operator's configuration and no code of the plugin.
+- The steps, in this order: stop, archive, empty, start. Stop: the rule removed, and kept so until the newest time in
+  the record lies more than 16 minutes back: the service frees a release only where its answer lies at most
+  RELEASE_SKEW_SECONDS (60 s) after its clock and at most RELEASE_SECONDS (15 minutes) before it, and the record keeps
+  the time it wrote each release, after its decision, in whole seconds, so then no release it names binds with the
+  answer it had. A request that started before the stop does not change a full record: honour refuses before it writes
+  (the S-F1 test of the record byte for byte). Archive: `cp`, as root, into the records folder as
+  `<records folder>/honoured-releases/freigaben-geehrt-<UTC time of the rotation>.json`, in a folder owned by root,
+  mode 755, which neither the agent's user nor the deciding account writes. Empty: `rm` of the record. honoured reads a
+  record that is not there as empty (FileNotFoundError gives an empty record), and a file of zero bytes, `{}` or
+  another form as damaged: release_record_unread, raised in judge before the decision, so the service then signs
+  nothing at all. Start: the rule put back.
+- What the rotation means: a release the service signed ALLOW for is refused only while its record names it. After the
+  rotation a release of the archive gets ALLOW again where it still binds; the wait leaves none that binds with the
+  answer it had, and a card the fetcher writes again with a later answer binds again, held then only by the hook's own
+  record of the uses (D111) as long as that names it. The archive keeps what the service signed ALLOW for before the
+  rotation: a key that stands in an archive and in a later record is a release the service signed ALLOW for twice, the
+  operator's check by hand. The reconciliation does not read the archive.
+
+Measured (tests/test_plugin_signer_rotation_d131.py, green at the fix on Python 3.12.3 and 3.14.6), end to end through
+the hook with --autonomous and the service with `"autonomous": true` and a plugin data directory of its own (A2 of
+D119), on a full record: a call without a release gets its receipt DENY; a release gets no signature
+(release_record_full in the service's journal, signer_refused_release_record_full in the gate's), the call stays
+blocked, the hook uses nothing and the record stays byte for byte. After the archive and the emptying as the runbook
+writes them, the next start signs ALLOW, the call runs once, the new record names that release alone, and the archive
+holds the full record byte for byte. On a record of zero bytes a call without a release gets no receipt
+(release_record_unread), and once the record is removed the same call gets its receipt DENY; `{}` and a record without
+`geehrt` read as damaged too. In fresh processes of the service, after the rotation a release of the archive is
+honoured again, and its key then stands in the archive and in the new record.
+
+Not changed: signer_service.py, MAX_HONOURED, the reviewer's texts of S-F1 in signer_service.py and in D119, and the
+setup step of the runbook that names release_record_full; the hook's record of the uses (freigaben-genutzt.json, D111)
+is no part of the rotation. Found and named, not changed: release_record_full is raised after the key signer signed, as
+honour runs after the signature (D119); the key signer's journal holds a signed line for that request (measured) and
+the records hold no receipt for it, so the reconciliation counts it among the signed lines without a receipt and ends
+with KEY_JOURNAL_DISAGREES (read in reconcile.py, not run here); the runbook says so. Not covered, and named: the
+plugin ships no command for the rotation; the stop and the start as sudo rules of real accounts are NOT MEASURED; the
+wait rests on the service's clock and on the operator's reading of the record's newest time; during the stop each write
+the gate decides has no receipt and counts under M5 where it arrives, and a release lets nothing run; the deciding
+account can remove or rewrite its record at any time, as D119 says the record holds only under its account, and an
+archive shows only the rotations the operator made.
