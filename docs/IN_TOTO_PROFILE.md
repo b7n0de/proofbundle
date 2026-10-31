@@ -110,8 +110,8 @@ its own digest.
 versions and still the CLI default. Its predicate is verified under its own contract: signature, content
 root, type, and every member the table below does not mark optional, with both parts of `commitments` and
 of `suite`; a statement that lacks one does not verify (`predicate_claim_ok` is `False`), and neither does
-one whose `verifier` is no object carrying `verifier.id` as a string or whose `subjectProfile` is not one
-of the profiles below. No v0.2 shape applies to it
+one whose `verifier` is no object carrying `verifier.id` as a string, whose `subjectProfile` is not one
+of the profiles below, or whose `claims` is an empty array. No v0.2 shape applies to it
 (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
 verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
 `_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
@@ -132,7 +132,7 @@ verifies, and the emitters now refuse such an override. Fields:
 | `verifier.id` | the emitter/verifier TypeURI (replaced by `evaluator.id` in v0.2) |
 | `evaluatedAt` | when the eval ran (from the signed receipt) |
 | `suite` | `{name, version}` |
-| `claims[]` | `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
+| `claims[]` | one or more `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
 | `sampleSize` | `n` |
 | `commitments` | `{model, dataset}`, each `{alg, value, salted:true}` — a **salted commitment**, NOT an artifact hash |
 | `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in separately referenced evidence |
