@@ -5725,8 +5725,9 @@ The rule:
   signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
   before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
   the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
-  release_record_unwritable. Without the setting the service decides without the autonomous answer and signs no
-  release: under it a release lets nothing run (A0).
+  release_record_unwritable, release_record_full. Remembered release keys are not evicted; at 4096 remembered
+  releases, the service refuses new releases. Without the setting the service decides without the autonomous answer
+  and signs no release: under it a release lets nothing run (A0).
 - The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
   its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
   time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
@@ -5761,9 +5762,10 @@ accounts the service reads the hook's data directory only where the operator ope
 decides in a data directory of its own (A2) with its own record; a merge through the REST API is not read as a merge;
 the doors the gate does not gate at all (measured: sudo, twine, uv publish, gpg, cosign and ssh-keygen -Y sign pass
 decide() without a word) are not touched by this rule: no card is asked for them and none frees them (owner question).
-Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
-is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
-in D119).
+Tests: tests/test_plugin_n49_release_once_d119.py, tests/test_plugin_signer_release_capacity.py (finding S-F1 of the
+external review: 4095 old releases and one recent one, a new release refused, across fresh processes); changed tests:
+tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
+(the service's names for its record of the releases stand in D119).
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 

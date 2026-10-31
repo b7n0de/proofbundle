@@ -40,10 +40,10 @@ The autonomous answer and the owner's release on a card (D119, follow-up note 49
 `"autonomous": true`, the service decides a Level 1 call with the hook's autonomous answer (D85), in the session the
 event names, never one of its configuration. The hook writes the use of an owner's release (D111) only after the
 service signed ALLOW for it; the service writes no use of the hook's, and keeps its own record of the releases it
-signed ALLOW for, freigaben-geehrt.json beside its journal, each once: a release named there frees nothing again, so a
-second call and a request rebuilt after the use get no ALLOW. The record is written and synced before the signature
-leaves; one it cannot read or write gives no signature (`release_record_unread`, `release_record_unwritable`), and a
-release honoured meanwhile by a second request gives none either (`release_honoured`).
+signed ALLOW for, freigaben-geehrt.json beside its journal, each once. Remembered release keys are not evicted.
+At 4096 remembered releases, a new release gets no signature (release_record_full). The record is written and synced
+before the signature leaves; one it cannot read or write gives no signature (release_record_unread,
+release_record_unwritable), and a release already honoured gives none either (release_honoured).
 
     signer_service.py --config FILE            decide the request on stdin, have it signed or refuse
 
@@ -360,7 +360,8 @@ def honoured(config: dict) -> dict:
 
 def honour(config: dict, release: dict) -> None:
     """D119: write that the service signed ALLOW for this release, under a lock and synced to the disk, before the
-    signature leaves; Refused where the record names it already (a second request meanwhile) or cannot be written."""
+    signature leaves; Refused where the record names it already (a second request meanwhile), holds MAX_HONOURED
+    releases (release_record_full, no key is evicted) or cannot be written."""
     folder = os.path.dirname(config["journal"])
     try:
         os.makedirs(folder, exist_ok=True)
@@ -371,9 +372,9 @@ def honour(config: dict, release: dict) -> None:
             done = honoured(config)
             if _release_key(release) in done:
                 raise Refused("release_honoured")
+            if len(done) >= MAX_HONOURED:
+                raise Refused("release_record_full")
             done[_release_key(release)] = _instant()
-            while len(done) > MAX_HONOURED:
-                done.pop(next(iter(done)))
             fd, tmp = tempfile.mkstemp(prefix=".freigaben-geehrt-", dir=folder)
             with os.fdopen(fd, "w", encoding="ascii") as handle:
                 json.dump({"schema": HONOURED_SCHEMA, "geehrt": done}, handle, sort_keys=True)
