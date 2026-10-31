@@ -21,6 +21,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -178,6 +179,38 @@ def test_a_relative_value_git_reads_in_two_places_outside_the_work_tree_is_not_m
     assert name in report["message"], report
     answer = f6.stop(_relative(env, repo, **{name: "somewhere"}), tmp_path)
     assert answer is not None and answer.get("decision") == "block" and name in answer["reason"], answer
+
+
+def _pins_where_config_fails(tmp_path, monkeypatch) -> tuple[dict | None, str]:
+    """_pins from P for the work tree P/repo, with a git that says P lies outside the work tree and fails every config
+    read, as git 2.56 does once it loads a relative GIT_ALTERNATE_OBJECT_DIRECTORIES as it starts (its release notes:
+    "eagerly loading alternate object directories upon initialization")."""
+    top = tmp_path / "repo"
+    top.mkdir()
+
+    def git(repo, *args, deadline):
+        if args == ("rev-parse", "--is-inside-work-tree"):
+            return subprocess.CompletedProcess(args, 0, b"false\n", b"")
+        if args[:1] == ("config",):
+            return subprocess.CompletedProcess(args, 128, b"", b"error: unable to normalize alternate object path\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(gate, "_git", git)
+    return gate._pins(str(tmp_path), str(top), time.monotonic() + 60)
+
+
+def test_a_key_git_cannot_read_does_not_hide_a_relative_name_already_found(tmp_path, monkeypatch):
+    """Measured in CI at b21eaaf9 with git 2.56.0: the done check answered "git could not read core.excludesFile" for a
+    relative GIT_ALTERNATE_OBJECT_DIRECTORIES, still a deny, but without the name. The name the gate found before it
+    read the keys is the answer: NOT MEASURED, naming it. Red at b21eaaf9."""
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", "somewhere")
+    pins, why = _pins_where_config_fails(tmp_path, monkeypatch)
+    assert pins is None and "GIT_ALTERNATE_OBJECT_DIRECTORIES" in why and "NOT MEASURED" in why, why
+
+
+def test_control_a_key_git_cannot_read_without_a_relative_name_stays_a_read_failure(tmp_path, monkeypatch):
+    pins, why = _pins_where_config_fails(tmp_path, monkeypatch)
+    assert pins is None and why.startswith("git could not read core.excludesFile"), why
 
 
 def test_a_relative_exclude_file_outside_the_work_tree_is_not_measured(env, tmp_path, keys):
