@@ -29,6 +29,8 @@ from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+GUARD_HOOKS = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "hooks.json"
 
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
@@ -339,7 +341,7 @@ def test_a_write_to_an_ordinary_file_gets_no_decision(tmp_path):
 
 
 def test_the_hook_matcher_covers_the_file_tools():
-    hooks = json.loads((GATE.parent / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    hooks = json.loads(GUARD_HOOKS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     matchers = [h["matcher"] for h in hooks]
     import re
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):

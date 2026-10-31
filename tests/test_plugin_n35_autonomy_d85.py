@@ -282,21 +282,27 @@ def test_D85_control_forms_the_rewrite_does_not_read_have_none(command):
     assert gate._autonomy_rewrite(command, "/r") is None, command
 
 
-def test_D85_the_plugin_hooks_start_the_gate_without_the_flag_which_stays_the_houses_opt_in():
-    """Changed in D125 (owner order N4-3): the autonomous answer is the house's opt-in, no longer what the plugin
-    ships. Every PreToolUse hook of hooks.json (Bash, the gated MCP tools, the file tools, Read and Grep) starts its
-    script without the flag; the Codex manifest never did, and the Stop and TaskCompleted hooks take no flag."""
+def test_D85_the_flag_is_the_houses_opt_in_and_only_the_guard_plugin_carries_it():
+    """Changed in D125 (owner order N4-3) and again in D134 (owner choice F2 A): the autonomous answer is the house's
+    opt-in. The plugin everyone installs registers no hook at all; the house installs proofbundle-guard beside it,
+    whose every PreToolUse hook of hooks.json (Bash, the gated MCP tools, the file tools, Read and Grep) starts its
+    script with the flag. The Codex manifest of the Guard never takes it, and the Stop and TaskCompleted hooks take no
+    flag."""
     plugin = pathlib.Path(gate.__file__).resolve().parent.parent
-    claude = json.loads((plugin / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    assert not (plugin / "hooks" / "hooks.json").exists()
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        assert "hooks" not in json.loads((plugin / manifest).read_text(encoding="utf-8")), manifest
+    guard = plugin.parent / "proofbundle-guard"
+    claude = json.loads((guard / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     for group in claude["PreToolUse"]:
         # D102: the hook of Read and Grep starts the small script of the key paths, which hands a key path
         # to the gate with the same arguments
         script = "proofbundle_secrets.py" if group["matcher"] == "^(Read|Grep)$" else "proofbundle_gate.py"
         assert group["hooks"][0]["command"].startswith(
-            f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}" ||'), group
+            f'python3 -I "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}" {gate.AUTONOMOUS_FLAG} ||'), group
     for event in ("Stop", "TaskCompleted"):
         assert gate.AUTONOMOUS_FLAG not in json.dumps(claude[event])
-    codex = (plugin / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    codex = (guard / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
     assert gate.AUTONOMOUS_FLAG not in codex and "--host codex" in codex
 
 

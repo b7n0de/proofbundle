@@ -21,12 +21,15 @@ cloud session.
    ```sh
    codex plugin marketplace add b7n0de/proofbundle
    codex plugin add proofbundle@proofbundle
+   codex plugin add proofbundle-guard@proofbundle
    ```
+
+   proofbundle registers no hook; the gate's hooks come with proofbundle-guard, the house profile (D134).
 
    Before the plugin lands on the default branch, add the marketplace from the local checkout instead:
    `codex plugin marketplace add <proofbundle checkout>`.
 
-3. Start `codex` once in any directory, open `/hooks`, and trust the hooks of `proofbundle`: the
+3. Start `codex` once in any directory, open `/hooks`, and trust the hooks of `proofbundle-guard`: the
    `PreToolUse` matchers `Bash`, `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`
    and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$`, and the `Stop` hook of the done check (D28).
    Leave Codex again.
@@ -76,7 +79,7 @@ bound (Messauftrag, D12).
 | 5 | `repo-valid` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
 | 6 | `repo-valid` | not trusted | none: the gate did not run | No gate message at all; after approval, pushed. This is D13, measured. |
 
-For case 6, open `/hooks` first and withdraw the trust from both `proofbundle` hooks, or start Codex with
+For case 6, open `/hooks` first and withdraw the trust from both `proofbundle-guard` hooks, or start Codex with
 a fresh `CODEX_HOME` in which the plugin is installed and the hooks were never trusted. Trust them again
 afterwards.
 

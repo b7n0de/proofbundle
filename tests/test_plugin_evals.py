@@ -877,6 +877,10 @@ def test_the_corpus_runner_ends_with_the_status_of_what_it_ran(tmp_path, tests, 
     assert line in proc.stdout, proc.stdout
 
 
+#: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
+GUARD_CODEX = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
+
+
 def _corpus_codex_hooks():
     spec = importlib.util.spec_from_file_location("corpus_codex_hooks", EVALS / "corpus_codex_hooks.py")
     module = importlib.util.module_from_spec(spec)
@@ -890,7 +894,7 @@ def test_the_codex_hook_check_expects_every_hook_the_codex_manifest_registers():
     The expectation now comes from the manifest. Red at 68d3f020, which had no such reader."""
     check = _corpus_codex_hooks()
     expected = check.expected_hooks()
-    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    manifest = json.loads(GUARD_CODEX.read_text(encoding="utf-8"))
     assert len(expected) == sum(len(entries) for entries in manifest["hooks"]["hooks"].values())
     assert ("stop", None) in expected and expected.count(("preToolUse", "Bash")) == 1
     loaded = [{"event": event, "matcher": matcher, "host_codex": True} for event, matcher in expected]
@@ -906,7 +910,7 @@ def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
     """A codex that installs nothing and answers hooks/list with the hooks of the Codex manifest, in its order, each
     with the given command. No Codex, no network."""
     expected = _corpus_codex_hooks().expected_hooks()
-    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle@proofbundle",
+    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle-guard@proofbundle",
               "sourcePath": "plugin.json", "trustStatus": "trusted"}
              for (event, matcher), command in zip(expected, commands, strict=True)]
     (tmp_path / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
@@ -961,7 +965,7 @@ def test_the_codex_hook_check_reads_the_host_as_the_gate_reads_it(tmp_path, caps
     as host claude, passed it (found by review). The words after the gate are now read as the gate reads them. Red at
     f2c984a2 for the second and the third case; --host=codex failed there too, and the first case shows the manifest's
     own commands pass."""
-    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    manifest = json.loads(GUARD_CODEX.read_text(encoding="utf-8"))
     commands = [hook["command"] for entries in manifest["hooks"]["hooks"].values() for entry in entries
                 for hook in entry["hooks"]]
     commands[0] = commands[0].replace("--host codex", host, 1)

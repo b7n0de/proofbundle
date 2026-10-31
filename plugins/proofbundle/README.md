@@ -568,13 +568,17 @@ commit instead of the working state: its declaration, policy and order, its tree
 
 ## Install from this repository
 
-The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin. It
-publishes nothing. After the plugin lands on the default branch:
+The repository root carries `.claude-plugin/marketplace.json`, a marketplace with two plugins: this one, which
+registers no hook, and proofbundle-guard, the Guard Preview in the house profile of b7n0de (D134). It publishes
+nothing. After the plugin lands on the default branch:
 
 ```sh
 claude plugin marketplace add b7n0de/proofbundle
 claude plugin install proofbundle@proofbundle
 ```
+
+The owner's machines add the Guard beside it with `claude plugin install proofbundle-guard@proofbundle`
+([its README](../proofbundle-guard/README.md)).
 
 ## Try it from a checkout
 
@@ -589,7 +593,8 @@ In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verif
 ## Codex
 
 Codex reads `.codex-plugin/plugin.json` before the Claude Code manifest. That manifest declares the
-same MCP server (started with `uv` from the plugin folder) and the same gate, run with `--host codex`.
+same MCP server (started with `uv` from the plugin folder). The gate, run with `--host codex`, is registered by the
+Codex manifest of proofbundle-guard (D134).
 Codex reads the skills from `skills/`. A skill's name is prefixed with the plugin's name, as in
 `proofbundle:verify`.
 
@@ -637,6 +642,8 @@ Install from this repository, after the plugin lands on the default branch:
 codex plugin marketplace add b7n0de/proofbundle
 codex plugin add proofbundle@proofbundle
 ```
+
+The owner's machines add the Guard beside it with `codex plugin add proofbundle-guard@proofbundle`.
 
 Codex reads the same `.claude-plugin/marketplace.json` (D15).
 

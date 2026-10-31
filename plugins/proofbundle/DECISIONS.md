@@ -6561,3 +6561,77 @@ account can remove or rewrite its record at any time, as D119 says the record ho
 archive shows only the rotations the operator made; a records folder without the sticky bit, which step 5 of the setup
 forbids, lets another account rename `honoured-releases/` away, and the service then reads no archive; each start reads
 every archive, so its time grows with the rotations (NOT MEASURED).
+
+## D134. The Guard is a plugin of its own, proofbundle-guard; proofbundle registers no hook (owner choice F2 A, 2026-10-31)
+
+Owner choice F2 A on the release plan of plugin 0.4.0 (2026-10-31), translated: "Separate them, the Guard only at the
+house." The release plan read the state before it: m0/PRODUCT_SPEC.md says the delivery profile ships with the Guard
+off until M2 (O45-3), IMPLEMENTATION_GAP.md P-2 said no such setting exists (INACTIVE), and whoever added the
+marketplace got the Guard, whose hook runs before every Bash call and blocks the call when its program cannot run
+(`|| exit 2`). The order of the slice: the smallest bundle after which a stranger who adds the marketplace gets the
+verifier without the Guard and the owner's machines keep the Guard; the red test first.
+
+The rule was first cut at the end of the guard chain (3a9e1d66), on top of slices 32 to 38. Plugin 0.4.0 goes out
+without those slices (Nachtrag 26), so this is the same rule cut again on main: the files the Guard takes are the
+files of main, and what slices 32 to 38 added (D132, D133, the Level 2 pairs of A-3, the Level 1 witnesses of T-4, the
+reviewer texts TX39 to TX44) is not part of it.
+
+Measured with Claude Code 2.1.314 (`claude plugin validate`, `marketplace add`, `install`, `details`) in a throwaway
+CLAUDE_CONFIG_DIR, from a local marketplace copied from the end of the guard chain (3a9e1d66), no network and no model:
+- As delivered: one entry, `Hooks (6)` (PreToolUse, PostToolUse, PostToolUseFailure, Stop, TaskCompleted,
+  SessionStart).
+- The same entry with empty inline hooks for each event: still `Hooks (6)`. The plugin manifest reference says a
+  `hooks` field merges with hooks/hooks.json, which loads first; an entry cannot take the file's hooks away.
+- Two entries: proofbundle without hooks/hooks.json gave `Hooks (0)`, four skills and one MCP server; a second folder
+  with its own manifest and hooks/hooks.json, its programs relative links to ../proofbundle/hooks and
+  ../proofbundle/server, gave `Hooks (6)`, no skill and no server. In the plugin cache the links stood as files.
+
+The rule:
+- plugins/proofbundle, the entry proofbundle of the marketplace, holds no hooks/hooks.json, and neither of its host
+  manifests carries "hooks". Installing it registers no hook under Claude Code or under Codex. It keeps the programs
+  under hooks/ and the server; nothing of it starts the gate.
+- plugins/proofbundle-guard, the second entry, is the Guard: hooks/hooks.json for Claude Code and the "hooks" of its
+  .codex-plugin/plugin.json for Codex, moved from plugins/proofbundle unchanged but for the flag below. Its
+  hooks/proofbundle_gate.py, proofbundle_secrets.py, proofbundle_answered.py, pin_state_schleuse.py and
+  server/proofbundle_mcp.py are byte-equal copies of the files of plugins/proofbundle (git stores each blob once), not
+  links: Codex copies regular files and drops links on install (core-plugins/src/store.rs, as
+  tests/test_codex_plugin.py records it), so a linked gate would be missing under Codex and every hook would block its
+  call. A change to one of these programs changes both files; tests/test_plugin_guard_apart_d134.py and
+  tests/test_codex_plugin.py are red until they are equal. The Guard adds no skill and no MCP server, so the house,
+  which installs both, gets each once. Its manifests carry the plugin's version; each entry's name is its manifest's
+  name.
+- The Guard is the house profile of m0/PRODUCT_SPEC.md: its four Claude Code PreToolUse commands start their program
+  with --autonomous again. This is the house's opt-in D125 names, now a file of the plugin proofbundle-guard and not of
+  proofbundle; it closes the point D125 left open, how the house adds the flag. The standing GO of D87 still needs its
+  own consent (D129), which the plugin does not set. The Codex commands carry `--host codex` and no flag, as before.
+- The catalog lists proofbundle-guard with one row per host, its maturity copied from
+  plugins/proofbundle-guard/README.md. The texts of the verifier's manifests, the marketplace entry and its catalog
+  rows that still speak of the verifier's own hooks are corrected in a commit of their own in this slice, each sentence
+  with the source that measures it (Nachtrag 28, point 1).
+
+Red first: tests/test_plugin_guard_apart_d134.py, 5 of 5 cases red at the base of this cut, where plugins/proofbundle
+registers the hooks and the marketplace has one entry; green at the fix. Changed tests: the tests that read
+hooks/hooks.json or the hooks of the Codex manifest read them from plugins/proofbundle-guard, with its folder as the
+plugin root. The tests of D125 and D85 hold the new rule (the verifier registers no hook; the Guard's commands answer
+as the gate started with the flag; no standing GO without D129's consent). tests/test_plugin_verify_carries_no_guard.py
+knows a third state beside Verify and Guard, the split: the Guard's folder carries hooks/hooks.json and a marketplace
+entry, the verifier registers no hook and keeps the gate program, and every program a hook of the Guard starts is in
+the Guard's folder; three planted cases. The corpus's Codex hook check installs both plugins, expects the Guard's hooks
+and is not ok when proofbundle loaded one. tests/test_codex_plugin.py reads the hooks from the Guard's manifests, holds
+the D14 guard against an Agent Plugins manifest at the Guard's folder, and finds each program once in
+plugins/proofbundle and once, byte-equal and no link, in plugins/proofbundle-guard.
+
+Not changed, and named: reviewer texts that still speak of a public Guard default without the flag (TX48 in the README,
+TX59 and the Pre-push gate row in m0/PRODUCT_SPEC.md) stand word for word, as D125 ordered them; since this rule no
+public Guard default exists, and changing them needs an owner word. The proofbundle folder still ships the gate
+program and documents it, so a Verify state in the sense of the lock (no hooks/ folder, no Guard word) it is not.
+proofbundle-guard is an entry of the public marketplace: whoever names it can install it; its texts say it is the
+house profile and not for general use.
+
+Measured again at this cut on main, from a copy of its tree, with Claude Code 2.1.314 and a fresh CLAUDE_CONFIG_DIR,
+no network and no model: `validate` passed for both folders; proofbundle installed with `Hooks (0)`, four skills, one
+MCP server; proofbundle-guard installed beside it with `Hooks (6)`, no skill, no server. Its cache held
+hooks/hooks.json, the gate and server/proofbundle_mcp.py as regular files, the gate byte-equal to
+plugins/proofbundle/hooks/proofbundle_gate.py. `details` still shows proofbundle's description of its own hooks, which
+the text commit of this slice corrects. NOT MEASURED: a Codex install of both plugins (no Codex on the measuring
+machine) and a real Claude Code or Codex session with both plugins.

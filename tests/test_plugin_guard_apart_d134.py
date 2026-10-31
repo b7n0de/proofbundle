@@ -7,16 +7,18 @@ the hook command), and --autonomous carries house rules (D85, D87, D93, D111) th
 Measured with Claude Code 2.1.314 in a throwaway CLAUDE_CONFIG_DIR, from a local marketplace (2026-10-31): a hooks
 field in plugin.json merges with hooks/hooks.json, and an entry with empty inline hooks still installs the six hook
 events of the file. Only a plugin folder without hooks/hooks.json installs no hook. So the house's hooks live in a
-second plugin folder, plugins/proofbundle-guard, listed as a second entry of the marketplace. Its programs are relative
-links to the programs of plugins/proofbundle; at install, Claude Code copied them as files into the plugin cache.
+second plugin folder, plugins/proofbundle-guard, listed as a second entry of the marketplace. Its programs and its
+server are byte-equal copies of those of plugins/proofbundle, never links: Codex drops a link on install
+(core-plugins/src/store.rs, as tests/test_codex_plugin.py records it), so a linked gate would be missing there and
+every hook would block its call.
 
 The properties held here, read from the marketplace and the two plugin folders:
 - `claude plugin install proofbundle@proofbundle` and `codex plugin add proofbundle@proofbundle` register no hook: the
   entry's folder has no hooks/hooks.json, neither host manifest of it carries "hooks", and the entry adds none;
 - the entry proofbundle-guard registers the house profile: a PreToolUse hook on Bash under Claude Code that starts
   the gate with --autonomous, and one under Codex that starts it with --host codex;
-- every program a hook of the Guard starts is there in its folder, as the very file of plugins/proofbundle/hooks, and
-  the server the gate starts is there too;
+- every program a hook of the Guard starts is there in its folder as a regular file, byte-equal to the file of
+  plugins/proofbundle/hooks, and so is the server the gate starts;
 - the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
 - each entry's name is its manifest's name, and both plugins carry one version.
 Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketplace has one entry.
@@ -84,7 +86,7 @@ def test_every_program_of_the_guard_is_the_file_of_the_verifier():
     assert {"hooks/proofbundle_gate.py", "hooks/proofbundle_secrets.py", "hooks/proofbundle_answered.py"} <= programs
     for program in sorted(programs) + ["hooks/pin_state_schleuse.py", "server/proofbundle_mcp.py"]:
         mine, theirs = folder / program, _folder(VERIFY) / program
-        assert mine.is_file() and mine.read_bytes() == theirs.read_bytes(), program
+        assert mine.is_file() and not mine.is_symlink() and mine.read_bytes() == theirs.read_bytes(), program
 
 
 def test_the_guard_adds_no_skill_and_no_server():

@@ -58,7 +58,9 @@ from _gate_answer import Silent, long_text, parsed, run_hook, short_text, skip_w
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
-HOOKS = PLUGIN / "hooks" / "hooks.json"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134); its programs are those of PLUGIN.
+GUARD = ROOT / "plugins" / "proofbundle-guard"
+HOOKS = GUARD / "hooks" / "hooks.json"
 
 skip_where_the_gate_is_not_shipped(GATE, ROOT)
 # Import the gate without leaving a __pycache__ in the plugin folder, which a host copies on install.
@@ -993,7 +995,7 @@ def test_the_hook_blocks_the_call_when_the_gate_cannot_run(tmp_path, repo):
     (entry,) = _hook_entries()
     event = json.dumps({"cwd": str(repo), "tool_input": {"command": "git --version"}})
     ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                        env=plugin_env(CLAUDE_PLUGIN_ROOT=str(PLUGIN)), check=False)
+                        env=plugin_env(CLAUDE_PLUGIN_ROOT=str(GUARD)), check=False)
     assert (ok.returncode, ok.stdout) == (0, "")
     missing = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
                              env=plugin_env(CLAUDE_PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
