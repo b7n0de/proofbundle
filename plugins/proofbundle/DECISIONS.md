@@ -6621,6 +6621,24 @@ and is not ok when proofbundle loaded one. tests/test_codex_plugin.py reads the 
 the D14 guard against an Agent Plugins manifest at the Guard's folder, and finds each program once in
 plugins/proofbundle and once, byte-equal and no link, in plugins/proofbundle-guard.
 
+Found by a read-only cross-reading of 18451ad1 and fixed with their red cases first (f11145b7):
+- Claude Code gives each plugin a data directory of its own, ~/.claude/plugins/data/<id>/, <id> the plugin identifier
+  with every character other than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate
+  runs in proofbundle-guard and logs into its directory, so gate_status and the self-test of proofbundle, which read
+  their own, would have said in the house that the hook did not run. The server reads the log in
+  proofbundle-guard-<marketplace> where its own directory is proofbundle-<marketplace> (_log_path, VERIFY_DATA_PREFIX,
+  GUARD_DATA_PREFIX); under any other name it reads its own directory as before. How Codex names PLUGIN_DATA is NOT
+  MEASURED.
+- The pre-push wrapper follows a plugin update for a version folder under proofbundle-guard as under proofbundle
+  (_PRE_PUSH_RESOLVER). Read in the code, not measured: a wrapper written before this rule differs from the one the
+  gate writes now, so Level 1 hands no push over to it until install-pre-push writes it again; and Level 1 hands a
+  push over only to a Level 2 that runs the same gate file (D35), so the house installs Level 2 from the Guard's folder
+  (README).
+- The corpus's Codex hook check is not ok for a Codex hook that carries --autonomous (carries_autonomous).
+Named, not changed: `claude plugin eval plugins/proofbundle` loads no hook since this rule, so the gate and done cases
+of evals/ see no gate; the CLI takes one plugin, and how they run with proofbundle-guard beside it is NOT MEASURED.
+The description of hooks/hooks.json, TX42 of D125, was rewritten, because it said the commands carry no flag.
+
 Not changed, and named: reviewer texts that still speak of a public Guard default without the flag (TX48 in the README,
 TX59 and the Pre-push gate row in m0/PRODUCT_SPEC.md) stand word for word, as D125 ordered them; since this rule no
 public Guard default exists, and changing them needs an owner word. The proofbundle folder still ships the gate

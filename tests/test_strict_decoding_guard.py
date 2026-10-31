@@ -556,12 +556,38 @@ def hook_refuses_a_duplicate(node: ast.FunctionDef, where: str) -> tuple:
     return all(refuses(p) for p in DUPLICATE_PROBES), hook(list(UNIQUE_PROBE)), uses_assert
 
 
+#: D134: the plugin proofbundle-guard carries byte-equal copies of programs of plugins/proofbundle (Codex drops a link
+#: on install). A copy equal to its original byte for byte says nothing the original does not, so it is read once, as
+#: the original; a copy that differs is read as a file of its own.
+COPY_OF = {"plugins/proofbundle-guard/": "plugins/proofbundle/"}
+
+
+def _equal_copy(rel: str, path: Path, repo: Path) -> bool:
+    for copy, original in COPY_OF.items():
+        if rel.startswith(copy):
+            other = repo / (original + rel[len(copy):])
+            return other.is_file() and other.read_bytes() == path.read_bytes()
+    return False
+
+
 def _sources(roots=ROOTS, repo=REPO):
     for root in roots:
         base = repo / root
         if base.is_dir():
             for path in sorted(base.rglob("*.py")):
-                yield path.relative_to(repo).as_posix(), path.read_text(encoding="utf-8")
+                rel = path.relative_to(repo).as_posix()
+                if not _equal_copy(rel, path, repo):
+                    yield rel, path.read_text(encoding="utf-8")
+
+
+def test_a_copy_of_the_guard_is_read_once_while_equal_and_as_a_file_of_its_own_when_it_differs(tmp_path):
+    for folder in ("proofbundle", "proofbundle-guard"):
+        (tmp_path / "plugins" / folder).mkdir(parents=True)
+        (tmp_path / "plugins" / folder / "x.py").write_text("import json\njson.loads('{}')\n", encoding="utf-8")
+    assert [rel for rel, _ in _sources(("plugins",), tmp_path)] == ["plugins/proofbundle/x.py"]
+    (tmp_path / "plugins" / "proofbundle-guard" / "x.py").write_text("import json\n", encoding="utf-8")
+    assert sorted(rel for rel, _ in _sources(("plugins",), tmp_path)) == ["plugins/proofbundle-guard/x.py",
+                                                                         "plugins/proofbundle/x.py"]
 
 
 def _measure(repo=REPO):

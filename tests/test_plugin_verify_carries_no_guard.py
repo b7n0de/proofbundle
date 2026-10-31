@@ -22,8 +22,8 @@ the top of the Guard slices of -1 is a whole Guard (0).
 A third state since D134 (owner choice F2 A), the split: the Guard is the plugin proofbundle-guard, the marketplace's
 entry for plugins/proofbundle-guard, whose hooks/hooks.json registers its Claude Code hooks. In a split state
 plugins/proofbundle has no hooks/hooks.json and neither of its host manifests carries "hooks", so installing it
-registers no hook; it keeps the gate program, which the Guard's hooks start through links to its folder, and every
-hook either host registers for the Guard starts a program the Guard's folder holds. The Guard's texts stand there, as
+registers no hook; it keeps the gate program, of which the Guard's folder holds a byte-equal copy, and every hook
+either host registers for the Guard starts a program the Guard's folder holds. The Guard's texts stand there, as
 in a Guard state: the Guard is whole, in a plugin of its own.
 """
 from __future__ import annotations

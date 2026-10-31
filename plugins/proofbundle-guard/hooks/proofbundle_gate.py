@@ -23775,8 +23775,9 @@ PRE_PUSH_MARK = "# proofbundle-pre-push-wrapper 1"
 #: the environment (GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS) shows up in the `command` scope and is refused there.
 _INSTALL_MOVED_BY = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
 #: Run by the wrapper at each push with the recorded plugin root: the gate of that root, or, when the root is a
-#: version folder of an installed plugin (`…/proofbundle/<version>`), the gate of the newest version folder beside
-#: it, so a plugin update needs no new install. Prints nothing when it finds none. No single quote may appear here.
+#: version folder of an installed plugin (`…/proofbundle/<version>`, or `…/proofbundle-guard/<version>` of the Guard,
+#: D134), the gate of the newest version folder beside it, so a plugin update needs no new install. Prints nothing
+#: when it finds none. No single quote may appear here.
 _PRE_PUSH_RESOLVER = """import os, re, sys
 root = sys.argv[1]
 version = re.compile(r"[0-9]+([.][0-9]+)*")
@@ -23785,7 +23786,7 @@ def gate(folder):
     return path if os.path.isfile(path) and not os.path.islink(path) else None
 family, name = os.path.split(root)
 found = None
-if version.fullmatch(name) and os.path.basename(family) == "proofbundle":
+if version.fullmatch(name) and os.path.basename(family) in ("proofbundle", "proofbundle-guard"):
     best = None
     for entry in (os.listdir(family) if os.path.isdir(family) else []):
         if version.fullmatch(entry) and gate(os.path.join(family, entry)):

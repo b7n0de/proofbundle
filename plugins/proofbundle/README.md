@@ -173,6 +173,8 @@ beside it, so a plugin update needs no new install; when it finds none, or no `p
 command refuses a hook folder set in the global, system or command configuration, a local one outside the
 repository, `GIT_DIR`, `GIT_WORK_TREE` or `GIT_COMMON_DIR` in the environment, and an existing `pre-push` hook it
 did not write (it names that hook's path and leaves it as it is). Running it again replaces only its own hook.
+On the owner's machines, where the Guard is the plugin proofbundle-guard (D134), run it from the Guard's folder: the
+hooks start that gate, and Level 1 hands a push over only to a Level 2 that runs the same gate file (D35).
 Under Codex's `workspace-write` sandbox with the network off the hook runs, but the verifier cannot start (uv has no
 writable cache and no network), so it denies every push that needs the verifier; measured with Codex 0.161.0 (D24B).
 Where the verifier cannot start under that sandbox, the hook says so in a text of its own (owner choice K02-A C), reason
@@ -657,7 +659,9 @@ a regex over the trace, or which tool ran — so content judgements like "verifi
 named", "no truth claimed" or "no private key requested" hold only with human review; four known
 counter-phrasings that match the pattern while reversing the meaning are recorded as a known limit in the
 tests. The gate cases seed a git repository with a
-scaffold script and need Bash, so they run with:
+scaffold script and need Bash, so they run with the command below. Since D134 plugins/proofbundle registers no hook,
+so the gate and done cases see no gate when the run loads this plugin alone, and `claude plugin eval` takes one plugin;
+how they run with proofbundle-guard beside it is NOT MEASURED.
 
 ```sh
 claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \

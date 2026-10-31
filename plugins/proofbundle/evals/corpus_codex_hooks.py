@@ -90,11 +90,18 @@ def passes_host_codex(command: object) -> bool:
                                                                               ["stop", "--host", "codex"])
 
 
+def carries_autonomous(command: object) -> bool:
+    """True where a word of the command is --autonomous: the house's flag of Claude Code, which no Codex hook may
+    carry (D125, D134). passes_host_codex sets it aside, as the gate reads the host without it."""
+    return isinstance(command, str) and "--autonomous" in command.split()
+
+
 def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
     """True only for exactly the expected hooks, each as often as expected and in any order of the answer, each
-    started with --host codex. The order of hooks/list is NOT MEASURED, so a correct load in another order counts."""
+    started with --host codex and none with --autonomous. The order of hooks/list is NOT MEASURED, so a correct load
+    in another order counts."""
     loaded = collections.Counter((h["event"], h["matcher"] or None) for h in hooks)
-    return loaded == collections.Counter(expected) and all(h["host_codex"] for h in hooks)
+    return loaded == collections.Counter(expected) and all(h["host_codex"] and not h.get("autonomous") for h in hooks)
 
 
 def _ask(proc: subprocess.Popen, message: dict, timeout: float = 60) -> dict:
@@ -148,6 +155,7 @@ def main(argv: list[str]) -> int:
         data = (reply.get("result") or {}).get("data") or [{}]
         hooks = [{"event": h.get("eventName"), "matcher": h.get("matcher"),
                   "host_codex": passes_host_codex(h.get("command")),
+                  "autonomous": carries_autonomous(h.get("command")),
                   "source": pathlib.Path(h.get("sourcePath") or "").relative_to(home).as_posix()
                   if (h.get("sourcePath") or "").startswith(home) else h.get("sourcePath"),
                   "trust": h.get("trustStatus")}

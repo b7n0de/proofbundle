@@ -57,7 +57,7 @@ early warning; the boundary is the required CI check and git's pre-push hook whe
 | Profile | Who | Verify | Guard |
 |---|---|---|---|
 | House profile | the owner's own machines and sessions | on | on, `strict`, the autonomous answer under Claude Code, as today: the plugin proofbundle-guard installed beside proofbundle (D134) |
-| Delivery profile | anyone the plugin is handed to | on | off until M2, decided by the owner (O45-3, F2 A): proofbundle registers no hook, and the Guard is the separate plugin proofbundle-guard, which only the house installs (D134); observing only on the owner's request, and only once it is built and measured |
+| Delivery profile | anyone the plugin is handed to | on | off until M2, decided by the owner (O45-3, F2 A): proofbundle registers no hook, and the Guard is the separate plugin proofbundle-guard, meant for the house only (D134); observing only on the owner's request, and only once it is built and measured |
 
 Observing means: the gate runs and logs what it would answer, and never denies or asks. A Guard that is off, only
 observes, does not run, or that the host does not trust (Codex runs hooks only after the user trusts them, D16) is no

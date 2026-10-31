@@ -97,9 +97,14 @@ INSTRUCTIONS = ("Tools over the proofbundle package. verify_receipt checks a rec
 
 
 #: The gate's local log (DECISIONS.md, D21). The server reads it from the plugin data directory the host
-#: names in the server's own environment; it never looks for the file anywhere else.
+#: names in the server's own environment; it never looks for the file anywhere else but beside it, as D134 says.
 LOG_NAME = "gate-log.jsonl"
 LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
+#: D134: the gate runs in the plugin proofbundle-guard, and Claude Code gives each plugin a data directory of its own,
+#: ~/.claude/plugins/data/<id>/ with <id> the plugin identifier, every character other than a letter, digit, _ or -
+#: written as "-" (plugin manifest reference, read 2026-10-31). Where this server's directory is proofbundle's,
+#: `proofbundle-<marketplace>`, the gate's log is in the Guard's beside it, `proofbundle-guard-<marketplace>`.
+VERIFY_DATA_PREFIX, GUARD_DATA_PREFIX = "proofbundle-", "proofbundle-guard-"
 SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 SELFTEST_PREFIX = "proofbundle-selftest-"
 
@@ -108,6 +113,11 @@ def _log_path() -> tuple[str | None, str]:
     for name in LOG_DIR_VARIABLES:
         value = os.environ.get(name)
         if value and os.path.isabs(value):
+            own = os.path.normpath(value)
+            base = os.path.basename(own)
+            if base.startswith(VERIFY_DATA_PREFIX) and not base.startswith(GUARD_DATA_PREFIX):
+                guard = os.path.join(os.path.dirname(own), GUARD_DATA_PREFIX + base[len(VERIFY_DATA_PREFIX):])
+                return os.path.join(guard, LOG_NAME), f"from {name}, the Guard's data directory beside it (D134)"
             return os.path.join(value, LOG_NAME), f"from {name}"
     return None, ("the server was given no plugin data directory (CLAUDE_PLUGIN_DATA or PLUGIN_DATA), so it "
                   "cannot tell where the gate writes its log")

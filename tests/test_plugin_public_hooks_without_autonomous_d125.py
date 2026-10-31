@@ -89,16 +89,19 @@ def _event(repo: pathlib.Path, tool: str, tool_input: dict) -> str:
                        "tool_use_id": "toolu_d125", "tool_input": filled})
 
 
-def _run_shipped(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict):
-    """The answer and log line of the one shipped command for `tool`, run as the host runs it."""
+def _run_shipped(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict, *, without_flag: bool = False):
+    """The answer and log line of the one shipped command for `tool`, run as the host runs it; with without_flag, that
+    command without the house's flag, the gate's base path, which no plugin ships since D134."""
     (command,) = _shipped(tool)
+    if without_flag:
+        command = command.replace(f".py\" {FLAG} ||", ".py\" ||", 1)
     shim = tmp_path / "bin" / "python3"
     if not shim.exists():
         shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
         shim.chmod(0o755)
     line = command.replace("${CLAUDE_PLUGIN_ROOT}", str(GUARD))
-    proc, entry = ga.run_hook(["sh", "-c", line], _event(repo, tool, tool_input), _env(tmp_path, "data-shipped"),
-                              cwd=str(repo))
+    proc, entry = ga.run_hook(["sh", "-c", line], _event(repo, tool, tool_input),
+                              _env(tmp_path, "data-shipped" + ("-base" if without_flag else "")), cwd=str(repo))
     assert proc.returncode == 0, proc.stderr
     return ga.parsed(proc, entry), entry
 
