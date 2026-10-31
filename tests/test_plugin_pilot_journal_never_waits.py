@@ -310,3 +310,15 @@ def test_N4_4_the_policy_digest_does_not_wait_on_a_fifo_in_the_place_of_the_gate
         assert _run(argv + [str(GATE)], "", plugin_env(), tmp_path, []).stdout == gate._pilot_policy_digest({}) + "\n"
     finally:
         _remove_fifos(tmp_path)
+
+
+def test_N4_4_the_journal_is_created_no_wider_than_the_gates_own_files(tmp_path):
+    """CodeQL on pull request 460 at eab4fb3d (overly permissive file permissions): the journal was opened with the
+    mode 0o666, so under a umask of 0 it was created writable by everyone. It is created 0o644, as the gate's log and
+    the pilot's decision files are."""
+    old = os.umask(0)
+    try:
+        gate._pilot_journal(str(tmp_path / "receipts"), {"reason": "probe"})
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(tmp_path / "receipts" / "journal.jsonl").st_mode) == 0o644
