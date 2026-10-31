@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Compare a submission's answers.jsonl with the expected answers of its challenge set; see pruefmenge.py."""
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import pruefmenge  # noqa: E402
+
+sys.exit(pruefmenge.main_vergleichen(sys.argv[1:]))
