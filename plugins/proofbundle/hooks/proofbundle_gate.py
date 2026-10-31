@@ -18074,9 +18074,14 @@ def _release_assembled(continued: str) -> list[str]:
     bash reads the quotes in a context of its own, also within double quotes, so `x="$(s$'u'do -n true)"` runs sudo
     (reading of the follow-up to 441, line 3, P1; measured with bash 5.1.16, printf prints [sudo]), and a context closes
     where only a parser of the whole shell grammar can tell (a case pattern closes with a parenthesis). There the line is
-    read both ways, and a release frees less, never more."""
+    read both ways, and a release frees less, never more.
+
+    The same holds where a word of the line is one of _RELEASE_TEXT_RUNNERS: such a program reads its text a second
+    time, so a dollar sign the first reading keeps as a character expands there, and `X=udo; eval 's$X' -n true` runs
+    sudo (Codex on pull request 447, P1; measured with bash 5.1.16 and a function named sudo, also for `bash -c`)."""
     readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
-    if any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS for word in _RELEASE_SPLIT.split(continued))
+    if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
         readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
                                                                   _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
     return list(dict.fromkeys(readings))

@@ -337,6 +337,21 @@ def test_control_a_line_with_a_substitution_and_no_root_program_is_no_root_door(
     assert gate._release_door_words(line) != "root"
 
 
+@pytest.mark.parametrize("line", ["X=udo; eval 's$X' -n true", "bash -c 's$X -n true'", "eval \"$'\\x73udo' -n true\"",
+                                  "watch 's$X -n true'"])
+def test_a_text_a_runner_reads_a_second_time_is_read_the_strict_way(gate, line):
+    """Codex on pull request 447, P1: eval, a shell with -c and the other text runners read their text a second time,
+    so a dollar sign the first reading keeps as a character expands there (measured with bash 5.1.16 and a function
+    named sudo, `X=udo; eval 's$X' -n true` and `bash -c 's$X -n true'` call it). The gate at 647ed0a2 read these as
+    root, the marker of the literal dollar sign hid them."""
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ["echo 's$X'", "printf '%s' '$\"hello\"'"])
+def test_control_a_quoted_dollar_sign_without_a_text_runner_stays_text(gate, line):
+    assert gate._release_door_words(line) != "root"
+
+
 # --- Third reading at 097cedad, line 3: the steps of bash's word formation for a program word ---------------------------
 
 ROOT_FORMS = ["s\\\nu\\\ndo -n true", "{s,x}udo -n true", "su{d,}o -n true", "eval \"$(printf 's%s' udo)\" -n true",
