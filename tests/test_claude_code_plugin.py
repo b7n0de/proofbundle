@@ -23,8 +23,10 @@ Properties checked:
 - the server's version is the version of every manifest in the plugin folder, and every result carries
   it as plugin_version next to proofbundle_version;
 - every description of the plugin (both manifests, the marketplace, the catalog, the README) and the
-  D14 addendum carry the owner's text word for word; each but the marketplace's own begins with Verify
-  and marks receipt signing as experimental;
+  D14 addendum carry the owner's text word for word, where the owner ordered it the reviewer's replacement
+  text (TX39, TX40, TX41, TX43 and TX44 of the review of review package -1); each but the marketplace's
+  own begins with Verify (the catalog's Claude Code row with Verifies) and marks receipt signing as
+  experimental;
 - the plugin directory is not part of the Python distribution.
 """
 from __future__ import annotations
@@ -495,35 +497,44 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
 
 
 #: The owner's texts of 2026-09-30, word for word; text 6 in the
-#: owner's wording of 2026-10-08 (owner choice K5-3 A). Texts 8 to 10 (the emit mark, the data rule, the exit 1
-#: text) are held by the tests above and below.
+#: owner's wording of 2026-10-08 (owner choice K5-3 A). Texts 1, 2, 4 and 5 and the signing sentence of text 6 are
+#: the reviewer's replacement texts TX39, TX40, TX41, TX43 and TX44 of the review of review package -1, word for word
+#: as the owner ordered (Nachtrag 4, point 7); they describe the Guard, so they stand where the Guard is whole (owner
+#: answer 1 of Nachtrag 7, 2026-10-26, option A). Texts 8 to 10 (the emit mark, the data rule, the exit 1 text) are
+#: held by the tests above and below.
 OWNER_TEXTS = {
-    "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
-          "evidence bundles, and review verification results separately from recorded claims. Active "
-          "hooks check declared repository evidence before supported push, pull request or release "
-          "actions. Receipt signing is experimental and requires an explicit user request. Verification "
-          "proves authorship and integrity of what was recorded, not that any recorded value is true."),
-    "2": ("Verify decision and outcome receipts in Codex against your chosen issuer key, check evidence "
-          "bundles, and review verification results separately from recorded claims. After you trust "
-          "the hooks, they check declared repository evidence before supported push, pull request or "
-          "release actions. Receipt signing is experimental and requires an explicit user request. "
-          "Verification proves authorship and integrity of what was recorded, not that any recorded "
-          "value is true."),
+    "1": ("Verify decision and outcome receipts against a chosen issuer key, check evidence bundles, and "
+          "separate verification results from recorded claims. Guard is a separate preview area and requires "
+          "its hook configuration to be installed and active. Under Claude Code, recognized shell forms can "
+          "check declared evidence; supported MCP writes ask because their target is unbound. Level 1 does "
+          "not inspect arbitrary executed code. Verification checks authorship and integrity of recorded "
+          "bytes, not whether the recorded values are true. Receipt signing is experimental; the emit skill "
+          "requests explicit invocation and confirmation, but host enforcement is not measured."),
+    "2": ("Verify decision and outcome receipts against a chosen issuer key, check evidence bundles, and "
+          "separate verification results from recorded claims. Guard is a separate preview area and requires "
+          "its hooks to be installed and trusted. In that area a plain Codex git push warns without blocking; "
+          "other recognized write forms may be denied as unbound. An installed git pre-push hook is a "
+          "separate, bypassable local check. Verification checks authorship and integrity of recorded bytes, "
+          "not whether the recorded values are true. Receipt signing is experimental; the emit skill requests "
+          "explicit invocation and confirmation, but host enforcement is not measured."),
     "3": ("This marketplace contains the proofbundle plugin for receipt and evidence verification."),
-    "4": ("Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence "
-          "bundles, and review recorded claims. Active hooks check declared repository evidence before "
-          "supported actions. Receipt signing is experimental and requires an explicit user request."),
-    "5": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
-          "separately from recorded claims. Hooks check declared repository evidence before `git push`, "
-          "`gh pr create`, `gh release create` and the six supported MCP tools for creating pull or "
-          "merge requests or releases, pushing files, writing files or merging pull requests. Receipt "
-          "signing is experimental and requires an explicit user request."),
+    "4": ("Verify receipts and evidence bundles against a chosen issuer key. Guard is a separate preview area "
+          "whose hook configuration must be installed and active. Claude Code checks only recognized paths; a "
+          "plain Codex git push warns without blocking. No universal control of writes is claimed. "
+          "Verification checks authorship and integrity of recorded bytes, not whether the recorded values "
+          "are true. Receipt signing is experimental; the emit skill requests explicit invocation and "
+          "confirmation, but host enforcement is not measured."),
+    "5": ("Verifies receipts and evidence bundles against a chosen issuer key. Guard requires its separate "
+          "hook configuration. Recognized shell forms can check declared evidence; supported MCP writes ask "
+          "because their target is unbound. Receipt signing is experimental and its skill requests explicit "
+          "invocation and confirmation, with host enforcement NOT MEASURED"),
     "6": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
           "separately from recorded claims. Codex runs the repository checks only after you trust the "
           "plugin's hooks. When they run, repositories without an evidence declaration get NOT MEASURED "
           "and no decision, a `git push` gets NOT MEASURED with a warning, and other unmeasurable calls "
           "are denied. Each `verify_receipt` result states that the server cannot tell whether these "
-          "checks ran. Receipt signing is experimental and requires an explicit user request."),
+          "checks ran. Receipt signing is experimental; its skill requests explicit invocation and "
+          "confirmation. Enforcement of those restrictions by the host is NOT MEASURED"),
     "7": ("Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, "
           "and review verification results separately from recorded claims. Receipt signing is "
           "experimental and requires an explicit user request. Verification proves authorship and "
@@ -568,8 +579,12 @@ def test_every_description_carries_the_owners_text_word_for_word():
     assert opening.startswith("Your agent can call a task done only when") and opening.count(". ") == 0
     assert opening.endswith(".")
     for key in ("1", "2", "4", "5", "6", "7"):
-        assert found[key].startswith("Verify"), key
-        assert "Receipt signing is experimental and requires an explicit user request" in found[key], key
+        assert found[key].startswith(("Verify ", "Verifies ")), key   # TX43, the Claude Code row: Verifies
+        assert "Receipt signing is experimental" in found[key], key
+    for key in ("1", "2", "4", "5", "6"):
+        assert "requests explicit invocation and confirmation" in found[key], key
+        assert "enforcement" in found[key].lower() and "explicit user request" not in found[key], key
+    assert "Receipt signing is experimental and requires an explicit user request" in found["7"]
     table = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "| emit (experimental) | `/proofbundle:emit" in table
     emit = _frontmatter((PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8"))
