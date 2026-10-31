@@ -170,31 +170,78 @@ def load_ids(root: pathlib.Path) -> list[str]:
 _LOADER = "defaultTestLoader"
 
 
-def _names_the_loader(k: ast.AST) -> bool:
-    """Whether one node reaches the shared loader: as an attribute or a bare name, as an imported
-    name under any alias, or fetched by its name with `getattr` or a subscript."""
+def _origins(tree: ast.AST) -> tuple[set[str], set[str], set[str]]:
+    """(names bound to unittest or one of its modules, names bound by an import from elsewhere, names bound in the module
+    by an assignment, a definition or an argument). The first reading of PR 440 (Z6) found that a name alone said nothing
+    about where a value comes from."""
+    ours: set[str] = set()
+    theirs: set[str] = set()
+    local: set[str] = set()
+    for k in ast.walk(tree):
+        if isinstance(k, ast.Import):
+            for a in k.names:
+                bound = a.asname or a.name.split(".", 1)[0]
+                (ours if a.name == "unittest" or a.name.startswith("unittest.") else theirs).add(bound)
+        elif isinstance(k, ast.ImportFrom):
+            from_unittest = k.module == "unittest" or str(k.module or "").startswith("unittest.")
+            for a in k.names:
+                (ours if from_unittest and a.name != _LOADER else theirs if not from_unittest else set()).add(
+                    a.asname or a.name)
+        elif isinstance(k, ast.Name) and isinstance(k.ctx, ast.Store):
+            local.add(k.id)
+        elif isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            local.add(k.name)
+        elif isinstance(k, ast.arg):
+            local.add(k.arg)
+    return ours, theirs, local
+
+
+def _may_be_unittest(v: ast.AST, ours: set[str], theirs: set[str]) -> bool:
+    """Can this value be unittest or one of its modules? A name bound to unittest can, a name bound by an import from
+    elsewhere cannot, and every value whose origin is not read here can (the strict direction)."""
+    if isinstance(v, ast.Name):
+        return v.id in ours or v.id not in theirs
+    return True
+
+
+def _names_the_loader(k: ast.AST, ours: set[str], theirs: set[str], local: set[str]) -> bool:
+    """Whether one node reaches the shared loader of unittest: as an attribute of a value that may be unittest, as the
+    name imported from unittest, as an import of it under any alias, or fetched by its name with `getattr` or from the
+    namespace of a module. A name of the same spelling from elsewhere or bound in the module, and a key of a plain
+    mapping, are not the shared loader."""
     if isinstance(k, ast.Attribute):
-        return k.attr == _LOADER
+        return k.attr == _LOADER and _may_be_unittest(k.value, ours, theirs)
     if isinstance(k, ast.Name):
-        return k.id == _LOADER
-    if isinstance(k, ast.alias):
-        return k.name == _LOADER
+        return k.id == _LOADER and isinstance(k.ctx, ast.Load) and k.id not in theirs and k.id not in local
+    if isinstance(k, ast.ImportFrom):
+        return ((k.module == "unittest" or str(k.module or "").startswith("unittest."))
+                and any(a.name == _LOADER for a in k.names))
     if isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr":
-        return len(k.args) > 1 and isinstance(k.args[1], ast.Constant) and k.args[1].value == _LOADER
-    if isinstance(k, ast.Subscript):
-        return isinstance(k.slice, ast.Constant) and k.slice.value == _LOADER
+        return (len(k.args) > 1 and isinstance(k.args[1], ast.Constant) and k.args[1].value == _LOADER
+                and _may_be_unittest(k.args[0], ours, theirs))
+    if isinstance(k, ast.Subscript) and isinstance(k.slice, ast.Constant) and k.slice.value == _LOADER:
+        v = k.value
+        if isinstance(v, ast.Name):
+            return False                     # a plain mapping; the namespace of a module is vars(m) or m.__dict__
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "vars" and v.args:
+            return _may_be_unittest(v.args[0], ours, theirs)
+        if isinstance(v, ast.Attribute) and v.attr == "__dict__":
+            return _may_be_unittest(v.value, ours, theirs)
+        return True
     return False
 
 
 def shared_loader_lines(source: str) -> list[int]:
-    """Lines that reach `defaultTestLoader` in code, outside an `if __name__ == "__main__":` block."""
+    """Lines that reach `defaultTestLoader` of unittest in code, outside an `if __name__ == "__main__":` block."""
     tree = ast.parse(source)
+    ours, theirs, local = _origins(tree)
     exempt: set[int] = set()
     for k in ast.walk(tree):
         if (isinstance(k, ast.If) and isinstance(k.test, ast.Compare)
                 and isinstance(k.test.left, ast.Name) and k.test.left.id == "__name__"):
             exempt |= {n.lineno for n in ast.walk(k) if hasattr(n, "lineno")}
-    return sorted({k.lineno for k in ast.walk(tree) if _names_the_loader(k) and k.lineno not in exempt})
+    return sorted({k.lineno for k in ast.walk(tree)
+                   if _names_the_loader(k, ours, theirs, local) and k.lineno not in exempt})
 
 
 def _floor_job() -> dict:
@@ -376,6 +423,31 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
         self.assertEqual(shared_loader_lines("import unittest\nif __name__ == '__main__':\n"
                                              "    unittest.defaultTestLoader.discover('t')\n"), [])
         self.assertEqual(shared_loader_lines("# unittest.defaultTestLoader in a comment\n"), [])
+
+    def test_a_name_from_elsewhere_or_a_mapping_key_is_not_the_shared_loader(self):
+        """The first reading of PR 440 (Z6): the finder went by the name, so an import of the same name from another
+        module and a key of a plain mapping were reported (the strict direction, a false alarm)."""
+        for source in ("from mylib import defaultTestLoader\ns = defaultTestLoader.discover('t')\n",
+                       "cfg = {'defaultTestLoader': 1}\nx = cfg['defaultTestLoader']\n",
+                       "import mylib\nx = mylib.defaultTestLoader\n",
+                       "import mylib\nx = getattr(mylib, 'defaultTestLoader')\n",
+                       "defaultTestLoader = object()\nx = defaultTestLoader\n"):
+            with self.subTest(source):
+                self.assertEqual(shared_loader_lines(source), [])
+
+    def test_the_shared_loader_is_still_found_by_its_origin_under_any_name(self):
+        """The other direction: the loader of unittest under an alias, through a submodule, or from a value whose
+        origin the finder cannot read, stays a finding."""
+        for source, lines in (("import unittest as u\nx = u.defaultTestLoader\n", [2]),
+                              ("from unittest import loader\nx = loader.defaultTestLoader\n", [2]),
+                              ("import unittest.loader as L\nx = L.defaultTestLoader\n", [2]),
+                              ("from unittest.loader import defaultTestLoader as dl\n", [1]),
+                              ("import importlib\nx = importlib.import_module('unittest').defaultTestLoader\n", [2]),
+                              ("def f(m):\n    return m.defaultTestLoader\n", [2]),
+                              ("import unittest\nx = unittest.__dict__['defaultTestLoader']\n", [2]),
+                              ("import sys\nx = sys.modules['unittest'].defaultTestLoader\n", [2])):
+            with self.subTest(source):
+                self.assertEqual(shared_loader_lines(source), lines)
 
 
 if __name__ == "__main__":
