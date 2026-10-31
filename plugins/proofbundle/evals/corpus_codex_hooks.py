@@ -2,8 +2,9 @@
 
     python3 plugins/proofbundle/evals/corpus_codex_hooks.py [--codex PATH]   (from the repository root)
 
-Installs the two plugins of this repository's marketplace as the house does, proofbundle and proofbundle-guard,
-into a throwaway CODEX_HOME (`codex plugin marketplace add`, `codex plugin add`), asks the local app-server
+Installs the two plugins as the house does, proofbundle from this repository's public marketplace and proofbundle-guard
+from the house marketplace in its folder (D134, owner choice N2 B), into a throwaway CODEX_HOME (`codex plugin marketplace
+add`, `codex plugin add`), asks the local app-server
 (`hooks/list`) which hooks it loaded, and prints one JSON object: the Codex version, the hooks with their matcher,
 command and source file, and "ok" true only for exactly the hooks the Guard's Codex manifest registers, each starting
 the gate with --host codex as the gate reads it, and no hook of proofbundle, which registers none (D134). Nothing
@@ -27,8 +28,10 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 #: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
 MANIFEST = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
-#: The plugins the house installs: the verifier, which registers no hook, and the Guard.
-VERIFY, GUARD = "proofbundle@proofbundle", "proofbundle-guard@proofbundle"
+#: The plugins the house installs: the verifier from the public marketplace, which registers no hook, and the Guard
+#: from the house marketplace in the Guard's folder (owner choice N2 B).
+VERIFY, GUARD = "proofbundle@proofbundle", "proofbundle-guard@proofbundle-house"
+HOUSE = ROOT / "plugins" / "proofbundle-guard"
 #: The programs that start the gate's script, and the options before the script that take no argument. Another program,
 #: or an option such as -c or -m whose argument is the program, starts no gate (reading of G-4, Z4).
 INTERPRETERS = ("python3", "python")
@@ -134,7 +137,8 @@ def main(argv: list[str]) -> int:
     env = dict(os.environ, CODEX_HOME=home)
     try:
         version = subprocess.run([codex, "--version"], capture_output=True, text=True, env=env).stdout.strip()
-        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", VERIFY], ["plugin", "add", GUARD]):
+        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", VERIFY],
+                     ["plugin", "marketplace", "add", str(HOUSE)], ["plugin", "add", GUARD]):
             done = subprocess.run([codex, *args], capture_output=True, text=True, env=env, timeout=120)
             if done.returncode != 0:
                 print(json.dumps({"ok": False, "codex": version, "failed": args, "stderr": done.stderr[-500:]}))

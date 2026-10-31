@@ -22,11 +22,18 @@ repository holds them equal. The plugin adds no skill and no MCP server.
 
 ## Install on the owner's machines
 
+The public marketplace lists proofbundle alone. This folder is a house marketplace of its own, `proofbundle-house`,
+whose one entry is the folder itself; the owner's machines add it from a checkout of b7n0de/proofbundle:
+
 ```
 claude plugin marketplace add b7n0de/proofbundle
 claude plugin install proofbundle@proofbundle
-claude plugin install proofbundle-guard@proofbundle
+claude plugin marketplace add <checkout>/plugins/proofbundle-guard
+claude plugin install proofbundle-guard@proofbundle-house
 ```
+
+Under Codex the same two steps with `codex plugin marketplace add` and `codex plugin add`; Codex reads this folder's
+`.claude-plugin/marketplace.json` as it reads the public one. A Codex install of the Guard is NOT MEASURED.
 
 The standing GO for work-branch pushes needs its own consent in the hook's environment (D129); installing this plugin
 does not give it.

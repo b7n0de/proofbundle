@@ -9,11 +9,6 @@
       "name": "proofbundle",
       "source": "./plugins/proofbundle",
       "description": "Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence bundles, and review recorded claims. Active hooks check declared repository evidence before supported actions. Receipt signing is experimental and requires an explicit user request."
-    },
-    {
-      "name": "proofbundle-guard",
-      "source": "./plugins/proofbundle-guard",
-      "description": "Guard Preview, the house profile of b7n0de: hooks before every Bash call and before supported writes, with the house's autonomous answer under Claude Code; a hook that cannot run blocks the call. Not for general use; install proofbundle to verify."
     }
   ]
 }

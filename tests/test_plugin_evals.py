@@ -910,7 +910,7 @@ def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
     """A codex that installs nothing and answers hooks/list with the hooks of the Codex manifest, in its order, each
     with the given command. No Codex, no network."""
     expected = _corpus_codex_hooks().expected_hooks()
-    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle-guard@proofbundle",
+    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle-guard@proofbundle-house",
               "sourcePath": "plugin.json", "trustStatus": "trusted"}
              for (event, matcher), command in zip(expected, commands, strict=True)]
     (tmp_path / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")

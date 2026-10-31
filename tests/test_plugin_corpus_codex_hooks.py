@@ -31,7 +31,7 @@ PLUGIN = ROOT / "plugins" / "proofbundle"
 CHECK = PLUGIN / "evals" / "corpus_codex_hooks.py"
 #: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
 MANIFEST = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
-GUARD_ID = "proofbundle-guard@proofbundle"
+GUARD_ID = "proofbundle-guard@proofbundle-house"   # the house marketplace (owner choice N2 B)
 
 #: A stand-in for the codex program: version, the two install commands, and an app-server that answers initialize
 #: and hooks/list with the hooks given in FAKE_HOOKS (a JSON file next to it), as Codex's app-server words them.

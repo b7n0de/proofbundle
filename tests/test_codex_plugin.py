@@ -232,11 +232,13 @@ def test_the_emit_skill_runs_only_when_invoked_under_both_hosts():
 
 def test_the_marketplace_entry_matches_both_manifests():
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-    # D134: the second entry is the Guard, each entry the name of both its manifests
-    entry, guard = market["plugins"]
+    (entry,) = market["plugins"]
     assert entry["source"] == "./plugins/proofbundle"
     assert entry["name"] == CODEX["name"] == CLAUDE["name"]
-    assert guard["source"] == "./plugins/proofbundle-guard"
+    # D134, owner choice N2 B: the Guard's folder is a house marketplace of its own, which Codex reads from
+    # .claude-plugin/marketplace.json as it reads the public one (D15); its one entry is the Guard
+    (guard,) = json.loads((GUARD / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))["plugins"]
+    assert guard["source"] == "./"
     assert guard["name"] == GUARD_CODEX["name"] == json.loads(
         (GUARD / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "proofbundle-guard"
     present = [path for path in CODEX_MARKETPLACE_CANDIDATES if (ROOT / path).is_file()]

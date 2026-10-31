@@ -570,17 +570,22 @@ commit instead of the working state: its declaration, policy and order, its tree
 
 ## Install from this repository
 
-The repository root carries `.claude-plugin/marketplace.json`, a marketplace with two plugins: this one, which
-registers no hook, and proofbundle-guard, the Guard Preview in the house profile of b7n0de (D134). It publishes
-nothing. After the plugin lands on the default branch:
+The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin, which registers no
+hook. It publishes nothing. After the plugin lands on the default branch:
 
 ```sh
 claude plugin marketplace add b7n0de/proofbundle
 claude plugin install proofbundle@proofbundle
 ```
 
-The owner's machines add the Guard beside it with `claude plugin install proofbundle-guard@proofbundle`
-([its README](../proofbundle-guard/README.md)).
+The Guard Preview in the house profile of b7n0de is the plugin proofbundle-guard, which no public catalog lists (D134).
+The owner's machines add its house marketplace from a checkout of this repository and install it beside this plugin
+([its README](../proofbundle-guard/README.md)):
+
+```sh
+claude plugin marketplace add <checkout>/plugins/proofbundle-guard
+claude plugin install proofbundle-guard@proofbundle-house
+```
 
 ## Try it from a checkout
 
@@ -645,7 +650,8 @@ codex plugin marketplace add b7n0de/proofbundle
 codex plugin add proofbundle@proofbundle
 ```
 
-The owner's machines add the Guard beside it with `codex plugin add proofbundle-guard@proofbundle`.
+The owner's machines add the Guard from a checkout with `codex plugin marketplace add <checkout>/plugins/proofbundle-guard`
+and `codex plugin add proofbundle-guard@proofbundle-house` (D134); a Codex install of it is NOT MEASURED.
 
 Codex reads the same `.claude-plugin/marketplace.json` (D15).
 

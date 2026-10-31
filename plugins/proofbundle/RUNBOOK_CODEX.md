@@ -21,10 +21,12 @@ cloud session.
    ```sh
    codex plugin marketplace add b7n0de/proofbundle
    codex plugin add proofbundle@proofbundle
-   codex plugin add proofbundle-guard@proofbundle
+   codex plugin marketplace add <proofbundle checkout>/plugins/proofbundle-guard
+   codex plugin add proofbundle-guard@proofbundle-house
    ```
 
-   proofbundle registers no hook; the gate's hooks come with proofbundle-guard, the house profile (D134).
+   proofbundle registers no hook; the gate's hooks come with proofbundle-guard, the house profile, from the house
+   marketplace in its folder, which no public catalog lists (D134).
 
    Before the plugin lands on the default branch, add the marketplace from the local checkout instead:
    `codex plugin marketplace add <proofbundle checkout>`.

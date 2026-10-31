@@ -26,7 +26,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
-| G-CC-1 | the hooks are registered under Claude Code | `plugins/proofbundle-guard/hooks/hooks.json` registers every hook, the gate's PreToolUse commands with `--autonomous`; proofbundle registers none (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134); edfb9ace before it | tests/test_plugin_guard_apart_d134.py; `claude plugin details` of Claude Code 2.1.314 in a throwaway configuration folder: proofbundle `Hooks (0)`, proofbundle-guard `Hooks (6)` |
+| G-CC-1 | the hooks are registered under Claude Code | `plugins/proofbundle-guard/hooks/hooks.json` registers every hook, the gate's PreToolUse commands with `--autonomous`; proofbundle registers none (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134); edfb9ace before it | tests/test_plugin_guard_apart_d134.py; `claude plugin details` of Claude Code 2.1.314 in a throwaway configuration folder: proofbundle `Hooks (0)` from the public marketplace, proofbundle-guard `Hooks (6)` from the house marketplace |
 | G-CC-2 | if the gate cannot run, the Bash call does not run | the hook command exits 2 with its own line when the gate command fails; Python itself exits 2 when it cannot open the gate | VERIFIED | edfb9ace (hooks.json); D28 | D28 (measured); house measurement |
 | G-CC-3 | the pre-push gate answers as DECISIONS.md says | corpus 1698 rows, satz_v1 held 30 of 30 and harmless 0 of 28, fallbook 288 rows: the same answers as at 49219d5c | VERIFIED (harness) | edfb9ace | PLUGIN_N45 acceptance |
 | G-CC-4 | the same in a real host | the gate of PLUGIN_N37 ran on account A | VERIFIED (one host, one run set) | 63b88d07 | house measurement, as stated in follow-up note 45 |
@@ -66,7 +66,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
-| P-1 | house profile: Guard on, `strict`, autonomous answer under Claude Code | proofbundle with proofbundle-guard installed beside it (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134) | tests/test_plugin_guard_apart_d134.py; the CLI inventory of G-CC-1 |
+| P-1 | house profile: Guard on, `strict`, autonomous answer under Claude Code | proofbundle with proofbundle-guard installed beside it from the house marketplace in a checkout (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134) | tests/test_plugin_guard_apart_d134.py; the CLI inventory of G-CC-1 |
 | P-2 | delivery profile with the Guard off until M2, decided by the owner (O45-3, F2 A) | installing proofbundle registers no hook: no `hooks/hooks.json`, neither host manifest carries hooks; the Guard is the separate plugin proofbundle-guard (D134) | VERIFIED under Claude Code (CLI inventory `Hooks (0)`, no host session); NOT MEASURED in a Codex host | slice F2 (D134) | tests/test_plugin_guard_apart_d134.py; `claude plugin details proofbundle` of Claude Code 2.1.314 |
 | P-3 | an observing Guard that logs and never denies or asks | not built; only on the owner's request, and then built and measured (O45-3) | INACTIVE | n/a | n/a |
 | L-1 | clean install from the marketplace, per host | not run in a recorded measurement | NOT MEASURED | n/a | n/a |

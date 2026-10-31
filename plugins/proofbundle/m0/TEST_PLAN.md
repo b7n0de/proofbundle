@@ -51,7 +51,7 @@ Verify, the Guard or both.
 
 | ID | Host | Kind | Case | Expected |
 |---|---|---|---|---|
-| TL-1 | Claude Code | Clean install | `claude plugin marketplace add`, `claude plugin install` of proofbundle and, for the house profile, proofbundle-guard (D134), first session | proofbundle alone registers no hook, with proofbundle-guard the hooks are registered, server starts through `uv`, the first `verify_receipt` answers |
+| TL-1 | Claude Code | Clean install | `claude plugin marketplace add`, `claude plugin install` of proofbundle and, for the house profile, proofbundle-guard from the house marketplace in a checkout (D134), first session | proofbundle alone registers no hook, with proofbundle-guard the hooks are registered, server starts through `uv`, the first `verify_receipt` answers |
 | TL-2 | Codex | Clean install | `codex plugin marketplace add`, `codex plugin add` of both plugins (D134), trust the hooks | the same; until trust, `gate_note` says the hooks may not run |
 | TL-3 | both | Update | from the last released plugin version to the new one | the gate directory, mode and rules unchanged; the data folder kept; the new pin in use |
 | TL-4 | both | Removal | uninstall with and without `--keep-data` (Claude Code), the same under Codex | what stays is listed; a stale hook entry does not keep blocking calls |
