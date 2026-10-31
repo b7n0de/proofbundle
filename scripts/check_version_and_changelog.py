@@ -5,7 +5,8 @@ Closes the "merged but never released / version drift" class (the M2 security fi
 typo both sat unreleased on main because nothing enforced this). Six checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
-  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md.
+  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md,
+     and that section opens with text before its first subsection (see `check_changelog_opening`).
   3. POST-TAG DRIFT (the M2 catcher): if there are non-trivial commits since the last release tag AND the
      version was NOT bumped past that tag, CHANGELOG.md MUST carry an `## [Unreleased]` section — otherwise
      work is sitting on main undelivered with no changelog trace. Git-gated: skipped (with a note) when git
@@ -474,6 +475,35 @@ def _changelog_headings(repo: Path) -> list[str]:
     return re.findall(r"(?m)^##\s*\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
 
 
+def check_changelog_opening(repo: Path, version: str) -> list[str]:
+    """The `## [<version>]` section opens with text before its first subsection.
+
+    RELEASE.md asks in its release gate that the CHANGELOG entry says explicitly whether semantics
+    change. Check 2 held only that the heading exists. The dry run of 6.5.0 (finding K6) renamed
+    `## [Unreleased]` to the release heading the way a release preparation does, the heading stood
+    directly over `### Added`, and the gate stayed green.
+
+    WHAT IS HELD, AND WHAT IS NOT. Whether the opening says the right thing about semantics is a
+    reading, not a pattern. What the gate can hold is that the section of the version opens with
+    text at all, as the 6.4.0 entry does. Only the section of the version being released is read:
+    an older section is history, and an `[Unreleased]` block may open with a subsection because it
+    is not an entry yet.
+    """
+    zeilen = _read(repo / "CHANGELOG.md").splitlines()
+    kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
+    start = next((i for i, zeile in enumerate(zeilen) if kopf.match(zeile)), None)
+    if start is None:
+        return []                         # check 2 reports the missing section itself
+    for zeile in zeilen[start + 1:]:
+        if re.match(r"^#{1,6}\s", zeile):
+            break                         # the next heading, a subsection or the next version
+        if zeile.strip():
+            return []
+    return [f"CHANGELOG.md: the `## [{version}]` section opens with no text before its first "
+            f"subsection or the next heading. RELEASE.md asks the entry to say explicitly whether "
+            f"semantics change; write that opening paragraph above the first `###`."]
+
+
 def _git(repo: Path, *args: str) -> tuple[int, str]:
     try:
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=15)
@@ -575,6 +605,8 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
     if version and version not in headings:
         problems.append(f"CHANGELOG.md has no `## [{version}]` section for the current version "
                         f"(headings seen: {headings[:5]})")
+    elif version:
+        problems.extend(check_changelog_opening(repo, version))
 
     # 3. Post-tag drift (M2 catcher), git-gated
     last_tag_raw, tag_note = _last_release_tag(repo)
