@@ -919,6 +919,24 @@ def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
     return codex
 
 
+@pytest.mark.parametrize("command, ok", [
+    ('python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex || exit 2', True),
+    ('python3 "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop --host codex', True),
+    ('/usr/bin/python3 -I -B "/p/hooks/proofbundle_gate.py" --host codex', True),
+    ("echo proofbundle_gate.py --host codex", False),
+    ("cat proofbundle_gate.py --host codex", False),
+    ("python3 -c x proofbundle_gate.py --host codex", False),
+    ("python3 -m proofbundle_gate.py --host codex", False),
+    ("python3 other.py proofbundle_gate.py --host codex", False),
+    ("env python3 proofbundle_gate.py --host codex", False)])
+def test_the_codex_hook_check_counts_only_a_command_that_starts_the_gate(command, ok):
+    """sol-pro on the first reading of G-4 (Z4, P1): the check took any first command naming proofbundle_gate.py, so
+    `echo proofbundle_gate.py --host codex`, which starts no gate, passed it. It now counts only python3 or python,
+    options that take no argument, and the gate's script as the first word after them. Red at e04660f2 for the six
+    commands that start no gate."""
+    assert _corpus_codex_hooks().passes_host_codex(command) is ok, command
+
+
 @pytest.mark.parametrize("host, ok", [
     ("--host codex", True),
     ("--host codex-x", False),
