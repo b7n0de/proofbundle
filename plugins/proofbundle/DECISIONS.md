@@ -6654,7 +6654,10 @@ Two findings of delivery -2, named: the lock between Verify and Guard forbids Gu
 state, and plugins/proofbundle carries them; it is no Verify state since this rule, and the lock
 judges it as the split, so its texts stay where they are. The verifier's server keeps its seven tools, gate_status and
 the two self-test tools among them, which read the Guard's log as above; TV-5 of m0/TEST_PLAN.md, which names seven,
-stays.
+stays. The release generator of delivery -2 holds no hooks/ folder in the public verifier at all, and
+plugins/proofbundle keeps its unregistered programs there. Owner answer C (2026-10-31): this bundle stays small and
+lands as planned, and a bundle of its own after it moves the programs out of plugins/proofbundle into the Guard's
+folder before the GO for 0.4.0; until then the generator's split profile is red at this state.
 
 Not changed, and named: reviewer texts that still speak of a public Guard default without the flag (TX48 in the README,
 TX59 and the Pre-push gate row in m0/PRODUCT_SPEC.md) stand word for word, as D125 ordered them; since this rule no
