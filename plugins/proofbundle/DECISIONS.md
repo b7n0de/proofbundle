@@ -6638,9 +6638,11 @@ Found by a read-only cross-reading of 18451ad1 and fixed with their red cases fi
   with every character other than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate
   runs in proofbundle-guard and logs into its directory, so gate_status and the self-test of proofbundle, which read
   their own, would have said in the house that the hook did not run. The server reads the log in
-  proofbundle-guard-<marketplace> where its own directory is proofbundle-<marketplace> (_log_path, VERIFY_DATA_PREFIX,
-  GUARD_DATA_PREFIX); under any other name it reads its own directory as before. How Codex names PLUGIN_DATA is NOT
-  MEASURED.
+  proofbundle-guard-proofbundle-house, the directory of the Guard installed from its house marketplace, where its own
+  directory is proofbundle-<marketplace> from whichever marketplace (_log_path, GUARD_DATA_DIR, which the D134 test
+  binds to the name of the house marketplace); under any other name it reads its own directory as before. The first
+  fix read proofbundle-guard-<marketplace>, and after N2 B no house install has that directory; found in a reading of
+  the D134 test, red first at 6bb47f4a. How Codex names PLUGIN_DATA is NOT MEASURED.
 - The pre-push wrapper follows a plugin update for a version folder under proofbundle-guard as under proofbundle
   (_PRE_PUSH_RESOLVER). Read in the code, not measured: a wrapper written before this rule differs from the one the
   gate writes now, so Level 1 hands no push over to it until install-pre-push writes it again; and Level 1 hands a
