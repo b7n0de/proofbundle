@@ -50,6 +50,10 @@ PLUGIN = REPO / "scripts" / "ci_test_part.py"
 SUITE = "python -m pytest -q --numprocesses=auto --dist=worksteal -p scripts.ci_test_part --ci-part=$CI_PART"
 #: The step that builds the Rust verifier the suite requires; every part needs it.
 BUILD = "cd tools/pb_verify_rs && cargo build --release"
+#: The step that fills uv's cache with the plugin's pinned verifier; every part runs plugin tests offline from it.
+#: Named by its step name: its command names the plugin's server, a test file naming the plugin is a plugin test
+#: (tests/_plugin_env.py), and tests/test_plugin_ci_uv_cache.py holds that command word for word.
+FILL = "Fill uv's cache with the plugin's pinned verifier (the suite reads it offline)"
 #: The condition of a check that runs once per version.
 PART_ONE = "matrix.part == 1"
 #: The share of collected files the weights must know; below it the table is stale, not wrong.
@@ -98,7 +102,8 @@ def job_findings(job: dict) -> list[str]:
         name = s.get("name") or s.get("uses") or run
         if "continue-on-error" in s:
             findings.append(f"the step {name!r} carries `continue-on-error`")
-        every_part = "uses" in s or s is step or run.strip() == BUILD or "pip install" in run
+        every_part = ("uses" in s or s is step or run.strip() == BUILD or s.get("name") == FILL
+                      or "pip install" in run)
         if every_part:
             if "if" in s:
                 findings.append(f"the step {name!r} carries `if`, and every part needs it")
@@ -264,7 +269,8 @@ class TheJobCheckCatchesWhatItIsFor(unittest.TestCase):
                          {"name": "Lint", "if": PART_ONE, "run": "ruff check ."},
                          {"name": "Build", "run": BUILD},
                          {"name": "Test", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
-                         {"name": "Gate", "if": PART_ONE, "run": "python scripts/test_manifest_gate.py"}]}
+                         {"name": "Gate", "if": PART_ONE, "run": "python scripts/test_manifest_gate.py"},
+                         {"name": FILL, "env": {"UV_OFFLINE": "false"}, "run": "uv run --script server.py"}]}
         job.update(changes)
         return job
 
@@ -296,6 +302,7 @@ class TheJobCheckCatchesWhatItIsFor(unittest.TestCase):
             "not 'python": self._with_step(4, run="python -m pytest -q --numprocesses=auto --dist=worksteal"),
             "CI_PART": self._with_step(4, env={"CI_PART": "${{ matrix.part }}/3"}),
             "every part needs it": self._with_step(3, **{"if": PART_ONE}),
+            f"the step {FILL!r} carries `if`": self._with_step(6, **{"if": PART_ONE}),
             "not once per version": lint_everywhere,
             "carries `continue-on-error`": self._with_step(5, **{"continue-on-error": True}),
             "one suite step": self._job(steps=[]),
