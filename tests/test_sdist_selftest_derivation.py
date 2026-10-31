@@ -212,6 +212,66 @@ class AbgeleiteteSkipMenge(unittest.TestCase):
         self.assertEqual(gelistet, rueckfall,
                          "die Rueckfall-Liste weicht von der gemessenen Menge ab — sie darf weder "
                          "wachsen (Aufzaehlung kehrt zurueck) noch schrumpfen (aus dem sdist faellt etwas durch)")
+        # THE FUNCTIONS TOO, 2026-10-30 (sol-pro, ninth reading of G-2): the comparison above read only the module
+        # names, so one more function in a listed module passed unseen. The ids are measured as they stand in
+        # conftest at 647ed0a2; a new one is added here with its reason, as a new module is above.
+        self.assertEqual(rueckfall_befunde(cf._REPO_CONTEXT_TESTS), [])
+
+    def test_der_waechter_liest_die_funktionen_nicht_nur_die_module(self):
+        """The guard must fail on a list that has one more function in a module it already lists. The module set of
+        that list is unchanged, so a comparison of module names alone cannot see it."""
+        mehr = cf._REPO_CONTEXT_TESTS | {"test_audit_candidate_360::test_eine_funktion_mehr"}
+        weniger = cf._REPO_CONTEXT_TESTS - {"test_claims_hygiene::test_real_docs_are_clean"}
+        for liste in (mehr, weniger):
+            with self.subTest(len(liste)):
+                self.assertEqual({e.split("::")[0] for e in liste}, {e.split("::")[0] for e in cf._REPO_CONTEXT_TESTS})
+                self.assertNotEqual(rueckfall_befunde(liste), [])
+
+
+#: The fallback ids of tests/conftest.py, measured at 647ed0a2: module stem and test function.
+RUECKFALL_IDS = frozenset({
+    "test_a_form_rule_reads_one_spelling::test_a_frontier_that_is_no_list_is_refused",
+    "test_a_form_rule_reads_one_spelling::test_control_the_written_empty_frontier_restores",
+    "test_a_mode_refuses_the_options_it_does_not_read::test_a_renderer_refuses_an_argument_it_does_not_read",
+    "test_a_mode_refuses_the_options_it_does_not_read::test_control_a_renderer_checks_and_writes_as_documented",
+    "test_audit_candidate_360::test_c12_2_fails_on_foreign_key_register",
+    "test_audit_candidate_360::test_c12_2_fails_on_tampered_register",
+    "test_audit_candidate_360::test_c12_2_green_on_real_repo",
+    "test_audit_candidate_360::test_c1_1_green_on_real_repo",
+    "test_audit_candidate_360::test_matrix_is_ready_and_has_33_checks",
+    "test_audit_matrix_differential_cell_recomputes_agreement::"
+    "test_control_the_committed_report_holds_complete_agreeing_rows",
+    "test_claims_hygiene::test_every_default_doc_exists_and_scan_covers_all",
+    "test_claims_hygiene::test_injected_overclaim_in_every_listed_doc_fails",
+    "test_claims_hygiene::test_main_default_run_includes_cli_surface",
+    "test_claims_hygiene::test_new_priority_docs_are_in_scan_set_and_clean",
+    "test_claims_hygiene::test_real_docs_are_clean",
+    "test_fork_pr_secret_isolation::test_repo_workflows_are_isolation_safe",
+    "test_mutationstor_sammler_sieht_die_freigabeflaeche::test_der_sammler_des_tors_sieht_JEDE_testdatei",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ANTI_PARITAET_2_die_zweite_frist_sperrt_nicht_den_gueltigen_fall",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ANTI_PARITAET_gueltiger_schluessel_bleibt_autorisiert",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_RUECKDATIERUNG_aktiviert_keinen_abgelaufenen_schluessel",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_abgelaufener_schluessel_ist_fuer_C12_2_nicht_autorisiert",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_GENAU_am_letzten_tag_ist_noch_zulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_einen_tag_nach_der_frist_ist_unzulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_evidenz_einen_tag_vor_der_frist_ist_zulaessig",
+    "test_not_after_gilt_auch_auf_dem_registerpfad::test_ohne_messzeitpunkt_autorisiert_niemand",
+    "test_pre_tag_receipt_commit_flow::test_committed_receipt_verifies_and_src_change_is_rejected",
+    "test_release_text_hygiene::test_ein_leerer_commitbereich_bricht_ab",
+    "test_roadmap_frontload_foundations::test_pack_is_grounded_in_real_artifacts",
+    "test_roadmap_frontload_foundations::test_released_version_has_audit_record",
+    "test_rust_parity_gate::test_real_repo_main_rs_has_the_expected_subcommands",
+    "test_rust_parity_gate::test_real_repo_registry_is_honest_strict_mode_exits_0",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_a_missing_binary_stays_data_blocked",
+    "test_rust_parity_gate_refuses_invalid_coverage_evidence::test_CONTROL_the_full_subcommand_list_passes",
+})
+
+
+def rueckfall_befunde(liste) -> list[str]:
+    """Each id the fallback list carries beyond the measured ones, and each it lost. Pure."""
+    liste = frozenset(liste)
+    return ([f"neu, ohne Grund: {e}" for e in sorted(liste - RUECKFALL_IDS)]
+            + [f"fehlt: {e}" for e in sorted(RUECKFALL_IDS - liste)])
 
 
 if __name__ == "__main__":
