@@ -100,7 +100,9 @@ _CHECK_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 DONE_STATE = EVIDENCE_DIR + "done-state.json"
 DONE_METRICS = EVIDENCE_DIR + "done-metrics.json"
 DONE_BLOCKER = EVIDENCE_DIR + "done-blocker.json"
-DONE_OWN_FILES = (DONE_STATE, DONE_METRICS, DONE_BLOCKER)
+#: The record of the hand-over of an open blocker at the next session start (D127): the rounds and the open set.
+DONE_HANDOVER = EVIDENCE_DIR + "done-handover.json"
+DONE_OWN_FILES = (DONE_STATE, DONE_METRICS, DONE_BLOCKER, DONE_HANDOVER)
 DONE_FILES_SCHEMA = "proofbundle-plugin/done-{}/v0.1"
 METRIC_KEYS = ("blocked", "task_blocked", "missing_checks", "completed_after_block", "blockers", "done")
 MAX_STATE_BYTES = 64 * 1024
@@ -19630,7 +19632,8 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
     (review round 6 of 2026-10-10, R6-4: the record's problem was read here and dropped, so a record with blocks "1" was
     written over without a word, against R5-3). The three stay apart (review round 8 of 2026-10-10, R8-4: a removal that
     failed was reported as a count that could not be recorded, while the record held a valid count, and the note on the
-    replaced unread record was dropped)."""
+    replaced unread record was dropped). The hand-over record of D127 goes with the blocker; removal names each file that
+    stays, with what it means."""
     repo = result["repo"]
     session = _session_key(event)
     previous, unread = _done_state(repo)
@@ -19638,16 +19641,20 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
     _tally(repo, done=1, completed_after_block=1 if after_block else 0)
     problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                   "open": [], "blocks": 0, "blocker": False})
-    blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
-    removed = None
-    try:
-        if stat.S_ISREG(os.lstat(blocker).st_mode):
-            os.unlink(blocker)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
-        removed = f"the earlier blocker {DONE_BLOCKER} could not be removed ({exc})"
-    return (None if problem is None else f"the count could not be reset ({problem})"), removed, unread
+    removed = []
+    for name, what, stale in ((DONE_BLOCKER, "blocker", "the blocker file is out of date"),
+                              (DONE_HANDOVER, "hand-over record", "a later hand-over may count its rounds from that "
+                                                                  "record (D127)")):
+        path = os.path.join(repo, *name.split("/"))
+        try:
+            if stat.S_ISREG(os.lstat(path).st_mode):
+                os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
+            removed.append(f"the earlier {what} {name} could not be removed ({exc}); this done end stands, and {stale}")
+    return (None if problem is None else f"the count could not be reset ({problem})"), ("; ".join(removed) or None), \
+        unread
 
 
 def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
@@ -21134,9 +21141,8 @@ def stop_command(argv: list[str]) -> int:
                 message += (f" The earlier count could not be read ({unread}); "
                             + ("the hook wrote its own record in its place." if counting is None
                                else "it stays in place, since the hook could not write its own record."))
-            if removal is not None:
-                message += (f" {removal[0].upper()}{removal[1:]}; this done end stands, and the blocker file is out of "
-                            "date.")
+            if removal is not None:   # each removal names what stays and what it means (D127: the hand-over record)
+                message += f" {removal[0].upper()}{removal[1:]}."
             if result.get("local"):
                 message += f" (Local done order {result['local']}, D38.)"
             messages.append(message)
@@ -21203,6 +21209,229 @@ def task_completed_command(argv: list[str]) -> int:
     except Exception:  # noqa: BLE001 - counting never changes the answer
         pass
     sys.stdout.write(_done_line(result["verdict"]) + "\n")
+    return 0
+
+
+# --- the hand-over of an open blocker at the next session start (D127) ---------------------------------------------
+
+#: The rounds one open set is handed on; at the next start without progress the hook writes the owner card instead.
+HANDOVER_ROUNDS = 2
+_HANDOVER_FIELDS = frozenset({"schema", "rounds", "open", "head", "carded", "written"})
+#: The folder of the gate directory the house collects owner cards from (D25's location: user-wide, outside every
+#: repository), and the card's form.
+OWNER_CARDS_DIR = "owner-cards"
+OWNER_CARD_SCHEMA = "proofbundle-plugin/owner-card/v0.1"
+#: The gate's status names an open point of the hand-over may show (T2): those of a check and of the paths
+#: (_OPEN_REASON), and those of a refusal before the checks (_refused, _order_refusal). A check's command is run; the
+#: others name their next step.
+_HANDOVER_CHECK_STATUSES = frozenset({"missing", "unverified", "red", "other_selection", "no_state", "stale"})
+_HANDOVER_STATUSES = frozenset(_OPEN_REASON) | frozenset({
+    "declaration_not_committed", "missing_file", "state_not_measured", "order_base_not_measured", "order_changed",
+    "order_unrecorded", "order_removed", "order_unreadable", "order_unbound"})
+_HANDOVER_BOUNDARY = ("The task counts as done only when the Stop hook's done check passes; this hand-over asks for "
+                      "nothing else.")
+OWNER_CARD_TEXT = ("The done check of this repository stayed NOT DONE with the same open points through two hand-overs "
+                   "without progress (D127); the hook hands these open points on no further, and a changed open set "
+                   "starts the hand-over again. Guard does not count a task as done before the required checks pass; "
+                   "it does not make the agent work until they pass. This card is a notice to the owner, not a "
+                   "receipt, and proves nothing about the tests.")
+
+
+def _blocked_repos(directory: str, deadline: float, environ) -> list[str]:
+    """The repositories that hold a blocker of the Stop hook (DONE_BLOCKER, a regular file), each once: the one of
+    directory and each one a local done order binds (D38). Only the file's presence is read, never its text (T1)."""
+    repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
+    if unreadable:
+        raise GateError(unreadable)
+    candidates = [] if repo is None else [str(repo)]
+    for entry in _local_orders(environ, deadline):
+        bound = entry["order"]["repo"] if "order" in entry else entry.get("bound")
+        if bound:
+            candidates.append(bound)
+    found, seen = [], set()
+    for candidate in candidates:
+        if os.path.realpath(candidate) in seen:
+            continue
+        seen.add(os.path.realpath(candidate))
+        try:
+            if stat.S_ISREG(os.lstat(os.path.join(candidate, *DONE_BLOCKER.split("/"))).st_mode):
+                found.append(candidate)
+        except OSError:
+            pass
+    return found
+
+
+def _handover_record(repo: str) -> tuple[dict | None, str | None]:
+    """The hand-over record (DONE_HANDOVER) as (record, problem): (None, None) where there is none, (None, why) where a
+    present file is not the hook's record. Its content is counted, never shown: the hand-over is built from the fresh
+    verdict alone."""
+    doc = _read_done_file(repo, DONE_HANDOVER, "handover")
+    if doc is None:
+        return None, _done_file_problem(repo, DONE_HANDOVER, "handover")
+    pairs = doc.get("open")
+    if not (frozenset(doc) == _HANDOVER_FIELDS and type(doc["rounds"]) is int and doc["rounds"] >= 1
+            and type(doc["carded"]) is bool and isinstance(pairs, list)
+            and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p) for p in pairs)):
+        return None, f"{DONE_HANDOVER} is not the hook's hand-over record (its fields or their types differ)"
+    return doc, None
+
+
+def _shown_repo(repo: str) -> str:
+    """The repository as the hand-over names it: its path, in JSON quotes where it holds a character that is not
+    printable (a line break would end the line it stands in)."""
+    return repo if repo.isprintable() else json.dumps(repo)
+
+
+def _handover_text(repo: str, rounds: int, points: list[dict]) -> str:
+    """The hand-over the model gets (D127), built from the fresh verdict alone: the repository, the round, each open
+    point by its id and status with the command the gate built for it, and the boundary. An id outside the order's
+    grammar, a status that is not the gate's, and the command beside them, are not shown (T2)."""
+    lines = [f"proofbundle done check, round {rounds} of the hand-over (D127), repository {_shown_repo(repo)}: the Stop "
+             "hook let a session end there without a done verdict, and the done check, run again at this start, is "
+             "still NOT DONE. Open:"]
+    for point in points:
+        ident, status, command = point.get("id"), point.get("status"), point.get("command")
+        if (isinstance(ident, str) and _CHECK_ID.fullmatch(ident) and isinstance(status, str)
+                and status in _HANDOVER_STATUSES and isinstance(command, str) and command):
+            lines.append(f"- {ident} ({status}): {'run ' if status in _HANDOVER_CHECK_STATUSES else ''}{command}")
+        else:
+            lines.append("- an open point the gate does not show")
+    lines.append(_HANDOVER_BOUNDARY)
+    return "\n".join(lines)
+
+
+def _owner_card_path(environ, repo: str, pairs: list) -> str | None:
+    """Where the owner card of a stalled hand-over lies: <gate directory>/owner-cards/, named by the sha256 of the
+    repository and the open set, so the same stalled state has one card. None without a gate directory."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return None
+    named = json.dumps([os.path.realpath(repo), sorted(pairs)]).encode("utf-8")
+    return os.path.join(directory, OWNER_CARDS_DIR, f"done-handover-{hashlib.sha256(named).hexdigest()}.json")
+
+
+def _write_owner_card(path: str, doc: dict) -> str | None:
+    """Write the owner card once, never through a link: a regular file of the same name stands and is not written
+    again. None where the card stands now, else why not."""
+    folder = os.path.dirname(path)
+    try:
+        os.makedirs(folder, 0o700, exist_ok=True)
+    except OSError as exc:
+        return f"the folder {folder} cannot be made ({exc})"
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except FileExistsError:
+        try:
+            return None if stat.S_ISREG(os.lstat(path).st_mode) else f"{path} is there and is not a regular file"
+        except OSError as exc:
+            return f"{path} cannot be examined ({exc})"
+    except OSError as exc:
+        return f"{path} cannot be made ({exc})"
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write((json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass"))
+    except OSError as exc:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return f"{path} could not be written ({exc})"
+    return None
+
+
+def _hand_over(directory: str, deadline: float, environ) -> tuple[list[str], list[str]]:
+    """The hand-over of every open blocker (D127) as (the contexts for the model, the messages for the user). Without a
+    blocker, nothing. With one, the done check runs again as at Stop (done_evaluations) and only its fresh open points
+    count: a pass or no done check hands nothing on and leaves the files; NOT DONE updates the hand-over record and hands
+    the open points on for HANDOVER_ROUNDS rounds of the same open set, after which one owner card replaces the
+    hand-over of that set. A check that reached no verdict, or ran past the deadline, hands nothing on."""
+    blocked = _blocked_repos(directory, deadline, environ)
+    if not blocked:
+        return [], []
+    results = done_evaluations(directory, deadline, environ)
+    repos = {os.path.realpath(repo): repo for repo in blocked}
+    failed = [r["verdict"].failed or r["verdict"].reason_id for r in results
+              if r["verdict"].reason_id in ("gate_error", "internal_error")
+              and (r["repo"] is None or os.path.realpath(r["repo"]) in repos)]
+    if failed or time.monotonic() > deadline:
+        why = "; ".join(failed) if failed else f"it ran past the {DEADLINE_SECONDS:g} seconds the Stop hook has"
+        return [], [f"proofbundle done check: the hand-over could not run the done check again ({_short(why, 400)}), "
+                    "so no open point was handed on; the blocker stands (D127)."]
+    contexts, notes = [], []
+    for key, repo in repos.items():
+        group = [r for r in results if r["repo"] and os.path.realpath(r["repo"]) == key]
+        points = [p for r in group if r["verdict"].decision == "deny" for p in r["open"]]
+        if not points:
+            continue   # a pass or no done check: nothing to hand on; the next Stop counts a pass (_account_pass)
+        pairs = []
+        for point in points:
+            if [point["id"], point["status"]] not in pairs:
+                pairs.append([point["id"], point["status"]])
+        head = next((r["commit"] for r in group if r["commit"]), None)
+        shown = _shown_repo(repo)
+        record, unread = _handover_record(repo)
+        if unread is not None:
+            notes.append(f"proofbundle done check: the earlier hand-over record of {shown} could not be read "
+                         f"({unread}); this start counts as round 1 (D127).")
+        # No progress is the same open set; any other set, a strict subset (progress) included, starts at round 1
+        same = record is not None and {tuple(p) for p in record["open"]} == {tuple(p) for p in pairs}
+        rounds = record["rounds"] + 1 if same else 1
+        carded = bool(same and record["carded"])
+        if rounds <= HANDOVER_ROUNDS:
+            contexts.append(_handover_text(repo, rounds, points))
+            notes.append(f"proofbundle done check: the open points of {shown} are handed on to this session, round "
+                         f"{rounds} of the hand-over (D127).")
+        else:
+            card = _owner_card_path(environ, repo, pairs)
+            if carded:
+                notes.append(f"proofbundle done check: {shown} is still NOT DONE with the open points of the owner card "
+                             f"{card or 'in the gate directory'}; the hook hands them on no further (D127).")
+            else:
+                problem = ("there is no gate directory (PROOFBUNDLE_GATE_DIR is not an absolute path and there is no "
+                           "home)") if card is None else _write_owner_card(card, {
+                    "schema": OWNER_CARD_SCHEMA, "kind": "done-handover-stalled", "repo": repo, "head": head,
+                    "open": pairs, "rounds": rounds, "blocker": os.path.join(repo, *DONE_BLOCKER.split("/")),
+                    "written": _now(), "text": OWNER_CARD_TEXT})
+                carded = problem is None
+                notes.append(f"proofbundle done check: {shown} stayed NOT DONE with the same open points through "
+                             f"{HANDOVER_ROUNDS} hand-overs without progress; "
+                             + (f"the owner card {card} names them" if problem is None
+                                else f"the owner card could not be written ({problem})")
+                             + ", and the hook hands them on no further (D127).")
+        written = _write_done_file(repo, DONE_HANDOVER, {"schema": DONE_FILES_SCHEMA.format("handover"),
+                                                         "rounds": rounds, "open": pairs, "head": head,
+                                                         "carded": carded, "written": _now()})
+        if written is not None:
+            notes.append(f"proofbundle done check: the hand-over record of {shown} could not be written ({written}), "
+                         "so this round is not counted (D127).")
+    return contexts, notes
+
+
+def session_start_command(argv: list[str]) -> int:
+    """The SessionStart hook of Claude Code (D127), for every source (startup, resume, clear, compact): where the Stop
+    hook ended a session NOT DONE and left its blocker, the next start hands the open points of a fresh done check on
+    as additional context, never the blocker's text. Prints that context and a short message for the user, a message
+    alone for an owner card or a failure, and nothing where there is no blocker or the check passes; exits 0 always: a
+    failure never blocks the start, it is named. Guard does not count a task as done before the required checks pass;
+    the hand-over does not make the agent work until they pass. Codex does not register it (NOT MEASURED there)."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    try:
+        _host_name, event = _hook_event(argv, "SessionStart")
+        contexts, notes = _hand_over(_event_directory(event), deadline, os.environ)
+    except Exception as exc:  # noqa: BLE001 - a failure never blocks the start, and it is named, never silent (T5)
+        contexts, notes = [], [f"proofbundle done check: the hand-over failed ({type(exc).__name__}: "
+                               f"{_short(str(exc), 400)}), so no open point was handed on; the done check at Stop is "
+                               "unchanged (D127)."]
+    answer: dict = {}
+    if notes:
+        answer["systemMessage"] = " ".join(notes)
+    if contexts:
+        answer["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": "\n\n".join(contexts)}
+    if answer:
+        try:
+            sys.stdout.write(json.dumps(answer) + "\n")
+        except Exception:  # noqa: BLE001 - where even the message fails, the start goes on without a word
+            pass
     return 0
 
 
@@ -23505,6 +23734,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_order_command(argv[1:])
     if argv[:1] == ["task-completed"]:
         return task_completed_command(argv[1:])
+    if argv[:1] == ["session-start"]:
+        return session_start_command(argv[1:])
     if argv[:1] == ["bilanz"]:
         return bilanz_command(argv[1:])
     if argv[:1] == ["done-statement"]:

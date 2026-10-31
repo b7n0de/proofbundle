@@ -128,6 +128,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" session-start || printf '%s\\n' '{\"systemMessage\": \"proofbundle done check: the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged (D127).\"}'",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }

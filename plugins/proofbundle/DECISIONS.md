@@ -6137,3 +6137,89 @@ not model, and a file longer than MAX_SCRIPT_BYTES. Under Codex the hook's direc
 working directory (D12), so a relative script is read there. A read on a filesystem that blocks a read of a regular file
 is not bounded by the gate, as no read of the gate is (NOT MEASURED). Level 2 on these carriers and a real host are NOT
 MEASURED. Tests: tests/test_plugin_code_carrier_names_git_d126.py.
+
+## D127. An open blocker is handed on at the next session start, and stalls into one owner card (addendum 2, 2026-10-26)
+
+Owner order (addendum 2 of 2026-10-26, "hand-over instead of end"): an open blocker starts the next round with exactly
+the red checks, through a SessionStart hook that hands the open blocker on as the task; after two rounds without
+progress the hook writes an owner card into a fixed folder the house collects. The text boundary: Guard does not count
+a task as done before the required checks pass; it does not make the agent work until they pass. Measured at 16cffca:
+after max_blocks blocks without progress (at most 7, MAX_BLOCKS_LIMIT, under the eight continuations after which
+Claude Code overrides a Stop hook) the Stop hook writes .proofbundle/done-blocker.json and lets the session end NOT DONE
+(D28), and the next session starts without a word of it; the gate read `session-start` as an unknown argument of the
+PreToolUse gate and printed a PreToolUse deny.
+
+The rule:
+
+- `proofbundle_gate.py session-start` is a SessionStart hook in hooks/hooks.json without a matcher, so it runs for every
+  source (startup, resume, clear, compact). Codex: not registered, the Codex manifest is unchanged; whether Codex runs a
+  SessionStart hook of a plugin is NOT MEASURED. The description of hooks.json is unchanged.
+- It looks for DONE_BLOCKER, a regular file, in the repository of the event's cwd and in each repository a local done
+  order binds (D38). Without one it prints nothing. Only the file's presence is read, never its text.
+- With one it runs the done check again as the Stop hook does (done_evaluations) and takes only the open points of that
+  fresh verdict. A pass, or no done check, prints nothing and leaves the files as they are; the next Stop counts the
+  pass and removes them.
+- Still NOT DONE, it updates the hand-over record .proofbundle/done-handover.json (DONE_HANDOVER, {schema, rounds, open,
+  head, carded, written}, open as [id, status] pairs): the same open set as the record's is no progress and counts
+  rounds + 1; any other set starts again at round 1, a strict subset (progress) included.
+- Rounds 1 and 2 (HANDOVER_ROUNDS) hand the open points on as hookSpecificOutput.additionalContext, built from the fresh
+  verdict alone: the repository, "round N of the hand-over", each open point by its id and status with the command the
+  gate builds for it (check_command for a check, the open point's command otherwise), and the sentence "The task counts
+  as done only when the Stop hook's done check passes; this hand-over asks for nothing else." An id outside the order's
+  grammar (_CHECK_ID), a status outside the gate's names (_OPEN_REASON and the refusals before the checks), and the
+  command beside them are shown as "an open point the gate does not show". A short systemMessage names the round to the
+  user.
+- At round 3 it writes one owner card into `<gate directory>/owner-cards/` (D25's location: user-wide, outside every
+  repository), `done-handover-<sha256 of the repository and the open set>.json`, created once and never through a link:
+  {schema "proofbundle-plugin/owner-card/v0.1", kind "done-handover-stalled", repo, head, open, rounds, blocker,
+  written, text}. The record says carded true, a systemMessage names the card, and that open set is handed on no
+  further: no additionalContext. A later start names the card again and writes none; the same stalled state never gets
+  a second card, also after a reset record; a changed open set starts again at round 1.
+- A done end at Stop removes the hand-over record together with the blocker (_account_pass); a record it cannot remove
+  is named in the end's message as the blocker is, each with what it means (the blocker's sentence is unchanged).
+  DONE_OWN_FILES names the record, so done-init's .gitignore and done-order's info/exclude keep it out of commits and no
+  check may name it as its receipt.
+- No failure blocks the start; the hook exits 0. Input that is no SessionStart event, a check that reached no verdict
+  or ran past DEADLINE_SECONDS (the Stop hook's 90 s), a card or a record the hook cannot write, and a record it cannot
+  read are each named in a systemMessage; where the check reached no verdict nothing is handed on. Where Python cannot
+  start the gate, the hook command prints its own systemMessage.
+
+Threat model, in short:
+
+- T1, the session deletes or edits the blocker or the record: the done verdict stays the Stop hook's and the CI
+  check's. Deleting the blocker only skips the hand-over; an edit changes nothing the hook shows, as it evaluates again.
+  Resetting the record postpones the card; the card is a notice to the owner, not a boundary.
+- T2, injection through the blocker or through check output: the context names only ids and statuses of the gate's own
+  grammars and commands the gate builds; no free text of the blocker, a receipt or a test output.
+- T3, fake progress: only the same open set counts on. Changing the order to drop a check is a commit, judged as today
+  (D28, the CODEOWNERS template; not measured here). Limit, named: any other open set starts at round 1 as well, so a
+  session that turns a red check into a missing one and back postpones the card, as a reset record does (T1).
+- T4, endless rounds: a card after two rounds without progress, then no further hand-over of that open set.
+- T5, a card or record that cannot be written: named in the systemMessage, never silent.
+- T6, no SessionStart (Codex, an untrusted or disabled hook, a host that does not run it): no hand-over; the NOT DONE
+  end and the blocker stand as before.
+- T7, the model ignores the context: Guard does not count the task as done before the required checks pass; it does
+  not promise that the agent works until they pass.
+- T8, a slow evaluation at the start: the Stop hook's DEADLINE_SECONDS; past it, a message and no context.
+
+Measured (tests/test_plugin_done_handover_d127.py, an order with the checks unit and integration and max_blocks 1): 18
+of 18 cases red at 16cffca. Each start runs the gate as the hook runs it, after the Stop hook wrote the blocker: (a) for
+each of the four sources round 1 hands on exactly the red check with its gate-built command, and the record holds
+[["integration", "red"]] and HEAD; (b) round 2, then one card and no context, and a fourth start writes no second card;
+a deleted record starts again at round 1 and the same stalled state gets no second card (T1); (c) a strict subset and a
+changed status each start at round 1; (d) a blocker with an injected sentence, a changed command, an id outside the
+order, or bytes that are no JSON gives the same answer as the plain blocker (T1, T2), and open points planted with an id
+outside the grammar or a status that is not the gate's are not shown, nor their commands (T2, in process); (e) without
+a blocker and outside a repository nothing is printed; (f) a fresh pass prints nothing and leaves the blocker and the
+record, and the next done end removes both; (g) an owner-cards path that is a regular file is named and the start goes
+on (T5); a check past its deadline gives a message and no context (T8, in process); input that is no event is named;
+(h) hooks.json registers the hook, the registered command hands over and names a gate that cannot start, and the Codex
+manifest names no SessionStart.
+
+Read in the code, not run: where a start keeps the session id of the session that ended NOT DONE (which sources do is
+NOT MEASURED), the Stop hook's count of that session stands past max_blocks, and its next end with the same open
+points ends NOT DONE at once; a session with a new id counts from 1. NOT MEASURED: a real Claude Code session running
+the SessionStart hook (that the host gives the context to the model and the message to the user in this form); whether
+the model works on the handed-over checks; Codex. Not covered, and named: the hand-over writes no line of the gate log
+(D21); a refused local order whose repository git does not find keeps its blocker in the gate directory (O3) and is not
+handed on; the card is not read back by anything in the plugin. README and RUNBOOK texts are unchanged in this slice.
