@@ -6032,6 +6032,11 @@ not part of this order; pilot.json is read as before.
 Addendum (D128, 2026-10-26): owner answer 6 of Nachtrag 7 (option A) switches done-orders/ and done-keys.json off by
 the same setting; pilot.json stays as it is.
 
+Addendum (owner answer 5 of Nachtrag 7, 2026-10-26: C as the goal, A until then): the protected channel is to be a
+record signed with a key outside the session, which the house builds through an account of its own; until it
+exists, the channel is this setting, which stays the house's statement and no protection, as said above. D128
+and D129 read it, or a setting of their own, in the same way.
+
 ## D125. The public hook commands carry no --autonomous; the flag is the house's opt-in (owner order N4-3, 2026-10-26)
 
 Owner order N4-3 of 2026-10-26, on the external review of the Guard Preview stack, translated: "The combined flag
