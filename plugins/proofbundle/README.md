@@ -292,10 +292,13 @@ The mode, and any applied rule, appear in every gate-log line. A human revokes a
 `rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the
 read-only rule file acts.
 
-A file `pilot.json` beside `mode` turns on the pilot of Z405 (D55): for each GitHub write the gate decides and the
-pilot reads, the gate writes a signed decision receipt of the profile github-write/1 into the folder the file names,
-for an approval as for a refusal, before the write. The receipt changes nothing the gate answers, and the gate holds
-no key: the signer the file names signs. Without the file nothing is written.
+A valid `pilot.json` beside `mode` enables experimental pilot receipt attempts (D55) for the GitHub writes the
+pilot recognizes. The operator's signer signs; the gate holds no key. Receipt coverage is not complete. A signing
+failure, an unread form or a disagreement with the signer's evaluation can leave no receipt. Ordinary receipt
+attempts must not change the gate's permission decision, exit code or answer bytes. D119 owner releases are a
+separate authorization path: with the pilot configured for a recognized GitHub write, the hook requires the
+signer service's signed ALLOW before it consumes the release and lets the call run. Without a valid configuration
+the pilot is inactive. Cross-account operation is BLOCKED/NOT MEASURED as listed in m0/IMPLEMENTATION_GAP.md.
 
 ### The gate's log
 

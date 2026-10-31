@@ -43,7 +43,7 @@ Decides about an agent's calls before they run, and about the end of a session.
 | Modes | `mode`, `rules.json` in the gate directory | `strict` (the default) or `with-approvals`, set only by a person (D25) |
 | Counts and log | `PostToolUse`, `proofbundle_answered.py`, the gate log, `bilanz` | answers per reason, open pull requests per session (D94, D110), one line per decision |
 | Diagnosis | skill `selftest`, tools `gate_status`, `gate_selftest_prepare`, `gate_selftest_check` | says whether the gate ran in this session and hands out a push the gate should deny, in a throwaway repository |
-| Pilot receipts (optional) | `pilot.json` in the gate directory, `pilot/` | a signed decision receipt per GitHub write the pilot reads, signed by a service of the operator, and the reconciliation against observed effects (Z405, D55 to D65, D113) |
+| Pilot receipts (optional, experimental) | `pilot.json` in the gate directory, `pilot/` | attempts a signed decision receipt for a GitHub write the pilot recognizes, through the operator's signer, and reconciles issued receipts with recorded observations; receipt and observation coverage are not complete, and cross-account operation is BLOCKED/NOT MEASURED as listed in IMPLEMENTATION_GAP.md |
 
 If the gate cannot run, the Bash hook blocks every call (`|| exit 2` in `hooks/hooks.json`, D6). The local gate is an
 early warning; the boundary is the required CI check and git's pre-push hook where it is installed (D22, D24).

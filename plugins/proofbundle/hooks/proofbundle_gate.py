@@ -22691,11 +22691,12 @@ def _host(argv: list[str]) -> str:
 
 # --- the pilot of Z405: a signed decision receipt for each GitHub write the gate decides (DECISIONS.md D55) -------
 #
-# The pilot contract (docs/pilot/pilot_contract.md on main) and its profile github-write/1 (docs/pilot/pilot_profile.md,
-# tools/pilot/github_write_profile.py) want a decision-receipt/v0.1 for every write to GitHub the gate decides, allowed
-# or refused, with decidedAt before the write. The gate writes one after its verdict and before its answer. The receipt
-# changes nothing the gate answers: not the decision, not the exit code, not the log line, not a byte on stdout or
-# stderr. A receipt the gate cannot issue is a line in the journal of the receipt folder, never an answer.
+# The pilot contract and github-write/1 profile define the intended decision receipts. This implementation attempts
+# receipts for recognized GitHub writes; an issuance failure can leave no receipt. Ordinary receipt attempts are
+# observational and must not change the gate's permission decision, exit code, log line or answer bytes. D119 owner
+# releases are different: where the configured pilot recognizes the write, release_settle requires a signed ALLOW
+# before the release is used. A receipt that cannot be issued is journaled where possible; journal failure must not
+# prevent the ordinary hook answer from returning.
 
 PILOT_FILE = "pilot.json"
 MAX_PILOT_BYTES = 16 * 1024
@@ -22819,10 +22820,14 @@ def _pilot_keyid(public: bytes) -> str:
 
 def _pilot_policy_digest(environ: dict) -> str:
     """The sha256 the receipt names as the gate's policy: over the gate's own file, the mode and the rules a person
-    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile)."""
+    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile). The gate's own file is read as
+    _sha256_or_none reads, without blocking and only as a regular file (D123): a FIFO in its place is an OSError at
+    once, and the receipt is not issued."""
     parts = {}
-    with open(os.path.realpath(__file__), "rb") as handle:
-        parts["gate"] = hashlib.sha256(handle.read()).hexdigest()
+    own = os.path.realpath(__file__)
+    parts["gate"] = _sha256_or_none(own)
+    if parts["gate"] is None:
+        raise OSError(errno.EINVAL, "the gate's own file is no regular file it can read", own)
     directory = _gate_dir(environ)
     for name, limit in (("mode", MAX_MODE_BYTES + 1), ("rules.json", MAX_RULES_BYTES + 1)):
         try:
@@ -22978,11 +22983,25 @@ def _pilot_push_actions(url: str | None, lines: list[tuple]) -> list[tuple[dict,
 
 
 def _pilot_journal(folder: str, entry: dict) -> None:
-    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name."""
+    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name. The journal
+    is opened without blocking and without following a link, and the line is written only where the opened descriptor
+    is a regular file (D123, the class of R18-2): a FIFO with or without a reader, a device, a folder or a link there
+    is never waited on and gets no line. Such a journal raises an OSError, as one that cannot be opened does; the
+    callers drop it, so an ordinary answer returns as it is (under D119 the release stays unused, release_settle)."""
     entry = {"at": _pilot_instant(time.time_ns()), **entry}
     os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, "journal.jsonl"), "a", encoding="ascii") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    path = os.path.join(folder, "journal.jsonl")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o666)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise _NotRegular(errno.EINVAL, "not a regular file", path)
+        handle = os.fdopen(fd, "ab")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
+        handle.write((json.dumps(entry, sort_keys=True) + "\n").encode("ascii"))
 
 
 def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:

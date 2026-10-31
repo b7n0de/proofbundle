@@ -5911,3 +5911,53 @@ and the two readers of decidedAt take exactly what datetime takes, with the same
 
 Not changed: the form of an instant (_INSTANT), the six fraction digits of decidedAt. Not covered, and named: a leap
 second (23:59:60), which RFC 3339 allows and which the profile, datetime and the readers here refuse alike.
+
+## D123. The pilot's journal never holds the answer, and only a regular file takes its line (N4-4, 2026-10-26)
+
+External review of -1, PILOT finding 1 (KERN finding 5, K-3): the gate attempts its receipts after its verdict and
+before its answer (D55), and _pilot_journal opened `journal.jsonl` of the receipt folder with a blocking open. With a
+valid `pilot.json` whose signer fails and a FIFO named `journal.jsonl` without a reader, the hook waited in that open
+before it printed its permission answer, with no deadline. The reviewer measured a two-second wait on both shipped
+hook forms that ended when a reader opened the FIFO. The owner's order (addendum 4, point 4): journal access does not
+block, only a regular file at the opened descriptor is written, and the gate's answer stands under every receipt-side
+failure; the owner's releases of D119 are the exception, and the texts name them apart.
+
+The rule:
+
+- The gate opens the journal without blocking and without following a link (O_NONBLOCK and O_NOFOLLOW where the
+  platform has them), checks the opened descriptor and writes the line only into a regular file. A FIFO with or
+  without a reader, a device, a folder or a link in its place gets no line and raises an OSError, as a journal that
+  cannot be opened did before; the callers drop it (D55), so the ordinary answer, its exit code, its log line and its
+  bytes stay as they are. The reasons and the form of a journal line are those of D55.
+- The policy digest of a receipt reads the gate's own file as _sha256_or_none reads, without blocking and only as a
+  regular file; a FIFO in its place fails that receipt at once with an OSError.
+- The other paths of a receipt attempt were read for the same class: `pilot.json`, the closing rules, `mode` and
+  `rules.json` are read with _read_regular already; the receipt folder and `decisions/` are made with mkdir, which
+  does not wait on a FIFO in their place; a receipt file is created with O_CREAT and O_EXCL, which never opens an
+  entry that exists, so a FIFO in its slot is passed over to the next attempt. The signer is a child process the gate
+  stops after PILOT_SIGNER_SECONDS (N405-b).
+- D119 is not changed: where the pilot recognizes a released write, release_settle still requires the signed ALLOW
+  before the release is used. A journal line the gate cannot write after the service signed keeps the release, as a
+  journal it could not open did before (read from release_settle, not measured here); a FIFO and a link in the
+  journal's place are now such journals, where a FIFO without a reader held the hook before.
+- The comment that opens the pilot's part of the gate, the README's paragraph on `pilot.json` (TX52) and the row of
+  the pilot in m0/PRODUCT_SPEC.md (TX03) take the reviewer's texts: receipts are attempts with known gaps, an ordinary
+  attempt must not change the answer, and a D119 release is a separate authorization path that waits for the signed
+  ALLOW.
+
+Measured (tests/test_plugin_pilot_journal_never_waits.py): the hook as a subprocess in the three shipped forms, Claude
+Code without a flag, with --autonomous, and Codex (--host codex), on the data of a `gh pr comment ... --repo
+b7n0de/review-local-only` event in a temporary repository, with dummy ids and the signer /bin/false; each case
+compares exit code, stdout, stderr and the log line with the same event without `pilot.json`, and a run has 20 s to
+answer. 14 of 35 cases red at 16cffca on Python 3.12 and 3.14: no answer within 20 s for a FIFO journal without a
+reader and for a link to one (each in the three forms), for the pre-push hook with a FIFO journal and for the policy
+digest with a FIFO in the place of the gate's file; a FIFO with a reader got the line and a link to a regular file was
+followed (each in the three forms). The journal as a folder, the receipt folder as a FIFO or a file, `decisions/` as a
+FIFO, a FIFO in the first receipt slot, the ordinary journal line and an issued receipt's line kept the answer there
+already and keep it. The reviewer's reproduction, run unchanged: waited_for_reader True for both forms at 16cffca,
+False after, with the same answers (ask for Claude Code with --autonomous, deny for Codex).
+
+Not changed: at Level 2 each ref line is one call of the service (O405S-3), each within PILOT_SIGNER_SECONDS, and the
+calls share no overall budget, so a push of n lines can take n x 10 s after its decision before git gets the hook's
+answer (N405-b; git sets no limit). Not measured: a real Claude Code or Codex host, and what a host does after its
+120 s hook timeout.
