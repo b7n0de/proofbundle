@@ -301,7 +301,8 @@ EXCEPTIONS = {
     "plugins/proofbundle/evals/_fixtures/make.py": (
         1, "builds the eval fixtures from the package's own template output; it judges nothing"),
     "plugins/proofbundle/evals/corpus_codex_hooks.py": (
-        1, "eval harness: reads the replies of the Codex app server it drives; the verdicts are the gate's"),
+        2, "eval harness: reads the replies of the Codex app server it drives and the plugin's own Codex manifest; "
+           "the verdicts are the gate's"),
     "plugins/proofbundle/hooks/proofbundle_answered.py": (
         3, "reads its own two state files in the plugin data folder and the host's hook event; no signed bytes"),
     "plugins/proofbundle/hooks/proofbundle_gate.py": (

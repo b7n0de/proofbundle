@@ -719,6 +719,10 @@ def _pins(directory: str, top: str, deadline: float) -> tuple[dict | None, str]:
             if value.returncode == 1 and not value.stdout and not value.stderr:
                 continue
             if value.returncode != 0 or not value.stdout.endswith(b"\n"):
+                if phased:
+                    # a name already found is the answer; git 2.56 loads a relative GIT_ALTERNATE_OBJECT_DIRECTORIES as
+                    # it starts and then fails this read, which would replace the name with a bare read failure
+                    break
                 return None, f"git could not read {key} in {directory}"
             if _relative_value(key, _git_text(value.stdout[:-1])):
                 phased.append(key)
