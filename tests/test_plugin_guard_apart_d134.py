@@ -1,0 +1,105 @@
+"""D134: the Guard is a plugin of its own, proofbundle-guard; proofbundle is the verifier everyone gets (owner choice F2 A).
+
+The owner, 2026-10-31, on the release plan of plugin 0.4.0: separate them, the Guard only at the house. The reason in
+the choice: the Guard runs before every Bash call and blocks every call when its program cannot run (`|| exit 2` in
+the hook command), and --autonomous carries house rules (D85, D87, D93, D111) that say nothing to anyone else.
+
+Measured with Claude Code 2.1.314 in a throwaway CLAUDE_CONFIG_DIR, from a local marketplace (2026-10-31): a hooks
+field in plugin.json merges with hooks/hooks.json, and an entry with empty inline hooks still installs the six hook
+events of the file. Only a plugin folder without hooks/hooks.json installs no hook. So the house's hooks live in a
+second plugin folder, plugins/proofbundle-guard, listed as a second entry of the marketplace. Its programs are relative
+links to the programs of plugins/proofbundle; at install, Claude Code copied them as files into the plugin cache.
+
+The properties held here, read from the marketplace and the two plugin folders:
+- `claude plugin install proofbundle@proofbundle` and `codex plugin add proofbundle@proofbundle` register no hook: the
+  entry's folder has no hooks/hooks.json, neither host manifest of it carries "hooks", and the entry adds none;
+- the entry proofbundle-guard registers the house profile: a PreToolUse hook on Bash under Claude Code that starts
+  the gate with --autonomous, and one under Codex that starts it with --host codex;
+- every program a hook of the Guard starts is there in its folder, as the very file of plugins/proofbundle/hooks, and
+  the server the gate starts is there too;
+- the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
+- each entry's name is its manifest's name, and both plugins carry one version.
+Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketplace has one entry.
+"""
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
+VERIFY, GUARD = "proofbundle", "proofbundle-guard"
+#: The programs a hook command starts, as both hosts write the plugin root.
+_PROGRAM = re.compile(r"\$\{(?:CLAUDE_)?PLUGIN_ROOT\}/(hooks/[\w.-]+\.py)")
+
+
+def _entries() -> dict[str, dict]:
+    return {e["name"]: e for e in json.loads(MARKETPLACE.read_text(encoding="utf-8"))["plugins"]}
+
+
+def _folder(name: str) -> pathlib.Path:
+    return ROOT / _entries()[name]["source"]
+
+
+def _json(path: pathlib.Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _hooks(name: str) -> dict[str, dict]:
+    """The hook configuration each host registers for an installed plugin of this marketplace: Claude Code reads
+    hooks/hooks.json (merged with a manifest field), Codex the manifest field."""
+    folder = _folder(name)
+    claude = _json(folder / "hooks" / "hooks.json")["hooks"] if (folder / "hooks" / "hooks.json").is_file() else {}
+    return {"claude": claude | _json(folder / ".claude-plugin" / "plugin.json").get("hooks", {}),
+            "codex": _json(folder / ".codex-plugin" / "plugin.json").get("hooks", {}).get("hooks", {})}
+
+
+def _commands(groups: list, matcher: str | None) -> list[str]:
+    return [h["command"] for g in groups if g.get("matcher") == matcher for h in g["hooks"]]
+
+
+def test_the_plugin_everyone_installs_registers_no_hook():
+    entry = _entries()[VERIFY]
+    assert "hooks" not in entry, entry
+    assert not (_folder(VERIFY) / "hooks" / "hooks.json").exists()
+    assert _hooks(VERIFY) == {"claude": {}, "codex": {}}
+
+
+def test_the_guard_registers_the_house_profile_under_both_hosts():
+    hooks = _hooks(GUARD)
+    (claude,) = _commands(hooks["claude"]["PreToolUse"], "Bash")
+    (codex,) = _commands(hooks["codex"]["PreToolUse"], "Bash")
+    assert "/hooks/proofbundle_gate.py" in claude and "--autonomous" in claude, claude
+    assert "/hooks/proofbundle_gate.py" in codex and "--host codex" in codex and "--autonomous" not in codex, codex
+
+
+def test_every_program_of_the_guard_is_the_file_of_the_verifier():
+    folder, programs = _folder(GUARD), set()
+    for host in _hooks(GUARD).values():
+        for groups in host.values():
+            for group in groups:
+                for hook in group["hooks"]:
+                    programs.update(_PROGRAM.findall(hook["command"]))
+    assert {"hooks/proofbundle_gate.py", "hooks/proofbundle_secrets.py", "hooks/proofbundle_answered.py"} <= programs
+    for program in sorted(programs) + ["hooks/pin_state_schleuse.py", "server/proofbundle_mcp.py"]:
+        mine, theirs = folder / program, _folder(VERIFY) / program
+        assert mine.is_file() and mine.read_bytes() == theirs.read_bytes(), program
+
+
+def test_the_guard_adds_no_skill_and_no_server():
+    folder = _folder(GUARD)
+    assert not (folder / "skills").exists() and not (folder / ".mcp.json").exists()
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        data = _json(folder / manifest)
+        assert not {"skills", "mcpServers", "commands", "agents"} & set(data), (manifest, sorted(data))
+
+
+def test_each_entry_is_its_manifest_and_both_carry_one_version():
+    versions = set()
+    for name in (VERIFY, GUARD):
+        for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+            data = _json(_folder(name) / manifest)
+            assert data["name"] == name, (name, manifest)
+            versions.add(data["version"])
+    assert len(versions) == 1, versions
