@@ -541,7 +541,8 @@ predicate of §PREDICATE.md). The mapping is fixed:
   test-result statement whose predicate lacks `result` or `configuration`, the two members the in-toto
   predicate marks required; `url` and the case lists are optional. It also refuses one whose members are
   not of the type the predicate gives them, for a generic statement as for one of ours: `result` one of
-  `PASSED`, `WARNED`, `FAILED`, `url` a string, each case list an array of strings, and each
+  `PASSED`, `WARNED`, `FAILED`, `url` a string in URI form (ResourceURI, the form only, never fetched;
+  `to_test_result_statement` refuses a `url` in another form), each case list an array of strings, and each
   `configuration` entry a ResourceDescriptor that specifies one of `uri`, `digest` or `content`.
 - **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = standard RFC 4648 §4
   base64 (with padding, **not** base64url) of the serialized Statement bytes; `signatures[].sig` = base64

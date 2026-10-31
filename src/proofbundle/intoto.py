@@ -402,6 +402,9 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     url = _eigener_text(url, wo, "url")
+    if url and not _URI_RE.match(url):
+        # the form `verify_intoto_dsse` asks of `url` (`_test_result_member_types`); an empty one writes none
+        raise BundleFormatError(f"{wo}: url must be a URI, got {render_safe(url)}")
     content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
@@ -765,8 +768,11 @@ _V01_REQUIRED_SUITE = ("name", "version")
 
 def _eval_result_v01_member_forms(predicate: dict) -> list:
     """(label, reason) for each member of a v0.1 predicate whose form the claim rule does not judge: `verifier` an
-    object carrying `verifier.id` as a string, `suite` carrying both `name` and `version`, `subjectProfile`
-    one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1 table), and `claims` carrying at least one claim.
+    object carrying `verifier.id` as a URI, `evaluatedAt` an RFC 3339 date-time with an offset, `suite` carrying
+    both `name` and `version`, `subjectProfile` one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1
+    table), and `claims` carrying at least one claim. The URI and the date-time are read as eval-result v0.2 reads
+    them (`_URI_RE`, `_is_rfc3339`), by the owner's choice of 2026-10-31; on main b55d736d "not a uri" and
+    "yesterday" verified.
     An absent member is the reason of `_eval_result_v01_statement_claim_fields`, and a `suite` or `claims` that is
     no object or array stays the claim rule's reason.
 
@@ -786,6 +792,12 @@ def _eval_result_v01_member_forms(predicate: dict) -> list:
             gruende.append(("predicate verifier.id", "is required by eval-result v0.1 and absent"))
         elif not isinstance(verifier["id"], str):
             gruende.append(("predicate verifier.id", f"must be a string, got {type(verifier['id']).__name__}"))
+        elif not _URI_RE.match(verifier["id"]):
+            gruende.append(("predicate verifier.id", f"must be a URI (TypeURI), got {render_safe(verifier['id'])}"))
+    # `evaluatedAt` is the claim rule's `timestamp`, which judges its type and not its form.
+    if isinstance(predicate.get("evaluatedAt"), str) and not _is_rfc3339(predicate["evaluatedAt"]):
+        gruende.append(("predicate evaluatedAt", "must be an RFC 3339 date-time with an offset, "
+                                                 f"got {render_safe(predicate['evaluatedAt'])}"))
     suite = predicate.get("suite")
     if isinstance(suite, dict):
         gruende += [(f"predicate suite.{t}", "is required by eval-result v0.1 and absent")
@@ -829,7 +841,8 @@ _DESCRIPTOR_LOCATORS = ("uri", "digest", "content")
 def _test_result_member_types(predicate: dict) -> list:
     """(label, reason) for each member of a test-result predicate that is present in another type than the one the
     predicate gives it, for every statement of the type, generic or ours: `result` one of PASSED, WARNED, FAILED;
-    `url` a string; each case list an array of strings; each `configuration` entry that is an object specifying
+    `url` a string in URI form (ResourceURI, `_URI_RE`, the form only and never a fetch, by the owner's choice of
+    2026-10-31; "not a uri" verified on main b55d736d); each case list an array of strings; each `configuration` entry that is an object specifying
     one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare `name`-only descriptor is invalid). An entry
     that is no object and a `configuration` that is no array stay the reasons of `_descriptor_list_claim_fields`.
 
@@ -843,6 +856,9 @@ def _test_result_member_types(predicate: dict) -> list:
             teile.append(("result", f"must be one of PASSED, WARNED, FAILED, got {render_safe(wert)}"))
     if "url" in predicate and not isinstance(predicate["url"], str):
         teile.append(("url", f"must be a string, got {type(predicate['url']).__name__}"))
+    elif "url" in predicate and not _URI_RE.match(predicate["url"]):
+        # ResourceURI: the URI form only, never a fetch (the owner's choice of 2026-10-31).
+        teile.append(("url", f"must be a URI (ResourceURI), got {render_safe(predicate['url'])}"))
     for name in _CASE_LISTS:
         if name in predicate:
             liste = predicate[name]
@@ -1191,6 +1207,10 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     _forbid_plaintext_in_export(claim)
     claim = require_eval_claim(claim, wo=wo)
     verdikt = _require_export_fields(claim)
+    if not _is_rfc3339(claim["timestamp"]):
+        # `evaluatedAt` in the form `verify_eval_result_dsse` asks of it (`_eval_result_v01_member_forms`)
+        raise BundleFormatError(f"{wo}: the claim's timestamp must be an RFC 3339 date-time with an offset, "
+                                f"got {render_safe(claim['timestamp'])}")
     root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     anchors = _eigen(anchors, wo, "anchors")
@@ -1945,6 +1965,11 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     # written by the legacy serializer through a dict subclass's own `items()`.
     wo = "export_svr_dsse"
     time_created = _eigener_text(time_created, wo, "time_created")
+    # The form its own verifier asks of `timeCreated` (`classify_svr_predicate_shape`): a signed SVR that verify
+    # refuses is not written. An empty value keeps meaning "now", as before.
+    if time_created and not _is_rfc3339(time_created):
+        raise BundleFormatError(f"{wo}: time_created must be an RFC 3339 date-time with an offset, "
+                                f"got {render_safe(time_created)}")
     policy = _eigen(policy, wo, "policy")
     prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
     anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
@@ -1999,6 +2024,10 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     without ``timeCreated``, or with a number for ``verifier.id``, verified ok=True and ``proofbundle svr
     --verify`` printed PASS, because ``verifier`` and ``timeCreated`` were judged only when present and
     ``verifier.id`` not at all. The extension field ``verifier.policy`` and every unknown member stay unread.
+    The form follows the type the spec gives each string, by the owner's choice of 2026-10-31: ``verifier.id``
+    a URI (TypeURI, `_URI_RE`) and ``timeCreated`` an RFC 3339 date-time with an offset (Timestamp,
+    `_is_rfc3339`), the readers eval-result v0.2 uses. Measured on main b55d736d: "not a uri" and "yesterday"
+    verified ok=True.
 
     NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
@@ -2030,10 +2059,14 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
         return False, "SVR predicate.verifier.id is required by svr v0.1 and absent"
     if not isinstance(predicate["verifier"]["id"], str):
         return False, "SVR predicate.verifier.id must be a string"
+    if not _URI_RE.match(predicate["verifier"]["id"]):
+        return False, "SVR predicate.verifier.id must be a URI (TypeURI)"
     if "timeCreated" not in predicate:
         return False, "SVR predicate.timeCreated is required by svr v0.1 and absent"
     if not isinstance(predicate["timeCreated"], str):
         return False, "SVR predicate.timeCreated must be a string"
+    if not _is_rfc3339(predicate["timeCreated"]):
+        return False, "SVR predicate.timeCreated must be an RFC 3339 date-time with an offset (Timestamp)"
     return True, ""
 
 

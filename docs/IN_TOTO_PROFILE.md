@@ -57,8 +57,10 @@ The two compose: emit the `eval-result` Statement for the detail, and an SVR for
 
 `verify_svr_dsse` and `proofbundle svr --verify` refuse an SVR statement whose predicate lacks one of the
 four members svr/v0.1 marks required (`verifier`, `verifier.id`, `timeCreated`, `properties`) or carries
-one of them in another JSON type; the command answers such a statement as malformed, exit 2. The v0.1
-extension field `verifier.policy` stays optional, and unknown members stay unread.
+one of them in another JSON type, and one whose `verifier.id` is no URI (TypeURI) or whose `timeCreated`
+is no RFC 3339 date-time with an offset (Timestamp); the command answers such a statement as malformed,
+exit 2. `export_svr_dsse` refuses a `time_created` in another form. The v0.1 extension field
+`verifier.policy` stays optional, and unknown members stay unread.
 
 ## The `eval-result/v0.2` predicate
 
@@ -115,8 +117,10 @@ its own digest.
 versions and still the CLI default. Its predicate is verified under its own contract: signature, content
 root, type, and every member the table below does not mark optional, with both parts of `commitments` and
 of `suite`; a statement that lacks one does not verify (`predicate_claim_ok` is `False`), and neither does
-one whose `verifier` is no object carrying `verifier.id` as a string, whose `subjectProfile` is not one
-of the profiles below, or whose `claims` is an empty array. No v0.2 shape applies to it
+one whose `verifier` is no object carrying `verifier.id` as a URI, whose `evaluatedAt` is no RFC 3339
+date-time with an offset, whose `subjectProfile` is not one of the profiles below, or whose `claims` is an
+empty array. The URI and the date-time are read as v0.2 reads them, and `to_eval_result_predicate` refuses
+a claim whose timestamp is in another form. No v0.2 shape applies to it
 (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
 verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
 `_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
