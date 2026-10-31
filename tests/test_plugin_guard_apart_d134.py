@@ -25,6 +25,7 @@ Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketpla
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import pathlib
 import re
@@ -105,3 +106,27 @@ def test_each_entry_is_its_manifest_and_both_carry_one_version():
             assert data["name"] == name, (name, manifest)
             versions.add(data["version"])
     assert len(versions) == 1, versions
+
+
+def _server():
+    spec = importlib.util.spec_from_file_location("proofbundle_mcp_d134", _folder(VERIFY) / "server" / "proofbundle_mcp.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path, monkeypatch):
+    """Claude Code gives each plugin ~/.claude/plugins/data/<id>/, <id> the plugin identifier with every character other
+    than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate runs in the Guard and logs
+    into proofbundle-guard-<marketplace>; gate_status and the self-test of proofbundle read from that directory beside
+    their own, proofbundle-<marketplace>. Red at 18451ad1, where they read their own and in the house said the hook did
+    not run."""
+    server = _server()
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / "proofbundle-proofbundle"))
+    path, source = server._log_path()
+    assert path == str(data / "proofbundle-guard-proofbundle" / server.LOG_NAME) and "D134" in source, (path, source)
+    for own in ("data", "proofbundle-guard-proofbundle", "elsewhere-proofbundle"):   # controls: read as before
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / own))
+        assert server._log_path()[0] == str(tmp_path / own / server.LOG_NAME), own

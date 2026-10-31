@@ -136,3 +136,13 @@ def test_a_hook_the_plugin_everyone_installs_loaded_is_not_ok(tmp_path):
     code, report = _run(tmp_path, hooks + [dict(hooks[0], pluginId="proofbundle@proofbundle")])
     assert (code, report["ok"], report["verify_hooks"]) == (1, False, ["preToolUse"]), report
     assert len(report["hooks"]) == len(hooks)
+
+
+def test_a_codex_hook_that_carries_the_houses_flag_is_not_ok(tmp_path):
+    """D125, D134: --autonomous is the house's flag under Claude Code, and no Codex hook carries it; the gate reads
+    --host codex with or without it, so the host check alone let it through. Red at 18451ad1."""
+    hooks = _manifest_hooks()
+    hooks[0] = dict(hooks[0], command=hooks[0]["command"].replace("--host codex", "--host codex --autonomous", 1))
+    code, report = _run(tmp_path, hooks)
+    assert (code, report["ok"]) == (1, False), report
+    assert [h["autonomous"] for h in report["hooks"]] == [True] + [False] * (len(hooks) - 1), report
