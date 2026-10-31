@@ -392,6 +392,19 @@ def test_a_name_that_windows_reads_as_another_path_is_refused_on_every_platform(
         pr.file_in(folder, name)
 
 
+@pytest.mark.parametrize("name", [".. /secret.json", "sub. /secret.json", "secret.json.", "secret.json ", "... /x.json"])
+def test_a_name_part_that_ends_in_a_space_or_a_period_is_refused_on_every_platform(tmp_path, name):
+    """Windows trims trailing periods and spaces in its path normalization, so such a part may read as another name
+    there. A part that ends in a space or a period is refused on every platform, also where the literal path lies in
+    the folder under POSIX; no name the pilot writes ends so. Red at db725987."""
+    folder = tmp_path / "recorded"
+    target = folder / name
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"[]")   # under POSIX the literal path inside the folder
+    with pytest.raises(pr.RecordsError):
+        pr.file_in(folder, name)
+
+
 def plant_outside(records: pathlib.Path, tmp_path: pathlib.Path, plant: str) -> None:
     """A records folder whose kept input, response or run is a file outside it, with the bytes the records expect."""
     if plant in ("kept-dotdot", "kept-link"):
