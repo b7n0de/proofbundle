@@ -194,12 +194,14 @@ def test_this_repository_registers_the_quarantine(request):
     assert request.config.pluginmanager.has_plugin("proofbundle-quarantine")
 
 
-def test_the_list_of_this_repository_is_well_formed_and_names_the_two_caps_of_nachtrag_7():
+def test_the_list_of_this_repository_is_well_formed_and_names_the_open_cap_of_nachtrag_7():
+    """Of the two caps of Nachtrag 7, the one of renewal_work is open; the fix of test_c12_1 landed on main on
+    2026-10-31 (68d3f020), and its entries left the list."""
     q = _load(PLUGIN, "_quarantine_under_test")
     entries = q.load(LIST)
     assert entries, "the list is missing or empty"
     names = {e.test for e in entries}
-    assert "tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::test_ausserhalb_eines_pull_request_haengt_c12_1_an_der_GUELTIGKEIT" in names
+    assert not any(n.startswith("tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::") for n in names), names
     assert ("tests/test_budget_kostenkurve.py::TestObergrenzeAmGroesstenZugelassenenWert::"
             "test_kosten_am_limit_unter_der_obergrenze[renewal_work]") in names
 
@@ -338,14 +340,14 @@ def test_an_entry_that_names_no_test_or_a_malformed_list_is_red(tmp_path, checke
     assert rc == 1 and "not readable as JSON" in report["error"], report
 
 
-def test_in_this_tree_the_two_caps_of_nachtrag_7_are_found_and_listed(checker):
+def test_in_this_tree_the_two_caps_of_nachtrag_7_are_found_and_the_open_one_listed(checker):
     report, rc = checker.check(REPO, LIST, dt.date(2026, 10, 25))
     assert rc == 0, report["entries_naming_no_test"]
     rows = {r["test"]: r for r in report["tests_with_a_cap"]}
     c12 = rows["tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py::"
                 "test_ausserhalb_eines_pull_request_haengt_c12_1_an_der_GUELTIGKEIT"]
-    assert any(c["kind"] == "timeout=" and c["seconds"] == "300" and c["where"] == "_lauf" for c in c12["caps"]), c12
-    assert c12["list"][0].startswith("in force through"), c12
+    assert any(c["kind"] == "timeout=" and c["seconds"] == "900" and c["where"] == "_lauf" for c in c12["caps"]), c12
+    assert c12["list"] == ["NOT ON THE LIST"], c12
     rw = rows["tests/test_budget_kostenkurve.py::TestObergrenzeAmGroesstenZugelassenenWert::"
                "test_kosten_am_limit_unter_der_obergrenze"]
     assert any(c["kind"] == "seconds constant" for c in rw["caps"]), rw
