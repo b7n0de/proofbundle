@@ -351,3 +351,30 @@ def test_in_this_tree_the_two_caps_of_nachtrag_7_are_found_and_listed(checker):
     assert any(c["kind"] == "seconds constant" for c in rw["caps"]), rw
     assert rw["list"][0].endswith("test_kosten_am_limit_unter_der_obergrenze[renewal_work] (owner b7n0de)"), rw
     assert report["listed_without_a_cap"] == [], report["listed_without_a_cap"]
+
+
+def _named_in(cap: dict, reason: str) -> bool:
+    """Whether an entry's reason names this cap as the tree carries it: `timeout=<seconds>` for a timeout, the
+    constant's name for an asserted bound on a seconds constant, the number otherwise."""
+    if cap["kind"] == "timeout=":
+        return f"timeout={cap['seconds']}" in reason
+    if cap["kind"] == "seconds constant":
+        return any(part.split(" = ")[0] in reason for part in cap["seconds"].split(", "))
+    return cap["seconds"] in reason
+
+
+def test_every_entry_names_the_cap_the_tree_carries(checker):
+    """An entry stays while the fix of its cap is open, and its reason names that cap. When the cap changes, the
+    fix has landed or the reason has gone stale; either way the entry no longer says what it quarantines. Measured
+    on 2026-10-31: tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py's `_lauf` was raised from timeout=300 to
+    timeout=900 on main (68d3f020), and four entries still named the 300."""
+    report, rc = checker.check(REPO, LIST, dt.date(2026, 10, 25))
+    assert rc == 0, report["entries_naming_no_test"]
+    q = _load(PLUGIN, "_quarantine_reasons_under_test")
+    rows = {r["test"]: r for r in report["tests_with_a_cap"]}
+    stale = []
+    for e in q.load(LIST):
+        caps = rows.get(e.test.split("[")[0], {}).get("caps", [])
+        if not any(_named_in(c, e.reason) for c in caps):
+            stale.append((e.test, [f"{c['kind']} {c['seconds']}" for c in caps]))
+    assert stale == [], stale
