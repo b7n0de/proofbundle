@@ -17,8 +17,8 @@ The properties held here, read from the marketplace and the two plugin folders:
   entry's folder has no hooks/hooks.json, neither host manifest of it carries "hooks", and the entry adds none;
 - the entry proofbundle-guard registers the house profile: a PreToolUse hook on Bash under Claude Code that starts
   the gate with --autonomous, and one under Codex that starts it with --host codex;
-- every program a hook of the Guard starts is there in its folder as a regular file, byte-equal to the file of
-  plugins/proofbundle/hooks, and so is the server the gate starts;
+- every program a hook of the Guard starts is there in its folder as a regular file, and so is the server the gate
+  starts, byte-equal to the server of plugins/proofbundle;
 - the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
 - each entry's name is its manifest's name, and both plugins carry one version.
 Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketplace has one entry.
@@ -27,6 +27,12 @@ Owner choice N2 B on delivery -2 of the release plan (2026-10-31): the Guard is 
 marketplace lists proofbundle alone; the owner's machines add a house marketplace from a checkout, at the Guard's folder,
 whose one entry has the source "./" (measured valid by delivery -2 with Claude Code 2.1.316). The source stays public.
 Red at cebb7961 for that case, where the public marketplace lists the Guard as a second entry.
+
+Owner answer C on 2026-10-31 (card OA-10af190ede): a bundle after the split moves the gate programs out of
+plugins/proofbundle into the Guard's folder before the GO for plugin 0.4.0. The release generator of delivery -2 checks
+the public verifier's profile (check_public_profile): no hooks/ folder at all, no "hooks" field in its two host
+manifests or its marketplace entry, no dependency on the Guard. Red at 5c79461a for that case, where plugins/proofbundle
+keeps the four programs under hooks/ unregistered.
 """
 from __future__ import annotations
 
@@ -112,7 +118,18 @@ def test_the_guard_registers_the_house_profile_under_both_hosts():
     assert "/hooks/proofbundle_gate.py" in codex and "--host codex" in codex and "--autonomous" not in codex, codex
 
 
-def test_every_program_of_the_guard_is_the_file_of_the_verifier():
+def test_the_public_verifier_holds_no_hooks_folder_and_no_tie_to_the_guard():
+    """Owner answer C: the profile the release generator of delivery -2 checks before it builds the split release."""
+    folder = _folder(VERIFY)
+    assert not (folder / "hooks").exists(), sorted(p.name for p in (folder / "hooks").iterdir())
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        data = _json(folder / manifest)
+        assert "hooks" not in data and GUARD not in json.dumps(data.get("dependencies", [])), (manifest, sorted(data))
+    entry = _entries()[VERIFY]
+    assert "hooks" not in entry and GUARD not in json.dumps(entry.get("dependencies", [])), entry
+
+
+def test_every_program_of_the_guard_is_in_its_folder_and_its_server_is_the_verifiers():
     folder, programs = _folder(GUARD), set()
     for host in _hooks(GUARD).values():
         for groups in host.values():
@@ -121,8 +138,9 @@ def test_every_program_of_the_guard_is_the_file_of_the_verifier():
                     programs.update(_PROGRAM.findall(hook["command"]))
     assert {"hooks/proofbundle_gate.py", "hooks/proofbundle_secrets.py", "hooks/proofbundle_answered.py"} <= programs
     for program in sorted(programs) + ["hooks/pin_state_schleuse.py", "server/proofbundle_mcp.py"]:
-        mine, theirs = folder / program, _folder(VERIFY) / program
-        assert mine.is_file() and not mine.is_symlink() and mine.read_bytes() == theirs.read_bytes(), program
+        assert (folder / program).is_file() and not (folder / program).is_symlink(), program
+    server = "server/proofbundle_mcp.py"
+    assert (folder / server).read_bytes() == (_folder(VERIFY) / server).read_bytes()
 
 
 def test_the_guard_adds_no_skill_and_no_server():
