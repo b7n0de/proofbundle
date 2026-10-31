@@ -18048,13 +18048,38 @@ def _release_door_words(command: str) -> str | None:
     # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
     # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
     continued = command.replace("\\\n", "")
-    assembled = _RELEASE_JOIN.sub("", _release_quote_parts(continued))
-    for text in dict.fromkeys([assembled, _release_braced(assembled)]):
-        if text != command:
-            door = _release_door_words_split(text)
-            if door is not None:
-                return door
-    return _release_unresolved_door(assembled)
+    readings = _release_assembled(continued)
+    for assembled in readings:
+        for text in dict.fromkeys([assembled, _release_braced(assembled)]):
+            if text != command:
+                door = _release_door_words_split(text)
+                if door is not None:
+                    return door
+    for assembled in readings:
+        door = _release_unresolved_door(assembled)
+        if door is not None:
+            return door
+    return None
+
+
+#: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
+#: backquoted command and a braced parameter.
+_RELEASE_NEW_CONTEXT = ("$(", "`", "${")
+
+
+def _release_assembled(continued: str) -> list[str]:
+    """The line as the shell assembles its words, every quote and backslash removed: read where its quotes stand
+    (_release_quote_parts), and where the line holds a command substitution, a backquoted command or a braced parameter,
+    also with every ANSI-C and locale part decoded wherever it stands, as the gate read it at 647ed0a2. Inside those
+    bash reads the quotes in a context of its own, also within double quotes, so `x="$(s$'u'do -n true)"` runs sudo
+    (reading of the follow-up to 441, line 3, P1; measured with bash 5.1.16, printf prints [sudo]), and a context closes
+    where only a parser of the whole shell grammar can tell (a case pattern closes with a parenthesis). There the line is
+    read both ways, and a release frees less, never more."""
+    readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
+    if any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+        readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
+                                                                  _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
+    return list(dict.fromkeys(readings))
 
 
 def _release_braced(text: str) -> str:

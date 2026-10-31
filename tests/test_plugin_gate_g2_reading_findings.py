@@ -317,6 +317,26 @@ def test_control_the_same_parts_outside_quotes_are_still_read(gate, line):
     assert gate._release_door_words(line) == "root"
 
 
+SUBSTITUTED_ROOT = ['x="$(s$\'u\'do -n true)"', 'x="`s$\'u\'do -n true`"', 'x="$((1)) $(s$\'u\'do -n true)"',
+                    'x="$(echo "$(s$\'u\'do -n true)")"', 'x="$(case a in a) s$\'u\'do -n true;; esac)"',
+                    'x="${y:-$(s$\'u\'do -n true)}"']
+
+
+@pytest.mark.parametrize("line", SUBSTITUTED_ROOT)
+def test_a_part_inside_a_command_substitution_in_double_quotes_is_read_in_its_own_context(gate, line):
+    """Reading of the follow-up to 441, line 3, P1: bash starts a new quoting context inside `$(...)`, a backquoted
+    command and a braced parameter, also within double quotes, so `s$'u'do` there runs sudo (measured with bash 5.1.16,
+    printf prints [sudo], with a case pattern inside too). The scanner kept the outer double quotes and read the
+    ANSI-C part as text; such a line is now read the strict way as well."""
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ['x="$(echo \'$"hello"\')" -n true', 'x="$(echo ")" ; echo \'$"a"\')"',
+                                  'echo "$(date)" \'$"hello"\'', 'git log -1 "$(date)"', 'echo "${HOME}"'])
+def test_control_a_line_with_a_substitution_and_no_root_program_is_no_root_door(gate, line):
+    assert gate._release_door_words(line) != "root"
+
+
 # --- Third reading at 097cedad, line 3: the steps of bash's word formation for a program word ---------------------------
 
 ROOT_FORMS = ["s\\\nu\\\ndo -n true", "{s,x}udo -n true", "su{d,}o -n true", "eval \"$(printf 's%s' udo)\" -n true",
