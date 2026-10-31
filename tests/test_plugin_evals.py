@@ -29,6 +29,7 @@ Properties checked:
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
 import os
 import pathlib
@@ -871,6 +872,28 @@ def test_the_corpus_runner_ends_with_the_status_of_what_it_ran(tmp_path, tests, 
     proc = _corpus_run(tmp_path, tests, hooks, evals, *args)
     assert proc.returncode == code, proc.stdout + proc.stderr
     assert line in proc.stdout, proc.stdout
+
+
+def _corpus_codex_hooks():
+    spec = importlib.util.spec_from_file_location("corpus_codex_hooks", EVALS / "corpus_codex_hooks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_codex_hook_check_expects_every_hook_the_codex_manifest_registers():
+    """The check took two PreToolUse matchers as the whole answer while the Codex manifest registers three and a Stop
+    hook, so a Codex that loaded the manifest correctly failed it (found by review, measured against the manifest).
+    The expectation now comes from the manifest. Red at 68d3f020, which had no such reader."""
+    check = _corpus_codex_hooks()
+    expected = check.expected_hooks()
+    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert len(expected) == sum(len(entries) for entries in manifest["hooks"]["hooks"].values())
+    assert ("stop", None) in expected and expected.count(("preToolUse", "Bash")) == 1
+    loaded = [{"event": event, "matcher": matcher, "host_codex": True} for event, matcher in expected]
+    assert check.judge(loaded, expected) is True
+    assert check.judge(loaded[:-1], expected) is False
+    assert check.judge([dict(h, host_codex=False) if h["event"] == "stop" else h for h in loaded], expected) is False
 
 
 # --- the done cases (DECISIONS.md, D26; NUTZERWEG Teil 5) -----------------------------------------------------
