@@ -759,6 +759,38 @@ def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) ->
 _V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSize", "commitments",
                          "assuranceLevel", "subjectProfile")
 _V01_REQUIRED_COMMITMENTS = ("model", "dataset")
+#: The two parts of `suite` (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{name, version}`).
+_V01_REQUIRED_SUITE = ("name", "version")
+
+
+def _eval_result_v01_member_forms(predicate: dict) -> list:
+    """(label, reason) for each member of a v0.1 predicate whose form the claim rule does not judge: `verifier` an
+    object carrying `verifier.id` as a string, `suite` carrying both `name` and `version`, and `subjectProfile`
+    one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1 table). An absent member is the reason of
+    `_eval_result_v01_statement_claim_fields`, and a `suite` that is no object stays the claim rule's reason.
+
+    Measured on main b55d736d: a signed v0.1 statement verified ok=True and `proofbundle intoto --verify` printed
+    PASS with `verifier` {} or a string, with `verifier.id` 5, with `suite` lacking `name` or `version`, and with
+    `subjectProfile` 7 or "bogus_profile"."""
+    gruende: list = []
+    if "verifier" in predicate:
+        verifier = predicate["verifier"]
+        if not isinstance(verifier, dict):
+            gruende.append(("predicate verifier", f"must be an object {{id}}, got {type(verifier).__name__}"))
+        elif "id" not in verifier:
+            gruende.append(("predicate verifier.id", "is required by eval-result v0.1 and absent"))
+        elif not isinstance(verifier["id"], str):
+            gruende.append(("predicate verifier.id", f"must be a string, got {type(verifier['id']).__name__}"))
+    suite = predicate.get("suite")
+    if isinstance(suite, dict):
+        gruende += [(f"predicate suite.{t}", "is required by eval-result v0.1 and absent")
+                    for t in _V01_REQUIRED_SUITE if t not in suite]
+    if "subjectProfile" in predicate:
+        profil = predicate["subjectProfile"]
+        if not (isinstance(profil, str) and profil in SUBJECT_PROFILES):
+            gruende.append(("predicate subjectProfile",
+                            f"must be one of {', '.join(SUBJECT_PROFILES)}, got {render_safe(profil)}"))
+    return gruende
 
 
 def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) -> list:
@@ -766,13 +798,15 @@ def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) ->
     predicate lacks. The Monotonic Principle of docs/IN_TOTO_PROFILE.md: a verifier denies unless a valid
     attestation exists. Measured on main 647ed0a2: a signed v0.1 statement whose predicate carried none of these
     members verified ok=True and `proofbundle intoto --verify` printed PASS. The value of a present member is
-    still judged by the claim rule alone, and an unknown member stays unread."""
+    judged by the claim rule and, where the claim rule does not read it, by `_eval_result_v01_member_forms`; an
+    unknown member stays unread."""
     gruende = [(f"predicate {m}", "is required by eval-result v0.1 and absent")
                for m in _V01_REQUIRED_MEMBERS if m not in predicate]
     commitments = predicate.get("commitments")
     if isinstance(commitments, dict):
         gruende += [(f"predicate commitments.{t}", "is required by eval-result v0.1 and absent")
                     for t in _V01_REQUIRED_COMMITMENTS if t not in commitments]
+    gruende += _eval_result_v01_member_forms(predicate)
     return gruende + _eval_result_statement_claim_fields(statement, predicate)
 
 
