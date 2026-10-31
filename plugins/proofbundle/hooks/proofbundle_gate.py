@@ -18594,9 +18594,10 @@ def write_log(entry: dict, host: str) -> str | None:
         if os.path.exists(path) and os.path.getsize(path) > MAX_LOG_BYTES:
             os.replace(path, path + ".1")
         # A FIFO with no reader is never waited on (R18-2 class): the open does not block, and an entry that is no
-        # regular file at the opened descriptor is not written to.
+        # regular file at the opened descriptor is not written to. Mode 600: the gate's bilanz and the plugin's server
+        # read the log, both under the account of the session, and no other account (CodeQL alert 150).
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0), 0o644)
+                     | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 return None
@@ -19396,7 +19397,8 @@ def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     target = os.path.join(repo, *name.split("/"))
     temporary = os.path.join(folder, f".{os.path.basename(name)}.{secrets.token_hex(6)}.tmp")
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+        # Mode 600: only the Stop hook of the session reads these files back (CodeQL alert 151).
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
         os.replace(temporary, target)
@@ -23117,6 +23119,8 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
     for attempt in range(1, 100_000):
         path = os.path.join(decisions, f"{action_id}-{attempt}.json")
         try:
+            # Mode 644 on purpose: the observer and the reconciliation read the decisions from the records under
+            # accounts of their own (D56; CodeQL alert 152, kept).
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
             break
         except FileExistsError:
@@ -23370,6 +23374,8 @@ def install_pre_push(directory: str, deadline: float, environ: dict | None = Non
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(pre_push_wrapper(plugin_root))
+        # Mode 755 on purpose: git runs the hook at a push, and the pin check (_hooks_now) reads its bytes also under
+        # the account of the pilot's signer service (D58; CodeQL alert 153, kept).
         os.chmod(temp, 0o755)
         updated = os.path.lexists(hook)
         os.replace(temp, hook)
