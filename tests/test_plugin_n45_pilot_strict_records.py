@@ -19,6 +19,9 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "plugins" / "proofbundle" / "pilot"))
+from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "pilot" / "pilot_records.py",
+                                   pathlib.Path(__file__).resolve().parent.parent)
 import pilot_records as pr  # noqa: E402
 
 sys.path.pop(0)

@@ -21,9 +21,13 @@ import sys
 
 import pytest
 
+from _gate_answer import skip_where_the_gate_is_not_shipped
 from _plugin_env import plugin_env
 
 TESTS = pathlib.Path(__file__).resolve().parent
+# the modules it runs test the gate's shell differentials and skip where the gate is not shipped
+skip_where_the_gate_is_not_shipped(TESTS.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+                                   TESTS.parent)
 MODULES = ("test_plugin_gate_runde14_n35.py", "test_plugin_gate_runde15_n37.py")
 #: The shells taken off PATH, with the names their packages install them under.
 ABSENT = frozenset({"zsh", "zsh5", "zsh-static", "rzsh", "dash"})

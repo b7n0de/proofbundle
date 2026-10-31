@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sys
 
 import pytest
 
@@ -90,6 +91,22 @@ def withhold_caller_environment(request):
             yield
         finally:
             _withheld -= 1
+
+
+def put_stand_in_uv_on_path(bin_dir: pathlib.Path, monkeypatch) -> str:
+    """Put bin_dir, which holds the test's stand-in `uv`, first on this process's PATH and return that PATH; write the
+    stand-in when bin_dir holds none. The gate a test calls in-process looks `uv` up on this process's PATH
+    (verify_items, shutil.which), not in the environment the test hands a process. A runner without a `uv` of its own,
+    as the CI runner and the witness are, found none there."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    uv = bin_dir / "uv"
+    if not uv.exists():
+        uv.write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n',
+                      encoding="utf-8")
+        uv.chmod(0o700)
+    path = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    monkeypatch.setenv("PATH", path)
+    return path
 
 
 def plugin_env(*, without: tuple[str, ...] = (), **values: str | None) -> dict[str, str]:

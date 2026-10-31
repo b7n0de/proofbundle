@@ -54,7 +54,7 @@ import pytest
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
 from _gate_answer import Silent, long_text, parsed, run_hook, short_text
-from _plugin_env import plugin_env
+from _plugin_env import plugin_env, put_stand_in_uv_on_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -67,6 +67,9 @@ RUNBOOK = PLUGIN / "RUNBOOK_CODEX.md"
 
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
+from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+                                   pathlib.Path(__file__).resolve().parent.parent)
 import proofbundle_gate as gate  # noqa: E402
 
 #: The reasons of the destination check, where every Level 1 push under Claude Code ends since R9-1.
@@ -230,8 +233,9 @@ def _git(repo: pathlib.Path, *args: str) -> None:
 
 
 @pytest.fixture
-def shim(tmp_path: pathlib.Path) -> dict:
-    """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package."""
+def shim(tmp_path: pathlib.Path, monkeypatch) -> dict:
+    """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package, for the processes
+    the test starts and for the gate it calls in-process."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
@@ -239,6 +243,7 @@ def shim(tmp_path: pathlib.Path) -> dict:
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
     env = plugin_env(PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
+    put_stand_in_uv_on_path(bin_dir, monkeypatch)
     return env
 
 

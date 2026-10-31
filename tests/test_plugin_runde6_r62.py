@@ -9,11 +9,15 @@ Since review round 9 (owner choice B) no form here is free any more; only the ba
 """
 import importlib.util
 import os
+import pathlib
 
 import pytest
 
+from _gate_answer import skip_where_the_gate_is_not_shipped
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATE = os.path.join(HERE, "..", "plugins", "proofbundle", "hooks", "proofbundle_gate.py")
+skip_where_the_gate_is_not_shipped(pathlib.Path(GATE).resolve(), pathlib.Path(HERE).resolve().parent)
 
 
 def _gate():

@@ -56,7 +56,7 @@ def _hooks_home(tmp_path: pathlib.Path, folder_name: bytes) -> tuple[pathlib.Pat
     hook = folder + b"/post-receive"
     with open(hook, "w", encoding="utf-8") as handle:
         handle.write(RESET)
-    os.chmod(hook, 0o755)
+    os.chmod(hook, 0o700)   # git runs the hook as this account; no other account needs to read or run it
     home = tmp_path / "home"
     home.mkdir()
     escaped = folder.replace(b"\\", b"\\\\").replace(b'"', b'\\"')

@@ -10,7 +10,10 @@ import pathlib
 
 import pytest
 
+from _gate_answer import skip_where_the_gate_is_not_shipped
+
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle"
+skip_where_the_gate_is_not_shipped(PLUGIN / "DECISIONS.md", PLUGIN.parent.parent)
 
 
 def _d53() -> str:

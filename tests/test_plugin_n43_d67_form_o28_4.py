@@ -23,6 +23,10 @@ from proofbundle.decision import verify_decision_receipt
 
 p1, pd, pr, gate = o.p1, o.pd, o.pr, o.gate
 sys.path.insert(0, str(o.PILOT))
+import pathlib  # noqa: E402
+from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "pilot" / "reconcile.py",
+                                   pathlib.Path(__file__).resolve().parent.parent)
 import reconcile as rc  # noqa: E402
 
 sys.path.pop(0)

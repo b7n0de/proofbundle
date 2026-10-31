@@ -35,7 +35,7 @@ import pytest
 import proofbundle
 
 import test_plugin_done_check as dc
-from _plugin_env import plugin_env
+from _plugin_env import plugin_env, put_stand_in_uv_on_path
 
 gate = dc.gate
 ROOT = dc.ROOT
@@ -166,10 +166,11 @@ def keys(tmp_path: pathlib.Path) -> dc.Keys:
 
 
 @pytest.fixture
-def job(tmp_path: pathlib.Path, keys: dc.Keys) -> Job:
+def job(tmp_path: pathlib.Path, keys: dc.Keys, monkeypatch) -> Job:
     """The job, with `checked` a repository whose HEAD holds VALUE = 0, a test that needs VALUE == 1 and the one-check
     done section."""
     job = Job(tmp_path, keys)
+    put_stand_in_uv_on_path(job.bin, monkeypatch)   # the gate the tests call in-process finds it
     path = job.checked
     path.mkdir()
     dc._git(path, "init", "-q", "-b", "main")
@@ -298,7 +299,7 @@ def test_the_check_step_names_the_commit_from_the_event_through_env():
 
 
 @pytest.fixture
-def env(tmp_path: pathlib.Path) -> dict:
+def env(tmp_path: pathlib.Path, monkeypatch) -> dict:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\n'
@@ -309,6 +310,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     clean["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
     clean["PROOFBUNDLE_GATE_DIR"] = str(tmp_path / "gate-dir")
     clean.pop("CLAUDE_PLUGIN_DATA", None)
+    put_stand_in_uv_on_path(bin_dir, monkeypatch)
     return clean
 
 

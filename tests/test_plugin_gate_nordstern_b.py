@@ -27,12 +27,19 @@ import pytest
 import proofbundle
 import test_plugin_done_check as dc
 from _gate_answer import long_text
-from _plugin_env import plugin_env
+from _plugin_env import plugin_env, put_stand_in_uv_on_path
 
 gate = dc.gate
 GATE = dc.GATE
 UNIT = dc.UNIT
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+
+
+@pytest.fixture(autouse=True)
+def _stand_in_uv(tmp_path, monkeypatch):
+    """The tests call the gate in-process, and it looks `uv` up on this process's PATH: a stand-in there, so that
+    a runner without a `uv` of its own measures the same thing."""
+    put_stand_in_uv_on_path(tmp_path / "uv-bin", monkeypatch)
 
 
 @pytest.fixture(autouse=True)

@@ -20,6 +20,7 @@ import sys
 import pytest
 
 import _plugin_env
+from _gate_answer import skip_where_the_gate_is_not_shipped
 from _plugin_env import FIXED, PYTEST_OWN, is_plugin_test, plugin_env
 
 TESTS = pathlib.Path(__file__).resolve().parent
@@ -219,6 +220,9 @@ def test_the_guard_reads_a_spelling_the_marker_list_does_not_know(tmp_path):
     hook.write_text("import pin_state_schleuse\n", encoding="utf-8")
     assert (is_plugin_test(hidden), _touches_the_plugin(hidden)) == (False, True)
     assert (is_plugin_test(library), _touches_the_plugin(library)) == (False, False)
+    # the names of the plugin's modules come from plugins/, which a distribution without the plugin lacks
+    skip_where_the_gate_is_not_shipped(TESTS.parent / "plugins" / "proofbundle" / "hooks" / "pin_state_schleuse.py",
+                                       TESTS.parent)
     assert (is_plugin_test(hook), _touches_the_plugin(hook)) == (True, True)
 
 
