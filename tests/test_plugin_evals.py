@@ -978,7 +978,7 @@ def test_the_codex_hook_check_reads_the_host_as_the_gate_reads_it(tmp_path, caps
 
 # --- the done cases (DECISIONS.md, D26; NUTZERWEG Teil 5) -----------------------------------------------------
 
-GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 #: Each done case, its scaffold mode and the verdict the Stop hook gives on that workspace.
 DONE_CASES = {"done-red-tests-block": ("done-red", "not_done"),
               "done-receipt-other-tree-blocks": ("done-stale", "stale_receipt"),

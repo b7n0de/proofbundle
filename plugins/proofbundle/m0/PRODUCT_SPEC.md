@@ -14,8 +14,9 @@ One plugin folder serves both hosts, Claude Code (`.claude-plugin/plugin.json`, 
 (`.codex-plugin/plugin.json`), over the same skills, MCP server and gate. It holds two areas. Each area has its own
 status, its own release decision and its own acceptance; one area can be released while the other is not. Since D134
 (owner choice F2 A, 2026-10-31) the Guard's hook registrations stand in a second plugin, plugins/proofbundle-guard
-(`hooks/hooks.json` for Claude Code, its `.codex-plugin/plugin.json` for Codex), whose programs are byte-equal copies
-of those of this folder; installing proofbundle alone registers no hook.
+(`hooks/hooks.json` for Claude Code, its `.codex-plugin/plugin.json` for Codex). The gate programs live only in that
+folder since the bundle after D134 (owner answer C), and its server is a byte-equal copy of this folder's; installing
+proofbundle alone registers no hook, and this folder holds no hooks/ folder.
 
 ### Verify
 

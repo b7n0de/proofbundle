@@ -44,8 +44,8 @@ import test_plugin_n35_work_branch_go_d87 as d87
 gate = d71.gate
 pytestmark = d71.pytestmark
 _clean = d71._clean
-PLUGIN = pathlib.Path(gate.__file__).resolve().parent.parent
-#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134); its programs are those of PLUGIN.
+PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134), which holds the gate programs.
 GUARD = PLUGIN.parent / "proofbundle-guard"
 FLAG = "--autonomous"
 #: Asks of decide() that the flag turns into a deny (tests/test_plugin_n35_autonomy_d85.py, D93): (tool, the tool's

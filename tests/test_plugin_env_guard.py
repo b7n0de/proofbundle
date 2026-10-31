@@ -182,7 +182,9 @@ def _touches_the_plugin(path: pathlib.Path) -> bool:
     _plugin_env: a string constant that is the plugins directory, a path in it or one of its two manifest folders, or
     an import of a plugin test module or of a module of the plugin. Quotes, implicit concatenation and line breaks do
     not change a constant, so a spelling the marker list does not know is still read here."""
-    stems = {p.stem for p in (TESTS.parent / "plugins" / "proofbundle").rglob("*.py")}
+    # D134: the gate programs live in the Guard's folder, so both folders name the plugin's modules
+    stems = {p.stem for folder in ("proofbundle", "proofbundle-guard")
+             for p in (TESTS.parent / "plugins" / folder).rglob("*.py")}
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             value = node.value
@@ -221,7 +223,7 @@ def test_the_guard_reads_a_spelling_the_marker_list_does_not_know(tmp_path):
     assert (is_plugin_test(hidden), _touches_the_plugin(hidden)) == (False, True)
     assert (is_plugin_test(library), _touches_the_plugin(library)) == (False, False)
     # the names of the plugin's modules come from plugins/, which a distribution without the plugin lacks
-    skip_where_the_gate_is_not_shipped(TESTS.parent / "plugins" / "proofbundle" / "hooks" / "pin_state_schleuse.py",
+    skip_where_the_gate_is_not_shipped(TESTS.parent / "plugins" / "proofbundle-guard" / "hooks" / "pin_state_schleuse.py",
                                        TESTS.parent)
     assert (is_plugin_test(hook), _touches_the_plugin(hook)) == (True, True)
 

@@ -6594,7 +6594,8 @@ CLAUDE_CONFIG_DIR, from a local marketplace copied from the end of the guard cha
 The rule:
 - plugins/proofbundle, the one entry of the public marketplace, holds no hooks/hooks.json, and neither of its host
   manifests carries "hooks". Installing it registers no hook under Claude Code or under Codex. It keeps the programs
-  under hooks/ and the server; nothing of it starts the gate.
+  under hooks/ and the server; nothing of it starts the gate. (Since the bundle after this rule, below, it keeps the
+  server alone and holds no hooks/ folder.)
 - plugins/proofbundle-guard is the Guard: hooks/hooks.json for Claude Code and the "hooks" of its
   .codex-plugin/plugin.json for Codex, moved from plugins/proofbundle unchanged but for the flag below. It is a house
   marketplace of its own (N2 B): its .claude-plugin/marketplace.json, named proofbundle-house, lists the Guard with the
@@ -6605,7 +6606,8 @@ The rule:
   links: Codex copies regular files and drops links on install (core-plugins/src/store.rs, as
   tests/test_codex_plugin.py records it), so a linked gate would be missing under Codex and every hook would block its
   call. A change to one of these programs changes both files; tests/test_plugin_guard_apart_d134.py and
-  tests/test_codex_plugin.py are red until they are equal. The Guard adds no skill and no MCP server, so the house,
+  tests/test_codex_plugin.py are red until they are equal. (Since the bundle after this rule, below, the four
+  programs live only here and the server alone is a copy.) The Guard adds no skill and no MCP server, so the house,
   which installs both, gets each once. Its manifests carry the plugin's version; each entry's name is its manifest's
   name.
 - The Guard is the house profile of m0/PRODUCT_SPEC.md: its four Claude Code PreToolUse commands start their program
@@ -6670,10 +6672,28 @@ plugins/proofbundle keeps its unregistered programs there. Owner answer C (2026-
 lands as planned, and a bundle of its own after it moves the programs out of plugins/proofbundle into the Guard's
 folder before the GO for 0.4.0; until then the generator's split profile is red at this state.
 
+The bundle after the split (owner answer C, card OA-10af190ede, 2026-10-31) moves hooks/proofbundle_gate.py,
+proofbundle_secrets.py, proofbundle_answered.py and pin_state_schleuse.py out of plugins/proofbundle. They live only
+in plugins/proofbundle-guard/hooks/, and plugins/proofbundle holds no hooks/ folder: the profile the release
+generator of delivery -2 checks before it builds the split release (check_public_profile: no hooks/ folder, no
+"hooks" field in the two host manifests or the marketplace entry, no dependency on the Guard). The server stays in
+both folders, byte-equal: proofbundle serves it as its MCP server, and the gate starts <its root>/server/
+proofbundle_mcp.py. Red first: the D134 test's case of that profile, red at 5c79461a, where the verifier kept the
+four programs. The lock's split rule now finds a hooks/ folder in the verifier and wants the gate in the Guard's
+folder, one planted case more. Tests that ran or read a program under plugins/proofbundle/hooks take it from
+plugins/proofbundle-guard/hooks, the path only; the strict decoding guard reads the four programs as files of the
+Guard. The CI template ci/proofbundle-evidence.yml runs the gate from gate/plugins/proofbundle-guard/hooks/, so a
+proofbundle-ref from before this move goes with the template of its own commit (ci/README.md). The eval fixtures
+(evals/_fixtures/make.py, scaffold.sh) take the gate from the Guard's folder beside the plugin; an installed copy of
+proofbundle alone has no such folder, and there the gate and done cases cannot build their fixtures, as
+`claude plugin eval plugins/proofbundle` already loads no hook (above). The plugin's README, RUNBOOK_CODEX, the
+pilot runbook, m0/PRODUCT_SPEC.md, m0/IMPLEMENTATION_GAP.md and the Guard's README say where the gate is now.
+
 Not changed, and named: reviewer texts that still speak of a public Guard default without the flag (TX48 in the README,
 TX59 and the Pre-push gate row in m0/PRODUCT_SPEC.md) stand word for word, as D125 ordered them; since this rule no
-public Guard default exists, and changing them needs an owner word. The proofbundle folder still ships the gate
-program and documents it, so a Verify state in the sense of the lock (no hooks/ folder, no Guard word) it is not.
+public Guard default exists, and changing them needs an owner word. The proofbundle folder documents the gate, so
+a Verify state in the sense of the lock (no hooks/ folder, no Guard word) it is not; since the bundle after the
+split it ships no gate program.
 How a change of the checkout reaches an installed Guard of an unchanged version is NOT MEASURED; the release plan
 names updates of the house install as following the checkout. A Codex install of both plugins, through the public
 and the house marketplace, is NOT MEASURED (no Codex on the measuring machine), and so is a real Claude Code or Codex

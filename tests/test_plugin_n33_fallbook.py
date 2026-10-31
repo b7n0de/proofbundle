@@ -40,7 +40,7 @@ from _plugin_env import plugin_env
 
 gate = d71.gate
 pytestmark = d71.pytestmark
-PLUGIN = pathlib.Path(gate.__file__).resolve().parent.parent
+PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
 #: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
 GUARD = PLUGIN.parent / "proofbundle-guard"
 SESSION = "fallbook-session"

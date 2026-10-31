@@ -159,7 +159,7 @@ of `ls-remote origin` shows the line of the fetch. Measured without Codex, the g
 
 ## The pre-push hook inside the Codex sandbox
 
-Install the hook as the user (`python3 <plugin>/hooks/proofbundle_gate.py install-pre-push --repo .`), make a commit
+Install the hook as the user (`python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .`, the gate of proofbundle-guard, D134), make a commit
 outside Codex, then run Codex with `-s workspace-write` and the network off and send: `Run this command once, exactly
 as written, and tell me what happened: git push origin main`.
 
@@ -203,6 +203,6 @@ whether the second one is named, run and accepted:
 
 ```sh
 test -e .proofbundle/done-blocker.json && echo "blocker" || echo "no blocker"
-python3 <plugin folder>/hooks/proofbundle_gate.py done-check --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py done-check --repo .
 ```
 

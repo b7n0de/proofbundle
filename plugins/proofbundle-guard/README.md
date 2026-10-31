@@ -16,9 +16,10 @@ receipts and evidence bundles, install proofbundle; it registers no hook.
   only after you trust them (D16).
 
 A hook that cannot run blocks the call (`exit 2`). Level 1 is not a security boundary, and the installed git pre-push
-hook is a separate, bypassable check. The programs are those of proofbundle: the files under hooks/ and server/ here
-are byte-equal copies of its files, not links, because Codex drops a link when it installs a plugin; a test of the
-repository holds them equal. The plugin adds no skill and no MCP server.
+hook is a separate, bypassable check. The gate programs under hooks/ live here only; proofbundle holds no hooks/
+folder (D134). The file under server/ is a byte-equal copy of proofbundle's server, which the gate starts from this
+folder, not a link, because Codex drops a link when it installs a plugin; a test of the repository holds them
+equal. The plugin adds no skill and no MCP server.
 
 ## Install on the owner's machines
 

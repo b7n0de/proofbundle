@@ -124,7 +124,7 @@ def test_d65_says_the_journal_comes_before_the_signature():
 def test_the_gate_names_the_refusal_and_the_timeout_as_d58_says():
     assert gate.PILOT_SIGNER_REFUSES == 3 and _constant("REFUSED") == 3
     assert "exits 3 (the gate's PILOT_SIGNER_REFUSES)" in _flat(D58)
-    gate_text = (PLUGIN / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
+    gate_text = (GUARD / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
     assert 'GateError(f"signer_refused_{refused}")' in gate_text and 'GateError("signer_timeout")' in gate_text
     assert "`signer_refused_<name>`" in D58 and "`signer_timeout`" in D58
 

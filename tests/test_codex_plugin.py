@@ -69,14 +69,14 @@ CODEX = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding
 GUARD = ROOT / "plugins" / "proofbundle-guard"
 GUARD_CODEX = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
 CLAUDE_HOOKS = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+GATE = GUARD / "hooks" / "proofbundle_gate.py"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 RUNBOOK = PLUGIN / "RUNBOOK_CODEX.md"
 
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
-skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py",
                                    pathlib.Path(__file__).resolve().parent.parent)
 import proofbundle_gate as gate  # noqa: E402
 
@@ -205,10 +205,13 @@ def test_no_logic_file_exists_twice_and_no_symlink_exists():
     assert [paths for paths in by_digest.values() if len(paths) > 1] == []
     # D134: the Guard carries each as a byte-equal copy, never a link, because Codex drops a link on install
     assert not [p for p in GUARD.rglob("*") if p.is_symlink()], "Codex drops symlinks on install"
-    for name in ("proofbundle_mcp.py", "proofbundle_gate.py"):
+    found = sorted(ROOT.joinpath("plugins").rglob("proofbundle_mcp.py"))
+    assert [p.relative_to(ROOT / "plugins").parts[0] for p in found] == ["proofbundle", "proofbundle-guard"]
+    assert found[0].read_bytes() == found[1].read_bytes()
+    # since the bundle after D134 the gate programs live in the Guard's folder alone
+    for name in ("proofbundle_gate.py", "proofbundle_secrets.py", "proofbundle_answered.py", "pin_state_schleuse.py"):
         found = sorted(ROOT.joinpath("plugins").rglob(name))
-        assert [p.relative_to(ROOT / "plugins").parts[0] for p in found] == ["proofbundle", "proofbundle-guard"], name
-        assert found[0].read_bytes() == found[1].read_bytes(), name
+        assert [p.relative_to(ROOT / "plugins").parts[0] for p in found] == ["proofbundle-guard"], name
 
 
 def test_every_skill_has_what_codex_requires():

@@ -189,7 +189,7 @@ def test_a_folder_that_is_no_repository_is_refused(tmp_path):
 
 def test_the_plugin_never_runs_it_by_itself():
     """Only the user's call installs: no hook configuration of either host and no other gate path names it."""
-    for config in PLUGIN.rglob("*.json"):
+    for config in [p for folder in ("proofbundle", "proofbundle-guard") for p in (PLUGIN.parent / folder).rglob("*.json")]:
         assert "install-pre-push" not in config.read_text(encoding="utf-8"), config
     source = GATE.read_text(encoding="utf-8")
     assert source.count("install_pre_push(") == 2, "defined once and called once, from its own command"

@@ -191,7 +191,7 @@ STRICT_HOOK_SITES = {
     "src/proofbundle/_strict_json.py": 1,
     "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
     "docs/scitt/statement_identification/package/verify.py": 1,
-    "plugins/proofbundle/hooks/proofbundle_gate.py": 2,
+    "plugins/proofbundle-guard/hooks/proofbundle_gate.py": 2,
     "plugins/proofbundle/pilot/key_signer.py": 1,
     "plugins/proofbundle/pilot/pilot_records.py": 1,
     "plugins/proofbundle/server/proofbundle_mcp.py": 1,
@@ -303,13 +303,13 @@ EXCEPTIONS = {
     "plugins/proofbundle/evals/corpus_codex_hooks.py": (
         2, "eval harness: reads the replies of the Codex app server it drives and the plugin's own Codex manifest; "
            "the verdicts are the gate's"),
-    "plugins/proofbundle/hooks/proofbundle_answered.py": (
+    "plugins/proofbundle-guard/hooks/proofbundle_answered.py": (
         3, "reads its own two state files in the plugin data folder and the host's hook event; no signed bytes"),
-    "plugins/proofbundle/hooks/proofbundle_gate.py": (
+    "plugins/proofbundle-guard/hooks/proofbundle_gate.py": (
         5, "reads the gate's own files (the work folders, the state of the autonomous answer, its log for the "
            "bilanz), the reasons the house form checker prints and the host's transcript; the evidence, the "
            "declaration and the done order go through strict_json, parse_declaration and parse_done"),
-    "plugins/proofbundle/hooks/proofbundle_secrets.py": (
+    "plugins/proofbundle-guard/hooks/proofbundle_secrets.py": (
         1, "reads the host's hook event to compare the paths it names; it opens no file"),
     "plugins/proofbundle/pilot/key_signer.py": (
         2, "reads its configuration and the service's request; the statement it signs is decoded with "

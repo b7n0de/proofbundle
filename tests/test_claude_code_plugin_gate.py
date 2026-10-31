@@ -1,4 +1,4 @@
-"""The pre-tool gate of the proofbundle plugin (plugins/proofbundle/hooks).
+"""The pre-tool gate of the proofbundle plugin, now the Guard (plugins/proofbundle-guard/hooks, D134).
 
 The gate runs before every shell call. For git push, gh pr create and gh release create it verifies
 the evidence the repository declares at HEAD, through the plugin's MCP server, and answers deny, ask or
@@ -57,7 +57,7 @@ from _gate_answer import Silent, long_text, parsed, run_hook, short_text, skip_w
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 #: The house's hooks, the plugin proofbundle-guard beside the verifier (D134); its programs are those of PLUGIN.
 GUARD = ROOT / "plugins" / "proofbundle-guard"
 HOOKS = GUARD / "hooks" / "hooks.json"

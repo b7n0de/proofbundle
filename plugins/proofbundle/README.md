@@ -160,10 +160,11 @@ every disallowed transmission cannot be assured from these local levels; it must
 receiving side.
 
 **Installing Level 2 is your call** (owner choice K5-D C, D24B). The plugin installs nothing by itself. In a
-repository where you want it, run once:
+repository where you want it, run once, with `<Guard folder>` the folder of proofbundle-guard, where the gate
+programs live since D134 (`plugins/proofbundle-guard` of a checkout):
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .
 ```
 
 It writes one file, the `pre-push` hook in the hook folder git uses for that repository (`.git/hooks`, or a local
@@ -192,9 +193,9 @@ asks. The setting is your statement that an account the agent's session cannot a
 folder above it; the gate does not check it, so it is no protection.
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .
 printf 'with-approvals\n' > <gate directory>/mode
-python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
+python3 <Guard folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
 ```
 
 The gate directory is `$PROOFBUNDLE_GATE_DIR` when it is set: an absolute path names the gate directory, and a relative
@@ -347,7 +348,7 @@ signed record, not whether the reported tests actually executed, and ignored fil
 dependencies and temporary changes during the run are outside this binding.
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py run-evidence --repo . --out /tmp/run.json -- python -m pytest -q
+python3 <Guard folder>/hooks/proofbundle_gate.py run-evidence --repo . --out /tmp/run.json -- python -m pytest -q
 proofbundle emit --payload-file /tmp/run.json --out .proofbundle/tests.bundle.json --key <your key file>
 ```
 
@@ -369,8 +370,8 @@ checkout writes the last, so no one manifest stands for it.
 The gate prints it, and the statement a bundle signs to name it:
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD
-python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD --statement
+python3 <Guard folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD
+python3 <Guard folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD --statement
 ```
 
 The same digest with git and coreutils only, without the plugin:
@@ -497,7 +498,7 @@ Three commands, with a local test key and never a release key:
 
 ```sh
 pip install "proofbundle[pytest,eval]"
-python3 <plugin folder>/hooks/proofbundle_gate.py done-init --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py done-init --repo .
 git commit -m "declare the done check"
 ```
 
@@ -518,7 +519,7 @@ For an order with several checks, edit the `done` section as above and commit it
 When the order must not reach a commit, a person keeps it in the gate directory instead:
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--declaration FILE --policy FILE]
+python3 <Guard folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--declaration FILE --policy FILE]
 ```
 
 It reads the done section and the policy (from the clone's `.proofbundle/` or from the files named), writes the order

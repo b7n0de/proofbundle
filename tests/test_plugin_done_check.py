@@ -39,7 +39,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 #: The house's hooks, the plugin proofbundle-guard beside the verifier (D134); its programs are those of PLUGIN.
 GUARD = ROOT / "plugins" / "proofbundle-guard"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+GATE = GUARD / "hooks" / "proofbundle_gate.py"
 
 skip_where_the_gate_is_not_shipped(GATE, ROOT)
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True

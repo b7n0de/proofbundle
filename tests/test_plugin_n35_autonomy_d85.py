@@ -288,7 +288,7 @@ def test_D85_the_flag_is_the_houses_opt_in_and_only_the_guard_plugin_carries_it(
     whose every PreToolUse hook of hooks.json (Bash, the gated MCP tools, the file tools, Read and Grep) starts its
     script with the flag. The Codex manifest of the Guard never takes it, and the Stop and TaskCompleted hooks take no
     flag."""
-    plugin = pathlib.Path(gate.__file__).resolve().parent.parent
+    plugin = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
     assert not (plugin / "hooks" / "hooks.json").exists()
     for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
         assert "hooks" not in json.loads((plugin / manifest).read_text(encoding="utf-8")), manifest

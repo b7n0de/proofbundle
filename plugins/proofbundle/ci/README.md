@@ -54,6 +54,9 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 - `require-declaration` has no default. The caller decides, in a file CODEOWNERS covers.
 - `proofbundle-ref` must be a full 40-character commit SHA, and it must be contained in a `v*` release tag
   of b7n0de/proofbundle; a branch, a tag, or an unreleased commit fails before the gate runs.
+- The template runs the gate from the Guard's folder, `plugins/proofbundle-guard/hooks/proofbundle_gate.py`,
+  where DECISIONS.md D134 moved it out of the verifier. A `proofbundle-ref` from before that move has no file
+  there, and the step fails before the gate reads anything; such a ref goes with the template of its own commit.
 - On a pull request the check reads the head of the pull request, not the merge commit, because the
   declaration names the tree of the commit that is pushed.
 
@@ -90,7 +93,7 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 ## Running it locally
 
 ```sh
-python plugins/proofbundle/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
+python plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
 ```
 
 ## The done check in CI

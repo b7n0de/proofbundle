@@ -23,9 +23,10 @@ A third state since D134 (owner choice F2 A), the split: the Guard is the plugin
 plugins/proofbundle-guard, a house marketplace of its own (owner choice N2 B), whose hooks/hooks.json registers its
 Claude Code hooks. In a split state
 plugins/proofbundle has no hooks/hooks.json and neither of its host manifests carries "hooks", so installing it
-registers no hook; it keeps the gate program, of which the Guard's folder holds a byte-equal copy, and every hook
-either host registers for the Guard starts a program the Guard's folder holds. The Guard's texts stand there, as
-in a Guard state: the Guard is whole, in a plugin of its own.
+registers no hook; it holds no hooks/ folder at all, since the bundle after D134 moved the gate programs into the
+Guard's folder (owner answer C, the profile the release generator of delivery -2 checks), and every hook either host
+registers for the Guard starts a program the Guard's folder holds. The Guard's texts stand there, as in a Guard
+state: the Guard is whole, in a plugin of its own.
 """
 from __future__ import annotations
 
@@ -46,6 +47,7 @@ MARKETPLACE = pathlib.Path(".claude-plugin") / "marketplace.json"
 #: The Guard as a plugin of its own (D134): its folder, its Claude Code registration and its Codex manifest.
 GUARD = pathlib.Path("plugins") / "proofbundle-guard"
 GUARD_HOOKS = GUARD / "hooks" / "hooks.json"
+GUARD_GATE = GUARD / "hooks" / "proofbundle_gate.py"
 GUARD_CODEX = GUARD / ".codex-plugin" / "plugin.json"
 GUARD_MARKET = GUARD / ".claude-plugin" / "marketplace.json"
 CATALOG = pathlib.Path("plugins") / "README.md"
@@ -129,8 +131,9 @@ def guard_findings(root: pathlib.Path) -> list[str]:
 
 def split_findings(root: pathlib.Path) -> list[str]:
     """What a split state must hold (D134): the Guard's folder as a house marketplace whose entry is the folder itself,
-    no entry of the public marketplace for it, no hook of the verifier under either host, the gate program in the
-    verifier, and for every hook either host registers for the Guard the program it starts in the Guard's folder."""
+    no entry of the public marketplace for it, no hook of the verifier under either host, no hooks/ folder in the
+    verifier, the gate program in the Guard's folder, and for every hook either host registers for the Guard the
+    program it starts in the Guard's folder."""
     found = []
     house = json.loads((root / GUARD_MARKET).read_text(encoding="utf-8")) if (root / GUARD_MARKET).is_file() else {}
     if [e.get("source") for e in house.get("plugins", [])] != ["./"]:
@@ -141,8 +144,10 @@ def split_findings(root: pathlib.Path) -> list[str]:
     for manifest in MANIFESTS:
         if (root / manifest).is_file() and "hooks" in json.loads((root / manifest).read_text(encoding="utf-8")):
             found.append(f"{manifest} registers hooks")
-    if not (root / GATE).is_file():
-        found.append(f"{GUARD_HOOKS} without {GATE}")
+    if (root / PLUGIN / "hooks").exists():
+        found.append(f"{PLUGIN / 'hooks'} holds " + ", ".join(sorted(p.name for p in (root / PLUGIN / "hooks").iterdir())))
+    if not (root / GUARD_GATE).is_file():
+        found.append(f"{GUARD_HOOKS} without {GUARD_GATE}")
     commands = _strings(json.loads((root / GUARD_HOOKS).read_text(encoding="utf-8")).get("hooks", {}))
     if (root / GUARD_CODEX).is_file():
         commands += _strings(json.loads((root / GUARD_CODEX).read_text(encoding="utf-8")).get("hooks", {}))
@@ -271,13 +276,11 @@ def test_planted_a_whole_guard_has_no_finding_and_a_missing_program_is_found(tmp
 
 
 def _split_copy(tmp_path: pathlib.Path) -> pathlib.Path:
-    """A whole split state of its own (D134): the verifier with its gate program and no registration, the Guard's
-    folder with its hooks, the program they start and its house marketplace."""
+    """A whole split state of its own (D134): the verifier without a hooks/ folder and without a registration, the
+    Guard's folder with its hooks, the program they start and its house marketplace."""
     root = _verify_copy(tmp_path)
-    (root / GATE).parent.mkdir(parents=True)
-    (root / GATE).write_text("", encoding="utf-8")
     (root / GUARD_HOOKS).parent.mkdir(parents=True)
-    (root / GUARD / GATE.relative_to(PLUGIN)).write_text("", encoding="utf-8")
+    (root / GUARD_GATE).write_text("", encoding="utf-8")
     (root / GUARD_HOOKS).write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [
         {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous'}]}]}}),
         encoding="utf-8")
@@ -302,11 +305,20 @@ def test_planted_a_split_whose_verifier_registers_hooks_is_found(tmp_path):
     assert findings(root) == [f"{MANIFESTS[1]} registers hooks"]
 
 
+def test_planted_a_split_whose_verifier_keeps_a_hooks_folder_is_found(tmp_path):
+    """Owner answer C: the gate programs left the verifier; a gate program there, registered or not, is a finding."""
+    root = _split_copy(tmp_path)
+    (root / GATE).parent.mkdir(parents=True)
+    (root / GATE).write_text("", encoding="utf-8")
+    assert findings(root) == [f"{PLUGIN / 'hooks'} holds proofbundle_gate.py"]
+
+
 def test_planted_a_split_whose_guard_lacks_a_program_or_its_house_marketplace_is_found(tmp_path):
     root = _split_copy(tmp_path)
-    (root / GUARD / GATE.relative_to(PLUGIN)).unlink()
+    (root / GUARD_GATE).unlink()
     (root / GUARD_MARKET).unlink()
     assert findings(root) == [f"{GUARD_HOOKS} without a house marketplace {GUARD_MARKET} whose one entry is ./",
+                              f"{GUARD_HOOKS} without {GUARD_GATE}",
                               f"a hook of the Guard starts hooks/proofbundle_gate.py, which {GUARD} does not hold"]
 
 

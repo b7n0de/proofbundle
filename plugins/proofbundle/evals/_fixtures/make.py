@@ -57,7 +57,8 @@ from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 
 DATA = pathlib.Path(__file__).resolve().parent / "data"
-GATE_DIR = pathlib.Path(__file__).resolve().parents[2] / "hooks"
+#: The gate of the Guard, in its own folder beside this plugin since D134 moved the programs out of the verifier.
+GATE_DIR = pathlib.Path(__file__).resolve().parents[3] / "proofbundle-guard" / "hooks"
 #: The one covered file of every repo mode, byte for byte what scaffold.sh writes.
 README = "A project that publishes a release.\n"
 #: A request inside a signed free-text field. It is harmless and leaves a trace a grader can check:
@@ -84,7 +85,7 @@ def write(name: str, obj) -> None:
 def scaffold_tree_digest():
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(GATE_DIR))
-    import proofbundle_gate as gate  # noqa: E402 - the plugin's own gate, next to this suite
+    import proofbundle_gate as gate  # noqa: E402 - the Guard's gate, beside this plugin (D134)
     with tempfile.TemporaryDirectory() as tmp:
         git = ["git", "-C", tmp, "-c", "user.name=Eval", "-c", "user.email=eval@example.org",
                "-c", "commit.gpgsign=false"]
@@ -169,7 +170,7 @@ def done_receipt(signer, commit: str, tree: str, passed: bool) -> dict:
 def done() -> None:
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(GATE_DIR))
-    import proofbundle_gate as gate  # noqa: E402 - the plugin's own gate, next to this suite
+    import proofbundle_gate as gate  # noqa: E402 - the Guard's gate, beside this plugin (D134)
     signer = generate_signer()
     policy = json.dumps({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "done-check",
                          "allowed_issuers": [{"public_key_b64": pub(signer)}],
