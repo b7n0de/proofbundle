@@ -401,10 +401,11 @@ transport digest.
   to no file it can hash keeps the ask; `transport-digest` names the reason. This is the hand-over of D35. In the house
   configuration with the standing GO's consent (D87, D92, D129) a push the GO frees passes without a transport approval:
   its remotes must be https://github.com/b7n0de/<repo> (D71), and the programs, credentials and proxy that transport
-  starts are not bound. It binds one level: a wrapper word such as `env program` (the program behind it), what a named
-  program reads or starts in turn, an `Include` of the ssh configuration, an include of a path remote's configuration
-  and its hooks (which run after Level 2, on the receiving side) are not bound. A change between Level 1 and the push
-  acts before Level 2, which then refuses the hand-over (G18-1, within the 300 seconds of a hand-over).
+  starts are not bound. The transport digest binds one level: a wrapper word such as `env program` (the program behind
+  it), what a named program reads or starts in turn, an `Include` of the ssh configuration, an include of a path
+  remote's configuration and its hooks (which run after Level 2, on the receiving side) are not bound. A change between
+  Level 1 and the push acts before Level 2, which then refuses the hand-over (G18-1, within the 300 seconds of a
+  hand-over).
 
 ### 7.5 What Level 2 checks
 
