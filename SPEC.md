@@ -539,7 +539,10 @@ predicate of §PREDICATE.md). The mapping is fixed:
   predicate-level annotations**, so metric/comparator/threshold/passed/provenance live in the model
   descriptor's `annotations`. `passedTests`/`failedTests` carry the suite name. A verifier refuses a
   test-result statement whose predicate lacks `result` or `configuration`, the two members the in-toto
-  predicate marks required; `url` and the case lists are optional.
+  predicate marks required; `url` and the case lists are optional. It also refuses one whose members are
+  not of the type the predicate gives them, for a generic statement as for one of ours: `result` one of
+  `PASSED`, `WARNED`, `FAILED`, `url` a string, each case list an array of strings, and each
+  `configuration` entry a ResourceDescriptor that specifies one of `uri`, `digest` or `content`.
 - **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = standard RFC 4648 §4
   base64 (with padding, **not** base64url) of the serialized Statement bytes; `signatures[].sig` = base64
   of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
