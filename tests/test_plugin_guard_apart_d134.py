@@ -22,6 +22,11 @@ The properties held here, read from the marketplace and the two plugin folders:
 - the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
 - each entry's name is its manifest's name, and both plugins carry one version.
 Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketplace has one entry.
+
+Owner choice N2 B on delivery -2 of the release plan (2026-10-31): the Guard is in no public catalog. The public
+marketplace lists proofbundle alone; the owner's machines add a house marketplace from a checkout, at the Guard's folder,
+whose one entry has the source "./" (measured valid by delivery -2 with Claude Code 2.1.316). The source stays public.
+Red at cebb7961 for that case, where the public marketplace lists the Guard as a second entry.
 """
 from __future__ import annotations
 
@@ -32,17 +37,26 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
+#: The house marketplace of the Guard (owner choice N2 B): the Guard's folder is its own marketplace root.
+HOUSE = ROOT / "plugins" / "proofbundle-guard" / ".claude-plugin" / "marketplace.json"
 VERIFY, GUARD = "proofbundle", "proofbundle-guard"
 #: The programs a hook command starts, as both hosts write the plugin root.
 _PROGRAM = re.compile(r"\$\{(?:CLAUDE_)?PLUGIN_ROOT\}/(hooks/[\w.-]+\.py)")
 
 
 def _entries() -> dict[str, dict]:
-    return {e["name"]: e for e in json.loads(MARKETPLACE.read_text(encoding="utf-8"))["plugins"]}
+    """Each plugin's entry and the folder its source names, the source read against the root of the marketplace that
+    lists it: the public one at the repository root, and the house marketplace in the Guard's folder."""
+    found = {}
+    for market in (MARKETPLACE, HOUSE):
+        if market.is_file():
+            for entry in json.loads(market.read_text(encoding="utf-8"))["plugins"]:
+                found[entry["name"]] = dict(entry, folder=(market.parent.parent / entry["source"]).resolve())
+    return found
 
 
 def _folder(name: str) -> pathlib.Path:
-    return ROOT / _entries()[name]["source"]
+    return _entries()[name]["folder"]
 
 
 def _json(path: pathlib.Path) -> dict:
@@ -60,6 +74,16 @@ def _hooks(name: str) -> dict[str, dict]:
 
 def _commands(groups: list, matcher: str | None) -> list[str]:
     return [h["command"] for g in groups if g.get("matcher") == matcher for h in g["hooks"]]
+
+
+def test_the_public_marketplace_lists_only_the_verifier_and_the_house_marketplace_only_the_guard():
+    """N2 B: no public catalog offers the house's hooks; the house adds its marketplace from a checkout."""
+    public = _json(MARKETPLACE)
+    assert [e["name"] for e in public["plugins"]] == [VERIFY], public["plugins"]
+    house = _json(HOUSE)
+    assert [(e["name"], e["source"]) for e in house["plugins"]] == [(GUARD, "./")], house["plugins"]
+    assert house["name"] != public["name"]
+    assert _folder(GUARD) == HOUSE.parent.parent.resolve()
 
 
 def test_the_plugin_everyone_installs_registers_no_hook():
