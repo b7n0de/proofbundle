@@ -919,3 +919,23 @@ class AThreadThatMovesTheInputsGivesTheVerdictOfAHeldState(_Registriert):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheMeasuringFrameArmsTheCollectorItself(unittest.TestCase):
+    """CI at 4f267e9d, test (3.14, 1), twice: the ABA case above reported "0 of 3 steps found their moment".
+    Measured on 3.10 and 3.14.8, that is what it reports when the collector is off before it runs: `_mit_gc` set the
+    threshold and the callback and left the collector as it found it, so no collection started. A frame that counts
+    on collections at nearly every allocation switches the collector on for its call and leaves the caller's state
+    as it was, on and off."""
+
+    def test_the_frame_collects_whatever_the_callers_state_and_restores_it(self) -> None:
+        war = gc.isenabled()
+        try:
+            for vorher in (False, True):
+                (gc.enable if vorher else gc.disable)()
+                gestartet: list = []
+                _mit_gc(lambda phase, info: gestartet.append(phase), lambda: [[] for _ in range(5000)])
+                self.assertIn("start", gestartet, f"no collection started in the frame (collector on before: {vorher})")
+                self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
+        finally:
+            (gc.enable if war else gc.disable)()

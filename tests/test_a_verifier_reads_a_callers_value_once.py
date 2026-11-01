@@ -3241,3 +3241,21 @@ def _knoten_eines_schluessels(wert: Any) -> "set[int]":
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheSweepFrameArmsTheCollectorItself(unittest.TestCase):
+    """The frame of the sweep, `_run`, has the form of `_mit_gc` in tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py,
+    whose ABA case reported "0 of 3 steps found their moment" twice in CI at 4f267e9d, test (3.14, 1), the report of a
+    collector that is off before the frame. With the collector off a sweep starts no collection, finds no window and
+    proves nothing. The frame switches the collector on for its call and leaves the caller's state as it was."""
+
+    def test_the_frame_collects_whatever_the_callers_state_and_restores_it(self) -> None:
+        war = gc.isenabled()
+        try:
+            for vorher in (False, True):
+                (gc.enable if vorher else gc.disable)()
+                _, gestartet = _run(lambda v: [[] for _ in range(5000)], [], 10 ** 9, lambda v: None)
+                self.assertGreater(gestartet, 0, f"no collection started in the frame (collector on before: {vorher})")
+                self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
+        finally:
+            (gc.enable if war else gc.disable)()
