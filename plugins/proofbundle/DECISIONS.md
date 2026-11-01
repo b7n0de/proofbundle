@@ -5793,31 +5793,28 @@ external review: 4095 old releases and one recent one, a new release refused, ac
 tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
 (the service's names for its record of the releases stand in D119).
 
-Addendum (owner choice of 2026-11-01, follow-up note 26 of KRAXO-MUSK-TEMPO-20261029-01): the hook's record of the
-releases used kept at most MAX_RELEASES_USED (1024) uses and past that dropped the use it held longest, whatever its
+Addendum (owner choice of 2026-11-01, follow-up notes 26 and 28 of KRAXO-MUSK-TEMPO-20261029-01): the hook's record of
+the releases used kept at most MAX_RELEASES_USED (1024) uses and past that dropped the use it held longest, whatever its
 time, so after 1024 other uses within the window of a release that release acted a second time (measured at ba8466d1,
-tests/test_plugin_release_use_record_window_d119.py: 9 of 12 cases red). Since then, at MAX_RELEASES_USED uses the
-record first drops the uses whose time lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS back (_release_use_past): a
-release is used no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so
-none of them binds any more with the answer it had; a use whose time does not read is never dropped. Where the record is
-still full, the new release lets nothing run, its use is not written and the record stays as it is, as the signer
-service refuses a new release at its capacity (S-F1); release_settle names it as a use that could not be written. The
-record keeps the newest time of a use it dropped (verworfen_bis) and refuses a release answered no later than
-RELEASE_SKEW_SECONDS after it, as that release's use may be one it dropped; so a clock set back into the window of a
-release whose use was dropped does not free it again, and under a clock that only moves forward no such release binds
-any more when it is asked. A time of the dropped uses that does not read makes the record one that does not read whole.
-The gate chooses a release by the same test the record writes it by (_release_free): now lies within its window, the
-record names no use of it, and it was answered more than RELEASE_SKEW_SECONDS after the newest dropped use.
-_release_take checks it again under the lock with the clock that stamps the use, so every use the record holds lies no
-earlier than RELEASE_SKEW_SECONDS before the answer of its release, and a clock set back between the choice and the step
-of the hook writes no use. On that fact rest the drop of a use and the refusal by the newest dropped use, whatever the
-clock does afterwards; a release refused by that time hides no other release of the same line that binds. Codex pre-runs
-of the reading found the three cases of a clock set back. Below the capacity no use is dropped, and
-MAX_RELEASES_USED_BYTES stays the second bound: the longest record the hook writes stays below it. Not changed: a card
-the fetcher writes again with a later answer binds again once the record has dropped its use, which it does now only
-past that window and only at the capacity; code an interpreter runs can still remove the record (D111, O44-2); and a use
-written by an earlier gate carries that fact only where the clock did not go back between the choice and the step of the
-hook.
+tests/test_plugin_release_use_record_window_d119.py: 9 of 12 cases red). And the identity of a release (card, sha256,
+session) holds no answer time while its window does, so once its use was dropped, a copy of it with a later answer was
+taken again, also where the uses in between were spread over a long time (external review of the draft, K9). Since then,
+at MAX_RELEASES_USED uses the record first drops the uses whose time lies more than RELEASE_SECONDS +
+RELEASE_SKEW_SECONDS back (_release_use_past), and keeps the identity of each as a digest (verbraucht, the first 32 hex
+signs of the sha256 of card, sha256 and session, _release_identity), which it never drops: no copy of a release whose
+use the record dropped is used again, whatever answer time it carries and whatever the clock does. A use whose time does
+not read is never dropped. Where the record is still full, the new release lets nothing run, its use is not written and
+the record stays as it is, as the signer service refuses a new release at its capacity (S-F1); release_settle names it
+as a use that could not be written. The gate chooses a release by the same test the record writes it by (_release_free):
+now lies within its window, the record names no use of it, and its identity is no digest of the record. _release_take
+checks it again under the lock with the clock that stamps the use, so a release refused by the record hides no other
+release of the same line, and a clock set back between the choice and the step of the hook writes no use. Below the
+capacity no use is dropped. MAX_RELEASES_USED_BYTES stays the second bound: the hook writes no record past it, so where
+a new use or digest would carry the record past it, the release lets nothing run and the record stays readable as it
+was. A digest that does not read makes the record one that does not read whole. The first reading and Codex pre-runs of
+it found the cases of a clock set back, the record written past its byte bound, and a release refused by the record that
+hid another. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests fill the
+record over time, and a record at its byte bound refuses every new release until a person clears it.
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 

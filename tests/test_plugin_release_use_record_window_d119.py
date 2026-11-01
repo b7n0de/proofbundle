@@ -132,10 +132,9 @@ def test_at_a_full_record_a_later_expired_use_is_removed_while_the_oldest_still_
 
 def test_a_dropped_use_does_not_let_its_release_act_again_when_the_clock_goes_back(data):
     """A Codex pre-run of the reading: once the record dropped a use past its window, a clock set back into the window
-    of that release found its key missing, and the release acted a second time. The record keeps the newest time of a
-    use it dropped, and refuses a release answered no later than RELEASE_SKEW_SECONDS after it, as its use may be one
-    the record dropped. Under a clock that only moves forward no such release binds any more when it is asked. RED at
-    2908b8e3: the release was taken a second time."""
+    of that release found its key missing, and the release acted a second time. The record keeps the identity of a use
+    it drops, as a digest it never drops, and refuses the release by it. RED at 2908b8e3: the release was taken a
+    second time."""
     answered = float(int(time.time()))
     environ = {"CLAUDE_PLUGIN_DATA": str(data)}
     target = _release("OA-0000000000", "a", answered + 30)
@@ -155,9 +154,9 @@ def test_a_dropped_use_does_not_let_its_release_act_again_when_the_clock_goes_ba
 @pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the use written by the step"])
 def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_that_binds(env, take):
     """A Codex pre-run of the reading: with the clock set back, a release whose use the record dropped fits again and
-    comes first; the gate chose it, the record refused it, and the other release of the same line, answered after the
-    dropped uses, was never tried. RED at 32d7005a: nothing was released. The second answer is the present second, so
-    the step of the hook writes the use within its window."""
+    comes first; the gate chose it, the record refused it, and the other release of the same line, of another card, was
+    never tried. RED at 32d7005a: nothing was released. The second answer is the present second, so the step of the
+    hook writes the use within its window."""
     answered = int(time.time()) - 90
     data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
     command = d119.FREED[1]
@@ -166,14 +165,16 @@ def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_
     for name, card, at in (("a.json", "OA-00000000aa", answered), ("b.json", "OA-00000000bb", answered + 90)):
         (folder / name).write_text(json.dumps({"schema": d111.SCHEMA, "karte": card, "sitzung": SESSION,
                                                "sha256": gate.command_sha256(command), "antwort": _stamp(0, at)}))
+    dropped = gate._release_identity(f"OA-00000000aa:{gate.command_sha256(command)}:{SESSION}")
     (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {},
-                                                       "verworfen_bis": _stamp(0, answered)}), encoding="utf-8")
+                                                       "verbraucht": [dropped]}), encoding="utf-8")
     out = gate._autonomy_release(gate.Outcome("deny", "", []), command, d119._settle_env(), answered + 90, take=take)
     assert out is not None and out.decision == "pass" and out.release["freigabe"]["karte"] == "OA-00000000bb"
     if not take:
         answer, _asked = gate.release_settle({"tool_name": "Bash"}, out, d119._settle_env())
         assert answer.decision == "pass" and out.release["genutzt"] is True
     assert list(_record(data)) == [f"OA-00000000bb:{gate.command_sha256(command)}:{SESSION}"]
+    assert gate._releases_record(str(data))[1] == {dropped}
 
 
 @pytest.mark.parametrize("offset, taken", [(-gate.RELEASE_SKEW_SECONDS - 1, False), (gate.RELEASE_SECONDS + 1, False),
@@ -181,9 +182,9 @@ def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_
                          ids=["before the window", "after the window", "control: its first second",
                               "control: its last second"])
 def test_the_use_is_written_only_within_the_window_of_its_release(data, offset, taken):
-    """The drop of a use and the newest time of the dropped uses rest on one fact: a release is used no earlier than
-    RELEASE_SKEW_SECONDS before its answer. _release_take holds it under the lock, with the clock that stamps the use.
-    RED at a29a81b1 (before and after the window): the use was written."""
+    """A release binds from RELEASE_SKEW_SECONDS before its answer to RELEASE_SECONDS after it, and its use is written
+    only then: _release_take checks it under the lock, with the clock that stamps the use. RED at a29a81b1 (before and
+    after the window): the use was written."""
     answered = int(time.time())
     release = _release("OA-0000000000", "a", answered + 30)
     taken_now = gate._release_take(release, {"CLAUDE_PLUGIN_DATA": str(data)}, answered + offset)
@@ -264,11 +265,12 @@ def test_a_use_that_would_carry_the_record_past_its_byte_bound_is_not_written(da
     assert path.read_bytes() == before and len(gate._releases_record(str(data))[0]) == 1
 
 
-def test_a_record_whose_time_of_the_dropped_uses_does_not_read_takes_no_use(data):
+@pytest.mark.parametrize("consumed", ["not a list", ["not a digest"], ["A" * 32], [5]])
+def test_a_record_whose_digests_of_the_dropped_identities_do_not_read_takes_no_use(data, consumed):
     """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
     now = time.time()
     (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {},
-                                                       "verworfen_bis": "not a time"}), encoding="utf-8")
+                                                       "verbraucht": consumed}), encoding="utf-8")
     assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
 
 
@@ -359,16 +361,17 @@ def test_control_below_the_capacity_no_use_is_dropped(data):
 
 def test_control_the_longest_record_the_hook_writes_stays_below_the_second_bound(data):
     """MAX_RELEASES_USED_BYTES stays the second bound: a full record of the longest keys (a session id of 128 signs, the
-    key of D111 with the time of the answer, the newest time of a dropped use) is read whole, and one past the byte bound
-    is not, so it takes no use."""
+    key of D111 with the time of the answer) with a thousand digests of dropped identities is read whole, and one past
+    the byte bound is not, so it takes no use."""
     now = time.time()
     session = "s" * 128
     assert gate._SESSION_ID.fullmatch(session)
     longest = {f"OA-{i:010x}:{'e' * 64}:{session}:{_stamp(30, now)}": _stamp(60, now)
                for i in range(gate.MAX_RELEASES_USED)}
+    digests = [gate._release_identity(f"OA-{i:010x}:{'f' * 64}:{session}") for i in range(1000)]
     (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": longest,
-                                                       "verworfen_bis": _stamp(PAST + 1, now)}), encoding="utf-8")
+                                                       "verbraucht": digests}), encoding="utf-8")
     assert (data / gate.RELEASES_USED).stat().st_size < gate.MAX_RELEASES_USED_BYTES
-    assert len(gate._releases_record(str(data))[0]) == gate.MAX_RELEASES_USED
+    assert [len(part) for part in gate._releases_record(str(data))] == [gate.MAX_RELEASES_USED, 1000]
     _seed(data, {**_others(10, 60, now), "x" * gate.MAX_RELEASES_USED_BYTES: _stamp(60, now)})
     assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False

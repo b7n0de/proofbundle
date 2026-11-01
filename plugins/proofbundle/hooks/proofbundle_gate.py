@@ -18031,8 +18031,8 @@ MAX_RELEASE_FILES = 256
 RELEASE_SECONDS = 15 * 60
 RELEASE_SKEW_SECONDS = 60
 #: The releases used, in the plugin data directory: the hook writes the use under a lock before the call runs, and only
-#: where it runs (release_settle, D119). Once it has dropped a use, the record also names the newest time of a use it
-#: dropped (verworfen_bis, _release_take).
+#: where it runs (release_settle, D119). An identity whose use it dropped stays in it as a digest (verbraucht,
+#: _release_take), which it never drops (follow-up note 28).
 RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
@@ -18040,6 +18040,8 @@ MAX_RELEASES_USED_BYTES = 512 * 1024
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+#: The digest of an identity in the record of the releases used (verbraucht, _release_identity).
+_CONSUMED = re.compile(r"[0-9a-f]{32}")
 #: D119: the owner's own doors, which no release on a card opens: --admin, a forced push, a tag, a
 #: release, PyPI, a signature and root; and a merge whose line does not pin the head it merges (--match-head-commit),
 #: as the card shows a line, not the head the merge finds when it runs. (English, German.)
@@ -18334,43 +18336,53 @@ def _release_used(release: dict, used: dict) -> bool:
     return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
 
 
-def _release_free(release: dict, used: dict, dropped: int | None, now: float) -> bool:
+def _release_identity(key: str) -> str:
+    """The digest of the identity a key of the record names: the first 32 hex signs of the sha256 of card, sha256 and
+    session. The key of D111 names the time of the answer as well; the identity leaves it out, as no part of it holds
+    a colon."""
+    return hashlib.sha256(":".join(key.split(":")[:3]).encode("utf-8")).hexdigest()[:32]
+
+
+def _release_free(release: dict, used: dict, consumed: set, now: float) -> bool:
     """Whether this release may be used now: now lies within its window (RELEASE_SKEW_SECONDS before its answer to
-    RELEASE_SECONDS after it), the record names no use of it (_release_used), and it was answered more than
-    RELEASE_SKEW_SECONDS after the newest use the record dropped (dropped, _releases_record). The gate chooses by it and
-    _release_take checks it again under the lock with the clock that stamps the use, so every use the record holds lies
-    no earlier than RELEASE_SKEW_SECONDS before its release's answer; on that rest the drop of a use (_release_use_past)
-    and the refusal of a release answered before the newest dropped use, whatever the clock does later."""
+    RELEASE_SECONDS after it), the record names no use of it (_release_used), and the record dropped no use of its
+    identity into its digests (consumed, _releases_record), whatever answer time this copy of the release carries
+    (follow-up note 28). The gate chooses by it and _release_take checks it again under the lock with the clock that
+    stamps the use."""
     return release["zeit"] - RELEASE_SKEW_SECONDS <= now <= release["zeit"] + RELEASE_SECONDS and \
-        not _release_used(release, used) and (dropped is None or release["zeit"] > dropped + RELEASE_SKEW_SECONDS)
+        not _release_used(release, used) and _release_identity(_release_key(release)) not in consumed
 
 
-def _releases_record(directory: str) -> tuple[dict, int | None]:
-    """D111: the releases used {key: time of use}, and the seconds of the newest use the record dropped (verworfen_bis,
-    None before the first drop); a ValueError where the record does not read whole, so no release is used twice
-    through a record the gate cannot read."""
+def _releases_record(directory: str) -> tuple[dict, set]:
+    """D111, D119: the releases used {key: time of use}, and the digests of the identities whose use the record dropped
+    (verbraucht, _release_identity), which it never drops; a ValueError where the record does not read whole, so no
+    release is used twice through a record the gate cannot read."""
     try:
         raw = _read_regular(os.path.join(directory, RELEASES_USED), MAX_RELEASES_USED_BYTES + 1)
     except FileNotFoundError:
-        return {}, None
+        return {}, set()
     data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
     if not isinstance(data, dict) or data.get("schema") != RELEASES_USED_SCHEMA or \
             not isinstance(data.get("genutzt"), dict):
         raise ValueError("the record of the releases used does not read whole")
-    dropped = data.get("verworfen_bis")
-    seconds = _ts_seconds(dropped) if isinstance(dropped, str) else None
-    if dropped is not None and seconds is None:
+    consumed = data.get("verbraucht", [])
+    if not isinstance(consumed, list) or not all(isinstance(d, str) and _CONSUMED.fullmatch(d) for d in consumed):
         raise ValueError("the record of the releases used does not read whole")
-    return dict(data["genutzt"]), seconds
+    return dict(data["genutzt"]), set(consumed)
 
 
-def _write_releases_used(directory: str, used: dict, dropped: int | None = None) -> None:
+def _write_releases_used(directory: str, used: dict, consumed: set | frozenset = frozenset()) -> None:
+    """The record as _releases_record reads it; a ValueError before anything is written where it would pass
+    MAX_RELEASES_USED_BYTES, so the hook never writes a record it cannot read."""
     record = {"schema": RELEASES_USED_SCHEMA, "genutzt": used}
-    if dropped is not None:
-        record["verworfen_bis"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(dropped))
+    if consumed:
+        record["verbraucht"] = sorted(consumed)
+    text = json.dumps(record, sort_keys=False)
+    if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
+        raise ValueError("the record of the releases used would pass MAX_RELEASES_USED_BYTES")
     fd, tmp = tempfile.mkstemp(prefix=".freigaben-", dir=directory)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(record, handle, sort_keys=False)
+        handle.write(text)
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
@@ -18384,11 +18396,12 @@ def _release_use_past(stamp: object, now: float) -> bool:
 
 def _release_take(release: dict, environ, now: float | None = None) -> bool:
     """D111, D119: write the use of a release to RELEASES_USED in the plugin data directory, under the lock of the
-    answer hook (D94); False where _release_free does not let it be used now (outside its window, used, or answered no
-    later than RELEASE_SKEW_SECONDS after the newest use the record dropped), where the record is full, or where the
-    gate cannot read or write the record: then the release lets nothing run. At MAX_RELEASES_USED uses the record first
-    drops the uses with which no release binds any more (_release_use_past) and keeps the newest time of them; where it
-    is still full, it stays as it is (follow-up note 26 of 2026-11-01)."""
+    answer hook (D94); False where _release_free does not let it be used now (outside its window, used, or an identity
+    whose use was dropped), where the record is full, where it would pass MAX_RELEASES_USED_BYTES, or where the gate
+    cannot read or write the record: then the release lets nothing run and the record stays as it is. At
+    MAX_RELEASES_USED uses the record first drops the uses with which no release binds any more (_release_use_past,
+    follow-up note 26) and keeps their identities as digests, so no copy of such a release with a later answer is
+    used again (follow-up note 28); where it is still full, it stays as it is."""
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not data or not os.path.isabs(data) or not os.path.isdir(data):
         return False
@@ -18396,18 +18409,17 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     try:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
-            used, dropped = _releases_record(data)
-            if not _release_free(release, used, dropped, now):
+            used, consumed = _releases_record(data)
+            if not _release_free(release, used, consumed, now):
                 return False
             if len(used) >= MAX_RELEASES_USED:
                 kept = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
                 if len(kept) >= MAX_RELEASES_USED:
                     return False
-                dropped = max([_ts_seconds(stamp) for key, stamp in used.items() if key not in kept] +
-                              ([dropped] if dropped is not None else []))
+                consumed = consumed | {_release_identity(key) for key in used if key not in kept}
                 used = kept
             used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-            _write_releases_used(data, used, dropped)
+            _write_releases_used(data, used, consumed)
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return False
     return True
@@ -18449,10 +18461,10 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return _release_kept(answer, fitting[0], f"the line touches {_RELEASE_DOORS[door][0]}, an own door of the "
                                                  "owner that no card opens (DECISIONS.md D119)")
     try:
-        used, dropped = _releases_record(data)
+        used, consumed = _releases_record(data)
     except (OSError, ValueError, UnicodeDecodeError):
         return None
-    release = next((r for r in fitting if _release_free(r, used, dropped, now)), None)
+    release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
