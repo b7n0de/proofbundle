@@ -14,6 +14,7 @@ Read under the account of the session alone, now made with mode 600:
 Read by another account on purpose, kept, each with the reader in READERS:
 - pin-state.json in the gate directory (pin_state_schleuse._write_atomic, alert 148, 644);
 - the decision receipts of the pilot (_pilot_issue, alert 152, 644);
+- the pilot's journal beside them in the records (_pilot_journal, alert 168 of pull request 460, 644);
 - the pre-push hook (install_pre_push, alert 153, 755);
 - the key signer's export into the records (key_signer._replace, alert 147, 644);
 - and, not among the seven, the .proofbundle folder of a work tree (_evidence_folder, 755).
@@ -51,6 +52,9 @@ READERS = {
     ("plugins/proofbundle/hooks/proofbundle_gate.py", "_pilot_issue", "os.open", 0o644): (
         "the observer and the reconciliation read the decisions from the records under the operator's accounts (D56)",
         ("plugins/proofbundle/pilot/pilot_records.py", '(self.folder / "decisions").glob("*.json")')),
+    ("plugins/proofbundle/hooks/proofbundle_gate.py", "_pilot_journal", "os.open", 0o644): (
+        "the records, the journal among them, are copied for the reconciliation under an account of the operator (D55)",
+        ("plugins/proofbundle/pilot/pilot_records.py", "decisions/, journal.jsonl   written by the gate (D55)")),
     ("plugins/proofbundle/hooks/proofbundle_gate.py", "install_pre_push", "os.chmod", 0o755): (
         "git runs the hook at a push, and the pin check reads its bytes under the signer service's account too",
         ("plugins/proofbundle/hooks/proofbundle_gate.py", '_hooks_now(paths["hooks"]) != entry["haken"]')),
