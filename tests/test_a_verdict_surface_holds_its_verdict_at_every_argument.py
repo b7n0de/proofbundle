@@ -360,6 +360,17 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
                                             tier="affirming", ueid="tdx:0x1234", iat=1_780_000_000,
                                             exp=1_780_003_600)
 
+    # Vector P1 of draft-gruszka-signed-evaluation-receipts-04, expanded as tests/test_signed_eval_receipt_conformance.py
+    # expands it: each @NAME@ of the receipt text becomes the base64 of its payload.
+    from proofbundle import signed_eval_receipt as ser
+    ser_doc = json_von(wurzel / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json")
+    ser_p1 = next(v for v in ser_doc["vectors"] if v["id"] == "P1")
+    ser_receipt = ser_p1["receipt_text"].encode("utf-8")
+    for ser_name, ser_p in ser_doc["payloads"].items():
+        ser_b = ser_p["text"].encode("utf-8") if "text" in ser_p else base64.b64decode(ser_p["b64"])
+        ser_receipt = ser_receipt.replace(b"@" + ser_name.encode("ascii") + b"@", base64.b64encode(ser_b))
+    ser_key = base64.b64decode(ser_p1["key_b64"])
+
     vb_build = {"digest": {"sha256": "1" * 64}, "source": "source-tree", "files": 7}
     vb_vset = {"name": "proofbundle.conformance.manifest.v1", "digest": {"sha256": "2" * 64}, "cases": 2}
     vb_s0 = vb.build_test_result_statement(
@@ -468,6 +479,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("signature.plain_bytes", lambda w: signature.plain_bytes(w(b"the bytes"))),
         ("signature.plain_text", lambda w: signature.plain_text(w("the text"))),
         ("signature.verify_ed25519", lambda w: signature.verify_ed25519(w(pub), w(t.sign(b"message")), w(b"message"))),
+        ("signed_eval_receipt.verify_signed_eval_receipt",
+         lambda w: ser.verify_signed_eval_receipt(w(ser_receipt), w(ser_key))),
         ("subject_binding.derive_subject_digest", lambda w: sb.derive_subject_digest(w(dec_pred))),
         ("subject_binding.require_derived_subject", lambda w: sb.require_derived_subject(w(nutzlast(dec_env)))),
         ("subject_binding.subject_cardinality", lambda w: sb.subject_cardinality(w(nutzlast(dec_env)))),
