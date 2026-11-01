@@ -384,7 +384,7 @@ def test_the_services_record_takes_a_release_once_even_for_two_requests_at_a_tim
         import signer_service
     finally:
         sys.path.pop(0)
-    config = {"journal": str(tmp_path / "dienst" / "journal.jsonl")}
+    config = {"journal": str(tmp_path / "dienst" / "journal.jsonl"), "records": str(tmp_path / "records")}
     release = {"karte": d111.CARD, "sha256": "a" * 64, "sitzung": SESSION, "antwort": "2026-10-23T20:00:00Z"}
     signer_service.honour(config, release)
     with pytest.raises(signer_service.Refused, match="release_honoured"):

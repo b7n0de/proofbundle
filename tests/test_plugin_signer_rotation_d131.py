@@ -9,17 +9,27 @@ rotation means for the releases the record named and what the archive is for. An
 runbook writes them: the service, which starts once per request and reads its record at each start, signs ALLOW for a
 new release on a removed record, end to end through the hook of D119 and the service with a plugin data directory of
 its own (A2); at the capacity it still signs a call without a release, and it refuses a release only after the key
-signer signed it; a record of zero bytes or of another form it reads as damaged and signs nothing at all; after the
-rotation it honours a release of the archive again, the limit the runbook names.
+signer signed it; a record of zero bytes or of another form it reads as damaged and signs nothing at all.
+
+Owner answer A on card OA-ed9c1b5288 (2026-11-01; the first reading of this slice found, as a P1, that after the
+rotation the service honoured a release of the archive again): the service reads the archives too and honours a
+release never twice. A release an archive names frees nothing, end to end and in fresh processes of honour; an archive
+folder or file that another account owns or may write, or that is a link, gives no signature at all
+(release_archive_unsafe), as an account that may write there could take a release out; an archive that does not read
+whole gives none either (release_record_unread).
 
 RED at f21f785d: the runbook has no rotation and D131 does not stand (the cases of the runbook and of D131). The cases
 of the code are green there: the code supports the steps as the runbook writes them, and this slice changes no code.
+RED at b0562e10 (G-7, before the owner's answer): the service honours a release of the archive again and reads an
+archive another account may write, and the runbook and D131 state the old limit.
 NOT MEASURED: the stop and the start as sudo rules of real accounts; the wait of step 1 against a real clock; the
-reconciliation's count of the key signer's line that has no receipt.
+reconciliation's count of the key signer's line that has no receipt; an archive folder owned by root, as the tests own
+it by their own account; a records folder without the sticky bit of step 5 of the setup.
 """
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -121,13 +131,25 @@ def test_the_archive_is_named_and_the_record_is_emptied_by_removing_it_never_as_
 
 
 def test_the_runbook_says_what_the_rotation_means_for_the_releases_it_named_and_what_the_archive_is_for():
+    """Owner answer A on card OA-ed9c1b5288: the archives belong to the service's record, a release one names never
+    gets ALLOW again, and what may stand in the folder."""
     text = _flat(ROTATION)
-    assert "the service refuses a release it signed ALLOW for only while its record names it" in text
-    assert "a release of the archive gets ALLOW again where it still binds" in text
-    assert "only the hook's own record of the uses (D111) holds it" in text
-    assert "a key that stands in an archive and again in a later record is a release the service signed ALLOW for " \
-           "twice" in text
+    assert "the service refuses a release it signed ALLOW for while its record or an archive in `honoured-releases/` " \
+           "names it" in text
+    assert "a release of an archive gets no ALLOW again, also where a card the fetcher writes again with a later " \
+           "answer binds" in text
+    assert "Keep nothing in `honoured-releases/` but the archives, and never remove or change one" in text
+    assert "(release_record_unread)" in text and "(release_archive_unsafe)" in text
     assert "The reconciliation does not read the archive." in text
+    assert "gets ALLOW again" not in text and "signed ALLOW for twice" not in text
+
+
+def test_the_runbook_says_that_the_refusal_at_the_capacity_comes_after_the_key_signer_signed():
+    """P2 of the first reading of this slice: the service writes its record after the signature (D119), so a release
+    at a full record is refused after the key signer signed, as D131 and the end-to-end case below measure."""
+    text = _flat(ROTATION)
+    assert "The service refuses such a release only after the key signer signed it" in text
+    assert "before it asks the key signer" not in text
 
 
 def test_d131_names_the_owners_answer_the_steps_and_what_the_code_does_not_support():
@@ -137,6 +159,8 @@ def test_d131_names_the_owners_answer_the_steps_and_what_the_code_does_not_suppo
     assert "in this order: stop, archive, empty, start" in d131 and "release_record_full" in d131
     assert "The service has no start and no stop of its own" in d131
     assert "tests/test_plugin_signer_rotation_d131.py" in d131
+    assert "owner answer A on card OA-ed9c1b5288" in d131 and "release_archive_unsafe" in d131
+    assert "gets ALLOW again" not in d131 and "signed ALLOW for twice" not in d131
 
 
 # --- the code, as the steps use it -----------------------------------------------------------------------------------
@@ -154,12 +178,28 @@ def _seed_full(folder: pathlib.Path) -> bytes:
 
 def _rotate(folder: pathlib.Path, records: pathlib.Path) -> pathlib.Path:
     """Steps 2 and 3 as the runbook writes them: the record copied into honoured-releases/ of the records, then
-    removed. The service is stopped in between: no hook call runs."""
+    removed. The service is stopped in between: no hook call runs. The modes are root's cp under umask 022, whatever
+    the umask of the test."""
     archive = records / "honoured-releases"
     archive.mkdir(mode=0o755)
+    archive.chmod(0o755)
     kept = archive / "freigaben-geehrt-20261027T120000Z.json"
     shutil.copyfile(folder / service.HONOURED, kept)
+    kept.chmod(0o644)
     (folder / service.HONOURED).unlink()
+    return kept
+
+
+def _archive(records: pathlib.Path, geehrt: dict) -> pathlib.Path:
+    """An archive as step 2 leaves it, of the record's form: honoured-releases/ of the records (mode 755) with one file
+    (mode 644) that names the releases `geehrt`."""
+    archive = records / "honoured-releases"
+    archive.mkdir(mode=0o755, exist_ok=True)
+    archive.chmod(0o755)
+    kept = archive / "freigaben-geehrt-20261027T120000Z.json"
+    kept.write_text(json.dumps({"schema": service.HONOURED_SCHEMA, "geehrt": geehrt}, sort_keys=True),
+                    encoding="ascii")
+    kept.chmod(0o644)
     return kept
 
 
@@ -211,18 +251,101 @@ def test_a_record_of_zero_bytes_or_of_another_form_is_damaged_and_the_service_si
     assert _signed(folder)[-1] == (True, None) and world.receipts() == ["DENY"]
 
 
-def test_after_the_rotation_the_service_honours_a_release_of_the_archive_again(tmp_path):
-    """The limit the runbook names: a release the service signed ALLOW for is refused only while its record names it.
-    Each step in a fresh process of the service, as each request starts it."""
+def test_after_the_rotation_the_service_never_honours_a_release_of_the_archive_again(tmp_path):
+    """Owner answer A on card OA-ed9c1b5288: a release the service signed ALLOW for stays refused after the rotation, as
+    the service reads the archive too; a new release is honoured and the new record names it alone, the archive stays
+    byte for byte. Each step in a fresh process of the service, as each request starts it."""
     config = cap._config(tmp_path)
     cap._seed(config, service.MAX_HONOURED - 1)
     assert cap._fresh(config, cap.RECENT) == "honoured"
     assert (cap._fresh(config, cap.RECENT), cap._fresh(config, cap.NEXT)) == ("release_honoured", "release_record_full")
-    records = tmp_path / "records"
+    records = pathlib.Path(config["records"])
     records.mkdir()
     kept = _rotate(pathlib.Path(config["journal"]).parent, records)
-    assert (cap._fresh(config, cap.NEXT), cap._fresh(config, cap.RECENT)) == ("honoured", "honoured")
-    archived = json.loads(kept.read_text(encoding="ascii"))["geehrt"]
-    assert len(archived) == service.MAX_HONOURED and set(service.honoured(config)) == {cap._key(cap.NEXT),
-                                                                                       cap._key(cap.RECENT)}
-    assert set(archived) & set(service.honoured(config)) == {cap._key(cap.RECENT)}
+    before = kept.read_bytes()
+    assert (cap._fresh(config, cap.NEXT), cap._fresh(config, cap.RECENT)) == ("honoured", "release_honoured")
+    assert set(service.honoured(config)) == {cap._key(cap.NEXT)} and kept.read_bytes() == before
+    assert len(json.loads(before)["geehrt"]) == service.MAX_HONOURED
+
+
+def test_a_release_an_archive_names_frees_nothing_and_the_call_stays_blocked(tmp_path):
+    """End to end: a release whose key stands in an archive of the records (a card the fetcher wrote again with a later
+    answer after the rotation) frees nothing: the call stays blocked and the hook uses nothing. The hook, whose record
+    of the uses does not name it, proposes ALLOW, the service decides without the release and signs nothing
+    (verdict_differs), as for a release only the service's record names (D119, A2). The control in the same records:
+    without that archive the same release lets the call run once."""
+    world = d119.World(tmp_path)
+    folder = world.variant("A2", True, own_data=True)
+    world.release()
+    release = json.loads(next((tmp_path / "gatedir" / "freigaben").iterdir()).read_text(encoding="utf-8"))
+    kept = _archive(world.service.records, {service._release_key(release): "2026-10-27T11:00:00Z"})
+    decision, entry = world.hook()
+    assert decision == "deny" and "released_by_owner" not in entry["reason_ids"], (decision, entry)
+    assert world.receipts() == [] and world.used() == {} and d119._honoured(folder) == {}
+    assert _signed(folder) == [(False, "verdict_differs")]
+    assert p1.journal(world.service.records)[-1]["why"] == "signer_refused_verdict_differs"
+    kept.unlink()
+    assert world.hook()[0] == "pass" and world.receipts().count("ALLOW") == 1 and len(world.used()) == 1
+
+
+def _records_with_archive(tmp_path: pathlib.Path) -> tuple[dict, pathlib.Path]:
+    config = cap._config(tmp_path)
+    records = pathlib.Path(config["records"])
+    records.mkdir()
+    return config, _archive(records, {cap._key(cap.RECENT): cap.OLD_TIME})
+
+
+@pytest.mark.parametrize("how", ["folder others may write", "file others may write", "folder is a link",
+                                 "file is a link", "a folder in the folder"])
+def test_an_archive_another_account_may_change_lets_no_release_be_honoured(tmp_path, how):
+    """An account that may write the archive could take a release out of it, so the service honours none
+    (release_archive_unsafe), in a fresh process of honour as each request starts it."""
+    config, kept = _records_with_archive(tmp_path)
+    if how == "folder others may write":
+        kept.parent.chmod(0o777)
+    elif how == "file others may write":
+        kept.chmod(0o666)
+    elif how == "folder is a link":
+        elsewhere = tmp_path / "elsewhere"
+        kept.parent.rename(elsewhere)
+        kept.parent.symlink_to(elsewhere, target_is_directory=True)
+    elif how == "file is a link":
+        elsewhere = tmp_path / "elsewhere.json"
+        kept.rename(elsewhere)
+        kept.symlink_to(elsewhere)
+    else:
+        (kept.parent / "more").mkdir(mode=0o755)
+    assert cap._fresh(config, cap.NEXT) == "release_archive_unsafe"
+
+
+def test_an_archive_folder_another_account_owns_lets_no_release_be_honoured(tmp_path, monkeypatch):
+    """A folder of another account than root and the service's (the agent's user may make honoured-releases/ in the
+    records before the first rotation): release_archive_unsafe. The service's account is another one here."""
+    own = os.geteuid()
+    if own == 0:
+        pytest.skip("run as root, the folder is root's and root may own it")
+    config, _kept = _records_with_archive(tmp_path)
+    monkeypatch.setattr(os, "geteuid", lambda: own + 1)
+    with pytest.raises(service.Refused, match="release_archive_unsafe"):
+        service.honour(config, cap.NEXT)
+
+
+@pytest.mark.parametrize("text", ["", "{}", json.dumps({"schema": service.HONOURED_SCHEMA})])
+def test_an_archive_that_does_not_read_whole_lets_no_release_be_honoured(tmp_path, text):
+    config, kept = _records_with_archive(tmp_path)
+    kept.write_text(text, encoding="ascii")
+    assert cap._fresh(config, cap.NEXT) == "release_record_unread"
+
+
+def test_an_archive_folder_another_account_may_write_stops_every_signature_end_to_end(tmp_path):
+    """As with a damaged record, not only a release's signature stops: a call without a release gets no receipt; with
+    the folder's mode as step 2 makes it, the same call gets its receipt DENY."""
+    world = d119.World(tmp_path)
+    folder = world.variant("A2", True, own_data=True)
+    kept = _archive(world.service.records, {})
+    kept.parent.chmod(0o777)
+    assert world.hook()[0] == "deny"
+    assert _signed(folder) == [(False, "release_archive_unsafe")] and world.receipts() == []
+    assert p1.journal(world.service.records)[-1]["why"] == "signer_refused_release_archive_unsafe"
+    kept.parent.chmod(0o755)
+    assert world.hook()[0] == "deny" and world.receipts() == ["DENY"]
