@@ -5802,6 +5802,31 @@ external review: 4095 old releases and one recent one, a new release refused, ac
 tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
 (the service's names for its record of the releases stand in D119).
 
+Addendum (owner choice of 2026-11-01, follow-up notes 26 and 28 of KRAXO-MUSK-TEMPO-20261029-01): the hook's record of
+the releases used kept at most MAX_RELEASES_USED (1024) uses and past that dropped the use it held longest, whatever its
+time, so after 1024 other uses within the window of a release that release acted a second time (measured at ba8466d1,
+tests/test_plugin_release_use_record_window_d119.py: 9 of 12 cases red). And the identity of a release (card, sha256,
+session) holds no answer time while its window does, so once its use was dropped, a copy of it with a later answer was
+taken again, also where the uses in between were spread over a long time (external review of the draft, K9). Since then,
+at MAX_RELEASES_USED uses the record first drops the uses whose time lies more than RELEASE_SECONDS +
+RELEASE_SKEW_SECONDS back (_release_use_past), and keeps the identity of each as a digest (verbraucht, the first 32 hex
+signs of the sha256 of card, sha256 and session, _release_identity), which it never drops: no copy of a release whose
+use the record dropped is used again, whatever answer time it carries and whatever the clock does. A key of D111 in the
+record, which names the time of the answer as well, counts for its identity whatever time it names (_release_used). A
+use whose time does not read is never dropped. Where the record is still full, the new release lets nothing run, its use
+is not written and the record stays as it is, as the signer service refuses a new release at its capacity (S-F1);
+release_settle names it as a use that could not be written. The gate chooses a release by the same test the record
+writes it by (_release_free): now lies within its window, the record names no use of it, and its identity is no digest
+of the record. _release_take checks it again under the lock with the clock that stamps the use, so a release refused by
+the record hides no other release of the same line, and a clock set back between the choice and the step of the hook
+writes no use. Below the capacity no use is dropped. MAX_RELEASES_USED_BYTES stays the second bound: the hook writes no
+record past it, so where a new use or digest would carry the record past it, the release lets nothing run and the record
+stays readable as it was. A digest that does not read, or a field the record does not know, makes the record one that
+does not read whole. The first reading and Codex pre-runs of the readings found the cases of a clock set back, the
+record written past its byte bound, a release refused by the record that hid another, and a key of D111 that let a copy
+with another answer pass. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests
+fill the record over time, and a record at its byte bound refuses every new release until a person clears it.
+
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
 Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after follow-up note 49): the doors D119 names in its last limit go to the
