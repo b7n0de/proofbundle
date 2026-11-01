@@ -5827,6 +5827,26 @@ record written past its byte bound, a release refused by the record that hid ano
 with another answer pass. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests
 fill the record over time, and a record at its byte bound refuses every new release until a person clears it.
 
+Addendum (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01 of 2026-11-01, after paragraph 7 of section 5 of the draft
+draft-gruszka-audit-decision-receipts-00, read at main 8bb289c8): the window of a release ran from the answer of the
+copy the gate was reading (_autonomy_release, _release_free), in the hook and so in the signer service, which decides
+with the same code (signer_service.decide calls tool_outcome). No layer kept a first validity per identity, so for an
+identity not used yet a copy with a later answer opened a later window, which section 4 point 2 of the draft rules out:
+copies do not extend the original validity; once held. Since then the window of an identity runs from the earliest
+answer the gate has read for it: every copy that lies in the folder freigaben when it decides, and the record
+RELEASES_FIRST (freigaben-erste.json in the plugin data directory, {_release_identity: time}), which the gate writes
+for every release it reads, of any line, under the lock of the answer hook, and in which it never moves an answer
+later. _release_take reads the record again under its lock. A record that does not read whole or cannot be written
+releases nothing, a write past MAX_RELEASES_USED_BYTES included. Where a later copy can arise: the writer at the farmer
+(scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
+once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
+gate reads at most MAX_RELEASE_FILES) and a new click, or a file that something other than the writer leaves under
+another name. Limit, named: the gate sees only the copies that lie in the folder when it decides; a copy it never read,
+written and taken away before any call reached the gate, is unknown to it, and only the writer, which reads every click
+of the decision board, knows each first answer for sure. Measured: tests/test_plugin_release_window_first_answer_d119.py,
+9 of 12 cases red at 8bb289c8 and the three controls green there, end to end through the hook and the signer service
+with a data directory of its own (A2) included.
+
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
 Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after follow-up note 49): the doors D119 names in its last limit go to the

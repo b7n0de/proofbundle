@@ -18057,6 +18057,12 @@ RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
 MAX_RELEASES_USED_BYTES = 512 * 1024
+#: The earliest answer the gate has read for each identity of a release (card, sha256, session), in the plugin data
+#: directory beside RELEASES_USED: {"schema": RELEASES_FIRST_SCHEMA, "erste": {<_release_identity>: <UTC time>}}. The
+#: window of an identity runs from it, so a copy with a later answer does not extend it; the gate never moves an answer
+#: later (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01, section 4 point 2 of draft-gruszka-audit-decision-receipts-00).
+RELEASES_FIRST = "freigaben-erste.json"
+RELEASES_FIRST_SCHEMA = "proofbundle-plugin/freigaben-erste/v0.1"
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -18408,6 +18414,63 @@ def _write_releases_used(directory: str, used: dict, consumed: set | frozenset =
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
+def _releases_first(directory: str) -> dict:
+    """The earliest answer the gate has read for each identity, {_release_identity: seconds}; a ValueError where the
+    record does not read whole (another schema or key, an identity that is no digest, a time of another shape), so no
+    window is opened through a record the gate cannot read."""
+    try:
+        raw = _read_regular(os.path.join(directory, RELEASES_FIRST), MAX_RELEASES_USED_BYTES + 1)
+    except FileNotFoundError:
+        return {}
+    data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
+    if not isinstance(data, dict) or set(data) != {"schema", "erste"} or data["schema"] != RELEASES_FIRST_SCHEMA or \
+            not isinstance(data["erste"], dict):
+        raise ValueError("the record of the first answers does not read whole")
+    first = {}
+    for identity, stamp in data["erste"].items():
+        seconds = _ts_seconds(stamp) if isinstance(stamp, str) and _UTC_STAMP.fullmatch(stamp) else None
+        if not _CONSUMED.fullmatch(identity) or seconds is None:
+            raise ValueError("the record of the first answers does not read whole")
+        first[identity] = seconds
+    return first
+
+
+def _release_first_note(directory: str, releases: list[dict]) -> dict | None:
+    """Write the earliest answer of each identity among `releases` into RELEASES_FIRST, under the lock of the answer hook
+    (D94), and return the record as it then stands, {_release_identity: seconds}; an answer already there is never
+    moved later. None where the record does not read or cannot be written, a write past MAX_RELEASES_USED_BYTES
+    included: then the gate releases nothing."""
+    try:
+        hook = _answer_hook()
+        with hook.asks_lock(directory, RELEASES_FIRST):
+            first = _releases_first(directory)
+            merged = dict(first)
+            for release in releases:
+                identity = _release_identity(_release_key(release))
+                if identity not in merged or release["zeit"] < merged[identity]:
+                    merged[identity] = release["zeit"]
+            if merged != first:
+                text = json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
+                    identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+                    for identity, seconds in merged.items()}})
+                if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
+                    return None
+                fd, tmp = tempfile.mkstemp(prefix=".freigaben-erste-", dir=directory)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                os.replace(tmp, os.path.join(directory, RELEASES_FIRST))
+    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        return None
+    return merged
+
+
+def _release_from_first(release: dict, first: dict) -> dict:
+    """The release with the time its window runs from: the earliest of its own answer and the one `first` holds for its
+    identity. The answer it names (antwort) stays its own."""
+    earliest = first.get(_release_identity(_release_key(release)))
+    return release if earliest is None or earliest >= release["zeit"] else {**release, "zeit": earliest}
+
+
 def _release_use_past(stamp: object, now: float) -> bool:
     """Whether a use the record keeps lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS before now: a release is used
     no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so no release binds
@@ -18432,6 +18495,9 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
             used, consumed = _releases_record(data)
+            # the window again from the earliest answer of the identity, as it stands now (a record that does not read
+            # whole is a ValueError: then nothing is used)
+            release = _release_from_first(release, _releases_first(data))
             if not _release_free(release, used, consumed, now):
                 return False
             if len(used) >= MAX_RELEASES_USED:
@@ -18474,8 +18540,15 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return None
     sha = command_sha256(command)
     now = time.time() if now is None else now
-    fitting = [r for r in _releases(environ) if r["sha256"] == sha and r["sitzung"] == session
-               and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
+    # The window of an identity runs from the earliest answer the gate has read for it, every copy in the folder now
+    # and the record of first answers included, so a copy with a later answer does not extend it (RELEASES_FIRST). The
+    # gate notes every release it reads, of any line, so a copy it read once keeps its answer after it is gone.
+    present = _releases(environ)
+    first = _release_first_note(data, present) if present else {}
+    if first is None:
+        return None
+    fitting = [r for r in (_release_from_first(r, first) for r in present) if r["sha256"] == sha
+               and r["sitzung"] == session and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
     if not fitting:
         return None
     door = _release_door(command, answer)
