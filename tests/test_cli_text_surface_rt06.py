@@ -233,7 +233,10 @@ class SvrShapeAndProperties(unittest.TestCase):
             self.assertIs(res["ok"], False)
             self.assertIs(res["predicate_shape_ok"], False)
             self.assertIn("properties", res["content_root_detail"])
-        self.assertEqual(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}}), (True, ""))
+        self.assertEqual(classify_svr_predicate_shape({"predicate": {"verifier": {"id": "x"}, "timeCreated": "t",
+                                                                     "properties": ["a"]}}), (True, ""))
+        # svr/v0.1 requires verifier, verifier.id and timeCreated beside properties.
+        self.assertFalse(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}})[0])
         self.assertFalse(classify_svr_predicate_shape({"predicate": [1]})[0])
         self.assertFalse(classify_svr_predicate_shape(None)[0])
 
