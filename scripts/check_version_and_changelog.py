@@ -491,7 +491,8 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
     """
     zeilen = _read(repo / "CHANGELOG.md").splitlines()
     kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
-    starts = [i for i, zeile in enumerate(zeilen) if kopf.match(zeile)]
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    starts = [i for i, zeile in enumerate(zeilen) if i not in verdeckt and kopf.match(zeile)]
     if not starts:
         return []                         # check 2 reports the missing section itself
     if len(starts) > 1:
@@ -505,44 +506,82 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
             f"semantics change; write that opening paragraph above the first `###`."]
 
 
-#: Lines GitHub renders as no paragraph (CommonMark): a thematic break, a link reference definition, a fence.
+# CommonMark (0.31.2) and GitHub's table extension, read line by line for the start of a section. A PARAGRAPH IS
+# RECOGNISED FOR WHAT IT IS, not as whatever no other pattern matched: the first form of this check passed a list, a
+# block quote and an HTML block as an opening because none of its five patterns named them (readings of 2026-11-01).
 _THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
-_LINK_REFERENCE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S")
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_LINK_REFERENCE = re.compile(
+    r"^ {0,3}\[(?=[^\]]*\S)(?:[^\[\]\\]|\\.){1,999}\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)"
+    r"(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?[ \t]*$")
+_FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
 _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 _ATX_HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+_BLOCK_QUOTE = re.compile(r"^ {0,3}>")
+_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
+_HTML_BLOCK = re.compile(
+    r"^ {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<\?|<![A-Za-z]|<!\[CDATA\["
+    r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
+    r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
+    r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
+    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$)"
+    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
+_TABLE_DELIMITER = re.compile(r"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
+
+
+def _fence_closes(zeile: str, zeichen: str, laenge: int) -> bool:
+    """A closing fence: the opening's character, at least as many, and nothing but blanks after them."""
+    return re.match(r"^ {0,3}" + re.escape(zeichen) + "{" + str(laenge) + r",}[ \t]*$", zeile) is not None
+
+
+def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
+    """The indices of the lines inside a fenced code block or an HTML comment, fence and comment lines included."""
+    drin: set[int] = set()
+    i, n = 0, len(zeilen)
+    while i < n:
+        zaun = _FENCE_OPEN.match(zeilen[i])
+        if zaun:
+            zeichen = (zaun.group(1) or zaun.group(2))[0]
+            laenge = len(zaun.group(1) or zaun.group(2))
+            j = i + 1
+            while j < n and not _fence_closes(zeilen[j], zeichen, laenge):
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        if zeilen[i].lstrip().startswith("<!--"):
+            j = i
+            while j < n and "-->" not in zeilen[j]:
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        i += 1
+    return drin
 
 
 def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
-    """Whether the lines of a section, up to its next heading, begin a paragraph before anything else ends it.
+    """Whether the first block of a section, up to its next heading, is a paragraph.
 
-    Passed over, because they render as no paragraph: blank lines, thematic breaks, HTML comments (on one line or
-    several), link reference definitions, fenced code with its content, and indented code. A line of text that a
-    setext underline follows is a heading and ends the opening like an ATX heading. Reading of 2026-11-01 (P1)."""
-    i, n = 0, len(zeilen)
-    while i < n:
-        zeile = zeilen[i]
-        if _ATX_HEADING.match(zeile):
-            return False
-        if not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
-            i += 1
-            continue
-        if zeile.lstrip().startswith("<!--"):
-            while i < n and "-->" not in zeilen[i]:
-                i += 1
-            i += 1
-            continue
-        zaun = _FENCE.match(zeile)
-        if zaun:
-            i += 1
-            while i < n and not zeilen[i].lstrip().startswith(zaun.group(1)):
-                i += 1
-            i += 1
+    Passed over: blank lines, thematic breaks, HTML comments, valid link reference definitions, fenced code with its
+    content (closed by a fence of the same character, at least as long, followed only by blanks) and indented code.
+    The next line that is none of these must START A PARAGRAPH: it may not open a heading, a list item, a block
+    quote, an HTML block or a table, and no setext underline may follow it. A line the definitions above do not take,
+    such as an invalid link reference definition, is paragraph text, as GitHub renders it."""
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    for i, zeile in enumerate(zeilen):
+        if i in verdeckt or not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
             continue
         if zeile.startswith(("    ", "\t")):
-            i += 1                        # indented code: at the start of a section no paragraph runs on into it
-            continue
-        return not (i + 1 < n and _SETEXT_UNDERLINE.match(zeilen[i + 1]))
+            continue                      # indented code: at the start of a section no paragraph runs on into it
+        if (_ATX_HEADING.match(zeile) or _BLOCK_QUOTE.match(zeile) or _LIST_ITEM.match(zeile)
+                or _HTML_BLOCK.match(zeile)):
+            return False
+        folgt = zeilen[i + 1] if i + 1 < len(zeilen) else ""
+        if _SETEXT_UNDERLINE.match(folgt):
+            return False                  # a setext heading ends the opening like an ATX heading
+        if "|" in zeile and "|" in folgt and _TABLE_DELIMITER.match(folgt):
+            return False                  # a table header with its delimiter row
+        return True
     return False
 
 
