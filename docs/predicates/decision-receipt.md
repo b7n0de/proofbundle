@@ -189,6 +189,14 @@ relying-party concern, evaluated at that same one instant.
 `action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
 signed/digest-bound `outcomeRef`.
 
+`--evidence PATH` (repeatable) binds `evidenceRefs` to the evidence the relying party holds, by the rule of §3: a
+file is a DSSE envelope or the exact payload bytes of an evidence statement, an entry is bound when a file's content
+root equals its `digest`, and a file binds when it is the content of an entry or the blob of its `artifactDigest`.
+An entry no file binds, or a file that binds no entry, exits `1`, and the `--json` report then carries `ok` false
+and `automation.safeForAutomation` and `automation.referencesResolved` false, with the blockers
+`REFERENCES_NOT_RESOLVED` and `RECEIPT_NOT_OK`; a binding that holds lifts nothing. Without the option the output says
+`EVIDENCE: FORM ONLY`: the digests were checked for their form, not against any evidence.
+
 Exit codes (identical to the Phase B `verify` contract):
 `0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input ·
 `3` crypto OK but policy not satisfied. Without `--policy`, output shows `POLICY: NOT_EVALUATED`; there is no

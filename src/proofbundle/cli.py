@@ -2587,7 +2587,77 @@ def _without_origin_token(obj):
     return obj
 
 
+def _evidence_file(roh: bytes) -> dict:
+    """One file of `decision verify --evidence`, read once as its exact bytes (measured 2026-11-01 on an example for
+    a draft appendix: a receipt signed again over a wrong evidence digest passed with exit 0, because the command took
+    no evidence, and only the library bound it). Its payload is what a DSSE envelope carries, or
+    the exact bytes of a file that is no envelope; its content root, SHA-256 over that payload, is what an
+    `evidenceRefs[].digest` names (docs/predicates/decision-receipt.md section 3), and the exact bytes are the blob an
+    `artifactDigest` pins. An envelope whose payload does not decode raises, and the caller maps that to exit 2."""
+    from . import dsse  # noqa: PLC0415
+    try:
+        obj = loads_strict(roh)
+    except (ProofBundleError, ValueError, UnicodeDecodeError):
+        obj = None   # no JSON: the file's bytes are the payload itself
+    if type(obj) is dict and isinstance(obj.get("payload"), str) and isinstance(obj.get("payloadType"), str):
+        return {"payload": dsse.load_payload(obj), "bytes": roh}
+    return {"payload": roh, "bytes": roh}
+
+
+def _evidence_refs_of(env: dict):
+    """The `evidenceRefs` of the statement whose signature held, or None when it carries no list of them."""
+    from . import dsse  # noqa: PLC0415
+    statement = loads_strict(dsse.load_payload(env))
+    predicate = statement.get("predicate") if type(statement) is dict else None
+    refs = predicate.get("evidenceRefs") if type(predicate) is dict else None
+    return refs if type(refs) is list else None
+
+
+def _bind_evidence(refs: list, files: list) -> dict:
+    """Each `evidenceRefs` entry against the files of `--evidence`, through the library's offline check
+    `decision.resolve_evidence_ref`. An entry is bound when a file's content root equals its digest; a file binds
+    when it is the content of an entry or the blob of its `artifactDigest`. `ok` holds when every entry is bound and
+    every file binds one. Only booleans and indices leave this function, never a digest or a path."""
+    from .decision import resolve_evidence_ref  # noqa: PLC0415
+    eintraege, bindet = [], [False] * len(files)
+    for i, ref in enumerate(refs):
+        inhalt, blob, von = False, None, []
+        for j, datei in enumerate(files):
+            antwort = resolve_evidence_ref(ref, evidence_payload=datei["payload"], artifact_bytes=datei["bytes"])
+            if antwort["content_root_ok"] is True:
+                inhalt = True
+            if antwort["artifact_ok"] is True:
+                blob = True
+            if antwort["content_root_ok"] is True or antwort["artifact_ok"] is True:
+                bindet[j] = True
+                von.append(j)
+        eintraege.append({"index": i, "content_root_ok": inhalt, "artifact_ok": blob, "files": von})
+    ungebunden = [j for j, b in enumerate(bindet) if b is not True]
+    return {"ok": all(e["content_root_ok"] is True for e in eintraege) and not ungebunden,
+            "entries": eintraege, "unbound_files": ungebunden, "files": len(files)}
+
+
+def _fold_evidence_binding(result: dict, bindung) -> None:
+    """A binding that `--evidence` asked for and that failed is part of the aggregate verdict, not only of the exit
+    code (review of PR 465, P1: the JSON report kept the library's `ok` true and `automation.safeForAutomation` true
+    under a policy that pinned the signer). As the library's own late blockers do, this only ever ADDS: `ok` and
+    `safeForAutomation` turn false, `referencesResolved` false, with the blockers `automation_summary` gives an
+    unresolved reference and a receipt that is not ok. A binding that held lifts nothing."""
+    if bindung is None or bindung["ok"] is True:
+        return
+    result["ok"] = False
+    auto = result.get("automation")
+    if isinstance(auto, dict):
+        blocker = auto.setdefault("automationBlockers", [])
+        for code in ("REFERENCES_NOT_RESOLVED", "RECEIPT_NOT_OK"):
+            if code not in blocker:
+                blocker.append(code)
+        auto["referencesResolved"] = False
+        auto["safeForAutomation"] = False
+
+
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
+    import hashlib  # noqa: PLC0415
     from .decision import verify_decision_receipt  # noqa: PLC0415
     if not args.pub:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
@@ -2670,11 +2740,30 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # Nachtrag 49b CX-02: an explicit historical evaluation time (fixed integer) pins the receipt freshness
         # (validity.expiresAt) and, with a policy, the policy lifecycle at one instant; without it the wall clock.
         _eval_now = _historical_now_posix(getattr(args, "verification_time", None))
+        # `--evidence` (the measurement named at `_evidence_file`): every file is read here, before the
+        # verify, so a file that cannot be read is exit 2 like every other input. The library promotes an entry to
+        # CONTENT_RESOLVED only through this callback; the exit code comes from `_bind_evidence` below.
+        belege = None
+        if getattr(args, "evidence", None) is not None:
+            belege = []
+            for pfad in args.evidence:
+                with _open_input(pfad, binary=True) as handle:
+                    belege.append(_evidence_file(_read_capped_bytes(handle)))
+        _wurzeln = None if belege is None else frozenset(
+            hashlib.sha256(b["payload"]).hexdigest() for b in belege)
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None, now=_eval_now)
+                                         related=related or None, now=_eval_now,
+                                         evidence_resolver=None if _wurzeln is None else (
+                                             lambda d: type(d) is dict and d.get("sha256") in _wurzeln))
+        # Over bytes whose signature held and whose structure is valid only: an evidenceRefs list of another
+        # statement, or of unauthenticated bytes, binds nothing.
+        _refs = (_evidence_refs_of(env) if result["crypto_ok"] is True and result["structure_ok"] is True
+                 else None)
+        bindung = None if belege is None or _refs is None else _bind_evidence(_refs, belege)
+        _fold_evidence_binding(result, bindung)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2721,6 +2810,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         ) if k in result}
         if _vtr is not None:
             report["verification_time"] = _vtr   # R6a-4: the labelled historical report (absent in current mode)
+        if bindung is not None:
+            report["evidence_files"] = bindung   # only with --evidence; booleans and indices, no digest or path
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
@@ -2742,6 +2833,19 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
+        if bindung is not None:
+            _k = sum(1 for e in bindung["entries"] if e["content_root_ok"] is True)
+            print(f"EVIDENCE: {'BOUND' if bindung['ok'] else 'FAIL'} ({_k} of {len(bindung['entries'])} "
+                  "evidenceRefs entries bound by the files given with --evidence)")
+            for e in bindung["entries"]:
+                if e["content_root_ok"] is not True:
+                    print(f"  - evidenceRefs[{e['index']}]: no file given with --evidence has its content root",
+                          file=sys.stderr)
+            for j in bindung["unbound_files"]:
+                print(f"  - the file {j + 1} given with --evidence binds no evidenceRefs entry", file=sys.stderr)
+        elif _refs:
+            print(f"EVIDENCE: FORM ONLY ({len(_refs)} evidenceRefs entries; their digests are checked for form, "
+                  "not against held evidence, which --evidence gives)")
         if _vtr is not None:
             # R6a-4: historical verification is labelled (SPEC 403-410) — CURRENT is the present-tense
             # lifecycle (why safeForAutomation can be NO), HISTORICAL the verdict AS OF the instant.
@@ -2775,6 +2879,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # A supplied anchor that FAILS to verify (broken / root-mismatched / unknown type) is a tamper
     # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
     if result["anchors_ok"] is False:
+        return 1
+    # `--evidence`: an entry that no given file binds, or a given file that binds no entry, is a verification failure
+    # like a failing anchor, never a silent exit 0 (the measurement named at `_evidence_file`).
+    if bindung is not None and bindung["ok"] is not True:
         return 1
     # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
@@ -3795,6 +3903,12 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
                                "one time; without it the wall clock. An expired/unreadable expiresAt exits 2")
+    d_verify.add_argument("--evidence", dest="evidence", action="append", default=None, metavar="PATH",
+                          help="evidence the receipt cites, as held by the relying party (repeatable): a DSSE "
+                               "envelope or the exact payload bytes. Each evidenceRefs entry must be bound by a file "
+                               "whose content root (SHA-256 over the exact payload) equals its digest, and each file "
+                               "must bind an entry, by its content root or as the blob of an artifactDigest; "
+                               "otherwise exit 1. Without it the entries are checked for form only")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
