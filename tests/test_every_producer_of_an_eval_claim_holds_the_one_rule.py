@@ -518,6 +518,13 @@ class TestEveryProducerAgreesWithDecode(_Basis):
     STRENGER = {("timestamp=''", name) for name in (
         "export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate",
         "resolve_subject")}
+    #: By the owner's choice of 2026-10-31 the eval-result v0.1 verifier reads `evaluatedAt` as an RFC 3339
+    #: date-time with an offset, as v0.2 does, and the three eval-result producers refuse a claim timestamp in
+    #: another form, so they sign no statement their verifier refuses. decode keeps the claim schema's rule
+    #: for `timestamp`, a string, so these are the corpus timestamps decode accepts and the producers refuse.
+    STRENGER |= {(f"timestamp={wert!r}", name)
+                 for wert in ("x", "0.5", "sha256:x", "sha256:" + "a" * 64, "SHA256:" + "a" * 64)
+                 for name in ("export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate")}
 
     def test_every_producer_and_emit_agree_with_decode(self):
         fp = issuer_fingerprint(self.signer)
@@ -645,9 +652,17 @@ class TestAMisshapenContainerIsAReason(_Basis):
         self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[1]")
 
     def test_control_absent_containers_make_no_claim(self):
-        """An entry without `digest` verifies: it makes no claim."""
-        res = self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"), platzhalter=False)
+        """An entry without `digest` verifies: it makes no claim. It names its resource by `uri`, because a
+        ResourceDescriptor MUST specify one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare
+        `name`-only descriptor is invalid), and one that specifies none is a reason."""
+        def umbau(st):
+            st["predicate"]["configuration"][0].pop("digest")
+            st["predicate"]["configuration"][0]["uri"] = "https://example.invalid/model"
+        res = self._test_result(umbau, platzhalter=False)
         self.assertTrue(res["ok"], res["content_root_detail"])
+        self._abgewiesen(self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"),
+                                           platzhalter=False),
+                         "configuration[0]: must specify one of uri, digest or content")
 
     def test_an_absent_configuration_or_predicate_is_a_reason(self):
         """`configuration` and `result` are required members of the test-result predicate, so a statement
