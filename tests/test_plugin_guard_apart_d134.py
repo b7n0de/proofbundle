@@ -86,6 +86,17 @@ def test_the_public_marketplace_lists_only_the_verifier_and_the_house_marketplac
     assert _folder(GUARD) == HOUSE.parent.parent.resolve()
 
 
+def test_the_public_catalog_lists_the_verifier_alone():
+    """Owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B word for word, "the public catalog lists only
+    proofbundle": the plugin catalog plugins/README.md has no row of the Guard, and the house finds the Guard's install
+    in the Guard's own README. Red at 5c79461a, where the catalog listed the Guard with one row per host (reading of
+    F2, sol-pro)."""
+    rows = [line for line in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
+            if line.startswith("| ")]
+    assert [r for r in rows if f"]({GUARD}/" in r] == [], "the public catalog lists the Guard"
+    assert any(f"]({VERIFY}/" in r for r in rows), "control: the catalog lists the verifier"
+
+
 def test_the_plugin_everyone_installs_registers_no_hook():
     entry = _entries()[VERIFY]
     assert "hooks" not in entry, entry
