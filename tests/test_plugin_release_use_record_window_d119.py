@@ -248,6 +248,23 @@ def test_a_copy_is_refused_after_its_use_was_pushed_out_by_releases_spread_over_
     assert gate._release_take(_copy(x, end), environ, end) is False
 
 
+@pytest.mark.parametrize("full", [False, True], ids=["below the capacity", "at the capacity, the old use past"])
+def test_a_copy_of_a_release_the_record_names_by_a_key_of_d111_is_refused_whatever_its_answer(data, full):
+    """A Codex pre-run of the second reading: a key of D111 names the time of the answer as well, and the record found a
+    copy with another answer only where the time was the same. Below the capacity the copy was taken beside the old
+    use; at the capacity the old use was dropped and the copy taken in the same step. RED at b1e237d8: the copy was
+    taken."""
+    answered = float(int(time.time())) - 2000
+    x = _release("OA-0000000000", "a", answered + 30)
+    uses = {f"{gate._release_key(x)}:{x['antwort']}": _stamp(0, answered)}
+    if full:
+        uses.update(_others(gate.MAX_RELEASES_USED - 1, 0, answered))
+    before = _seed(data, uses)
+    now = answered + 1500
+    assert gate._release_take(_copy(x, now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
+    assert (data / gate.RELEASES_USED).read_bytes() == before
+
+
 def test_a_use_that_would_carry_the_record_past_its_byte_bound_is_not_written(data):
     """The first reading (line 3, P2): a record below MAX_RELEASES_USED_BYTES with one long key took a new use, and the
     hook wrote a record past the bound, which it then could not read: every later release was refused. The record the
