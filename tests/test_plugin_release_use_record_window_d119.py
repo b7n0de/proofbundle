@@ -130,6 +130,36 @@ def test_at_a_full_record_a_later_expired_use_is_removed_while_the_oldest_still_
     assert len(record) == gate.MAX_RELEASES_USED
 
 
+def test_a_dropped_use_does_not_let_its_release_act_again_when_the_clock_goes_back(data):
+    """A Codex pre-run of the reading: once the record dropped a use past its window, a clock set back into the window
+    of that release found its key missing, and the release acted a second time. The record keeps the newest time of a
+    use it dropped, and refuses a release answered no later than RELEASE_SKEW_SECONDS after it, as its use may be one
+    the record dropped. Under a clock that only moves forward no such release binds any more when it is asked. RED at
+    2908b8e3: the release was taken a second time."""
+    answered = float(int(time.time()))
+    environ = {"CLAUDE_PLUGIN_DATA": str(data)}
+    target = _release("OA-0000000000", "a", answered + 30)
+    assert target["antwort"] == _stamp(0, answered)
+    assert gate._release_take(target, environ, answered) is True
+    _seed(data, {**_record(data), **_others(gate.MAX_RELEASES_USED - 1, 0, answered)})
+    later = answered + PAST + 1
+    assert gate._release_take(_release("OA-2000000000", "c", later + 30), environ, later) is True
+    assert not gate._release_used(target, _record(data))
+    before = (data / gate.RELEASES_USED).read_bytes()
+    assert gate._release_take(target, environ, answered + 30) is False
+    assert (data / gate.RELEASES_USED).read_bytes() == before
+    # control: a release answered after that, at the later time, still passes
+    assert gate._release_take(_release("OA-2100000000", "f", later + 30), environ, later) is True
+
+
+def test_a_record_whose_time_of_the_dropped_uses_does_not_read_takes_no_use(data):
+    """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
+    now = time.time()
+    (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {},
+                                                       "verworfen_bis": "not a time"}), encoding="utf-8")
+    assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
+
+
 @pytest.mark.parametrize("oldest", [60, "not a time", -120, PAST],
                          ids=["every use within the window", "the oldest use's time does not read",
                               "the oldest use's time lies ahead", "the oldest use exactly at the window's end"])
