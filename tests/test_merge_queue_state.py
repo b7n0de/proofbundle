@@ -74,6 +74,14 @@ def test_an_unreadable_answer_is_off_and_still_exit_0(tmp_path):
         assert rc == 0 and out == "required=false\n", (answer, out)
 
 
+def test_an_error_the_reader_does_not_name_is_off_and_still_exit_0(tmp_path):
+    # The script says exit 0 always: a red step would make the collector red and stop every merge over an
+    # unknown state. An error that is not a ReadError must read as off like one, and coverage runs.
+    for error in (RuntimeError("boom"), KeyError("rules"), TypeError("not callable")):
+        rc, out, _ = _run(tmp_path, error)
+        assert rc == 0 and out == "required=false\n", (error, out)
+
+
 def test_a_missing_repository_or_branch_is_off(tmp_path):
     for missing in ("GITHUB_REPOSITORY", "BRANCH"):
         env = {k: v for k, v in ENV.items() if k != missing}
