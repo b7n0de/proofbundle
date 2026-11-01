@@ -9,6 +9,9 @@ Properties checked:
 - a row's version is the version in that host's manifest, read from the file, not typed twice;
 - a row's maturity is copied from the status line of the plugin's own README, never written apart
   from it, and the Codex hook run is marked as not yet measured there until it is measured;
+- a plugin folder has no row only when HOUSE_PLUGINS names it and it carries its house marketplace; a folder that
+  carries a marketplace of its own without that name still needs its row (second reading of F2, sol-pro; red at
+  b7f30b05, where the marketplace file alone was enough);
 - every link in the catalog resolves to a file in the tree;
 - the catalog states the verification limit: a pass proves integrity, not truth;
 - the repository README links the catalog from the task table and from the integration row, with the
@@ -19,6 +22,8 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLUGINS = ROOT / "plugins"
@@ -59,9 +64,9 @@ def _status(plugin_dir: pathlib.Path) -> dict[str, str]:
     return entries
 
 
-def _manifests() -> set[tuple[str, str]]:
+def _manifests(plugins: pathlib.Path = PLUGINS) -> set[tuple[str, str]]:
     found = set()
-    for plugin_dir in sorted(p for p in PLUGINS.iterdir() if p.is_dir()):
+    for plugin_dir in sorted(p for p in plugins.iterdir() if p.is_dir()):
         # D134, owner answer A on card OA-08eb65e9e2: a plugin folder that carries a marketplace of its own is a house
         # marketplace, which the public catalog does not list (N2 B, the Guard)
         if (plugin_dir / ".claude-plugin" / "marketplace.json").is_file():
@@ -77,6 +82,26 @@ def test_every_host_manifest_has_one_row_and_every_row_a_manifest():
     listed = [((PLUGINS / r["href"]).parent.name, r["host"]) for r in rows]
     assert len(listed) == len(set(listed)), "a plugin is listed twice for one host"
     assert set(listed) == _manifests()
+
+
+def _plant(plugins: pathlib.Path, name: str, house: bool) -> None:
+    folder = plugins / name / ".claude-plugin"
+    folder.mkdir(parents=True)
+    (folder / "plugin.json").write_text(json.dumps({"name": name, "version": "0.0.1"}), encoding="utf-8")
+    if house:
+        (folder / "marketplace.json").write_text(json.dumps({"name": f"{name}-house", "plugins": []}), encoding="utf-8")
+
+
+def test_only_a_named_house_plugin_with_its_marketplace_goes_without_a_row(tmp_path):
+    """A marketplace file in a folder is the folder's own word; it takes no public plugin out of the catalog (second
+    reading of F2, sol-pro, red at b7f30b05)."""
+    _plant(tmp_path, "proofbundle-guard", house=True)
+    _plant(tmp_path, "someone-else", house=True)
+    assert _manifests(tmp_path) == {("someone-else", "Claude Code")}
+    bare = tmp_path / "bare"
+    _plant(bare, "proofbundle-guard", house=False)
+    with pytest.raises(AssertionError, match="house marketplace"):
+        _manifests(bare)
 
 
 def test_a_row_names_the_version_of_its_host_manifest():

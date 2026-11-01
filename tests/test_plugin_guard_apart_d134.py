@@ -162,16 +162,19 @@ def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path,
     proofbundle-guard@proofbundle-house; gate_status and the self-test of proofbundle read from that directory beside
     their own, whichever marketplace proofbundle came from. Red at 18451ad1, where they read their own and in the house
     said the hook did not run, and at 4080bcdb, where they read proofbundle-guard-<the verifier's marketplace>, a
-    directory no house install has since the Guard left the public marketplace."""
+    directory no house install has since the Guard left the public marketplace. Red at b7f30b05 for a marketplace whose
+    name begins with guard-: proofbundle from it has the directory proofbundle-guard-<rest>, which the server took for
+    the Guard's and read its own (second reading of F2, sol-pro). The Guard brings no MCP server, so the server runs in
+    the verifier alone, and every directory proofbundle-<anything> but the Guard's house directory reads the log there."""
     server = _server()
     guard_id = _data_id(f"{GUARD}@{_json(HOUSE)['name']}")
     data = tmp_path / "plugins" / "data"
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
-    for market in (_json(MARKETPLACE)["name"], "a-fork"):
+    for market in (_json(MARKETPLACE)["name"], "a-fork", "guard-internal"):
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@{market}")))
         path, source = server._log_path()
         assert path == str(data / guard_id / server.LOG_NAME) and "D134" in source, (market, path, source)
     assert server.GUARD_DATA_DIR == guard_id, (server.GUARD_DATA_DIR, guard_id)
-    for own in ("data", guard_id, "proofbundle-guard-proofbundle", "elsewhere-proofbundle"):   # controls: read as before
+    for own in ("data", guard_id, "proofbundle", "elsewhere-proofbundle"):   # controls: read as before
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / own))
         assert server._log_path()[0] == str(tmp_path / own / server.LOG_NAME), own
