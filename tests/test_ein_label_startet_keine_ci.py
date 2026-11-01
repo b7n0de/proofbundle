@@ -23,6 +23,11 @@ WHAT THIS HOLDS, each with a counter-example it fails on:
      for are the `needs` of ci.yml's mutation job and the collector `all-checks-passed`, which judges
      the full matrix (round three, P1: a fork's one-leg run is not the release matrix). The script's
      verdict is measured as a program.
+  7. With the merge queue on for the base branch, the label starts nothing and turns nothing red: coverage
+     runs in the queue and no longer on the pull request, so the waiter could only fail, and the mutation
+     layer runs every night (ci.yml, schedule). `ci-prerequisites` reads that with the same reader as ci.yml,
+     scripts/merge_queue_state.py, and says so in a notice; the layer and its collector stay away (the reading
+     of the head 37137a9d of pull request 462, P1, and the owner's answer A on card OA-75a1805115).
 """
 from __future__ import annotations
 
@@ -48,6 +53,10 @@ LABEL_BEDINGUNG = ("( github.event.action == 'labeled' && github.event.label.nam
 NEUER_KOPF = ("synchronize", "reopened")
 #: The job that holds the layer back until test and coverage of ci.yml succeeded on the same head.
 VORBEDINGUNG = "ci-prerequisites"
+#: With the merge queue on, the layer and its collector stay away (point 7).
+QUEUE_AUS = "needs.ci-prerequisites.outputs.queue != 'true'"
+#: The one reader of whether the merge queue is on, shared with ci.yml.
+QUEUE_LESER = "scripts/merge_queue_state.py"
 SKRIPT = REPO / "scripts" / "landung_waits_for_ci.py"
 
 
@@ -195,14 +204,14 @@ def test_ein_neuer_kopf_eines_kandidaten_bekommt_die_schicht():
 
 def test_die_schicht_startet_nur_wenn_landung_gesetzt_wird():
     jobs = _lade("landung.yml")["jobs"]
-    assert _kern(jobs["mutation"]["if"]) == LABEL_BEDINGUNG
-    assert _kern(jobs["mutation-summary"]["if"]) == LABEL_BEDINGUNG, (
+    assert _kern(jobs["mutation"]["if"]) == f"( {LABEL_BEDINGUNG} ) && {QUEUE_AUS}"
+    assert _kern(jobs["mutation-summary"]["if"]) == f"( {LABEL_BEDINGUNG} ) && {QUEUE_AUS}", (
         "producer and collector carry different predicates -- the collector is then red when the layer "
         "stays away on purpose, or silent when it is red")
     assert _kern(jobs[VORBEDINGUNG]["if"]) == LABEL_BEDINGUNG, (
         "the prerequisite and the layer carry different predicates -- then the layer either never "
         "starts or starts without its prerequisite having run")
-    assert jobs["mutation-summary"]["needs"] == ["mutation"]
+    assert jobs["mutation-summary"]["needs"] == [VORBEDINGUNG, "mutation"]
 
 
 def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
@@ -219,6 +228,32 @@ def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
         "the collector the script waits for does not judge the jobs the layer needs")
     assert s.WAITED == s.CI_NEEDS + (s.COLLECTOR,)
     assert (WF / s.CI_WORKFLOW).is_file()
+
+
+def test_mit_der_warteschlange_wartet_die_vorbedingung_nicht_und_meldet_es():
+    """Point 7. `ci-prerequisites` asks the reader first; the waiter runs only when the queue is off, a notice
+    says why nothing starts when it is on, and the job hands the answer to the layer and its collector."""
+    job = _lade("landung.yml")["jobs"][VORBEDINGUNG]
+    schritte = job.get("steps") or []
+    leser = [i for i, s in enumerate(schritte) if QUEUE_LESER in str(s.get("run", ""))]
+    warter = [i for i, s in enumerate(schritte) if "scripts/landung_waits_for_ci.py" in str(s.get("run", ""))]
+    assert len(leser) == 1 and len(warter) == 1 and leser[0] < warter[0], (leser, warter)
+    assert schritte[leser[0]].get("id") == "queue"
+    assert (schritte[leser[0]].get("env") or {}).get("BRANCH") == "${{ github.event.pull_request.base.ref }}"
+    assert " ".join(str(schritte[warter[0]].get("if")).split()) == "steps.queue.outputs.required != 'true'"
+    hinweis = [s for s in schritte if " ".join(str(s.get("if")).split()) == "steps.queue.outputs.required == 'true'"]
+    assert len(hinweis) == 1 and "::notice" in str(hinweis[0].get("run")), hinweis
+    assert job.get("outputs", {}).get("queue") == "${{ steps.queue.outputs.required }}"
+
+
+def test_ci_yml_und_landung_yml_lesen_die_warteschlange_mit_demselben_skript():
+    """One question, one reader: two readers that disagree would let coverage wait in one workflow and the layer
+    start in the other."""
+    for datei in ("ci.yml", "landung.yml"):
+        laeufe = [s for j in _lade(datei)["jobs"].values() for s in j.get("steps") or []
+                  if QUEUE_LESER in str(s.get("run", ""))]
+        assert len(laeufe) == 1, (datei, laeufe)
+    assert (REPO / QUEUE_LESER).is_file(), QUEUE_LESER
 
 
 # ── the script's verdict, measured as a program ─────────────────────────────────────────────────────
@@ -525,7 +560,8 @@ def test_ci_yml_behaelt_seine_pflichtkontexte():
     the language gate and the title gate, which it judges before the queue."""
     jobs = _lade("ci.yml")["jobs"]
     assert {"test", "coverage", "all-checks-passed"} <= set(jobs)
-    assert jobs["all-checks-passed"]["needs"] == ["test", "coverage", "new-lines-english", "release-scope-title"]
+    assert jobs["all-checks-passed"]["needs"] == ["test", "coverage", "new-lines-english", "release-scope-title",
+                                                  "merge-queue-state"]
     assert "name" not in jobs["all-checks-passed"] and "name" not in jobs["test"]
     assert json.loads(DECLARATION.read_text(encoding="utf-8"))["required_contexts"] == ["all-checks-passed", "guard"]
 
