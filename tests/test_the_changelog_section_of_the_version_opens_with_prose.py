@@ -108,13 +108,24 @@ def test_RED_what_renders_as_no_paragraph_does_not_open_the_section(tmp_path):
 
 
 def test_a_paragraph_after_a_comment_or_a_break_still_opens_the_section(tmp_path):
-    """The other side: what renders as no paragraph is passed over, and the paragraph after it counts."""
-    for name, opening in _NO_PARAGRAPH.items():
+    """The other side: what renders as no paragraph is passed over, and the paragraph after it counts. A setext
+    heading is not passed over; it is a heading and ends the opening (the next case)."""
+    for name, opening in ((k, v) for k, v in _NO_PARAGRAPH.items() if not k.startswith("setext")):
         t = tmp_path / name.replace(" ", "_")
         t.mkdir()
         probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\n{opening}\n"
                                    f"{VERSION} is a patch release. Semantics do not change.\n\n### Fixed\n\n- x\n"))
         assert probs == [], (name, probs)
+
+
+def test_a_setext_heading_ends_the_opening_like_a_subsection(tmp_path):
+    """A paragraph after a setext heading stands under a heading, as one after `### Added` does."""
+    for underline in ("-", "==="):
+        t = tmp_path / f"setext_{len(underline)}"
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\nNotes\n{underline}\n\n"
+                                   "Semantics do not change.\n"))
+        assert len(_opening_findings(probs)) == 1, (underline, probs)
 
 
 def test_a_paragraph_followed_by_a_list_item_is_still_a_paragraph(tmp_path):

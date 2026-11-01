@@ -491,17 +491,59 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
     """
     zeilen = _read(repo / "CHANGELOG.md").splitlines()
     kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
-    start = next((i for i, zeile in enumerate(zeilen) if kopf.match(zeile)), None)
-    if start is None:
+    starts = [i for i, zeile in enumerate(zeilen) if kopf.match(zeile)]
+    if not starts:
         return []                         # check 2 reports the missing section itself
-    for zeile in zeilen[start + 1:]:
-        if re.match(r"^#{1,6}\s", zeile):
-            break                         # the next heading, a subsection or the next version
-        if zeile.strip():
-            return []
+    if len(starts) > 1:
+        # Which of the sections is the entry cannot be read off; judging the first one passed over the other.
+        return [f"CHANGELOG.md: the `## [{version}]` heading stands twice (lines "
+                f"{', '.join(str(i + 1) for i in starts)}); keep one section for the version."]
+    if _opens_with_a_paragraph(zeilen[starts[0] + 1:]):
+        return []
     return [f"CHANGELOG.md: the `## [{version}]` section opens with no text before its first "
             f"subsection or the next heading. RELEASE.md asks the entry to say explicitly whether "
             f"semantics change; write that opening paragraph above the first `###`."]
+
+
+#: Lines GitHub renders as no paragraph (CommonMark): a thematic break, a link reference definition, a fence.
+_THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+_LINK_REFERENCE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+_ATX_HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+
+
+def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
+    """Whether the lines of a section, up to its next heading, begin a paragraph before anything else ends it.
+
+    Passed over, because they render as no paragraph: blank lines, thematic breaks, HTML comments (on one line or
+    several), link reference definitions, fenced code with its content, and indented code. A line of text that a
+    setext underline follows is a heading and ends the opening like an ATX heading. Reading of 2026-11-01 (P1)."""
+    i, n = 0, len(zeilen)
+    while i < n:
+        zeile = zeilen[i]
+        if _ATX_HEADING.match(zeile):
+            return False
+        if not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
+            i += 1
+            continue
+        if zeile.lstrip().startswith("<!--"):
+            while i < n and "-->" not in zeilen[i]:
+                i += 1
+            i += 1
+            continue
+        zaun = _FENCE.match(zeile)
+        if zaun:
+            i += 1
+            while i < n and not zeilen[i].lstrip().startswith(zaun.group(1)):
+                i += 1
+            i += 1
+            continue
+        if zeile.startswith(("    ", "\t")):
+            i += 1                        # indented code: at the start of a section no paragraph runs on into it
+            continue
+        return not (i + 1 < n and _SETEXT_UNDERLINE.match(zeilen[i + 1]))
+    return False
 
 
 def _git(repo: Path, *args: str) -> tuple[int, str]:
