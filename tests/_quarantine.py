@@ -6,7 +6,8 @@ required contexts beside it. Each entry names a test, the reason, the deadline a
     {"test": "tests/test_x.py::test_y", "reason": "...", "deadline": "2026-11-08", "owner": "b7n0de"}
 
 `test` is a pytest node id. Without a parameter id it covers every parameter of the test; with one
-(`tests/test_x.py::test_y[renewal_work]`) only that parameter.
+(`tests/test_x.py::test_y[renewal_work]`) only that parameter. Where both are listed, the parameter's own entry decides
+for it, whatever the order of the list.
 
 WHAT IT DOES. Through the end of its deadline day (UTC) a listed test runs as before and is marked as an expected
 failure that is not strict: red, it reports `xfailed`; green, it reports `xpassed`; neither fails the run. From the
@@ -107,7 +108,10 @@ class Quarantine:
         self.outcomes: dict[str, list[tuple[str, str]]] = {}
 
     def entry_for(self, nodeid: str) -> Entry | None:
-        return next((e for e in self.entries if e.covers(nodeid)), None)
+        """The entry that names the node id itself, else the entry of its whole test: a parameter's own entry decides
+        for it, whatever the order of the list."""
+        covering = [e for e in self.entries if e.covers(nodeid)]
+        return next((e for e in covering if e.test == nodeid), next(iter(covering), None))
 
     def pytest_collection_modifyitems(self, config, items):
         for item in items:
