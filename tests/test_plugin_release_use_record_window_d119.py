@@ -175,6 +175,40 @@ def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_
     assert list(_record(data)) == [f"OA-00000000bb:{gate.command_sha256(command)}:{SESSION}"]
 
 
+@pytest.mark.parametrize("offset, taken", [(-gate.RELEASE_SKEW_SECONDS - 1, False), (gate.RELEASE_SECONDS + 1, False),
+                                           (-gate.RELEASE_SKEW_SECONDS, True), (gate.RELEASE_SECONDS, True)],
+                         ids=["before the window", "after the window", "control: its first second",
+                              "control: its last second"])
+def test_the_use_is_written_only_within_the_window_of_its_release(data, offset, taken):
+    """The drop of a use and the newest time of the dropped uses rest on one fact: a release is used no earlier than
+    RELEASE_SKEW_SECONDS before its answer. _release_take holds it under the lock, with the clock that stamps the use.
+    RED at a29a81b1 (before and after the window): the use was written."""
+    answered = int(time.time())
+    release = _release("OA-0000000000", "a", answered + 30)
+    taken_now = gate._release_take(release, {"CLAUDE_PLUGIN_DATA": str(data)}, answered + offset)
+    assert taken_now is taken and (data / gate.RELEASES_USED).exists() is taken
+
+
+def test_a_clock_set_back_between_the_choice_and_the_step_of_the_hook_writes_no_use(env):
+    """A Codex pre-run of the reading: the gate chose a release at its answer without writing the use (take=False);
+    before release_settle wrote it, the clock stood 120 s before the answer. The use was stamped before the window of
+    its release, so the record could later drop it while the release still bound. RED at a29a81b1: the use was written
+    and the call ran."""
+    answered = int(time.time()) + 120
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    command = d119.FREED[1]
+    folder = env / "gatedir" / "freigaben"
+    folder.mkdir(parents=True)
+    (folder / "a.json").write_text(json.dumps({"schema": d111.SCHEMA, "karte": "OA-00000000aa", "sitzung": SESSION,
+                                               "sha256": gate.command_sha256(command),
+                                               "antwort": _stamp(0, answered)}))
+    out = gate._autonomy_release(gate.Outcome("deny", "", []), command, d119._settle_env(), answered, take=False)
+    assert out is not None and out.release["genutzt"] is False
+    answer, _asked = gate.release_settle({"tool_name": "Bash"}, out, d119._settle_env())
+    assert answer.decision == "deny" and "its use could not be written" in answer.text
+    assert out.release["genutzt"] is False and not (data / gate.RELEASES_USED).exists()
+
+
 def test_a_record_whose_time_of_the_dropped_uses_does_not_read_takes_no_use(data):
     """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
     now = time.time()
