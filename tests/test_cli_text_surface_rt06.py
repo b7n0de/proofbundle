@@ -276,8 +276,9 @@ class TimestampOverflowFamily(unittest.TestCase):
                 _no_traceback(self, rc, out, err, {2})
                 if argv[:2] in (["decision", "verify"], ["outcome", "verify"], ["relation-statement", "verify"]):
                     # Exit 2 alone does not bind the case to the policy: these commands also exit 2 for a valid policy
-                    # whose rule they do not apply (measured 2026-11-01). The reason names the overflowing time.
-                    self.assertIn("valid_until", err, (argv[:2], err))
+                    # whose rule they do not apply (measured 2026-11-01). The reason is the policy's own sentence on the
+                    # overflowing time, not any text that happens to hold the word (Codex pre-run of round 3).
+                    self.assertIn("valid_until must be an ISO-8601 timestamp string", err, (argv[:2], err))
 
     def test_sibling_datetime_sites_never_raise_on_the_overflow_vector(self):
         # The sweep of every datetime site: the two siblings do not overflow on this vector (aware
