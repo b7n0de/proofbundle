@@ -324,7 +324,7 @@ def test_the_check_says_where_each_capped_test_stands_on_the_list(tmp_path, chec
     tree = _planted_tree(tmp_path, [_entry("tests/test_capped.py::test_direct"),
                                     _entry("tests/test_capped.py::test_through_a_helper", deadline="2026-10-01")])
     report, rc = checker.check(tree, tree / ".github" / "test_quarantine.json", dt.date(2026, 10, 25))
-    assert rc == 0, report
+    assert rc == 1, report      # the expired entry, see test_an_expired_entry_turns_the_check_red_until_it_leaves_the_list
     place = {r["test"].split("::", 1)[1]: r["list"] for r in report["tests_with_a_cap"]}
     assert place["test_direct"] == ["in force through 2026-11-08 as tests/test_capped.py::test_direct (owner o)"]
     assert place["test_through_a_helper"][0].startswith("EXPIRED on 2026-10-01")
@@ -380,3 +380,47 @@ def test_every_entry_names_the_cap_the_tree_carries(checker):
         if not any(_named_in(c, e.reason) for c in caps):
             stale.append((e.test, [f"{c['kind']} {c['seconds']}" for c in caps]))
     assert stale == [], stale
+
+
+# ── what the reading of 8ec67d5a found: an expired entry, and a parameter no collected case carries ────────────────
+
+def test_an_expired_entry_turns_the_check_red_until_it_leaves_the_list(tmp_path, checker):
+    """After its deadline an entry no longer marks its test, and a red test blocks again. A test that passes leaves the
+    run green, though, and the entry could stand on the list for ever under an owner who has moved on. The check is
+    red on an expired entry instead, so the job `test` stops until the entry leaves the list (the reading of the head
+    8ec67d5a of this pull request, P1)."""
+    tree = _planted_tree(tmp_path, [_entry("tests/test_capped.py::test_direct", deadline="2026-10-24")])
+    report, rc = checker.check(tree, tree / ".github" / "test_quarantine.json", dt.date(2026, 10, 25))
+    assert rc == 1, report
+    assert report["entries_expired"] == ["tests/test_capped.py::test_direct (expired on 2026-10-24, owner o)"], report
+
+
+def test_on_its_deadline_day_the_entry_keeps_the_check_green(tmp_path, checker):
+    tree = _planted_tree(tmp_path, [_entry("tests/test_capped.py::test_direct", deadline="2026-10-25")])
+    report, rc = checker.check(tree, tree / ".github" / "test_quarantine.json", dt.date(2026, 10, 25))
+    assert rc == 0 and report["entries_expired"] == [], report
+
+
+PARAMETRIZED = textwrap.dedent("""\
+    import subprocess
+
+    import pytest
+
+
+    @pytest.mark.parametrize("value", [1], ids=["real"])
+    def test_param(value):
+        subprocess.run(["true"], timeout=10)
+    """)
+
+
+@pytest.mark.parametrize("listed, red", [("tests/test_param.py::test_param[missing]", True),
+                                         ("tests/test_param.py::test_param[real]", False)])
+def test_an_entry_whose_parameter_no_collected_case_carries_is_red(tmp_path, checker, listed, red):
+    """An entry with a parameter id quarantines exactly that case. Compared by the function name alone, a typo in the
+    id passed the check while the plugin covered no test (the reading of the head 8ec67d5a, P2). The ids are what
+    pytest collects for the function, so they are read from a collection of it, not from the source."""
+    tree = _planted_tree(tmp_path, [_entry(listed)])
+    (tree / "tests" / "test_param.py").write_text(PARAMETRIZED, encoding="utf-8")
+    report, rc = checker.check(tree, tree / ".github" / "test_quarantine.json", dt.date(2026, 10, 25))
+    assert rc == (1 if red else 0), report
+    assert report["entries_naming_no_collected_case"] == ([listed] if red else []), report
