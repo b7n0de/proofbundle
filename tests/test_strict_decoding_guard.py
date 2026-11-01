@@ -189,6 +189,7 @@ STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members",
 #: path -> number of functions defined there under a name of STRICT_HOOKS
 STRICT_HOOK_SITES = {
     "src/proofbundle/_strict_json.py": 1,
+    "src/proofbundle/signed_eval_receipt.py": 1,
     "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
     "docs/scitt/statement_identification/package/verify.py": 1,
     "plugins/proofbundle/hooks/proofbundle_gate.py": 2,

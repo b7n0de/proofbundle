@@ -127,6 +127,20 @@ class _Number:
 
 
 # ---- I-JSON (RFC 7493) ----------------------------------------------------------------------------
+class _Repeated(Exception):
+    """A member name that stands twice in one object, compared after unescaping (RFC 8259 Section 8.3)."""
+
+
+def _no_duplicates(items):
+    """The ``object_pairs_hook`` of the I-JSON reader: the pairs as a dict, refused when a name repeats."""
+    seen: dict = {}
+    for name, value in items:
+        if name in seen:
+            raise _Repeated(name)
+        seen[name] = value
+    return seen
+
+
 def _check_text(s: str, what: str, step: int) -> None:
     for ch in s:
         c = ord(ch)
@@ -147,23 +161,16 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
     except UnicodeDecodeError:
         raise _Fail(step, f"{what} is not UTF-8") from None
 
-    def pairs(items):
-        seen: dict = {}
-        for name, value in items:
-            _check_text(name, what, step)
-            if name in seen:
-                raise _Fail(step, f"{what} repeats a member name")
-            seen[name] = value
-        return seen
-
     def no_constant(name):
         raise _Fail(step, f"{what} contains {name}, which is not JSON")
 
     try:
-        value = json.loads(text, object_pairs_hook=pairs, parse_int=_Number, parse_float=_Number,
+        value = json.loads(text, object_pairs_hook=_no_duplicates, parse_int=_Number, parse_float=_Number,
                            parse_constant=no_constant)
     except _Fail:
         raise
+    except _Repeated:
+        raise _Fail(step, f"{what} repeats a member name") from None
     except (RecursionError, MemoryError) as exc:
         raise _Limit(f"{what} nests deeper than this reader's limit ({type(exc).__name__})") from None
     except ValueError as exc:
@@ -175,6 +182,8 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
         if isinstance(v, str):
             _check_text(v, what, step)
         elif isinstance(v, dict):
+            for name in v:
+                _check_text(name, what, step)
             stack.extend(v.values())
         elif isinstance(v, list):
             stack.extend(v)
