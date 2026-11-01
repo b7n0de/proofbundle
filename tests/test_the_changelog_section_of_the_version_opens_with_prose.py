@@ -144,3 +144,59 @@ def test_RED_a_version_heading_that_stands_twice_is_a_finding_in_both_orders(tmp
         probs = chk.check(_repo(t, "# Changelog\n\n" + body + "## [3.0.0] - 2026-10-01\n\nThe first release.\n"))
         twice = [p for p in probs if "CHANGELOG.md" in p and "twice" in p]
         assert len(twice) == 1, (name, probs)
+
+
+# ── a paragraph is recognised for what it is (second reading of 2026-11-01, sol-pro, P1 and two P2) ───────────────
+#
+# The fix of the first reading named five forms that are no paragraph and took every other line for one. A list, a
+# block quote and an HTML block were none of the five and passed. A paragraph is now recognised positively.
+
+_OTHER_BLOCKS = {
+    "bullet list": "- x\n",
+    "plus list": "+ x\n",
+    "ordered list": "1. x\n",
+    "ordered list with a parenthesis": "1) x\n",
+    "block quote": "> Semantics do not change.\n",
+    "html block": "<div>\nSemantics do not change.\n</div>\n",
+    "details block": "<details>\n",
+    "a complete tag alone on its line": "<span>\n",
+    "table": "| change | semantics |\n| --- | --- |\n| x | none |\n",
+}
+
+
+def test_RED_another_block_than_a_paragraph_does_not_open_the_section(tmp_path):
+    for name, opening in _OTHER_BLOCKS.items():
+        t = tmp_path / name.replace(" ", "_")
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\n{opening}\n### Added\n\n- x\n"))
+        assert len(_opening_findings(probs)) == 1, (name, probs)
+
+
+def test_RED_text_after_an_invalid_closing_fence_stays_code():
+    """CommonMark: a closing fence carries only blanks after its characters; `` ```x `` closes nothing."""
+    assert not chk._opens_with_a_paragraph(["```", "```not-a-closing-fence", "Semantics do not change."])
+    assert not chk._opens_with_a_paragraph(["````", "```", "Semantics do not change."]), "a shorter fence closes nothing"
+    assert chk._opens_with_a_paragraph(["```", "code", "```  ", "Semantics do not change."]), "blanks may follow"
+
+
+def test_RED_an_invalid_link_reference_definition_is_paragraph_text():
+    for line in ("[x]: <", "[]: /target", "[x]:", "[x]: /target \"title"):
+        assert chk._opens_with_a_paragraph([line]), line
+    for line in ("[x]: /target", "[x]: <a b>", "[x]: /target \"title\"", "[x]: /target 'title'", "[x]: /t (title)"):
+        assert not chk._opens_with_a_paragraph([line]), line
+
+
+def test_RED_a_version_heading_inside_a_fence_or_a_comment_is_no_duplicate(tmp_path):
+    for name, verdeckt in (("fence", f"```\n## [{VERSION}]\n```\n"), ("comment", f"<!--\n## [{VERSION}]\n-->\n")):
+        t = tmp_path / name
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}]\n\nSemantics do not change.\n\n{verdeckt}"))
+        assert not [p for p in probs if "twice" in p], (name, probs)
+
+
+def test_a_paragraph_that_starts_with_inline_markup_is_still_a_paragraph():
+    """The other side: what opens a paragraph with markup, a number or a tag inside text is no other block."""
+    for line in ("**Semantics do not change.**", "`proofbundle` 3.0.1 is a patch release.", "3.0.1 is a patch release.",
+                 "<span>Semantics</span> do not change.", "[A link](https://example.invalid) opens the entry.",
+                 "*Semantics* do not change.", "2026 brought one change."):
+        assert chk._opens_with_a_paragraph([line]), line
