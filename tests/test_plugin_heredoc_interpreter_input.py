@@ -9,6 +9,10 @@ here-document and a command beside it keep today's answer.
 
 RED at d6e248a8 for the form of the pilot (the net asks, Codex denies); the controls answer the same at both. Each case
 runs the gate as the host starts it.
+
+Since D126 (finding 2 of review package -1) this holds only for a body that names neither git nor gh: a body that names
+either, as the pilot's does, is judged as the same text given as the `-c` argument, which asks under Claude Code and is
+denied under Codex (tests/test_plugin_code_carrier_names_git_d126.py).
 """
 from __future__ import annotations
 
@@ -31,12 +35,22 @@ BODY = ('import subprocess, sys\n'
         'out = subprocess.run(["git", "-C", git_dir, "log", "-1"], capture_output=True, text=True).stdout\n'
         'print("gh pr view", out, open(log).read())\n')
 
-INPUT = [
-    "python3 - \"$B\" \"$L\" <<'EOF'\n" + BODY + "EOF\n",
-    "python - \"$B\" \"$L\" <<'EOF'\n" + BODY + "EOF\n",
-    "python3 - \"$B\" \"$L\" <<\"EOF\"\n" + BODY + "EOF\n",
-    "python3 - <<\\EOF\n" + BODY + "EOF",
-]
+#: The same reading of the same arguments in Python that names neither git nor gh (D126 keeps D39's answer for it).
+QUIET_BODY = ('import sys\n'
+              'work_dir, log = sys.argv[1], sys.argv[2]\n'
+              '# read what the run left behind\n'
+              'print(work_dir, open(log).read())\n')
+
+
+def _input(body: str) -> list[str]:
+    return ["python3 - \"$B\" \"$L\" <<'EOF'\n" + body + "EOF\n",
+            "python - \"$B\" \"$L\" <<'EOF'\n" + body + "EOF\n",
+            "python3 - \"$B\" \"$L\" <<\"EOF\"\n" + body + "EOF\n",
+            "python3 - <<\\EOF\n" + body + "EOF"]
+
+
+INPUT = _input(BODY)
+QUIET_INPUT = _input(QUIET_BODY)
 INPUT_IDS = ["python3_quoted", "python_quoted", "python3_double_quoted", "python3_backslash"]
 KEPT = [
     "bash <<'EOF'\ngit -C /work/clone status\nEOF\n",
@@ -72,9 +86,18 @@ def _answer(tmp_path, command: str, host: str) -> tuple[int, str | None, str]:
 
 
 @pytest.mark.parametrize("host", ["claude", "codex"])
-@pytest.mark.parametrize("command", INPUT, ids=INPUT_IDS)
+@pytest.mark.parametrize("command", QUIET_INPUT, ids=INPUT_IDS)
 def test_P1_the_body_of_a_quoted_heredoc_to_python_is_no_shell_text(tmp_path, command, host):
+    """Since D126 for a body that names neither git nor gh; the pilot's body follows."""
     assert _answer(tmp_path, command, host) == (0, None, "")
+
+
+@pytest.mark.parametrize("host, expected", [("claude", "ask"), ("codex", "deny")])
+@pytest.mark.parametrize("command", INPUT, ids=INPUT_IDS)
+def test_P1_D126_a_body_that_names_git_or_gh_gets_the_answer_of_its_c_form(tmp_path, command, host, expected):
+    """D126 reverses D39 for the pilot's body: it names git and gh, and the same text as the `-c` argument asks."""
+    code, decision, reason = _answer(tmp_path, command, host)
+    assert (code, decision) == (0, expected), (code, decision, reason)
 
 
 @pytest.mark.parametrize("host, expected", [("claude", "ask"), ("codex", "deny")])

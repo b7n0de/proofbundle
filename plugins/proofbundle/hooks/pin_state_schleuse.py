@@ -35,9 +35,10 @@ WAY BACK
   pin-state.json the gate asks as it did before follow-up note 46.
 
 NEVER FROM A SESSION
-  The gate denies every command of a session that names this script and does more than read it (D114, follow-up note
-  51). The script itself refuses where its environment is an agent's (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT or a name
-  CODEX_…); that is a brake, not a boundary, as a session can change its environment. The boundary is the gate.
+  The gate rejects recognized session commands that invoke this script. The script
+  also rejects the agent environment names it recognizes. These checks do not
+  establish operator identity and do not prevent other commands from replacing
+  the pin file. Use an access boundary that the session cannot change or bypass.
 """
 from __future__ import annotations
 
@@ -79,6 +80,12 @@ def _gate_dir(given: str | None) -> pathlib.Path:
     return path
 
 
+def _entries(folder: str) -> list[dict]:
+    """The entries of pin-state.json in folder as the gate parses them. The script reads the file it writes, so it
+    reads it as with the protected channel of D124; whether the gate itself uses the file stays the hook's setting."""
+    return gate._pin_state_entries({"PROOFBUNDLE_GATE_DIR": folder, gate.OWNER_STATE_VARIABLE: gate.OWNER_STATE_PROTECTED})
+
+
 def entry_now(tree: str) -> dict:
     """The entry of pin-state.json for the tree as it is now, from the gate's own `pin-state`, which writes nothing."""
     if not os.path.isabs(tree):
@@ -106,7 +113,7 @@ def _read_file(folder: pathlib.Path) -> tuple[bytes | None, list]:
         raise Refused(f"{path} does not read whole ({exc}); check it by hand, nothing written") from exc
     klone = data.get("klone") if isinstance(data, dict) and set(data) == {"schema", "klone"} and \
         data["schema"] == gate.PIN_STATE_SCHEMA else None
-    if not isinstance(klone, list) or len(gate._pin_state_entries({"PROOFBUNDLE_GATE_DIR": str(folder)})) != len(klone):
+    if not isinstance(klone, list) or len(_entries(str(folder))) != len(klone):
         raise Refused(f"{path} does not read whole for the gate; check it by hand, nothing written")
     return raw, klone
 
@@ -135,7 +142,7 @@ def plan(folder: pathlib.Path, tree: str) -> dict:
     new = _render(klone) if action != "unchanged" else old
     with tempfile.TemporaryDirectory() as probe:
         (pathlib.Path(probe) / gate.PIN_STATE_FILE).write_bytes(new)
-        if len(gate._pin_state_entries({"PROOFBUNDLE_GATE_DIR": probe})) != len(klone):
+        if len(_entries(probe)) != len(klone):
             raise Refused("the new content would not read whole for the gate; nothing written")
     seal = hashlib.sha256(b"\0".join([b"pin-state-schleuse/v1", str(folder).encode(), old if old is not None
                                       else b"<keine Datei>", new])).hexdigest()
@@ -143,6 +150,8 @@ def plan(folder: pathlib.Path, tree: str) -> dict:
 
 
 def _write_atomic(folder: pathlib.Path, name: str, data: bytes, mode: int = 0o644) -> None:
+    """Mode 644 on purpose for pin-state.json: the pilot's signer service decides with this gate directory under an
+    account of its own (signer_service.py, D58; CodeQL alert 148, kept). A backup is written with 600."""
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.")
     try:
         with os.fdopen(fd, "wb") as out:
@@ -220,7 +229,7 @@ def write(folder: pathlib.Path, tree: str, seal: str) -> int:
         saved = _backup(folder, p["old"])
         _write_atomic(folder, gate.PIN_STATE_FILE, p["new"])
         back = (folder / gate.PIN_STATE_FILE).read_bytes()
-        if back != p["new"] or len(gate._pin_state_entries({"PROOFBUNDLE_GATE_DIR": str(folder)})) < 1:
+        if back != p["new"] or len(_entries(str(folder))) < 1:
             raise Refused("after the write the file does not read as planned; get the state before back with zurueck")
     print(f"Written ({p['action']}): {folder / gate.PIN_STATE_FILE}")
     print(f"Backup before: {folder / saved}")
@@ -253,7 +262,7 @@ def restore(folder: pathlib.Path, name: str | None) -> int:
         with tempfile.TemporaryDirectory() as probe:
             (pathlib.Path(probe) / gate.PIN_STATE_FILE).write_bytes(raw)
             data = gate.strict_json(raw)
-            if len(gate._pin_state_entries({"PROOFBUNDLE_GATE_DIR": probe})) != len(data.get("klone", [])):
+            if len(_entries(probe)) != len(data.get("klone", [])):
                 raise Refused(f"the backup {name} does not read whole for the gate; nothing changed")
         saved = _backup(folder, current)
         _write_atomic(folder, gate.PIN_STATE_FILE, raw)

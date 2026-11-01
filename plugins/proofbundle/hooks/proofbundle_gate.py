@@ -100,7 +100,9 @@ _CHECK_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 DONE_STATE = EVIDENCE_DIR + "done-state.json"
 DONE_METRICS = EVIDENCE_DIR + "done-metrics.json"
 DONE_BLOCKER = EVIDENCE_DIR + "done-blocker.json"
-DONE_OWN_FILES = (DONE_STATE, DONE_METRICS, DONE_BLOCKER)
+#: The record of the hand-over of an open blocker at the next session start (D127): the rounds and the open set.
+DONE_HANDOVER = EVIDENCE_DIR + "done-handover.json"
+DONE_OWN_FILES = (DONE_STATE, DONE_METRICS, DONE_BLOCKER, DONE_HANDOVER)
 DONE_FILES_SCHEMA = "proofbundle-plugin/done-{}/v0.1"
 METRIC_KEYS = ("blocked", "task_blocked", "missing_checks", "completed_after_block", "blockers", "done")
 MAX_STATE_BYTES = 64 * 1024
@@ -108,7 +110,8 @@ DONE_RECEIPT = EVIDENCE_DIR + "proofbundle_pytest_receipt.json"
 DONE_POLICY = EVIDENCE_DIR + "done-policy.json"
 DONE_KEY_FILE = "done-test.key"
 #: The record in the gate directory of the key file done-init made for each repository (B30-2): a path per
-#: repository, never a key. The gate reads the path to name it in the command of a block, and nothing behind it.
+#: repository, never a key. The gate reads the path to name it in the command of a block, and nothing behind it, only
+#: where the hook's environment states the protected channel of D124 (D128).
 DONE_KEYS_RECORD = "done-keys.json"
 EVAL_CLAIM_SCHEMA = "proofbundle/eval-claim/v0.1"
 ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy", "subject"})
@@ -8953,7 +8956,7 @@ def _read_transports(environ: dict) -> list[dict]:
     """The transport approvals a person wrote, each exactly {repo, remote, url, transport_digest}; [] on any problem,
     as for the rules of D25: a file the gate cannot read whole approves nothing. The gate only ever reads it."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, TRANSPORTS_FILE), MAX_RULES_BYTES + 1, follow=True)
@@ -9537,13 +9540,32 @@ def _gate_dir(environ: dict) -> str | None:
     return None
 
 
+#: D124 (Nachtrag 4, point 1; external review of -1, KERN finding 2): the files of the gate directory a person is to
+#: write, the mode and rules.json (D25), transports.json (D35), hook-state.json (D106), pin-state.json (D114, D115), the
+#: releases in freigaben/ (D111, D119) and work-folders.json (D104), are read only where the hook's environment sets
+#: OWNER_STATE_VARIABLE to OWNER_STATE_PROTECTED. Without that, Guard Preview reads none of them: a session of the same
+#: account wrote each one through a changed working directory, which the gate does not answer, and the gate then read
+#: it. The setting belongs to a channel the session cannot write, an account of its own that owns the directory and the
+#: folders above it; the gate does not check that, so the setting is the house's statement, not a protection.
+#: D128 (owner answer 6 of Nachtrag 7): the same holds for the local done orders in done-orders/ (D38), which the Stop,
+#: TaskCompleted and SessionStart hooks judge, and for the key path done-keys.json records (B30-2); done-order and
+#: done-init, which a person runs, still write them, whatever their own environment sets.
+OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
+OWNER_STATE_PROTECTED = "protected"
+
+
+def _owner_state_read(environ: dict) -> bool:
+    """D124: whether the gate reads the owner's files of its directory at all."""
+    return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
 def _read_mode(environ: dict) -> str:
-    """The approval mode a human set: "strict" (the default) or "with-approvals". Anything the gate cannot read
-    as one of those two words — no directory, no file, an unreadable or oversized file, an unknown word — is
-    strict. The mode is set only by a human at the gate directory; the model cannot write it, because
-    decide_write denies every write to that directory (N24 Punkt 3)."""
+    """Read strict or with-approvals from the gate directory; unreadable, oversized
+    or unknown input selects strict. The command and file-tool checks do not
+    establish that only the operator can write this state. Approval state must
+    be protected from the session independently, including its parent paths."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return "strict"
     try:
         raw = _read_regular(os.path.join(directory, "mode"), MAX_MODE_BYTES + 1, follow=True)   # R18-2 class
@@ -9561,7 +9583,7 @@ def _read_rules(environ: dict) -> list[dict]:
     many rules, a malformed entry, a non-absolute repo or an empty form). Fail-closed: a rule file the gate
     cannot read in full as a list of well-formed rules frees nothing. The gate only ever reads this file."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, "rules.json"), MAX_RULES_BYTES + 1, follow=True)   # R18-2 class
@@ -11362,7 +11384,8 @@ def _stepwise_outcome(command: str, cwd: str, deadline: float, host: str, enviro
     (`sudo gi* status`, review round 14, R14-1); a `git --version` step, which is free only as the exact whole command (D3); a git or gh
     step with an expansion or a prefix assignment that is not neutral; a gated step (_sh_gated) that is not the first executed step at the top level after at most `cd` steps, or has a
     redirection, and every gated step under Codex. Kept and raised to at least ask: a carrier of code, or a program
-    the gate does not know, whose text names git or gh; a carrier of code that reads a git or gh step's output; git or
+    the gate does not know, whose text names git or gh; a script file a step runs whose text names git or gh (D126,
+    _sh_script_naming_git); a carrier of code that reads a git or gh step's output; git or
     gh text anywhere beside a step that runs code (a value assigned and then run by eval). Otherwise every literal file a step writes is judged like a file-tool write (decide_write), every
     git and gh step gets the gate's answer for that step alone in its directory, and a step that would be free asks
     where a step before it or beside it may change the state that answer read (_sh_changes_state). Also kept: a word
@@ -11814,6 +11837,9 @@ def _sh_judge_steps(steps: list, cwd: str, deadline: float, host: str, environ, 
                 host != "codex" and not _D117_OFF.get() and _d117_path_step(s) and
                 _d117_unshadowed({s.head}, environ)):   # D117
             raise _ShKeep(f"{s.head} carries text that names git or gh", "ask")
+        script = _sh_script_naming_git(s, environ)   # D126: the text of a script file the step runs
+        if script is not None:
+            raise _ShKeep(f"the file {script} the step runs names git or gh", "ask")
         if s.kind == "carrier" and s.pipeline_size > 1 and any(
                 t.kind in ("git", "gh", "git-x") for t in s.before[len(s.before) - s.pipeline_size + 1:]):
             raise _ShKeep(f"{s.head} reads the output of a git or gh step", "ask")
@@ -11941,7 +11967,12 @@ def _interpreter_heredoc_head(command: str) -> str | None:
     standard input whose marker the shell sees quoted. None for every other form, which keeps today's answer: an
     unquoted marker, another interpreter or a shell, a path or a wrapper as the program, an option before `-`, a second
     here-document or any other redirection, `<<-`, a chain, a pipeline, a list or a command after the marker line, and
-    every form the parser does not model."""
+    every form the parser does not model.
+
+    Since D126 (finding 2 of review package -1) a body that names git or gh, as class c reads the text of a carrier
+    (_SH_GIT_TEXT), is judged as the same text given to the interpreter as its `-c` argument: the text returned is
+    `python3 -c '<body>' [arguments]`, which gets the answer of that form (D33: an ask under Claude Code, a deny under
+    Codex). A body that names neither keeps the answer of D39."""
     try:
         tree = _sh_parse(command)
     except (_ShUnmodeled, RecursionError):
@@ -11959,7 +11990,69 @@ def _interpreter_heredoc_head(command: str) -> str | None:
     doc = cmd.redirs[0]
     if not isinstance(doc.target, _ShHeredoc) or doc.op != "<<" or doc.fd or not doc.target.quoted:
         return None
-    return " ".join(w.raw for w in cmd.words)
+    words = [w.raw for w in cmd.words]
+    if _SH_GIT_TEXT.search(doc.target.body):
+        return " ".join([words[0], "-c", shlex.quote(doc.target.body), *words[2:]])   # D126: the text as -c
+    return " ".join(words)
+
+
+#: The most bytes of a script file the gate reads to see whether its text names git or gh (D126). A longer file is not
+#: read, and its step keeps the answer it has without the file.
+MAX_SCRIPT_BYTES = 1024 * 1024
+#: The shells whose first word after the program, where it is no option, is a file of commands they run (D126).
+_SCRIPT_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", ".", "source"})
+#: The interpreters of _SH_INTERPRETER whose first word that is no option is a program text, not a file (D126).
+_SCRIPT_TEXT_FIRST = re.compile(r"^(gawk|mawk|nawk)[0-9.]*$")
+
+
+def _sh_script_word(step: "_ShStep") -> tuple[str, bool] | None:
+    """(the file a carrier step runs as its code, whether the step runs it by path) (D126): the first word after an
+    interpreter (_SH_INTERPRETER, the awk programs aside) or a shell (_SCRIPT_SHELLS) where that word is no option
+    (`python3 push.py`, `bash push.sh`, `. push.sh`), else the program word where it is a path (`./push.sh`). None for
+    every other step, and where the program word or that word is not literal: a word the shell may rewrite is not the
+    word the gate reads. An option before the file (`python3 -u push.py`, `bash -e push.sh`) and a wrapper before the
+    program (`env`, `sudo`, `exec`, `timeout`, …) keep the step's answer without the file."""
+    words = step.cmd.words
+    if step.kind != "carrier" or not words or not words[0].literal:
+        return None
+    if step.head in _SCRIPT_SHELLS or (_SH_INTERPRETER.match(step.head) and not _SCRIPT_TEXT_FIRST.match(step.head)):
+        if len(words) < 2 or not words[1].literal or not words[1].value or words[1].value.startswith(("-", "+")):
+            return None
+        return words[1].value, False
+    if "/" in words[0].value:
+        return words[0].value, True
+    return None
+
+
+def _sh_script_naming_git(step: "_ShStep", environ) -> str | None:
+    """The file of _sh_script_word as written where its text names git or gh (D126, finding 2 of review package -1),
+    else None. The file is read when the gate answers: a regular file, followed through links, of at most
+    MAX_SCRIPT_BYTES bytes, checked at the opened descriptor before anything is read (_read_regular, R18-2), so a FIFO,
+    a device or a folder is never opened for reading or waited on. A relative path is read from the step's directory and
+    keeps the answer where that directory is unknown (after a `cd`, until class e). A key path of D102 is never stat'ed
+    or opened (the house rule denies its call). A compiled program run by path (the ELF magic) is no script and is not
+    searched. A file the shell finds through PATH, code the script loads from elsewhere, and a change to the file after
+    the answer are not read: this is an early warning, not a check of every push."""
+    found = _sh_script_word(step)
+    if found is None:
+        return None
+    word, by_path = found
+    if not os.path.isabs(word) and step.cwd is None:
+        return None
+    environ = os.environ if environ is None else environ
+    if _secrets().secret_problem(word, step.cwd, environ.get("HOME")) is not None:
+        return None
+    full = word if os.path.isabs(word) else os.path.join(step.cwd, word)
+    try:
+        info = os.stat(full)   # follows a link to the file the step runs
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_SCRIPT_BYTES:
+            return None
+        raw = _read_regular(full, MAX_SCRIPT_BYTES + 1, follow=True)   # checked again at the descriptor
+    except OSError:
+        return None
+    if len(raw) > MAX_SCRIPT_BYTES or (by_path and raw.startswith(b"\x7fELF")):
+        return None
+    return word if _SH_GIT_TEXT.search(raw.decode("utf-8", "replace")) else None
 
 
 # --- the work profile of Claude Code: local work in a declared repository of b7n0de (DECISIONS.md D71) --------------
@@ -13797,7 +13890,7 @@ def _work_folders(directory: str | None, environ) -> list[str]:
         folders.append(_repo_top(project) or os.path.realpath(project))
     folders.extend(_session_folders(environ))
     gate_dir = _gate_dir(environ)
-    if gate_dir is not None:
+    if gate_dir is not None and _owner_state_read(environ):   # D124
         try:
             raw = _read_regular(os.path.join(gate_dir, WORK_FOLDERS_FILE), MAX_WORK_FOLDERS_BYTES + 1)
             data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_WORK_FOLDERS_BYTES else None
@@ -14293,7 +14386,9 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
 
     A command that is exactly `python3 - [arguments] <<'MARK'` with a quoted marker is judged by its words before the
     here-document, as `python3 file.py [arguments]` is (D39, _interpreter_heredoc_head): the body is the
-    interpreter's input, not shell text, and the gate does not read code (D8).
+    interpreter's input, not shell text, and the gate does not read code (D8). Since D126 a body that names git or gh
+    is judged as the same text given as the `-c` argument, `python3 -c '<body>' [arguments]`, and a script file a step
+    runs whose text names git or gh asks at least (_sh_script_naming_git).
 
     A parameter expansion at the program position (`$X`, `${X}`, `"$X"`, `"${X}"`) whose variable the same command
     line sets to git or gh, by name or by a path, is judged as the command with that value substituted (D67,
@@ -17304,7 +17399,7 @@ def _hook_state_entries(environ) -> list[tuple[str, dict]]:
     A file that does not read whole records nothing: no regular file, more than MAX_HOOK_STATE_BYTES, not strict JSON
     (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, HOOK_STATE_FILE), MAX_HOOK_STATE_BYTES + 1)
@@ -17475,7 +17570,7 @@ def _pin_state_entries(environ) -> list[dict]:
     both paths resolved. A file that does not read whole pins nothing: no regular file, more than MAX_PIN_STATE_BYTES,
     not strict JSON (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, PIN_STATE_FILE), MAX_PIN_STATE_BYTES + 1)
@@ -17995,6 +18090,9 @@ _RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
                                 r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
+#: A dollar sign the shell keeps as text (_release_quote_parts), so that no expansion is read into it. A letter, not a
+#: control character: next to a control character `sudo` still stood at a word boundary and read as the program.
+_RELEASE_LITERAL_DOLLAR = "\u01c2"
 
 
 def _release_ansi_c(match: "re.Match") -> str:
@@ -18003,6 +18101,36 @@ def _release_ansi_c(match: "re.Match") -> str:
 
 def _release_locale(match: "re.Match") -> str:
     return _RELEASE_UNKNOWN if match.group(1) else ""
+
+
+def _release_quote_parts(text: str) -> str:
+    """The text with each ANSI-C part `$'…'` and each locale part `$"…"` read as bash reads it, and only where bash reads
+    it: outside single and double quotes. Inside single quotes `$"hello"` is those characters, inside double quotes
+    `$'\\x73udo'` is too (fifth reading of G-2, P2; measured with bash 5.1.16, printf prints [$"hello"]), and reading them
+    there held a release back that the shell never runs. A backslash outside single quotes keeps the next character."""
+    out: list[str] = []
+    i, quote = 0, ""
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if not quote and c == "$" and text[i + 1:i + 2] in ("'", '"'):
+            m = (_RELEASE_ANSI_C if text[i + 1] == "'" else _RELEASE_LOCALE).match(text, i)
+            if m:
+                out.append(_release_ansi_c(m) if text[i + 1] == "'" else _release_locale(m))
+                i = m.end()
+                continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+        elif c == "$" and (quote == "'" or (quote == '"' and text[i + 1:i + 2] in ("'", '"'))):
+            # A `$` the shell keeps as a character: every one inside single quotes, and one before a quote inside double
+            # quotes. Once the quotes are joined away, `$"hello"` would read as the parameter `$hello`.
+            c = _RELEASE_LITERAL_DOLLAR
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _release_door_words(command: str) -> str | None:
@@ -18019,14 +18147,47 @@ def _release_door_words(command: str) -> str | None:
     # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
     # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
     continued = command.replace("\\\n", "")
-    assembled = _RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale, _RELEASE_ANSI_C.sub(_release_ansi_c,
-                                                                                                continued)))
-    for text in dict.fromkeys([assembled, _release_braced(assembled)]):
-        if text != command:
-            door = _release_door_words_split(text)
-            if door is not None:
-                return door
-    return _release_unresolved_door(assembled)
+    readings = _release_assembled(continued)
+    for assembled in readings:
+        for text in dict.fromkeys([assembled, _release_braced(assembled)]):
+            if text != command:
+                door = _release_door_words_split(text)
+                if door is not None:
+                    return door
+    for assembled in readings:
+        door = _release_unresolved_door(assembled)
+        if door is not None:
+            return door
+    return None
+
+
+#: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
+#: backquoted command and a braced parameter.
+_RELEASE_NEW_CONTEXT = ("$(", "`", "${")
+
+
+def _release_assembled(continued: str) -> list[str]:
+    """The line as the shell assembles its words, every quote and backslash removed: read where its quotes stand
+    (_release_quote_parts), and where the line holds a command substitution, a backquoted command or a braced parameter,
+    also with every ANSI-C and locale part decoded wherever it stands, as the gate read it at 647ed0a2. Inside those
+    bash reads the quotes in a context of its own, also within double quotes, so `x="$(s$'u'do -n true)"` runs sudo
+    (reading of the follow-up to 441, line 3, P1; measured with bash 5.1.16, printf prints [sudo]), and a context closes
+    where only a parser of the whole shell grammar can tell (a case pattern closes with a parenthesis). There the line is
+    read both ways, and a release frees less, never more.
+
+    The same holds where a word of the line, as written or as the shell joins it (`e\\val`, `ev''al`), is one of
+    _RELEASE_TEXT_RUNNERS. eval and a shell with -c read their text a second time, so a dollar sign the first reading
+    keeps as a character expands there, and `X=udo; eval 's$X' -n true` runs sudo (Codex on pull request 447, P1;
+    measured with bash 5.1.16 and a function named sudo, also for `bash -c`). The gate does not tell the forms of a
+    runner apart, so a line where a runner reads a file, `source` or a shell given a script, is read the strict way
+    as well: it holds back more, never less."""
+    readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
+    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
+                    for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(readings[0]))
+    if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+        readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
+                                                                  _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
+    return list(dict.fromkeys(readings))
 
 
 def _release_braced(text: str) -> str:
@@ -18130,7 +18291,7 @@ def _releases(environ) -> list[dict]:
     MAX_RELEASE_BYTES, not strict JSON, another schema or another key, or a card, a session, a sha256 or a time of
     another shape. The folder itself must be a folder and no link."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     folder = os.path.join(gate_dir, RELEASES_DIR)
     try:
@@ -18566,9 +18727,10 @@ def write_log(entry: dict, host: str) -> str | None:
         if os.path.exists(path) and os.path.getsize(path) > MAX_LOG_BYTES:
             os.replace(path, path + ".1")
         # A FIFO with no reader is never waited on (R18-2 class): the open does not block, and an entry that is no
-        # regular file at the opened descriptor is not written to.
+        # regular file at the opened descriptor is not written to. Mode 600: the gate's bilanz and the plugin's server
+        # read the log, both under the account of the session, and no other account (CodeQL alert 150).
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0), 0o644)
+                     | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 return None
@@ -18790,10 +18952,12 @@ def _short(text: str, limit: int = 240) -> str:
 
 def _recorded_key_path(environ: dict, repo: str | None) -> str | None:
     """The key file done-init made for the repository, as its record in the gate directory names it (B30-2), or None:
-    no repository, no gate directory, no record, or a record the gate does not read as one (not a regular file, larger
-    than MAX_STATE_BYTES, not strict JSON of one object, no absolute path for this repository). Only the path is read."""
+    no repository, no gate directory, no protected channel in the hook's environment (D128: a session writes the record
+    as it writes the owner files of D124), no record, or a record the gate does not read as one (not a regular file,
+    larger than MAX_STATE_BYTES, not strict JSON of one object, no absolute path for this repository). Only the path is
+    read."""
     directory = _gate_dir(environ)
-    if repo is None or directory is None:
+    if repo is None or directory is None or not _owner_state_read(environ):   # D128
         return None
     try:
         doc = strict_json(_read_regular(os.path.join(directory, DONE_KEYS_RECORD), MAX_STATE_BYTES + 1))
@@ -18840,8 +19004,8 @@ def check_command(check: dict, environ: dict, repo: str | None = None) -> str:
     """The command that runs one check of the done section and leaves its receipt (D26, D28). A check of the
     order names its pytest arguments and clears PYTEST_ADDOPTS, so the receipt names exactly that selection. The key
     is PROOFBUNDLE_KEY where it is an absolute path, else the key file done-init made for the repository as the gate
-    directory records it (B30-2, follow-up note 32: `done-init --key` may put it anywhere), else the default key file of the
-    gate directory."""
+    directory records it (B30-2, follow-up note 32: `done-init --key` may put it anywhere; read only with the protected
+    channel, D128), else the default key file of the gate directory."""
     key = environ.get("PROOFBUNDLE_KEY")
     if not (key and os.path.isabs(key)):
         key = _recorded_key_path(environ, repo)
@@ -19368,7 +19532,8 @@ def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     target = os.path.join(repo, *name.split("/"))
     temporary = os.path.join(folder, f".{os.path.basename(name)}.{secrets.token_hex(6)}.tmp")
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+        # Mode 600: only the Stop hook of the session reads these files back (CodeQL alert 151).
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
         os.replace(temporary, target)
@@ -19541,7 +19706,8 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
     (review round 6 of 2026-10-10, R6-4: the record's problem was read here and dropped, so a record with blocks "1" was
     written over without a word, against R5-3). The three stay apart (review round 8 of 2026-10-10, R8-4: a removal that
     failed was reported as a count that could not be recorded, while the record held a valid count, and the note on the
-    replaced unread record was dropped)."""
+    replaced unread record was dropped). The hand-over record of D127 goes with the blocker; removal names each file that
+    stays, with what it means."""
     repo = result["repo"]
     session = _session_key(event)
     previous, unread = _done_state(repo)
@@ -19549,16 +19715,20 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
     _tally(repo, done=1, completed_after_block=1 if after_block else 0)
     problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                   "open": [], "blocks": 0, "blocker": False})
-    blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
-    removed = None
-    try:
-        if stat.S_ISREG(os.lstat(blocker).st_mode):
-            os.unlink(blocker)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
-        removed = f"the earlier blocker {DONE_BLOCKER} could not be removed ({exc})"
-    return (None if problem is None else f"the count could not be reset ({problem})"), removed, unread
+    removed = []
+    for name, what, stale in ((DONE_BLOCKER, "blocker", "the blocker file is out of date"),
+                              (DONE_HANDOVER, "hand-over record", "a later hand-over may count its rounds from that "
+                                                                  "record (D127)")):
+        path = os.path.join(repo, *name.split("/"))
+        try:
+            if stat.S_ISREG(os.lstat(path).st_mode):
+                os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
+            removed.append(f"the earlier {what} {name} could not be removed ({exc}); this done end stands, and {stale}")
+    return (None if problem is None else f"the count could not be reset ({problem})"), ("; ".join(removed) or None), \
+        unread
 
 
 def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
@@ -19575,7 +19745,9 @@ def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
 # --- local done orders, outside every work tree (D38) --------------------------------------------------------------
 
 #: The folder of the gate directory that holds the local done orders (D38): one file `<key>.json` per repository and the
-#: gate's record of its digest, `<key>.seen.json`. Nothing of it lies in a work tree or a commit.
+#: gate's record of its digest, `<key>.seen.json`. Nothing of it lies in a work tree or a commit. A hook reads the
+#: folder only where its environment states the protected channel of D124 (D128, _hook_orders); `done-order --list`
+#: reads it for a person whatever is set.
 DONE_ORDERS_DIR = "done-orders"
 DONE_ORDER_SCHEMA = "proofbundle-plugin/done-order/v0.1"
 DONE_ORDER_SEEN_SCHEMA = "proofbundle-plugin/done-order-seen/v0.1"
@@ -19741,6 +19913,19 @@ def _local_orders(environ, deadline: float) -> list[dict]:
     return entries
 
 
+#: What done-order and `done-order --list` print about where the hooks read an order (D128).
+HOOK_ORDERS_NOTE = ("the Stop, TaskCompleted and SessionStart hooks read local done orders only where their "
+                    f"environment sets {OWNER_STATE_VARIABLE}={OWNER_STATE_PROTECTED} (D128)")
+
+
+def _hook_orders(environ, deadline: float) -> list[dict]:
+    """The local done orders a hook judges (D128): those of _local_orders where the hook's environment states the
+    protected channel of D124, else none. A session writes done-orders/ as it writes the owner files of D124, and an
+    order it writes can drop a check; without the channel the done check runs on the repository's declaration alone,
+    and an order the gate would refuse blocks no end and is counted nowhere."""
+    return _local_orders(environ, deadline) if _owner_state_read(environ) else []
+
+
 def _local_order_base(repo: str, order: dict, deadline: float) -> tuple[str | None, str]:
     """The base of a local order's paths (D31, D38): the commit that was HEAD when the order was made, while git still
     names it as a commit of the repository."""
@@ -19828,9 +20013,9 @@ def done_evaluations(directory: str, deadline: float, environ: dict | None = Non
     each local done order in the gate directory, in the order of its key, whatever the directory. A repository with a
     local order is judged by that order, and by the declaration at HEAD where it has one; a declaration found only in
     its work tree is not refused there, the local order stands for it. Each result is done_evaluation's, with "local"
-    naming the order's file."""
+    naming the order's file. The orders are read only with the protected channel (D128, _hook_orders)."""
     environ = os.environ if environ is None else environ
-    entries = _local_orders(environ, deadline)
+    entries = _hook_orders(environ, deadline)
     keys = {e["key"] for e in entries}   # a refused order stands for the work tree's declaration too: it blocks itself
     results = []
     try:
@@ -21045,9 +21230,8 @@ def stop_command(argv: list[str]) -> int:
                 message += (f" The earlier count could not be read ({unread}); "
                             + ("the hook wrote its own record in its place." if counting is None
                                else "it stays in place, since the hook could not write its own record."))
-            if removal is not None:
-                message += (f" {removal[0].upper()}{removal[1:]}; this done end stands, and the blocker file is out of "
-                            "date.")
+            if removal is not None:   # each removal names what stays and what it means (D127: the hand-over record)
+                message += f" {removal[0].upper()}{removal[1:]}."
             if result.get("local"):
                 message += f" (Local done order {result['local']}, D38.)"
             messages.append(message)
@@ -21117,6 +21301,253 @@ def task_completed_command(argv: list[str]) -> int:
     return 0
 
 
+# --- the hand-over of an open blocker at the next session start (D127) ---------------------------------------------
+
+#: The rounds one open set is handed on; at the next start without progress the hook writes the owner card instead.
+HANDOVER_ROUNDS = 2
+_HANDOVER_FIELDS = frozenset({"schema", "rounds", "open", "head", "carded", "written"})
+#: The folder of the gate directory the house collects owner cards from (D25's location: user-wide, outside every
+#: repository), and the card's form.
+OWNER_CARDS_DIR = "owner-cards"
+OWNER_CARD_SCHEMA = "proofbundle-plugin/owner-card/v0.1"
+#: The gate's status names an open point of the hand-over may show (T2): those of a check and of the paths
+#: (_OPEN_REASON), and those of a refusal before the checks (_refused, _order_refusal). A check's command is run; the
+#: others name their next step.
+_HANDOVER_CHECK_STATUSES = frozenset({"missing", "unverified", "red", "other_selection", "no_state", "stale"})
+_HANDOVER_STATUSES = frozenset(_OPEN_REASON) | frozenset({
+    "declaration_not_committed", "missing_file", "state_not_measured", "order_base_not_measured", "order_changed",
+    "order_unrecorded", "order_removed", "order_unreadable", "order_unbound"})
+_HANDOVER_BOUNDARY = ("The task counts as done only when the Stop hook's done check passes; this hand-over asks for "
+                      "nothing else.")
+OWNER_CARD_TEXT = ("The done check of this repository stayed NOT DONE with the same open points through two hand-overs "
+                   "without progress (D127); the hook hands these open points on no further, and a changed open set "
+                   "starts the hand-over again. Guard does not count a task as done before the required checks pass; "
+                   "it does not make the agent work until they pass. This card is a notice to the owner, not a "
+                   "receipt, and proves nothing about the tests.")
+
+
+def _blocked_repos(directory: str, deadline: float, environ) -> list[str]:
+    """The repositories that hold a blocker of the Stop hook (DONE_BLOCKER, a regular file), each once: the one of
+    directory and each one a local done order binds (D38), where the hook reads the orders (D128, _hook_orders). Only
+    the file's presence is read, never its text (T1)."""
+    repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
+    if unreadable:
+        raise GateError(unreadable)
+    candidates = [] if repo is None else [str(repo)]
+    for entry in _hook_orders(environ, deadline):
+        bound = entry["order"]["repo"] if "order" in entry else entry.get("bound")
+        if bound:
+            candidates.append(bound)
+    found, seen = [], set()
+    for candidate in candidates:
+        if os.path.realpath(candidate) in seen:
+            continue
+        seen.add(os.path.realpath(candidate))
+        try:
+            if stat.S_ISREG(os.lstat(os.path.join(candidate, *DONE_BLOCKER.split("/"))).st_mode):
+                found.append(candidate)
+        except OSError:
+            pass
+    return found
+
+
+def _unbound_blockers(environ, deadline: float) -> list[str]:
+    """The blockers of local done orders whose repository git does not find (owner choice O3, _account_order_block):
+    `<key>.blocker.json` beside the order in the gate directory, a regular file, where the hook reads the orders (D128).
+    Only the file's presence is read, never its text (T1). There is no repository to hand anything on to; the start
+    names them (owner answer A on card OA-694b3f17d4)."""
+    found = []
+    for entry in _hook_orders(environ, deadline):
+        if not entry.get("key"):
+            continue
+        blocker = os.path.join(os.path.dirname(entry["file"]), f"{entry['key']}.blocker.json")
+        try:
+            if stat.S_ISREG(os.lstat(blocker).st_mode):
+                found.append(blocker)
+        except OSError:
+            pass
+    return found
+
+
+def _handover_record(repo: str) -> tuple[dict | None, str | None]:
+    """The hand-over record (DONE_HANDOVER) as (record, problem): (None, None) where there is none, (None, why) where a
+    present file is not the hook's record. Its content is counted, never shown: the hand-over is built from the fresh
+    verdict alone."""
+    doc = _read_done_file(repo, DONE_HANDOVER, "handover")
+    if doc is None:
+        return None, _done_file_problem(repo, DONE_HANDOVER, "handover")
+    pairs = doc.get("open")
+    if not (frozenset(doc) == _HANDOVER_FIELDS and type(doc["rounds"]) is int and doc["rounds"] >= 1
+            and type(doc["carded"]) is bool and isinstance(pairs, list)
+            and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p) for p in pairs)):
+        return None, f"{DONE_HANDOVER} is not the hook's hand-over record (its fields or their types differ)"
+    return doc, None
+
+
+def _shown_repo(repo: str) -> str:
+    """The repository as the hand-over names it: its path, in JSON quotes where it holds a character that is not
+    printable (a line break would end the line it stands in)."""
+    return repo if repo.isprintable() else json.dumps(repo)
+
+
+def _handover_text(repo: str, rounds: int, points: list[dict]) -> str:
+    """The hand-over the model gets (D127), built from the fresh verdict alone: the repository, the round, each open
+    point by its id and status with the command the gate built for it, and the boundary. An id outside the order's
+    grammar, a status that is not the gate's, and the command beside them, are not shown (T2)."""
+    lines = [f"proofbundle done check, round {rounds} of the hand-over (D127), repository {_shown_repo(repo)}: the Stop "
+             "hook let a session end there without a done verdict, and the done check, run again at this start, is "
+             "still NOT DONE. Open:"]
+    for point in points:
+        ident, status, command = point.get("id"), point.get("status"), point.get("command")
+        if (isinstance(ident, str) and _CHECK_ID.fullmatch(ident) and isinstance(status, str)
+                and status in _HANDOVER_STATUSES and isinstance(command, str) and command):
+            lines.append(f"- {ident} ({status}): {'run ' if status in _HANDOVER_CHECK_STATUSES else ''}{command}")
+        else:
+            lines.append("- an open point the gate does not show")
+    lines.append(_HANDOVER_BOUNDARY)
+    return "\n".join(lines)
+
+
+def _owner_card_path(environ, repo: str, pairs: list) -> str | None:
+    """Where the owner card of a stalled hand-over lies: <gate directory>/owner-cards/, named by the sha256 of the
+    repository and the open set, so the same stalled state has one card. None without a gate directory."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return None
+    named = json.dumps([os.path.realpath(repo), sorted(pairs)]).encode("utf-8")
+    return os.path.join(directory, OWNER_CARDS_DIR, f"done-handover-{hashlib.sha256(named).hexdigest()}.json")
+
+
+def _write_owner_card(path: str, doc: dict) -> str | None:
+    """Write the owner card once, never through a link: a regular file of the same name stands and is not written
+    again. None where the card stands now, else why not."""
+    folder = os.path.dirname(path)
+    try:
+        os.makedirs(folder, 0o700, exist_ok=True)
+    except OSError as exc:
+        return f"the folder {folder} cannot be made ({exc})"
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except FileExistsError:
+        try:
+            return None if stat.S_ISREG(os.lstat(path).st_mode) else f"{path} is there and is not a regular file"
+        except OSError as exc:
+            return f"{path} cannot be examined ({exc})"
+    except OSError as exc:
+        return f"{path} cannot be made ({exc})"
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write((json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass"))
+    except OSError as exc:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return f"{path} could not be written ({exc})"
+    return None
+
+
+def _hand_over(directory: str, deadline: float, environ) -> tuple[list[str], list[str]]:
+    """The hand-over of every open blocker (D127) as (the contexts for the model, the messages for the user). Without a
+    blocker, nothing. With one, the done check runs again as at Stop (done_evaluations) and only its fresh open points
+    count: a pass or no done check hands nothing on and leaves the files; NOT DONE updates the hand-over record and hands
+    the open points on for HANDOVER_ROUNDS rounds of the same open set, after which one owner card replaces the
+    hand-over of that set. A check that reached no verdict, or ran past the deadline, hands nothing on. The blocker of
+    an order whose repository git does not find (O3) is named to the user and hands nothing on."""
+    unbound = [f"proofbundle done check: a session ended NOT DONE on a local done order whose repository git does not "
+               f"find, and its blocker {_shown_repo(path)} stands; there is no repository to hand anything on to, "
+               "done-order --list names the order, and a person removes it with done-order --remove (D127, O3)."
+               for path in _unbound_blockers(environ, deadline)]
+    blocked = _blocked_repos(directory, deadline, environ)
+    if not blocked:
+        return [], unbound
+    results = done_evaluations(directory, deadline, environ)
+    repos = {os.path.realpath(repo): repo for repo in blocked}
+    failed = [r["verdict"].failed or r["verdict"].reason_id for r in results
+              if r["verdict"].reason_id in ("gate_error", "internal_error")
+              and (r["repo"] is None or os.path.realpath(r["repo"]) in repos)]
+    if failed or time.monotonic() > deadline:
+        why = "; ".join(failed) if failed else f"it ran past the {DEADLINE_SECONDS:g} seconds the Stop hook has"
+        return [], unbound + [f"proofbundle done check: the hand-over could not run the done check again "
+                              f"({_short(why, 400)}), so no open point was handed on; the blocker stands (D127)."]
+    contexts, notes = [], list(unbound)
+    for key, repo in repos.items():
+        group = [r for r in results if r["repo"] and os.path.realpath(r["repo"]) == key]
+        points = [p for r in group if r["verdict"].decision == "deny" for p in r["open"]]
+        if not points:
+            continue   # a pass or no done check: nothing to hand on; the next Stop counts a pass (_account_pass)
+        pairs = []
+        for point in points:
+            if [point["id"], point["status"]] not in pairs:
+                pairs.append([point["id"], point["status"]])
+        head = next((r["commit"] for r in group if r["commit"]), None)
+        shown = _shown_repo(repo)
+        record, unread = _handover_record(repo)
+        if unread is not None:
+            notes.append(f"proofbundle done check: the earlier hand-over record of {shown} could not be read "
+                         f"({unread}); this start counts as round 1 (D127).")
+        # No progress is the same open set; any other set, a strict subset (progress) included, starts at round 1
+        same = record is not None and {tuple(p) for p in record["open"]} == {tuple(p) for p in pairs}
+        rounds = record["rounds"] + 1 if same else 1
+        carded = bool(same and record["carded"])
+        if rounds <= HANDOVER_ROUNDS:
+            contexts.append(_handover_text(repo, rounds, points))
+            notes.append(f"proofbundle done check: the open points of {shown} are handed on to this session, round "
+                         f"{rounds} of the hand-over (D127).")
+        else:
+            card = _owner_card_path(environ, repo, pairs)
+            if carded:
+                notes.append(f"proofbundle done check: {shown} is still NOT DONE with the open points of the owner card "
+                             f"{card or 'in the gate directory'}; the hook hands them on no further (D127).")
+            else:
+                problem = ("there is no gate directory (PROOFBUNDLE_GATE_DIR is not an absolute path and there is no "
+                           "home)") if card is None else _write_owner_card(card, {
+                    "schema": OWNER_CARD_SCHEMA, "kind": "done-handover-stalled", "repo": repo, "head": head,
+                    "open": pairs, "rounds": rounds, "blocker": os.path.join(repo, *DONE_BLOCKER.split("/")),
+                    "written": _now(), "text": OWNER_CARD_TEXT})
+                carded = problem is None
+                notes.append(f"proofbundle done check: {shown} stayed NOT DONE with the same open points through "
+                             f"{HANDOVER_ROUNDS} hand-overs without progress; "
+                             + (f"the owner card {card} names them" if problem is None
+                                else f"the owner card could not be written ({problem})")
+                             + ", and the hook hands them on no further (D127).")
+        written = _write_done_file(repo, DONE_HANDOVER, {"schema": DONE_FILES_SCHEMA.format("handover"),
+                                                         "rounds": rounds, "open": pairs, "head": head,
+                                                         "carded": carded, "written": _now()})
+        if written is not None:
+            notes.append(f"proofbundle done check: the hand-over record of {shown} could not be written ({written}), "
+                         "so this round is not counted (D127).")
+    return contexts, notes
+
+
+def session_start_command(argv: list[str]) -> int:
+    """The SessionStart hook of Claude Code (D127), for every source (startup, resume, clear, compact): where the Stop
+    hook ended a session NOT DONE and left its blocker, the next start hands the open points of a fresh done check on
+    as additional context, never the blocker's text. Prints that context and a short message for the user, a message
+    alone for an owner card or a failure, and nothing where there is no blocker or the check passes; exits 0 always: a
+    failure never blocks the start, it is named. Guard does not count a task as done before the required checks pass;
+    the hand-over does not make the agent work until they pass. Codex does not register it (NOT MEASURED there)."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    try:
+        _host_name, event = _hook_event(argv, "SessionStart")
+        contexts, notes = _hand_over(_event_directory(event), deadline, os.environ)
+    except Exception as exc:  # noqa: BLE001 - a failure never blocks the start, and it is named, never silent (T5)
+        contexts, notes = [], [f"proofbundle done check: the hand-over failed ({type(exc).__name__}: "
+                               f"{_short(str(exc), 400)}), so no open point was handed on; the done check at Stop is "
+                               "unchanged (D127)."]
+    answer: dict = {}
+    if notes:
+        answer["systemMessage"] = " ".join(notes)
+    if contexts:
+        answer["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": "\n\n".join(contexts)}
+    if answer:
+        try:
+            sys.stdout.write(json.dumps(answer) + "\n")
+        except Exception:  # noqa: BLE001 - where even the message fails, the start goes on without a word
+            pass
+    return 0
+
+
 DONE_ORDER_USAGE = ("usage: done-order --repo DIR [--declaration FILE] [--policy FILE] [--replace] | "
                     "done-order --remove (--repo DIR | --key KEY) | done-order --list")
 
@@ -21183,7 +21614,8 @@ def done_order(repo_dir: str, declaration: str | None, policy_file: str | None, 
     work tree, account A's variant E), the policy's bytes, the commit at HEAD as the base of `paths`, the work tree root and
     the git directory, written to the gate directory with the gate's record of its digest. An order that exists is
     replaced only with `replace`, and the record keeps the digest it replaces. The receipts are added to info/exclude
-    where git does not yet ignore them."""
+    where git does not yet ignore them. It writes whatever its own environment sets, and says that the hooks read the
+    order only with the protected channel (D128): the setting is the hook's, and a person's shell need not carry it."""
     environ = os.environ if environ is None else environ
     folder = _orders_dir(environ)
     if folder is None:
@@ -21243,6 +21675,7 @@ def done_order(repo_dir: str, declaration: str | None, policy_file: str | None, 
         lines.append(f"it replaces an earlier order; the gate records {len(replaced)} replacement(s)")
     if added:
         lines.append(f"added to the repository's info/exclude: {' '.join(added)}")
+    lines.append(HOOK_ORDERS_NOTE)
     return "\n".join(lines)
 
 
@@ -21292,7 +21725,8 @@ def done_order_remove(repo_dir: str | None, key: str | None, deadline: float, en
 
 
 def done_order_list(deadline: float, environ: dict | None = None) -> str:
-    """Every local done order and what the gate finds for it now (D38)."""
+    """Every local done order and what the gate finds for it now (D38), for a person whatever the environment sets;
+    a last line says where the hooks read the orders (D128)."""
     environ = os.environ if environ is None else environ
     rows = []
     for entry in _local_orders(environ, deadline):
@@ -21303,7 +21737,7 @@ def done_order_list(deadline: float, environ: dict | None = None) -> str:
         else:
             refusal = entry["refusal"]["verdict"]
             rows.append(f"{entry['key']}\t{entry['file']}\t{refusal.reason_id}: {refusal.failed}")
-    return "\n".join(rows) if rows else "no local done order"
+    return "\n".join([*rows, HOOK_ORDERS_NOTE]) if rows else "no local done order"
 
 
 def done_order_command(argv: list[str]) -> int:
@@ -22185,10 +22619,15 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     staged = _git(repo, "add", "--", DECLARATION, DONE_POLICY, ".proofbundle/.gitignore", deadline=deadline)
     if staged.returncode != 0:
         raise GateError("git could not stage the done check")
-    # B30-2: the block of the Stop hook names this key file, wherever --key put it
+    # B30-2: the block of the Stop hook names this key file, wherever --key put it; D128: the record is written whatever
+    # this command's environment sets, and a hook reads it only with the protected channel
     unrecorded = _record_key_path(environ, repo, key_path)
     recorded = "" if unrecorded is None else (f" The gate directory does not record the key file ({unrecorded}), so a "
                                               "block names the default key file; set PROOFBUNDLE_KEY to this one.")
+    if unrecorded is None and key_path != os.path.join(_gate_dir(environ) or "", DONE_KEY_FILE):
+        recorded = (" The block of the Stop hook names this key file only where the hook's environment sets "
+                    f"{OWNER_STATE_VARIABLE}={OWNER_STATE_PROTECTED} (D128); elsewhere it names the default key file, "
+                    "so set PROOFBUNDLE_KEY to this one there.")
     return (f"proofbundle done check set up in {repo}: test key {key_path} (a local test key, never a release key), "
             f"{DONE_POLICY} pins it, {DECLARATION} declares the done check, .proofbundle/.gitignore keeps the receipt "
             f"and the done check's own files out of the tree. Staged. Next: git commit -m \"declare the done check\"; then the tests run with a "
@@ -22691,11 +23130,12 @@ def _host(argv: list[str]) -> str:
 
 # --- the pilot of Z405: a signed decision receipt for each GitHub write the gate decides (DECISIONS.md D55) -------
 #
-# The pilot contract (docs/pilot/pilot_contract.md on main) and its profile github-write/1 (docs/pilot/pilot_profile.md,
-# tools/pilot/github_write_profile.py) want a decision-receipt/v0.1 for every write to GitHub the gate decides, allowed
-# or refused, with decidedAt before the write. The gate writes one after its verdict and before its answer. The receipt
-# changes nothing the gate answers: not the decision, not the exit code, not the log line, not a byte on stdout or
-# stderr. A receipt the gate cannot issue is a line in the journal of the receipt folder, never an answer.
+# The pilot contract and github-write/1 profile define the intended decision receipts. This implementation attempts
+# receipts for recognized GitHub writes; an issuance failure can leave no receipt. Ordinary receipt attempts are
+# observational and must not change the gate's permission decision, exit code, log line or answer bytes. D119 owner
+# releases are different: where the configured pilot recognizes the write, release_settle requires a signed ALLOW
+# before the release is used. A receipt that cannot be issued is journaled where possible; journal failure must not
+# prevent the ordinary hook answer from returning.
 
 PILOT_FILE = "pilot.json"
 MAX_PILOT_BYTES = 16 * 1024
@@ -22819,10 +23259,14 @@ def _pilot_keyid(public: bytes) -> str:
 
 def _pilot_policy_digest(environ: dict) -> str:
     """The sha256 the receipt names as the gate's policy: over the gate's own file, the mode and the rules a person
-    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile)."""
+    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile). The gate's own file is read as
+    _sha256_or_none reads, without blocking and only as a regular file (D123): a FIFO in its place is an OSError at
+    once, and the receipt is not issued."""
     parts = {}
-    with open(os.path.realpath(__file__), "rb") as handle:
-        parts["gate"] = hashlib.sha256(handle.read()).hexdigest()
+    own = os.path.realpath(__file__)
+    parts["gate"] = _sha256_or_none(own)
+    if parts["gate"] is None:
+        raise OSError(errno.EINVAL, "the gate's own file is no regular file it can read", own)
     directory = _gate_dir(environ)
     for name, limit in (("mode", MAX_MODE_BYTES + 1), ("rules.json", MAX_RULES_BYTES + 1)):
         try:
@@ -22978,11 +23422,28 @@ def _pilot_push_actions(url: str | None, lines: list[tuple]) -> list[tuple[dict,
 
 
 def _pilot_journal(folder: str, entry: dict) -> None:
-    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name."""
+    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name. The journal
+    is opened without blocking and without following a link, and the line is written only where the opened descriptor
+    is a regular file (D123, the class of R18-2): a FIFO with or without a reader, a device, a folder or a link there
+    is never waited on and gets no line. Such a journal raises an OSError, as one that cannot be opened does; the
+    callers drop it, so an ordinary answer returns as it is (under D119 the release stays unused, release_settle)."""
     entry = {"at": _pilot_instant(time.time_ns()), **entry}
     os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, "journal.jsonl"), "a", encoding="ascii") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    path = os.path.join(folder, "journal.jsonl")
+    # 0o644 like the pilot's decision files, since the records are copied for the reconciliation under another account
+    # (tests/test_plugin_files_name_their_readers.py); under a umask of 0, 0o666 made the journal writable by everyone
+    # (CodeQL on pull request 460).
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o644)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise _NotRegular(errno.EINVAL, "not a regular file", path)
+        handle = os.fdopen(fd, "ab")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
+        handle.write((json.dumps(entry, sort_keys=True) + "\n").encode("ascii"))
 
 
 def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:
@@ -23089,6 +23550,8 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
     for attempt in range(1, 100_000):
         path = os.path.join(decisions, f"{action_id}-{attempt}.json")
         try:
+            # Mode 644 on purpose: the observer and the reconciliation read the decisions from the records under
+            # accounts of their own (D56; CodeQL alert 152, kept).
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
             break
         except FileExistsError:
@@ -23342,6 +23805,8 @@ def install_pre_push(directory: str, deadline: float, environ: dict | None = Non
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(pre_push_wrapper(plugin_root))
+        # Mode 755 on purpose: git runs the hook at a push, and the pin check (_hooks_now) reads its bytes also under
+        # the account of the pilot's signer service (D58; CodeQL alert 153, kept).
         os.chmod(temp, 0o755)
         updated = os.path.lexists(hook)
         os.replace(temp, hook)
@@ -23397,6 +23862,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_order_command(argv[1:])
     if argv[:1] == ["task-completed"]:
         return task_completed_command(argv[1:])
+    if argv[:1] == ["session-start"]:
+        return session_start_command(argv[1:])
     if argv[:1] == ["bilanz"]:
         return bilanz_command(argv[1:])
     if argv[:1] == ["done-statement"]:

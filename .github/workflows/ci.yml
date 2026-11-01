@@ -285,15 +285,27 @@ jobs:
     # 97 at a1d5a815, 94 at 52c7e634 and 105 at 53bbb94c, with src/ unchanged between 198af5c5 and
     # 53bbb94c; the spread is the speed of the runner, and 105 with the reserve of
     # tests/test_der_ci_schnitt_haelt.py needs 132.
-    # The limit stays at 180 for the first runs in parts (see the matrix below). It comes down once
-    # three runs on main have measured how long a part takes, as planned for crypto-floor.
-    timeout-minutes: 180
+    # The limit stayed at 180 for the first runs in parts (see the matrix below), until three runs on
+    # main had measured how long a part takes, as planned for crypto-floor.
+    # 45, NOT 180 (owner decision of 2026-10-30 on card OA-1d7ec781c1, option A). Measured through the
+    # GitHub API: the longest part took 15.1, 14.2 and 14.7 min on main at c5aef10b, 0d3acb1d and
+    # 0cf32d12, and 18.3, 20.9 and 19.7 min in the PR runs of 440 and 441 with 35 parts, each time
+    # test (3.14, 5). 45 is more than twice the longest; tests/test_ci_test_parts_cover_the_suite.py
+    # holds the limit to the measured parts.
+    timeout-minutes: 45
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
     # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    # The plugin's verifier runs through `uv run --script` with the package pinned in the server's header. The plugin
+    # tests pass UV_CACHE_DIR and UV_OFFLINE to every process they start (tests/_plugin_env.py), so the job names one
+    # cache outside the checkout, fills it in a step before the suite and runs the suite offline from it; a verifier
+    # missing from the cache is then a red test, not a download in the middle of the run (review package -1, T-2;
+    # tests/test_plugin_ci_uv_cache.py).
     env:
       PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
       PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
+      UV_CACHE_DIR: /tmp/proofbundle-uv-cache
+      UV_OFFLINE: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -357,6 +369,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: python -m pip install -e ".[dev]" pytest-xdist==3.8.0
+      - name: Install uv, pinned
+        run: python -m pip install uv==0.11.32
+      - name: Fill uv's cache with the plugin's pinned verifier (the suite reads it offline)
+        env:
+          UV_OFFLINE: "false"
+        run: uv run --no-config --quiet --script plugins/proofbundle/server/proofbundle_mcp.py < /dev/null
       - name: Lint
         if: matrix.part == 1
         run: ruff check .

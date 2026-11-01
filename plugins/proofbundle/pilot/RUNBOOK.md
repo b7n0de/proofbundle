@@ -76,8 +76,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
        (D119): the service then decides a Level 1 call with the hook's autonomous answer, in the session the event
        names. Without it a release on a card lets nothing run while the pilot is on: the hook waits for the service's
        ALLOW before it uses a release, and a service without the autonomous answer does not give it (A0). With it, the
-       service keeps the releases it signed ALLOW for in freigaben-geehrt.json beside its journal, each once; give it
-       a plugin data directory of its own in `environment` (CLAUDE_PLUGIN_DATA) where it cannot read the hook's (A2);
+       service keeps the releases it signed ALLOW for in freigaben-geehrt.json beside its journal, each once, and
+       evicts none: at 4096 of them a new release gets no signature (release_record_full); give it a plugin data
+       directory of its own in `environment` (CLAUDE_PLUGIN_DATA) where it cannot read the hook's (A2);
      - read access for the deciding account to every repository the agents work in, to the gate directory and to the
        records, and its own uv cache for the verifier the gate runs on an approval; what it cannot read gets no
        signature (workdir_unreadable, pilot_config_unread), never a guessed one;

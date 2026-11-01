@@ -105,8 +105,9 @@ def write_asks(directory: str, asks: dict) -> None:
 
 
 def append_log(directory: str, entry: dict) -> None:
+    """Append one line to the gate log, created with mode 600 as the gate creates it (CodeQL alert 149)."""
     fd = os.open(os.path.join(directory, LOG_NAME), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NONBLOCK
-                 | os.O_CLOEXEC, 0o644)
+                 | os.O_CLOEXEC, 0o600)
     try:
         if stat.S_ISREG(os.fstat(fd).st_mode):
             os.write(fd, (json.dumps(entry, sort_keys=True) + "\n").encode("utf-8"))

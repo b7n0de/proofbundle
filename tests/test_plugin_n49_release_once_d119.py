@@ -31,6 +31,7 @@ import sys
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's release is read
 
 import test_plugin_n29_work_profile_d71 as d71
 import test_plugin_n42_release_d111 as d111
@@ -55,7 +56,7 @@ class World:
     def __init__(self, tmp_path: pathlib.Path, pilot: bool = True):
         self.tmp = tmp_path
         self.env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-                                               "PROOFBUNDLE_GATE_DIR")}
+                                               "PROOFBUNDLE_GATE_DIR", "PROOFBUNDLE_OWNER_STATE")}
         self.data = tmp_path / "data"
         self.data.mkdir()
         (tmp_path / "gatedir").mkdir(exist_ok=True)
@@ -352,7 +353,8 @@ def _held(env, command):
 
 def _settle_env() -> dict:
     """The names the hook's step reads: the gate directory (pilot.json) and the plugin data directory."""
-    return {name: os.environ[name] for name in ("PROOFBUNDLE_GATE_DIR", "CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID")}
+    return {name: os.environ[name] for name in ("PROOFBUNDLE_GATE_DIR", "CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID",
+                                                "PROOFBUNDLE_OWNER_STATE")}
 
 
 def test_the_hooks_step_writes_the_use_once_where_no_pilot_reads_the_call(env):

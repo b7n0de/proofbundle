@@ -131,7 +131,10 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
     Every object that exists before the call is frozen for its length (`gc.freeze`), so a collection the sweep starts
     walks only what the call allocates. Measured in the full suite on 2026-09-30: without it each collection walked the
     whole heap of the suite process, and one test of this file ran past ten minutes that takes seconds on its own. The
-    collections start where they started, and the callback runs at each."""
+    collections start where they started, and the callback runs at each.
+
+    The collector is switched on for the call and left as it was found: a collector that is off starts no collection,
+    and a sweep then finds no window and proves nothing (`TheSweepFrameArmsTheCollectorItself`)."""
     seen = {"n": 0}
     gc.freeze()
     try:
@@ -148,12 +151,15 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
             if seen["n"] == k:
                 change(value)
             seen["n"] += 1
-        old = gc.get_threshold()
+        old, on = gc.get_threshold(), gc.isenabled()
         gc.callbacks.append(callback)
         gc.set_threshold(1, 1, 1)
+        gc.enable()
         try:
             out = call(value)
         finally:
+            if not on:
+                gc.disable()
             gc.set_threshold(*old)
             gc.callbacks.remove(callback)
     finally:
@@ -3241,3 +3247,21 @@ def _knoten_eines_schluessels(wert: Any) -> "set[int]":
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheSweepFrameArmsTheCollectorItself(unittest.TestCase):
+    """The frame of the sweep, `_run`, has the form of `_mit_gc` in tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py,
+    whose ABA case reported "0 of 3 steps found their moment" twice in CI at 4f267e9d, test (3.14, 1), the report of a
+    collector that is off before the frame. With the collector off a sweep starts no collection, finds no window and
+    proves nothing. The frame switches the collector on for its call and leaves the caller's state as it was."""
+
+    def test_the_frame_collects_whatever_the_callers_state_and_restores_it(self) -> None:
+        war = gc.isenabled()
+        try:
+            for vorher in (False, True):
+                (gc.enable if vorher else gc.disable)()
+                _, gestartet = _run(lambda v: [[] for _ in range(5000)], [], 10 ** 9, lambda v: None)
+                self.assertGreater(gestartet, 0, f"no collection started in the frame (collector on before: {vorher})")
+                self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
+        finally:
+            (gc.enable if war else gc.disable)()

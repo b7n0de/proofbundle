@@ -1819,6 +1819,11 @@ Options:
   one when the setting is missing.
 - C. Rules inside the repository. Rejected as the default: the model and any pusher could write them (card 3).
 
+Addendum (D124, 2026-10-26): the premise "the model cannot change the mode" does not hold. A session of the same
+account wrote the mode and the rules through a changed working directory, which the gate does not answer, and the gate
+read them (review package -1, messung/protection/k6_repro.txt; external review of -1, KERN finding 2). Since D124 the
+gate reads none of this directory's owner files unless the hook's environment states a protected channel.
+
 ## D26. Done only with a receipt (the Stop hook)
 
 Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a local hook as an
@@ -2269,6 +2274,10 @@ Limits, in plain words: the parser models bash 5.2 and was not measured under zs
 functions and aliases a host may load into its Bash tool before it; a write after a `cd` to a relative path is not
 judged until class e. The answers of the other classes (b, d, e, g) are unchanged by class c; class a (D34) frees a
 read form after its read profile, alone or as a step that class c judges on its own.
+
+Addendum (D126): the exception of D39 holds only for a body that names neither git nor gh; such a body gets the answer
+of its `-c` form, and a script file a step runs is read (at most 1 MiB) and asks at least where its text names git or
+gh.
 
 ## D34. A read form free after a read profile: class a of the ask load (review fix 18 part B, 2026-10-14)
 
@@ -2758,6 +2767,13 @@ Options:
 - C. An order bound to one session. Not built (owner question O1 of follow-up note 12); the owner chose the account instead,
   to be built before a second account.
 
+Addendum (D128, 2026-10-26): a hook reads the orders of done-orders/ only where its environment sets
+PROOFBUNDLE_OWNER_STATE to `protected`, the protected channel of D124. A session wrote an order and the gate's record of
+it together through a changed working directory, and made one with its own done-order call, and the Stop and
+TaskCompleted hooks judged both. Without the setting no hook reads an order, none is refused or counted, and the done
+check runs on the repository's declaration alone; done-order still writes, lists and removes, and says where the hooks
+read an order.
+
 ## D39. Fewer asks in daily work: a here-document to python, git diff without diff drivers (2026-10-15)
 
 Measured on account A in the pilot at 14a5feb1 under Claude Code, from 22:47 Berlin: five asks in ten minutes. Two came from
@@ -2822,6 +2838,15 @@ Part 2, git diff without diff drivers (owner choice of follow-up note 14):
   hook's environment; a file another process writes between the answer and the run is not seen (D27). The way git
   reads attributes is git's own; a newer git that reads them from another place keeps that place unread until the
   profile names it (attr.tree and GIT_ATTR_SOURCE already ask, as a key and a GIT_* name the profile does not know).
+
+Addendum (D126, 2026-10-26): D126 supersedes part 1 for a body that names git or gh. Such a body is no longer judged by
+the words before the here-document: it gets the answer of the same text given to the interpreter as its `-c` argument,
+an ask under Claude Code and a deny under --autonomous and Codex, so the control of Q18-1 asks again as it did from
+d828c2be to d6e248a8, and the pilot's form that part 1 freed asks again where its Python names git or gh. The sentence
+that such a command "now gets the answer of `python3 file.py`, which the gate does not gate" and the limit "the Python in
+the body may start git or gh, as a file may" hold only for a body that names neither; since D126 a script file run as
+`python3 file.py` whose text names git or gh asks too. Part 1 stands for a body that names neither git nor gh, and part 2
+is unchanged.
 
 ## D40. add, commit and worktree add with one absolute -C, commit -F (2026-10-15)
 
@@ -4434,6 +4459,12 @@ it, never through a link; the gate directory is the person's (D25), so the agent
 directory is known, done-init says that the block will name the default.
 Tests: tests/test_plugin_n32_done_key_b30_2.py.
 
+Addendum (D128, 2026-10-26): the premise "the agent's tools cannot change it" does not hold; a session wrote
+done-keys.json through a changed working directory, and the block named the session's key path. Since D128 the command
+of a block takes the key path from the record only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to
+`protected`; without it, it names PROOFBUNDLE_KEY or the default key file. done-init still writes the record and says
+where a block names it.
+
 ## D80. The Stop hook holds a claim of the last message that has no evidence (O30-2, 2026-10-18)
 
 Measured on account A (WIRKUNG_plugin_20261018.json, gate 0efaf38d): five false completion messages, none held; neither
@@ -5720,8 +5751,9 @@ The rule:
   signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
   before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
   the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
-  release_record_unwritable. Without the setting the service decides without the autonomous answer and signs no
-  release: under it a release lets nothing run (A0).
+  release_record_unwritable, release_record_full. Remembered release keys are not evicted; at 4096 remembered
+  releases, the service refuses new releases. Without the setting the service decides without the autonomous answer
+  and signs no release: under it a release lets nothing run (A0).
 - The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
   its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
   time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
@@ -5756,9 +5788,10 @@ accounts the service reads the hook's data directory only where the operator ope
 decides in a data directory of its own (A2) with its own record; a merge through the REST API is not read as a merge;
 the doors the gate does not gate at all (measured: sudo, twine, uv publish, gpg, cosign and ssh-keygen -Y sign pass
 decide() without a word) are not touched by this rule: no card is asked for them and none frees them (owner question).
-Tests: tests/test_plugin_n49_release_once_d119.py; changed tests: tests/test_plugin_n42_release_d111.py (a forced push
-is no longer released), tests/test_plugin_z405_signer_docs.py (the service's names for its record of the releases stand
-in D119).
+Tests: tests/test_plugin_n49_release_once_d119.py, tests/test_plugin_signer_release_capacity.py (finding S-F1 of the
+external review: 4095 old releases and one recent one, a new release refused, across fresh processes); changed tests:
+tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
+(the service's names for its record of the releases stand in D119).
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
@@ -5911,3 +5944,383 @@ and the two readers of decidedAt take exactly what datetime takes, with the same
 
 Not changed: the form of an instant (_INSTANT), the six fraction digits of decidedAt. Not covered, and named: a leap
 second (23:59:60), which RFC 3339 allows and which the profile, datetime and the readers here refuse alike.
+
+## D123. The pilot's journal never holds the answer, and only a regular file takes its line (N4-4, 2026-10-26)
+
+External review of -1, PILOT finding 1 (KERN finding 5, K-3): the gate attempts its receipts after its verdict and
+before its answer (D55), and _pilot_journal opened `journal.jsonl` of the receipt folder with a blocking open. With a
+valid `pilot.json` whose signer fails and a FIFO named `journal.jsonl` without a reader, the hook waited in that open
+before it printed its permission answer, with no deadline. The reviewer measured a two-second wait on both shipped
+hook forms that ended when a reader opened the FIFO. The owner's order (addendum 4, point 4): journal access does not
+block, only a regular file at the opened descriptor is written, and the gate's answer stands under every receipt-side
+failure; the owner's releases of D119 are the exception, and the texts name them apart.
+
+The rule:
+
+- The gate opens the journal without blocking and without following a link (O_NONBLOCK and O_NOFOLLOW where the
+  platform has them), checks the opened descriptor and writes the line only into a regular file. A FIFO with or
+  without a reader, a device, a folder or a link in its place gets no line and raises an OSError, as a journal that
+  cannot be opened did before; the callers drop it (D55), so the ordinary answer, its exit code, its log line and its
+  bytes stay as they are. The reasons and the form of a journal line are those of D55.
+- The policy digest of a receipt reads the gate's own file as _sha256_or_none reads, without blocking and only as a
+  regular file; a FIFO in its place fails that receipt at once with an OSError.
+- The other paths of a receipt attempt were read for the same class: `pilot.json`, the closing rules, `mode` and
+  `rules.json` are read with _read_regular already; the receipt folder and `decisions/` are made with mkdir, which
+  does not wait on a FIFO in their place; a receipt file is created with O_CREAT and O_EXCL, which never opens an
+  entry that exists, so a FIFO in its slot is passed over to the next attempt. The signer is a child process the gate
+  stops after PILOT_SIGNER_SECONDS (N405-b).
+- D119 is not changed: where the pilot recognizes a released write, release_settle still requires the signed ALLOW
+  before the release is used. A journal line the gate cannot write after the service signed keeps the release, as a
+  journal it could not open did before (read from release_settle, not measured here); a FIFO and a link in the
+  journal's place are now such journals, where a FIFO without a reader held the hook before.
+- The comment that opens the pilot's part of the gate, the README's paragraph on `pilot.json` (TX52) and the row of
+  the pilot in m0/PRODUCT_SPEC.md (TX03) take the reviewer's texts: receipts are attempts with known gaps, an ordinary
+  attempt must not change the answer, and a D119 release is a separate authorization path that waits for the signed
+  ALLOW.
+
+Measured (tests/test_plugin_pilot_journal_never_waits.py): the hook as a subprocess in the three shipped forms, Claude
+Code without a flag, with --autonomous, and Codex (--host codex), on the data of a `gh pr comment ... --repo
+b7n0de/review-local-only` event in a temporary repository, with dummy ids and the signer /bin/false; each case
+compares exit code, stdout, stderr and the log line with the same event without `pilot.json`, and a run has 20 s to
+answer. 14 of 35 cases red at 16cffca on Python 3.12 and 3.14: no answer within 20 s for a FIFO journal without a
+reader and for a link to one (each in the three forms), for the pre-push hook with a FIFO journal and for the policy
+digest with a FIFO in the place of the gate's file; a FIFO with a reader got the line and a link to a regular file was
+followed (each in the three forms). The journal as a folder, the receipt folder as a FIFO or a file, `decisions/` as a
+FIFO, a FIFO in the first receipt slot, the ordinary journal line and an issued receipt's line kept the answer there
+already and keep it. The reviewer's reproduction, run unchanged: waited_for_reader True for both forms at 16cffca,
+False after, with the same answers (ask for Claude Code with --autonomous, deny for Codex).
+
+Not changed: at Level 2 each ref line is one call of the service (O405S-3), each within PILOT_SIGNER_SECONDS, and the
+calls share no overall budget, so a push of n lines can take n x 10 s after its decision before git gets the hook's
+answer (N405-b; git sets no limit). Not measured: a real Claude Code or Codex host, and what a host does after its
+120 s hook timeout.
+
+## D124. Guard Preview reads no owner state a session can write (Nachtrag 4, point 1, 2026-10-26)
+
+The external review of review package -1 (KERN finding 2, Blocker; K-6) and the package's own measurement
+(messung/protection/k6_repro.txt): `cd <gate directory> && echo with-approvals > mode` gets no answer from the gate under
+either host, it runs, and the gate then reads with-approvals. D25 rested on the gate denying every write to its
+directory; it denies the forms it recognizes, and a changed working directory, an interpreter or a dynamic target is
+not one of them. The owner's order (Nachtrag 4, point 1): in Guard Preview the use of approval and pin state is off by
+default until a protected channel exists; the house builds that channel through an account of its own, not a session.
+
+Measured at the head of the fix slice for finding 7 on 2026-10-26 (tests/test_plugin_owner_state_session_written_d124.py,
+7 cases, red at that head on Python 3.12 and 3.14): a session wrote each owner file of the directory through a changed
+working directory, which three hook forms (Claude Code without a flag, with --autonomous, and Codex) left unanswered,
+and the gate then consumed it. A mode and a rule freed git stash list (approved_by_rule); a transport approval was read;
+a pin over a pre-commit hook the session had replaced (cd .git/hooks) and a .git/config it had appended to (cd .git) freed
+git commit -m work (free_pinned_state); a hook record over the replaced hook freed it too (free_recorded_hooks); a
+release freed gh pr create -R b7n0de/proofbundle in decide() with the autonomous answer (released_by_owner); and a
+declared work folder took the deny from an append outside the repository, under Claude Code and under Codex.
+
+The rule: the gate reads the owner files of its directory, the mode and rules.json (D25), transports.json (D35),
+hook-state.json (D106), pin-state.json (D114, D115), the releases in freigaben/ (D111, D119) and work-folders.json
+(D104), only where the hook's environment sets PROOFBUNDLE_OWNER_STATE to `protected` (_owner_state_read). Without it the
+mode is strict, no rule frees, no transport is approved, so no hand-over of D35 takes place, no hook record or pin frees,
+no release frees, and the work folders are the repository, the project and the session's scratch. The setting is the
+house's statement that an account the session cannot act as owns the directory and every folder above it; the gate does
+not check that, so the setting is not itself a protection. The tests of what a person's file does run with it
+(tests/_owner_state.py); the seven cases above run without it and are green.
+
+Not changed: the gate still denies the writes to its directory and to the clone's hooks and configuration it recognizes
+(D25); those denials are not a boundary. The session can still replace .git/hooks/pre-push or set core.hooksPath in
+.git/config through the same unanswered forms, so git's Level 2 stays a check the session can bypass (the reviewer's
+open consequence of a replaced Level 2 hook is NOT MEASURED here beyond the pin and the hook record above). Not covered,
+and named: done-orders/ and done-keys.json in the same directory, which the done check reads, are the same class and are
+not part of this order; pilot.json is read as before.
+
+Addendum (D128, 2026-10-26): owner answer 6 of Nachtrag 7 (option A) switches done-orders/ and done-keys.json off by
+the same setting; pilot.json stays as it is.
+
+Addendum (owner answer 5 of Nachtrag 7, 2026-10-26: C as the goal, A until then): the protected channel is to be a
+record signed with a key outside the session, which the house builds through an account of its own; until it
+exists, the channel is this setting, which stays the house's statement and no protection, as said above. D128
+and D129 read it, or a setting of their own, in the same way.
+
+## D125. The public hook commands carry no --autonomous; the flag is the house's opt-in (owner order N4-3, 2026-10-26)
+
+Owner order N4-3 of 2026-10-26, on the external review of the Guard Preview stack, translated: "The combined flag
+--autonomous is removed from the public hook commands. The standing release for work branches (D87) exists publicly
+only after its own, protected, explicit consent. A house configuration with the flag is marked as opt-in." The review
+(KERN K-7 and finding 4, TESTS T-4): the one flag of D85 turns a base ask into a deny and also switches on the standing
+GO of D87; the conditions of D87 (a declared repository, evidence and configuration that agree, every remote a
+repository of b7n0de on github.com) do not obtain an outside user's consent; and a test that starts the gate itself,
+with or without the flag, is no witness of what the shipped hook answers.
+
+Measured at 16cffca on 2026-10-26 (tests/test_plugin_public_hooks_without_autonomous_d125.py, Python 3.12 and 3.14),
+each shipped PreToolUse command run as the host runs it (the group whose matcher matches the tool, ${CLAUDE_PLUGIN_ROOT}
+put in, `sh -c`, the event on stdin, the repository and hook environment of the D87 tests) against the gate started
+without the flag: the four PreToolUse commands of hooks/hooks.json carried --autonomous; the seven work-branch pushes
+of the D87 tests passed with free_work_branch_go where the gate without the flag asks; `git reset --hard HEAD~1`, a
+Write into .git/hooks and a gated MCP pull request in the work profile were denied (D85, D93) where it asks; 11 of 14
+cases red. The read hook proofbundle_secrets.py (D102) hands its arguments on to the gate. With and without the flag, a
+Read of a key file, a Grep of a folder of keys, a Read of `~/.netrc` and an event that is no JSON got exit 0, the same
+bytes on stdout (a deny with secret_path, and with hook_input for the event) and the same log line but for its time; a
+Read of another path started no gate either way. The flag changed nothing in that hook's answer.
+
+The rule: no command of hooks/hooks.json and of .codex-plugin/plugin.json carries --autonomous. The shipped Claude
+Code hook answers as decide() judges: a base ask stays an ask, and nothing of the autonomous answer applies (D85 to
+D92, the standing GO of D87 among them, the cards of D93, D106, D114 and D115, the releases of D111 and D119). The Codex
+manifest never carried the flag and is unchanged. A house configuration that starts the gate with the flag is an
+opt-in: it is no file of the plugin, and the texts name it an explicitly enabled house configuration. The description
+of hooks/hooks.json, two rows and the profile paragraph of m0/PRODUCT_SPEC.md and a paragraph of the README before the
+three levels take the reviewer's texts word for word (TX42, TX01, TX49, TX59, TX48). Green at the fix: the 14 cases, on
+Python 3.12 and 3.14.
+
+Not changed: the gate keeps AUTONOMOUS_FLAG, and started with it answers as D85 to D92, D93, D106, D111, D114, D115 and
+D119 say, as the house's opt-in; the tests of those decisions start the gate with the flag themselves and test that
+opt-in, not the shipped hook. decide() and every answer under Codex stay. The signer service decides with the
+autonomous answer only where its operator sets `"autonomous": true` (D119), which belongs to hooks started with the
+flag. Changed tests: tests/test_plugin_n35_autonomy_d85.py (the plugin's hooks start their script without the flag),
+tests/test_codex_plugin.py (the Codex gate command is the Claude Code one with `--host codex` added).
+
+Not covered, and named: a protected, explicit consent channel for the standing GO of D87 does not exist, so the public
+default grants none; how the house adds the flag on its own machines is not measured here. The first sentence of TX59
+(a Verify-only installation registers no Guard hooks) states the packaging the review requires in K-1, which the Verify
+slices of delivery -2 carry (01, 02a, 08a, 13a, held by tests/test_plugin_verify_carries_no_guard.py), not this rule:
+from the Guard slices 02b and 02c on, both manifests register the Guard hooks. Texts that still describe the flag as
+shipped (m0/IMPLEMENTATION_GAP.md G-CC-1 and P-1, the house profile row of m0/PRODUCT_SPEC.md, the sentences of D85 and
+D113 on hooks.json) are not changed by this rule. A real Claude Code or Codex host: NOT MEASURED.
+
+## D126. Code that names git or gh asks at least, in a here-document to python and in a script file a step runs too (finding 2 of review package -1, 2026-10-26)
+
+Finding 2 of review package -1 (README.md:105, D39 part 1, D33): the README says that under class c "code that names git
+or gh asks at least". Measured in the package (push_carrier_A.json, siblings_A.json; trap scaffold repo-missing, no
+Level 2): `python3 - <<'PY'` whose body runs `os.system('git push origin main')`, and `python3 push.py`, `bash push.sh`
+and `./push.sh`, each pushing, got no decision under `--autonomous` and under `--host codex`, and both here-document
+pushes reached the local bare remote. The external review (KERN, answer K-8 and finding 3): a recognizer that misses
+interpreter input and script contents can be called an early warning only. The owner ordered this fix with its red case
+first (Nachtrag 2); Guard Preview waits for it.
+
+Measured again at 16cffca (carrier matrix of the slice, scaffold repo-missing, the hook without a flag, with --autonomous
+and with --host codex, the gate under Python 3.12): with a pushing body or script, no decision under any of the three for
+`python3 - <<'PY'`, `python - <<'PY'`, `python3 - arg <<'PY'`, `python3 push.py`, `bash push.sh`, `sh push.sh`,
+`./push.sh`, `./push.py` (a shebang) and `. push.sh`. `node - <<'JS'`, `bash <<'SH'`, `sh -s <<'SH'` and the `-c` forms
+(`python3 -c`, `node -e`, `bash -c`) asked without a flag and were denied under --autonomous and Codex. A harmless body or
+script, and a script that does not exist, got no decision anywhere.
+
+The rule:
+- A here-document of the D39 form (`python3 - [arguments] <<'MARK'` or `python - …`, the marker quoted) whose body names
+  git or gh, as class c reads the text of a carrier (_SH_GIT_TEXT), is judged as the same text given to the interpreter
+  as its `-c` argument, `python3 -c '<body>' [arguments]` (_interpreter_heredoc_head). It gets the answer of that form
+  by the path of D33: an ask under Claude Code (code_names_git, or the safety net where the whole text asks already), a
+  deny under --autonomous (D85) and under Codex. A body that names neither keeps the answer of D39. No other here-document
+  carrier was without a decision (node, bash and sh -s in the matrix, perl and python without `-` in the tests asked
+  already), so the rule stays at the D39 form. The exception D33 names since D39 holds only for a body that names
+  neither.
+- A script file a step of class c runs (_sh_script_word): the first word after an interpreter (_SH_INTERPRETER; gawk,
+  mawk and nawk aside, whose first word is a program text) or a shell (bash, sh, zsh, dash, ksh, mksh, fish, `.`,
+  `source`) where that word is literal and no option, else the program word where it is a path. The gate reads the file
+  when it answers (_sh_script_naming_git): a regular file, followed through links, of at most MAX_SCRIPT_BYTES (1 MiB),
+  its type checked by stat and again at the descriptor it opens without blocking (_read_regular, R18-2), so a FIFO, a
+  device or a folder is never read or waited on. Where its text names git or gh (_SH_GIT_TEXT), the step asks at least
+  (code_names_git: "the file … the step runs names git or gh"), as the text of a carrier does (D33), and --autonomous and
+  Codex deny it. This holds in every command class c models, for a step of a chain or a substitution too.
+- A script that names neither, does not exist, is no regular file or is longer than MAX_SCRIPT_BYTES keeps the answer
+  its step has without the file. A key path of D102 is never stat'ed or opened (the house rule denies its call). A
+  program run by path that starts with the ELF magic is a compiled program, not a script, and is not searched.
+
+Measured (tests/test_plugin_code_carrier_names_git_d126.py): 76 of 142 cases red at 16cffca on 3.12 and 3.14 (40
+here-document cases, 24 script cases, two links, the bound, and nine hook runs: the here-document, `./push.sh` and
+`python3 push.py` under the three hook forms), green here; the 66 controls green at both (a body or a script that names
+neither, a missing script, a FIFO, a key path, the carriers that asked already, the quiet carriers through the hook). The
+carrier matrix after the rule: the 27 rows of the nine carriers without a decision ask without a flag and are denied under
+--autonomous and Codex; the other 63 rows are unchanged.
+
+What it costs, measured with decide() under Claude Code at 16cffca and here: over the 80 Bash rows of the fallbook
+(tests/test_plugin_n33_fallbook.py, its 40 forms in its two repositories) and the eight gate-push cases of the eval corpus
+in their scaffolds, no answer changed (54 asks before and after); neither set holds a script or a here-document whose
+code names git or gh. Not measured on daily work: the pilot's form of D39 (Python that names git or gh in a here-document)
+asks again, two asks in ten minutes on account A when D39 was measured, and moving such Python into a file no longer
+avoids the ask; 31 of the 52 scripts under scripts/ of this repository name git or gh, so running one of them by path,
+python3 or bash now asks (owner question: whether the house moves such calls into a git step of their own).
+
+Changed tests, each where it asserted the answer of D39 this rule reverses: tests/test_plugin_heredoc_interpreter_input.py
+(test_P1_the_body_of_a_quoted_heredoc_to_python_is_no_shell_text now reads a body that names neither git nor gh; the
+pilot's body, which names both, asks under Claude Code and is denied under Codex in
+test_P1_D126_a_body_that_names_git_or_gh_gets_the_answer_of_its_c_form) and tests/test_plugin_ask_load_c_steps.py
+(test_D39_the_heredoc_python_form_of_q18_1_is_judged_as_the_file_form is now
+test_D39_D126_the_heredoc_python_form_of_q18_1_gets_the_answer_of_its_c_form).
+
+Not changed: D39 part 2; the answer of D39 for a body that names neither; every ask and every deny; the `-c` path; the
+push path, Level 2 and the CI check. No product text: README.md:105 and its neighbours keep their words until the owner
+decides them.
+
+Limits, named: this stays an early warning, not a check of every push (KERN, K-8). The gate reads words: a body or a
+script that builds the word (`'g' + 'it'`, an encoding, a variable) names no git and keeps its answer, as the same text as
+`-c` does. The file is read when the gate answers: a change after the answer, a file an earlier step of the same command
+writes (`printf … > s.sh && sh s.sh`), and code the script loads or starts from elsewhere (an import, a `source` inside
+it, another program) are not read. Kept without the file: a script the shell finds through PATH (bash searches PATH for
+`. push.sh` before the working directory), a relative script after a `cd` (its directory is unknown until class e), an
+option before the script (`python3 -u x.py`, `bash -e x.sh`), a wrapper before the program (env, sudo, exec, timeout,
+nohup, xargs, uv run, make), a script word the shell may rewrite (`~/x.sh`, `$D/x.sh`), a form the parser of class c does
+not model, and a file longer than MAX_SCRIPT_BYTES. Under Codex the hook's directory is the session's, not the call's
+working directory (D12), so a relative script is read there. A read on a filesystem that blocks a read of a regular file
+is not bounded by the gate, as no read of the gate is (NOT MEASURED). Level 2 on these carriers and a real host are NOT
+MEASURED. Tests: tests/test_plugin_code_carrier_names_git_d126.py.
+
+## D127. An open blocker is handed on at the next session start, and stalls into one owner card (addendum 2, 2026-10-26)
+
+Owner order (addendum 2 of 2026-10-26, "hand-over instead of end"): an open blocker starts the next round with exactly
+the red checks, through a SessionStart hook that hands the open blocker on as the task; after two rounds without
+progress the hook writes an owner card into a fixed folder the house collects. The text boundary: Guard does not count
+a task as done before the required checks pass; it does not make the agent work until they pass. Measured at 16cffca:
+after max_blocks blocks without progress (at most 7, MAX_BLOCKS_LIMIT, under the eight continuations after which
+Claude Code overrides a Stop hook) the Stop hook writes .proofbundle/done-blocker.json and lets the session end NOT DONE
+(D28), and the next session starts without a word of it; the gate read `session-start` as an unknown argument of the
+PreToolUse gate and printed a PreToolUse deny.
+
+The rule:
+
+- `proofbundle_gate.py session-start` is a SessionStart hook in hooks/hooks.json without a matcher, so it runs for every
+  source (startup, resume, clear, compact). Codex: not registered, the Codex manifest is unchanged; whether Codex runs a
+  SessionStart hook of a plugin is NOT MEASURED. The description of hooks.json is unchanged.
+- It looks for DONE_BLOCKER, a regular file, in the repository of the event's cwd and in each repository a local done
+  order binds (D38). Without one it prints nothing. Only the file's presence is read, never its text.
+- The blocker of a local done order whose repository git does not find (owner choice O3), `<key>.blocker.json`
+  beside the order in the gate directory, is named in a systemMessage and hands nothing on: there is no repository
+  to work in, done-order --list names the order, and a person removes it (_unbound_blockers; owner answer A on card
+  OA-694b3f17d4, found in the reading of this slice and measured, red first). Only its presence is read.
+- With one it runs the done check again as the Stop hook does (done_evaluations) and takes only the open points of that
+  fresh verdict. A pass, or no done check, prints nothing and leaves the files as they are; the next Stop counts the
+  pass and removes them.
+- Still NOT DONE, it updates the hand-over record .proofbundle/done-handover.json (DONE_HANDOVER, {schema, rounds, open,
+  head, carded, written}, open as [id, status] pairs): the same open set as the record's is no progress and counts
+  rounds + 1; any other set starts again at round 1, a strict subset (progress) included.
+- Rounds 1 and 2 (HANDOVER_ROUNDS) hand the open points on as hookSpecificOutput.additionalContext, built from the fresh
+  verdict alone: the repository, "round N of the hand-over", each open point by its id and status with the command the
+  gate builds for it (check_command for a check, the open point's command otherwise), and the sentence "The task counts
+  as done only when the Stop hook's done check passes; this hand-over asks for nothing else." An id outside the order's
+  grammar (_CHECK_ID), a status outside the gate's names (_OPEN_REASON and the refusals before the checks), and the
+  command beside them are shown as "an open point the gate does not show". A short systemMessage names the round to the
+  user.
+- At round 3 it writes one owner card into `<gate directory>/owner-cards/` (D25's location: user-wide, outside every
+  repository), `done-handover-<sha256 of the repository and the open set>.json`, created once and never through a link:
+  {schema "proofbundle-plugin/owner-card/v0.1", kind "done-handover-stalled", repo, head, open, rounds, blocker,
+  written, text}. The record says carded true, a systemMessage names the card, and that open set is handed on no
+  further: no additionalContext. A later start names the card again and writes none; the same stalled state never gets
+  a second card, also after a reset record; a changed open set starts again at round 1.
+- A done end at Stop removes the hand-over record together with the blocker (_account_pass); a record it cannot remove
+  is named in the end's message as the blocker is, each with what it means (the blocker's sentence is unchanged).
+  DONE_OWN_FILES names the record, so done-init's .gitignore and done-order's info/exclude keep it out of commits and no
+  check may name it as its receipt.
+- No failure blocks the start; the hook exits 0. Input that is no SessionStart event, a check that reached no verdict
+  or ran past DEADLINE_SECONDS (the Stop hook's 90 s), a card or a record the hook cannot write, and a record it cannot
+  read are each named in a systemMessage; where the check reached no verdict nothing is handed on. Where Python cannot
+  start the gate, the hook command prints its own systemMessage.
+
+Threat model, in short:
+
+- T1, the session deletes or edits the blocker or the record: the done verdict stays the Stop hook's and the CI
+  check's. Deleting the blocker only skips the hand-over; an edit changes nothing the hook shows, as it evaluates again.
+  Resetting the record postpones the card; the card is a notice to the owner, not a boundary.
+- T2, injection through the blocker or through check output: the context names only ids and statuses of the gate's own
+  grammars and commands the gate builds; no free text of the blocker, a receipt or a test output.
+- T3, fake progress: only the same open set counts on. Changing the order to drop a check is a commit, judged as today
+  (D28, the CODEOWNERS template; not measured here). Limit, named: any other open set starts at round 1 as well, so a
+  session that turns a red check into a missing one and back postpones the card, as a reset record does (T1).
+- T4, endless rounds: a card after two rounds without progress, then no further hand-over of that open set.
+- T5, a card or record that cannot be written: named in the systemMessage, never silent.
+- T6, no SessionStart (Codex, an untrusted or disabled hook, a host that does not run it): no hand-over; the NOT DONE
+  end and the blocker stand as before.
+- T7, the model ignores the context: Guard does not count the task as done before the required checks pass; it does
+  not promise that the agent works until they pass.
+- T8, a slow evaluation at the start: the Stop hook's DEADLINE_SECONDS; past it, a message and no context.
+
+Measured (tests/test_plugin_done_handover_d127.py, an order with the checks unit and integration and max_blocks 1): 18
+of 18 cases red at 16cffca. Each start runs the gate as the hook runs it, after the Stop hook wrote the blocker: (a) for
+each of the four sources round 1 hands on exactly the red check with its gate-built command, and the record holds
+[["integration", "red"]] and HEAD; (b) round 2, then one card and no context, and a fourth start writes no second card;
+a deleted record starts again at round 1 and the same stalled state gets no second card (T1); (c) a strict subset and a
+changed status each start at round 1; (d) a blocker with an injected sentence, a changed command, an id outside the
+order, or bytes that are no JSON gives the same answer as the plain blocker (T1, T2), and open points planted with an id
+outside the grammar or a status that is not the gate's are not shown, nor their commands (T2, in process); (e) without
+a blocker and outside a repository nothing is printed; (f) a fresh pass prints nothing and leaves the blocker and the
+record, and the next done end removes both; (g) an owner-cards path that is a regular file is named and the start goes
+on (T5); a check past its deadline gives a message and no context (T8, in process); input that is no event is named;
+(h) hooks.json registers the hook, the registered command hands over and names a gate that cannot start, and the Codex
+manifest names no SessionStart.
+
+Read in the code, not run: where a start keeps the session id of the session that ended NOT DONE (which sources do is
+NOT MEASURED), the Stop hook's count of that session stands past max_blocks, and its next end with the same open
+points ends NOT DONE at once; a session with a new id counts from 1. NOT MEASURED: a real Claude Code session running
+the SessionStart hook (that the host gives the context to the model and the message to the user in this form); whether
+the model works on the handed-over checks; Codex. Not covered, and named: the hand-over writes no line of the gate log
+(D21); a refused local order whose repository git does not find keeps its blocker in the gate directory (O3) and is not
+handed on; the card is not read back by anything in the plugin. README and RUNBOOK texts are unchanged in this slice.
+
+## D128. No hook reads a done order or a key record a session can write (owner answer 6 of Nachtrag 7, 2026-10-26)
+
+D124 named done-orders/ and done-keys.json of the gate directory as files of the class it switched off, and left them
+out. The reason the owner was given: a key a session writes signs its own done receipt, and an order a session writes
+can drop a check. The owner's answer (answer 6 of Nachtrag 7, 2026-10-26, option A): "done-orders/ and done-keys.json:
+A, switched off without a protected channel."
+
+Measured at f21f785d (tests/test_plugin_done_state_owner_state_d128.py, 10 of 16 cases red on Python 3.12 and 3.14):
+each write of the session got no decision from the gate in the three hook forms (Claude Code without a flag, with
+--autonomous, and Codex) and ran. An order written together with the gate's record of its digest through `cd <gate
+directory>`, and an order the session made with its own `done-order --repo` call, which owner choice O2 of D38 leaves
+free, were each judged by the Stop hook run from a directory outside the clone, under Claude Code and under Codex ("the
+local done order <key>: check tests is missing"), and TaskCompleted kept the task open. A person's order of the checks
+unit and integration, rewritten by the session together with its record to unit alone, let the end pass on the receipt
+of unit. An order the gate cannot read blocked the end (order_unreadable) and was counted beside it (O3). A blocker in
+a clone an order of the session binds was handed on at the next session start (D127). A done-keys.json the session
+wrote put the session's key path into the command of the block.
+
+The rule:
+
+- A hook reads the local done orders of D38 only where its environment sets PROOFBUNDLE_OWNER_STATE to `protected`
+  (_owner_state_read of D124, through _hook_orders): the Stop and TaskCompleted hooks (done_evaluations) and the session
+  start of D127 (_blocked_repos). Without it no order is read, and the done check of an end runs on the repository's
+  declaration alone, as in a repository without an order: a declaration at HEAD is judged as before (D28), a declaration
+  found only in the work tree is refused as uncommitted (declaration_not_committed), and no repository but the one of
+  the hook's directory is judged.
+- What a refusal of an order means then: none is made. An order that changed, has no record of the gate, lost its file,
+  cannot be read, or names a repository git does not find blocks no end, is counted nowhere (no `<key>.state.json` or
+  `<key>.blocker.json` of O3 is written) and is handed on by no session start; the folder is not listed, so a folder the
+  hook cannot list blocks nothing either.
+- The command a block names (check_command) takes no key path from done-keys.json without the setting
+  (_recorded_key_path): it names PROOFBUNDLE_KEY where that is an absolute path, else the default key file of the gate
+  directory, as for a record the gate does not read (D79). The hand-over of D127 shows the same command.
+- What still writes: done-order and done-init, which a person runs, write as before whatever their own environment sets.
+  The setting is the hook's environment, which a person's shell need not carry; what they write takes effect only in a
+  hook that has it, and the digest record of D38 still guards an order made before the house states the channel.
+  done-order says, and `done-order --list` says in a last line where it lists an order, that the Stop, TaskCompleted
+  and SessionStart hooks read local done orders only with the setting (HOOK_ORDERS_NOTE). `--list` still reads the
+  folder for a person and names each order with what the gate finds for it; a refusal it names blocks nothing without
+  the setting. `--remove` and `--replace` are unchanged. done-init still records the key file and, where that is not
+  the default key file, says that the block names it only with the setting, so PROOFBUNDLE_KEY is to name it there.
+- With the setting, both files are read as before (D38, O3, D79, D127): the six controls of the module.
+
+Green at the fix: the 16 cases on Python 3.12 and 3.14. Changed tests, each where it tests what a person's order or
+record does: tests/test_plugin_done_local_order.py and tests/test_plugin_done_order_unbound_count.py (a person's local
+order through the Stop and TaskCompleted hooks) and tests/test_plugin_n32_done_key_b30_2.py (a person's record of the
+key file) take the opt-in of tests/_owner_state.py, and the case of a local done order in
+tests/test_plugin_n21_marker_in_no_reason.py states the setting in the environment it builds. Without them 18 cases of
+these four modules failed at the fix (Python 3.12), each where a person's order or record was no longer read; with them
+they pass.
+
+Found, not changed: the eval scaffolds (plugins/proofbundle/evals/_fixtures/scaffold.sh) write no done order and no key
+record; the done modes commit their declaration and copy a receipt into the work tree, and the gate directory of the
+done cases of tests/test_plugin_evals.py holds neither file. The done-check tests of the hooks
+(tests/test_plugin_done_check.py, tests/test_plugin_done_handover_d127.py,
+tests/test_plugin_review_fix5_r3_count_record.py, tests/test_plugin_gate_done_only.py) judge committed declarations;
+where done-init runs there it makes the default key file, which a block names with the record and without it. None of
+them rests on either file, and they pass unchanged.
+
+Not changed: D28 and every check a committed declaration names; the push path, Level 2 and the CI check, which reads no
+order (done-check; the command its message names follows the rule above); the answers of the PreToolUse gate to a
+done-order call (D38, O2, F1) and its denials of recognized writes to the gate directory (D25), which are no boundary.
+
+Consequence, named: a house that keeps its done order only outside the work tree (account A's variant E of D38) has
+every end in that clone refused as uncommitted, and an end run from outside the clone judges nothing there, until it
+states the protected channel in the hook's environment or commits its declaration; a key file done-init put elsewhere
+is named in a block only with the setting or through PROOFBUNDLE_KEY. The README's paragraph on the local order ("The Stop and TaskCompleted hooks then judge that clone at
+every end") keeps its words in this slice; it holds only with the setting, and a proposal goes to the report.
+
+Not covered, and named: the setting is the house's statement, not a protection (D124). With it, a session that rewrites
+an order and the gate's record together still drops a check (the limit of D38, a control of the module), and a session
+may still make a new order with done-order, which O2 leaves free. The default key file done-test.key lies in the same
+directory, and a session can replace it: the gate never reads it, it names its path, and a receipt it signs verifies
+only where the policy the done check reads pins its public key (the one at HEAD, a reviewed commit; with the setting,
+also the policy an order carries). pilot.json is read as before (D124). A real Claude Code or Codex host: NOT MEASURED.

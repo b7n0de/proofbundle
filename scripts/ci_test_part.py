@@ -37,6 +37,7 @@ The contract over all of this is tests/test_ci_test_parts_cover_the_suite.py.
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import re
 import statistics
@@ -79,8 +80,10 @@ def load_weights(path: pathlib.Path = WEIGHTS) -> tuple[dict[str, float], dict[s
         offset = float(data["part_one_offset_seconds"])
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise pytest.UsageError(f"the weights of the CI parts cannot be read from {path}: {exc}") from exc
-    if not files or any(v < 0 for v in [*files.values(), *tests.values(), offset]):
-        raise pytest.UsageError(f"the weights in {path} are empty or negative")
+    # A weight is a duration: finite and not negative. JSON reads `1e309` as infinity and `NaN` as not a number, and
+    # `v < 0` let both through (first reading of PR 440, Z7).
+    if not files or any(not math.isfinite(v) or v < 0 for v in [*files.values(), *tests.values(), offset]):
+        raise pytest.UsageError(f"the weights in {path} are empty, negative or not finite")
     return files, tests, offset
 
 

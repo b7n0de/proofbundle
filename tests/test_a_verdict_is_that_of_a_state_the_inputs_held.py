@@ -395,15 +395,20 @@ class _Registriert(unittest.TestCase):
 
 def _mit_gc(cb: Callable[[str, dict], None], aufruf: Callable[[], Any]) -> Any:
     """``aufruf()`` with the caller's gc callback ``cb`` armed and a collection at nearly every allocation; every object
-    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`)."""
-    alt = gc.get_threshold()
+    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`). The collector
+    is switched on for the call and left as it was found: a collector that is off starts no collection, and the ABA
+    case then reports that no step found its moment (CI at 4f267e9d, `TheMeasuringFrameArmsTheCollectorItself`)."""
+    alt, an = gc.get_threshold(), gc.isenabled()
     gc.freeze()
     try:
         gc.callbacks.append(cb)
         gc.set_threshold(1, 1, 1)
+        gc.enable()
         try:
             return aufruf()
         finally:
+            if not an:
+                gc.disable()
             gc.set_threshold(*alt)
             gc.callbacks.remove(cb)
     finally:
@@ -919,3 +924,23 @@ class AThreadThatMovesTheInputsGivesTheVerdictOfAHeldState(_Registriert):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheMeasuringFrameArmsTheCollectorItself(unittest.TestCase):
+    """CI at 4f267e9d, test (3.14, 1), twice: the ABA case above reported "0 of 3 steps found their moment".
+    Measured on 3.10 and 3.14.8, that is what it reports when the collector is off before it runs: `_mit_gc` set the
+    threshold and the callback and left the collector as it found it, so no collection started. A frame that counts
+    on collections at nearly every allocation switches the collector on for its call and leaves the caller's state
+    as it was, on and off."""
+
+    def test_the_frame_collects_whatever_the_callers_state_and_restores_it(self) -> None:
+        war = gc.isenabled()
+        try:
+            for vorher in (False, True):
+                (gc.enable if vorher else gc.disable)()
+                gestartet: list = []
+                _mit_gc(lambda phase, info: gestartet.append(phase), lambda: [[] for _ in range(5000)])
+                self.assertIn("start", gestartet, f"no collection started in the frame (collector on before: {vorher})")
+                self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
+        finally:
+            (gc.enable if war else gc.disable)()
