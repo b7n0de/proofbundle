@@ -39,6 +39,8 @@ CLAIM = {
 WRONG = (
     ("result", 1), ("result", "BOGUS"), ("result", "passed"),
     ("configuration", [{}]), ("configuration", [{"name": "only-a-name"}]),
+    # The first reading of pull request 452 (sol-pro, P2): a locator present in another type than a string.
+    ("configuration", [{"uri": 5}]), ("configuration", [{"content": False}]),
     ("url", 5), ("passedTests", "a"), ("warnedTests", 3), ("failedTests", [1, 2]),
 )
 
