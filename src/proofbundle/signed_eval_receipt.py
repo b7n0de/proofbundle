@@ -27,9 +27,11 @@ on its own, never by a batch. The procedure is the one of -00, which -04 keeps w
 change of -04 is that a verification key that is not exactly 32 octets is an input error.
 
 NO VERDICT WITHOUT THE STEPS. A verification key that is not exactly 32 octets is an input error: no step
-runs, and the verdict says ``input_error``, with no step. A receipt nested deeper than this reader's limits
-(the interpreter's recursion limit, unchanged) stops the procedure: the verdict says ``resource_limit``, with
-no step. Neither is PASS nor the failure of a step (the draft's Section 5). The verifier never raises.
+runs, and the verdict says ``input_error``, with no step. A receipt or a B nested deeper than this package's JSON
+bound (``budget.json_depth``, counted from 1 at the root with scalars, as ``_strict_json`` counts it) stops the
+procedure: the verdict says ``resource_limit``, with no step. The bound is checked here on every interpreter; the
+interpreter's RecursionError is a backstop only, since ``json.loads`` raises it on some builds and parses the same
+100000 levels on others. Neither is PASS nor the failure of a step (the draft's Section 5). The verifier never raises.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
@@ -43,6 +45,7 @@ import re
 from typing import Any, NamedTuple, Optional
 
 from ._membership import is_member
+from .budget import DEFAULT_BUDGET
 from .canonical import _ein_stand
 from .dsse import pae as _dsse_pae
 from ._wire_b64 import decode_b64
@@ -177,6 +180,19 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
         raise _Limit(f"{what} nests deeper than this reader's limit ({type(exc).__name__})") from None
     except ValueError as exc:
         raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
+
+    # The depth first, before any step judges the text: measured at bd1bdf6b, the Python 3.14 of CI parsed
+    # 100000 nested lists without a RecursionError and step 1 failed, where 3.14.8 on another machine raised it.
+    bound = DEFAULT_BUDGET.json_depth
+    levels = [(value, 1)]
+    while levels:
+        v, depth = levels.pop()
+        if depth > bound:
+            raise _Limit(f"{what} nests deeper than {bound} levels")
+        if isinstance(v, dict):
+            levels.extend((x, depth + 1) for x in v.values())
+        elif isinstance(v, list):
+            levels.extend((x, depth + 1) for x in v)
 
     stack = [value]
     while stack:

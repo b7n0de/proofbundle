@@ -214,6 +214,35 @@ class NoReceiptBytesRaise(unittest.TestCase):
         self.assertEqual((got.ok, got.step, got.resource_limit, got.input_error, got.step_label),
                          (False, None, True, False, "resource limit"))
 
+    def test_the_depth_bound_is_the_packages_and_not_the_interpreters(self):
+        """One level past ``budget.json_depth`` is a resource limit, and a receipt at the bound is read and fails step
+        1. No interpreter raises RecursionError at this depth, so only the reader's own bound can decide it; at
+        bd1bdf6b the Python 3.14 of CI parsed 100000 levels and step 1 failed."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        ser, n = _ser(), DEFAULT_BUDGET.json_depth
+        formen = {"lists": lambda k: b"[" * k + b"]" * k,
+                  "objects": lambda k: b'{"a":' * (k - 1) + b"{}" + b"}" * (k - 1)}
+        for form, bau in formen.items():
+            with self.subTest(form=form):
+                got = ser.verify_signed_eval_receipt(bau(n + 1), BY_ID["P1"]["key"])
+                self.assertEqual((got.ok, got.step, got.resource_limit, got.step_label),
+                                 (False, None, True, "resource limit"))
+                got = ser.verify_signed_eval_receipt(bau(n), BY_ID["P1"]["key"])
+                self.assertEqual((got.ok, got.step, got.resource_limit), (False, 1, False), got.reason)
+
+    def test_a_b_past_the_depth_bound_is_a_resource_limit_not_step_4(self):
+        """The same bound holds for B, read at step 4: past it no step fails, at it step 4 fails, since B is no
+        object."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        ser, n = _ser(), DEFAULT_BUDGET.json_depth
+        for tiefe, erwartet in ((n + 1, (False, None, True)), (n, (False, 4, False))):
+            b = b"[" * tiefe + b"]" * tiefe
+            receipt = json.dumps({"schema": ser.RECEIPT_TYPE, "payload_b64": base64.b64encode(b).decode("ascii"),
+                                  "signature": {"alg": "ed25519", "sig": "AA=="}}).encode("utf-8")
+            with self.subTest(depth=tiefe):
+                got = ser.verify_signed_eval_receipt(receipt, BY_ID["P1"]["key"])
+                self.assertEqual((got.ok, got.step, got.resource_limit), erwartet, got.reason)
+
     def test_a_receipt_that_is_no_bytes_value_fails_step_1(self):
         ser = _ser()
         self.assertEqual(ser.verify_signed_eval_receipt("not bytes", BY_ID["P1"]["key"]).step, 1)
