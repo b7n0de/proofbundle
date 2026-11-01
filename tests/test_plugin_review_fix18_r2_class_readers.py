@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's files are read
 
 import test_plugin_owner_choice1_undeclared_push as w1
 from _plugin_env import plugin_env
@@ -33,9 +34,9 @@ spec = importlib.util.spec_from_file_location("probe_gate", sys.argv[1])
 g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 what, work, place = sys.argv[2], sys.argv[3], sys.argv[4]
 if what == "mode":
-    print(json.dumps(g._read_mode({"PROOFBUNDLE_GATE_DIR": place})))
+    print(json.dumps(g._read_mode({"PROOFBUNDLE_GATE_DIR": place, "PROOFBUNDLE_OWNER_STATE": "protected"})))
 elif what == "rules":
-    print(json.dumps(g._read_rules({"PROOFBUNDLE_GATE_DIR": place})))
+    print(json.dumps(g._read_rules({"PROOFBUNDLE_GATE_DIR": place, "PROOFBUNDLE_OWNER_STATE": "protected"})))
 elif what == "stamp":
     print(json.dumps(g._gate_files_stamp({"PROOFBUNDLE_GATE_DIR": place})))
 elif what == "decide":

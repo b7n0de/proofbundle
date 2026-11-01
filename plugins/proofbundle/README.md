@@ -72,6 +72,8 @@ At the other calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
+Answer scope in this README. A base ask describes decide(), not necessarily the final answer emitted by the configured hook. The public Guard default starts the base path without the combined --autonomous flag. In an explicitly enabled house configuration, D85 to D92 can turn a base ask into a deny or apply a scoped standing work-branch authorization. Such standing authorization is not a public default and requires a separate owner-controlled choice. Under Codex a plain git push only warns. A path with no gate decision is not a checked or approved operation. An evidence-failure denial described below applies only where that evidence check is actually reached, not to a plain Codex push or an unrecognized carrier. Host enforcement after timeout and behaviour in an unattended host are NOT MEASURED for this stack.
+
 The verification runs at three levels, which see different things and which the design keeps apart
 (DECISIONS.md, D3, D22, D24).
 
@@ -178,7 +180,10 @@ name; otherwise the start failure keeps its generic text. Either way the push is
 
 **A push handed over to Level 2** (owner adoption of review round 18, D35). Level 1 does not read the remote, so a
 push asks at the destination check. Where you want such a push to need no question from the gate, you set up three
-things in the repository; the plugin does none of them:
+things in the repository, and the host's hook runs with `PROOFBUNDLE_OWNER_STATE=protected` in its environment; the
+plugin does none of them. Without that setting the gate reads neither `mode` nor `transports.json` (D124) and the push
+asks. The setting is your statement that an account the agent's session cannot act as owns the gate directory and every
+folder above it; the gate does not check it, so it is no protection.
 
 ```sh
 python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
@@ -264,13 +269,19 @@ value is true (D2).
 
 ### Two modes: strict, or with human approvals
 
-Since the free list was removed, every repository-dependent git form asks, except the two forms a state check
-frees (D3). Two modes, set only by a human,
-can spare a repeated question without the model ever freeing anything (D25):
+The old free list is removed. The gate still has explicit state-checked local forms, read profiles, and autonomous
+classifications; an explicitly enabled house autonomous adapter can change its base ask. strict and with-approvals
+control rule use only where the hook's environment sets PROOFBUNDLE_OWNER_STATE=protected (D124); without it the gate
+reads strict and no rule. D25 reserves mode and rules changes to a person, but the reviewed stack did not enforce that
+reservation at its same-account filesystem boundary: the supplied shell probe changed the mode and the gate read the
+changed value. The setting is the house's statement, not a protection: with it, the gate reads such a change again.
 
 - `strict` (the default): every such form asks; no rule and no click act.
-- `with-approvals`: a rule the human wrote in advance can free one plain `git` form in one repository. `push`
-  and `gh` are never freeable, and a form that touches the mode, the rules or the log is never free.
+- with-approvals can use a matching rule for a supported plain git form in one repository, where the hook's environment
+  sets PROOFBUNDLE_OWNER_STATE=protected (D124). A rule does not free push or gh. Separate owner-release and autonomous
+  work-branch paths exist; this rule restriction must not be read as a universal prohibition on those commands.
+  Recognized writes to mode and rules are denied, but the supplied shell probes show unrecognized ways to write them.
+  The gate log in the plugin data directory gets no such denial.
 
 The mode, the rules and the log live in a user-wide directory the model cannot reach through a repository:
 `$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else `~/.config/proofbundle`.
@@ -292,10 +303,13 @@ The mode, and any applied rule, appear in every gate-log line. A human revokes a
 `rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the
 read-only rule file acts.
 
-A file `pilot.json` beside `mode` turns on the pilot of Z405 (D55): for each GitHub write the gate decides and the
-pilot reads, the gate writes a signed decision receipt of the profile github-write/1 into the folder the file names,
-for an approval as for a refusal, before the write. The receipt changes nothing the gate answers, and the gate holds
-no key: the signer the file names signs. Without the file nothing is written.
+A valid `pilot.json` beside `mode` enables experimental pilot receipt attempts (D55) for the GitHub writes the
+pilot recognizes. The operator's signer signs; the gate holds no key. Receipt coverage is not complete. A signing
+failure, an unread form or a disagreement with the signer's evaluation can leave no receipt. Ordinary receipt
+attempts must not change the gate's permission decision, exit code or answer bytes. D119 owner releases are a
+separate authorization path: with the pilot configured for a recognized GitHub write, the hook requires the
+signer service's signed ALLOW before it consumes the release and lets the call run. Without a valid configuration
+the pilot is inactive. Cross-account operation is BLOCKED/NOT MEASURED as listed in m0/IMPLEMENTATION_GAP.md.
 
 ### The gate's log
 
@@ -643,7 +657,9 @@ Level 2, and grades the hand-over of D35 and the moved remote; `gate-push-creati
 a creation that stays blocked. Their scaffold writes the approval mode and the transport approval only into a gate
 directory you give it: export `PROOFBUNDLE_GATE_DIR` as an empty folder of its own before the run, so the scaffold and
 the host's hook read the same one. Without it the scaffold approves nothing, writes no gate directory, and the push
-asks. Whether `claude plugin eval` hands that variable to the scaffold and to the hook is not measured.
+asks. Whether `claude plugin eval` hands that variable to the scaffold and to the hook is not measured. The gate reads
+that mode and that approval only where the hook's environment also sets `PROOFBUNDLE_OWNER_STATE=protected` (D124);
+without it `gate-push-verified` gets an ask, not the hand-over it grades.
 
 The three done cases seed a repository whose declaration names a done check and grade the Stop hook's own
 lines in the trace: `done-red-tests-block` and `done-receipt-other-tree-blocks` grade a block and no pass,

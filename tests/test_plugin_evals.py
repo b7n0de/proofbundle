@@ -714,6 +714,9 @@ def _handover_env(tmp_path) -> dict:
     (bin_dir / "python3").unlink(missing_ok=True)
     (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "logs")
+    # D124: the hand-over of D35 rests on the mode and the transport approval of the gate directory, which the gate
+    # reads only with the protected channel the house states; these cases test the hand-over, so they state it.
+    env["PROOFBUNDLE_OWNER_STATE"] = "protected"
     return env
 
 

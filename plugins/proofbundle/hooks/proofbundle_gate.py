@@ -8953,7 +8953,7 @@ def _read_transports(environ: dict) -> list[dict]:
     """The transport approvals a person wrote, each exactly {repo, remote, url, transport_digest}; [] on any problem,
     as for the rules of D25: a file the gate cannot read whole approves nothing. The gate only ever reads it."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, TRANSPORTS_FILE), MAX_RULES_BYTES + 1, follow=True)
@@ -9537,13 +9537,29 @@ def _gate_dir(environ: dict) -> str | None:
     return None
 
 
+#: D124 (Nachtrag 4, point 1; external review of -1, KERN finding 2): the files of the gate directory a person is to
+#: write, the mode and rules.json (D25), transports.json (D35), hook-state.json (D106), pin-state.json (D114, D115), the
+#: releases in freigaben/ (D111, D119) and work-folders.json (D104), are read only where the hook's environment sets
+#: OWNER_STATE_VARIABLE to OWNER_STATE_PROTECTED. Without that, Guard Preview reads none of them: a session of the same
+#: account wrote each one through a changed working directory, which the gate does not answer, and the gate then read
+#: it. The setting belongs to a channel the session cannot write, an account of its own that owns the directory and the
+#: folders above it; the gate does not check that, so the setting is the house's statement, not a protection.
+OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
+OWNER_STATE_PROTECTED = "protected"
+
+
+def _owner_state_read(environ: dict) -> bool:
+    """D124: whether the gate reads the owner's files of its directory at all."""
+    return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
 def _read_mode(environ: dict) -> str:
-    """The approval mode a human set: "strict" (the default) or "with-approvals". Anything the gate cannot read
-    as one of those two words — no directory, no file, an unreadable or oversized file, an unknown word — is
-    strict. The mode is set only by a human at the gate directory; the model cannot write it, because
-    decide_write denies every write to that directory (N24 Punkt 3)."""
+    """Read strict or with-approvals from the gate directory; unreadable, oversized
+    or unknown input selects strict. The command and file-tool checks do not
+    establish that only the operator can write this state. Approval state must
+    be protected from the session independently, including its parent paths."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return "strict"
     try:
         raw = _read_regular(os.path.join(directory, "mode"), MAX_MODE_BYTES + 1, follow=True)   # R18-2 class
@@ -9561,7 +9577,7 @@ def _read_rules(environ: dict) -> list[dict]:
     many rules, a malformed entry, a non-absolute repo or an empty form). Fail-closed: a rule file the gate
     cannot read in full as a list of well-formed rules frees nothing. The gate only ever reads this file."""
     directory = _gate_dir(environ)
-    if directory is None:
+    if directory is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(directory, "rules.json"), MAX_RULES_BYTES + 1, follow=True)   # R18-2 class
@@ -13797,7 +13813,7 @@ def _work_folders(directory: str | None, environ) -> list[str]:
         folders.append(_repo_top(project) or os.path.realpath(project))
     folders.extend(_session_folders(environ))
     gate_dir = _gate_dir(environ)
-    if gate_dir is not None:
+    if gate_dir is not None and _owner_state_read(environ):   # D124
         try:
             raw = _read_regular(os.path.join(gate_dir, WORK_FOLDERS_FILE), MAX_WORK_FOLDERS_BYTES + 1)
             data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_WORK_FOLDERS_BYTES else None
@@ -17304,7 +17320,7 @@ def _hook_state_entries(environ) -> list[tuple[str, dict]]:
     A file that does not read whole records nothing: no regular file, more than MAX_HOOK_STATE_BYTES, not strict JSON
     (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, HOOK_STATE_FILE), MAX_HOOK_STATE_BYTES + 1)
@@ -17475,7 +17491,7 @@ def _pin_state_entries(environ) -> list[dict]:
     both paths resolved. A file that does not read whole pins nothing: no regular file, more than MAX_PIN_STATE_BYTES,
     not strict JSON (a repeated key), another schema, or an entry, a path, a hook name or a value of another shape."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     try:
         raw = _read_regular(os.path.join(gate_dir, PIN_STATE_FILE), MAX_PIN_STATE_BYTES + 1)
@@ -18196,7 +18212,7 @@ def _releases(environ) -> list[dict]:
     MAX_RELEASE_BYTES, not strict JSON, another schema or another key, or a card, a session, a sha256 or a time of
     another shape. The folder itself must be a folder and no link."""
     gate_dir = _gate_dir(environ)
-    if gate_dir is None:
+    if gate_dir is None or not _owner_state_read(environ):   # D124
         return []
     folder = os.path.join(gate_dir, RELEASES_DIR)
     try:
@@ -22759,11 +22775,12 @@ def _host(argv: list[str]) -> str:
 
 # --- the pilot of Z405: a signed decision receipt for each GitHub write the gate decides (DECISIONS.md D55) -------
 #
-# The pilot contract (docs/pilot/pilot_contract.md on main) and its profile github-write/1 (docs/pilot/pilot_profile.md,
-# tools/pilot/github_write_profile.py) want a decision-receipt/v0.1 for every write to GitHub the gate decides, allowed
-# or refused, with decidedAt before the write. The gate writes one after its verdict and before its answer. The receipt
-# changes nothing the gate answers: not the decision, not the exit code, not the log line, not a byte on stdout or
-# stderr. A receipt the gate cannot issue is a line in the journal of the receipt folder, never an answer.
+# The pilot contract and github-write/1 profile define the intended decision receipts. This implementation attempts
+# receipts for recognized GitHub writes; an issuance failure can leave no receipt. Ordinary receipt attempts are
+# observational and must not change the gate's permission decision, exit code, log line or answer bytes. D119 owner
+# releases are different: where the configured pilot recognizes the write, release_settle requires a signed ALLOW
+# before the release is used. A receipt that cannot be issued is journaled where possible; journal failure must not
+# prevent the ordinary hook answer from returning.
 
 PILOT_FILE = "pilot.json"
 MAX_PILOT_BYTES = 16 * 1024
@@ -22887,10 +22904,14 @@ def _pilot_keyid(public: bytes) -> str:
 
 def _pilot_policy_digest(environ: dict) -> str:
     """The sha256 the receipt names as the gate's policy: over the gate's own file, the mode and the rules a person
-    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile)."""
+    wrote (an absent file counts as empty). Recorded, not interpreted (pilot profile). The gate's own file is read as
+    _sha256_or_none reads, without blocking and only as a regular file (D123): a FIFO in its place is an OSError at
+    once, and the receipt is not issued."""
     parts = {}
-    with open(os.path.realpath(__file__), "rb") as handle:
-        parts["gate"] = hashlib.sha256(handle.read()).hexdigest()
+    own = os.path.realpath(__file__)
+    parts["gate"] = _sha256_or_none(own)
+    if parts["gate"] is None:
+        raise OSError(errno.EINVAL, "the gate's own file is no regular file it can read", own)
     directory = _gate_dir(environ)
     for name, limit in (("mode", MAX_MODE_BYTES + 1), ("rules.json", MAX_RULES_BYTES + 1)):
         try:
@@ -23046,11 +23067,28 @@ def _pilot_push_actions(url: str | None, lines: list[tuple]) -> list[tuple[dict,
 
 
 def _pilot_journal(folder: str, entry: dict) -> None:
-    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name."""
+    """One line of the receipt folder's journal: what was issued, or why a receipt was not, by a fixed name. The journal
+    is opened without blocking and without following a link, and the line is written only where the opened descriptor
+    is a regular file (D123, the class of R18-2): a FIFO with or without a reader, a device, a folder or a link there
+    is never waited on and gets no line. Such a journal raises an OSError, as one that cannot be opened does; the
+    callers drop it, so an ordinary answer returns as it is (under D119 the release stays unused, release_settle)."""
     entry = {"at": _pilot_instant(time.time_ns()), **entry}
     os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, "journal.jsonl"), "a", encoding="ascii") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    path = os.path.join(folder, "journal.jsonl")
+    # 0o644 like the pilot's decision files, since the records are copied for the reconciliation under another account
+    # (tests/test_plugin_files_name_their_readers.py); under a umask of 0, 0o666 made the journal writable by everyone
+    # (CodeQL on pull request 460).
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o644)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise _NotRegular(errno.EINVAL, "not a regular file", path)
+        handle = os.fdopen(fd, "ab")
+    except BaseException:
+        os.close(fd)
+        raise
+    with handle:
+        handle.write((json.dumps(entry, sort_keys=True) + "\n").encode("ascii"))
 
 
 def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:

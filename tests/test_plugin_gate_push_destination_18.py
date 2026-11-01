@@ -23,6 +23,7 @@ import sys
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's mode and transport approval are read
 
 import test_plugin_gate_n2c_push_done as base
 from _gate_answer import Silent, long_text
