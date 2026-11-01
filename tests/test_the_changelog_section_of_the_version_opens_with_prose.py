@@ -77,3 +77,59 @@ def test_an_unreleased_block_above_may_open_with_a_subsection(tmp_path):
     probs = chk.check(_repo(tmp_path, "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- z\n\n"
                                       f"## [{VERSION}] - 2026-10-31\n\nA patch release.\n\n### Fixed\n\n- x\n"))
     assert probs == [], probs
+
+
+# ── what GitHub renders as no paragraph is no opening (reading of 2026-11-01, sol-pro, P1 and P2) ─────────────────
+#
+# The first form held any line that is not blank. A thematic break, an HTML comment, a link reference definition, a
+# code block and a setext heading are lines that are not blank, and none of them renders as an opening paragraph.
+
+_NO_PARAGRAPH = {
+    "thematic break": "---\n",
+    "thematic break of stars": "* * *\n",
+    "empty comment": "<!---->\n",
+    "comment over two lines": "<!-- a note\nfor the release -->\n",
+    "link reference definition": "[x]: /target\n",
+    "empty fence": "```\n```\n",
+    "fence with text inside": "```\nSemantics do not change.\n```\n",
+    "tilde fence": "~~~\nSemantics do not change.\n~~~\n",
+    "indented code": "    Semantics do not change.\n",
+    "setext heading with dashes": "Semantics\n-\n",
+    "setext heading with equals": "Semantics\n===\n",
+}
+
+
+def test_RED_what_renders_as_no_paragraph_does_not_open_the_section(tmp_path):
+    for name, opening in _NO_PARAGRAPH.items():
+        t = tmp_path / name.replace(" ", "_")
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\n{opening}\n### Added\n\n- x\n"))
+        assert len(_opening_findings(probs)) == 1, (name, probs)
+
+
+def test_a_paragraph_after_a_comment_or_a_break_still_opens_the_section(tmp_path):
+    """The other side: what renders as no paragraph is passed over, and the paragraph after it counts."""
+    for name, opening in _NO_PARAGRAPH.items():
+        t = tmp_path / name.replace(" ", "_")
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\n{opening}\n"
+                                   f"{VERSION} is a patch release. Semantics do not change.\n\n### Fixed\n\n- x\n"))
+        assert probs == [], (name, probs)
+
+
+def test_a_paragraph_followed_by_a_list_item_is_still_a_paragraph(tmp_path):
+    """A list item after a line of text is no setext underline; the line stays a paragraph."""
+    probs = chk.check(_repo(tmp_path, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\n"
+                                      "Semantics do not change.\n- one note\n\n### Fixed\n\n- x\n"))
+    assert probs == [], probs
+
+
+def test_RED_a_version_heading_that_stands_twice_is_a_finding_in_both_orders(tmp_path):
+    """P2: the first form read the first of two sections and passed over the other one."""
+    leer, gut = f"## [{VERSION}]\n\n### Added\n\n- x\n\n", f"## [{VERSION}]\n\nSemantics do not change.\n\n"
+    for name, body in (("empty first", leer + gut), ("empty second", gut + leer)):
+        t = tmp_path / name.replace(" ", "_")
+        t.mkdir()
+        probs = chk.check(_repo(t, "# Changelog\n\n" + body + "## [3.0.0] - 2026-10-01\n\nThe first release.\n"))
+        twice = [p for p in probs if "CHANGELOG.md" in p and "twice" in p]
+        assert len(twice) == 1, (name, probs)
