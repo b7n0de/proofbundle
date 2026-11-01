@@ -13,8 +13,8 @@ ruleset. The answer is `true` when one of them is of type `merge_queue` (the typ
 otherwise `false`. A merge queue turned on in the classic branch protection instead of a ruleset is not among these
 rules; it reads as off, which keeps `coverage` running.
 
-THE SAFE SIDE. Anything that is not a readable list of rules answers `false`: an HTTP error, a list of something
-else, a missing repository or branch. `false` means `coverage` runs on the pull request, so a reader that cannot read
+THE SAFE SIDE. Anything that is not a readable list of rules answers `false`: an HTTP error, any other error while
+reading, a list of something else, a missing repository or branch. `false` means `coverage` runs on the pull request, so a reader that cannot read
 makes a pull request slower and never lets one land without the suite.
 
 OUTPUT. One line `required=true` or `required=false` appended to the file named by GITHUB_OUTPUT (when set), the same
@@ -80,9 +80,9 @@ def main(fetch=_get, env=os.environ) -> int:
     path = f"repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}"
     try:
         rules = fetch(path, env.get("GITHUB_TOKEN"))
-    except ReadError as exc:
+    except Exception as exc:  # noqa: BLE001 (THE SAFE SIDE: any error while reading is off, never a red step)
         print(f"::notice title=merge-queue-state::the rules of {branch} could not be read; read as off, so coverage "
-              f"runs ({exc})")
+              f"runs ({type(exc).__name__}: {exc})")
         return _answer(False, "rules not readable", env)
     if not isinstance(rules, list):
         print(f"::notice title=merge-queue-state::the rules of {branch} are not a list; read as off, so coverage runs")
