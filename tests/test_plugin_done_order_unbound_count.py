@@ -9,6 +9,7 @@ RED at f6408b97 (no end); the control, an open order whose repository is there, 
 """
 from __future__ import annotations
 
+import json
 import pathlib
 import subprocess
 import sys
@@ -66,3 +67,34 @@ def test_O3_control_an_open_order_whose_repository_is_there_blocks_and_ends_as_b
         assert "check tests is missing" in d.blocked(lo._stop(env, session, host))
     message = _ends_without_a_done_verdict(lo._stop(env, session, host))
     assert str(gate.DONE_BLOCKER) in message and (repo / gate.DONE_BLOCKER).is_file(), message
+
+
+def _start(env: dict, cwd: pathlib.Path) -> dict | None:
+    """The SessionStart hook of D127 as the plugin starts it; None where it prints nothing."""
+    event = {"hook_event_name": "SessionStart", "session_id": "next", "cwd": str(cwd), "source": "startup",
+             "transcript_path": str(cwd / "next.jsonl")}
+    proc = subprocess.run([sys.executable, "-I", str(d.GATE), "session-start"], input=json.dumps(event),
+                          capture_output=True, text=True, env=env, cwd=cwd, timeout=180, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def test_O3_the_next_session_start_names_the_blocker_and_hands_nothing_on(env, repo, keys, tmp_path):
+    """D127, owner answer A on card OA-694b3f17d4 (reading of G-6, sol-pro, measured): a session that ended NOT DONE on
+    an order whose repository git does not find leaves <key>.blocker.json beside the order. The next start names that
+    blocker to the user and hands nothing on, since there is no repository to work in; done-order --list names the
+    order and a person removes it. RED before: the start printed nothing. Control: without the protected channel of
+    D128 the hook reads no order, and the start stays silent."""
+    order = lo._local_order(env, repo, keys.public)
+    repo.rename(repo.with_name("moved"))
+    session = lo._session_dir(tmp_path)
+    for _ in range(LIMIT + 1):
+        lo._stop(env, session, "claude")
+    blocker = order.with_name(order.name.replace(".json", ".blocker.json"))
+    assert blocker.is_file()
+    answer = _start({**env, "PROOFBUNDLE_OWNER_STATE": "protected"}, session)
+    assert answer is not None and "hookSpecificOutput" not in answer, answer
+    message = answer["systemMessage"]
+    assert str(blocker) in message and "done-order --remove" in message and "(D127, O3)" in message, message
+    without = {k: v for k, v in env.items() if k != "PROOFBUNDLE_OWNER_STATE"}
+    assert _start(without, session) is None
