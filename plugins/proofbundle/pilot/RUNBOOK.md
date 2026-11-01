@@ -219,10 +219,10 @@ With `"autonomous": true` the service keeps each release it signed ALLOW for in 
 its journal (`<service folder>` below), as `{"schema": "proofbundle/pilot-releases-honoured/v1", "geehrt":
 {"<card>:<sha256 of the line>:<session>": "<UTC time of the signature>", ...}}`. At 4096 of them it gives a new release
 no signature (release_record_full) and leaves the record as it is; a release the record names gets none either (D119),
-and every other request is signed as before. The service refuses such a release before it asks the key signer (D131).
-Only where two requests read the record at 4095 at the same time can the second be refused after the key signer signed;
-its journal then holds a signed line for it and the records no receipt, which the reconciliation counts among the signed
-lines without a receipt (D65). The service is no process that keeps running: the gate starts it once per request through
+and every other request is signed as before. The service refuses such a release only after the key signer signed it, as
+it writes the record after the signature (D119, D131); the key signer's journal then holds a signed line for it and the
+records no receipt, which the reconciliation counts among the signed lines without a receipt (D65). The service is no
+process that keeps running: the gate starts it once per request through
 the sudo rule of the agent's user (the crossings of step 2 of the setup), and each start reads the record anew. The
 owner's answer of 2026-10-26 (answer 7 of Nachtrag 7, option A): at the capacity the operator rotates the record, the
 service stopped. Steps 2 and 3 run as root.
@@ -242,22 +242,25 @@ service stopped. Steps 2 and 3 run as root.
    ```
 
    `honoured-releases/` is owned by root, mode 755, made at the first rotation, so that neither the agent's user nor
-   the deciding account changes what it keeps; check that the copy has the record's sha256.
+   the deciding account changes what it keeps, and the copy is root's with mode 644; check that the copy has the
+   record's sha256. A folder of that name that another account made before the first rotation is no archive: move it
+   out of the records folder and make the folder anew.
 3. Empty the record by removing it: `rm <service folder>/freigaben-geehrt.json`. The service reads a record that is not
    there as empty. A file in its place of zero bytes, `{}` or another form it reads as damaged: then it signs nothing at
    all, no release and no other request (release_record_unread).
 4. Start the service: put the sudo rule back. Its next start reads no record and signs ALLOW for a new release again,
    and it writes a new freigaben-geehrt.json that names that release alone.
 
-What the rotation means for the releases the record named: the service refuses a release it signed ALLOW for only
-while its record names it (D119). After the rotation it names none of them, so a release of the archive gets ALLOW
-again where it still binds: its line, its session, and its card in `freigaben/` of the gate directory with an answer at
-most RELEASE_SECONDS back. The wait of step 1 leaves none that binds with the answer it had; a card the fetcher writes
-again with a later answer binds again, and then only the hook's own record of the uses (D111) holds it, as long as that
-record names it. The archive keeps what the service signed ALLOW for before the rotation, each release by its card, the
-sha256 of its line and its session, with the time: a key that stands in an archive and again in a later record is a
-release the service signed ALLOW for twice, which the operator checks by hand after each rotation. The reconciliation
-does not read the archive.
+What the rotation means for the releases the record named (D131, the owner's answer of 2026-11-01): the service
+refuses a release it signed ALLOW for while its record or an archive in `honoured-releases/` names it; each start reads
+every file there as a record of the same form. The wait of step 1 leaves no release of the record that binds with the
+answer it had, and a release of an archive gets no ALLOW again, also where a card the fetcher writes again with a later
+answer binds. Keep nothing in `honoured-releases/` but the archives, and never remove or change one: a file there that
+does not read whole as a record stops every signature, no release and no other request (release_record_unread), and so
+does a folder or a file there that an account other than root and the deciding account owns or may write, or a link
+(release_archive_unsafe), as such an account could take a release out. The archive keeps what the service signed ALLOW
+for before each rotation, each release by its card, the sha256 of its line and its session, with the time. The
+reconciliation does not read the archive.
 
 ## The reconciliation, and its rerun by someone else
 

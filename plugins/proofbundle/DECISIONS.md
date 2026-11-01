@@ -6470,7 +6470,8 @@ measured. Measured at f21f785d (tests/test_plugin_signer_rotation_d131.py, Pytho
 red, the five of the runbook and the one of this entry, as the runbook has no rotation; the 3 cases of the code green,
 as the code supports the steps as the runbook now writes them.
 
-The rule (pilot/RUNBOOK.md, "The rotation of the service's record of releases"; no code is changed):
+The rule (pilot/RUNBOOK.md, "The rotation of the service's record of releases"; the code is changed for the archives
+only, below):
 
 - The record is freigaben-geehrt.json in the folder of the service's journal, `{"schema":
   "proofbundle/pilot-releases-honoured/v1", "geehrt": {"<card>:<sha256>:<session>": "<UTC time>"}}`, read by honoured
@@ -6489,12 +6490,16 @@ The rule (pilot/RUNBOOK.md, "The rotation of the service's record of releases"; 
   record that is not there as empty (FileNotFoundError gives an empty record), and a file of zero bytes, `{}` or
   another form as damaged: release_record_unread, raised in judge before the decision, so the service then signs
   nothing at all. Start: the rule put back.
-- What the rotation means: a release the service signed ALLOW for is refused only while its record names it. After the
-  rotation a release of the archive gets ALLOW again where it still binds; the wait leaves none that binds with the
-  answer it had, and a card the fetcher writes again with a later answer binds again, held then only by the hook's own
-  record of the uses (D111) as long as that names it. The archive keeps what the service signed ALLOW for before the
-  rotation: a key that stands in an archive and in a later record is a release the service signed ALLOW for twice, the
-  operator's check by hand. The reconciliation does not read the archive.
+- What the rotation means (owner answer A on card OA-ed9c1b5288, 2026-11-01; the first reading of this slice found
+  the second honouring of a release of the archive as a P1): a release the service signed ALLOW for is refused while
+  its record or an archive names it. archived reads every file in `<records folder>/honoured-releases/` as a record of
+  the same form, in judge before the decision and in honour again under its lock, so a release of the archive gets no
+  ALLOW again, also where a card the fetcher writes again with a later answer binds; the wait leaves none of the record
+  that binds with the answer it had. The folder and each file must be root's or the deciding account's, written by no
+  other account, a folder and regular files and no link (as key_signer.py checks its export folder): else
+  release_archive_unsafe, since an account that may write there could take a release out; a file that does not read
+  whole as a record gives release_record_unread. Either is raised in judge before the decision, so the service then
+  signs nothing at all, as with a damaged record. The reconciliation does not read the archive.
 
 Measured (tests/test_plugin_signer_rotation_d131.py, green at the fix on Python 3.12.3 and 3.14.6), end to end through
 the hook with --autonomous and the service with `"autonomous": true` and a plugin data directory of its own (A2 of
@@ -6504,10 +6509,19 @@ blocked, the hook uses nothing and the record stays byte for byte. After the arc
 writes them, the next start signs ALLOW, the call runs once, the new record names that release alone, and the archive
 holds the full record byte for byte. On a record of zero bytes a call without a release gets no receipt
 (release_record_unread), and once the record is removed the same call gets its receipt DENY; `{}` and a record without
-`geehrt` read as damaged too. In fresh processes of the service, after the rotation a release of the archive is
-honoured again, and its key then stands in the archive and in the new record.
+`geehrt` read as damaged too. In fresh processes of the service, after the rotation a release of the archive is refused
+(release_honoured) and a new release is honoured; the new record names it alone and the archive stays byte for byte.
+End to end a release an archive names frees nothing: the call stays blocked, the hook uses nothing, and the service,
+asked to sign the ALLOW of a hook whose record of the uses does not name the release, signs nothing (verdict_differs,
+as for a release only the service's record names, A2 of D119); without that archive the same release lets the call run
+once. An archive folder another account may write stops every
+signature (release_archive_unsafe in the service's journal, signer_refused_release_archive_unsafe in the gate's). In
+fresh processes, a folder or a file others may write, a link in the place of either and a folder in the folder give
+release_archive_unsafe, and a file of zero bytes, `{}` or one without `geehrt` release_record_unread; in process, a
+folder another account owns gives release_archive_unsafe. At b0562e10, before the owner's answer, these 15 cases were
+red: the service honoured a release of the archive again and read an archive another account may write.
 
-Not changed: signer_service.py, MAX_HONOURED, the reviewer's texts of S-F1 in signer_service.py and in D119, and the
+Not changed: MAX_HONOURED, the reviewer's texts of S-F1 in signer_service.py and in D119, and the
 setup step of the runbook that names release_record_full; the hook's record of the uses (freigaben-genutzt.json, D111)
 is no part of the rotation. Found and named, not changed: release_record_full is raised after the key signer signed, as
 honour runs after the signature (D119); the key signer's journal holds a signed line for that request (measured) and
@@ -6517,4 +6531,6 @@ plugin ships no command for the rotation; the stop and the start as sudo rules o
 wait rests on the service's clock and on the operator's reading of the record's newest time; during the stop each write
 the gate decides has no receipt and counts under M5 where it arrives, and a release lets nothing run; the deciding
 account can remove or rewrite its record at any time, as D119 says the record holds only under its account, and an
-archive shows only the rotations the operator made.
+archive shows only the rotations the operator made; a records folder without the sticky bit, which step 5 of the setup
+forbids, lets another account rename `honoured-releases/` away, and the service then reads no archive; each start reads
+every archive, so its time grows with the rotations (NOT MEASURED).
