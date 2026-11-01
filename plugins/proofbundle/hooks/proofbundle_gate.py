@@ -21283,6 +21283,24 @@ def _blocked_repos(directory: str, deadline: float, environ) -> list[str]:
     return found
 
 
+def _unbound_blockers(environ, deadline: float) -> list[str]:
+    """The blockers of local done orders whose repository git does not find (owner choice O3, _account_order_block):
+    `<key>.blocker.json` beside the order in the gate directory, a regular file, where the hook reads the orders (D128).
+    Only the file's presence is read, never its text (T1). There is no repository to hand anything on to; the start
+    names them (owner answer A on card OA-694b3f17d4)."""
+    found = []
+    for entry in _hook_orders(environ, deadline):
+        if not entry.get("key"):
+            continue
+        blocker = os.path.join(os.path.dirname(entry["file"]), f"{entry['key']}.blocker.json")
+        try:
+            if stat.S_ISREG(os.lstat(blocker).st_mode):
+                found.append(blocker)
+        except OSError:
+            pass
+    return found
+
+
 def _handover_record(repo: str) -> tuple[dict | None, str | None]:
     """The hand-over record (DONE_HANDOVER) as (record, problem): (None, None) where there is none, (None, why) where a
     present file is not the hook's record. Its content is counted, never shown: the hand-over is built from the fresh
@@ -21366,10 +21384,15 @@ def _hand_over(directory: str, deadline: float, environ) -> tuple[list[str], lis
     blocker, nothing. With one, the done check runs again as at Stop (done_evaluations) and only its fresh open points
     count: a pass or no done check hands nothing on and leaves the files; NOT DONE updates the hand-over record and hands
     the open points on for HANDOVER_ROUNDS rounds of the same open set, after which one owner card replaces the
-    hand-over of that set. A check that reached no verdict, or ran past the deadline, hands nothing on."""
+    hand-over of that set. A check that reached no verdict, or ran past the deadline, hands nothing on. The blocker of
+    an order whose repository git does not find (O3) is named to the user and hands nothing on."""
+    unbound = [f"proofbundle done check: a session ended NOT DONE on a local done order whose repository git does not "
+               f"find, and its blocker {_shown_repo(path)} stands; there is no repository to hand anything on to, "
+               "done-order --list names the order, and a person removes it with done-order --remove (D127, O3)."
+               for path in _unbound_blockers(environ, deadline)]
     blocked = _blocked_repos(directory, deadline, environ)
     if not blocked:
-        return [], []
+        return [], unbound
     results = done_evaluations(directory, deadline, environ)
     repos = {os.path.realpath(repo): repo for repo in blocked}
     failed = [r["verdict"].failed or r["verdict"].reason_id for r in results
@@ -21377,9 +21400,9 @@ def _hand_over(directory: str, deadline: float, environ) -> tuple[list[str], lis
               and (r["repo"] is None or os.path.realpath(r["repo"]) in repos)]
     if failed or time.monotonic() > deadline:
         why = "; ".join(failed) if failed else f"it ran past the {DEADLINE_SECONDS:g} seconds the Stop hook has"
-        return [], [f"proofbundle done check: the hand-over could not run the done check again ({_short(why, 400)}), "
-                    "so no open point was handed on; the blocker stands (D127)."]
-    contexts, notes = [], []
+        return [], unbound + [f"proofbundle done check: the hand-over could not run the done check again "
+                              f"({_short(why, 400)}), so no open point was handed on; the blocker stands (D127)."]
+    contexts, notes = [], list(unbound)
     for key, repo in repos.items():
         group = [r for r in results if r["repo"] and os.path.realpath(r["repo"]) == key]
         points = [p for r in group if r["verdict"].decision == "deny" for p in r["open"]]

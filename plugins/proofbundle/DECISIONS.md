@@ -6177,6 +6177,10 @@ The rule:
   SessionStart hook of a plugin is NOT MEASURED. The description of hooks.json is unchanged.
 - It looks for DONE_BLOCKER, a regular file, in the repository of the event's cwd and in each repository a local done
   order binds (D38). Without one it prints nothing. Only the file's presence is read, never its text.
+- The blocker of a local done order whose repository git does not find (owner choice O3), `<key>.blocker.json`
+  beside the order in the gate directory, is named in a systemMessage and hands nothing on: there is no repository
+  to work in, done-order --list names the order, and a person removes it (_unbound_blockers; owner answer A on card
+  OA-694b3f17d4, found in the reading of this slice and measured, red first). Only its presence is read.
 - With one it runs the done check again as the Stop hook does (done_evaluations) and takes only the open points of that
   fresh verdict. A pass, or no done check, prints nothing and leaves the files as they are; the next Stop counts the
   pass and removes them.
