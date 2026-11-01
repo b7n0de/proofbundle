@@ -105,7 +105,9 @@ LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
 #: written as "-" (plugin manifest reference, read 2026-10-31). The house installs the Guard from its house marketplace,
 #: proofbundle-house (N2 B), so where this server's directory is proofbundle's, `proofbundle-<marketplace>` from
 #: whichever marketplace, the gate's log is in the Guard's beside it, GUARD_DATA_DIR. The D134 test binds that name to
-#: the name in plugins/proofbundle-guard/.claude-plugin/marketplace.json.
+#: the name in plugins/proofbundle-guard/.claude-plugin/marketplace.json. The Guard brings no MCP server, so this server
+#: runs in the verifier alone, and no other prefix tells the two apart: proofbundle from a marketplace named guard-<rest>
+#: has the directory proofbundle-guard-<rest> (second reading of F2).
 VERIFY_DATA_PREFIX, GUARD_DATA_PREFIX = "proofbundle-", "proofbundle-guard-"
 GUARD_DATA_DIR = GUARD_DATA_PREFIX + "proofbundle-house"
 SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -118,7 +120,7 @@ def _log_path() -> tuple[str | None, str]:
         if value and os.path.isabs(value):
             own = os.path.normpath(value)
             base = os.path.basename(own)
-            if base.startswith(VERIFY_DATA_PREFIX) and not base.startswith(GUARD_DATA_PREFIX):
+            if base.startswith(VERIFY_DATA_PREFIX) and base != GUARD_DATA_DIR:
                 guard = os.path.join(os.path.dirname(own), GUARD_DATA_DIR)
                 return os.path.join(guard, LOG_NAME), f"from {name}, the Guard's data directory beside it (D134)"
             return os.path.join(value, LOG_NAME), f"from {name}"

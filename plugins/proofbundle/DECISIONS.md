@@ -6614,11 +6614,13 @@ The rule:
   own consent (D129), which the plugin does not set. The Codex commands carry `--host codex` and no flag, as before.
 - The catalog plugins/README.md lists proofbundle alone: owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B
   word for word, "the public catalog lists only proofbundle". Its rows for proofbundle-guard, added first in this
-  bundle, are gone again (found in the reading of the tests, red first); tests/test_plugin_catalog.py takes a plugin
-  folder that carries a marketplace of its own as a house marketplace without a row, and the D134 test holds that no
-  row names the Guard. The texts of the verifier's manifests, the marketplace entry and its catalog rows that still
-  speak of the verifier's own hooks are corrected in a commit of their own in this slice, each sentence with the
-  source that measures it (Nachtrag 28, point 1).
+  bundle, are gone again (found in the reading of the tests, red first); tests/test_plugin_catalog.py lets a plugin
+  folder go without a row only when its HOUSE_PLUGINS names it and it carries its house marketplace, and the D134 test
+  holds that no row names the Guard. The first form of that rule took any folder with a marketplace of its own for a
+  house marketplace, so a public plugin could leave the catalog by adding the file (second reading of F2, sol-pro;
+  owner answer A on card OA-186d82300b, red first with a planted case). The texts of the verifier's manifests, the
+  marketplace entry and its catalog rows that still speak of the verifier's own hooks are corrected in a commit of
+  their own in this slice, each sentence with the source that measures it (Nachtrag 28, point 1).
 
 Red first: tests/test_plugin_guard_apart_d134.py, 5 of 5 cases red at the base of this cut, where plugins/proofbundle
 registers the hooks and the marketplace has one entry; green at the fix. Changed tests: the tests that read
@@ -6645,7 +6647,11 @@ Found by a read-only cross-reading of 18451ad1 and fixed with their red cases fi
   directory is proofbundle-<marketplace> from whichever marketplace (_log_path, GUARD_DATA_DIR, which the D134 test
   binds to the name of the house marketplace); under any other name it reads its own directory as before. The first
   fix read proofbundle-guard-<marketplace>, and after N2 B no house install has that directory; found in a reading of
-  the D134 test, red first at 6bb47f4a. How Codex names PLUGIN_DATA is NOT MEASURED.
+  the D134 test, red first at 6bb47f4a. The second fix still took every directory proofbundle-guard-<rest> for the
+  Guard's, and proofbundle from a marketplace named guard-<rest> has that directory, so it read its own (second reading
+  of F2, sol-pro; owner answer A on card OA-186d82300b, red first). The Guard brings no MCP server and the server runs
+  in the verifier alone, so every directory proofbundle-<anything> but proofbundle-guard-proofbundle-house itself reads
+  the log there. How Codex names PLUGIN_DATA is NOT MEASURED.
 - The pre-push wrapper follows a plugin update for a version folder under proofbundle-guard as under proofbundle
   (_PRE_PUSH_RESOLVER). Read in the code, not measured: a wrapper written before this rule differs from the one the
   gate writes now, so Level 1 hands no push over to it until install-pre-push writes it again; and Level 1 hands a

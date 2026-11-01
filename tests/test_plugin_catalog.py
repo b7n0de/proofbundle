@@ -33,6 +33,9 @@ CATALOG_URL = "https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md
 #: The manifest folder of each host, as the plugin folder carries it.
 HOSTS = {"Claude Code": ".claude-plugin", "Codex": ".codex-plugin"}
 STATUS_PREFIX = "**Status** · "
+#: D134, owner answer A on card OA-08eb65e9e2: the plugin folders that are a house marketplace of their own, which the
+#: public catalog does not list (N2 B, the Guard). Named here, since a marketplace file is only the folder's own word.
+HOUSE_PLUGINS = {"proofbundle-guard"}
 
 
 def _catalog_rows() -> list[dict]:
@@ -67,9 +70,9 @@ def _status(plugin_dir: pathlib.Path) -> dict[str, str]:
 def _manifests(plugins: pathlib.Path = PLUGINS) -> set[tuple[str, str]]:
     found = set()
     for plugin_dir in sorted(p for p in plugins.iterdir() if p.is_dir()):
-        # D134, owner answer A on card OA-08eb65e9e2: a plugin folder that carries a marketplace of its own is a house
-        # marketplace, which the public catalog does not list (N2 B, the Guard)
-        if (plugin_dir / ".claude-plugin" / "marketplace.json").is_file():
+        if plugin_dir.name in HOUSE_PLUGINS:
+            assert (plugin_dir / ".claude-plugin" / "marketplace.json").is_file(), (
+                f"{plugin_dir.name} is named a house plugin and carries no house marketplace")
             continue
         for host, folder in HOSTS.items():
             if (plugin_dir / folder / "plugin.json").is_file():
