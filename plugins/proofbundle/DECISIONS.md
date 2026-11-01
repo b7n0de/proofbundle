@@ -6612,10 +6612,13 @@ The rule:
   with --autonomous again. This is the house's opt-in D125 names, now a file of the plugin proofbundle-guard and not of
   proofbundle; it closes the point D125 left open, how the house adds the flag. The standing GO of D87 still needs its
   own consent (D129), which the plugin does not set. The Codex commands carry `--host codex` and no flag, as before.
-- The catalog lists proofbundle-guard with one row per host, as the house profile from a checkout and in no public
-  marketplace, its maturity copied from plugins/proofbundle-guard/README.md. The texts of the verifier's manifests,
-  the marketplace entry and its catalog rows that still speak of the verifier's own hooks are corrected in a commit of
-  their own in this slice, each sentence with the source that measures it (Nachtrag 28, point 1).
+- The catalog plugins/README.md lists proofbundle alone: owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B
+  word for word, "the public catalog lists only proofbundle". Its rows for proofbundle-guard, added first in this
+  bundle, are gone again (found in the reading of the tests, red first); tests/test_plugin_catalog.py takes a plugin
+  folder that carries a marketplace of its own as a house marketplace without a row, and the D134 test holds that no
+  row names the Guard. The texts of the verifier's manifests, the marketplace entry and its catalog rows that still
+  speak of the verifier's own hooks are corrected in a commit of their own in this slice, each sentence with the
+  source that measures it (Nachtrag 28, point 1).
 
 Red first: tests/test_plugin_guard_apart_d134.py, 5 of 5 cases red at the base of this cut, where plugins/proofbundle
 registers the hooks and the marketplace has one entry; green at the fix. Changed tests: the tests that read

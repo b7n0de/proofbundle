@@ -62,6 +62,10 @@ def _status(plugin_dir: pathlib.Path) -> dict[str, str]:
 def _manifests() -> set[tuple[str, str]]:
     found = set()
     for plugin_dir in sorted(p for p in PLUGINS.iterdir() if p.is_dir()):
+        # D134, owner answer A on card OA-08eb65e9e2: a plugin folder that carries a marketplace of its own is a house
+        # marketplace, which the public catalog does not list (N2 B, the Guard)
+        if (plugin_dir / ".claude-plugin" / "marketplace.json").is_file():
+            continue
         for host, folder in HOSTS.items():
             if (plugin_dir / folder / "plugin.json").is_file():
                 found.add((plugin_dir.name, host))

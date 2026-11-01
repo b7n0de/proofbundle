@@ -544,8 +544,7 @@ def _descriptions() -> dict[str, str]:
     catalog = (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
     for line in catalog:
         for key, host in (("5", "Claude Code"), ("6", "Codex")):
-            # D134: the catalog lists proofbundle-guard too; texts 5 and 6 are the rows of proofbundle
-            if line.startswith(f"| {host} | ") and "| [proofbundle](proofbundle/README.md) |" in line:
+            if line.startswith(f"| {host} | "):
                 found[key] = [c.strip() for c in line.strip("|").split(" | ")][1]
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
     # The owner's sentence of 2026-10-08 (what the user gets, one sentence) opens the README; text 7 follows it.
