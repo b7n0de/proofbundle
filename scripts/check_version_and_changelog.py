@@ -489,7 +489,8 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
     an older section is history, and an `[Unreleased]` block may open with a subsection because it
     is not an entry yet.
     """
-    zeilen = _read(repo / "CHANGELOG.md").splitlines()
+    # CommonMark ends a line at LF, CR or CRLF only; str.splitlines also splits at U+2028, U+2029 and U+0085.
+    zeilen = re.split(r"\r\n|\r|\n", _read(repo / "CHANGELOG.md"))
     kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
     verdeckt = _lines_in_code_or_comments(zeilen)
     starts = [i for i, zeile in enumerate(zeilen) if i not in verdeckt and kopf.match(zeile)]
@@ -560,8 +561,9 @@ def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
             drin.update(range(i, min(j, n - 1) + 1))
             i = j + 1
             continue
-        # At most three columns, as for every block start: with four the line is code, and `<!--` opens no comment.
-        if _indent(zeilen[i]) <= 3 and zeilen[i].lstrip().startswith("<!--"):
+        # At most three spaces, as for every block start: with four the line is code, and `<!--` opens no comment. Only
+        # spaces count; a no-break space before it makes the line paragraph text (fourth reading of 2026-11-01, P1).
+        if re.match(r" {0,3}<!--", zeilen[i]):
             j = i
             while j < n and "-->" not in zeilen[j]:
                 j += 1
@@ -575,22 +577,31 @@ def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
 def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
     """Whether the first block of a section, up to its next heading, is a paragraph.
 
-    Passed over: blank lines, thematic breaks, HTML comments, valid link reference definitions, fenced code with its
-    content (closed by a fence of the same character, at least as long, followed only by blanks) and indented code
-    (four columns or more, a tab counted to the next multiple of four). The next line that is none of these must have
-    the narrow form `_OPENING`, and no setext underline or table delimiter may follow it. Any other line is a finding,
-    a paragraph that starts with markup included (`_OPENING` names that price)."""
+    Passed over: blank lines (spaces and tabs only, a no-break space is text), HTML comments that start after at most
+    three spaces, fenced code with its content (closed by a fence of the same character, at least as long, followed
+    only by blanks), indented code (four columns or more, a tab counted to the next multiple of four), and thematic
+    breaks and valid link reference definitions where a blank line ends them. The next line that is none of these must
+    have the narrow form `_OPENING`, no setext underline may stand in its paragraph up to the next blank line, and no
+    table delimiter may follow it. Any other line is a finding, a paragraph that starts with markup included
+    (`_OPENING` names that price), and so is a link reference right above the opening (fourth reading of 2026-11-01,
+    two P1, and the owner's answer A: a break or a reference a line runs on into can be part of a setext heading)."""
     verdeckt = _lines_in_code_or_comments(zeilen)
     for i, zeile in enumerate(zeilen):
-        if i in verdeckt or not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
+        if i in verdeckt or not zeile.strip(" \t"):
             continue
+        frei = i + 1 >= len(zeilen) or not zeilen[i + 1].strip(" \t")
+        if (_THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile)) and frei:
+            continue                      # passed over only where a blank line ends it: no line runs on into it
         if _indent(zeile) >= 4:
             continue                      # indented code: at the start of a section no paragraph runs on into it
         if not _OPENING.match(zeile):
             return False
         folgt = zeilen[i + 1] if i + 1 < len(zeilen) else ""
-        if _SETEXT_UNDERLINE.match(folgt):
-            return False                  # a setext heading ends the opening like an ATX heading
+        j = i + 1
+        while j < len(zeilen) and zeilen[j].strip(" \t"):
+            if _SETEXT_UNDERLINE.match(zeilen[j]):
+                return False              # a setext underline anywhere before the next blank line makes a heading
+            j += 1
         if "|" in zeile and "|" in folgt and _TABLE_DELIMITER.match(folgt):
             return False                  # a table header with its delimiter row
         return True
