@@ -18334,12 +18334,15 @@ def _release_used(release: dict, used: dict) -> bool:
     return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
 
 
-def _release_free(release: dict, used: dict, dropped: int | None) -> bool:
-    """Whether the record lets this release be used: it names no use of it (_release_used), and it was answered more
-    than RELEASE_SKEW_SECONDS after the newest use the record dropped (dropped, _releases_record), since a release is
-    used no earlier than RELEASE_SKEW_SECONDS before its answer, so one answered before could be one whose use was
-    dropped."""
-    return not _release_used(release, used) and (dropped is None or release["zeit"] > dropped + RELEASE_SKEW_SECONDS)
+def _release_free(release: dict, used: dict, dropped: int | None, now: float) -> bool:
+    """Whether this release may be used now: now lies within its window (RELEASE_SKEW_SECONDS before its answer to
+    RELEASE_SECONDS after it), the record names no use of it (_release_used), and it was answered more than
+    RELEASE_SKEW_SECONDS after the newest use the record dropped (dropped, _releases_record). The gate chooses by it and
+    _release_take checks it again under the lock with the clock that stamps the use, so every use the record holds lies
+    no earlier than RELEASE_SKEW_SECONDS before its release's answer; on that rest the drop of a use (_release_use_past)
+    and the refusal of a release answered before the newest dropped use, whatever the clock does later."""
+    return release["zeit"] - RELEASE_SKEW_SECONDS <= now <= release["zeit"] + RELEASE_SECONDS and \
+        not _release_used(release, used) and (dropped is None or release["zeit"] > dropped + RELEASE_SKEW_SECONDS)
 
 
 def _releases_record(directory: str) -> tuple[dict, int | None]:
@@ -18381,12 +18384,11 @@ def _release_use_past(stamp: object, now: float) -> bool:
 
 def _release_take(release: dict, environ, now: float | None = None) -> bool:
     """D111, D119: write the use of a release to RELEASES_USED in the plugin data directory, under the lock of the
-    answer hook (D94); False where the record names it already, where it is full, or where the gate cannot read or
-    write the record: then the release lets nothing run. At MAX_RELEASES_USED uses the record first drops the uses with
-    which no release binds any more (_release_use_past); where it is still full, it stays as it is (follow-up note 26
-    of 2026-11-01). It keeps the newest time of a use it dropped and refuses a release answered no later than
-    RELEASE_SKEW_SECONDS after it, as its use may be one it dropped: so a clock set back does not free it again. Under a
-    clock that only moves forward, no such release binds any more when it is asked."""
+    answer hook (D94); False where _release_free does not let it be used now (outside its window, used, or answered no
+    later than RELEASE_SKEW_SECONDS after the newest use the record dropped), where the record is full, or where the
+    gate cannot read or write the record: then the release lets nothing run. At MAX_RELEASES_USED uses the record first
+    drops the uses with which no release binds any more (_release_use_past) and keeps the newest time of them; where it
+    is still full, it stays as it is (follow-up note 26 of 2026-11-01)."""
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not data or not os.path.isabs(data) or not os.path.isdir(data):
         return False
@@ -18395,7 +18397,7 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
             used, dropped = _releases_record(data)
-            if not _release_free(release, used, dropped):
+            if not _release_free(release, used, dropped, now):
                 return False
             if len(used) >= MAX_RELEASES_USED:
                 kept = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
@@ -18450,7 +18452,7 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         used, dropped = _releases_record(data)
     except (OSError, ValueError, UnicodeDecodeError):
         return None
-    release = next((r for r in fitting if _release_free(r, used, dropped)), None)
+    release = next((r for r in fitting if _release_free(r, used, dropped, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "

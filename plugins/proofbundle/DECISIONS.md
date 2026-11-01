@@ -5804,14 +5804,20 @@ still full, the new release lets nothing run, its use is not written and the rec
 service refuses a new release at its capacity (S-F1); release_settle names it as a use that could not be written. The
 record keeps the newest time of a use it dropped (verworfen_bis) and refuses a release answered no later than
 RELEASE_SKEW_SECONDS after it, as that release's use may be one it dropped; so a clock set back into the window of a
-release whose use was dropped does not free it again (a Codex pre-run of the reading found that case), and under a clock
-that only moves forward no such release binds any more when it is asked. A time of the dropped uses that does not read
-makes the record one that does not read whole. The gate chooses a release by the same test the record writes it by
-(_release_free), so a release refused by that time hides no other release of the same line that binds. Below the
-capacity no use is dropped, and MAX_RELEASES_USED_BYTES stays the second bound: the longest record the hook writes stays
-below it. Not changed: a card the fetcher writes again with a later answer binds again once the record has dropped its
-use, which it does now only past that window and only at the capacity; and code an interpreter runs can still remove the
-record (D111, O44-2).
+release whose use was dropped does not free it again, and under a clock that only moves forward no such release binds
+any more when it is asked. A time of the dropped uses that does not read makes the record one that does not read whole.
+The gate chooses a release by the same test the record writes it by (_release_free): now lies within its window, the
+record names no use of it, and it was answered more than RELEASE_SKEW_SECONDS after the newest dropped use.
+_release_take checks it again under the lock with the clock that stamps the use, so every use the record holds lies no
+earlier than RELEASE_SKEW_SECONDS before the answer of its release, and a clock set back between the choice and the step
+of the hook writes no use. On that fact rest the drop of a use and the refusal by the newest dropped use, whatever the
+clock does afterwards; a release refused by that time hides no other release of the same line that binds. Codex pre-runs
+of the reading found the three cases of a clock set back. Below the capacity no use is dropped, and
+MAX_RELEASES_USED_BYTES stays the second bound: the longest record the hook writes stays below it. Not changed: a card
+the fetcher writes again with a later answer binds again once the record has dropped its use, which it does now only
+past that window and only at the capacity; code an interpreter runs can still remove the record (D111, O44-2); and a use
+written by an earlier gate carries that fact only where the clock did not go back between the choice and the step of the
+hook.
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 

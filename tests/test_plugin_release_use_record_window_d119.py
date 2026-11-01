@@ -156,8 +156,9 @@ def test_a_dropped_use_does_not_let_its_release_act_again_when_the_clock_goes_ba
 def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_that_binds(env, take):
     """A Codex pre-run of the reading: with the clock set back, a release whose use the record dropped fits again and
     comes first; the gate chose it, the record refused it, and the other release of the same line, answered after the
-    dropped uses, was never tried. RED at 32d7005a: nothing was released."""
-    answered = int(time.time())
+    dropped uses, was never tried. RED at 32d7005a: nothing was released. The second answer is the present second, so
+    the step of the hook writes the use within its window."""
+    answered = int(time.time()) - 90
     data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
     command = d119.FREED[1]
     folder = env / "gatedir" / "freigaben"
