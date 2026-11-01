@@ -42,15 +42,25 @@ holds at the other floor: a run created exactly `SKEW_S` before this one, by the
 second older than that and does not count; the run must be created in a later second than the floor (Codex
 thread 4220239573 on pull request 310). Not counting is the safe side: it waits for the new run.
 
-THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
-succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
-included), when the run finished without one of them, when no ci.yml run appears for the head within
+FOUR OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
+succeeded. `queue` when `coverage` was skipped and every other needed job succeeded (WITH THE MERGE QUEUE ON).
+`red` as soon as one needed job finished with anything but success (skipped and cancelled included, `coverage`
+aside as just said), when the run finished without one of them, when no ci.yml run appears for the head within
 `APPEAR_S`, or when the API cannot be read `MAX_READ_ERRORS` times in a row. `wait` otherwise; the
 job's own timeout in landung.yml bounds the waiting.
 
+WITH THE MERGE QUEUE ON (the reading of b5203121 of pull request 462, P1, and the owner's answer on its card).
+On a pull request ci.yml skips `coverage` exactly when its job merge-queue-state read the queue as on, apart from a
+release/ head, and its collector then accepts the skip. The first form had landung.yml ask the rules itself, a
+second observation at another time: a read error there answered off while ci.yml had answered on, and the waiter
+waited for a coverage that never ran. Now the counted ci.yml run of the head is the one observation: a skipped
+`coverage` with the other needed jobs green is `queue`, the script writes `queue=true` to GITHUB_OUTPUT and exits 0,
+and the layer and its collector stay away. A `queue=true` that cannot be written is red, since an empty output would
+start the layer.
+
 Usage (in landung.yml): GITHUB_REPOSITORY, HEAD_SHA, BASE_SHA, BASE_REF, EVENT_ACTION, GITHUB_RUN_ID and
-GITHUB_TOKEN from the environment; a missing one is red.
-Exit 0 green, 1 red. Standard library only.
+GITHUB_TOKEN from the environment; a missing one is red. GITHUB_OUTPUT for `queue=true`.
+Exit 0 green or queue, 1 red. Standard library only.
 """
 from __future__ import annotations
 
@@ -72,6 +82,8 @@ CI_NEEDS = ("test", "coverage")
 COLLECTOR = "all-checks-passed"
 #: Everything the layer waits for.
 WAITED = CI_NEEDS + (COLLECTOR,)
+#: The job ci.yml skips on a pull request when the merge queue is on (WITH THE MERGE QUEUE ON).
+QUEUE_SKIPS = "coverage"
 POLL_S = 30
 #: How long the ci.yml run of the head may take to appear. Both workflows start on the same event.
 APPEAR_S = 15 * 60
@@ -123,10 +135,14 @@ def _is(name: str, need: str) -> bool:
 
 
 def judge(jobs: list[dict], run_status: str) -> tuple[str, str]:
-    """`green`, `red` or `wait`, with the reason, for the jobs of one ci.yml run."""
+    """`green`, `queue`, `red` or `wait`, with the reason, for the jobs of one ci.yml run."""
     wanted = [j for j in jobs if any(_is(str(j.get("name", "")), n) for n in WAITED)]
+    cov = [j for j in wanted if _is(str(j.get("name", "")), QUEUE_SKIPS)]
+    # WITH THE MERGE QUEUE ON: a skipped coverage is that run's answer, not a failure (the head of this file).
+    queue = bool(cov) and all(j.get("status") == "completed" and j.get("conclusion") == "skipped" for j in cov)
     red = sorted(f"{j['name']}={j.get('conclusion')}" for j in wanted
-                 if j.get("status") == "completed" and j.get("conclusion") != "success")
+                 if j.get("status") == "completed" and j.get("conclusion") != "success"
+                 and not (queue and j in cov))
     if red:
         return "red", f"a job the mutation layer needs did not succeed on this head: {', '.join(red)}"
     missing = [n for n in WAITED if not any(_is(str(j.get("name", "")), n) for j in wanted)]
@@ -137,6 +153,9 @@ def judge(jobs: list[dict], run_status: str) -> tuple[str, str]:
     running = sorted(j["name"] for j in wanted if j.get("status") != "completed")
     if running:
         return "wait", f"waiting for {', '.join(running)}"
+    if queue:
+        return "queue", ("coverage was skipped in the ci.yml run of this head, so that run read the merge queue as "
+                         "on; coverage runs in the queue and the mutation layer every night (ci.yml, schedule)")
     return "green", f"{', '.join(sorted(j['name'] for j in wanted))} succeeded on this head"
 
 
@@ -214,6 +233,16 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
             state, why = "wait", f"read error {errors} of {MAX_READ_ERRORS}: {exc}"
         print(f"{state}: {why}", flush=True)
         if state == "green":
+            return 0
+        if state == "queue":
+            try:
+                with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                    f.write("queue=true\n")
+            except (KeyError, OSError) as exc:
+                # An empty output would start the layer; red keeps it away.
+                print(f"::error::queue=true could not be written to GITHUB_OUTPUT ({type(exc).__name__}: {exc})")
+                return 1
+            print(f"::notice title=landung::{why}, so this label starts nothing on this pull request")
             return 0
         if state == "red":
             print(f"::error::{why}")

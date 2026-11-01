@@ -27,9 +27,11 @@ name: Landung
 #
 # WITH THE MERGE QUEUE ON, THE LABEL STARTS NOTHING (the reading of the head 37137a9d of pull request 462,
 # P1, and the owner's answer A on card OA-75a1805115). `coverage` then runs in the queue and no longer on the
-# pull request, so the waiter could only fail, and the layer runs every night (ci.yml, schedule). The job
-# `ci-prerequisites` asks scripts/merge_queue_state.py, the reader ci.yml asks too, says so in a notice, and
-# the layer and its collector stay away.
+# pull request, and the layer runs every night (ci.yml, schedule). This workflow does not ask the rules
+# itself: a second reading at another time could answer otherwise than ci.yml did (the reading of b5203121,
+# P1). The waiter reads the answer from the ci.yml run of the head, where a skipped `coverage` beside a green
+# collector means that run read the queue as on, says so in a notice, and the layer and its collector stay
+# away (scripts/landung_waits_for_ci.py, WITH THE MERGE QUEUE ON).
 
 on:
   pull_request:
@@ -59,9 +61,10 @@ jobs:
   ci-prerequisites:
     # The `needs: [test, coverage]` of ci.yml's mutation job, across the two workflows: it waits for
     # those jobs and for the collector `all-checks-passed`, which judges the full matrix, in the
-    # latest ci.yml run of this head, and fails unless all of them succeeded
-    # (scripts/landung_waits_for_ci.py says how, and why each outcome is what it is). It carries the
-    # layer's predicate, so it runs exactly when the layer would, and holds one runner, not 36.
+    # latest ci.yml run of this head, and fails unless all of them succeeded or that run skipped
+    # coverage for the merge queue, which it hands on as `queue` (scripts/landung_waits_for_ci.py says
+    # how, and why each outcome is what it is). It carries the layer's predicate, so it runs exactly
+    # when the layer would, and holds one runner, not 36.
     if: >-
       ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
       || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
@@ -76,21 +79,11 @@ jobs:
       actions: read
       contents: read
     outputs:
-      queue: ${{ steps.queue.outputs.required }}
+      queue: ${{ steps.wait.outputs.queue }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - name: Is the merge queue on for the base branch
-        id: queue
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.event.pull_request.base.ref }}
-        run: python3 scripts/merge_queue_state.py
-      - name: With the merge queue on, the label starts nothing
-        if: steps.queue.outputs.required == 'true'
-        run: |
-          echo "::notice title=landung::the merge queue is on for the base branch: coverage runs in the queue and the mutation layer every night (ci.yml, schedule), so this label starts nothing on this pull request"
       - name: Wait for test and coverage of ci.yml on this head
-        if: steps.queue.outputs.required != 'true'
+        id: wait
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
