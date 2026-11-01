@@ -379,17 +379,22 @@ def _kept_by_root_or_us(st: os.stat_result, kind) -> bool:
 def archived(config: dict) -> dict:
     """D131: the releases of every archive the operator rotated into honoured-releases/ of the records, {key: time}, so
     that a release the service signed ALLOW for before a rotation stays honoured (owner answer A on card
-    OA-ed9c1b5288). No folder is no archive. The folder and each file in it must be root's or the service's account's,
-    written by no other account, and no link: Refused("release_archive_unsafe") otherwise, as an account that may write
-    there could take a release out; a file that does not read whole as a record is Refused("release_record_unread")."""
+    OA-ed9c1b5288). A folder lstat does not find is no archive; any later error of the reading is no empty archive.
+    The folder and each file in it must be root's or the service's account's, written by no other account, and no
+    link: Refused("release_archive_unsafe") otherwise, as an account that may write there could take a release out; a
+    file that does not read whole as a record is Refused("release_record_unread")."""
     folder = os.path.join(config["records"], ARCHIVE)
     try:
-        if not _kept_by_root_or_us(os.lstat(folder), stat.S_ISDIR):
-            raise Refused("release_archive_unsafe")
-        names = sorted(os.listdir(folder))
+        own = os.lstat(folder)
     except FileNotFoundError:
         return {}
     except OSError as exc:
+        raise Refused("release_record_unread") from exc
+    if not _kept_by_root_or_us(own, stat.S_ISDIR):
+        raise Refused("release_archive_unsafe")
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError as exc:   # gone after lstat found it too: a read that failed, never an empty archive
         raise Refused("release_record_unread") from exc
     found: dict = {}
     for name in names:
