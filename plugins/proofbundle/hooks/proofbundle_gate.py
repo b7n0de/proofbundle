@@ -18011,6 +18011,9 @@ _RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
                                 r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
+#: A dollar sign the shell keeps as text (_release_quote_parts), so that no expansion is read into it. A letter, not a
+#: control character: next to a control character `sudo` still stood at a word boundary and read as the program.
+_RELEASE_LITERAL_DOLLAR = "\u01c2"
 
 
 def _release_ansi_c(match: "re.Match") -> str:
@@ -18019,6 +18022,36 @@ def _release_ansi_c(match: "re.Match") -> str:
 
 def _release_locale(match: "re.Match") -> str:
     return _RELEASE_UNKNOWN if match.group(1) else ""
+
+
+def _release_quote_parts(text: str) -> str:
+    """The text with each ANSI-C part `$'…'` and each locale part `$"…"` read as bash reads it, and only where bash reads
+    it: outside single and double quotes. Inside single quotes `$"hello"` is those characters, inside double quotes
+    `$'\\x73udo'` is too (fifth reading of G-2, P2; measured with bash 5.1.16, printf prints [$"hello"]), and reading them
+    there held a release back that the shell never runs. A backslash outside single quotes keeps the next character."""
+    out: list[str] = []
+    i, quote = 0, ""
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if not quote and c == "$" and text[i + 1:i + 2] in ("'", '"'):
+            m = (_RELEASE_ANSI_C if text[i + 1] == "'" else _RELEASE_LOCALE).match(text, i)
+            if m:
+                out.append(_release_ansi_c(m) if text[i + 1] == "'" else _release_locale(m))
+                i = m.end()
+                continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+        elif c == "$" and (quote == "'" or (quote == '"' and text[i + 1:i + 2] in ("'", '"'))):
+            # A `$` the shell keeps as a character: every one inside single quotes, and one before a quote inside double
+            # quotes. Once the quotes are joined away, `$"hello"` would read as the parameter `$hello`.
+            c = _RELEASE_LITERAL_DOLLAR
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _release_door_words(command: str) -> str | None:
@@ -18035,14 +18068,47 @@ def _release_door_words(command: str) -> str | None:
     # bash's word formation for a program word, in its order (third reading at 097cedad, line 3, P1): a line
     # continuation goes first, then the quoting is read, then the brace expansion makes words of a word.
     continued = command.replace("\\\n", "")
-    assembled = _RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale, _RELEASE_ANSI_C.sub(_release_ansi_c,
-                                                                                                continued)))
-    for text in dict.fromkeys([assembled, _release_braced(assembled)]):
-        if text != command:
-            door = _release_door_words_split(text)
-            if door is not None:
-                return door
-    return _release_unresolved_door(assembled)
+    readings = _release_assembled(continued)
+    for assembled in readings:
+        for text in dict.fromkeys([assembled, _release_braced(assembled)]):
+            if text != command:
+                door = _release_door_words_split(text)
+                if door is not None:
+                    return door
+    for assembled in readings:
+        door = _release_unresolved_door(assembled)
+        if door is not None:
+            return door
+    return None
+
+
+#: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
+#: backquoted command and a braced parameter.
+_RELEASE_NEW_CONTEXT = ("$(", "`", "${")
+
+
+def _release_assembled(continued: str) -> list[str]:
+    """The line as the shell assembles its words, every quote and backslash removed: read where its quotes stand
+    (_release_quote_parts), and where the line holds a command substitution, a backquoted command or a braced parameter,
+    also with every ANSI-C and locale part decoded wherever it stands, as the gate read it at 647ed0a2. Inside those
+    bash reads the quotes in a context of its own, also within double quotes, so `x="$(s$'u'do -n true)"` runs sudo
+    (reading of the follow-up to 441, line 3, P1; measured with bash 5.1.16, printf prints [sudo]), and a context closes
+    where only a parser of the whole shell grammar can tell (a case pattern closes with a parenthesis). There the line is
+    read both ways, and a release frees less, never more.
+
+    The same holds where a word of the line, as written or as the shell joins it (`e\\val`, `ev''al`), is one of
+    _RELEASE_TEXT_RUNNERS. eval and a shell with -c read their text a second time, so a dollar sign the first reading
+    keeps as a character expands there, and `X=udo; eval 's$X' -n true` runs sudo (Codex on pull request 447, P1;
+    measured with bash 5.1.16 and a function named sudo, also for `bash -c`). The gate does not tell the forms of a
+    runner apart, so a line where a runner reads a file, `source` or a shell given a script, is read the strict way
+    as well: it holds back more, never less."""
+    readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
+    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
+                    for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(readings[0]))
+    if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+        readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
+                                                                  _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
+    return list(dict.fromkeys(readings))
 
 
 def _release_braced(text: str) -> str:
@@ -18582,9 +18648,10 @@ def write_log(entry: dict, host: str) -> str | None:
         if os.path.exists(path) and os.path.getsize(path) > MAX_LOG_BYTES:
             os.replace(path, path + ".1")
         # A FIFO with no reader is never waited on (R18-2 class): the open does not block, and an entry that is no
-        # regular file at the opened descriptor is not written to.
+        # regular file at the opened descriptor is not written to. Mode 600: the gate's bilanz and the plugin's server
+        # read the log, both under the account of the session, and no other account (CodeQL alert 150).
         fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0), 0o644)
+                     | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 return None
@@ -19384,7 +19451,8 @@ def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     target = os.path.join(repo, *name.split("/"))
     temporary = os.path.join(folder, f".{os.path.basename(name)}.{secrets.token_hex(6)}.tmp")
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+        # Mode 600: only the Stop hook of the session reads these files back (CodeQL alert 151).
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
         os.replace(temporary, target)
@@ -23126,6 +23194,8 @@ def _pilot_issue(config: dict, environ: dict, action: dict, key: str, verdict: s
     for attempt in range(1, 100_000):
         path = os.path.join(decisions, f"{action_id}-{attempt}.json")
         try:
+            # Mode 644 on purpose: the observer and the reconciliation read the decisions from the records under
+            # accounts of their own (D56; CodeQL alert 152, kept).
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
             break
         except FileExistsError:
@@ -23379,6 +23449,8 @@ def install_pre_push(directory: str, deadline: float, environ: dict | None = Non
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(pre_push_wrapper(plugin_root))
+        # Mode 755 on purpose: git runs the hook at a push, and the pin check (_hooks_now) reads its bytes also under
+        # the account of the pilot's signer service (D58; CodeQL alert 153, kept).
         os.chmod(temp, 0o755)
         updated = os.path.lexists(hook)
         os.replace(temp, hook)
