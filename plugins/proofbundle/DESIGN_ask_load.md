@@ -1,5 +1,9 @@
 # Lowering the ask load of Level 1: design draft with measurements
 
+Historical design record, not a description or acceptance result of the current Guard Preview stack. The measurements and present-tense words below refer to the named 2026-10-14 revisions and prototype copies. External figures whose input sets and harnesses are absent here are NOT MEASURED in this tree. Design requirements below are requirements, not claims that all listed paths were tested.
+
+Later implementation decisions supersede this record for current behaviour. D36 adds gh read forms; D39 judges a quoted here-document to python3 - by the words before it, and since D126 a body that names git or gh gets the answer of its -c form and a script file a step runs by path is read for git or gh; a body or a script that names neither, or builds the word, stays unexamined; D41/D42 change pager treatment for the named Claude Code environment; D62/D68 change configuration reads; D74 narrows treatment of the known lfs block. Prototype classes d and e are not implemented. D85 to D92 adapt base asks only in an explicitly enabled house configuration with --autonomous (D125), and their scoped standing work-branch authorization also needs its own consent (D129). Codex plain pushes warn without a permission decision. Current behaviour must be read from the delivered code and revision-bound harness results, not from this historical design record.
+
 Status: version 2 of 2026-10-14 (review fix 18, part B, with follow-up note 1). It replaces version 1,
 which was delivered with the review fix 17 report and not committed. It carries the owner's answers of 2026-10-14, which equal
 the reviewer's recommendations (section 9), the review findings Q18-1 to Q18-3 (section 6) and the build order of the

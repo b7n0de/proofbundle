@@ -65,8 +65,9 @@ def _global(tmp_path: pathlib.Path, text: str) -> None:
     (tmp_path / "home" / ".gitconfig").write_text(text)
 
 
-def _decide(repo: pathlib.Path, form: str, tmp_path: pathlib.Path, host: str = "claude"):
-    out = gate.decide(d71._command(form, repo, tmp_path), str(repo), time.monotonic() + 60, host)
+def _decide(repo: pathlib.Path, form: str, tmp_path: pathlib.Path, host: str = "claude", autonomous: bool = False):
+    """decide(); autonomous for the forms of D71, which apply only in the gate started with --autonomous (D130)."""
+    out = gate.decide(d71._command(form, repo, tmp_path), str(repo), time.monotonic() + 60, host, autonomous=autonomous)
     return (None, []) if out is None else (out.decision, [v.reason_id for v in out.verdicts])
 
 
@@ -95,7 +96,7 @@ def test_D74_the_lfs_block_in_the_global_file_leaves_the_form_free(tmp_path, for
 def test_D74_the_lfs_block_leaves_a_form_of_d71_free_that_brings_no_other_tree(tmp_path, form, block):
     repo = d71._repo(tmp_path)
     _global(tmp_path, BLOCKS[block])
-    assert _decide(repo, form, tmp_path) == ("pass", ["free_work_profile"]), form
+    assert _decide(repo, form, tmp_path, autonomous=True) == ("pass", ["free_work_profile"]), form
 
 
 @pytest.mark.skipif(not DAEMON_ABSENT, reason="this git has an fsmonitor daemon, which D74 did not measure")
@@ -184,7 +185,7 @@ def test_D74_control_a_form_of_d71_that_brings_another_tree_keeps_its_ask(tmp_pa
     does not read: the block counts there as any filter does."""
     repo = d71._repo(tmp_path)
     _global(tmp_path, LFS_PLAIN)
-    decision, reasons = _decide(repo, form, tmp_path)
+    decision, reasons = _decide(repo, form, tmp_path, autonomous=True)
     assert decision == "ask" and "free_work_profile" not in reasons, (form, reasons)
 
 

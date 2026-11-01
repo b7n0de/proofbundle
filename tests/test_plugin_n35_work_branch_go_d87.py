@@ -15,6 +15,10 @@ commit it sends equal those at the local record of the destination or, for a new
 names (D20). The pass shows one line to the user and carries no permission decision (as a call a rule frees, D25).
 Nothing else gets freer.
 
+Changed by D129 (owner answer 9 of Nachtrag 7): the GO applies only where the hook's environment also sets
+PROOFBUNDLE_STANDING_GO to `protected`, the house's consent to it. Every case here runs with that setting
+(tests/_standing_go.py); tests/test_plugin_standing_go_consent_d129.py holds the answer without it.
+
 RED at the head of D86: the free pushes (they asked). Every counter case (another branch, force, another owner, no record
 of the remote, other evidence rules, a chain, Codex) is a control, green at both.
 """
@@ -25,6 +29,7 @@ import os
 import sys
 
 import pytest
+from _standing_go import standing_go_consented  # noqa: F401 - D129: the house consents to the standing GO
 
 import _gate_answer as ga
 import test_plugin_n29_work_profile_d71 as d71
@@ -35,6 +40,8 @@ _clean = d71._clean
 #: The flag with which the plugin's hook of Claude Code starts the gate (hooks.json, D85); a gate without the autonomous
 #: answer (the base of the red run) is started as it always was.
 AUTONOMOUS = [gate.AUTONOMOUS_FLAG] if hasattr(gate, "AUTONOMOUS_FLAG") else []
+#: D129: the house's consent to the standing GO, which _hook carries where the case's environment sets it.
+STANDING_GO = "PROOFBUNDLE_STANDING_GO"
 
 #: Changed in follow-up note 37 (D92): `claude/x:claude/y` names another branch than the one it sends, so it left this list.
 FREE = ["git push origin claude/x", "git push -u origin HEAD", "git push origin HEAD:refs/heads/claude/x",
@@ -70,6 +77,8 @@ def _hook(repo, tmp_path, command, host="claude", extra=None):
              "tool_input": {"command": command.replace("{R}", str(repo))}}
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                                       "PROOFBUNDLE_GATE_DIR")}
+    if STANDING_GO in os.environ:   # D129: set where a module takes tests/_standing_go.py
+        env[STANDING_GO] = os.environ[STANDING_GO]
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     env.update(extra or {})
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *AUTONOMOUS], json.dumps(event), env,

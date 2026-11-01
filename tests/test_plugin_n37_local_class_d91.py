@@ -55,8 +55,10 @@ def _form(form, repo, tmp_path):
 
 
 def answered(repo, command, host="claude"):
+    """The answer of the gate started with --autonomous: decide() with the flag, in which D71 applies (D130), and the
+    autonomous answer of D85 to an ask under Claude Code."""
     deadline = time.monotonic() + 60
-    out = gate.decide(command, str(repo), deadline, host)
+    out = gate.decide(command, str(repo), deadline, host, autonomous=True)
     if host == "claude" and out is not None and out.decision == "ask":
         out = gate.autonomous_outcome(out, command, str(repo), deadline, host)
     if out is None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from _standing_go import standing_go_consented  # noqa: F401 - D129: M92b runs with the house's consent to the GO
 
 import test_plugin_n29_work_profile_d71 as d71
 
@@ -63,7 +64,8 @@ def test_M91i_a_repository_that_holds_the_gate_directory_is_not_the_local_class(
 
 
 def test_M92b_without_a_record_of_the_remote_head_the_default_branch_is_unknown_even_with_a_destination_record(tmp_path):
-    """The destination has a local record, so the rules compare; the default branch is still not measured."""
+    """The destination has a local record, so the rules compare; the default branch is still not measured. The hook's
+    environment states the consent of D129 (tests/_standing_go.py), so the missing record is what keeps the ask."""
     import test_plugin_n37_machine_check_d92 as d92
     repo = d92._fixture(tmp_path, record_head=False)
     d71._git(repo, "update-ref", f"refs/remotes/origin/{d92.OWN}", "main")
