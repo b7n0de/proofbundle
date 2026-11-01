@@ -18331,9 +18331,11 @@ def _release_key(release: dict) -> str:
 
 
 def _release_used(release: dict, used: dict) -> bool:
-    """Whether the record of the releases used names this release: by its key, or by the key of D111, which named the
-    time of the answer as well."""
-    return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
+    """Whether the record of the releases used names a use of this release's identity: by its key, or by a key of D111,
+    which named the time of the answer as well, whatever time it names, so a copy of the release with another answer
+    is the same release (follow-up note 28). No part of the key holds a colon."""
+    key = _release_key(release)
+    return key in used or any(name.startswith(key + ":") for name in used)
 
 
 def _release_identity(key: str) -> str:
