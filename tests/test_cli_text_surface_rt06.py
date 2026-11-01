@@ -265,10 +265,6 @@ class TimestampOverflowFamily(unittest.TestCase):
             receipt = fx.receipt("s")
             svr = fx.svr({"verifier": {"id": "https://example.invalid/verifier"},
                           "timeCreated": "2026-10-31T00:00:00Z", "properties": []})
-            # The envelope must fail for the policy alone: its predicate is a well-formed SVR v0.1 (reading of 451).
-            envelope = json.loads(Path(svr).read_text(encoding="utf-8"))
-            self.assertTrue(_intoto.classify_svr_predicate_shape(
-                json.loads(base64.b64decode(envelope["payload"])))[0], envelope)
             for argv in (["policy", "lint", bad], ["policy", "explain", bad],
                          ["policy", "lint", "--json", bad],
                          ["verify", "--policy", bad, receipt],
@@ -278,6 +274,10 @@ class TimestampOverflowFamily(unittest.TestCase):
                          ["relation-statement", "verify", svr, "--pub", fx.pub_b64, "--policy", bad]):
                 rc, out, err = _cli(*argv)
                 _no_traceback(self, rc, out, err, {2})
+                if argv[:2] in (["decision", "verify"], ["outcome", "verify"], ["relation-statement", "verify"]):
+                    # Exit 2 alone does not bind the case to the policy: these commands also exit 2 for a valid policy
+                    # whose rule they do not apply (measured 2026-11-01). The reason names the overflowing time.
+                    self.assertIn("valid_until", err, (argv[:2], err))
 
     def test_sibling_datetime_sites_never_raise_on_the_overflow_vector(self):
         # The sweep of every datetime site: the two siblings do not overflow on this vector (aware
