@@ -82,6 +82,15 @@ def test_an_error_the_reader_does_not_name_is_off_and_still_exit_0(tmp_path):
         assert rc == 0 and out == "required=false\n", (error, out)
 
 
+def test_an_output_file_that_cannot_be_written_still_exits_0(tmp_path):
+    # Exit 0 always holds for the write of the answer too. Without a written answer the expression in the
+    # workflow is empty, which reads as off, so coverage runs.
+    # A directory in place of the file fails on open on every system, as /dev/full fails on write.
+    s = _script()
+    rc = s.main(fetch=lambda path, token: RULES_WITH_QUEUE, env=dict(ENV, GITHUB_OUTPUT=str(tmp_path)))
+    assert rc == 0
+
+
 def test_a_missing_repository_or_branch_is_off(tmp_path):
     for missing in ("GITHUB_REPOSITORY", "BRANCH"):
         env = {k: v for k, v in ENV.items() if k != missing}
