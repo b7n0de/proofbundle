@@ -18031,7 +18031,8 @@ MAX_RELEASE_FILES = 256
 RELEASE_SECONDS = 15 * 60
 RELEASE_SKEW_SECONDS = 60
 #: The releases used, in the plugin data directory: the hook writes the use under a lock before the call runs, and only
-#: where it runs (release_settle, D119).
+#: where it runs (release_settle, D119). Once it has dropped a use, the record also names the newest time of a use it
+#: dropped (verworfen_bis, _release_take).
 RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
@@ -18333,24 +18334,37 @@ def _release_used(release: dict, used: dict) -> bool:
     return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
 
 
-def _releases_used(directory: str) -> dict:
-    """D111: the releases used {key: time of use}; a ValueError where the record does not read whole, so no release is
-    used twice through a record the gate cannot read."""
+def _releases_record(directory: str) -> tuple[dict, int | None]:
+    """D111: the releases used {key: time of use}, and the seconds of the newest use the record dropped (verworfen_bis,
+    None before the first drop); a ValueError where the record does not read whole, so no release is used twice
+    through a record the gate cannot read."""
     try:
         raw = _read_regular(os.path.join(directory, RELEASES_USED), MAX_RELEASES_USED_BYTES + 1)
     except FileNotFoundError:
-        return {}
+        return {}, None
     data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
     if not isinstance(data, dict) or data.get("schema") != RELEASES_USED_SCHEMA or \
             not isinstance(data.get("genutzt"), dict):
         raise ValueError("the record of the releases used does not read whole")
-    return dict(data["genutzt"])
+    dropped = data.get("verworfen_bis")
+    seconds = _ts_seconds(dropped) if isinstance(dropped, str) else None
+    if dropped is not None and seconds is None:
+        raise ValueError("the record of the releases used does not read whole")
+    return dict(data["genutzt"]), seconds
 
 
-def _write_releases_used(directory: str, used: dict) -> None:
+def _releases_used(directory: str) -> dict:
+    """D111: the releases used {key: time of use} (_releases_record)."""
+    return _releases_record(directory)[0]
+
+
+def _write_releases_used(directory: str, used: dict, dropped: int | None = None) -> None:
+    record = {"schema": RELEASES_USED_SCHEMA, "genutzt": used}
+    if dropped is not None:
+        record["verworfen_bis"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(dropped))
     fd, tmp = tempfile.mkstemp(prefix=".freigaben-", dir=directory)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump({"schema": RELEASES_USED_SCHEMA, "genutzt": used}, handle, sort_keys=False)
+        json.dump(record, handle, sort_keys=False)
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
@@ -18367,7 +18381,9 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     answer hook (D94); False where the record names it already, where it is full, or where the gate cannot read or
     write the record: then the release lets nothing run. At MAX_RELEASES_USED uses the record first drops the uses with
     which no release binds any more (_release_use_past); where it is still full, it stays as it is (follow-up note 26
-    of 2026-11-01)."""
+    of 2026-11-01). It keeps the newest time of a use it dropped and refuses a release answered no later than
+    RELEASE_SKEW_SECONDS after it, as its use may be one it dropped: so a clock set back does not free it again. Under a
+    clock that only moves forward, no such release binds any more when it is asked."""
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not data or not os.path.isabs(data) or not os.path.isdir(data):
         return False
@@ -18375,15 +18391,20 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     try:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
-            used = _releases_used(data)
+            used, dropped = _releases_record(data)
             if _release_used(release, used):
                 return False
+            if dropped is not None and release["zeit"] <= dropped + RELEASE_SKEW_SECONDS:
+                return False
             if len(used) >= MAX_RELEASES_USED:
-                used = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
-                if len(used) >= MAX_RELEASES_USED:
+                kept = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
+                if len(kept) >= MAX_RELEASES_USED:
                     return False
+                dropped = max([_ts_seconds(stamp) for key, stamp in used.items() if key not in kept] +
+                              ([dropped] if dropped is not None else []))
+                used = kept
             used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-            _write_releases_used(data, used)
+            _write_releases_used(data, used, dropped)
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return False
     return True

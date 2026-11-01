@@ -247,13 +247,15 @@ def test_control_below_the_capacity_no_use_is_dropped(data):
 
 def test_control_the_longest_record_the_hook_writes_stays_below_the_second_bound(data):
     """MAX_RELEASES_USED_BYTES stays the second bound: a full record of the longest keys (a session id of 128 signs, the
-    key of D111 with the time of the answer) is read whole, and one past the byte bound is not, so it takes no use."""
+    key of D111 with the time of the answer, the newest time of a dropped use) is read whole, and one past the byte bound
+    is not, so it takes no use."""
     now = time.time()
     session = "s" * 128
     assert gate._SESSION_ID.fullmatch(session)
     longest = {f"OA-{i:010x}:{'e' * 64}:{session}:{_stamp(30, now)}": _stamp(60, now)
                for i in range(gate.MAX_RELEASES_USED)}
-    _seed(data, longest)
+    (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": longest,
+                                                       "verworfen_bis": _stamp(PAST + 1, now)}), encoding="utf-8")
     assert (data / gate.RELEASES_USED).stat().st_size < gate.MAX_RELEASES_USED_BYTES
     assert len(gate._releases_used(str(data))) == gate.MAX_RELEASES_USED
     _seed(data, {**_others(10, 60, now), "x" * gate.MAX_RELEASES_USED_BYTES: _stamp(60, now)})
