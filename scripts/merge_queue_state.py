@@ -18,8 +18,9 @@ reading, a list of something else, a missing repository or branch. `false` means
 makes a pull request slower and never lets one land without the suite.
 
 OUTPUT. One line `required=true` or `required=false` appended to the file named by GITHUB_OUTPUT (when set), the same
-line and the reason on stdout, a `::notice` when the answer could not be read. Exit 0 always: the answer is the output,
-and a red step here would read as a failed check where there is only an unknown state.
+line and the reason on stdout, a `::notice` when the answer could not be read or written; an answer that could not be
+written leaves the output empty, which the workflows read as off. Exit 0 always: the answer is the output, and a red
+step here would read as a failed check where there is only an unknown state.
 
 Usage (in a workflow): GITHUB_REPOSITORY, BRANCH, GITHUB_TOKEN and GITHUB_OUTPUT from the environment. Standard
 library only.
@@ -65,8 +66,13 @@ def _answer(value: bool, why: str, env) -> int:
     line = f"required={'true' if value else 'false'}"
     out = env.get("GITHUB_OUTPUT")
     if out:
-        with open(out, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        try:
+            with open(out, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError as exc:
+            # Without a written answer the output is empty in the workflow, which reads as off: coverage runs.
+            print(f"::notice title=merge-queue-state::the answer could not be written to GITHUB_OUTPUT; the output "
+                  f"stays empty and reads as off, so coverage runs ({type(exc).__name__}: {exc})")
     print(f"{line}: {why}", flush=True)
     return 0
 
