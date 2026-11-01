@@ -509,28 +509,40 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
 # CommonMark (0.31.2) and GitHub's table extension, read line by line for the start of a section. A PARAGRAPH IS
 # RECOGNISED FOR WHAT IT IS, not as whatever no other pattern matched: the first form of this check passed a list, a
 # block quote and an HTML block as an opening because none of its five patterns named them (readings of 2026-11-01).
+# Since the third reading the opening is the narrow form `_OPENING` below, and no pattern of the other blocks is read.
 _THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 _LINK_REFERENCE = re.compile(
     r"^ {0,3}\[(?=[^\]]*\S)(?:[^\[\]\\]|\\.){1,999}\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)"
     r"(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?[ \t]*$")
 _FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
 _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
-_ATX_HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
-_BLOCK_QUOTE = re.compile(r"^ {0,3}>")
-_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
-_HTML_BLOCK = re.compile(
-    r"^ {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<\?|<![A-Za-z]|<!\[CDATA\["
-    r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
-    r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
-    r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
-    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$)"
-    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
 _TABLE_DELIMITER = re.compile(r"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
 
 
 def _fence_closes(zeile: str, zeichen: str, laenge: int) -> bool:
     """A closing fence: the opening's character, at least as many, and nothing but blanks after them."""
     return re.match(r"^ {0,3}" + re.escape(zeichen) + "{" + str(laenge) + r",}[ \t]*$", zeile) is not None
+
+
+#: THE OPENING IS A NARROW FORM, AND EVERYTHING ELSE IS A FINDING (third reading of 2026-11-01, sol-pro, three P1, and
+#: the owner's answer on its card). Three readings found the next edge of a hand-made CommonMark reader each time, in
+#: both directions. A line opens the section only when it starts, after at most three spaces and no tab, with a letter
+#: or a digit that begins no list item. Such a line can open no other block. Its price is named: an opening that starts
+#: with markup, a bracket or a quotation mark is a finding although it renders as a paragraph.
+_OPENING = re.compile(r"^ {0,3}(?![0-9]{1,9}[.)](?:[ \t]|$))[^\W_]")
+
+
+def _indent(zeile: str) -> int:
+    """The columns of the leading blanks, with a tab to the next multiple of four, as CommonMark counts them."""
+    spalte = 0
+    for c in zeile:
+        if c == " ":
+            spalte += 1
+        elif c == "\t":
+            spalte += 4 - spalte % 4
+        else:
+            break
+    return spalte
 
 
 def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
@@ -548,7 +560,8 @@ def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
             drin.update(range(i, min(j, n - 1) + 1))
             i = j + 1
             continue
-        if zeilen[i].lstrip().startswith("<!--"):
+        # At most three columns, as for every block start: with four the line is code, and `<!--` opens no comment.
+        if _indent(zeilen[i]) <= 3 and zeilen[i].lstrip().startswith("<!--"):
             j = i
             while j < n and "-->" not in zeilen[j]:
                 j += 1
@@ -563,18 +576,17 @@ def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
     """Whether the first block of a section, up to its next heading, is a paragraph.
 
     Passed over: blank lines, thematic breaks, HTML comments, valid link reference definitions, fenced code with its
-    content (closed by a fence of the same character, at least as long, followed only by blanks) and indented code.
-    The next line that is none of these must START A PARAGRAPH: it may not open a heading, a list item, a block
-    quote, an HTML block or a table, and no setext underline may follow it. A line the definitions above do not take,
-    such as an invalid link reference definition, is paragraph text, as GitHub renders it."""
+    content (closed by a fence of the same character, at least as long, followed only by blanks) and indented code
+    (four columns or more, a tab counted to the next multiple of four). The next line that is none of these must have
+    the narrow form `_OPENING`, and no setext underline or table delimiter may follow it. Any other line is a finding,
+    a paragraph that starts with markup included (`_OPENING` names that price)."""
     verdeckt = _lines_in_code_or_comments(zeilen)
     for i, zeile in enumerate(zeilen):
         if i in verdeckt or not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
             continue
-        if zeile.startswith(("    ", "\t")):
+        if _indent(zeile) >= 4:
             continue                      # indented code: at the start of a section no paragraph runs on into it
-        if (_ATX_HEADING.match(zeile) or _BLOCK_QUOTE.match(zeile) or _LIST_ITEM.match(zeile)
-                or _HTML_BLOCK.match(zeile)):
+        if not _OPENING.match(zeile):
             return False
         folgt = zeilen[i + 1] if i + 1 < len(zeilen) else ""
         if _SETEXT_UNDERLINE.match(folgt):
